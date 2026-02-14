@@ -37,7 +37,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Invitation already responded to" }, { status: 400 });
   }
 
-  let body: { status: "accepted" | "declined" };
+  let body: z.infer<typeof bodySchema>;
   try {
     body = bodySchema.parse(await req.json());
   } catch (e) {
