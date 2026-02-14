@@ -1,0 +1,1041 @@
+// Northwest Community - Prisma schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Member {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  passwordHash      String   @map("password_hash")
+  firstName         String   @map("first_name")
+  lastName          String   @map("last_name")
+  profilePhotoUrl   String?  @map("profile_photo_url")
+  bio               String?
+  city              String?
+  points            Int      @default(0) // Community Points (name subject to change)
+  stripeConnectAccountId String? @map("stripe_connect_account_id") // For sellers
+  stripeCustomerId      String? @map("stripe_customer_id") // For fallback payments (labels, etc.)
+  easypostReferralCustomerId String? @map("easypost_referral_customer_id") // Seller's EasyPost Referral Customer (own billing)
+  easypostApiKeyEncrypted    String? @map("easypost_api_key_encrypted") // Seller's EasyPost production API key, encrypted at rest
+  packingSlipNote       String? @map("packing_slip_note") @db.Text
+  phone                String?
+  deliveryAddress      Json?   @map("delivery_address") // private: { street, city, state, zip }
+  sellerLocalDeliveryPolicy String? @map("seller_local_delivery_policy") @db.Text
+  sellerPickupPolicy         String? @map("seller_pickup_policy") @db.Text
+  sellerShippingPolicy String? @map("seller_shipping_policy") @db.Text
+  sellerReturnPolicy String? @map("seller_return_policy") @db.Text
+  acceptCashForPickupDelivery Boolean @default(true) @map("accept_cash_for_pickup_delivery")
+  offerShipping              Boolean @default(true) @map("offer_shipping")
+  offerLocalDelivery         Boolean @default(true) @map("offer_local_delivery")
+  offerLocalPickup           Boolean @default(true) @map("offer_local_pickup")
+  status            String   @default("active") // active | suspended
+  privacyLevel      String   @default("public") @map("privacy_level") // public | friends_only | completely_private
+  signupIntent      String?  @map("signup_intent") // resident | business | seller
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  subscriptions    Subscription[]
+  businesses       Business[]
+  events           Event[]
+  savedItems       SavedItem[]
+  rewardRedemptions RewardRedemption[]
+  storeItemsSold   StoreItem[]
+  storeOrdersAsBuyer StoreOrder[] @relation("BuyerOrders")
+  storeOrdersAsSeller StoreOrder[] @relation("SellerOrders")
+  qrScans          QRScan[]
+  sellerBalance    SellerBalance?
+  sellerBalanceTransactions SellerBalanceTransaction[]
+  cartItems        CartItem[]
+  couponRedemptions CouponRedeem[]
+  blogs            Blog[]
+  blogComments     BlogComment[]
+  friendRequestsSent FriendRequest[] @relation("FriendRequestRequester")
+  friendRequestsReceived FriendRequest[] @relation("FriendRequestAddressee")
+  following        Follow[] @relation("FollowFollower")
+  followers        Follow[] @relation("FollowFollowing")
+  groupsCreated    Group[] @relation("GroupCreator")
+  groupMemberships GroupMember[]
+  groupAdminInvites GroupMember[] @relation("GroupAdminInvites")
+  groupAdminInvitesSent GroupAdminInvite[] @relation("GroupAdminInviter")
+  groupAdminInvitesReceived GroupAdminInvite[] @relation("GroupAdminInvitee")
+  eventInvitesSent EventInvite[] @relation("EventInviter")
+  eventInvitesReceived EventInvite[] @relation("EventInvitee")
+  groupPosts       GroupPost[]
+  groupPostComments GroupPostComment[]
+  groupPostLikes   GroupPostLike[]
+  posts            Post[]
+  postComments      PostComment[]
+  postCommentLikes  PostCommentLike[]
+  postLikes         PostLike[]
+  followTags       FollowTag[]
+  sellerTimeAway   SellerTimeAway?
+  resaleOffersAsBuyer ResaleOffer[]
+  resaleConversationsAsBuyer ResaleConversation[] @relation("ResaleConversationBuyer")
+  resaleConversationsAsSeller ResaleConversation[] @relation("ResaleConversationSeller")
+  resaleMessagesSent ResaleMessage[]
+  directConversationsAsA DirectConversation[] @relation("DirectConversationMemberA")
+  directConversationsAsB DirectConversation[] @relation("DirectConversationMemberB")
+  directMessagesSent DirectMessage[]
+  directMessageLikes  DirectMessageLike[]
+  groupConversationMemberships GroupConversationMember[]
+  groupConversationsCreated GroupConversation[]
+  groupConversationMessagesSent GroupConversationMessage[]
+  nwcRequests NwcRequest[]
+  memberBadges MemberBadge[]
+  referralLinks ReferralLink[]
+  referralSignupsAsReferrer ReferralSignup[] @relation("ReferralSignupReferrer")
+  referralSignupsAsNewMember ReferralSignup[] @relation("ReferralSignupNewMember")
+}
+
+model SellerTimeAway {
+  id        String   @id @default(cuid())
+  memberId  String   @unique @map("member_id")
+  startAt   DateTime @map("start_at")
+  endAt     DateTime @map("end_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@map("seller_time_away")
+}
+
+model SellerBalance {
+  id               String   @id @default(cuid())
+  memberId         String   @unique @map("member_id")
+  balanceCents     Int      @default(0) @map("balance_cents")
+  totalEarnedCents Int      @default(0) @map("total_earned_cents")
+  totalPaidOutCents Int     @default(0) @map("total_paid_out_cents")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+
+model SellerBalanceTransaction {
+  id          String   @id @default(cuid())
+  memberId    String   @map("member_id")
+  type        String   // sale | label | return | payout | fee
+  amountCents Int      @map("amount_cents") // positive = credit, negative = debit
+  orderId     String?  @map("order_id")
+  shipmentId  String?  @map("shipment_id")
+  stripeTransferId String? @map("stripe_transfer_id")
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+
+model CartItem {
+  id                   String   @id @default(cuid())
+  memberId             String   @map("member_id")
+  storeItemId          String   @map("store_item_id")
+  quantity             Int      @default(1)
+  variant              Json?    // selected variant if applicable
+  fulfillmentType      String?  @map("fulfillment_type") // ship | local_delivery | pickup
+  localDeliveryDetails Json?    @map("local_delivery_details")
+  pickupDetails        Json?    @map("pickup_details") // { firstName, lastName, phone, note?, termsAcceptedAt }
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+}
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  memberId             String   @map("member_id")
+  plan                 Plan     // subscribe | sponsor | seller
+  stripeSubscriptionId String?  @map("stripe_subscription_id")
+  stripeCustomerId     String?  @map("stripe_customer_id")
+  status               String   // active | canceled | past_due | trialing
+  currentPeriodEnd     DateTime? @map("current_period_end")
+  trialEnd             DateTime? @map("trial_end")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+
+enum Plan {
+  subscribe
+  sponsor
+  seller
+}
+
+model Business {
+  id               String   @id @default(cuid())
+  memberId         String   @map("member_id")
+  name             String
+  shortDescription String?  @map("short_description")
+  fullDescription  String?  @map("full_description")
+  website          String?
+  phone            String?
+  email            String?
+  logoUrl          String?  @map("logo_url")
+  address          String?
+  city             String?
+  categories       String[] @default([]) // up to 2 categories
+  hoursOfOperation Json?   @map("hours_of_operation") // { sunday: "CLOSED", monday: "9:30-5:00", ... }
+  slug             String   @unique
+  photos           String[] // JSON array of URLs
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  coupons  Coupon[]
+  events   Event[]
+  rewards  Reward[]
+  storeItems StoreItem[]
+  qrScans  QRScan[]
+  businessBadges BusinessBadge[]
+}
+
+model Coupon {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  name       String
+  discount   String
+  code       String
+  imageUrl   String?  @map("image_url")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  redemptions CouponRedeem[]
+}
+
+model CouponRedeem {
+  id        String   @id @default(cuid())
+  couponId  String   @map("coupon_id")
+  memberId  String?  @map("member_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  coupon Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  @@index([couponId])
+}
+
+model Event {
+  id           String       @id @default(cuid())
+  memberId     String?      @map("member_id")
+  businessId   String?      @map("business_id")
+  calendarType CalendarType @map("calendar_type")
+  title        String
+  date         DateTime     @db.Date
+  time         String?
+  endTime      String?      @map("end_time")
+  location     String?
+  city         String?
+  description  String?
+  slug         String       @unique
+  photos       String[]
+  status       String       @default("approved") // pending | approved
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  member   Member?   @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  eventInvites EventInvite[]
+}
+
+model EventInvite {
+  id        String   @id @default(cuid())
+  eventId   String   @map("event_id")
+  inviterId String   @map("inviter_id")
+  inviteeId String   @map("invitee_id")
+  status    String   @default("pending") // pending | accepted | declined
+  createdAt DateTime @default(now()) @map("created_at")
+
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  inviter Member @relation("EventInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee Member @relation("EventInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, inviteeId])
+  @@index([inviteeId])
+}
+
+enum CalendarType {
+  fun_events
+  local_art_music
+  non_profit
+  business_promotional
+  marketing
+  real_estate
+}
+
+model SavedItem {
+  id          String       @id @default(cuid())
+  memberId    String       @map("member_id")
+  type        SavedItemType
+  referenceId String       @map("reference_id") // event id, business id, or future store_item id
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, type, referenceId])
+  @@index([memberId])
+}
+
+enum SavedItemType {
+  event
+  business
+  coupon
+  store_item
+  blog
+  post
+}
+
+// Blog system - admin-approved posts
+model BlogCategory {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blogs Blog[]
+}
+
+model Blog {
+  id          String   @id @default(cuid())
+  memberId    String   @map("member_id")
+  categoryId  String   @map("category_id")
+  title       String
+  body        String   @db.Text
+  photos      String[]
+  slug        String   @unique
+  status      String   @default("pending") // pending | approved
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  member   Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  category BlogCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  comments BlogComment[]
+  blogTags BlogTag[]
+
+  @@index([memberId])
+  @@index([categoryId])
+  @@index([status])
+}
+
+model BlogComment {
+  id        String   @id @default(cuid())
+  blogId    String   @map("blog_id")
+  memberId  String   @map("member_id")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blog   Blog   @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([blogId])
+}
+
+// Mutual friends - both must accept
+model FriendRequest {
+  id          String   @id @default(cuid())
+  requesterId String   @map("requester_id")
+  addresseeId String   @map("addressee_id")
+  status      String   @default("pending") // pending | accepted | declined
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  requester Member @relation("FriendRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee Member @relation("FriendRequestAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
+}
+
+// Follow blog authors for feed
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String   @map("follower_id")
+  followingId String   @map("following_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  follower  Member @relation("FollowFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  following Member @relation("FollowFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+
+// Community groups
+model Group {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?  @db.Text
+  category      String?
+  coverImageUrl String?  @map("cover_image_url")
+  slug          String   @unique
+  createdById   String   @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  createdBy  Member       @relation("GroupCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members    GroupMember[]
+  groupPosts GroupPost[]
+  adminInvites GroupAdminInvite[]
+
+  @@index([createdById])
+}
+
+model GroupAdminInvite {
+  id          String   @id @default(cuid())
+  groupId     String   @map("group_id")
+  inviterId   String   @map("inviter_id")
+  inviteeId   String   @map("invitee_id")
+  status      String   @default("pending") // pending | accepted | declined
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  inviter Member @relation("GroupAdminInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee Member @relation("GroupAdminInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, inviteeId])
+  @@index([inviteeId])
+}
+
+model GroupMember {
+  id          String   @id @default(cuid())
+  groupId     String   @map("group_id")
+  memberId    String   @map("member_id")
+  role        String   @default("member") // member | admin
+  invitedById String?  @map("invited_by_id") // admin who invited this member as admin
+  joinedAt    DateTime @default(now()) @map("joined_at")
+
+  group     Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  member    Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  invitedBy Member? @relation("GroupAdminInvites", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([groupId, memberId])
+  @@index([memberId])
+}
+
+model GroupPost {
+  id        String   @id @default(cuid())
+  groupId   String   @map("group_id")
+  memberId  String   @map("member_id")
+  content   String   @db.Text
+  photos    String[]
+  videos    String[] // video URLs
+  createdAt DateTime @default(now()) @map("created_at")
+
+  group    Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  member   Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  comments GroupPostComment[]
+  likes    GroupPostLike[]
+
+  @@index([groupId])
+}
+
+model GroupPostComment {
+  id        String   @id @default(cuid())
+  groupPostId String @map("group_post_id")
+  memberId  String   @map("member_id")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  groupPost GroupPost @relation(fields: [groupPostId], references: [id], onDelete: Cascade)
+  member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([groupPostId])
+}
+
+model GroupPostLike {
+  id          String   @id @default(cuid())
+  groupPostId String   @map("group_post_id")
+  memberId    String   @map("member_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  groupPost GroupPost @relation(fields: [groupPostId], references: [id], onDelete: Cascade)
+  member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([groupPostId, memberId])
+  @@index([memberId])
+}
+
+// Public tags - followable, used on posts and blogs
+model Tag {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  postTags  PostTag[]
+  blogTags  BlogTag[]
+  followTag FollowTag[]
+
+  @@index([slug])
+}
+
+model PostTag {
+  id      String @id @default(cuid())
+  postId  String @map("post_id")
+  tagId   String @map("tag_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, tagId])
+  @@index([tagId])
+}
+
+model BlogTag {
+  id      String @id @default(cuid())
+  blogId  String @map("blog_id")
+  tagId   String @map("tag_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blog Blog @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([blogId, tagId])
+  @@index([tagId])
+}
+
+model FollowTag {
+  id        String   @id @default(cuid())
+  memberId  String   @map("member_id")
+  tagId     String   @map("tag_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, tagId])
+  @@index([tagId])
+}
+
+// Unified feed post - personal, group, shared_blog, shared_post, shared_business, shared_coupon, shared_reward, shared_store_item
+model Post {
+  id              String   @id @default(cuid())
+  type            String   // personal | group | shared_blog | shared_post | shared_business | shared_coupon | shared_reward | shared_store_item
+  authorId        String   @map("author_id")
+  content         String?  @db.Text
+  photos          String[]
+  videos          String[] // video URLs (YouTube, Vimeo, or uploaded)
+  links           Json?    // [{url, title}]
+  sourceBlogId    String?  @map("source_blog_id")
+  sourcePostId    String?  @map("source_post_id")
+  sourceBusinessId String? @map("source_business_id")
+  sourceCouponId  String?  @map("source_coupon_id")
+  sourceRewardId  String?  @map("source_reward_id")
+  sourceStoreItemId String? @map("source_store_item_id")
+  groupId         String?  @map("group_id")
+  taggedMemberIds String[] @default([]) @map("tagged_member_ids")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  author       Member        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments     PostComment[]
+  likes        PostLike[]
+  postTags     PostTag[]
+
+  @@index([authorId])
+  @@index([groupId])
+  @@index([createdAt])
+}
+
+model PostComment {
+  id        String   @id @default(cuid())
+  postId    String   @map("post_id")
+  parentId  String?  @map("parent_id")
+  memberId  String   @map("member_id")
+  content   String   @db.Text
+  photos    String[] @default([]) // image/GIF URLs
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post     Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent   PostComment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  PostComment[]  @relation("CommentReplies")
+  member   Member         @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  likes    PostCommentLike[]
+
+  @@index([postId])
+  @@index([parentId])
+}
+
+model PostCommentLike {
+  id        String   @id @default(cuid())
+  commentId String   @map("comment_id")
+  memberId  String   @map("member_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  comment PostComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  member  Member      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, memberId])
+  @@index([memberId])
+}
+
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String   @map("post_id")
+  memberId  String   @map("member_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, memberId])
+  @@index([memberId])
+}
+
+model SiteContent {
+  id        String   @id @default(cuid())
+  pageId    String   @unique @map("page_id") // e.g. "home", "about", "support-local"
+  structure Json     // { sections: [{ columns: [{ blocks: [...] }] }] }
+  updatedAt DateTime @updatedAt @map("updated_at")
+}
+
+model DesignTokens {
+  id        String   @id @default(cuid())
+  key       String   @unique // e.g. "primaryColor", "headingFont"
+  value     String   // JSON or string value
+  updatedAt DateTime @updatedAt @map("updated_at")
+}
+
+model AdminSession {
+  id        String   @id @default(cuid())
+  code      String   @unique // NWC36481
+  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime @map("expires_at")
+}
+
+model Policy {
+  id        String   @id @default(cuid())
+  slug      String   @unique // e.g. "terms", "privacy", "refunds"
+  title     String   // e.g. "Terms of Service"
+  content   String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+}
+
+// Top 5 Supporters competition - admin controlled
+model Top5Campaign {
+  id        String   @id @default(cuid())
+  enabled   Boolean  @default(false)
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+  prizes    Json     // [{ rank: 1, label, imageUrl, businessId }, ...]
+  updatedAt DateTime @updatedAt @map("updated_at")
+}
+
+// Redeemable rewards offered by businesses
+model Reward {
+  id               String   @id @default(cuid())
+  businessId       String   @map("business_id")
+  title            String
+  description      String?  @db.Text
+  pointsRequired   Int      @map("points_required")
+  cashValueCents   Int?     @map("cash_value_cents") // dollar value set by business, for badge tracking
+  redemptionLimit  Int      @map("redemption_limit") // total times redeemable before removed
+  timesRedeemed   Int      @default(0) @map("times_redeemed")
+  imageUrl         String?  @map("image_url")
+  status           String   @default("active") // active | redeemed_out | inactive
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  redemptions RewardRedemption[]
+}
+
+model RewardRedemption {
+  id         String   @id @default(cuid())
+  memberId   String   @map("member_id")
+  rewardId   String   @map("reward_id")
+  pointsSpent Int     @map("points_spent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  member  Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  reward  Reward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+}
+
+// Storefront - products listed by sellers
+model StoreItem {
+  id                  String   @id @default(cuid())
+  memberId            String   @map("member_id")
+  businessId          String?  @map("business_id")
+  title               String
+  description         String?  @db.Text
+  photos              String[]
+  category            String?
+  priceCents          Int      @map("price_cents")
+  variants            Json?    // [{ name: "Size", options: ["S","M","L"] }, ...]
+  quantity            Int      @default(0)
+  status              String   @default("active") // active | sold_out | inactive
+  shippingCostCents   Int?     @map("shipping_cost_cents")
+  shippingPolicy      String?  @map("shipping_policy") @db.Text
+  localDeliveryAvailable Boolean @default(false) @map("local_delivery_available")
+  localDeliveryFeeCents Int?     @map("local_delivery_fee_cents")
+  inStorePickupAvailable Boolean @default(false) @map("in_store_pickup_available")
+  shippingDisabled     Boolean  @default(false) @map("shipping_disabled")
+  localDeliveryTerms   String?  @map("local_delivery_terms") @db.Text
+  pickupTerms          String?  @map("pickup_terms") @db.Text
+  stripePriceId       String?  @map("stripe_price_id")
+  slug                String   @unique
+  listingType         String   @default("new") @map("listing_type") // "new" | "resale"
+  acceptOffers         Boolean  @default(true) @map("accept_offers") // resale: allow make-offer
+  minOfferCents        Int?     @map("min_offer_cents") // resale: auto-decline offers below this
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  business  Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  orderItems OrderItem[]
+  cartItems CartItem[]
+  resaleOffers ResaleOffer[]
+  resaleConversations ResaleConversation[]
+}
+
+// Storefront orders
+model StoreOrder {
+  id                      String   @id @default(cuid())
+  buyerId                 String   @map("buyer_id")
+  sellerId                String   @map("seller_id")
+  totalCents              Int      @map("total_cents")
+  shippingCostCents       Int      @default(0) @map("shipping_cost_cents")
+  subtotalCents           Int      @map("subtotal_cents")
+  status                  String   @default("pending") // pending | paid | shipped | delivered | refunded | canceled
+  shippingAddress         Json?    @map("shipping_address") // { street, city, state, zip }
+  localDeliveryDetails    Json?    @map("local_delivery_details") // { firstName, lastName, phone, deliveryAddress, note, termsAcceptedAt }
+  deliveryConfirmedAt     DateTime? @map("delivery_confirmed_at")
+  stripePaymentIntentId   String?  @map("stripe_payment_intent_id")
+  stripeCheckoutSessionId String?  @map("stripe_checkout_session_id")
+  pointsAwarded           Int      @default(0) @map("points_awarded")
+  refundRequestedAt       DateTime? @map("refund_requested_at")
+  refundReason            String?   @map("refund_reason")
+  cancelReason            String?   @map("cancel_reason") // Changed my mind | Didn't mean to order | Order Arrived Damaged | Wrong Item Delivered | Other
+  cancelNote              String?   @map("cancel_note") @db.Text // Optional note for seller
+  inventoryRestoredAt     DateTime? @map("inventory_restored_at") // When seller re-listed items from a canceled cash order
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  buyer   Member     @relation("BuyerOrders", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller  Member     @relation("SellerOrders", fields: [sellerId], references: [id], onDelete: Cascade)
+  items   OrderItem[]
+  shipment Shipment?
+  packageWeightOz  Float?   @map("package_weight_oz")
+  packageLengthIn  Float?   @map("package_length_in")
+  packageWidthIn   Float?   @map("package_width_in")
+  packageHeightIn Float?   @map("package_height_in")
+  shippedWithOrderId String? @map("shipped_with_order_id") // When shipped as part of combined shipment
+}
+
+model Shipment {
+  id              String   @id @default(cuid())
+  orderId         String   @unique @map("order_id")
+  carrier         String   // USPS, FedEx, UPS
+  service         String   // e.g. Priority, Ground
+  trackingNumber  String?  @map("tracking_number")
+  labelUrl        String?  @map("label_url")
+  labelCostCents  Int      @map("label_cost_cents")
+  nwcFeeCents     Int      @default(0) @map("nwc_fee_cents") // 1.5% NWC shipping fee
+  status          String   @default("created") // created | shipped
+  weightOz        Float    @map("weight_oz")
+  lengthIn        Float    @map("length_in")
+  widthIn         Float    @map("width_in")
+  heightIn        Float    @map("height_in")
+  easypostShipmentId String? @map("easypost_shipment_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  order StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+// Storefront order line items
+model OrderItem {
+  id                   String   @id @default(cuid())
+  orderId              String   @map("order_id")
+  storeItemId          String   @map("store_item_id")
+  quantity             Int
+  priceCentsAtPurchase Int      @map("price_cents_at_purchase")
+  variant              Json?    // selected variant if applicable
+  fulfillmentType      String?  @map("fulfillment_type") // ship | local_delivery | pickup
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  order     StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  storeItem StoreItem  @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+}
+
+// Community Resale - make offer on resale items
+model ResaleOffer {
+  id               String    @id @default(cuid())
+  storeItemId      String    @map("store_item_id")
+  buyerId          String    @map("buyer_id")
+  amountCents      Int       @map("amount_cents")
+  message          String?   @db.Text
+  status           String    @default("pending") // pending | accepted | declined | countered
+  sellerResponse   String?   @map("seller_response") @db.Text
+  counterAmountCents Int?   @map("counter_amount_cents") // seller's counter offer
+  createdAt        DateTime  @default(now()) @map("created_at")
+  respondedAt      DateTime? @map("responded_at")
+
+  storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  buyer     Member    @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  @@index([storeItemId])
+  @@index([buyerId])
+  @@map("resale_offer")
+}
+
+// Community Resale - one thread per item per buyer
+model ResaleConversation {
+  id          String   @id @default(cuid())
+  storeItemId String   @map("store_item_id")
+  buyerId     String   @map("buyer_id")
+  sellerId    String   @map("seller_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  buyer     Member    @relation("ResaleConversationBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller    Member    @relation("ResaleConversationSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  messages  ResaleMessage[]
+
+  @@unique([storeItemId, buyerId])
+  @@index([sellerId])
+  @@index([buyerId])
+  @@map("resale_conversation")
+}
+
+model ResaleMessage {
+  id             String   @id @default(cuid())
+  conversationId String   @map("conversation_id")
+  senderId       String   @map("sender_id")
+  content        String   @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation ResaleConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       Member             @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("resale_message")
+}
+
+// Direct messaging between members (friends)
+model DirectConversation {
+  id        String   @id @default(cuid())
+  memberAId String   @map("member_a_id")
+  memberBId String   @map("member_b_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberA Member @relation("DirectConversationMemberA", fields: [memberAId], references: [id], onDelete: Cascade)
+  memberB Member @relation("DirectConversationMemberB", fields: [memberBId], references: [id], onDelete: Cascade)
+  messages DirectMessage[]
+
+  @@unique([memberAId, memberBId])
+  @@index([memberAId])
+  @@index([memberBId])
+  @@map("direct_conversation")
+}
+
+model DirectMessage {
+  id                String   @id @default(cuid())
+  conversationId    String   @map("conversation_id")
+  senderId          String   @map("sender_id")
+  content           String   @db.Text
+  sharedContentType String?  @map("shared_content_type") // post | blog | store_item | business | coupon | photo
+  sharedContentId   String?  @map("shared_content_id")
+  sharedContentSlug String?  @map("shared_content_slug") // for blog, business, store_item URL
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  conversation DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       Member             @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  likes        DirectMessageLike[]
+
+  @@index([conversationId])
+  @@map("direct_message")
+}
+
+model DirectMessageLike {
+  id        String   @id @default(cuid())
+  messageId String   @map("message_id")
+  memberId  String   @map("member_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message DirectMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  member  Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, memberId])
+  @@index([memberId])
+  @@map("direct_message_like")
+}
+
+// Group chat - multiple members
+model GroupConversation {
+  id         String   @id @default(cuid())
+  name       String?  @db.VarChar(100)
+  createdById String  @map("created_by_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  createdBy Member                    @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  members   GroupConversationMember[]
+  messages  GroupConversationMessage[]
+
+  @@map("group_conversation")
+}
+
+model GroupConversationMember {
+  id             String   @id @default(cuid())
+  conversationId String   @map("conversation_id")
+  memberId       String   @map("member_id")
+  joinedAt       DateTime @default(now()) @map("joined_at")
+
+  conversation GroupConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  member       Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, memberId])
+  @@index([memberId])
+  @@map("group_conversation_member")
+}
+
+model GroupConversationMessage {
+  id                String   @id @default(cuid())
+  conversationId    String   @map("conversation_id")
+  senderId          String   @map("sender_id")
+  content           String   @db.Text
+  sharedContentType String?  @map("shared_content_type")
+  sharedContentId   String?  @map("shared_content_id")
+  sharedContentSlug String?  @map("shared_content_slug")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  conversation GroupConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       Member            @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("group_conversation_message")
+}
+
+// QR scan tracking - one scan per member per business per day
+model QRScan {
+  id            String   @id @default(cuid())
+  memberId      String   @map("member_id")
+  businessId    String   @map("business_id")
+  scannedAt     DateTime @default(now()) @map("scanned_at")
+  pointsAwarded Int      @map("points_awarded")
+
+  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, businessId])
+}
+
+// Admin-controlled points per category for QR scans
+model CategoryPointsConfig {
+  id            String   @id @default(cuid())
+  category      String   @unique
+  pointsPerScan Int      @map("points_per_scan")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+}
+
+// Admin To Do list
+model AdminTodo {
+  id        String   @id @default(cuid())
+  text      String   @db.Text
+  completed Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+}
+
+// Platform business, admin business, time away
+model SiteSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique // platform_business, admin_business, time_away
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+}
+
+// Badges system
+model Badge {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String   @db.Text
+  imageUrl    String?  @map("image_url")
+  category    String   // business | member | seller
+  criteria    Json?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  memberBadges   MemberBadge[]
+  businessBadges BusinessBadge[]
+
+  @@map("badge")
+}
+
+model MemberBadge {
+  id               String   @id @default(cuid())
+  memberId         String   @map("member_id")
+  badgeId          String   @map("badge_id")
+  earnedAt         DateTime @default(now()) @map("earned_at")
+  displayOnProfile Boolean  @default(true) @map("display_on_profile")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  badge  Badge  @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, badgeId])
+  @@map("member_badge")
+}
+
+model BusinessBadge {
+  id             String   @id @default(cuid())
+  businessId     String   @map("business_id")
+  badgeId        String   @map("badge_id")
+  earnedAt       DateTime @default(now()) @map("earned_at")
+  displayOnPage  Boolean  @default(true) @map("display_on_page")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  badge    Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, badgeId])
+  @@map("business_badge")
+}
+
+// Referral system for "Spreading the Word" badge
+model ReferralLink {
+  id        String   @id @default(cuid())
+  memberId  String   @map("member_id")
+  code      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@map("referral_link")
+}
+
+model ReferralSignup {
+  id           String   @id @default(cuid())
+  referrerId   String   @map("referrer_id")
+  newMemberId String   @map("new_member_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  referrer   Member @relation("ReferralSignupReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  newMember  Member @relation("ReferralSignupNewMember", fields: [newMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([referrerId, newMemberId])
+  @@map("referral_signup")
+}
+
+// Messages/requests from users to admin (NWC Requests form)
+model NwcRequest {
+  id        String   @id @default(cuid())
+  memberId  String?  @map("member_id")
+  name      String   // sender name (from member or form)
+  email     String
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  @@map("nwc_request")
+}

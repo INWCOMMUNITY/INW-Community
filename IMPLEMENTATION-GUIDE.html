@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>INW Community – Implementation Guide</title>
+  <style>
+    @media print { body { max-width: none; margin: 0; } .no-print { display: none; } a { color: #000; } }
+    @media screen { body { max-width: 800px; margin: 2rem auto; padding: 2rem; } }
+    body { font-family: Georgia, serif; line-height: 1.65; color: #222; }
+    h1 { font-size: 1.75rem; border-bottom: 2px solid #333; padding-bottom: 0.5rem; margin-top: 0; }
+    h2 { font-size: 1.25rem; margin-top: 2.25rem; color: #333; }
+    h3 { font-size: 1.1rem; margin-top: 1.5rem; }
+    p { margin: 0.6rem 0; }
+    ul, ol { margin: 0.5rem 0; padding-left: 1.5rem; }
+    li { margin: 0.4rem 0; }
+    .intro { background: #f5f5f5; padding: 1rem 1.25rem; border-radius: 6px; margin-bottom: 2rem; }
+    .done { color: #2a7; }
+    .why { background: #f9f9f9; padding: 0.75rem 1rem; border-left: 4px solid #666; margin: 1rem 0; font-size: 0.95rem; }
+    .steps { background: #f0f7ff; padding: 1rem 1.25rem; border-radius: 6px; margin: 1rem 0; }
+    .steps ol { margin: 0.25rem 0; }
+    .steps li { margin: 0.5rem 0; }
+    code { background: #eee; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <p class="no-print intro">
+    <strong>To save as PDF:</strong> Open this file in Chrome or Edge → press Ctrl+P (or Cmd+P on Mac) → choose "Save as PDF" → Save.
+  </p>
+
+  <h1>INW Community – Security & Performance Guide</h1>
+  <p>This guide tells you exactly what to do before and after launch. Each item has simple explanations and step-by-step instructions.</p>
+
+  <h2>Part 1: Security – Do Before Launch</h2>
+
+  <h3>1. Set Up Your Secrets (Environment & Secrets)</h3>
+
+  <p><strong>NEXTAUTH_SECRET</strong></p>
+  <p class="why"><strong>What it is:</strong> A secret code that scrambles your login cookies. Without it, someone could fake a login.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Open Command Prompt or Terminal on your computer.</li>
+    <li>Type: <code>openssl rand -base64 32</code> and press Enter.</li>
+    <li>Copy the long string that appears (e.g., <code>aB3xK9...==</code>).</li>
+    <li>In your hosting dashboard (Vercel, etc.), go to Settings → Environment Variables.</li>
+    <li>Add a new variable: Name = <code>NEXTAUTH_SECRET</code>, Value = paste that string.</li>
+  </ol>
+  </p>
+
+  <p><strong>ADMIN_CODE</strong></p>
+  <p class="why"><strong>What it is:</strong> The password that lets people into your admin panel. Change the default one!</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Pick a strong password (mix of letters, numbers, symbols).</li>
+    <li>In your hosting dashboard, add environment variable: <code>ADMIN_CODE</code> = your new password.</li>
+    <li>Tell only trusted people who need admin access.</li>
+  </ol>
+  </p>
+
+  <p><strong>Confirm .env is not in git</strong></p>
+  <p class="why"><strong>What it is:</strong> Your .env file has secrets. If it gets pushed to GitHub, anyone could see them.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Open your project folder.</li>
+    <li>Open the file called <code>.gitignore</code>.</li>
+    <li>Make sure the line <code>.env</code> is in there.</li>
+    <li>Before every push, double-check you're not accidentally adding .env.</li>
+  </ol>
+  </p>
+
+  <p><strong>Stripe keys for production</strong></p>
+  <p class="why"><strong>What it is:</strong> Right now you use test Stripe keys (no real money). When you go live, you need real Stripe keys.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Log into <a href="https://dashboard.stripe.com">dashboard.stripe.com</a>.</li>
+    <li>Click "Developers" → "API keys".</li>
+    <li>Switch from "Test mode" to "Live mode" (toggle in the top right).</li>
+    <li>Copy your Live "Publishable key" and "Secret key".</li>
+    <li>In your hosting dashboard, set <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> and <code>STRIPE_SECRET_KEY</code> to these live keys (only in production!).</li>
+    <li>Never put live keys in your local .env – keep using test keys on your computer.</li>
+  </ol>
+  </p>
+
+  <h3>2. HTTPS & Security Headers</h3>
+
+  <p><strong>HTTPS (the padlock)</strong></p>
+  <p class="why"><strong>What it is:</strong> HTTPS means data is encrypted. Users see a padlock in the browser. Without it, passwords could be stolen.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>If you use Vercel, Netlify, or similar: They usually add HTTPS for you. Check your site – the URL should start with <code>https://</code>.</li>
+    <li>If you host your own server: You need to get an SSL certificate (e.g., from Let's Encrypt, which is free). Your host or a web search can guide you.</li>
+  </ol>
+  </p>
+
+  <p><strong>HSTS header</strong></p>
+  <p class="why"><strong>What it is:</strong> Tells the browser "always use HTTPS for this site, never HTTP."</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>If you use Vercel/Netlify: They usually add this for you. Nothing to do.</li>
+    <li>If you self-host: Add <code>Strict-Transport-Security: max-age=31536000; includeSubDomains</code> to your server's response headers. (How depends on your server – Apache, Nginx, etc.)</li>
+  </ol>
+  </p>
+
+  <p><strong>Add admin origin when you deploy admin</strong></p>
+  <p class="why"><strong>What it is:</strong> When your admin app is on a different URL (e.g., admin.yoursite.com), the main app needs to know it's allowed to talk to it.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Deploy your admin app and note its URL (e.g., <code>https://admin.yoursite.com</code>).</li>
+    <li>In your project, open <code>apps/main/src/middleware.ts</code>.</li>
+    <li>Find <code>ADMIN_ORIGINS</code> and add your admin URL to the list.</li>
+    <li>Redeploy the main app.</li>
+  </ol>
+  </p>
+
+  <h3>3. Database Setup</h3>
+
+  <p><strong>Connection pooling</strong></p>
+  <p class="why"><strong>What it is:</strong> Each visitor can open a connection to the database. On Vercel, you get lots of visitors at once. Without pooling, you run out of connections and the site breaks.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>If you use Neon or Supabase: They often give you a "pooled" connection string. Use that instead of the direct one.</li>
+    <li>Look for a URL that has "pooler" or "pool" in it, or check their docs for "connection pooling for serverless."</li>
+    <li>Put that URL in your <code>DATABASE_URL</code> environment variable.</li>
+  </ol>
+  </p>
+
+  <p><strong>Restrict database access</strong></p>
+  <p class="why"><strong>What it is:</strong> Your database should only accept connections from your app, not from the whole internet.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Log into your database provider (Neon, Supabase, Railway, etc.).</li>
+    <li>Find "Firewall," "Network," or "IP allowlist" settings.</li>
+    <li>If they offer "Restrict to specific IPs," add only your app's IP (Vercel has docs on this). Or use "Allow Vercel" if that option exists.</li>
+    <li>Disable "Allow from anywhere" or "0.0.0.0/0" if it's on.</li>
+  </ol>
+  </p>
+
+  <p><strong>Back up the database</strong></p>
+  <p class="why"><strong>What it is:</strong> If something goes wrong, you need a copy of your data to restore.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Log into your database provider.</li>
+    <li>Look for "Backups," "Snapshots," or "Point-in-time recovery."</li>
+    <li>Turn on automatic backups (daily is good).</li>
+    <li>Once, do a test restore to a different database to make sure it works.</li>
+  </ol>
+  </p>
+
+  <h3>4. Monitoring & Alerts</h3>
+
+  <p><strong>Log failed logins</strong></p>
+  <p class="why"><strong>What it is:</strong> If someone tries wrong passwords over and over, that's an attack. Logging lets you see it.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>When you set up error monitoring (e.g., Sentry), make sure your auth code logs failed logins.</li>
+    <li>Or add a simple log in your login API: when password is wrong, log the email and timestamp.</li>
+    <li>Review these logs weekly for odd patterns.</li>
+  </ol>
+  </p>
+
+  <p><strong>Set up error monitoring (Sentry)</strong></p>
+  <p class="why"><strong>What it is:</strong> When your site crashes or has a bug, you want to know immediately. Sentry emails you when errors happen.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Go to <a href="https://sentry.io">sentry.io</a> and create a free account.</li>
+    <li>Create a new project and pick "Next.js."</li>
+    <li>Follow their setup steps (they give you a code snippet to add).</li>
+    <li>Add the DSN (a URL they give you) to your environment variables.</li>
+    <li>Deploy. Now when errors happen, you'll get an email with details.</li>
+  </ol>
+  </p>
+
+  <h2>Part 2: Performance – When You Have Time</h2>
+
+  <h3>5. Better Rate Limiting (Redis)</h3>
+  <p class="why"><strong>What it is:</strong> Right now, rate limiting only works on one server. Vercel runs many servers. A bad actor could hit different servers and slip past the limit. Redis keeps a shared count so all servers see the same limits.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Sign up for Upstash (upstash.com) – they have a free tier.</li>
+    <li>Create a Redis database.</li>
+    <li>Copy your Redis URL and token.</li>
+    <li>Install: <code>pnpm add @upstash/ratelimit @upstash/redis</code></li>
+    <li>Replace the logic in <code>apps/main/src/lib/rate-limit.ts</code> with Upstash's rate limiter (see their docs for Next.js).</li>
+  </ol>
+  </p>
+
+  <h3>6. Images & Assets</h3>
+  <p class="done"><strong>✓ Done:</strong> FeedPostCard and BlogCard already use next/image.</p>
+
+  <p><strong>Convert more images to next/image</strong></p>
+  <p class="why"><strong>What it is:</strong> next/image makes images load faster and use less data. Regular <code>&lt;img&gt;</code> tags don't.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Find pages with lots of images: member profiles, storefront, business listings.</li>
+    <li>Replace <code>&lt;img src="..." /&gt;</code> with <code>&lt;Image src="..." width={...} height={...} /&gt;</code> (or use <code>fill</code> inside a sized container).</li>
+    <li>Add <code>sizes</code> so the browser knows what size to request.</li>
+  </ol>
+  </p>
+
+  <p><strong>Add priority to the hero image</strong></p>
+  <p class="why"><strong>What it is:</strong> The big image at the top of your homepage. You want it to load first, not last.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Find the hero image on your home page.</li>
+    <li>If it uses <code>&lt;Image&gt;</code>, add the prop <code>priority</code>.</li>
+  </ol>
+  </p>
+
+  <h3>7. API Performance</h3>
+  <p class="done"><strong>✓ Done:</strong> Feed API is batched. Blog categories API is cached.</p>
+
+  <p><strong>Add caching to more APIs</strong></p>
+  <p class="why"><strong>What it is:</strong> Some data rarely changes (e.g., design tokens, business list). Caching means "store the answer for 60 seconds" so repeat visitors get it instantly.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Open the API route file (e.g., <code>apps/main/src/app/api/design-tokens/route.ts</code>).</li>
+    <li>Where you return the response, add a headers object: <code>Cache-Control: public, s-maxage=60</code></li>
+    <li>Do the same for any API that returns data that doesn't change every second.</li>
+  </ol>
+  </p>
+
+  <p><strong>Database indexes for slow queries</strong></p>
+  <p class="why"><strong>What it is:</strong> Indexes help the database find rows faster. Without them, a query might scan millions of rows.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>If a page or API feels slow, note which data it loads.</li>
+    <li>In your database, add indexes on columns you filter by (e.g., <code>userId</code>, <code>createdAt</code>).</li>
+    <li>Prisma: you can add <code>@@index</code> in your schema, or create indexes directly in your DB dashboard.</li>
+  </ol>
+  </p>
+
+  <h3>8. Build & Bundles</h3>
+  <p class="done"><strong>✓ Done:</strong> Editor is code-split.</p>
+
+  <p><strong>Code-split PDF code</strong></p>
+  <p class="why"><strong>What it is:</strong> PDF libraries are big. Only load them when someone actually opens a PDF.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Find where you import the PDF library.</li>
+    <li>Use <code>dynamic(() => import('...'), { ssr: false })</code> instead of a normal import.</li>
+    <li>That way the PDF code only loads when that part of the page is used.</li>
+  </ol>
+  </p>
+
+  <p><strong>Review bundle size</strong></p>
+  <p class="why"><strong>What it is:</strong> Bigger JavaScript = slower page load. You want to keep each page under ~150 kB if you can.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Run <code>pnpm run build</code> in <code>apps/main</code>.</li>
+    <li>Look at the "First Load JS" column – that's how much JS each page loads.</li>
+    <li>If a page is huge (e.g., 200+ kB), look for heavy imports you can lazy-load or remove.</li>
+  </ol>
+  </p>
+
+  <h2>Part 3: Optional Security (Nice to Have)</h2>
+
+  <h3>9. CAPTCHA</h3>
+  <p class="why"><strong>What it is:</strong> CAPTCHA is the "I'm not a robot" check. It stops bots from spamming your forms.</p>
+  <p class="steps"><strong>Steps (for NWC Requests form):</strong>
+  <ol>
+    <li>Sign up for reCAPTCHA (Google) or hCaptcha or Turnstile (Cloudflare).</li>
+    <li>Get your site key and secret key.</li>
+    <li>Add the CAPTCHA widget to your NWC Requests form (they give you code).</li>
+    <li>When the form is submitted, check the CAPTCHA on the server before saving.</li>
+  </ol>
+  </p>
+
+  <h3>10. Stronger Passwords (Optional)</h3>
+  <p class="why"><strong>What it is:</strong> Require users to pick stronger passwords so accounts are harder to guess.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>In your signup validation, add rules: e.g., min 8 chars, 1 uppercase, 1 number.</li>
+    <li>Show the rules on the signup form so users know what to pick.</li>
+  </ol>
+  </p>
+
+  <h3>11. Verify Secure Cookies</h3>
+  <p class="why"><strong>What it is:</strong> In production, login cookies should only be sent over HTTPS.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Make sure <code>NEXTAUTH_URL</code> in production starts with <code>https://</code> (e.g., <code>https://yoursite.com</code>).</li>
+    <li>NextAuth will then use secure cookies automatically. No code changes needed.</li>
+  </ol>
+  </p>
+
+  <h3>12. Run Security Scans</h3>
+  <p class="steps"><strong>pnpm audit – Steps:</strong>
+  <ol>
+    <li>In your project folder, run <code>pnpm audit</code>.</li>
+    <li>It will list vulnerable packages. Fix "critical" and "high" first.</li>
+    <li>Run this every few months or when you add new packages.</li>
+  </ol>
+  </p>
+  <p class="steps"><strong>OWASP ZAP (optional) – Steps:</strong>
+  <ol>
+    <li>Download OWASP ZAP (free tool).</li>
+    <li>Enter your site URL and run an automated scan.</li>
+    <li>Review the report for serious issues.</li>
+  </ol>
+  </p>
+
+  <h3>13. Upgrade Vulnerable Dependencies</h3>
+  <p class="why"><strong>What it is:</strong> Some packages you use have known security holes. Upgrading fixes them.</p>
+  <p class="steps"><strong>Steps:</strong>
+  <ol>
+    <li>Upgrade Next.js to 15.0.8+ (or 15.5.10+): <code>pnpm add next@latest</code> – test your site after!</li>
+    <li>glob and undici: Often fixed when you upgrade Next.js and other deps. Run <code>pnpm update</code> and check if audit is clean.</li>
+  </ol>
+  </p>
+
+  <h2>Part 4: Future Speed Improvements</h2>
+  <p>These make your site faster over time. Do them when you have bandwidth.</p>
+
+  <ul>
+    <li><strong>CDN/Edge caching:</strong> Use Vercel's built-in Edge or a CDN so static files are served from servers near your users.</li>
+    <li><strong>Image optimization at source:</strong> Upload images as WebP when possible; use responsive sizes.</li>
+    <li><strong>Fewer third-party scripts:</strong> Defer analytics and chat widgets so they don't block the page.</li>
+    <li><strong>Lazy-load sidebars:</strong> Load SideCart, TagsSidebar, etc. with <code>next/dynamic</code> only when needed.</li>
+    <li><strong>Service Worker / PWA:</strong> Cache assets so returning visitors load faster.</li>
+    <li><strong>Connection pooling:</strong> Use PgBouncer or Prisma Data Proxy if you hit database connection limits.</li>
+  </ul>
+
+  <h2>What's Already Done (No Action Needed)</h2>
+  <ul>
+    <li>.env is in .gitignore</li>
+    <li>Security headers are set</li>
+    <li>HTML sanitization (DOMPurify) protects content</li>
+    <li>ADMIN_CODE required</li>
+    <li>Rate limiting on NWC Requests, Signup, Login</li>
+    <li>Passwords hashed with bcrypt</li>
+    <li>Stripe webhook verified</li>
+    <li>FeedPostCard & BlogCard use next/image</li>
+    <li>Feed API batched, Blog categories cached</li>
+    <li>Editor code-split</li>
+  </ul>
+
+  <p style="margin-top: 2rem; font-size: 0.9rem; color: #666;">
+    From SECURITY-AND-PERFORMANCE-TODO.md. Update that file as you complete tasks.
+  </p>
+</body>
+</html>

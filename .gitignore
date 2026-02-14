@@ -1,0 +1,14 @@
+node_modules
+
+# Next.js build output
+.next
+
+# Local uploads (use Vercel Blob or similar in production)
+apps/main/public/uploads
+
+# Environment variables (secrets, DB URL, API keys)
+.env
+.env.*
+.env.local
+.env.production
+.env.development

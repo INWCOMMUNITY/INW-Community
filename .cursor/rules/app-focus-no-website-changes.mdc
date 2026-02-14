@@ -1,0 +1,20 @@
+---
+description: Default focus on mobile app and admin; website editable if requested
+alwaysApply: true
+---
+
+# App-First Development (Default)
+
+For the meantime, default focus is on the **mobile app** and **admin**. Website edits are allowed when explicitly requested.
+
+## Default work areas
+
+- **apps/mobile/** – Mobile app (Expo/React Native)
+- **apps/admin/** – Admin dashboard
+- **packages/** – database, types, design-tokens
+- **apps/main/src/app/api/** – API routes (when needed for mobile/admin)
+
+## Website (apps/main)
+
+- Do not modify website layout, format, or UI unless the user explicitly requests it
+- API additions in `apps/main` are fine when needed for mobile/admin

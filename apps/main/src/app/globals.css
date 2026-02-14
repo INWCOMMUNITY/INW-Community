@@ -1,0 +1,189 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #505542;
+  --color-secondary: #3E432F;
+  --color-background: #ffffff;
+  --color-text: #505542;
+  --color-heading: #3E432F;
+  --color-link: #505542;
+  --color-button: #505542;
+  --color-button-text: #ffffff;
+  --color-button-hover: #FDEDCC;
+  --color-button-hover-text: #505542;
+  --color-section-alt: #FDEDCC;
+  --font-heading: var(--font-fahkwang, "Fahkwang", sans-serif);
+  --font-body: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-body-weight: 300;
+  --font-size-heading: 2rem;
+  --font-size-body: 1rem;
+  --line-height: 1.6;
+  --letter-spacing: 0;
+  --button-border-radius: 4px;
+  --button-padding: 0.75rem 1.5rem;
+  --section-padding: 3rem 1.5rem;
+  --column-gap: 2rem;
+  --max-width: 1200px;
+}
+
+html {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  font-weight: var(--font-body-weight);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Images and media fit viewport */
+img,
+picture,
+video,
+canvas,
+svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Mobile + tablet: smaller fonts and padding (desktop layout from 1025px) */
+@media (max-width: 1024px) {
+  :root {
+    --font-size-heading: 1.35rem;
+    --font-size-body: 0.9375rem;
+    --section-padding: 1.5rem 1rem;
+    --button-padding: 0.6rem 1.2rem;
+    --column-gap: 1.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --font-size-heading: 1.15rem;
+    --font-size-body: 0.875rem;
+    --section-padding: 1rem 0.75rem;
+    --button-padding: 0.5rem 1rem;
+  }
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  color: var(--color-heading);
+}
+
+a {
+  color: var(--color-link);
+  text-decoration: none;
+}
+
+.btn {
+  display: inline-block;
+  padding: var(--button-padding);
+  background-color: var(--color-button);
+  color: var(--color-button-text);
+  border-radius: var(--button-border-radius);
+  text-decoration: none;
+  font-family: var(--font-heading);
+  font-weight: 500;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.btn:hover {
+  background-color: var(--color-button-hover);
+  color: var(--color-button-hover-text);
+}
+
+/* Buttons/links with green (primary) hover background must use white text for contrast */
+[class*="hover:bg-[var(--color-primary)]"]:hover {
+  color: white;
+}
+
+.btn-sponsors {
+  display: inline-block;
+  padding: var(--button-padding);
+  background-color: var(--color-button);
+  color: var(--color-button-text);
+  border: 2px solid transparent;
+  border-radius: var(--button-border-radius);
+  text-decoration: none;
+  font-family: var(--font-heading);
+  font-weight: 500;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.btn-sponsors:hover {
+  background-color: #ffffff;
+  color: #505542;
+  border-color: #505542;
+}
+
+.btn-sponsors-light {
+  display: inline-block;
+  padding: var(--button-padding);
+  background-color: #ffffff;
+  color: var(--color-heading);
+  border: 2px solid #505542;
+  border-radius: var(--button-border-radius);
+  text-decoration: none;
+  font-family: var(--font-heading);
+  font-weight: 500;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.btn-sponsors-light:hover {
+  background-color: #ffffff;
+  color: #505542;
+  border-color: #505542;
+}
+
+/* Mobile header overlay slide-down */
+@keyframes headerSlideDown {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Form controls: theme green focus/hover instead of browser blue */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none !important;
+  border-color: var(--color-secondary) !important;
+  box-shadow: 0 0 0 2px var(--color-secondary) !important;
+}
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--color-secondary);
+}
+
+/* Info pages (subscriber, sponsor, seller) benefit lists */
+.info-page-benefits {
+  list-style: none;
+  padding-left: 0;
+}
+.info-page-benefits li {
+  position: relative;
+  padding-left: 1.75rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.5;
+}
+.info-page-benefits li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: var(--color-primary);
+  font-weight: bold;
+}
