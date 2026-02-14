@@ -35,6 +35,7 @@ interface StoreItem {
   inStorePickupAvailable?: boolean;
   shippingDisabled?: boolean;
   localDeliveryTerms?: string | null;
+  pickupTerms?: string | null;
   member?: {
     id: string;
     firstName: string;
