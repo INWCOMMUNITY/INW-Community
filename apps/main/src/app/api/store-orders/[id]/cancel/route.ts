@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
-export const CANCEL_REASONS = [
+const CANCEL_REASONS = [
   "Changed my mind",
   "Didn't mean to order",
   "Order Arrived Damaged",
