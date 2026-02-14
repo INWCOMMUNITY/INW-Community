@@ -6,6 +6,9 @@ node_modules
 # Local uploads (use Vercel Blob or similar in production)
 apps/main/public/uploads
 
+# Vercel build logs (fetched locally)
+last-vercel-build.log
+
 # Environment variables (secrets, DB URL, API keys)
 .env
 .env.*
