@@ -143,7 +143,7 @@ export async function awardSpreadingTheWordBadge(referrerId: string) {
 
 /** Call after QRScan create - Super Scanner (10), Elite Scanner (50) */
 export async function awardScannerBadges(memberId: string) {
-  const distinctBizCount = await prisma.qrScan.groupBy({
+  const distinctBizCount = await prisma.qRScan.groupBy({
     by: ["businessId"],
     where: { memberId },
   });
