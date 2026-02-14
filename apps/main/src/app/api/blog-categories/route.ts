@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "database";
 
+export const dynamic = "force-dynamic";
+
 const DEFAULT_CATEGORIES = [
   { name: "Local News", slug: "local-news" },
   { name: "Events", slug: "events" },

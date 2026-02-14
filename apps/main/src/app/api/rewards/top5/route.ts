@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "database";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const campaign = await prisma.top5Campaign.findFirst({
     orderBy: { updatedAt: "desc" },
