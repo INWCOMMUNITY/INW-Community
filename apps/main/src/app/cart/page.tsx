@@ -25,6 +25,7 @@ interface CartItemStoreItem {
   localDeliveryAvailable?: boolean;
   inStorePickupAvailable?: boolean;
   shippingDisabled?: boolean;
+  pickupTerms?: string | null;
   member?: {
     acceptCashForPickupDelivery?: boolean;
     sellerLocalDeliveryPolicy?: string | null;
