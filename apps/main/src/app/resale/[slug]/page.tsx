@@ -35,6 +35,7 @@ interface StoreItem {
   inStorePickupAvailable?: boolean;
   shippingDisabled?: boolean;
   localDeliveryTerms?: string | null;
+  pickupTerms?: string | null;
   acceptOffers?: boolean;
   minOfferCents?: number | null;
   memberId?: string;
