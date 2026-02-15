@@ -33,14 +33,18 @@ const PROJECT = "INW-Community";
 const ROOT_DIR = "apps/main";
 
 async function main() {
-  // Use PATCH to update only rootDirectory
+  // Use PATCH to update rootDirectory and outputDirectory
+  // When root is apps/main, output must be ".next" (not "apps/main/.next")
   const res = await fetch(`https://api.vercel.com/v9/projects/${encodeURIComponent(PROJECT)}`, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ rootDirectory: ROOT_DIR }),
+    body: JSON.stringify({
+      rootDirectory: ROOT_DIR,
+      outputDirectory: ".next",
+    }),
   });
 
   if (!res.ok) {
@@ -50,7 +54,8 @@ async function main() {
   }
 
   const data = await res.json();
-  console.log("✓ Root Directory set to:", data.rootDirectory ?? ROOT_DIR);
+  console.log("✓ Root Directory:", data.rootDirectory ?? ROOT_DIR);
+  console.log("✓ Output Directory:", data.outputDirectory ?? ".next");
 }
 
 main().catch((e) => {
