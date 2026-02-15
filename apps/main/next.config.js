@@ -1,5 +1,6 @@
 const path = require("path");
 const fs = require("fs");
+const { PrismaPlugin } = require("@prisma/nextjs-monorepo-workaround-plugin");
 
 // Load root .env so DATABASE_URL is always available when running from monorepo root
 const rootEnv = path.join(__dirname, "..", "..", ".env");
@@ -18,6 +19,7 @@ if (fs.existsSync(rootEnv)) {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ["database", "design-tokens", "types"],
+  outputFileTracingRoot: path.join(__dirname, "../../"),
   async redirects() {
     return [
       { source: "/community", destination: "/my-community", permanent: true },
@@ -69,8 +71,11 @@ const nextConfig = {
   },
   // Use memory cache in dev to avoid filesystem cache corruption on Windows
   // (fixes "Cannot find module './xxxx.js'", 404 on chunks, "It is not loading")
-  webpack: (config, { dev }) => {
+  webpack: (config, { dev, isServer }) => {
     if (dev) config.cache = { type: "memory" };
+    if (isServer) {
+      config.plugins = [...(config.plugins || []), new PrismaPlugin()];
+    }
     return config;
   },
 };
