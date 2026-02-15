@@ -2,11 +2,7 @@
 
 ## One-time Vercel setup
 
-1. **Root Directory** – In [Vercel Project Settings](https://vercel.com) → your project → **Settings** → **General** → **Root Directory**, set to:
-   ```
-   apps/main
-   ```
-   This tells Vercel where the Next.js app lives in the monorepo.
+1. **Root Directory** – Leave **empty** (repo root). The root `vercel.json` defines `outputDirectory: "apps/main/.next"` for the monorepo.
 
 2. **Environment variables** – In **Settings** → **Environment Variables**, add:
 
