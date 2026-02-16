@@ -19,7 +19,9 @@ if (fs.existsSync(rootEnv)) {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ["database", "design-tokens", "types"],
-  outputFileTracingRoot: path.join(__dirname, "../../"),
+  experimental: {
+    outputFileTracingRoot: path.join(__dirname, "../../"),
+  },
   async redirects() {
     return [
       { source: "/community", destination: "/my-community", permanent: true },
