@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     const businessData = body.businessData as Record<string, unknown> | undefined;
     // Mobile can pass returnBaseUrl so redirect works on device (e.g. http://192.168.1.140:3000)
     const returnBase = (body.returnBaseUrl as string)?.trim?.();
-    const baseUrl = returnBase || process.env.NEXTAUTH_URL ?? "";
+    const baseUrl = returnBase || (process.env.NEXTAUTH_URL ?? "");
     const plan = PLANS[planId];
     const priceId = interval === "yearly" && plan?.priceIdYearly ? plan.priceIdYearly : plan?.priceId;
     if (!priceId) {

@@ -111,7 +111,9 @@ export default function CheckoutPage() {
     if (typeof loadStripe.setLoadParameters === "function") {
       loadStripe.setLoadParameters({ advancedFraudSignals: false });
     }
-    loadStripe(key).then(setStripePromise).catch((err) => {
+    const promise = loadStripe(key);
+    setStripePromise(promise);
+    promise.catch((err) => {
       console.warn("Stripe failed to load:", err);
     });
   }, []);

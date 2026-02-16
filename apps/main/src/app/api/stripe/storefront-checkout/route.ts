@@ -237,7 +237,7 @@ export async function POST(req: NextRequest) {
       ...(branding && { branding_settings: branding }),
     };
     const checkoutSession = await stripe.checkout.sessions.create(
-      createParams as Stripe.Checkout.SessionCreateParams
+      createParams as unknown as Stripe.Checkout.SessionCreateParams
     );
 
     return NextResponse.json({ url: checkoutSession.url });

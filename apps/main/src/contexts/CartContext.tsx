@@ -45,6 +45,7 @@ function CartProviderInner({ children, session }: { children: React.ReactNode; s
 
   return (
     <CartContext.Provider value={{ count, refresh, open, setOpen }}>
+      {/* @ts-expect-error ReactNode type mismatch between @types/react versions in monorepo */}
       {children}
     </CartContext.Provider>
   );
