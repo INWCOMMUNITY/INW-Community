@@ -16,8 +16,8 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <TagsContext.Provider value={{ open, setOpen }}>
-      {/* @ts-expect-error ReactNode type mismatch between @types/react versions in monorepo */}
-      {children}
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {(children as any)}
     </TagsContext.Provider>
   );
 }
