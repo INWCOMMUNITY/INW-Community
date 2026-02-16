@@ -90,14 +90,22 @@ export function SubscriptionCheckoutSheet({
       }
 
       if (refreshMember) {
-        await refreshMember();
-        await new Promise((r) => setTimeout(r, 2000));
-        await refreshMember();
+        const maxAttempts = 3;
+        const delayMs = 2000;
+        for (let i = 0; i < maxAttempts; i++) {
+          await refreshMember();
+          if (i < maxAttempts - 1) {
+            await new Promise((r) => setTimeout(r, delayMs));
+          }
+        }
       }
       onSuccess();
     } catch (e) {
-      const err = e as { error?: string };
-      const msg = err.error ?? "Checkout failed. Please try again.";
+      const err = e as { error?: string; status?: number };
+      let msg = err.error ?? "Checkout failed. Please try again.";
+      if (err.status === 401) msg = "Please sign in again.";
+      if (err.status === 503) msg = "Stripe is not configured on the server.";
+      if (__DEV__) console.warn("[SubscriptionCheckout]", err.status, err.error);
       onError?.(msg);
       Alert.alert("Error", msg);
     } finally {

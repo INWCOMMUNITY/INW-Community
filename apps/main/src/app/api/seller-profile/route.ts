@@ -74,6 +74,7 @@ export async function GET(req: NextRequest) {
           address: business.address,
           city: business.city,
           logoUrl: business.logoUrl,
+          coverPhotoUrl: business.coverPhotoUrl,
           slug: business.slug,
         }
       : null,
@@ -172,6 +173,7 @@ export async function PATCH(req: NextRequest) {
           website: typeof biz.website === "string" ? biz.website : existing.website,
           address: typeof biz.address === "string" ? biz.address : existing.address,
           logoUrl: biz.logoUrl !== undefined ? (typeof biz.logoUrl === "string" && biz.logoUrl.trim() ? biz.logoUrl.trim() : null) : existing.logoUrl,
+          coverPhotoUrl: biz.coverPhotoUrl !== undefined ? (typeof biz.coverPhotoUrl === "string" && biz.coverPhotoUrl.trim() ? biz.coverPhotoUrl.trim() : null) : existing.coverPhotoUrl,
         },
       });
     } else {
@@ -186,6 +188,7 @@ export async function PATCH(req: NextRequest) {
           website: typeof biz.website === "string" ? biz.website : null,
           address: typeof biz.address === "string" ? biz.address : null,
           logoUrl: typeof biz.logoUrl === "string" ? biz.logoUrl : null,
+          coverPhotoUrl: typeof biz.coverPhotoUrl === "string" ? biz.coverPhotoUrl : null,
           slug,
           photos: [],
         },

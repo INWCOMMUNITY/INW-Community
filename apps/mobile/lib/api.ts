@@ -90,15 +90,19 @@ function parseError(res: Response, data: unknown): string {
   const raw = (data as { error?: string | unknown })?.error;
   if (raw != null) {
     if (typeof raw === "string") return raw;
-    if (typeof raw === "object" && "formErrors" in (raw as object)) {
-      const form = (raw as { formErrors?: string[] }).formErrors;
-      if (Array.isArray(form) && form[0]) return form[0];
+    if (typeof raw === "object") {
+      const obj = raw as { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
+      if (Array.isArray(obj.formErrors) && obj.formErrors[0]) return obj.formErrors[0];
+      if (obj.fieldErrors && typeof obj.fieldErrors === "object") {
+        const first = Object.values(obj.fieldErrors).flat().find(Boolean);
+        if (first) return first;
+      }
     }
   }
-  if (res.status === 401) return "Please sign in to comment.";
-  if (res.status === 404) return "Post not found.";
+  if (res.status === 401) return "Please sign in.";
+  if (res.status === 404) return "Not found.";
   if (res.status >= 500) return "Server error. Try again.";
-  if (res.status === 0) return "Cannot connect. Check your network.";
+  if (res.status === 0) return "Cannot connect. Ensure pnpm dev:main is running and use your computer's IP (not localhost) if on a physical device.";
   return `Request failed (${res.status})`;
 }
 

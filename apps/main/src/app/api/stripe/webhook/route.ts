@@ -478,7 +478,11 @@ export async function POST(req: NextRequest) {
               },
             });
             const businessDataRaw = sub.metadata?.businessData;
-            if (planId === "sponsor" && businessDataRaw && typeof businessDataRaw === "string") {
+            if (
+              (planId === "sponsor" || planId === "seller") &&
+              businessDataRaw &&
+              typeof businessDataRaw === "string"
+            ) {
               try {
                 const businessData = JSON.parse(businessDataRaw) as Record<string, unknown>;
                 await createBusinessFromMetadata(memberId, businessData);

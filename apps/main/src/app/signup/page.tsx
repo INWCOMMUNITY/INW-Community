@@ -16,8 +16,10 @@ export default function SignupPage() {
   const refCode = searchParams.get("ref") ?? undefined;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [retypePassword, setRetypePassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [city, setCity] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set());
   const [tags, setTags] = useState<Tag[]>([]);
   const [error, setError] = useState("");
@@ -42,6 +44,10 @@ export default function SignupPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (password !== retypePassword) {
+      setError("Passwords do not match.");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/auth/signup", {
@@ -52,6 +58,7 @@ export default function SignupPage() {
           password,
           firstName,
           lastName,
+          city: city.trim() || undefined,
           tagIds: Array.from(selectedTagIds),
           ...(refCode && { ref: refCode }),
         }),
@@ -125,6 +132,29 @@ export default function SignupPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={8}
+            className="w-full border rounded px-3 py-2"
+          />
+        </div>
+        <div>
+          <label htmlFor="retypePassword" className="block text-sm font-medium mb-1">Retype password</label>
+          <input
+            id="retypePassword"
+            type="password"
+            value={retypePassword}
+            onChange={(e) => setRetypePassword(e.target.value)}
+            required
+            minLength={8}
+            className="w-full border rounded px-3 py-2"
+          />
+        </div>
+        <div>
+          <label htmlFor="city" className="block text-sm font-medium mb-1">City of residence</label>
+          <input
+            id="city"
+            type="text"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            placeholder="e.g. Spokane"
             className="w-full border rounded px-3 py-2"
           />
         </div>

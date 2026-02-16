@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -93,12 +94,18 @@ export async function POST(
       }
     }
 
+    const contentTrimmed = (content ?? "").trim() || " ";
+    const contentCheck = validateText(contentTrimmed, "comment");
+    if (!contentCheck.allowed) {
+      return NextResponse.json({ error: contentCheck.reason ?? "Comment not allowed." }, { status: 400 });
+    }
+
     const comment = await prisma.postComment.create({
       data: {
         postId: id,
         ...(parentId ? { parentId } : {}),
         memberId: session.user.id,
-        content: (content ?? "").trim() || " ",
+        content: contentTrimmed,
         photos: photos ?? [],
       },
       include: {

@@ -31,20 +31,17 @@ export default function LoginScreen() {
     if (isSignUp && (plan === "sponsor" || plan === "seller")) {
       router.push(
         plan === "sponsor"
-          ? "/(auth)/signup-business"
-          : "/(auth)/signup-seller"
+          ? "/signup-business"
+          : "/signup-seller"
       );
       return;
     }
     if (isSignUp && plan === "subscribe") {
-      const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
-      const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-      const { Linking } = require("react-native");
-      Linking.openURL(`${siteBase}/signup?plan=subscribe`).catch(() => {});
+      router.push("/signup-resident");
       return;
     }
     router.push({
-      pathname: "/(auth)/signin",
+      pathname: "/signin",
       params: { plan, isSignUp: isSignUp ? "1" : "0" },
     });
   };
@@ -104,7 +101,7 @@ export default function LoginScreen() {
 
       {isSignUp && (
         <Text style={styles.signUpHint}>
-          Business and Seller sign up are done in the app. Resident sign up opens in your browser.
+          Choose your account type to get started.
         </Text>
       )}
     </ScrollView>

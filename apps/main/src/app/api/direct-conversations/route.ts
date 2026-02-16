@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
 function normalizePair(a: string, b: string): [string, string] {
@@ -100,11 +101,18 @@ export async function POST(req: NextRequest) {
   const hasContent = data.content !== undefined && data.content.trim() !== "";
   const hasShared = data.sharedContentType && data.sharedContentId;
   if (hasContent || hasShared) {
+    const contentTrimmed = (data.content ?? "").trim();
+    if (contentTrimmed) {
+      const contentCheck = validateText(contentTrimmed, "message");
+      if (!contentCheck.allowed) {
+        return NextResponse.json({ error: contentCheck.reason ?? "Message not allowed." }, { status: 400 });
+      }
+    }
     const message = await prisma.directMessage.create({
       data: {
         conversationId: conversation.id,
         senderId: session.user.id,
-        content: (data.content ?? "").trim(),
+        content: contentTrimmed,
         sharedContentType: data.sharedContentType ?? null,
         sharedContentId: data.sharedContentId ?? null,
         sharedContentSlug: data.sharedContentSlug ?? null,

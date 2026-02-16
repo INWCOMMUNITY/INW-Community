@@ -103,6 +103,7 @@ function RootLayoutNav() {
         <Stack.Screen name="event/[slug]" />
         <Stack.Screen name="cart" />
         <Stack.Screen name="business/[slug]" />
+        <Stack.Screen name="seller/[slug]" />
         <Stack.Screen name="coupons" />
         <Stack.Screen name="rewards" />
         <Stack.Screen name="profile-edit" />
@@ -117,6 +118,7 @@ function RootLayoutNav() {
         <Stack.Screen name="messages" options={{ headerShown: false }} />
         <Stack.Screen name="badges" />
         <Stack.Screen name="my-badges" />
+        <Stack.Screen name="my-sellers" />
         <Stack.Screen name="community" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>

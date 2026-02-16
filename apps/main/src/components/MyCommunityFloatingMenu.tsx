@@ -16,6 +16,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { href: "/my-community/groups", label: "Groups" },
   { divider: "My Hub" },
   { href: "/my-community/businesses", label: "My Businesses" },
+  { href: "/my-community/sellers", label: "My Sellers" },
   { href: "/my-community/events", label: "My Events" },
   { href: "/my-community/coupons", label: "My Coupons" },
   { href: "/my-community/wantlist", label: "My Wishlist" },

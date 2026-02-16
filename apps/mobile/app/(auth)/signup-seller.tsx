@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -10,33 +10,46 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiPost } from "@/lib/api";
+import { apiPost, apiPatch } from "@/lib/api";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { BusinessForm } from "@/components/BusinessForm";
-import { SellerForm } from "@/components/SellerForm";
+import { SubscriptionCheckoutWithFallback } from "@/components/SubscriptionCheckoutWithFallback";
 
-type Step = "account" | "business" | "seller";
+type Step = "account" | "business" | "contact" | "checkout";
 
 export default function SignupSellerScreen() {
   const router = useRouter();
-  const { refreshMember } = useAuth();
+  const { refreshMember, member } = useAuth();
+
+  useFocusEffect(
+    useCallback(() => {
+      if (step === "checkout" && member?.subscriptionPlan === "seller") {
+        router.replace("/(tabs)/my-community");
+      }
+    }, [step, member?.subscriptionPlan])
+  );
   const [step, setStep] = useState<Step>("account");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zip, setZip] = useState("");
+  const [businessData, setBusinessData] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [businessData, setBusinessData] = useState<Record<string, unknown> | null>(null);
 
   const handleAccountSubmit = async () => {
     setError("");
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password) {
-      setError("All fields are required.");
+    if (!email.trim() || !password) {
+      setError("Email and password are required.");
       return;
     }
     if (password.length < 8) {
@@ -48,8 +61,7 @@ export default function SignupSellerScreen() {
       await apiPost("/api/auth/signup", {
         email: email.trim().toLowerCase(),
         password,
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
+        signupIntent: "seller",
       });
       await signIn(email.trim(), password, "seller");
       await refreshMember();
@@ -76,28 +88,45 @@ export default function SignupSellerScreen() {
   const handleBusinessDraft = (data: Record<string, unknown>) => {
     setBusinessData(data);
     setError("");
-    setStep("seller");
+    setStep("contact");
   };
 
-  const handleSellerSubmit = async (data: {
-    phone?: string | null;
-    deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string } | null;
-  }) => {
-    setLoading(true);
+  const handleContactSubmit = async () => {
     setError("");
+    setLoading(true);
     try {
-      await apiPost("/api/auth/mobile-register-seller", {
-        ...data,
-        business: businessData ?? undefined,
-      });
-      await refreshMember();
-      router.replace("/(tabs)/my-community");
+      const deliveryAddress =
+        street.trim() || city.trim() || state.trim() || zip.trim()
+          ? {
+              street: street.trim() || undefined,
+              city: city.trim() || undefined,
+              state: state.trim() || undefined,
+              zip: zip.trim() || undefined,
+            }
+          : null;
+      const payload: Record<string, unknown> = {
+        phone: phone.trim() || null,
+        deliveryAddress,
+      };
+      if (firstName.trim()) payload.firstName = firstName.trim();
+      if (lastName.trim()) payload.lastName = lastName.trim();
+      await apiPatch("/api/me", payload);
+      setStep("checkout");
     } catch (e) {
       const err = e as { error?: string };
-      setError(err.error ?? "Registration failed. Try again.");
+      setError(err.error ?? "Failed to save info.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCheckoutSuccess = () => {
+    refreshMember()
+      .then(() => router.replace("/(tabs)/my-community"))
+      .catch((e) => {
+        if (__DEV__) console.warn("[handleCheckoutSuccess]", e);
+        router.replace("/(tabs)/my-community");
+      });
   };
 
   if (step === "account") {
@@ -116,22 +145,6 @@ export default function SignupSellerScreen() {
             Create your account to start selling on the Community Storefront.
           </Text>
           <View style={styles.form}>
-            <TextInput
-              style={styles.input}
-              placeholder="First name"
-              value={firstName}
-              onChangeText={setFirstName}
-              placeholderTextColor={theme.colors.placeholder}
-              autoCapitalize="words"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Last name"
-              value={lastName}
-              onChangeText={setLastName}
-              placeholderTextColor={theme.colors.placeholder}
-              autoCapitalize="words"
-            />
             <TextInput
               style={styles.input}
               placeholder="Email"
@@ -179,7 +192,7 @@ export default function SignupSellerScreen() {
         </Pressable>
         <Text style={styles.title}>Business Information</Text>
         <Text style={styles.subtitle}>
-          Add your business details for your storefront. You can edit these details later. Business must be noncorporate, located in Eastern Washington or North Idaho.
+          Add your business details for your storefront. You can edit these later. Business must be noncorporate, located in Eastern Washington or North Idaho.
         </Text>
         {error ? <Text style={styles.errorRed}>{error}</Text> : null}
         <BusinessForm
@@ -191,24 +204,122 @@ export default function SignupSellerScreen() {
     );
   }
 
-  // step === "seller"
-  return (
-    <View style={styles.container}>
-      <Pressable style={styles.back} onPress={() => setStep("business")}>
-        <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
-        <Text style={styles.backText}>Back</Text>
-      </Pressable>
-      <Text style={styles.title}>Seller Information</Text>
-      <Text style={styles.subtitle}>
-        Contact details for order fulfillment. You can update these later.
-      </Text>
-      <SellerForm
-        onSubmit={handleSellerSubmit}
-        loading={loading}
-        error={error}
-      />
-    </View>
-  );
+  if (step === "contact") {
+    return (
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <Pressable style={styles.back} onPress={() => setStep("business")}>
+          <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
+          <Text style={styles.backText}>Back</Text>
+        </Pressable>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.title}>Contact & Shipping</Text>
+          <Text style={styles.subtitle}>
+            Contact details for order fulfillment. All fields are optional. You can update these later.
+          </Text>
+          <View style={styles.form}>
+            <TextInput
+              style={styles.input}
+              placeholder="First name"
+              value={firstName}
+              onChangeText={setFirstName}
+              placeholderTextColor={theme.colors.placeholder}
+              autoCapitalize="words"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Last name"
+              value={lastName}
+              onChangeText={setLastName}
+              placeholderTextColor={theme.colors.placeholder}
+              autoCapitalize="words"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Phone"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              placeholderTextColor={theme.colors.placeholder}
+            />
+            <Text style={styles.sectionLabel}>Shipping address (optional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Street"
+              value={street}
+              onChangeText={setStreet}
+              placeholderTextColor={theme.colors.placeholder}
+            />
+            <View style={styles.row}>
+              <TextInput
+                style={[styles.input, styles.inputHalf]}
+                placeholder="City"
+                value={city}
+                onChangeText={setCity}
+                placeholderTextColor={theme.colors.placeholder}
+              />
+              <TextInput
+                style={[styles.input, styles.inputQuarter]}
+                placeholder="State"
+                value={state}
+                onChangeText={setState}
+                placeholderTextColor={theme.colors.placeholder}
+                autoCapitalize="characters"
+              />
+              <TextInput
+                style={[styles.input, styles.inputQuarter]}
+                placeholder="ZIP"
+                value={zip}
+                onChangeText={setZip}
+                keyboardType="number-pad"
+                placeholderTextColor={theme.colors.placeholder}
+              />
+            </View>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Pressable
+              style={({ pressed }) => [
+                styles.button,
+                (loading || pressed) && styles.buttonDisabled,
+              ]}
+              onPress={handleContactSubmit}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Continue to Checkout</Text>
+              )}
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  if (step === "checkout") {
+    return (
+      <View style={styles.container}>
+        <Pressable style={styles.back} onPress={() => setStep("contact")}>
+          <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
+          <Text style={styles.backText}>Back</Text>
+        </Pressable>
+        <Text style={styles.title}>Complete Subscription</Text>
+        <Text style={styles.subtitle}>
+          Subscribe as a Seller to list items on the Community Storefront. You can cancel anytime.
+        </Text>
+        <SubscriptionCheckoutWithFallback
+          planId="seller"
+          businessData={businessData ?? undefined}
+          onSuccess={handleCheckoutSuccess}
+          refreshMember={refreshMember}
+        />
+      </View>
+    );
+  }
+
+  return null;
 }
 
 const styles = StyleSheet.create({
@@ -244,6 +355,13 @@ const styles = StyleSheet.create({
     borderColor: "#000",
     backgroundColor: theme.colors.primary,
   },
+  sectionLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+    marginTop: 16,
+    marginBottom: 8,
+  },
   input: {
     borderWidth: 2,
     borderColor: "#000",
@@ -254,6 +372,9 @@ const styles = StyleSheet.create({
     color: "#000",
     backgroundColor: "#fff",
   },
+  row: { flexDirection: "row", gap: 8 },
+  inputHalf: { flex: 1 },
+  inputQuarter: { flex: 0.5 },
   error: {
     color: "#fff",
     marginBottom: 12,
@@ -269,7 +390,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: "center",
     borderRadius: 4,
-    marginTop: 8,
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: {

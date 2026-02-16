@@ -11,7 +11,7 @@ const SELLER_BENEFITS = [
   { title: "Sell on Our Storefront", description: "List your products on the NWC online store. Shoppers can buy from you directly, and you get paid.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[1]), imageAlt: "NWC storefront" },
   { title: "No Percentage Cuts", description: "NWC does not take a percentage of your sales. You keep what you earn from items sold through our platform.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[2]), imageAlt: "Sell local" },
   { title: "Shop Local, Online", description: "Make it easy for people to support local from home. Your products reach customers who want to buy from Inland Northwest businesses.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[3]), imageAlt: "Support local" },
-  { title: "60-Day Free Trial", description: "Try selling on our storefront risk-free. See how it works for your business before committing.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
+  { title: "Full Access From Day One", description: "List your products and start selling on our storefront as soon as you sign up. No waiting period—get started right away.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
 ];
 
 export default function SellNWCPage() {

@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     const { email, password, plan } = body;
 
     if (!email || !password || typeof email !== "string" || typeof password !== "string") {
-      return NextResponse.json({ error: "Email and password required" }, { status: 400 });
+      return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
     }
 
     const validPlan = plan && PLANS.includes(plan) ? (plan as SubscriptionPlan) : undefined;

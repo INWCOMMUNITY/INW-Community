@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
 const hoursSchema = z.record(z.string()).nullable().optional();
@@ -12,6 +13,7 @@ const bodySchema = z.object({
   phone: z.string().nullable().optional(),
   email: z.string().nullable().optional().transform((v) => v || null),
   logoUrl: z.string().nullable().optional().transform((v) => v || null),
+  coverPhotoUrl: z.string().nullable().optional().transform((v) => v || null),
   address: z.string().nullable().optional(),
   city: z.string().nullable().optional(),
   categories: z.array(z.string()).max(2).optional(),
@@ -44,6 +46,7 @@ export async function GET(
     phone: business.phone,
     email: business.email,
     logoUrl: business.logoUrl,
+    coverPhotoUrl: business.coverPhotoUrl,
     address: business.address,
     city: business.city,
     categories: business.categories,
@@ -75,6 +78,12 @@ export async function PATCH(
       email: body.email ?? null,
       logoUrl: body.logoUrl ?? null,
     });
+    if (data.name != null && data.name.trim()) {
+      const nameCheck = validateText(data.name, "business_name");
+      if (!nameCheck.allowed) {
+        return NextResponse.json({ error: nameCheck.reason ?? "Invalid business name." }, { status: 400 });
+      }
+    }
     await prisma.business.update({
       where: { id },
       data: {
@@ -85,6 +94,7 @@ export async function PATCH(
         ...(data.phone !== undefined && { phone: data.phone }),
         ...(data.email !== undefined && { email: data.email }),
         ...(data.logoUrl !== undefined && { logoUrl: data.logoUrl }),
+        ...(data.coverPhotoUrl !== undefined && { coverPhotoUrl: data.coverPhotoUrl }),
         ...(data.address !== undefined && { address: data.address }),
         ...(data.city !== undefined && { city: data.city }),
         ...(data.categories !== undefined && { categories: data.categories }),

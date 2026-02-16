@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SupportLocalGallery } from "@/components/SupportLocalGallery";
+import { NWCSellersGallery } from "@/components/NWCSellersGallery";
 import { WIX_IMG } from "@/lib/wix-media";
 
 /** Header photo from https://www.pnwcommunity.com/gallery (background.jpg – current gallery image, original size) */
@@ -61,6 +62,18 @@ export default function SupportLocalPage() {
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] mx-auto">
           <SupportLocalGallery />
+        </div>
+      </section>
+
+      <section className="py-12 px-4 border-t-2 border-[var(--color-secondary)]" style={{ padding: "var(--section-padding)", backgroundColor: "#f8e7c9" }}>
+        <div className="max-w-[var(--max-width)] mx-auto">
+          <h2 className="text-xl sm:text-2xl font-bold mb-6" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
+            NWC Sellers
+          </h2>
+          <p className="mb-8 leading-relaxed opacity-90" style={{ color: "#000" }}>
+            Shop from our community sellers. Browse their storefronts and find unique items from local businesses.
+          </p>
+          <NWCSellersGallery />
         </div>
       </section>
     </>

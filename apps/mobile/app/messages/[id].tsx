@@ -53,6 +53,7 @@ interface DirectConversation {
     sharedBusiness?: SharedBusiness;
     likeCount?: number;
     liked?: boolean;
+    likedBy?: { id: string; profilePhotoUrl: string | null; firstName: string }[];
     sender?: { id: string; firstName: string; lastName: string };
   }>;
 }
@@ -430,8 +431,33 @@ export default function DirectConversationScreen() {
                 ) : null}
                 {(item.likeCount ?? 0) > 0 && (
                   <View style={styles.likedBadge}>
-                    <Ionicons name="heart" size={12} color={theme.colors.primary} />
-                    <Text style={styles.likedCount}>{item.likeCount}</Text>
+                    {(() => {
+                      const heartColor = isMe ? "#fff" : theme.colors.primary;
+                      return item.likedBy && item.likedBy.length > 0 ? (
+                        <>
+                          {item.likedBy.slice(0, 3).map((u, idx) => (
+                            <View key={u.id} style={[styles.likerAvatarWrap, idx > 0 && { marginLeft: -8 }]}>
+                              {u.profilePhotoUrl ? (
+                                <Image
+                                  source={{ uri: resolvePhotoUrl(u.profilePhotoUrl) ?? u.profilePhotoUrl }}
+                                  style={[styles.likerAvatar, isMe && { borderColor: "#fff" }]}
+                                />
+                              ) : (
+                                <View style={[styles.likerAvatar, styles.likerAvatarPlaceholder, isMe && { borderColor: "#fff" }]}>
+                                  <Ionicons name="person" size={8} color={heartColor} />
+                                </View>
+                              )}
+                            </View>
+                          ))}
+                          <Ionicons name="heart" size={14} color={heartColor} style={styles.likedHeart} />
+                        </>
+                      ) : (
+                        <>
+                          <Ionicons name="heart" size={12} color={heartColor} />
+                          <Text style={[styles.likedCount, { color: heartColor }]}>{item.likeCount}</Text>
+                        </>
+                      );
+                    })()}
                   </View>
                 )}
                 </View>
@@ -527,7 +553,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     marginTop: 6,
+    flexWrap: "wrap",
   },
+  likerAvatarWrap: { marginLeft: -6 },
+  likerAvatar: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#fff",
+  },
+  likerAvatarPlaceholder: {
+    backgroundColor: theme.colors.creamAlt,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  likedHeart: { marginLeft: 2 },
   likedCount: { fontSize: 11, color: theme.colors.primary },
   bubbleText: { fontSize: 16, color: theme.colors.heading },
   bubbleTextMe: { color: "#fff" },

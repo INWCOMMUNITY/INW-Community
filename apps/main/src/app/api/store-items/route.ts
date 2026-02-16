@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
 function slugify(s: string): string {
@@ -326,6 +327,23 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (containsProhibitedCategory(data.title, data.category ?? null, data.description ?? null)) {
+    return NextResponse.json(
+      { error: "This category or product type is not allowed on our platform." },
+      { status: 400 }
+    );
+  }
+  const titleCheck = validateText(data.title, "product_title");
+  if (!titleCheck.allowed) {
+    return NextResponse.json({ error: titleCheck.reason ?? "Invalid title." }, { status: 400 });
+  }
+  if (data.description) {
+    const descCheck = validateText(data.description, "product_description");
+    if (!descCheck.allowed) {
+      return NextResponse.json({ error: descCheck.reason ?? "Invalid description." }, { status: 400 });
+    }
+  }
+
   try {
     const slug = uniqueSlug(slugify(data.title));
     const priceCents = Number(data.priceCents);
@@ -364,6 +382,16 @@ export async function POST(req: NextRequest) {
     });
     const { awardNwcSellerBadge } = await import("@/lib/badge-award");
     awardNwcSellerBadge(item.memberId).catch(() => {});
+    // Auto-post to feed so followers of seller see new listings
+    prisma.post
+      .create({
+        data: {
+          type: "shared_store_item",
+          authorId: userId,
+          sourceStoreItemId: item.id,
+        },
+      })
+      .catch((err) => console.error("[store-items] Auto-post failed:", err));
     return NextResponse.json(item);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Database error";

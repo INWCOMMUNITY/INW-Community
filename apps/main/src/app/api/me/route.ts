@@ -167,7 +167,9 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: e.flatten() }, { status: 400 });
+      const first = e.errors[0];
+      const msg = first?.message ?? "Please check your input.";
+      return NextResponse.json({ error: msg }, { status: 400 });
     }
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }

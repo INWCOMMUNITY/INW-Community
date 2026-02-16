@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
 export async function GET(req: NextRequest) {
@@ -150,6 +151,10 @@ export async function POST(req: NextRequest) {
       email: body.email || null,
       logoUrl: body.logoUrl || null,
     });
+    const nameCheck = validateText(data.name, "business_name");
+    if (!nameCheck.allowed) {
+      return NextResponse.json({ error: nameCheck.reason ?? "Invalid business name." }, { status: 400 });
+    }
     let slug = slugify(data.name);
     let suffix = 0;
     while (await prisma.business.findUnique({ where: { slug } })) {

@@ -59,6 +59,7 @@ model Member {
   friendRequestsReceived FriendRequest[] @relation("FriendRequestAddressee")
   following        Follow[] @relation("FollowFollower")
   followers        Follow[] @relation("FollowFollowing")
+  followBusinesses FollowBusiness[]
   groupsCreated    Group[] @relation("GroupCreator")
   groupMemberships GroupMember[]
   groupAdminInvites GroupMember[] @relation("GroupAdminInvites")
@@ -82,10 +83,12 @@ model Member {
   directConversationsAsA DirectConversation[] @relation("DirectConversationMemberA")
   directConversationsAsB DirectConversation[] @relation("DirectConversationMemberB")
   directMessagesSent DirectMessage[]
-  directMessageLikes  DirectMessageLike[]
+  directMessageLikes    DirectMessageLike[]
+  directMessageReactions DirectMessageReaction[]
   groupConversationMemberships GroupConversationMember[]
   groupConversationsCreated GroupConversation[]
   groupConversationMessagesSent GroupConversationMessage[]
+  groupConversationMessageReactions GroupConversationMessageReaction[]
   nwcRequests NwcRequest[]
   memberBadges MemberBadge[]
   referralLinks ReferralLink[]
@@ -186,10 +189,12 @@ model Business {
   hoursOfOperation Json?   @map("hours_of_operation") // { sunday: "CLOSED", monday: "9:30-5:00", ... }
   slug             String   @unique
   photos           String[] // JSON array of URLs
+  coverPhotoUrl    String?  @map("cover_photo_url") // Seller storefront backdrop (Facebook-style cover)
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  followBusinesses FollowBusiness[]
   coupons  Coupon[]
   events   Event[]
   rewards  Reward[]
@@ -366,6 +371,21 @@ model Follow {
 
   @@unique([followerId, followingId])
   @@index([followingId])
+}
+
+// Follow seller storefronts (businesses)
+model FollowBusiness {
+  id          String   @id @default(cuid())
+  memberId    String   @map("member_id")
+  businessId  String   @map("business_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, businessId])
+  @@index([businessId])
+  @@map("follow_business")
 }
 
 // Community groups
@@ -851,6 +871,7 @@ model DirectMessage {
   conversation DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       Member             @relation(fields: [senderId], references: [id], onDelete: Cascade)
   likes        DirectMessageLike[]
+  reactions    DirectMessageReaction[]
 
   @@index([conversationId])
   @@map("direct_message")
@@ -868,6 +889,21 @@ model DirectMessageLike {
   @@unique([messageId, memberId])
   @@index([memberId])
   @@map("direct_message_like")
+}
+
+model DirectMessageReaction {
+  id        String   @id @default(cuid())
+  messageId String   @map("message_id")
+  memberId  String   @map("member_id")
+  emoji     String   // heart | thumbsup | laugh | etc.
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message DirectMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  member  Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, memberId, emoji])
+  @@index([memberId])
+  @@map("direct_message_reaction")
 }
 
 // Group chat - multiple members
@@ -911,9 +947,25 @@ model GroupConversationMessage {
 
   conversation GroupConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       Member            @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  reactions    GroupConversationMessageReaction[]
 
   @@index([conversationId])
   @@map("group_conversation_message")
+}
+
+model GroupConversationMessageReaction {
+  id        String   @id @default(cuid())
+  messageId String   @map("message_id")
+  memberId  String   @map("member_id")
+  emoji     String   // heart | thumbsup | laugh | etc.
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message GroupConversationMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  member  Member                   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, memberId, emoji])
+  @@index([memberId])
+  @@map("group_conversation_message_reaction")
 }
 
 // QR scan tracking - one scan per member per business per day

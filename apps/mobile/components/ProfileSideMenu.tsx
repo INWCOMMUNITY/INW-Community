@@ -105,6 +105,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
 
   const items: NavItem[] = [
     { href: "/messages", label: "Inbox" },
+    { href: "/my-sellers", label: "My Sellers" },
     { href: "/my-badges", label: "My Badges" },
     { href: "invite:friends", label: "Invite Friends" },
     {

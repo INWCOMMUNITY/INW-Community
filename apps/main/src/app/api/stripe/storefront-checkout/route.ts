@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 const PLATFORM_FEE_PERCENT = 0.05; // 5%
@@ -225,14 +226,19 @@ export async function POST(req: NextRequest) {
       : `${BASE_URL}/storefront/order-success?session_id={CHECKOUT_SESSION_ID}`;
 
   try {
-    const checkoutSession = await stripe.checkout.sessions.create({
-      mode: "payment",
+    const branding = getStripeCheckoutBranding();
+    const createParams = {
+      mode: "payment" as const,
       line_items: lineItems,
-      payment_method_types: ["card"],
+      payment_method_types: ["card"] as const,
       success_url: successUrl,
       cancel_url: `${BASE_URL}/storefront?canceled=1`,
       metadata: { orderIds: orderIds.join(",") },
-    });
+      ...(branding && { branding_settings: branding }),
+    };
+    const checkoutSession = await stripe.checkout.sessions.create(
+      createParams as Stripe.Checkout.SessionCreateParams
+    );
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (e) {

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe } from "@stripe/stripe-js/pure";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
 const CHECKOUT_STORAGE_KEY = "storefront_checkout";
@@ -106,7 +106,14 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-    if (key) setStripePromise(loadStripe(key));
+    if (!key) return;
+    // Use pure import + setLoadParameters to avoid loading crypto/onramp modules that can throw
+    if (typeof loadStripe.setLoadParameters === "function") {
+      loadStripe.setLoadParameters({ advancedFraudSignals: false });
+    }
+    loadStripe(key).then(setStripePromise).catch((err) => {
+      console.warn("Stripe failed to load:", err);
+    });
   }, []);
 
   if (!data) {

@@ -11,7 +11,7 @@ type HoursRecord = Partial<Record<(typeof DAYS)[number], string>>;
 interface BusinessFormProps {
   existing?: Pick<
     Business,
-    "id" | "name" | "shortDescription" | "fullDescription" | "website" | "phone" | "email" | "logoUrl" | "address" | "city" | "categories" | "photos" | "hoursOfOperation"
+    "id" | "name" | "shortDescription" | "fullDescription" | "website" | "phone" | "email" | "logoUrl" | "coverPhotoUrl" | "address" | "city" | "categories" | "photos" | "hoursOfOperation"
   >;
 }
 
@@ -34,6 +34,8 @@ export function BusinessForm({ existing }: BusinessFormProps) {
   const [phone, setPhone] = useState(existing?.phone ?? "");
   const [email, setEmail] = useState(existing?.email ?? "");
   const [logoUrl, setLogoUrl] = useState(existing?.logoUrl ?? "");
+  const [coverPhotoUrl, setCoverPhotoUrl] = useState("coverPhotoUrl" in (existing ?? {}) ? (existing as { coverPhotoUrl?: string }).coverPhotoUrl ?? "" : "");
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [address, setAddress] = useState("address" in (existing ?? {}) ? (existing as { address?: string }).address ?? "" : "");
   const [city, setCity] = useState(existing?.city ?? "");
   const [categories, setCategories] = useState<string[]>(() => {
@@ -73,6 +75,21 @@ export function BusinessForm({ existing }: BusinessFormProps) {
       setError(err instanceof Error ? err.message : "Logo upload failed");
     } finally {
       setUploadingLogo(false);
+      e.target.value = "";
+    }
+  }
+
+  async function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingCover(true);
+    try {
+      const url = await uploadFile(file);
+      setCoverPhotoUrl(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cover upload failed");
+    } finally {
+      setUploadingCover(false);
       e.target.value = "";
     }
   }
@@ -134,6 +151,7 @@ export function BusinessForm({ existing }: BusinessFormProps) {
           phone: phone || null,
           email: email || null,
           logoUrl: logoUrl || null,
+          coverPhotoUrl: coverPhotoUrl || null,
           address: address || null,
           city: city || null,
           categories: cats,
@@ -248,6 +266,39 @@ export function BusinessForm({ existing }: BusinessFormProps) {
         </div>
         <p className="text-xs text-gray-500 mt-1">Upload from your device or camera. Max 40MB. JPEG, PNG, WebP, GIF.</p>
       </div>
+      {existing && (
+        <div>
+          <label className="block text-sm font-medium mb-1">Storefront cover photo (optional)</label>
+          <p className="text-xs text-gray-500 mb-2">Facebook-style backdrop for your seller storefront page. Recommended 820×312 px.</p>
+          <div className="flex items-center gap-4">
+            {coverPhotoUrl && (
+              <div className="relative">
+                <img src={coverPhotoUrl} alt="Cover preview" className="w-40 h-24 object-cover border rounded" />
+                <button
+                  type="button"
+                  onClick={() => setCoverPhotoUrl("")}
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs leading-none"
+                  aria-label="Remove cover"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            <label className="cursor-pointer">
+              <span className="inline-block px-4 py-2 border rounded hover:bg-gray-100">
+                {uploadingCover ? "Uploading…" : coverPhotoUrl ? "Change cover" : "Upload cover"}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleCoverChange}
+                disabled={uploadingCover}
+                className="sr-only"
+              />
+            </label>
+          </div>
+        </div>
+      )}
       <div>
         <label className="block text-sm font-medium mb-1">Address *</label>
         <input

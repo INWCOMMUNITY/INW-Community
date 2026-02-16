@@ -12,7 +12,6 @@ const PLANS = [
     interval: "month",
     description:
       "This plan helps support our business and what we do, as well as provides access to our coupons, access to exclusive groups, and gets you exclusive hints in our scavenger hunts!",
-    trialDays: 0,
     highlight: true,
     imagePath: "2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg/v1/fill/w_147,h_95,al_c,q_80,usm_0.66_1.00_0.01,blur_2,enc_avif,quality_auto/2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg",
   },
@@ -23,7 +22,6 @@ const PLANS = [
     interval: "month",
     description:
       "Join Northwest Community's Local Business Directory. Offer coupons, post events on our calendar, and gain visibility through the events NWC will put on.",
-    trialDays: 45,
     highlight: true,
     imagePath: "2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg/v1/fill/w_147,h_74,al_c,q_80,usm_0.66_1.00_0.01,blur_2,enc_avif,quality_auto/2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg",
   },
@@ -34,7 +32,6 @@ const PLANS = [
     interval: "month",
     description:
       "Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid, without NWC taking personal percentages from your sold items.",
-    trialDays: 60,
     highlight: true,
     imagePath: "2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg/v1/fill/w_147,h_74,al_c,q_80,usm_0.66_1.00_0.01,blur_2,enc_avif,quality_auto/2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg",
   },
@@ -49,11 +46,17 @@ export function Plans() {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({ planId, interval: "monthly" }),
       });
       const data = await res.json().catch(() => ({}));
       if (data.url) {
         window.location.href = data.url;
+        return;
+      }
+      if (res.status === 401) {
+        window.location.href = `/login?callbackUrl=${encodeURIComponent(
+          typeof window !== "undefined" ? window.location.pathname : "/support-nwc"
+        )}`;
         return;
       }
       setLoading(null);
@@ -90,9 +93,6 @@ export function Plans() {
             <span className="text-base font-normal text-gray-600"> / {plan.interval}</span>
           </p>
           <p className="text-sm mb-4 opacity-90">{plan.description}</p>
-          {plan.trialDays > 0 && (
-            <p className="text-sm mb-2" style={{ color: "var(--color-secondary)" }}>{plan.trialDays} day free trial</p>
-          )}
           <p className="text-xs opacity-70 mb-4">Valid until canceled</p>
           <button
             type="button"

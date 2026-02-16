@@ -11,10 +11,14 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(new URL(req.url).searchParams.get("limit") ?? "30", 10) || 30, 100);
   const cursor = new URL(req.url).searchParams.get("cursor") ?? undefined;
 
-  const [followed, friendships, myGroups, followedTags] = await Promise.all([
+  const [followed, followBusinesses, friendships, myGroups, followedTags] = await Promise.all([
     prisma.follow.findMany({
       where: { followerId: session.user.id },
       select: { followingId: true },
+    }),
+    prisma.followBusiness.findMany({
+      where: { memberId: session.user.id },
+      select: { business: { select: { memberId: true } } },
     }),
     prisma.friendRequest.findMany({
       where: {
@@ -36,13 +40,21 @@ export async function GET(req: NextRequest) {
   ]);
 
   const followingIds = followed.map((f) => f.followingId);
+  const followBusinessAuthorIds = followBusinesses
+    .map((fb) => fb.business?.memberId)
+    .filter(Boolean) as string[];
   const friendIds = [...new Set(
     friendships.flatMap((f) =>
       f.requesterId === session.user.id ? f.addresseeId : f.requesterId
     )
   )];
   const groupIds = myGroups.map((g) => g.groupId);
-  const authorIds = new Set([session.user.id, ...followingIds, ...friendIds]);
+  const authorIds = new Set([
+    session.user.id,
+    ...followingIds,
+    ...friendIds,
+    ...followBusinessAuthorIds,
+  ]);
   const followedTagIds = followedTags.map((f) => f.tagId);
 
   let sharedBlogIdsWithFollowedTags: string[] = [];

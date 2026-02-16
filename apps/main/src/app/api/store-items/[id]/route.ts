@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -107,6 +108,26 @@ export async function PATCH(
       { error: "When 'only local delivery/pickup' is on, enable at least local delivery or pickup." },
       { status: 400 }
     );
+  }
+
+  const title = data.title !== undefined ? data.title : existing.title;
+  const description = data.description !== undefined ? data.description : existing.description;
+  const category = data.category !== undefined ? data.category : existing.category;
+  if (containsProhibitedCategory(title, category, description)) {
+    return NextResponse.json(
+      { error: "This category or product type is not allowed on our platform." },
+      { status: 400 }
+    );
+  }
+  const titleCheck = validateText(title, "product_title");
+  if (!titleCheck.allowed) {
+    return NextResponse.json({ error: titleCheck.reason ?? "Invalid title." }, { status: 400 });
+  }
+  if (description) {
+    const descCheck = validateText(description, "product_description");
+    if (!descCheck.allowed) {
+      return NextResponse.json({ error: descCheck.reason ?? "Invalid description." }, { status: 400 });
+    }
   }
 
   const update: Record<string, unknown> = {};

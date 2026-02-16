@@ -7,9 +7,20 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
 });
 
-const PLANS: Record<string, { priceId: string; trialDays?: number }> = {
-  sponsor: { priceId: process.env.STRIPE_PRICE_SPONSOR ?? "", trialDays: 45 },
-  seller: { priceId: process.env.STRIPE_PRICE_SELLER ?? "", trialDays: 60 },
+type BillingInterval = "monthly" | "yearly";
+
+const PLANS: Record<
+  string,
+  { priceId: string; priceIdYearly?: string }
+> = {
+  sponsor: {
+    priceId: process.env.STRIPE_PRICE_SPONSOR ?? "",
+    priceIdYearly: process.env.STRIPE_PRICE_SPONSOR_YEARLY ?? "",
+  },
+  seller: {
+    priceId: process.env.STRIPE_PRICE_SELLER ?? "",
+    priceIdYearly: process.env.STRIPE_PRICE_SELLER_YEARLY ?? "",
+  },
 };
 
 function slugify(s: string): string {
@@ -94,12 +105,14 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const planId = body.planId as string;
+    const interval = (body.interval as BillingInterval) || "monthly";
     const businessData = body.businessData as Record<string, unknown> | undefined;
 
     const plan = PLANS[planId];
-    if (!plan?.priceId) {
+    const priceId = interval === "yearly" && plan?.priceIdYearly ? plan.priceIdYearly : plan?.priceId;
+    if (!priceId) {
       return NextResponse.json(
-        { error: "Invalid plan or Stripe not configured" },
+        { error: interval === "yearly" ? "Yearly plan not configured" : "Invalid plan or Stripe not configured" },
         { status: 400 }
       );
     }
@@ -146,7 +159,7 @@ export async function POST(req: NextRequest) {
 
     const subscriptionParams: Stripe.SubscriptionCreateParams = {
       customer: customerId,
-      items: [{ price: plan.priceId, quantity: 1 }],
+      items: [{ price: priceId, quantity: 1 }],
       payment_behavior: "default_incomplete",
       payment_settings: { save_default_payment_method: "on_subscription" },
       expand: ["latest_invoice"],
@@ -159,9 +172,6 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    if (plan.trialDays && plan.trialDays > 0) {
-      subscriptionParams.trial_period_days = plan.trialDays;
-    }
 
     const subscription = await stripe.subscriptions.create(subscriptionParams);
 
@@ -193,7 +203,11 @@ export async function POST(req: NextRequest) {
             status: "active",
           },
         });
-        if (planId === "sponsor" && businessData && typeof businessData === "object") {
+        if (
+          (planId === "sponsor" || planId === "seller") &&
+          businessData &&
+          typeof businessData === "object"
+        ) {
           try {
             await createBusinessFromDraft(session.user.id, businessData);
           } catch (bErr) {
@@ -212,10 +226,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const ephemeralKey = await stripe.ephemeralKeys.create(
-      { customer: customerId },
-      { apiVersion: "2024-11-20.acacia" }
-    );
+    const ephemeralKey = await stripe.ephemeralKeys.create({
+      customer: customerId,
+    });
 
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,

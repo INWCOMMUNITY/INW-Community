@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { WIX_IMG } from "@/lib/wix-media";
@@ -8,10 +11,9 @@ const PLANS = [
     id: "subscribe",
     name: "Northwest Community Subscription",
     price: 10,
-    interval: "month",
+    priceYearly: 100,
     description:
       "This plan helps support our business and what we do, as well as provides access to our coupons, access to exclusive groups, and gets you exclusive hints in our scavenger hunts!",
-    trialDays: 0,
     imagePath: "2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg",
     benefitsHref: "/subscribe-nwc",
     benefitsLabel: "Subscriber Benefits",
@@ -19,11 +21,10 @@ const PLANS = [
   {
     id: "sponsor",
     name: "Northwest Community Sponsor",
-    price: 20,
-    interval: "month",
+    price: 25,
+    priceYearly: 250,
     description:
       "Join Northwest Community's Local Business Directory. Offer coupons, post events on our calendar, and gain visibility through the events NWC will put on.",
-    trialDays: 45,
     imagePath: "2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg",
     benefitsHref: "/sponsor-nwc",
     benefitsLabel: "Sponsor Benefits",
@@ -31,11 +32,10 @@ const PLANS = [
   {
     id: "seller",
     name: "Northwest Community Seller",
-    price: 30,
-    interval: "month",
+    price: 40,
+    priceYearly: 400,
     description:
       "Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid, without NWC taking personal percentages from your sold items.",
-    trialDays: 60,
     imagePath: "2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg",
     benefitsHref: "/sell-nwc",
     benefitsLabel: "Seller Benefits",
@@ -43,6 +43,8 @@ const PLANS = [
 ];
 
 export default function SupportNWCInfoPage() {
+  const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
+
   return (
     <>
     <section className="py-12 px-6 md:px-4" style={{ padding: "var(--section-padding)" }}>
@@ -62,6 +64,31 @@ export default function SupportNWCInfoPage() {
           <p className="text-xl opacity-80 max-w-2xl mx-auto">
             Northwest Community is a local hub for the Inland Northwest—Spokane, Kootenai County, and beyond. Choose the plan that fits you below. Each subscription supports our mission and comes with real benefits.
           </p>
+
+          <div className="flex justify-center gap-2 mt-6">
+            <button
+              type="button"
+              onClick={() => setInterval("monthly")}
+              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                interval === "monthly"
+                  ? "bg-[var(--color-primary)] text-white"
+                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setInterval("yearly")}
+              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                interval === "yearly"
+                  ? "bg-[var(--color-primary)] text-white"
+                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
+            >
+              Yearly
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
@@ -82,19 +109,22 @@ export default function SupportNWCInfoPage() {
               <h2 className="text-xl font-bold mb-2 text-gray-900">
                 {plan.name}
               </h2>
-              <p className="text-3xl font-bold mb-1 text-gray-900">
-                ${plan.price}
-                <span className="text-base font-normal opacity-80 text-gray-700"> / Every month</span>
-              </p>
-              <p className="text-sm mb-3 opacity-90 text-gray-900">{plan.description}</p>
-              <p className="text-xs opacity-70 mb-2 text-gray-700">Valid until canceled</p>
-              {plan.trialDays > 0 && (
-                <p className="text-sm mb-3 text-gray-800">
-                  {plan.trialDays} day free trial
+              {interval === "monthly" ? (
+                <p className="text-3xl font-bold mb-1 text-gray-900">
+                  ${plan.price}
+                  <span className="text-base font-normal opacity-80 text-gray-700"> / month</span>
+                </p>
+              ) : (
+                <p className="text-3xl font-bold mb-1 text-gray-900">
+                  ${plan.priceYearly}
+                  <span className="text-base font-normal opacity-80 text-gray-700"> / year</span>
                 </p>
               )}
+              <p className="text-sm mb-3 opacity-90 text-gray-900">{plan.description}</p>
+              <p className="text-xs opacity-70 mb-2 text-gray-700">Valid until canceled</p>
               <CheckoutButton
                 planId={plan.id}
+                interval={interval}
                 className="btn w-full text-center inline-block mb-4"
               >
                 Subscribe

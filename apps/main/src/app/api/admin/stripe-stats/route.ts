@@ -13,6 +13,9 @@ const PRICE_IDS = [
   process.env.STRIPE_PRICE_SUBSCRIBE,
   process.env.STRIPE_PRICE_SPONSOR,
   process.env.STRIPE_PRICE_SELLER,
+  process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY,
+  process.env.STRIPE_PRICE_SPONSOR_YEARLY,
+  process.env.STRIPE_PRICE_SELLER_YEARLY,
 ].filter(Boolean) as string[];
 
 function startOfMonth(d: Date) {

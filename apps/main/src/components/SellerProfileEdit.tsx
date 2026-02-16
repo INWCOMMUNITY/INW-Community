@@ -26,6 +26,7 @@ interface SellerProfileEditProps {
       website: string | null;
       address: string | null;
       logoUrl: string | null;
+      coverPhotoUrl?: string | null;
       slug: string;
     } | null;
     sellerLocalDeliveryPolicy?: string | null;
@@ -51,6 +52,8 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
   const [returnPolicy, setReturnPolicy] = useState("");
   const [packingSlipNote, setPackingSlipNote] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -63,6 +66,8 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
       setFullDescription(profile.business.fullDescription ?? "");
       setWebsite(profile.business.website ?? "");
       setAddress(profile.business.address ?? "");
+      setLogoUrl(profile.business.logoUrl ?? "");
+      setCoverPhotoUrl((profile.business as { coverPhotoUrl?: string | null }).coverPhotoUrl ?? "");
     }
     if (profile) {
       setLocalDeliveryPolicy(
@@ -97,6 +102,7 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
             website: website.trim() || null,
             address: address.trim() || null,
             logoUrl: logoUrl.trim() || null,
+            coverPhotoUrl: coverPhotoUrl.trim() || null,
           },
           sellerLocalDeliveryPolicy: localDeliveryPolicy.trim() || null,
           sellerPickupPolicy: pickupPolicy.trim() || null,
@@ -169,6 +175,41 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+          <div className="min-w-0">
+            <label className="block text-sm font-medium mb-1">Storefront Cover Photo</label>
+            <p className="text-xs text-gray-500 mb-2">Facebook-style backdrop for your seller storefront. Recommended 820×312 px.</p>
+            <div className="flex items-center gap-4">
+              {coverPhotoUrl ? (
+                <div className="relative">
+                  <img src={coverPhotoUrl} alt="Cover" className="w-40 h-24 object-cover border rounded" />
+                  <button type="button" onClick={() => setCoverPhotoUrl("")} className="text-red-600 text-sm mt-1 hover:underline">
+                    Remove
+                  </button>
+                </div>
+              ) : null}
+              <input
+                type="file"
+                accept="image/*"
+                disabled={uploadingCover}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadingCover(true);
+                  setError("");
+                  try {
+                    const url = await uploadFile(file);
+                    setCoverPhotoUrl(url);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Upload failed");
+                  } finally {
+                    setUploadingCover(false);
+                    e.target.value = "";
+                  }
+                }}
+                className="text-sm"
+              />
             </div>
           </div>
           <div className="min-w-0">

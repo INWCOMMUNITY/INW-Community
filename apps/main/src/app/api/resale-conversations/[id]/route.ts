@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
 const postBodySchema = z.object({
@@ -70,11 +71,17 @@ export async function POST(
     return NextResponse.json({ error: String(msg) }, { status: 400 });
   }
 
+  const contentTrimmed = data.content.trim();
+  const contentCheck = validateText(contentTrimmed, "message");
+  if (!contentCheck.allowed) {
+    return NextResponse.json({ error: contentCheck.reason ?? "Message not allowed." }, { status: 400 });
+  }
+
   const message = await prisma.resaleMessage.create({
     data: {
       conversationId: id,
       senderId: session.user.id,
-      content: data.content.trim(),
+      content: contentTrimmed,
     },
     include: { sender: { select: { id: true, firstName: true, lastName: true } } },
   });

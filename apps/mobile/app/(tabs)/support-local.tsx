@@ -15,6 +15,7 @@ import {
   Easing,
   Platform,
   UIManager,
+  Modal,
 } from "react-native";
 import { useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,21 +47,39 @@ interface Business {
   logoUrl: string | null;
 }
 
+interface Seller {
+  id: string;
+  name: string;
+  slug: string;
+  shortDescription: string | null;
+  address: string | null;
+  city: string | null;
+  categories: string[];
+  logoUrl: string | null;
+  coverPhotoUrl?: string | null;
+  itemCount: number;
+}
+
 interface BusinessesMeta {
   categories?: string[];
   cities?: string[];
 }
 
+type ViewMode = "directory" | "sellers";
+
 export default function SupportLocalScreen() {
   const theme = useTheme();
   const router = useRouter();
   const navigation = useNavigation();
+  const [viewMode, setViewMode] = useState<ViewMode>("directory");
+  const [switcherVisible, setSwitcherVisible] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [city, setCity] = useState("");
   const [categories, setCategories] = useState<string[]>([]);
   const [cities, setCities] = useState<string[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [sellers, setSellers] = useState<Seller[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -73,14 +92,20 @@ export default function SupportLocalScreen() {
 
   const loadMeta = useCallback(async () => {
     try {
-      const meta = await apiGet<BusinessesMeta>("/api/businesses?list=meta");
-      if (Array.isArray(meta.categories)) setCategories(meta.categories);
-      if (Array.isArray(meta.cities)) setCities(meta.cities);
+      if (viewMode === "directory") {
+        const meta = await apiGet<BusinessesMeta>("/api/businesses?list=meta");
+        if (Array.isArray(meta.categories)) setCategories(meta.categories);
+        if (Array.isArray(meta.cities)) setCities(meta.cities);
+      } else {
+        const meta = await apiGet<BusinessesMeta>("/api/sellers?list=meta");
+        if (Array.isArray(meta.categories)) setCategories(meta.categories);
+        if (Array.isArray(meta.cities)) setCities(meta.cities);
+      }
       setConnectionError(null);
     } catch {
       /* ignore meta errors */
     }
-  }, []);
+  }, [viewMode]);
 
   const load = useCallback(
     async (refresh = false) => {
@@ -92,11 +117,19 @@ export default function SupportLocalScreen() {
         if (search.trim()) params.set("search", search.trim());
         if (category) params.set("category", category);
         if (city) params.set("city", city);
-        const data = await apiGet<Business[]>(`/api/businesses?${params}`);
-        setBusinesses(Array.isArray(data) ? data : []);
+        if (viewMode === "directory") {
+          const data = await apiGet<Business[]>(`/api/businesses?${params}`);
+          setBusinesses(Array.isArray(data) ? data : []);
+          setSellers([]);
+        } else {
+          const data = await apiGet<Seller[]>(`/api/sellers?${params}`);
+          setSellers(Array.isArray(data) ? data : []);
+          setBusinesses([]);
+        }
         setConnectionError(null);
       } catch (e) {
         setBusinesses([]);
+        setSellers([]);
         const err = e as { error?: string; status?: number };
         const apiUrl = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
         const msg = err?.status === 0
@@ -108,7 +141,7 @@ export default function SupportLocalScreen() {
         setRefreshing(false);
       }
     },
-    [search, category, city]
+    [search, category, city, viewMode]
   );
 
   useEffect(() => {
@@ -118,6 +151,16 @@ export default function SupportLocalScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const closeSwitcher = () => setSwitcherVisible(false);
+  const selectDirectory = () => {
+    setViewMode("directory");
+    closeSwitcher();
+  };
+  const selectSellers = () => {
+    setViewMode("sellers");
+    closeSwitcher();
+  };
 
   useEffect(() => {
     Animated.timing(animatedHeight, {
@@ -190,6 +233,10 @@ export default function SupportLocalScreen() {
 
   const openBusiness = (b: Business) => {
     router.push(`/business/${b.slug}`);
+  };
+
+  const openSeller = (s: Seller) => {
+    router.push(`/seller/${s.slug}`);
   };
 
   const openCoupons = () => {
@@ -367,7 +414,7 @@ export default function SupportLocalScreen() {
     [theme]
   );
 
-  const renderItem = ({ item }: { item: Business }) => {
+  const renderBusinessItem = ({ item }: { item: Business }) => {
     const logoUrl = resolveLogoUrl(item.logoUrl);
     const location = [item.address, item.city].filter(Boolean).join(", ");
     return (
@@ -406,6 +453,51 @@ export default function SupportLocalScreen() {
     );
   };
 
+  const renderSellerItem = ({ item }: { item: Seller }) => {
+    const logoUrl = resolveLogoUrl(item.logoUrl);
+    const location = [item.address, item.city].filter(Boolean).join(", ");
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+        onPress={() => openSeller(item)}
+      >
+        <View style={styles.cardLogoContainer}>
+          {logoUrl ? (
+            <Image source={{ uri: logoUrl }} style={styles.cardLogo} />
+          ) : (
+            <View style={styles.cardLogoPlaceholder}>
+              <Ionicons name="storefront" size={40} color={theme.colors.primary} />
+            </View>
+          )}
+        </View>
+        <View style={styles.cardInfo}>
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {item.name}
+          </Text>
+          {item.shortDescription ? (
+            <Text style={styles.cardDesc} numberOfLines={2}>
+              {item.shortDescription}
+            </Text>
+          ) : null}
+          {location ? (
+            <Text style={styles.cardSub} numberOfLines={1}>
+              {location}
+            </Text>
+          ) : null}
+          {item.itemCount > 0 ? (
+            <Text style={styles.cardSub}>{item.itemCount} items</Text>
+          ) : null}
+        </View>
+        <View style={styles.seeBusinessButton}>
+          <Text style={styles.seeBusinessButtonText}>View Store</Text>
+        </View>
+      </Pressable>
+    );
+  };
+
+  const listData = viewMode === "directory" ? businesses : sellers;
+  const renderItem = viewMode === "directory" ? renderBusinessItem : renderSellerItem;
+
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.headerWrap, { height: animatedHeight }]}>
@@ -435,7 +527,68 @@ export default function SupportLocalScreen() {
           </Pressable>
         </View>
         <Text style={styles.headerRegion}>Eastern Washington & North Idaho</Text>
-        <Text style={styles.headerTitle}>Local Business Directory</Text>
+        <Pressable
+          style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
+          onPress={() => setSwitcherVisible(true)}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Text style={styles.headerTitle}>
+              {viewMode === "directory" ? "Local Business Directory" : "NWC Sellers"}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color="#fff" />
+          </View>
+        </Pressable>
+        <Modal
+          visible={switcherVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={closeSwitcher}
+        >
+          <Pressable
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.4)",
+              justifyContent: "flex-start",
+              paddingTop: 120,
+              paddingHorizontal: 24,
+              alignItems: "center",
+            }}
+            onPress={closeSwitcher}
+          >
+            <View
+              style={{
+                minWidth: 220,
+                borderRadius: 8,
+                borderWidth: 2,
+                borderColor: theme.colors.primary,
+                overflow: "hidden",
+                backgroundColor: "#ffffff",
+              }}
+            >
+              <Pressable
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 20,
+                  borderBottomWidth: 1,
+                  borderBottomColor: "#eee",
+                }}
+                onPress={selectDirectory}
+              >
+                <Text style={{ fontSize: 16, fontWeight: "600", color: theme.colors.heading }}>
+                  Local Business Directory
+                </Text>
+              </Pressable>
+              <Pressable
+                style={{ paddingVertical: 14, paddingHorizontal: 20 }}
+                onPress={selectSellers}
+              >
+                <Text style={{ fontSize: 16, fontWeight: "600", color: theme.colors.heading }}>
+                  NWC Sellers
+                </Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
         <TextInput
           style={styles.searchInput}
           placeholder="Search & Filter"
@@ -513,7 +666,7 @@ export default function SupportLocalScreen() {
       ) : (
         <FlatList
           ref={listRef}
-          data={businesses}
+          data={listData}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           numColumns={2}
@@ -532,7 +685,9 @@ export default function SupportLocalScreen() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
-                No businesses found. {search || category || city ? "Try different filters." : ""}
+                {viewMode === "directory"
+                  ? `No businesses found. ${search || category || city ? "Try different filters." : ""}`
+                  : `No sellers found. ${search || category || city ? "Try different filters." : ""}`}
               </Text>
             </View>
           }
