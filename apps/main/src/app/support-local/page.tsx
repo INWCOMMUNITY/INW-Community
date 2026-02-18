@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { SupportLocalGallery } from "@/components/SupportLocalGallery";
 import { NWCSellersGallery } from "@/components/NWCSellersGallery";
-import { directoryBackgroundUrl } from "@/lib/cloudinary";
+
+/** Directory header background – direct Cloudinary URL (avif) */
+const DIRECTORY_BACKGROUND_URL =
+  "https://res.cloudinary.com/djmi9rod0/image/upload/v1771445598/background_lv6evz.avif";
 
 const SUPPORT_LOCAL_LOGO = "/support-local-logo.png";
 
@@ -12,7 +15,7 @@ export default function SupportLocalPage() {
       <header className="w-full overflow-hidden relative border-2 border-[var(--color-secondary)]">
         <div className="w-full relative aspect-[2.62] min-h-[280px]">
           <img
-            src={directoryBackgroundUrl()}
+            src={DIRECTORY_BACKGROUND_URL}
             alt="Northwest Community – support local"
             className="absolute inset-0 w-full h-full object-cover object-center"
           />
