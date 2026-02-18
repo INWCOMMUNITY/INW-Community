@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { SupportLocalGallery } from "@/components/SupportLocalGallery";
 import { NWCSellersGallery } from "@/components/NWCSellersGallery";
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
+import { WIX_IMG, WIX_GALLERY_TOP_BACKGROUND } from "@/lib/wix-media";
 
-/** Directory header background – Cloudinary with quality optimizations (f_auto, q_auto:best) */
-const DIRECTORY_BACKGROUND_URL =
-  "https://res.cloudinary.com/djmi9rod0/image/upload/f_auto,q_auto:best,w_1810,h_432,c_fill/v1771445598/background_lv6evz";
+/** Directory header – top gallery photo from pnwcommunity.com/gallery, optimized via Cloudinary */
+const DIRECTORY_BACKGROUND_URL = cloudinaryFetchUrl(WIX_IMG(WIX_GALLERY_TOP_BACKGROUND));
 
 const SUPPORT_LOCAL_LOGO = "/support-local-logo.png";
 

@@ -22,6 +22,10 @@ export const WIX_THANKS_IMAGE =
 export const WIX_FOUNDATION_BACKGROUND =
   "2bdd49_922cf38aad0542ef88e46e2aac2b0497~mv2.jpg/v1/fill/w_1200,h_400,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_922cf38aad0542ef88e46e2aac2b0497~mv2.jpg";
 
+/** Gallery top photo (background.jpg) from https://www.pnwcommunity.com/gallery */
+export const WIX_GALLERY_TOP_BACKGROUND =
+  "2bdd49_26cd29bec17e4bb5b2990254f09f85d2~mv2.jpg/v1/fill/w_1810,h_432,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/background.jpg";
+
 /** Calendar type to local image path (high-quality originals in public/calendars). Only use with valid CalendarType. */
 const CALENDAR_PATHS: Record<CalendarType, string> = {
   fun_events: "/calendars/fun_events.png",
