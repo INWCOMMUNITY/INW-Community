@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireBlobStorage } from "@/lib/upload";
 import path from "path";
 import fs from "fs/promises";
 
@@ -38,6 +39,11 @@ export async function POST(req: NextRequest) {
   const ext = path.extname(file.name) || (isVideo ? ".mp4" : ".jpg");
   const subdir = isVideo ? "video" : "image";
   const filename = `post/${session.user.id}/${subdir}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+
+  const blobCheck = requireBlobStorage();
+  if (!blobCheck.ok) {
+    return NextResponse.json({ error: blobCheck.error }, { status: blobCheck.status });
+  }
 
   try {
     if (process.env.BLOB_READ_WRITE_TOKEN) {
