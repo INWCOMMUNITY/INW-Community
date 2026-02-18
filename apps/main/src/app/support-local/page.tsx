@@ -2,9 +2,9 @@ import Link from "next/link";
 import { SupportLocalGallery } from "@/components/SupportLocalGallery";
 import { NWCSellersGallery } from "@/components/NWCSellersGallery";
 
-/** Directory header background – direct Cloudinary URL (avif) */
+/** Directory header background – Cloudinary with quality optimizations (f_auto, q_auto:best) */
 const DIRECTORY_BACKGROUND_URL =
-  "https://res.cloudinary.com/djmi9rod0/image/upload/v1771445598/background_lv6evz.avif";
+  "https://res.cloudinary.com/djmi9rod0/image/upload/f_auto,q_auto:best,w_1810,h_432,c_fill/v1771445598/background_lv6evz";
 
 const SUPPORT_LOCAL_LOGO = "/support-local-logo.png";
 
