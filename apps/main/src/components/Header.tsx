@@ -24,6 +24,8 @@ const navItems: NavItem[] = [
       { href: "/calendars", label: "Events" },
       { href: "/community-groups", label: "Groups" },
       { href: "/blog", label: "Blogs" },
+      { href: "/badges", label: "Community Badges" },
+      { href: "/my-community/my-badges", label: "My Badges" },
     ],
   },
   {
@@ -39,6 +41,7 @@ const navItems: NavItem[] = [
     href: "/support-local",
     children: [
       { href: "/support-local", label: "Directory" },
+      { href: "/support-local/sellers", label: "Local Sellers" },
       { href: "/coupons", label: "Coupons" },
       { href: "/rewards", label: "Rewards" },
     ],

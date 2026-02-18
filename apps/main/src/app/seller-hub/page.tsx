@@ -5,7 +5,6 @@ import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
 
-/** Seller Hub header – from https://www.pnwcommunity.com/gallery (Principle 3_edited.jpg), panoramic crop for header */
 const SELLER_HUB_HEADER_IMAGE =
   "2bdd49_f582d22b864044b096a7f124f1b6efda~mv2.jpg/v1/fill/w_1920,h_640,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principle%203_edited.jpg";
 

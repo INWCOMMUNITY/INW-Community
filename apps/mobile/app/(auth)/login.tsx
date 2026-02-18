@@ -6,6 +6,7 @@ import {
   View,
   ScrollView,
   Image,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -104,6 +105,15 @@ export default function LoginScreen() {
           Choose your account type to get started.
         </Text>
       )}
+      <View style={styles.legalRow}>
+        <Pressable onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/terms`)}>
+          <Text style={styles.legalLink}>Terms</Text>
+        </Pressable>
+        <Text style={styles.legalSeparator}> · </Text>
+        <Pressable onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/privacy`)}>
+          <Text style={styles.legalLink}>Privacy</Text>
+        </Pressable>
+      </View>
     </ScrollView>
   );
 }
@@ -200,5 +210,20 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     textAlign: "center",
     paddingHorizontal: 24,
+  },
+  legalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 24,
+  },
+  legalLink: {
+    fontSize: 12,
+    color: theme.colors.primary,
+    textDecorationLine: "underline",
+  },
+  legalSeparator: {
+    fontSize: 12,
+    color: theme.colors.text,
   },
 });

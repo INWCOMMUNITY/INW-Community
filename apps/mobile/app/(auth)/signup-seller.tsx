@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Linking,
+  Switch,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -43,11 +45,16 @@ export default function SignupSellerScreen() {
   const [state, setState] = useState("");
   const [zip, setZip] = useState("");
   const [businessData, setBusinessData] = useState<Record<string, unknown> | null>(null);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleAccountSubmit = async () => {
     setError("");
+    if (!ageConfirmed) {
+      setError("You must confirm you are 16 years or older to sign up.");
+      return;
+    }
     if (!email.trim() || !password) {
       setError("Email and password are required.");
       return;
@@ -145,6 +152,15 @@ export default function SignupSellerScreen() {
             Create your account to start selling on the Community Storefront.
           </Text>
           <View style={styles.form}>
+            <View style={styles.ageRow}>
+              <Switch
+                value={ageConfirmed}
+                onValueChange={setAgeConfirmed}
+                trackColor={{ false: "#ccc", true: theme.colors.primary }}
+                thumbColor="#fff"
+              />
+              <Text style={styles.ageLabel}>I confirm I am 16 years or older</Text>
+            </View>
             <TextInput
               style={styles.input}
               placeholder="Email"
@@ -163,6 +179,23 @@ export default function SignupSellerScreen() {
               placeholderTextColor={theme.colors.placeholder}
             />
             {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Text style={styles.termsText}>
+              By signing up, you agree to our{" "}
+              <Text
+                style={styles.termsLink}
+                onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/terms`)}
+              >
+                Terms of Service
+              </Text>
+              {" "}and{" "}
+              <Text
+                style={styles.termsLink}
+                onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/privacy`)}
+              >
+                Privacy Policy
+              </Text>
+              .
+            </Text>
             <Pressable
               style={({ pressed }) => [
                 styles.button,
@@ -379,6 +412,27 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginBottom: 12,
     fontSize: 14,
+  },
+  termsText: {
+    fontSize: 12,
+    color: "#fff",
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  termsLink: {
+    textDecorationLine: "underline",
+    fontWeight: "600",
+  },
+  ageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    gap: 8,
+  },
+  ageLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: "#fff",
   },
   errorRed: {
     color: "#c00",

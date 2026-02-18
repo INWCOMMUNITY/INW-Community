@@ -59,10 +59,10 @@ export default function MySellersPage() {
       {sellers.length === 0 ? (
         <div className="border-2 rounded-lg p-8 text-center" style={{ borderColor: "var(--color-primary)" }}>
           <p className="text-gray-600 mb-4">
-            You haven&apos;t followed any sellers yet. Browse NWC Sellers in Support Local to find stores to follow.
+            You haven&apos;t followed any sellers yet. Browse Local Sellers in Support Local to find stores to follow.
           </p>
           <Link
-            href="/support-local"
+            href="/support-local/sellers"
             className="btn inline-block"
           >
             Browse Sellers

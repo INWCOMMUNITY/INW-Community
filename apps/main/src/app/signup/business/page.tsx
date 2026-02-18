@@ -32,12 +32,17 @@ export default function SignupBusinessPage() {
   const [businessEmail, setBusinessEmail] = useState("");
   const [city, setCity] = useState("");
   const [categories, setCategories] = useState<string[]>([]);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleAccountSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!ageConfirmed) {
+      setError("You must confirm you are 16 years or older to sign up.");
+      return;
+    }
     if (!email.trim() || !password) {
       setError("Email and password are required.");
       return;
@@ -194,6 +199,19 @@ export default function SignupBusinessPage() {
               className="w-full border rounded px-3 py-2"
             />
           </div>
+          <div className="flex items-start gap-2">
+            <input
+              id="ageConfirmed"
+              type="checkbox"
+              checked={ageConfirmed}
+              onChange={(e) => setAgeConfirmed(e.target.checked)}
+              required
+              className="mt-1"
+            />
+            <label htmlFor="ageConfirmed" className="text-sm">
+              I confirm I am 16 years or older (users under 18 need parent/guardian permission).
+            </label>
+          </div>
           <div>
             <label className="block text-sm font-medium mb-1">Password (min 8 characters) *</label>
             <input
@@ -206,6 +224,12 @@ export default function SignupBusinessPage() {
             />
           </div>
           {error && <p className="text-red-600 text-sm">{error}</p>}
+          <p className="text-sm text-gray-600">
+            By signing up, you agree to our{" "}
+            <Link href="/terms" className="underline hover:no-underline">Terms of Service</Link>
+            {" "}and{" "}
+            <Link href="/privacy" className="underline hover:no-underline">Privacy Policy</Link>.
+          </p>
           <button type="submit" className="btn w-full" disabled={loading}>
             {loading ? "Creating account…" : "Continue"}
           </button>

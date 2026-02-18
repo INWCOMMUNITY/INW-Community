@@ -19,6 +19,7 @@ import {
   type ProfileView,
 } from '@/contexts/ProfileViewContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { trackAppOpen } from '@/lib/api';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -49,6 +50,12 @@ export default function RootLayout() {
   useEffect(() => {
     if (loaded) {
       SplashScreen.hideAsync();
+    }
+  }, [loaded]);
+
+  useEffect(() => {
+    if (loaded) {
+      trackAppOpen();
     }
   }, [loaded]);
 

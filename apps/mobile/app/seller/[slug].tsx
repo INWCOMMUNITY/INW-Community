@@ -50,6 +50,10 @@ interface SellerStorefront {
   photos: string[];
   member: { id: string; firstName: string; lastName: string };
   storeItems: StoreItem[];
+  sellerLocalDeliveryPolicy?: string | null;
+  sellerPickupPolicy?: string | null;
+  sellerShippingPolicy?: string | null;
+  sellerReturnPolicy?: string | null;
 }
 
 function resolveUrl(path: string | null | undefined): string | undefined {
@@ -217,8 +221,8 @@ export default function SellerStorefrontScreen() {
         )}
       </View>
 
-      {seller.shortDescription ? (
-        <Text style={styles.desc}>{seller.shortDescription}</Text>
+      {(seller.fullDescription || seller.shortDescription) ? (
+        <Text style={styles.desc}>{seller.fullDescription || seller.shortDescription}</Text>
       ) : null}
 
       {/* Contact */}
@@ -246,6 +250,37 @@ export default function SellerStorefrontScreen() {
           </Pressable>
         ) : null}
       </View>
+
+      {/* Policies - shown when seller has set any */}
+      {(seller.sellerLocalDeliveryPolicy || seller.sellerPickupPolicy || seller.sellerShippingPolicy || seller.sellerReturnPolicy) ? (
+        <View style={styles.policiesSection}>
+          <Text style={styles.sectionTitle}>Policies</Text>
+          {seller.sellerShippingPolicy ? (
+            <View style={styles.policyBlock}>
+              <Text style={styles.policyLabel}>Shipping</Text>
+              <Text style={styles.policyText}>{seller.sellerShippingPolicy}</Text>
+            </View>
+          ) : null}
+          {seller.sellerLocalDeliveryPolicy ? (
+            <View style={styles.policyBlock}>
+              <Text style={styles.policyLabel}>Local Delivery</Text>
+              <Text style={styles.policyText}>{seller.sellerLocalDeliveryPolicy}</Text>
+            </View>
+          ) : null}
+          {seller.sellerPickupPolicy ? (
+            <View style={styles.policyBlock}>
+              <Text style={styles.policyLabel}>Pickup</Text>
+              <Text style={styles.policyText}>{seller.sellerPickupPolicy}</Text>
+            </View>
+          ) : null}
+          {seller.sellerReturnPolicy ? (
+            <View style={styles.policyBlock}>
+              <Text style={styles.policyLabel}>Returns</Text>
+              <Text style={styles.policyText}>{seller.sellerReturnPolicy}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* Store Items */}
       <View style={styles.productsSection}>
@@ -366,7 +401,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   contactSection: { paddingHorizontal: 16, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "#eee" },
+  policiesSection: { paddingHorizontal: 16, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "#eee" },
   sectionTitle: { fontSize: 16, fontWeight: "600", color: theme.colors.heading, marginBottom: 8 },
+  policyBlock: { marginBottom: 12 },
+  policyLabel: { fontSize: 13, fontWeight: "600", color: theme.colors.heading, marginBottom: 4 },
+  policyText: { fontSize: 14, color: theme.colors.text, lineHeight: 20 },
   contactText: { fontSize: 14, color: theme.colors.text, marginBottom: 4 },
   contactRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
   contactLink: { fontSize: 14, color: theme.colors.primary, textDecorationLine: "underline" },

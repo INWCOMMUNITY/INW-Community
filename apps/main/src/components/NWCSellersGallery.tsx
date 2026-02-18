@@ -121,7 +121,7 @@ export function NWCSellersGallery() {
               {s.itemCount > 0 && (
                 <p className="text-gray-500 text-xs mt-1">{s.itemCount} items</p>
               )}
-              <span className="btn mt-4 w-full flex items-center justify-center text-sm py-2 px-3 min-w-0 whitespace-nowrap">
+              <span className="btn mt-4 w-full flex items-center justify-center text-center text-sm py-2 px-3 min-w-0 whitespace-nowrap">
                 View Store
               </span>
             </div>

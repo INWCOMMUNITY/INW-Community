@@ -2,5 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "cd ../.. && pnpm install",
-  "buildCommand": "pnpm build"
+  "buildCommand": "pnpm build",
+  "crons": [
+    {
+      "path": "/api/cron/renewal-reminder",
+      "schedule": "0 10 * * *"
+    }
+  ]
 }

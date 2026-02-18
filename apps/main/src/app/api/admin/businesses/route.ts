@@ -29,8 +29,11 @@ const postSchema = z.object({
 
 export async function GET(req: NextRequest) {
   if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { searchParams } = new URL(req.url);
+  const pending = searchParams.get("pending") === "1";
   const businesses = await prisma.business.findMany({
-    select: { id: true, name: true, slug: true, memberId: true },
+    where: pending ? { nameApprovalStatus: "pending" } : undefined,
+    select: { id: true, name: true, slug: true, memberId: true, nameApprovalStatus: true },
     orderBy: { name: "asc" },
   });
   return NextResponse.json(businesses);

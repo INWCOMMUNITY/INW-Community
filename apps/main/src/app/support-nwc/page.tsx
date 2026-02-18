@@ -20,7 +20,7 @@ const PLANS = [
   },
   {
     id: "sponsor",
-    name: "Northwest Community Sponsor",
+    name: "Northwest Community Business",
     price: 25,
     priceYearly: 250,
     description:
@@ -140,6 +140,17 @@ export default function SupportNWCInfoPage() {
             </div>
           ))}
         </div>
+        <p className="text-sm text-gray-600 max-w-2xl mx-auto text-center mb-6">
+          By subscribing, you agree to our{" "}
+          <Link href="/terms" className="underline" style={{ color: "var(--color-primary)" }}>Terms of Service</Link>
+          {" "}and{" "}
+          <Link href="/privacy" className="underline" style={{ color: "var(--color-primary)" }}>Privacy Policy</Link>.
+          Subscriptions automatically renew. You will be charged each {interval === "monthly" ? "month" : "year"} until you cancel. Cancel anytime via{" "}
+          <Link href="/my-community/subscriptions" className="underline" style={{ color: "var(--color-primary)" }}>
+            My Community → Subscriptions
+          </Link>{" "}
+          (or from the Manage Subscription link after signing in).
+        </p>
       </div>
     </section>
 

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { validateText } from "@/lib/content-moderation";
+import { validateText, containsProfanity } from "@/lib/content-moderation";
+import { createFlaggedContent } from "@/lib/flag-content";
 import { z } from "zod";
 
 const hoursSchema = z.record(z.string()).nullable().optional();
@@ -78,16 +79,29 @@ export async function PATCH(
       email: body.email ?? null,
       logoUrl: body.logoUrl ?? null,
     });
+    const updateData: Record<string, unknown> = {};
     if (data.name != null && data.name.trim()) {
       const nameCheck = validateText(data.name, "business_name");
       if (!nameCheck.allowed) {
         return NextResponse.json({ error: nameCheck.reason ?? "Invalid business name." }, { status: 400 });
       }
+      updateData.name = data.name;
+      updateData.nameApprovalStatus = "approved";
+
+      if (containsProfanity(data.name)) {
+        await createFlaggedContent({
+          contentType: "business",
+          contentId: id,
+          reason: "profanity",
+          snippet: data.name,
+          authorId: session.user.id,
+        });
+      }
     }
     await prisma.business.update({
       where: { id },
       data: {
-        ...(data.name != null && { name: data.name }),
+        ...updateData,
         ...(data.shortDescription !== undefined && { shortDescription: data.shortDescription }),
         ...(data.fullDescription !== undefined && { fullDescription: data.fullDescription }),
         ...(data.website !== undefined && { website: data.website }),

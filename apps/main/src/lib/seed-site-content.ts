@@ -35,7 +35,7 @@ export async function seedSiteContent(): Promise<{ pageId: string; sections: num
                 id: genId(),
                 type: "paragraph",
                 content: {
-                  html: "<p>Connecting the good people of Spokane & Kootenai County through chatrooms, selling local goods, event calendars, contact forms, local coupons, and of course, fun events that bring the community together and support the beautiful Northwest we live in.</p>",
+                  html: "<p>Connecting the good people of Spokane & Kootenai County through our community feed and messaging, selling local goods, event calendars, NWC Requests, local coupons, and of course, fun events that bring the community together and support the beautiful Northwest we live in.</p>",
                 },
               },
               { id: genId(), type: "button", content: { text: "Join Now", href: "/signup" } },

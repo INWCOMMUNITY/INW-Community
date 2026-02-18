@@ -75,6 +75,15 @@ export async function POST(req: NextRequest) {
 
     const effectivePlan = subscriptionPlan ?? (sub ? "subscribe" : null);
 
+    try {
+      await prisma.member.update({
+        where: { id: member.id },
+        data: { lastLogin: new Date() },
+      });
+    } catch {
+      // Ignore if last_login column missing or update fails; sign-in still proceeds
+    }
+
     const token = await signMobileToken({
       id: member.id,
       email: member.email,

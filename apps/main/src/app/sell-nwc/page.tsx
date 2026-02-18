@@ -21,7 +21,7 @@ export default function SellNWCPage() {
         title="Interested in Becoming a Northwest Community Seller?"
         description="Curious about the benefits Northwest Community offers to our Sellers? This page is here to answer your questions and demonstrate what we do for our sellers. Read our policy and sell and ship local goods from the comfort of your home or office. All sellers are also sponsors—see our sponsor benefits page as well."
         policyHref="/policies/nwc-seller"
-        policyLabel="NWC Seller Policy"
+        policyLabel="Local Seller Policy"
       />
       <InfoPageBenefitSections benefits={SELLER_BENEFITS} />
 

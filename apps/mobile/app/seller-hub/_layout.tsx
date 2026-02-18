@@ -11,6 +11,7 @@ function useHeaderTitle() {
   if (path.includes("store/new") || (last === "new" && prev === "store")) return "List an Item";
   if (path.includes("store/drafts") || (last === "drafts" && prev === "store")) return "Drafts";
   if (path.includes("store/items") || (last === "items" && prev === "store")) return "My Items";
+  if (path.includes("ship") || last === "ship") return "Ship Items";
   return "Seller Hub";
 }
 

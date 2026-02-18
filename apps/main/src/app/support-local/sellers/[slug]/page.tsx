@@ -20,7 +20,17 @@ export default async function SellerStorefrontPage({
   const business = await prisma.business.findFirst({
     where: isCuid(slug) ? { id: slug } : { slug },
     include: {
-      member: { select: { id: true, firstName: true, lastName: true } },
+      member: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          sellerLocalDeliveryPolicy: true,
+          sellerPickupPolicy: true,
+          sellerShippingPolicy: true,
+          sellerReturnPolicy: true,
+        },
+      },
       storeItems: {
         where: { status: "active", quantity: { gt: 0 } },
         orderBy: { createdAt: "desc" },
@@ -84,7 +94,18 @@ export default async function SellerStorefrontPage({
             </div>
           </div>
           <div className="bg-white pt-16 pb-6 px-6 text-center">
-            <div className="flex justify-center gap-3 mb-2">
+            <h1
+              className="text-2xl md:text-4xl font-bold mb-2"
+              style={{ fontFamily: "var(--font-heading)", color: "#000" }}
+            >
+              {business.name}
+            </h1>
+            {(business.fullDescription || business.shortDescription) && (
+              <p className="text-base max-w-2xl mx-auto opacity-90 mb-4 whitespace-pre-wrap" style={{ color: "#000" }}>
+                {business.fullDescription || business.shortDescription}
+              </p>
+            )}
+            <div className="flex justify-center gap-3">
               <ShareButton
                 type="business"
                 id={business.id}
@@ -94,17 +115,6 @@ export default async function SellerStorefrontPage({
               />
               {session?.user && <FollowBusinessButton businessId={business.id} />}
             </div>
-            <h1
-              className="text-2xl md:text-4xl font-bold mb-2"
-              style={{ fontFamily: "var(--font-heading)", color: "#000" }}
-            >
-              {business.name}
-            </h1>
-            {business.shortDescription && (
-              <p className="text-base max-w-2xl mx-auto opacity-90" style={{ color: "#000" }}>
-                {business.shortDescription}
-              </p>
-            )}
           </div>
         </div>
 
@@ -133,19 +143,66 @@ export default async function SellerStorefrontPage({
                   </li>
                 )}
               </ul>
-              {addressDisplay && googleMapsUrl && (
-                <a
-                  href={googleMapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn mt-4 inline-block"
-                >
-                  Get Directions
-                </a>
+              {(business.member.sellerShippingPolicy ||
+                business.member.sellerLocalDeliveryPolicy ||
+                business.member.sellerPickupPolicy ||
+                business.member.sellerReturnPolicy) && (
+                <div className="mt-6">
+                  <h3 className="text-base font-semibold mb-2" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
+                    Policies
+                  </h3>
+                  <div className="space-y-2 text-sm text-gray-700">
+                    {business.member.sellerShippingPolicy && (
+                      <div>
+                        <span className="font-medium">Shipping:</span>
+                        <p className="whitespace-pre-wrap mt-0.5">{business.member.sellerShippingPolicy}</p>
+                      </div>
+                    )}
+                    {business.member.sellerLocalDeliveryPolicy && (
+                      <div>
+                        <span className="font-medium">Local Delivery:</span>
+                        <p className="whitespace-pre-wrap mt-0.5">{business.member.sellerLocalDeliveryPolicy}</p>
+                      </div>
+                    )}
+                    {business.member.sellerPickupPolicy && (
+                      <div>
+                        <span className="font-medium">Pickup:</span>
+                        <p className="whitespace-pre-wrap mt-0.5">{business.member.sellerPickupPolicy}</p>
+                      </div>
+                    )}
+                    {business.member.sellerReturnPolicy && (
+                      <div>
+                        <span className="font-medium">Returns:</span>
+                        <p className="whitespace-pre-wrap mt-0.5">{business.member.sellerReturnPolicy}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
-              <Link href="/support-local" className="btn mt-4 ml-2 inline-block border border-gray-300 bg-white hover:bg-gray-50">
-                Back to Sellers
-              </Link>
+              <div className="flex flex-wrap gap-2 mt-4">
+                {addressDisplay && googleMapsUrl && (
+                  <a
+                    href={googleMapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn inline-block"
+                  >
+                    Get Directions
+                  </a>
+                )}
+                <Link
+                  href={`/support-local/${business.slug}`}
+                  className="btn inline-block border border-gray-300 bg-white hover:bg-gray-50"
+                >
+                  View Business Page
+                </Link>
+                <Link
+                  href="/support-local/sellers"
+                  className="btn inline-block border border-gray-300 bg-white hover:bg-gray-50"
+                >
+                  Back to Sellers
+                </Link>
+              </div>
             </div>
             <div>
               <h2 className="text-lg font-bold mb-4" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>

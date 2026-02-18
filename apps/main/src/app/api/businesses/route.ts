@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { validateText } from "@/lib/content-moderation";
+import { validateText, containsProfanity } from "@/lib/content-moderation";
+import { createFlaggedContent } from "@/lib/flag-content";
 import { z } from "zod";
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
+  try {
+  const searchParams = req.nextUrl.searchParams;
   const slug = searchParams.get("slug")?.trim();
   if (slug) {
     const business = await prisma.business.findFirst({
-      where: { slug },
+      where: { slug, nameApprovalStatus: "approved" },
       include: { coupons: true },
     });
     if (!business) {
@@ -55,10 +57,13 @@ export async function GET(req: NextRequest) {
   }
   if (list === "meta") {
     const [businesses, cityRows] = await Promise.all([
-      prisma.business.findMany({ select: { categories: true } }),
-      prisma.business.findMany({ select: { city: true }, where: { city: { not: null } } }),
+      prisma.business.findMany({ where: { nameApprovalStatus: "approved" }, select: { categories: true } }),
+      prisma.business.findMany({
+        where: { nameApprovalStatus: "approved", city: { not: null } },
+        select: { city: true },
+      }),
     ]);
-    const catSet = new Set(businesses.flatMap((b) => b.categories).filter(Boolean));
+    const catSet = new Set(businesses.flatMap((b) => (b.categories ?? []).filter(Boolean)));
     const citySet = new Set(cityRows.map((c) => c.city).filter(Boolean));
     return NextResponse.json({
       categories: Array.from(catSet).sort(),
@@ -70,6 +75,7 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get("search")?.trim();
   const businesses = await prisma.business.findMany({
     where: {
+      nameApprovalStatus: "approved",
       ...(category ? { categories: { has: category } } : {}),
       ...(city ? { city } : {}),
       ...(search
@@ -98,6 +104,13 @@ export async function GET(req: NextRequest) {
     orderBy: { name: "asc" },
   });
   return NextResponse.json(businesses);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    if (process.env.NODE_ENV === "development") {
+      console.error("[api/businesses]", err);
+    }
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
 }
 
 const hoursSchema = z.record(z.string()).nullable().optional();
@@ -155,6 +168,8 @@ export async function POST(req: NextRequest) {
     if (!nameCheck.allowed) {
       return NextResponse.json({ error: nameCheck.reason ?? "Invalid business name." }, { status: 400 });
     }
+    // Auto-approve; flag if profanity for admin review
+    const hasProfanity = containsProfanity(data.name);
     let slug = slugify(data.name);
     let suffix = 0;
     while (await prisma.business.findUnique({ where: { slug } })) {
@@ -176,8 +191,19 @@ export async function POST(req: NextRequest) {
         slug,
         photos: data.photos ?? [],
         hoursOfOperation: data.hoursOfOperation ?? undefined,
+        nameApprovalStatus: "approved",
       },
     });
+
+    if (hasProfanity) {
+      await createFlaggedContent({
+        contentType: "business",
+        contentId: business.id,
+        reason: "profanity",
+        snippet: data.name,
+        authorId: session.user.id,
+      });
+    }
     const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
     awardBusinessSignupBadges(business.id).catch(() => {});
     return NextResponse.json({ ok: true });

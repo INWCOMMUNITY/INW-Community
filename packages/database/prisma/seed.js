@@ -200,6 +200,44 @@ async function main() {
     }
   }
 
+  // Trial order for universal account (shipping test)
+  const existingTrialOrder = await prisma.storeOrder.findFirst({
+    where: { sellerId: universal.id, buyerId: universal.id, status: "paid" },
+  });
+  if (!existingTrialOrder) {
+    const slug = `trial-shipping-${Date.now()}`;
+    const trialItem = await prisma.storeItem.create({
+      data: {
+        memberId: universal.id,
+        title: "Trial item (shipping test)",
+        description: "Sample order for testing shipping labels and rates. You can delete this item from your store.",
+        photos: ["https://static.wixstatic.com/media/2bdd49_46bd85d79e654db9bfc8b6d2a206d9a2~mv2.jpg/v1/fill/w_200,h_200,al_c,q_80,enc_avif,quality_auto/0005_3A.jpg"],
+        category: "Test",
+        priceCents: 999,
+        quantity: 1,
+        status: "active",
+        shippingCostCents: 500,
+        shippingPolicy: "Standard shipping. Trial item for testing.",
+        slug,
+      },
+    });
+    await prisma.storeOrder.create({
+      data: {
+        buyerId: universal.id,
+        sellerId: universal.id,
+        subtotalCents: 999,
+        shippingCostCents: 500,
+        totalCents: 1499,
+        status: "paid",
+        shippingAddress: { street: "123 Test Street", city: "Spokane", state: "WA", zip: "99201" },
+        items: {
+          create: { storeItemId: trialItem.id, quantity: 1, priceCentsAtPurchase: 999 },
+        },
+      },
+    });
+    console.log("Created trial order for universal@nwc.local (for shipping test)");
+  }
+
   // Test subscriber account (Community Resale hub, no Seller plan)
   const subscriberEmail = "subscriber@nwc.local";
   let subscriber = await prisma.member.findUnique({ where: { email: subscriberEmail } });

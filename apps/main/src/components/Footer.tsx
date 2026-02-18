@@ -25,9 +25,9 @@ export function Footer() {
           <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
           <Link href="/support-nwc" className="hover:underline">Subscribe</Link>
           <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/policies/terms" className="hover:underline">Terms</Link>
+          <Link href="/terms" className="hover:underline">Terms</Link>
           <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/policies/privacy" className="hover:underline">Privacy</Link>
+          <Link href="/privacy" className="hover:underline">Privacy</Link>
         </div>
       </div>
     </footer>

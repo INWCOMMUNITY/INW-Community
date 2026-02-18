@@ -7,23 +7,18 @@ export function WIX_IMG(path: string): string {
   return `https://static.wixstatic.com/media/${path}`;
 }
 
-/** Hero section background (from pnwcommunity.com) - full-width fill for sharp display */
 export const WIX_HERO_BACKGROUND =
   "2bdd49_3e0b3310619741aebc191b1d45746584~mv2.jpeg/v1/fill/w_1920,h_1080,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_3e0b3310619741aebc191b1d45746584~mv2.jpeg";
 
-/** Homepage hero – current image from https://www.pnwcommunity.com/gallery (Footer Pic.jpeg), 1920×1080 for hero */
 export const WIX_HERO_GALLERY =
   "2bdd49_769b811f08604f59b947b70307ca3d4e~mv2.jpeg/v1/fill/w_1920,h_1080,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Footer%20Pic.jpeg";
 
-/** Subscribe section background (0012_11 forest scene from pnwcommunity.com) */
 export const WIX_SUBSCRIBE_BACKGROUND =
   "2bdd49_67b47b0d8d3e4927848741a842e774a4~mv2.jpg/v1/fill/w_1920,h_1080,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_67b47b0d8d3e4927848741a842e774a4~mv2.jpg";
 
-/** Thanks section image (river/cliffs/forest landscape from pnwcommunity.com) */
 export const WIX_THANKS_IMAGE =
   "2bdd49_a2d0c41971f8455e840ff20b297ae917~mv2.jpg/v1/fill/w_800,h_600,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_a2d0c41971f8455e840ff20b297ae917~mv2.jpg";
 
-/** Northwest Communities Foundation section background (lake/marina from pnwcommunity.com about page, not the hero) */
 export const WIX_FOUNDATION_BACKGROUND =
   "2bdd49_922cf38aad0542ef88e46e2aac2b0497~mv2.jpg/v1/fill/w_1200,h_400,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_922cf38aad0542ef88e46e2aac2b0497~mv2.jpg";
 

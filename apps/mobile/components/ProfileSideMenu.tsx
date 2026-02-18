@@ -65,6 +65,11 @@ function Section({
   );
 }
 
+const LEGAL_ITEMS: NavItem[] = [
+  { href: `/web?url=${encodeURIComponent(siteBase + "/terms")}&title=${encodeURIComponent("Terms of Service")}`, label: "Terms of Service" },
+  { href: `/web?url=${encodeURIComponent(siteBase + "/privacy")}&title=${encodeURIComponent("Privacy Policy")}`, label: "Privacy Policy" },
+];
+
 const RESALE_HUB_ITEMS: NavItem[] = [
   { href: "/resale-hub/list", label: "List Items" },
   { href: `/web?url=${encodeURIComponent(siteBase + "/resale-hub/listings")}&title=${encodeURIComponent("My Listings")}`, label: "My Listings" },
@@ -157,6 +162,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
             {showResaleHub && (
               <Section title="Resale Hub" items={RESALE_HUB_ITEMS} onNavigate={handleNavigate} />
             )}
+            <Section title="Legal" items={LEGAL_ITEMS} onNavigate={handleNavigate} />
           </ScrollView>
         </View>
       </View>

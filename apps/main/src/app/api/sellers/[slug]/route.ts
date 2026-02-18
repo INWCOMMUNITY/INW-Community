@@ -16,13 +16,20 @@ export async function GET(
   try {
     const { slug } = await params;
     const business = await prisma.business.findFirst({
-      where: isCuid(slug) ? { id: slug } : { slug },
+      where: {
+        ...(isCuid(slug) ? { id: slug } : { slug }),
+        nameApprovalStatus: "approved",
+      },
       include: {
         member: {
           select: {
             id: true,
             firstName: true,
             lastName: true,
+            sellerLocalDeliveryPolicy: true,
+            sellerPickupPolicy: true,
+            sellerShippingPolicy: true,
+            sellerReturnPolicy: true,
           },
         },
         storeItems: {
@@ -71,6 +78,10 @@ export async function GET(
       photos: business.photos,
       member: business.member,
       storeItems: business.storeItems,
+      sellerLocalDeliveryPolicy: business.member.sellerLocalDeliveryPolicy ?? null,
+      sellerPickupPolicy: business.member.sellerPickupPolicy ?? null,
+      sellerShippingPolicy: business.member.sellerShippingPolicy ?? null,
+      sellerReturnPolicy: business.member.sellerReturnPolicy ?? null,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Database error";

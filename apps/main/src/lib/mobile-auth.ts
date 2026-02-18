@@ -64,6 +64,7 @@ export function getBearerToken(req: NextRequest): string | null {
 /**
  * For API routes: get session from NextAuth cookie OR from Authorization Bearer token.
  * Returns session-like shape: { user: { id, email, name, isSubscriber? } }
+ * When Bearer is used, updates Member.lastLogin for 30-day sliding session (throttled to once per day).
  */
 export async function getSessionForApi(
   req: NextRequest
@@ -73,6 +74,11 @@ export async function getSessionForApi(
   if (bearer) {
     const payload = await verifyMobileToken(bearer);
     if (payload) {
+      const { prisma } = await import("database");
+      prisma.member
+        .update({ where: { id: payload.id }, data: { lastLogin: new Date() } })
+        .catch(() => {});
+
       return {
         user: {
           id: payload.id,

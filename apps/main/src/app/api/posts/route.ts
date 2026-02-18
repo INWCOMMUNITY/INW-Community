@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { validateText } from "@/lib/content-moderation";
+import { createFlaggedContent } from "@/lib/flag-content";
 import { z } from "zod";
 
 const postSchema = z.object({
@@ -67,6 +69,25 @@ export async function POST(req: NextRequest) {
     const photos = (data.photos ?? []).filter((p): p is string => typeof p === "string" && p.length > 0);
     const videos = (data.videos ?? []).filter((v): v is string => typeof v === "string" && v.length > 0);
     const links = (data.links ?? []).filter((l) => l?.url && typeof l.url === "string" && l.url.length > 0);
+
+    // Moderation: block slurs, flag for admin
+    const contentTrimmed = (data.content ?? "").trim();
+    if (contentTrimmed) {
+      const contentCheck = validateText(contentTrimmed, "comment");
+      if (!contentCheck.allowed) {
+        await createFlaggedContent({
+          contentType: "post",
+          contentId: null,
+          reason: "slur",
+          snippet: contentTrimmed.slice(0, 500),
+          authorId: session.user.id,
+        });
+        return NextResponse.json(
+          { error: contentCheck.reason ?? "This content contains language that is not allowed." },
+          { status: 400 }
+        );
+      }
+    }
 
     const rawTaggedIds = (data as { taggedMemberIds?: string[] }).taggedMemberIds ?? [];
     let taggedMemberIds: string[] = [];

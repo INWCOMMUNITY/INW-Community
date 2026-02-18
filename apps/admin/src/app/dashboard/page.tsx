@@ -28,6 +28,7 @@ export default async function DashboardPage() {
     storeOrdersThisMonth,
     orderItemsThisMonth,
     stripeStats,
+    analytics,
   ] = await Promise.all([
     prisma.member.count(),
     prisma.subscription.count(),
@@ -58,6 +59,12 @@ export default async function DashboardPage() {
     })
       .then((r) => r.json())
       .catch(() => ({ subscriptionRevenueThisMonthCents: 0 })),
+    fetch(`${MAIN_URL}/api/admin/analytics`, {
+      headers: { "x-admin-code": ADMIN_CODE },
+      next: { revalidate: 60 },
+    })
+      .then((r) => r.json())
+      .catch(() => ({ appOpensWeek: 0 })),
   ]);
 
   const totalSalesCents = storeOrdersThisMonth.reduce((s, o) => s + o.totalCents, 0);
@@ -95,9 +102,12 @@ export default async function DashboardPage() {
           </Link>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-gray-600 text-sm">App Downloads</p>
-          <p className="text-2xl font-bold">0</p>
-          <p className="text-xs text-gray-500 mt-1">Placeholder</p>
+          <p className="text-gray-600 text-sm">App Opens (7 days)</p>
+          <p className="text-2xl font-bold">{(analytics?.appOpensWeek ?? 0).toLocaleString()}</p>
+          <p className="text-xs text-gray-500 mt-1">Tracked from app launches</p>
+          <Link href="/dashboard/traffic" className="text-sm hover:underline mt-1 block" style={{ color: "#505542" }}>
+            View details
+          </Link>
         </div>
       </div>
 
@@ -132,17 +142,6 @@ export default async function DashboardPage() {
             </Link>
           </div>
         </div>
-      </div>
-
-      {/* Editor Mode */}
-      <div className="bg-white rounded-lg shadow p-4">
-        <h2 className="text-lg font-bold mb-2">Editor Mode</h2>
-        <p className="text-gray-600 text-sm mb-4">
-          Edit the main site layout, sections, and content. Changes are saved to the database and are not public until you click Save.
-        </p>
-        <Link href="/dashboard/editor" className="inline-block rounded px-4 py-2" style={{ backgroundColor: "#505542", color: "#fff" }}>
-          Open Editor Mode
-        </Link>
       </div>
 
       {/* Bottom Metrics */}

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { getServerSession } from "next-auth";
 import { Fahkwang } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { authOptions } from "@/lib/auth";
 import { Header } from "@/components/Header";
@@ -35,6 +36,7 @@ export default async function RootLayout({
           <Header />
           <main className="flex-1 flex flex-col min-w-0">{children}</main>
           <Footer />
+          <SpeedInsights />
         </Providers>
       </body>
     </html>

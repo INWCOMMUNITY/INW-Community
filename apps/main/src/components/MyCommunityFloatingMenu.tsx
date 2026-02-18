@@ -24,6 +24,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { divider: "My Rewards" },
   { href: "/my-community/points", label: "Community Points" },
   { href: "/my-community/rewards", label: "Rewards" },
+  { href: "/my-community/subscriptions", label: "Subscriptions" },
 ];
 
 function isActive(pathname: string, href: string): boolean {

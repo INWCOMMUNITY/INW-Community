@@ -22,6 +22,7 @@ export default function SignupPage() {
   const [city, setCity] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set());
   const [tags, setTags] = useState<Tag[]>([]);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -44,6 +45,10 @@ export default function SignupPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!ageConfirmed) {
+      setError("You must confirm you are 16 years or older to sign up.");
+      return;
+    }
     if (password !== retypePassword) {
       setError("Passwords do not match.");
       return;
@@ -158,6 +163,19 @@ export default function SignupPage() {
             className="w-full border rounded px-3 py-2"
           />
         </div>
+        <div className="flex items-start gap-2">
+          <input
+            id="ageConfirmed"
+            type="checkbox"
+            checked={ageConfirmed}
+            onChange={(e) => setAgeConfirmed(e.target.checked)}
+            required
+            className="mt-1"
+          />
+          <label htmlFor="ageConfirmed" className="text-sm">
+            I confirm I am 16 years or older (users under 18 need parent/guardian permission).
+          </label>
+        </div>
         <div>
           <label className="block text-sm font-medium mb-2">Pick tags to personalize your feed (optional)</label>
           <p className="text-xs text-gray-500 mb-2">Posts with these tags will appear in your feed.</p>
@@ -177,6 +195,12 @@ export default function SignupPage() {
           </div>
         </div>
         {error && <p className="text-red-600 text-sm">{error}</p>}
+        <p className="text-sm text-gray-600">
+          By signing up, you agree to our{" "}
+          <Link href="/terms" className="underline hover:no-underline">Terms of Service</Link>
+          {" "}and{" "}
+          <Link href="/privacy" className="underline hover:no-underline">Privacy Policy</Link>.
+        </p>
         <button type="submit" className="btn w-full" disabled={loading}>
           {loading ? "Creating account…" : "Sign up"}
         </button>

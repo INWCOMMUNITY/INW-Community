@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Alert } from "react-native";
 import {
   StyleSheet,
   View,
@@ -33,10 +34,11 @@ interface FeedPostCardProps {
   onLike: (postId: string) => void;
   onComment?: (postId: string) => void;
   onShare?: (postId: string) => void;
+  onReport?: (postId: string) => void;
   onOpenCoupon?: (couponId: string) => void;
 }
 
-export function FeedPostCard({ post, onLike, onComment, onShare, onOpenCoupon }: FeedPostCardProps) {
+export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onOpenCoupon }: FeedPostCardProps) {
   const router = useRouter();
   const { member } = useAuth();
   const [blogSaved, setBlogSaved] = useState(false);
@@ -313,6 +315,14 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onOpenCoupon }:
             onPress={() => onShare(post.id)}
           >
             <Text style={styles.actionText}>Share</Text>
+          </Pressable>
+        ) : null}
+        {onReport && !post.id.startsWith("example-") ? (
+          <Pressable
+            style={styles.actionBtn}
+            onPress={() => onReport(post.id)}
+          >
+            <Text style={styles.actionText}>Report</Text>
           </Pressable>
         ) : null}
       </View>

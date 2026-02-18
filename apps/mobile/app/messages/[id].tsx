@@ -3,9 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TextInput,
   Pressable,
+  TouchableOpacity,
   Image,
   Modal,
   ScrollView,
@@ -15,10 +15,10 @@ import {
   Alert,
   Dimensions,
 } from "react-native";
+import { FlatList } from "react-native-gesture-handler";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
@@ -136,6 +136,7 @@ export default function DirectConversationScreen() {
   const [photoViewerUri, setPhotoViewerUri] = useState<string | null>(null);
   const [savingPhoto, setSavingPhoto] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const lastTapRef = useRef<{ messageId: string; time: number } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -170,6 +171,9 @@ export default function DirectConversationScreen() {
                   ...m,
                   liked,
                   likeCount: (m.likeCount ?? 0) + (liked ? 1 : -1),
+                  likedBy: liked
+                    ? [...(m.likedBy ?? []), { id: member.id, profilePhotoUrl: member.profilePhotoUrl, firstName: member.firstName }]
+                    : (m.likedBy ?? []).filter((u) => u.id !== member.id),
                 }
               : m
           ),
@@ -178,6 +182,35 @@ export default function DirectConversationScreen() {
     } catch {
       // ignore
     }
+  };
+
+  const formatLikedBy = (likedBy: { firstName: string }[]) => {
+    if (!likedBy?.length) return "";
+    const names = likedBy.map((u) => u.firstName);
+    if (names.length === 1) return `Liked by ${names[0]}`;
+    if (names.length === 2) return `Liked by ${names[0]} and ${names[1]}`;
+    if (names.length === 3) return `Liked by ${names[0]}, ${names[1]}, and ${names[2]}`;
+    return `Liked by ${names[0]}, ${names[1]}, and ${names.length - 2} others`;
+  };
+
+  const handleBubblePress = (item: DirectConversation["messages"][0]) => {
+    const now = Date.now();
+    const prev = lastTapRef.current;
+    const DOUBLE_TAP_MS = 500;
+    if (prev && prev.messageId === item.id && now - prev.time < DOUBLE_TAP_MS) {
+      lastTapRef.current = null;
+      handleLike(item.id);
+      return;
+    }
+    lastTapRef.current = { messageId: item.id, time: now };
+    setTimeout(() => {
+      if (lastTapRef.current?.messageId === item.id && lastTapRef.current?.time === now) {
+        lastTapRef.current = null;
+        if (item.sharedContentType === "photo" && item.sharedContentId) {
+          setPhotoViewerUri(resolvePhotoUrl(item.sharedContentId) ?? item.sharedContentId);
+        }
+      }
+    }, DOUBLE_TAP_MS);
   };
 
   const handleSavePhoto = async () => {
@@ -367,27 +400,15 @@ export default function DirectConversationScreen() {
           const bubbleStyle = isPhotoOnly
             ? [styles.bubble, styles.bubblePhoto]
             : [styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem];
-          const doubleTap = Gesture.Tap()
-            .numberOfTaps(2)
-            .maxDuration(400)
-            .runOnJS(true)
-            .onEnd(() => handleLike(item.id));
-          const singleTap = Gesture.Tap()
-            .numberOfTaps(1)
-            .maxDuration(400)
-            .runOnJS(true)
-            .onEnd(() => {
-              if (item.sharedContentType === "photo" && item.sharedContentId) {
-                setPhotoViewerUri(resolvePhotoUrl(item.sharedContentId) ?? item.sharedContentId);
-              }
-            });
-          singleTap.requireExternalGestureToFail(doubleTap);
-          const composed = Gesture.Exclusive(doubleTap, singleTap);
 
           return (
             <View style={[styles.bubbleWrap, isMe && styles.bubbleWrapMe]}>
-              <GestureDetector gesture={composed}>
-                <View style={bubbleStyle}>
+              <TouchableOpacity
+                onPress={() => handleBubblePress(item)}
+                style={bubbleStyle}
+                activeOpacity={0.9}
+                delayPressIn={0}
+              >
                 {item.sharedContentType === "photo" && item.sharedContentId && (
                   <Image
                     source={{ uri: photoUri ?? undefined }}
@@ -429,39 +450,15 @@ export default function DirectConversationScreen() {
                 {item.content ? (
                   <Text style={[styles.bubbleText, isMe && !isPhotoOnly && styles.bubbleTextMe]}>{item.content}</Text>
                 ) : null}
-                {(item.likeCount ?? 0) > 0 && (
-                  <View style={styles.likedBadge}>
-                    {(() => {
-                      const heartColor = isMe ? "#fff" : theme.colors.primary;
-                      return item.likedBy && item.likedBy.length > 0 ? (
-                        <>
-                          {item.likedBy.slice(0, 3).map((u, idx) => (
-                            <View key={u.id} style={[styles.likerAvatarWrap, idx > 0 && { marginLeft: -8 }]}>
-                              {u.profilePhotoUrl ? (
-                                <Image
-                                  source={{ uri: resolvePhotoUrl(u.profilePhotoUrl) ?? u.profilePhotoUrl }}
-                                  style={[styles.likerAvatar, isMe && { borderColor: "#fff" }]}
-                                />
-                              ) : (
-                                <View style={[styles.likerAvatar, styles.likerAvatarPlaceholder, isMe && { borderColor: "#fff" }]}>
-                                  <Ionicons name="person" size={8} color={heartColor} />
-                                </View>
-                              )}
-                            </View>
-                          ))}
-                          <Ionicons name="heart" size={14} color={heartColor} style={styles.likedHeart} />
-                        </>
-                      ) : (
-                        <>
-                          <Ionicons name="heart" size={12} color={heartColor} />
-                          <Text style={[styles.likedCount, { color: heartColor }]}>{item.likeCount}</Text>
-                        </>
-                      );
-                    })()}
-                  </View>
-                )}
+              </TouchableOpacity>
+              {(item.likeCount ?? 0) > 0 && (
+                <View style={[styles.likedBadge, isMe && styles.likedBadgeMe]}>
+                  <Ionicons name="heart" size={12} color={theme.colors.primary} />
+                  <Text style={styles.likedBadgeText}>
+                    {formatLikedBy(item.likedBy ?? []) || `${item.likeCount} like${(item.likeCount ?? 0) === 1 ? "" : "s"}`}
+                  </Text>
                 </View>
-              </GestureDetector>
+              )}
             </View>
           );
         }}
@@ -548,30 +545,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
     borderColor: "#e0e0e0",
   },
+  bubbleText: { fontSize: 16, color: theme.colors.heading },
+  bubbleTextMe: { color: "#fff" },
   likedBadge: {
     flexDirection: "row",
     alignItems: "center",
+    marginTop: 4,
+    marginLeft: 4,
     gap: 4,
-    marginTop: 6,
-    flexWrap: "wrap",
   },
-  likerAvatarWrap: { marginLeft: -6 },
-  likerAvatar: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#fff",
-  },
-  likerAvatarPlaceholder: {
-    backgroundColor: theme.colors.creamAlt,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  likedHeart: { marginLeft: 2 },
-  likedCount: { fontSize: 11, color: theme.colors.primary },
-  bubbleText: { fontSize: 16, color: theme.colors.heading },
-  bubbleTextMe: { color: "#fff" },
+  likedBadgeMe: { alignSelf: "flex-end", marginLeft: 0, marginRight: 4 },
+  likedBadgeText: { fontSize: 11, color: theme.colors.primary },
   sharedPhoto: { width: 200, height: 200, borderRadius: 12, marginBottom: 8 },
   sharedBusinessCard: {
     flexDirection: "row",

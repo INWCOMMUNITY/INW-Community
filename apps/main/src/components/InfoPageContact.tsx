@@ -20,8 +20,8 @@ export function InfoPageContact() {
               My name is Donivan, a real person! If you have any questions or prefer personal business, by all means give me a call! I am happy to connect with any business owners looking to sponsor Northwest Community or those who may just have questions. Thanks!
             </p>
             <p className="font-medium mb-1">208-819-0268</p>
-            <a href="mailto:donivan@pnwcommunity.com" className="hover:underline text-sm block" style={{ color: "var(--color-link)" }}>
-              donivan@pnwcommunity.com
+            <a href="mailto:donivan@inwcommunity.com" className="hover:underline text-sm block" style={{ color: "var(--color-link)" }}>
+              donivan@inwcommunity.com
             </a>
           </div>
         </div>

@@ -16,12 +16,12 @@ const SLUG_TO_ICON: Record<string, IconName> = {
   platinum_seller: "medal-outline",
   spreading_the_word: "megaphone-outline",
   community_writer: "newspaper-outline",
-  admin_badge: "shield-outline",
+  admin_badge: "shield",
   local_business_pro: "card-outline",
   community_planner: "calendar-outline",
   party_planner: "sparkles-outline",
-  super_scanner: "scan-outline",
-  elite_scanner: "qr-code-outline",
+  super_scanner: "qr-code-outline",
+  elite_scanner: "qr-code",
   badger_badge: "paw",
 };
 

@@ -62,6 +62,14 @@ export async function POST(req: NextRequest) {
   const contentTrimmed = data.content.trim();
   const contentCheck = validateText(contentTrimmed, "message");
   if (!contentCheck.allowed) {
+    const { createFlaggedContent } = await import("@/lib/flag-content");
+    await createFlaggedContent({
+      contentType: "message",
+      contentId: null,
+      reason: "slur",
+      snippet: contentTrimmed.slice(0, 500),
+      authorId: session.user.id,
+    });
     return NextResponse.json({ error: contentCheck.reason ?? "Message not allowed." }, { status: 400 });
   }
 

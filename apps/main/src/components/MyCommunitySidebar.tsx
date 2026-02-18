@@ -23,6 +23,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { href: "/my-community/points", label: "Community Points" },
   { href: "/my-community/rewards", label: "Rewards" },
   { href: "/my-community/my-badges", label: "My Badges" },
+  { href: "/my-community/subscriptions", label: "Subscriptions" },
   { href: "/badges", label: "Community Badges" },
 ];
 

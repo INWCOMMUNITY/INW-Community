@@ -29,7 +29,7 @@ export default async function HomePage() {
             Northwest Community
           </h1>
           <p className="text-lg max-w-2xl mx-auto mb-8 text-white/95 leading-relaxed">
-            Connecting the good people of Spokane & Kootenai County through chatrooms, selling local goods, event calendars, contact forms, local coupons, and of course, fun events that bring the community together and support the beautiful Northwest we live in. This website is for residents of the Inland Northwest, a region of the beautiful PNW. Welcome, residents of Eastern Washington and North Idaho. This is your one-stop shop for supporting locally owned businesses and local people.
+            Connecting the good people of Spokane & Kootenai County through our community feed and messaging, selling local goods, event calendars, NWC Requests, local coupons, and of course, fun events that bring the community together and support the beautiful Northwest we live in. This website is for residents of the Inland Northwest, a region of the beautiful PNW. Welcome, residents of Eastern Washington and North Idaho. This is your one-stop shop for supporting locally owned businesses and local people.
           </p>
           <Link
             href="/signup"
@@ -187,6 +187,7 @@ export default async function HomePage() {
               <Link href="/support-nwc" className="btn-sponsors">Subscribe</Link>
               <Link href="/coupons" className="btn-sponsors">Coupons</Link>
               <Link href="/rewards" className="btn-sponsors">Rewards</Link>
+              <Link href="/badges" className="btn-sponsors">Community Badges</Link>
             </div>
           </div>
         </div>

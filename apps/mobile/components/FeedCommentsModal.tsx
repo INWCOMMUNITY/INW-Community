@@ -20,7 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { fetchComments, createComment, likeComment, type FeedComment } from "@/lib/feed-api";
 import type { FeedPost } from "@/lib/feed-api";
-import { apiUploadFile, getToken } from "@/lib/api";
+import { apiPost, apiUploadFile, getToken } from "@/lib/api";
 import { GifPickerModal } from "@/components/GifPickerModal";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
@@ -109,9 +109,10 @@ interface CommentRowProps {
   postId: string;
   onLike: (commentId: string) => void;
   onReply: (comment: FeedComment) => void;
+  onReportComment?: (commentId: string) => void;
 }
 
-function CommentRow({ comment, isReply, postId, onLike, onReply }: CommentRowProps) {
+function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment }: CommentRowProps) {
   const name = `${comment.member.firstName ?? ""} ${comment.member.lastName ?? ""}`.trim() || "Member";
   const initials = [comment.member.firstName?.[0], comment.member.lastName?.[0]]
     .filter(Boolean)
@@ -166,6 +167,14 @@ function CommentRow({ comment, isReply, postId, onLike, onReply }: CommentRowPro
             >
               <Text style={styles.commentActionText}>Reply</Text>
             </Pressable>
+            {onReportComment && (
+              <Pressable
+                onPress={() => onReportComment(comment.id)}
+                style={({ pressed }) => [styles.commentActionBtn, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.commentActionText}>Report</Text>
+              </Pressable>
+            )}
           </View>
         </View>
         <View style={styles.commentLikeWrap}>
@@ -348,6 +357,53 @@ export function FeedCommentsModal({
     setReplyingTo({ id: comment.id, authorName });
   };
 
+  const reportOptions = [
+    { text: "Political content", reason: "political" as const },
+    { text: "Hate speech", reason: "hate" as const },
+    { text: "Nudity / explicit", reason: "nudity" as const },
+    { text: "Other", reason: "other" as const },
+  ];
+  const handleReportComment = (commentId: string) => {
+    Alert.alert(
+      "Report comment",
+      "Why are you reporting this comment?",
+      [
+        ...reportOptions.map((o) => ({
+          text: o.text,
+          onPress: () =>
+            apiPost("/api/reports", {
+              contentType: "comment",
+              contentId: commentId,
+              reason: o.reason,
+            }).then(() => Alert.alert("Report submitted", "Thank you.")).catch((e) =>
+              Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.")
+            ),
+        })),
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  };
+  const handleReportPost = () => {
+    Alert.alert(
+      "Report post",
+      "Why are you reporting this post?",
+      [
+        ...reportOptions.map((o) => ({
+          text: o.text,
+          onPress: () =>
+            apiPost("/api/reports", {
+              contentType: "post",
+              contentId: postId,
+              reason: o.reason,
+            }).then(() => Alert.alert("Report submitted", "Thank you.")).catch((e) =>
+              Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.")
+            ),
+        })),
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  };
+
   const canSubmit = (input.trim().length > 0 || photos.length > 0) && !submitting;
 
   // Build tree: top-level comments + nested replies
@@ -380,12 +436,22 @@ export function FeedCommentsModal({
             <Text style={styles.headerTitle}>
               Comments {comments.length > 0 ? `(${comments.length})` : ""}
             </Text>
-            <Pressable
-              onPress={handleClose}
-              style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}
-            >
-              <Ionicons name="close" size={24} color={theme.colors.heading} />
-            </Pressable>
+            <View style={styles.headerActions}>
+              {!isDemoPost && (
+                <Pressable
+                  onPress={handleReportPost}
+                  style={({ pressed }) => [styles.reportBtn, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={styles.reportBtnText}>Report post</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={handleClose}
+                style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="close" size={24} color={theme.colors.heading} />
+              </Pressable>
+            </View>
           </View>
           {loading ? (
             <View style={styles.loading}>
@@ -421,6 +487,7 @@ export function FeedCommentsModal({
                       postId={postId}
                       onLike={handleLike}
                       onReply={handleReply}
+                      onReportComment={isDemoPost ? undefined : handleReportComment}
                     />
                     {getReplies(c.id).map((r) => (
                       <CommentRow
@@ -430,6 +497,7 @@ export function FeedCommentsModal({
                         postId={postId}
                         onLike={handleLike}
                         onReply={handleReply}
+                        onReportComment={isDemoPost ? undefined : handleReportComment}
                       />
                     ))}
                   </View>
@@ -571,6 +639,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     color: theme.colors.heading,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  reportBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  reportBtnText: {
+    fontSize: 14,
+    color: "#666",
   },
   closeBtn: { padding: 4 },
   loading: {

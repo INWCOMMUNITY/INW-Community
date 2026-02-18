@@ -1,7 +1,8 @@
 // Northwest Community - Prisma schema
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "rhel-openssl-3.0.x"]
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -37,6 +38,7 @@ model Member {
   status            String   @default("active") // active | suspended
   privacyLevel      String   @default("public") @map("privacy_level") // public | friends_only | completely_private
   signupIntent      String?  @map("signup_intent") // resident | business | seller
+  lastLogin         DateTime? @map("last_login") // For 30-day sliding session (mobile)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -94,6 +96,7 @@ model Member {
   referralLinks ReferralLink[]
   referralSignupsAsReferrer ReferralSignup[] @relation("ReferralSignupReferrer")
   referralSignupsAsNewMember ReferralSignup[] @relation("ReferralSignupNewMember")
+  reports                  Report[]
 }
 
 model SellerTimeAway {
@@ -161,6 +164,7 @@ model Subscription {
   status               String   // active | canceled | past_due | trialing
   currentPeriodEnd     DateTime? @map("current_period_end")
   trialEnd             DateTime? @map("trial_end")
+  renewalReminderPeriodEnd DateTime? @map("renewal_reminder_period_end")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
@@ -190,6 +194,7 @@ model Business {
   slug             String   @unique
   photos           String[] // JSON array of URLs
   coverPhotoUrl    String?  @map("cover_photo_url") // Seller storefront backdrop (Facebook-style cover)
+  nameApprovalStatus String @default("approved") @map("name_approval_status") // approved | pending | rejected (profanity in name)
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -1091,4 +1096,53 @@ model NwcRequest {
   member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
 
   @@map("nwc_request")
+}
+
+// User reports (posts, comments, messages) for political/hate/nudity/CSAM
+model Report {
+  id          String   @id @default(cuid())
+  reporterId  String   @map("reporter_id")
+  contentType String  @map("content_type") // post | comment | direct_message | group_message | resale_message
+  contentId   String   @map("content_id")
+  reason      String   // political | hate | nudity | csam | other
+  details     String?  @db.Text
+  status      String   @default("pending") // pending | reviewed | resolved
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  reporter Member @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([contentType, contentId])
+  @@index([status])
+  @@map("report")
+}
+
+// System-flagged content (moderation triggers: slurs, prohibited categories, profanity)
+model FlaggedContent {
+  id          String   @id @default(cuid())
+  contentType String   @map("content_type") // post | message | business | event | store_item
+  contentId   String?  @map("content_id")   // null if creation was blocked
+  reason      String   // slur | prohibited_category | profanity | restricted
+  snippet     String?  @db.Text             // excerpt of flagged text
+  authorId    String?  @map("author_id")    // member who created, if applicable
+  status      String   @default("pending")  // pending | reviewed | removed
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([contentType, status])
+  @@map("flagged_content")
+}
+
+// Analytics: page views, app opens, web vitals
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  event     String   // pageview | app_open | web_vitals
+  source    String   // web | ios | android
+  path      String?  // URL path for pageview
+  name      String?  // web vitals metric name: LCP | FID | CLS
+  value     Float?   // metric value
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([event, source])
+  @@index([createdAt])
+  @@map("analytics_event")
 }

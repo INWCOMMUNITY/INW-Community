@@ -3,8 +3,15 @@ import { prisma } from "database";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-auth";
 
+const defaultPrizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => ({
+  rank,
+  label: "",
+  imageUrl: null as string | null,
+  businessId: null as string | null,
+}));
+
 const prizeSchema = z.object({
-  rank: z.number().int().min(1).max(5),
+  rank: z.number().int().min(1).max(10),
   label: z.string(),
   imageUrl: z.string().url().nullable().optional().or(z.literal("")),
   businessId: z.string().nullable().optional(),
@@ -26,17 +33,11 @@ export async function GET(req: NextRequest) {
       enabled: false,
       startDate: new Date().toISOString().slice(0, 10),
       endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      prizes: [
-        { rank: 1, label: "", imageUrl: null, businessId: null },
-        { rank: 2, label: "", imageUrl: null, businessId: null },
-        { rank: 3, label: "", imageUrl: null, businessId: null },
-        { rank: 4, label: "", imageUrl: null, businessId: null },
-        { rank: 5, label: "", imageUrl: null, businessId: null },
-      ],
+      prizes: defaultPrizes,
     });
   }
   const prizes = (campaign.prizes as { rank: number; label: string; imageUrl?: string; businessId?: string }[]) ?? [];
-  const defaultPrizes = [1, 2, 3, 4, 5].map((rank) => {
+  const mergedPrizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
     const existing = prizes.find((p) => p.rank === rank);
     return existing ?? { rank, label: "", imageUrl: null, businessId: null };
   });
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
     enabled: campaign.enabled,
     startDate: campaign.startDate.toISOString().slice(0, 10),
     endDate: campaign.endDate.toISOString().slice(0, 10),
-    prizes: defaultPrizes,
+    prizes: mergedPrizes,
   });
 }
 
@@ -55,13 +56,7 @@ export async function PATCH(req: NextRequest) {
     const data = patchSchema.parse(body);
     const startDate = data.startDate ? new Date(data.startDate) : new Date();
     const endDate = data.endDate ? new Date(data.endDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    const prizes = data.prizes ?? [
-      { rank: 1, label: "", imageUrl: null, businessId: null },
-      { rank: 2, label: "", imageUrl: null, businessId: null },
-      { rank: 3, label: "", imageUrl: null, businessId: null },
-      { rank: 4, label: "", imageUrl: null, businessId: null },
-      { rank: 5, label: "", imageUrl: null, businessId: null },
-    ];
+    const prizes = data.prizes ?? defaultPrizes;
     const existing = await prisma.top5Campaign.findFirst({ orderBy: { updatedAt: "desc" } });
     if (existing) {
       await prisma.top5Campaign.update({

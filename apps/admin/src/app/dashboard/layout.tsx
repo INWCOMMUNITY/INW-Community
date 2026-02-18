@@ -4,6 +4,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { BlogsNavItem } from "./BlogsNavItem";
+import { FlaggedNavItem } from "./FlaggedNavItem";
 
 const MAIN_SITE_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
 
@@ -14,6 +15,7 @@ const SIDEBAR_SECTIONS = [
       { href: "/dashboard/members", label: "Members" },
       { href: "/dashboard/subscriptions", label: "Subscriptions" },
       { href: "/dashboard/sponsors", label: "Sponsors" },
+      { href: "/dashboard/businesses", label: "Businesses" },
       { href: "/dashboard/sellers", label: "Sellers" },
     ],
   },
@@ -21,7 +23,7 @@ const SIDEBAR_SECTIONS = [
     divider: "Incentives",
     items: [
       { href: "/dashboard/coupons", label: "Coupons" },
-      { href: "/dashboard/top5", label: "Top 5 Rewards" },
+      { href: "/dashboard/top5", label: "NWC Top 10 Prizes" },
       { href: "/dashboard/points-config", label: "Points" },
       { href: "/dashboard/badges", label: "Badges" },
     ],
@@ -32,13 +34,15 @@ const SIDEBAR_SECTIONS = [
       { href: "/dashboard/events", label: "Events" },
       { href: "/dashboard/blogs", label: "Blogs" },
       { href: "/dashboard/posts", label: "Posts" },
+      { href: "/dashboard/flagged", label: "Flagged" },
+      { href: "/dashboard/reports", label: "Reports" },
     ],
   },
   {
     divider: "My Business",
     items: [
       { href: "/dashboard/business-info", label: "Business Info" },
-      { href: "/dashboard/payouts", label: "Payouts" },
+      { href: "/dashboard/disputes", label: "Disputes" },
       { href: "/dashboard/traffic", label: "Traffic" },
     ],
   },
@@ -46,7 +50,6 @@ const SIDEBAR_SECTIONS = [
     divider: "Website",
     items: [
       { href: "/dashboard/design", label: "Design" },
-      { href: "/dashboard/editor", label: "Editor Mode" },
       { href: MAIN_SITE_URL, label: "See Website", external: true },
     ],
   },
@@ -115,6 +118,14 @@ export default function DashboardLayout({
                 </a>
               ) : item.href === "/dashboard/blogs" ? (
                 <BlogsNavItem
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  isActive={isActive(item.href)}
+                  onClick={() => setSidebarOpen(false)}
+                />
+              ) : item.href === "/dashboard/flagged" ? (
+                <FlaggedNavItem
                   key={item.href}
                   href={item.href}
                   label={item.label}

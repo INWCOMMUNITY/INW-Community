@@ -160,6 +160,31 @@ export default function CommunityScreen() {
     setCommentPostId(postId);
   }, []);
 
+  const handleReport = useCallback((postId: string) => {
+    if (postId.startsWith("example-")) return;
+    Alert.alert(
+      "Report post",
+      "Why are you reporting this post?",
+      [
+        { text: "Political content", onPress: () => reportPost(postId, "political") },
+        { text: "Hate speech", onPress: () => reportPost(postId, "hate") },
+        { text: "Nudity / explicit", onPress: () => reportPost(postId, "nudity") },
+        { text: "Other", onPress: () => reportPost(postId, "other") },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  }, []);
+
+  const reportPost = async (postId: string, reason: "political" | "hate" | "nudity" | "other") => {
+    try {
+      const { apiPost } = await import("@/lib/api");
+      await apiPost("/api/reports", { contentType: "post", contentId: postId, reason });
+      Alert.alert("Report submitted", "Thank you. We will review this post.");
+    } catch (e) {
+      Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.");
+    }
+  };
+
   const handleCommentAdded = useCallback(() => {
     if (!commentPostId) return;
     setPosts((prev) =>
@@ -253,6 +278,7 @@ export default function CommunityScreen() {
               onLike={handleLike}
               onComment={handleComment}
               onShare={handleShare}
+              onReport={handleReport}
               onOpenCoupon={(id) => {
               if (id.startsWith("ex-")) {
                 Alert.alert("Demo", "This is an example coupon. Browse real coupons in Support Local!");

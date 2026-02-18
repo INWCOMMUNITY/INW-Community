@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
+import { createFlaggedContent } from "@/lib/flag-content";
 import { z } from "zod";
 
 function slugify(s: string): string {
@@ -328,6 +329,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (containsProhibitedCategory(data.title, data.category ?? null, data.description ?? null)) {
+    await createFlaggedContent({
+      contentType: "store_item",
+      contentId: null,
+      reason: "prohibited_category",
+      snippet: [data.title, data.category, data.description].filter(Boolean).join(" ").slice(0, 500),
+      authorId: userId,
+    });
     return NextResponse.json(
       { error: "This category or product type is not allowed on our platform." },
       { status: 400 }
@@ -335,11 +343,25 @@ export async function POST(req: NextRequest) {
   }
   const titleCheck = validateText(data.title, "product_title");
   if (!titleCheck.allowed) {
+    await createFlaggedContent({
+      contentType: "store_item",
+      contentId: null,
+      reason: "restricted",
+      snippet: data.title.slice(0, 500),
+      authorId: userId,
+    });
     return NextResponse.json({ error: titleCheck.reason ?? "Invalid title." }, { status: 400 });
   }
   if (data.description) {
     const descCheck = validateText(data.description, "product_description");
     if (!descCheck.allowed) {
+      await createFlaggedContent({
+        contentType: "store_item",
+        contentId: null,
+        reason: "restricted",
+        snippet: data.description.slice(0, 500),
+        authorId: userId,
+      });
       return NextResponse.json({ error: descCheck.reason ?? "Invalid description." }, { status: 400 });
     }
   }

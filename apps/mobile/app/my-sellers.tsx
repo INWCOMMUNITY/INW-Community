@@ -119,7 +119,7 @@ export default function MySellersScreen() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
-                You haven&apos;t followed any sellers yet. Browse NWC Sellers in Support Local to find stores to follow.
+                You haven&apos;t followed any sellers yet. Browse Local Sellers in Support Local to find stores to follow.
               </Text>
               <Pressable
                 style={({ pressed }) => [styles.browseBtn, pressed && { opacity: 0.8 }]}

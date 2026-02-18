@@ -1,7 +1,7 @@
 /**
  * Content moderation utilities for INW Community.
  * Enforces member rules: no cannabis, sexual products, alcohol, political merch;
- * no profanity in comments/titles/names; no slurs in any text.
+ * slurs blocked everywhere; profanity allowed in messages/comments; business names with profanity require admin approval.
  */
 
 // Prohibited product categories for seller listings
@@ -26,16 +26,15 @@ export const PROHIBITED_PRODUCT_CATEGORIES = [
   "propaganda",
 ] as const;
 
-// Common profanity blocklist (minimal - extend as needed)
+// Profanity (for business name approval flow - not blocked in messages/comments)
 const PROFANITY_BLOCKLIST = new Set(
   [
     "fuck", "shit", "ass", "bitch", "damn", "crap", "dick", "cock",
-    "pussy", "bastard", "slut", "whore", "cunt", "fag", "faggot",
-    "nigger", "nigga", "retard", "retarded", "rape", "molest",
+    "pussy", "bastard", "slut", "whore", "cunt", "rape", "molest",
   ].map((w) => w.toLowerCase())
 );
 
-// Slur blocklist - restrict in all contexts
+// Slur blocklist - always blocked in all contexts
 const SLUR_BLOCKLIST = new Set(
   [
     "nigger", "nigga", "fag", "faggot", "faggots", "tranny", "retard",
@@ -124,37 +123,35 @@ export function validateText(
     };
   }
 
-  // Profanity blocked in comments, product titles, business names
-  if (
-    context === "comment" ||
-    context === "product_title" ||
-    context === "business_name"
-  ) {
+  // Comments and messages: allow profanity, only block slurs (already done above)
+  if (context === "comment" || context === "message") {
+    return { allowed: true };
+  }
+
+  // Business name: slurs blocked above. Profanity allowed but requires admin approval (handled in API).
+  if (context === "business_name") {
+    return { allowed: true };
+  }
+
+  // Product title and description: block profanity
+  if (context === "product_title" || context === "product_description") {
     const profanity = containsBlocklistWord(trimmed, PROFANITY_BLOCKLIST);
     if (profanity) {
       return {
         allowed: false,
         reason:
-          context === "product_title" || context === "business_name"
-            ? "Please remove inappropriate language. Titles and names require admin approval if they contain strong language."
-            : "Please remove inappropriate language from your message.",
-      };
-    }
-  }
-
-  // In messages and product descriptions, we still block slurs (already done)
-  // but allow milder profanity in DMs? Plan says "restrict all slurs" and
-  // "no explicit wording in comments" - so comments get full block, messages
-  // get slur block. Product description: block profanity to be safe.
-  if (context === "product_description" || context === "message") {
-    const profanity = containsBlocklistWord(trimmed, PROFANITY_BLOCKLIST);
-    if (profanity) {
-      return {
-        allowed: false,
-        reason: "Please remove inappropriate language.",
+          context === "product_title"
+            ? "Please remove inappropriate language from the title."
+            : "Please remove inappropriate language from the description.",
       };
     }
   }
 
   return { allowed: true };
+}
+
+/** Check if text contains profanity (for business name admin-approval flow). Slurs must be checked separately via validateText. */
+export function containsProfanity(text: string): boolean {
+  if (!text || typeof text !== "string") return false;
+  return containsBlocklistWord(text.trim(), PROFANITY_BLOCKLIST) !== null;
 }

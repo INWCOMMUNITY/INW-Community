@@ -12,7 +12,6 @@ import * as WebBrowser from "expo-web-browser";
 import { useFocusEffect } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
-import { SubscriptionCheckoutSheet } from "./SubscriptionCheckoutSheet";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const siteBase = API_BASE.replace(/\/$/, "");
@@ -119,6 +118,9 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
   const [StripeProvider, setStripeProvider] = useState<
     React.ComponentType<{ publishableKey: string; urlScheme: string; children: React.ReactNode }> | null
   >(null);
+  const [SubscriptionCheckoutSheet, setSubscriptionCheckoutSheet] = useState<
+    React.ComponentType<SubscriptionCheckoutWithFallbackProps> | null
+  >(null);
   const [loadError, setLoadError] = useState(false);
 
   const webFallback = <WebCheckoutFallback {...props} />;
@@ -134,11 +136,15 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
       setLoadError(true);
       return;
     }
-    import("@stripe/stripe-react-native")
-      .then((mod) => {
-        const Provider = mod?.StripeProvider;
-        if (Provider && typeof Provider === "function") {
+    Promise.all([
+      import("@stripe/stripe-react-native"),
+      import("./SubscriptionCheckoutSheet"),
+    ])
+      .then(([stripeMod, sheetMod]) => {
+        const Provider = stripeMod?.StripeProvider;
+        if (Provider && typeof Provider === "function" && sheetMod?.SubscriptionCheckoutSheet) {
           setStripeProvider(() => Provider);
+          setSubscriptionCheckoutSheet(() => sheetMod.SubscriptionCheckoutSheet);
         } else {
           setLoadError(true);
         }
@@ -168,7 +174,7 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
     return webFallback;
   }
 
-  if (!StripeProvider) {
+  if (!StripeProvider || !SubscriptionCheckoutSheet) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator size="small" color={theme.colors.primary} />

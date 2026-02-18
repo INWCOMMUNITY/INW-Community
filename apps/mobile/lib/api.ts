@@ -4,9 +4,21 @@
  * Token storage: SecureStore on native, AsyncStorage on web (platform-specific).
  */
 
+import { Platform } from "react-native";
 import { getToken, setToken, clearToken } from "./storage";
 
 export { getToken, setToken, clearToken };
+
+/** Track app open for admin analytics (fire-and-forget, no auth required) */
+export function trackAppOpen(): void {
+  const source = Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "web";
+  const url = `${API_BASE}/api/analytics/track`;
+  fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event: "app_open", source }),
+  }).catch(() => {});
+}
 
 const API_BASE =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
@@ -46,6 +58,29 @@ async function fetchWithTimeout(
   }
 }
 
+async function tryRefresh(): Promise<boolean> {
+  const token = await getToken();
+  if (!token) return false;
+  try {
+    const url = `${API_BASE}/api/auth/refresh`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(API_BASE.includes("ngrok") ? { "ngrok-skip-browser-warning": "true" } : {}),
+      ...(API_BASE.includes("loca.lt") ? { "Bypass-Tunnel-Reminder": "true" } : {}),
+    };
+    const res = await fetchWithTimeout(url, { method: "POST", headers });
+    const data = (await res.json().catch(() => ({}))) as { token?: string };
+    if (res.ok && data.token) {
+      await setToken(data.token);
+      return true;
+    }
+  } catch {
+    // Ignore
+  }
+  return false;
+}
+
 async function fetchWithAuth(
   path: string,
   options: RequestInit = {}
@@ -78,9 +113,14 @@ async function fetchWithAuth(
     const err = e as { error?: string; status?: number };
     throw err.error ? err : { error: String(e), status: 0 };
   }
-  // Only clear token when we sent one and got 401 (invalid/expired token).
-  // Don't clear when we had no token - avoids cascading logouts from other requests.
   if (res.status === 401 && token) {
+    const isRefreshRoute = path.includes("/api/auth/refresh");
+    if (!isRefreshRoute) {
+      const refreshed = await tryRefresh();
+      if (refreshed) {
+        return fetchWithAuth(path, options);
+      }
+    }
     await clearToken();
   }
   return res;
@@ -160,19 +200,23 @@ export async function apiUploadFile(
   formData: FormData
 ): Promise<{ url: string }> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
-  const token = await getToken();
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  if (API_BASE.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
-  if (API_BASE.includes("loca.lt")) headers["Bypass-Tunnel-Reminder"] = "true";
-  let res: Response;
-  try {
-    res = await fetchWithTimeout(url, { method: "POST", headers, body: formData });
-  } catch (e) {
-    const err = e as { error?: string; status?: number };
-    throw err.error ? err : { error: String(e), status: 0 };
+  const doUpload = async (authToken: string | null) => {
+    const headers: Record<string, string> = {};
+    if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+    if (API_BASE.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
+    if (API_BASE.includes("loca.lt")) headers["Bypass-Tunnel-Reminder"] = "true";
+    return fetchWithTimeout(url, { method: "POST", headers, body: formData });
+  };
+  let token = await getToken();
+  let res = await doUpload(token);
+  if (res.status === 401 && token) {
+    const refreshed = await tryRefresh();
+    if (refreshed) {
+      token = await getToken();
+      res = await doUpload(token);
+    }
+    if (res.status === 401) await clearToken();
   }
-  if (res.status === 401 && token) await clearToken();
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw { error: (data as { error?: string }).error ?? "Upload failed", status: res.status };

@@ -288,23 +288,44 @@ export default function SupportLocalScreen() {
           marginBottom: 16,
           textAlign: "center",
         },
-        logoContainer: { alignItems: "center" },
+        logoRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 16,
+        },
+        logoRowSideLeft: {
+          flex: 1,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "flex-end",
+        },
+        logoRowSideRight: {
+          flex: 1,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "flex-start",
+        },
+        logoContainer: {
+          alignItems: "center",
+          justifyContent: "center",
+        },
         logoCircle: {
           width: 92,
           height: 92,
           borderRadius: 46,
           overflow: "hidden",
-          backgroundColor: "#fff",
-        },
-        headerLogo: { width: 92, height: 92 },
-        logoRow: {
-          flexDirection: "row",
+          backgroundColor: "transparent",
           alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 16,
+          justifyContent: "center",
+        },
+        headerLogo: {
+          width: 92,
+          height: 92,
+          alignSelf: "center",
         },
         headerButton: {
-          marginHorizontal: 6,
+          marginHorizontal: 8,
           paddingHorizontal: 20,
           paddingVertical: 10,
           borderRadius: 20,
@@ -484,7 +505,7 @@ export default function SupportLocalScreen() {
               {location}
             </Text>
           ) : null}
-          {item.itemCount > 0 ? (
+          {(item.itemCount ?? 0) > 0 ? (
             <Text style={styles.cardSub}>{item.itemCount} items</Text>
           ) : null}
         </View>
@@ -503,12 +524,14 @@ export default function SupportLocalScreen() {
       <Animated.View style={[styles.headerWrap, { height: animatedHeight }]}>
       <View style={styles.header} onLayout={handleHeaderLayout}>
         <View style={styles.logoRow}>
-          <Pressable
-            style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
-            onPress={openCoupons}
-          >
-            <Text style={styles.headerButtonText}>Coupons</Text>
-          </Pressable>
+          <View style={styles.logoRowSideLeft}>
+            <Pressable
+              style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
+              onPress={openCoupons}
+            >
+              <Text style={styles.headerButtonText}>Coupons</Text>
+            </Pressable>
+          </View>
           <View style={styles.logoContainer}>
             <View style={styles.logoCircle}>
               <Image
@@ -519,12 +542,14 @@ export default function SupportLocalScreen() {
               />
             </View>
           </View>
-          <Pressable
-            style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
-            onPress={openRewards}
-          >
-            <Text style={styles.headerButtonText}>Rewards</Text>
-          </Pressable>
+          <View style={styles.logoRowSideRight}>
+            <Pressable
+              style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
+              onPress={openRewards}
+            >
+              <Text style={styles.headerButtonText}>Rewards</Text>
+            </Pressable>
+          </View>
         </View>
         <Text style={styles.headerRegion}>Eastern Washington & North Idaho</Text>
         <Pressable
@@ -533,7 +558,7 @@ export default function SupportLocalScreen() {
         >
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
             <Text style={styles.headerTitle}>
-              {viewMode === "directory" ? "Local Business Directory" : "NWC Sellers"}
+              {viewMode === "directory" ? "Local Business Directory" : "Local Sellers"}
             </Text>
             <Ionicons name="chevron-down" size={20} color="#fff" />
           </View>
@@ -583,7 +608,7 @@ export default function SupportLocalScreen() {
                 onPress={selectSellers}
               >
                 <Text style={{ fontSize: 16, fontWeight: "600", color: theme.colors.heading }}>
-                  NWC Sellers
+                  Local Sellers
                 </Text>
               </Pressable>
             </View>

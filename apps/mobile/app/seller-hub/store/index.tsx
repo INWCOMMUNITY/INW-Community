@@ -71,11 +71,7 @@ export default function StorefrontInfoScreen() {
 
       <Pressable
         style={({ pressed }) => [styles.editBtn, pressed && { opacity: 0.8 }]}
-        onPress={() =>
-          router.push(
-            `/web?url=${encodeURIComponent(`${siteBase}/seller-hub/store`)}&title=${encodeURIComponent("Edit Seller Profile")}`
-          )
-        }
+        onPress={() => router.push("/seller-hub/store/edit")}
       >
         <Text style={styles.editBtnText}>Edit Seller Profile</Text>
       </Pressable>

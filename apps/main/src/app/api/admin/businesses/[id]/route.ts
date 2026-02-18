@@ -14,6 +14,7 @@ export async function GET(
     select: {
       id: true,
       name: true,
+      nameApprovalStatus: true,
       shortDescription: true,
       fullDescription: true,
       website: true,
@@ -33,6 +34,7 @@ export async function GET(
 
 const hoursSchema = z.record(z.string()).nullable().optional();
 const bodySchema = z.object({
+  nameApprovalStatus: z.enum(["approved", "rejected"]).optional(),
   name: z.string().min(1).optional(),
   shortDescription: z.string().nullable().optional(),
   fullDescription: z.string().nullable().optional(),
@@ -64,6 +66,7 @@ export async function PATCH(
     await prisma.business.update({
       where: { id },
       data: {
+        ...(data.nameApprovalStatus != null && { nameApprovalStatus: data.nameApprovalStatus }),
         ...(data.name != null && { name: data.name }),
         ...(data.shortDescription !== undefined && { shortDescription: data.shortDescription }),
         ...(data.fullDescription !== undefined && { fullDescription: data.fullDescription }),

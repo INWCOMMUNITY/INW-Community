@@ -1,0 +1,30 @@
+---
+description: Suggest Terms/Privacy policy updates when making site or app changes
+alwaysApply: true
+---
+
+# Policy Updates on Site Changes
+
+When making changes to the site, mobile app, admin, or API that affect:
+
+- **Data collection** (new forms, tracking, cookies, analytics)
+- **Payments or subscriptions** (Stripe flows, pricing, billing)
+- **User features** (rewards, delivery, messaging, auth)
+- **Third-party services** (new integrations, webhooks)
+- **Security practices** (auth, encryption, storage)
+
+**Suggest** relevant updates to:
+
+- **Terms of Service** (`apps/main/src/lib/terms-content.ts`, terms page)
+- **Privacy Policy** (`apps/main/src/app/privacy/page.tsx`, PDF route, export script)
+
+## What to suggest
+
+- New sections or subsections when adding features (e.g., rewards policy, local delivery)
+- Revisions to existing clauses (e.g., security measures, third-party services)
+- Date updates (`Last Updated`) when policies change
+
+## Policy file locations
+
+- Terms: `apps/main/src/lib/terms-content.ts` (source of truth for page + PDF)
+- Privacy: `apps/main/src/app/privacy/page.tsx`, `api/policies/privacy/pdf/route.ts`, `scripts/export-policy-pdfs.ts`

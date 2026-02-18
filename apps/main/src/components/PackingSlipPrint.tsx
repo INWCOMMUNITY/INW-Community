@@ -1,5 +1,7 @@
 "use client";
 
+import { PACKING_SLIP_FOOTER } from "@/lib/packing-slip";
+
 interface OrderItem {
   id: string;
   quantity: number;
@@ -101,6 +103,7 @@ export function PackingSlipPrint({
             0
           ),
           shippingCostCents: group.reduce((s, o) => s + o.shippingCostCents, 0),
+          taxCents: (group as StoreOrder[]).reduce((s, o) => s + ((o as { taxCents?: number }).taxCents ?? 0), 0),
         }));
       })()
     : orders.map((order) => ({
@@ -110,6 +113,7 @@ export function PackingSlipPrint({
         totalCents: order.totalCents,
         subtotalCents: order.subtotalCents ?? order.totalCents - order.shippingCostCents,
         shippingCostCents: order.shippingCostCents,
+        taxCents: (order as { taxCents?: number }).taxCents,
       }));
 
   const returnAddress = biz
@@ -120,7 +124,7 @@ export function PackingSlipPrint({
     <div className="print-only packing-slip-container">
       {ordersToPrint.map((group, idx) => (
         <div key={idx} className="packing-slip break-inside-avoid flex flex-col">
-          {/* Top header: Business logo left; Business's note, website, email right */}
+          {/* Top header: Logo left aligned with note/website/email boxes on right */}
           <div className="flex justify-between items-start gap-6 mb-4">
             <div className="shrink-0">
               {biz?.logoUrl ? (
@@ -130,20 +134,20 @@ export function PackingSlipPrint({
               )}
             </div>
             <div className="flex-1 min-w-0 space-y-2">
-              <div className="border border-black rounded p-3 min-h-[4rem]">
+              <div className="border border-black rounded p-3 pt-4 min-h-[4rem]">
                 <p className="text-sm font-medium text-black">A Note from {biz?.name ?? "Business"}</p>
                 {sellerProfile.packingSlipNote ? (
-                  <p className="text-sm mt-1 whitespace-pre-wrap text-black">{sellerProfile.packingSlipNote}</p>
+                  <p className="text-sm mt-2 whitespace-pre-wrap text-black">{sellerProfile.packingSlipNote}</p>
                 ) : (
-                  <p className="text-sm mt-1 text-black">—</p>
+                  <p className="text-sm mt-2 text-black">—</p>
                 )}
               </div>
               <div className="flex gap-2">
-                <div className="flex-1 border border-black rounded p-2">
+                <div className="flex-1 border border-black rounded p-2 pt-4 flex flex-col gap-0.5">
                   <p className="text-xs font-bold text-black">Sellers Website</p>
                   <p className="text-sm truncate text-black">{biz?.website ?? "—"}</p>
                 </div>
-                <div className="flex-1 border border-black rounded p-2">
+                <div className="flex-1 border border-black rounded p-2 pt-4 flex flex-col gap-0.5">
                   <p className="text-xs font-bold text-black">Sellers Email</p>
                   <p className="text-sm truncate text-black">{biz?.email ?? "—"}</p>
                 </div>
@@ -153,16 +157,16 @@ export function PackingSlipPrint({
 
           <div className="border-t-2 border-black my-4" />
 
-          {/* Return Address | Ship to Address */}
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div className="border-2 border-black rounded p-4 min-h-[5rem]">
-              <p className="text-xs font-semibold uppercase text-black mb-1">Return Address</p>
+          {/* Return Address | Shipping Address - titles same line, content aligned, left-aligned, symmetrical */}
+          <div className="grid grid-cols-2 gap-6 mb-4 [&>div]:min-h-[5rem] [&>div]:border-2 [&>div]:border-black [&>div]:rounded [&>div]:p-4 [&>div]:pt-7">
+            <div>
+              <p className="text-xs font-semibold uppercase text-black mb-2">RETURN ADDRESS</p>
               <pre className="text-sm whitespace-pre-wrap font-sans text-black">{returnAddress || "—"}</pre>
             </div>
-            <div className="border-2 border-black rounded p-4 min-h-[5rem]">
-              <p className="text-xs font-semibold uppercase text-black mb-1">Shipping Address</p>
+            <div>
+              <p className="text-xs font-semibold uppercase text-black mb-2">SHIPPING ADDRESS</p>
               <p className="font-medium text-sm text-black">{group.buyer.firstName} {group.buyer.lastName}</p>
-              <pre className="text-sm whitespace-pre-wrap font-sans mt-1 text-black">{formatShipToAddress(group.orders[0].shippingAddress) || "—"}</pre>
+              <pre className="text-sm whitespace-pre-wrap font-sans mt-2 text-black">{formatShipToAddress(group.orders[0].shippingAddress) || "—"}</pre>
             </div>
           </div>
 
@@ -191,11 +195,17 @@ export function PackingSlipPrint({
             <div className="flex gap-4 mt-3 justify-end">
               <div className="border-2 border-black rounded p-2 min-w-[7rem] text-right">
                 <p className="text-xs font-semibold text-black">Shipping Cost</p>
-                <p className="text-sm font-medium text-black">${(group.shippingCostCents / 100).toFixed(2)}</p>
+                <p className="text-sm font-medium text-black mt-2">${(group.shippingCostCents / 100).toFixed(2)}</p>
               </div>
+              {(group as { taxCents?: number }).taxCents ? (
+                <div className="border-2 border-black rounded p-2 min-w-[7rem] text-right">
+                  <p className="text-xs font-semibold text-black">Tax</p>
+                  <p className="text-sm font-medium text-black mt-2">${(((group as { taxCents: number }).taxCents) / 100).toFixed(2)}</p>
+                </div>
+              ) : null}
               <div className="border-2 border-black rounded p-2 min-w-[7rem] text-right">
                 <p className="text-xs font-semibold text-black">Total</p>
-                <p className="text-sm font-bold text-black">${(group.totalCents / 100).toFixed(2)}</p>
+                <p className="text-sm font-bold text-black mt-2">${(group.totalCents / 100).toFixed(2)}</p>
               </div>
             </div>
           </div>
@@ -211,7 +221,7 @@ export function PackingSlipPrint({
           {/* Footer: line just above thank you message */}
           <div className="border-t-2 border-black text-center pt-4 pb-4">
             <p className="text-lg font-semibold text-black">Thank you for Supporting Locally Owned Businesses!</p>
-            <p className="text-sm text-black mt-1">- pnwcommunity.com</p>
+            <p className="text-sm text-black mt-1">{PACKING_SLIP_FOOTER}</p>
           </div>
         </div>
       ))}

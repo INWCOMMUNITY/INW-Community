@@ -498,7 +498,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
+  if (event.type === "customer.subscription.created" || event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
     const sub = event.data.object as Stripe.Subscription;
     await prisma.subscription.updateMany({
       where: { stripeSubscriptionId: sub.id },

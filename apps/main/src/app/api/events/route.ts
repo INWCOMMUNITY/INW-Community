@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { validateText } from "@/lib/content-moderation";
+import { containsProhibitedCategory } from "@/lib/content-moderation";
+import { createFlaggedContent } from "@/lib/flag-content";
 import { z } from "zod";
 import type { CalendarType } from "database";
 
@@ -49,7 +52,26 @@ export async function POST(req: NextRequest) {
     while (await prisma.event.findUnique({ where: { slug } })) {
       slug = `${slugify(data.title)}-${++suffix}`;
     }
-    await prisma.event.create({
+
+    // Auto-approve; flag if restricted content detected
+    let shouldFlag = false;
+    let flagReason: "slur" | "prohibited_category" | "profanity" | "restricted" = "restricted";
+    const titleCheck = validateText(data.title, "comment");
+    if (!titleCheck.allowed) {
+      shouldFlag = true;
+      flagReason = "slur";
+    }
+    const desc = data.description ?? "";
+    if (desc && !validateText(desc, "comment").allowed) {
+      shouldFlag = true;
+      flagReason = "slur";
+    }
+    if (containsProhibitedCategory(data.title, null, desc)) {
+      shouldFlag = true;
+      flagReason = "prohibited_category";
+    }
+
+    const event = await prisma.event.create({
       data: {
         memberId: session.user.id,
         calendarType: data.calendarType as CalendarType,
@@ -62,9 +84,19 @@ export async function POST(req: NextRequest) {
         description: data.description ?? null,
         slug,
         photos: data.photos ?? [],
-        status: "pending",
+        status: "approved",
       },
     });
+
+    if (shouldFlag) {
+      await createFlaggedContent({
+        contentType: "event",
+        contentId: event.id,
+        reason: flagReason,
+        snippet: [data.title, desc].filter(Boolean).join(" ").slice(0, 500),
+        authorId: session.user.id,
+      });
+    }
     const { awardCommunityPlannerBadge } = await import("@/lib/badge-award");
     awardCommunityPlannerBadge(session.user.id).catch(() => {});
     return NextResponse.json({ ok: true });
