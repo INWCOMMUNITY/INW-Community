@@ -1,14 +1,13 @@
 import Link from "next/link";
 import { SupportLocalGallery } from "@/components/SupportLocalGallery";
 import { NWCSellersGallery } from "@/components/NWCSellersGallery";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 
-/** Header photo from https://www.pnwcommunity.com/gallery (background.jpg – current gallery image, original size) */
-const SUPPORT_LOCAL_HEADER_IMAGE = cloudinaryFetchUrl(
-  WIX_IMG("2bdd49_26cd29bec17e4bb5b2990254f09f85d2~mv2.jpg/v1/fill/w_1810,h_432,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/background.jpg")
+/** Header photo from https://www.pnwcommunity.com/gallery – direct Wix URL for reliable loading */
+const SUPPORT_LOCAL_HEADER_IMAGE = WIX_IMG(
+  "2bdd49_26cd29bec17e4bb5b2990254f09f85d2~mv2.jpg/v1/fill/w_1810,h_432,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/background.jpg"
 );
-const SUPPORT_LOCAL_LOGO = cloudinaryFetchUrl("/support-local-logo.png");
+const SUPPORT_LOCAL_LOGO = "/support-local-logo.png";
 
 export default function SupportLocalPage() {
   return (
