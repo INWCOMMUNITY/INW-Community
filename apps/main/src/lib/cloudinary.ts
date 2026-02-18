@@ -1,6 +1,9 @@
 /** Cloud name - use NEXT_PUBLIC_ for client-safe usage (no cloudinary SDK, avoids fs in browser) */
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
 
+/** Public ID of thanks-landscape when uploaded to Cloudinary. Set in Vercel to use high-res delivery. */
+const thanksImagePublicId = process.env.NEXT_PUBLIC_CLOUDINARY_THANKS_IMAGE;
+
 function getBaseUrl(): string {
   const v = process.env.VERCEL_URL;
   return (
@@ -38,4 +41,15 @@ export function cloudinaryFetchUrl(
   if (options.width) parts.push(`w_${options.width}`);
   if (typeof options.quality === "number") parts.push(`q_${options.quality}`);
   return `https://res.cloudinary.com/${cloudName}/image/fetch/${parts.join(",")}/${enc}`;
+}
+
+/**
+ * URL for thanks-landscape image. When NEXT_PUBLIC_CLOUDINARY_THANKS_IMAGE is set (public_id of uploaded asset),
+ * returns Cloudinary URL for high-res delivery. Otherwise returns relative path for local file.
+ */
+export function thanksLandscapeUrl(): string {
+  if (cloudName && thanksImagePublicId) {
+    return `https://res.cloudinary.com/${cloudName}/image/upload/f_auto,q_auto:best/${thanksImagePublicId}`;
+  }
+  return "/thanks-landscape.png";
 }
