@@ -1,8 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
-import { getSessionForApi } from "@/lib/mobile-auth";
 import { z } from "zod";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 
@@ -14,7 +12,7 @@ const bodySchema = z.object({
 
 export async function POST(req: NextRequest) {
   const key = `nwc-requests:${getClientIdentifier(req)}`;
-  const { allowed } = await checkRateLimit(key);
+  const { allowed } = checkRateLimit(key);
   if (!allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again in a minute." },
@@ -26,7 +24,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = bodySchema.parse(body);
 
-    const session = (await getSessionForApi(req)) ?? (await getServerSession(authOptions));
+    const session = await getServerSession(authOptions);
     const memberId = session?.user?.id ?? null;
 
     await prisma.nwcRequest.create({

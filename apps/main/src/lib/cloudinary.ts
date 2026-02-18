@@ -1,17 +1,5 @@
-import { v2 as cloudinary } from "cloudinary";
-
+/** Cloud name - use NEXT_PUBLIC_ for client-safe usage (no cloudinary SDK, avoids fs in browser) */
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-const apiKey = process.env.CLOUDINARY_API_KEY;
-const apiSecret = process.env.CLOUDINARY_API_SECRET;
-
-if (cloudName) {
-  cloudinary.config({
-    cloud_name: cloudName,
-    ...(apiKey && apiSecret && { api_key: apiKey, api_secret: apiSecret }),
-  });
-}
-
-export { cloudinary };
 
 function getBaseUrl(): string {
   const v = process.env.VERCEL_URL;
@@ -44,31 +32,4 @@ export function cloudinaryFetchUrl(
   if (options.width) parts.push(`w_${options.width}`);
   if (typeof options.quality === "number") parts.push(`q_${options.quality}`);
   return `https://res.cloudinary.com/${cloudName}/image/fetch/${parts.join(",")}/${enc}`;
-}
-
-/**
- * Build an optimized Cloudinary URL for uploaded assets (by public_id).
- */
-export function cloudinaryUrl(
-  publicId: string,
-  options: {
-    width?: number;
-    height?: number;
-    crop?: string;
-    gravity?: string;
-    quality?: "auto" | number;
-    fetchFormat?: "auto" | "avif" | "webp" | "jpg" | "png";
-  } = {}
-): string {
-  if (!cloudName) return "";
-  const { width, height, crop = "auto", gravity = "auto", quality = "auto", fetchFormat = "auto" } = options;
-  return cloudinary.url(publicId, {
-    secure: true,
-    fetch_format: fetchFormat,
-    quality,
-    crop,
-    gravity,
-    ...(width != null && { width }),
-    ...(height != null && { height }),
-  });
 }
