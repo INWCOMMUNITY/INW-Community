@@ -4,6 +4,10 @@ const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? process.env.NEXT_PUBLIC_C
 /** Public ID of thanks-landscape when uploaded to Cloudinary. Set in Vercel to use high-res delivery. */
 const thanksImagePublicId = process.env.NEXT_PUBLIC_CLOUDINARY_THANKS_IMAGE;
 
+/** Public ID of directory background when uploaded to Cloudinary (e.g. background_lv6evz). */
+const directoryBackgroundPublicId =
+  process.env.NEXT_PUBLIC_CLOUDINARY_DIRECTORY_BACKGROUND ?? "background_lv6evz";
+
 function getBaseUrl(): string {
   const v = process.env.VERCEL_URL;
   return (
@@ -52,4 +56,15 @@ export function thanksLandscapeUrl(): string {
     return `https://res.cloudinary.com/${cloudName}/image/upload/f_auto,q_auto:best/${thanksImagePublicId}`;
   }
   return "/thanks-landscape.png";
+}
+
+/**
+ * URL for directory background image (Support Local / Business Directory header).
+ * Uses Cloudinary when configured; otherwise falls back to local /directory-background.png.
+ */
+export function directoryBackgroundUrl(): string {
+  if (cloudName && directoryBackgroundPublicId) {
+    return `https://res.cloudinary.com/${cloudName}/image/upload/f_auto,q_auto:best/w_1810,h_432,c_fill/${directoryBackgroundPublicId}`;
+  }
+  return "/directory-background.png";
 }
