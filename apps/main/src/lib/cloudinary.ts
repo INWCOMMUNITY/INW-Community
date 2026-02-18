@@ -1,18 +1,39 @@
 /** Cloud name - use NEXT_PUBLIC_ for client-safe usage (no cloudinary SDK, avoids fs in browser) */
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
 
+function getBaseUrl(): string {
+  const v = process.env.VERCEL_URL;
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (v ? `https://${v}` : undefined) ??
+    process.env.NEXTAUTH_URL ??
+    "http://localhost:3000"
+  );
+}
+
 /**
- * Proxy external image URLs through Cloudinary for higher resolution and optimization.
- * Relative URLs (same-origin) are returned as-is so they load directly from the app.
- * Cloudinary fetch can fail for same-origin URLs due to account restrictions or allowlists.
+ * Proxy image URLs through Cloudinary for higher resolution and optimization.
+ * Relative URLs are returned as-is unless proxyRelative: true (needs allowed fetch domain in Cloudinary).
  */
 export function cloudinaryFetchUrl(
   sourceUrl: string,
-  options: { width?: number; quality?: "auto" | "auto:best" | "auto:good" | number } = {}
+  options: {
+    width?: number;
+    quality?: "auto" | "auto:best" | "auto:good" | number;
+    /** When true, proxy relative URLs (e.g. /thanks-landscape.png) through Cloudinary. Requires your domain in Cloudinary allowed fetch list. */
+    proxyRelative?: boolean;
+  } = {}
 ): string {
   if (!cloudName || !sourceUrl) return sourceUrl ?? "";
-  if (sourceUrl.startsWith("/")) return sourceUrl;
-  const enc = encodeURIComponent(sourceUrl);
+  let absUrl = sourceUrl;
+  if (sourceUrl.startsWith("/")) {
+    if (!options.proxyRelative) return sourceUrl;
+    const base = getBaseUrl();
+    const isLocalhost = /^https?:\/\/localhost(:\d+)?(\/|$)/i.test(base) || base.includes("127.0.0.1");
+    if (isLocalhost) return sourceUrl;
+    absUrl = `${base.replace(/\/$/, "")}${sourceUrl}`;
+  }
+  const enc = encodeURIComponent(absUrl);
   const parts: string[] = ["f_auto", "q_auto:best"];
   if (options.width) parts.push(`w_${options.width}`);
   if (typeof options.quality === "number") parts.push(`q_${options.quality}`);
