@@ -100,6 +100,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
                 width={48}
                 height={48}
                 className="w-12 h-12 rounded-full object-cover shrink-0"
+                quality={95}
               />
             ) : (
               <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center text-lg font-medium text-gray-600 shrink-0">
@@ -143,6 +144,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
                     fill
                     className="object-cover rounded"
                     sizes="(max-width: 768px) 100vw, 500px"
+                    quality={95}
                   />
                 </div>
               )}
@@ -154,7 +156,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
             <Link href={`/support-local/${post.sourceBusiness.slug}`} className="block hover:opacity-90">
               <div className="flex gap-3">
                 {post.sourceBusiness.logoUrl && (
-                  <Image src={post.sourceBusiness.logoUrl} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded" />
+                  <Image src={post.sourceBusiness.logoUrl} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded" quality={95} />
                 )}
                 <div>
                   <h3 className="font-bold">{post.sourceBusiness.name}</h3>
@@ -187,7 +189,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
             <Link href={`/storefront/${post.sourceStoreItem.slug}`} className="block hover:opacity-90">
               <div className="flex gap-3">
                 {post.sourceStoreItem.photos[0] && (
-                  <Image src={post.sourceStoreItem.photos[0]} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded" />
+                  <Image src={post.sourceStoreItem.photos[0]} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded" quality={95} />
                 )}
                 <div>
                   <h3 className="font-bold">{post.sourceStoreItem.title}</h3>
@@ -207,6 +209,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
                   width={32}
                   height={32}
                   className="w-8 h-8 rounded-full object-cover"
+                  quality={95}
                 />
               ) : (
                 <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium text-gray-600">
@@ -230,7 +233,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
                   </p>
                   {post.sourcePost.sourceBlog.photos?.[0] && (
                     <div className="relative mt-2 w-full h-32">
-                      <Image src={post.sourcePost.sourceBlog.photos[0]} alt="" fill className="object-cover rounded" sizes="(max-width: 768px) 100vw, 400px" />
+                      <Image src={post.sourcePost.sourceBlog.photos[0]} alt="" fill className="object-cover rounded" sizes="(max-width: 768px) 100vw, 768px" quality={95} />
                     </div>
                   )}
                 </Link>
@@ -241,7 +244,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
                 <Link href={`/support-local/${post.sourcePost.sourceBusiness.slug}`} className="block hover:opacity-90">
                   <div className="flex gap-2">
                     {post.sourcePost.sourceBusiness.logoUrl && (
-                      <Image src={post.sourcePost.sourceBusiness.logoUrl} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded" />
+                      <Image src={post.sourcePost.sourceBusiness.logoUrl} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded" quality={95} />
                     )}
                     <div>
                       <h3 className="font-bold text-sm">{post.sourcePost.sourceBusiness.name}</h3>
@@ -274,7 +277,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
                 <Link href={`/storefront/${post.sourcePost.sourceStoreItem.slug}`} className="block hover:opacity-90">
                   <div className="flex gap-2">
                     {post.sourcePost.sourceStoreItem.photos?.[0] && (
-                      <Image src={post.sourcePost.sourceStoreItem.photos[0]} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded" />
+                      <Image src={post.sourcePost.sourceStoreItem.photos[0]} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded" quality={95} />
                     )}
                     <div>
                       <h3 className="font-bold text-sm">{post.sourcePost.sourceStoreItem.title}</h3>
@@ -309,7 +312,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
                       {isVideoUrl(url) ? (
                         <video src={url} className="w-full h-full object-cover pointer-events-none" />
                       ) : (
-                        <Image src={url} alt="" fill className="object-cover" sizes="200px" />
+                        <Image src={url} alt="" fill className="object-cover" sizes="(max-width: 640px) 50vw, 400px" quality={95} />
                       )}
                     </button>
                   ))}
@@ -363,7 +366,7 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
                   {isVideoUrl(url) ? (
                     <video src={url} className="w-full h-full object-cover pointer-events-none" />
                   ) : (
-                    <Image src={url} alt="" fill className="object-cover" sizes="(max-width: 640px) 50vw, 250px" />
+                    <Image src={url} alt="" fill className="object-cover" sizes="(max-width: 640px) 50vw, 600px" quality={95} />
                   )}
                 </button>
               ))}

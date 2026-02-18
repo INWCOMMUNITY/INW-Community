@@ -3,15 +3,16 @@ import { CheckoutButton } from "@/components/CheckoutButton";
 import { InfoPageContact } from "@/components/InfoPageContact";
 import { InfoPageHeader } from "@/components/InfoPageHeader";
 import { InfoPageBenefitSections } from "@/components/InfoPageBenefitSections";
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG, SUBSCRIBER_INFO_BENEFIT_IMAGES, GALLERY_CTA_BACKGROUND } from "@/lib/wix-media";
 import { InfoPageSignupBanner } from "@/components/InfoPageSignupBanner";
 
 const SUBSCRIBER_BENEFITS = [
-  { title: "Access to NWC Coupons", description: "Redeem discounts at local businesses in our coupon book. Save money while supporting local.", imageSrc: WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[0]), imageAlt: "NWC coupons" },
-  { title: "Exclusive Groups", description: "Join subscriber-only groups where you can connect with other community-minded people in the Inland Northwest.", imageSrc: WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[1]), imageAlt: "Community groups" },
-  { title: "Scavenger Hunt Hints", description: "Get exclusive hints for NWC scavenger hunts and community challenges. Increase your chances of winning prizes.", imageSrc: WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[2]), imageAlt: "NWC events" },
-  { title: "Support Our Mission", description: "Your subscription helps us put on events, create raffles, and offer incentives that bring the community together.", imageSrc: WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[3]), imageAlt: "Northwest Community" },
-  { title: "This Site Stays Free", description: "Northwest Community is free for everyone. Subscribing is optional—but if you want to support what we do and unlock these benefits, we appreciate you.", imageSrc: WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
+  { title: "Access to NWC Coupons", description: "Redeem discounts at local businesses in our coupon book. Save money while supporting local.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[0])), imageAlt: "NWC coupons" },
+  { title: "Exclusive Groups", description: "Join subscriber-only groups where you can connect with other community-minded people in the Inland Northwest.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[1])), imageAlt: "Community groups" },
+  { title: "Scavenger Hunt Hints", description: "Get exclusive hints for NWC scavenger hunts and community challenges. Increase your chances of winning prizes.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[2])), imageAlt: "NWC events" },
+  { title: "Support Our Mission", description: "Your subscription helps us put on events, create raffles, and offer incentives that bring the community together.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[3])), imageAlt: "Northwest Community" },
+  { title: "This Site Stays Free", description: "Northwest Community is free for everyone. Subscribing is optional—but if you want to support what we do and unlock these benefits, we appreciate you.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[4])), imageAlt: "Northwest Community" },
 ];
 
 export default function SubscribeNWCPage() {

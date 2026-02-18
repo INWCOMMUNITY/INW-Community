@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 import { SponsorHubFormModals } from "@/components/SponsorHubFormModals";
 
@@ -49,7 +50,7 @@ export default async function SponsorHubPage() {
         <header
           className="relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] flex items-center justify-center overflow-hidden bg-gray-900"
           style={{
-            backgroundImage: `url(${WIX_IMG(SPONSOR_HUB_HEADER_IMAGE)})`,
+            backgroundImage: `url(${cloudinaryFetchUrl(WIX_IMG(SPONSOR_HUB_HEADER_IMAGE))})`,
             backgroundSize: "cover",
             backgroundPosition: "50% 65%",
             backgroundRepeat: "no-repeat",

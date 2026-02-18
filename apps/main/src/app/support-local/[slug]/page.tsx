@@ -82,7 +82,7 @@ export default async function BusinessDetailPage({
                   src={business.logoUrl}
                   alt={business.name}
                   fill
-                  sizes="(min-width: 640px) 336px, 288px"
+                  sizes="(min-width: 640px) 672px, 576px"
                   className="object-cover"
                   priority
                   quality={95}

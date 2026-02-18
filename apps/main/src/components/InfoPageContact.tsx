@@ -1,3 +1,4 @@
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG, CONTACT_SECTION_PHOTO } from "@/lib/wix-media";
 
 const TAN_BG = "#F5E9CE";
@@ -28,7 +29,7 @@ export function InfoPageContact() {
         {/* Photo – 1:1 square next to box (480px = 1.5×320), photo fills square */}
         <div className="w-full aspect-square max-w-[480px] md:w-[480px] md:max-w-none flex-shrink-0 relative overflow-hidden mx-auto md:mx-0">
           <img
-            src={WIX_IMG(CONTACT_SECTION_PHOTO)}
+            src={cloudinaryFetchUrl(WIX_IMG(CONTACT_SECTION_PHOTO))}
             alt="Donivan with dog"
             className="absolute inset-0 w-full h-full object-cover object-center"
           />

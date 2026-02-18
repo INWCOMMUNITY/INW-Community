@@ -85,6 +85,7 @@ export default function MySellersPage() {
                     width={64}
                     height={64}
                     className="w-full h-full object-cover"
+                    quality={95}
                     unoptimized={s.logoUrl.startsWith("blob:")}
                   />
                 ) : (

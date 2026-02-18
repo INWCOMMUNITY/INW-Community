@@ -3,6 +3,7 @@ import { CALENDAR_TYPES, type CalendarType } from "types";
 import Link from "next/link";
 import { CalendarView } from "@/components/CalendarView";
 import { PostEventModal } from "@/components/PostEventModal";
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { getCalendarImagePath } from "@/lib/wix-media";
 
 const validTypes = CALENDAR_TYPES.map((c) => c.value);
@@ -24,7 +25,7 @@ export default async function CalendarTypePage({
       {imagePath && (
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat max-md:h-[45vh] max-md:inset-x-0 max-md:top-0"
-          style={{ backgroundImage: `url(${imagePath})` }}
+          style={{ backgroundImage: imagePath ? `url(${cloudinaryFetchUrl(imagePath)})` : undefined }}
           aria-hidden
         />
       )}

@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { CALENDAR_TYPES, type CalendarType } from "types";
 import { CalendarView } from "@/components/CalendarView";
-import { WIX_IMG, getCalendarImagePath } from "@/lib/wix-media";
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
+import { getCalendarImagePath } from "@/lib/wix-media";
 
 const validTypes = CALENDAR_TYPES.map((c) => c.value);
 
@@ -33,7 +34,7 @@ export default async function LocalEventTypePage({
       {imagePath && (
         <div className="mb-8 flex justify-center">
           <img
-            src={imagePath}
+            src={imagePath ? cloudinaryFetchUrl(imagePath) : undefined}
             alt={label}
             className="rounded-lg max-w-full h-auto object-cover"
             width={420}

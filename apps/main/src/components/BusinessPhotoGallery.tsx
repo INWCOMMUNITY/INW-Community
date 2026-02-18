@@ -66,7 +66,7 @@ export function BusinessPhotoGallery({ photos, alt = "Business photo", size = "d
               src={url}
               alt={`${alt} ${i + 1}`}
               fill
-              sizes={size === "large" ? "(min-width: 640px) 400px, 100vw" : "(min-width: 768px) 350px, 50vw"}
+              sizes={size === "large" ? "(min-width: 640px) 800px, 100vw" : "(min-width: 768px) 700px, 50vw"}
               className="object-cover"
               quality={95}
               unoptimized={url.startsWith("blob:")}
@@ -127,7 +127,7 @@ export function BusinessPhotoGallery({ photos, alt = "Business photo", size = "d
               src={photos[currentIndex]}
               alt={`${alt} ${currentIndex + 1}`}
               fill
-              sizes="95vw"
+              sizes="(max-width: 1280px) 95vw, 1200px"
               className="object-contain select-none cursor-pointer"
               quality={100}
               unoptimized={photos[currentIndex].startsWith("blob:")}

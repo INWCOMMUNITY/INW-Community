@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 import { CheckoutButton } from "@/components/CheckoutButton";
 
@@ -51,7 +52,7 @@ export default function SupportNWCInfoPage() {
       <div className="max-w-[var(--max-width)] mx-auto">
         <div className="text-center mb-10">
           <Image
-            src="/nwc-logo-circle.png"
+            src={cloudinaryFetchUrl("/nwc-logo-circle.png")}
             alt="Northwest Community"
             width={160}
             height={160}
@@ -99,7 +100,7 @@ export default function SupportNWCInfoPage() {
             >
               <div className="w-full aspect-[4/3] shrink-0 bg-gray-100">
                 <img
-                  src={WIX_IMG(plan.imagePath)}
+                  src={cloudinaryFetchUrl(WIX_IMG(plan.imagePath))}
                   alt=""
                   className="w-full h-full object-cover"
                   sizes="(max-width: 768px) 100vw, 33vw"

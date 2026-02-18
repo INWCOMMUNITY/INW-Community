@@ -36,9 +36,10 @@ export function BlogCard({ blog }: BlogCardProps) {
             <Image
               src={blog.photos[0]}
               alt=""
+              quality={95}
               fill
               className="object-cover"
-              sizes="(max-width: 768px) 100vw, 400px"
+              sizes="(max-width: 768px) 100vw, 768px"
             />
           </div>
         )}
@@ -51,6 +52,7 @@ export function BlogCard({ blog }: BlogCardProps) {
               <Image
                 src={blog.member.profilePhotoUrl}
                 alt=""
+                quality={95}
                 width={32}
                 height={32}
                 className="w-8 h-8 rounded-full object-cover"

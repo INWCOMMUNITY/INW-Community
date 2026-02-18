@@ -97,9 +97,9 @@ export function NWCSellersGallery() {
                   src={s.logoUrl}
                   alt={s.name}
                   fill
-                  sizes="(min-width: 1024px) 320px, (min-width: 768px) 50vw, 50vw"
+                  sizes="(min-width: 1024px) 640px, (min-width: 768px) 50vw, 50vw"
                   className="object-cover"
-                  quality={95}
+                  quality={98}
                   unoptimized={s.logoUrl.startsWith("blob:")}
                 />
               ) : (

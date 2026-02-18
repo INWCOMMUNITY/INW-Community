@@ -44,6 +44,10 @@ const nextConfig = {
       { protocol: "https", hostname: "**" },
       { protocol: "http", hostname: "**" },
     ],
+    // Sharp uses Lanczos3 by default. Larger sizes for retina/high-DPI (2x, 3x).
+    // imageSizes must be < smallest deviceSize (640)
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 2560, 3840, 5760, 7680],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384, 512],
   },
   async headers() {
     return [

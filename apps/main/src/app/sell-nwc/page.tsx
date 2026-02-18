@@ -3,15 +3,16 @@ import { CheckoutButton } from "@/components/CheckoutButton";
 import { InfoPageContact } from "@/components/InfoPageContact";
 import { InfoPageHeader } from "@/components/InfoPageHeader";
 import { InfoPageBenefitSections } from "@/components/InfoPageBenefitSections";
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG, SELLER_INFO_BENEFIT_IMAGES, GALLERY_CTA_BACKGROUND } from "@/lib/wix-media";
 import { InfoPageSignupBanner } from "@/components/InfoPageSignupBanner";
 
 const SELLER_BENEFITS = [
-  { title: "Everything in Sponsor NWC", description: "You get all Sponsor benefits: directory listing, coupons, event calendars, and visibility at NWC events.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[0]), imageAlt: "Northwest Community" },
-  { title: "Sell on Our Storefront", description: "List your products on the NWC online store. Shoppers can buy from you directly, and you get paid.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[1]), imageAlt: "NWC storefront" },
-  { title: "No Percentage Cuts", description: "NWC does not take a percentage of your sales. You keep what you earn from items sold through our platform.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[2]), imageAlt: "Sell local" },
-  { title: "Shop Local, Online", description: "Make it easy for people to support local from home. Your products reach customers who want to buy from Inland Northwest businesses.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[3]), imageAlt: "Support local" },
-  { title: "Full Access From Day One", description: "List your products and start selling on our storefront as soon as you sign up. No waiting period—get started right away.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
+  { title: "Everything in Sponsor NWC", description: "You get all Sponsor benefits: directory listing, coupons, event calendars, and visibility at NWC events.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[0])), imageAlt: "Northwest Community" },
+  { title: "Sell on Our Storefront", description: "List your products on the NWC online store. Shoppers can buy from you directly, and you get paid.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[1])), imageAlt: "NWC storefront" },
+  { title: "No Percentage Cuts", description: "NWC does not take a percentage of your sales. You keep what you earn from items sold through our platform.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[2])), imageAlt: "Sell local" },
+  { title: "Shop Local, Online", description: "Make it easy for people to support local from home. Your products reach customers who want to buy from Inland Northwest businesses.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[3])), imageAlt: "Support local" },
+  { title: "Full Access From Day One", description: "List your products and start selling on our storefront as soon as you sign up. No waiting period—get started right away.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[4])), imageAlt: "Northwest Community" },
 ];
 
 export default function SellNWCPage() {

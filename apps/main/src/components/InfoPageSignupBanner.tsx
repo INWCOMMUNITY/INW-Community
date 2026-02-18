@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 import { CheckoutButton } from "@/components/CheckoutButton";
 
@@ -28,7 +29,7 @@ export function InfoPageSignupBanner({
       style={{ borderColor: "var(--color-primary)" }}
     >
       <img
-        src={WIX_IMG(backgroundPath)}
+        src={cloudinaryFetchUrl(WIX_IMG(backgroundPath))}
         alt=""
         className="absolute inset-0 w-full h-full object-cover object-center"
         aria-hidden

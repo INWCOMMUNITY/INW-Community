@@ -67,6 +67,7 @@ export default async function SellerStorefrontPage({
                 fill
                 className="object-cover"
                 priority
+                quality={95}
                 unoptimized={business.coverPhotoUrl.startsWith("blob:")}
               />
             ) : (
@@ -83,6 +84,7 @@ export default async function SellerStorefrontPage({
                     width={128}
                     height={128}
                     className="w-full h-full object-cover"
+                    quality={95}
                     unoptimized={business.logoUrl.startsWith("blob:")}
                   />
                 ) : (
@@ -228,6 +230,7 @@ export default async function SellerStorefrontPage({
                             alt={item.title}
                             fill
                             className="object-cover"
+                            quality={95}
                             unoptimized={item.photos[0].startsWith("blob:")}
                           />
                         ) : (
