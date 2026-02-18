@@ -10,13 +10,14 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WIX_ORIGINAL_URL =
-  "https://static.wixstatic.com/media/2bdd49_26cd29bec17e4bb5b2990254f09f85d2~mv2.jpg";
+// Max resolution: 3840×1466 (2x retina for 1920px, aspect 2.62), q_95
+const WIX_HIGH_RES_URL =
+  "https://static.wixstatic.com/media/2bdd49_26cd29bec17e4bb5b2990254f09f85d2~mv2.jpg/v1/fill/w_3840,h_1466,al_c,q_95,usm_0.66_1.00_0.01,enc_jpg,quality_auto/background.jpg";
 const OUT_PATH = path.join(__dirname, "..", "public", "directory-background.jpg");
 
 async function main() {
   console.log("Downloading directory background from Wix...");
-  const res = await fetch(WIX_ORIGINAL_URL, {
+  const res = await fetch(WIX_HIGH_RES_URL, {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; NWC-Site/1.0)" },
   });
   if (!res.ok) {

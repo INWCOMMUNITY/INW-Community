@@ -16,7 +16,8 @@ export default function SupportLocalPage() {
             alt="Northwest Community – support local"
             fill
             className="object-cover object-center"
-            sizes="100vw"
+            sizes="(min-width: 2560px) 3840px, (min-width: 1920px) 2560px, 100vw"
+            quality={100}
             priority
           />
           {/* Logo centered on photo, circle cropped */}
