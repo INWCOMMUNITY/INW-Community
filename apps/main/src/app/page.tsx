@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Section } from "design-tokens";
-import { cloudinaryFetchUrl, thanksLandscapeUrl } from "@/lib/cloudinary";
+import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG, WIX_HERO_GALLERY, WIX_SUBSCRIBE_BACKGROUND, CALENDAR_IMAGES } from "@/lib/wix-media";
 
 export default async function HomePage() {
@@ -204,7 +204,7 @@ export default async function HomePage() {
       >
         <div className="relative min-h-[400px] md:min-h-[500px] order-2 md:order-1">
           <Image
-            src={thanksLandscapeUrl()}
+            src="/thanks-landscape.png"
             alt="Northwest landscape — river and forest"
             className="object-cover"
             fill
