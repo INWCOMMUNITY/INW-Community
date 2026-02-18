@@ -1,11 +1,7 @@
 import Link from "next/link";
+import Image from "next/image";
 import { SupportLocalGallery } from "@/components/SupportLocalGallery";
 import { NWCSellersGallery } from "@/components/NWCSellersGallery";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
-import { WIX_IMG, WIX_GALLERY_TOP_BACKGROUND } from "@/lib/wix-media";
-
-/** Directory header – top gallery photo from pnwcommunity.com/gallery, optimized via Cloudinary */
-const DIRECTORY_BACKGROUND_URL = cloudinaryFetchUrl(WIX_IMG(WIX_GALLERY_TOP_BACKGROUND));
 
 const SUPPORT_LOCAL_LOGO = "/support-local-logo.png";
 
@@ -15,10 +11,13 @@ export default function SupportLocalPage() {
       {/* Header: gallery photo wall to wall, height 1.6x; logo 1:1 centered */}
       <header className="w-full overflow-hidden relative border-2 border-[var(--color-secondary)]">
         <div className="w-full relative aspect-[2.62] min-h-[280px]">
-          <img
-            src={DIRECTORY_BACKGROUND_URL}
+          <Image
+            src="/directory-background.jpg"
             alt="Northwest Community – support local"
-            className="absolute inset-0 w-full h-full object-cover object-center"
+            fill
+            className="object-cover object-center"
+            sizes="100vw"
+            priority
           />
           {/* Logo centered on photo, circle cropped */}
           <div className="absolute left-1/2 top-1/2 aspect-square w-[200px] sm:w-[240px] md:w-[280px] -translate-x-1/2 -translate-y-1/2 rounded-full overflow-hidden z-10">
