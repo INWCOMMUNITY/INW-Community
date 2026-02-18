@@ -204,7 +204,7 @@ export default async function HomePage() {
       >
         <div className="relative min-h-[400px] md:min-h-[500px] order-2 md:order-1">
           <Image
-            src="/thanks-landscape.png"
+            src={cloudinaryFetchUrl("/thanks-landscape.png", { proxyRelative: true })}
             alt="Northwest landscape — river and forest"
             className="object-cover"
             fill
