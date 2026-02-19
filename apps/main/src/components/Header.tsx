@@ -28,7 +28,7 @@ const navItems: NavItem[] = [
     ],
   },
   {
-    label: "Storefront",
+    label: "Store",
     href: "/storefront",
     children: [
       { href: "/storefront", label: "NWC Storefront" },

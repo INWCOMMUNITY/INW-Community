@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { BusinessForm, type BusinessFormData } from "@/components/BusinessForm";
 
 type Step = "account" | "business" | "contact" | "checkout";
+type Interval = "monthly" | "yearly";
 
 export default function SignupBusinessPage() {
   const [step, setStep] = useState<Step>("account");
+  const [interval, setInterval] = useState<Interval>("monthly");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -129,6 +132,7 @@ export default function SignupBusinessPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId: "sponsor",
+          interval,
           businessData: {
             name: businessData.name,
             shortDescription: businessData.shortDescription,
@@ -279,9 +283,45 @@ export default function SignupBusinessPage() {
 
       {step === "checkout" && (
         <div className="space-y-4">
+          <div className="flex justify-center mb-4">
+            <Image
+              src="/nwc-logo-circle-crop.png"
+              alt="Northwest Community"
+              width={80}
+              height={80}
+              className="rounded-full object-cover"
+            />
+          </div>
           <p className="text-gray-600 mb-4">
             Subscribe as a Business to publish your storefront. You can cancel anytime.
           </p>
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <span className="text-sm font-medium text-gray-700">Billing:</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setInterval("monthly")}
+                className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
+                  interval === "monthly"
+                    ? "bg-[var(--color-primary)] text-white"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                Monthly ($25)
+              </button>
+              <button
+                type="button"
+                onClick={() => setInterval("yearly")}
+                className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
+                  interval === "yearly"
+                    ? "bg-[var(--color-primary)] text-white"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                Yearly ($250)
+              </button>
+            </div>
+          </div>
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={() => setStep("contact")} className="btn flex-1">

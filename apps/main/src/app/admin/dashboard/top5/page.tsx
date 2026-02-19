@@ -8,6 +8,8 @@ interface Prize {
   label: string;
   imageUrl: string | null;
   businessId: string | null;
+  prizeValue: string | null;
+  description: string | null;
 }
 
 interface Business {
@@ -27,6 +29,8 @@ export default function Top5AdminPage() {
       label: "",
       imageUrl: null,
       businessId: null,
+      prizeValue: null,
+      description: null,
     }))
   );
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -50,7 +54,9 @@ export default function Top5AdminPage() {
           setPrizes(
             [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
               const p = top5.prizes.find((x: Prize) => x.rank === rank);
-              return p ?? { rank, label: "", imageUrl: null, businessId: null };
+              return p
+                ? { ...p, prizeValue: p.prizeValue ?? null, description: p.description ?? null }
+                : { rank, label: "", imageUrl: null, businessId: null, prizeValue: null, description: null };
             })
           );
         }
@@ -157,6 +163,26 @@ export default function Top5AdminPage() {
                       value={prize.imageUrl ?? ""}
                       onChange={(e) => updatePrize(prize.rank, "imageUrl", e.target.value || null)}
                       placeholder="https://..."
+                      className="w-full border rounded px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Prize Value</label>
+                    <input
+                      type="text"
+                      value={prize.prizeValue ?? ""}
+                      onChange={(e) => updatePrize(prize.rank, "prizeValue", e.target.value || null)}
+                      placeholder="e.g. $50"
+                      className="w-full border rounded px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Description</label>
+                    <input
+                      type="text"
+                      value={prize.description ?? ""}
+                      onChange={(e) => updatePrize(prize.rank, "description", e.target.value || null)}
+                      placeholder="Optional extra details"
                       className="w-full border rounded px-3 py-2"
                     />
                   </div>

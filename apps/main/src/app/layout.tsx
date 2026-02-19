@@ -14,7 +14,7 @@ const fahkwang = Fahkwang({ weight: ["400", "500", "600", "700"], subsets: ["lat
 export const metadata: Metadata = {
   title: "Northwest Community",
   description: "Connecting the good people of Spokane & Kootenai County",
-  icons: { icon: "/nwc-logo-circle-crop.png" },
+  icons: { icon: "/nwc-logo-circle.png" },
 };
 
 export const viewport: Viewport = {

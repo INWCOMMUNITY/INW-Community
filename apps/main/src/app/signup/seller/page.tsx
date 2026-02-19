@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { signIn } from "next-auth/react";
 
 type Step = "account" | "business" | "contact" | "checkout";
+type Interval = "monthly" | "yearly";
 
 const CATEGORY_OPTIONS = [
   "Restaurant",
@@ -19,6 +21,7 @@ const CATEGORY_OPTIONS = [
 
 export default function SignupSellerPage() {
   const [step, setStep] = useState<Step>("account");
+  const [interval, setInterval] = useState<Interval>("monthly");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -162,7 +165,7 @@ export default function SignupSellerPage() {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: "seller", businessData }),
+        body: JSON.stringify({ planId: "seller", interval, businessData }),
         credentials: "same-origin",
       });
       const data = await res.json().catch(() => ({}));
@@ -338,9 +341,45 @@ export default function SignupSellerPage() {
 
       {step === "checkout" && (
         <div className="space-y-4">
+          <div className="flex justify-center mb-4">
+            <Image
+              src="/nwc-logo-circle-crop.png"
+              alt="Northwest Community"
+              width={80}
+              height={80}
+              className="rounded-full object-cover"
+            />
+          </div>
           <p className="text-gray-600 mb-4">
             Subscribe as a Seller to list items on the Community Storefront. You can cancel anytime.
           </p>
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <span className="text-sm font-medium text-gray-700">Billing:</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setInterval("monthly")}
+                className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
+                  interval === "monthly"
+                    ? "bg-[var(--color-primary)] text-white"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                Monthly ($40)
+              </button>
+              <button
+                type="button"
+                onClick={() => setInterval("yearly")}
+                className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
+                  interval === "yearly"
+                    ? "bg-[var(--color-primary)] text-white"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                Yearly ($400)
+              </button>
+            </div>
+          </div>
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={() => setStep("contact")} className="btn flex-1">Back</button>

@@ -92,9 +92,6 @@ function LoginForm() {
         <span className="mx-1">·</span>
         <Link href="/privacy" className="underline opacity-80">Privacy</Link>
       </p>
-      <p className="mt-3 text-center text-xs text-gray-500">
-        Test: universal@nwc.local / Universal123! (run <code className="bg-gray-100 px-1 rounded">pnpm db:seed</code> first)
-      </p>
     </div>
   );
 }

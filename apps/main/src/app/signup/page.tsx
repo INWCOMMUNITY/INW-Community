@@ -96,13 +96,25 @@ export default function SignupPage() {
       <h1 className="text-2xl font-bold mb-6">Sign up</h1>
 
       <p className="text-gray-600 mb-4">Choose your account type</p>
-      <div className="flex flex-col sm:flex-row gap-3 mb-8 justify-center items-center">
-        <Link href="/signup/business" className="btn flex-1 sm:flex-initial min-w-[200px] flex justify-center items-center">
-          Sign Up as Business
-        </Link>
-        <Link href="/signup/seller" className="btn flex-1 sm:flex-initial min-w-[200px] flex justify-center items-center">
-          Sign Up as Seller
-        </Link>
+      <div className="flex flex-col sm:flex-row gap-6 mb-8 justify-center items-stretch sm:items-start">
+        <div className="flex flex-col items-center gap-2">
+          <Link href="/signup/business" className="btn w-full sm:w-auto min-w-[200px] flex justify-center items-center whitespace-nowrap">
+            Business Sign Up
+          </Link>
+          <p className="text-sm font-medium text-gray-700">$25 a Month</p>
+          <Link href="/sponsor-nwc" className="text-sm underline hover:no-underline" style={{ color: "var(--color-primary)" }}>
+            Business Benefits
+          </Link>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          <Link href="/signup/seller" className="btn w-full sm:w-auto min-w-[200px] flex justify-center items-center whitespace-nowrap">
+            Seller Sign Up
+          </Link>
+          <p className="text-sm font-medium text-gray-700">$40 a Month</p>
+          <Link href="/sell-nwc" className="text-sm underline hover:no-underline" style={{ color: "var(--color-primary)" }}>
+            Seller Benefits
+          </Link>
+        </div>
       </div>
 
       <p className="text-sm font-medium text-gray-600 mb-4">Sign up as Resident</p>

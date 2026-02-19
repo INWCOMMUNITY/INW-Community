@@ -20,7 +20,7 @@ export default async function CalendarTypePage({
   const imagePath = getCalendarImagePath(typedCalendarType);
 
   return (
-    <section className="relative min-h-[180vh] py-12 px-4 pb-24">
+    <section className="relative min-h-[180vh] pt-24 px-4 pb-24">
       {/* Mobile: background image in header with centered 70% white box; desktop: photo as full background with opaque content below */}
       {imagePath && (
         <div
@@ -44,7 +44,7 @@ export default async function CalendarTypePage({
         </div>
       </div>
       {/* Calendar: full width on mobile, centered month/nav; desktop white box shifted up 1in */}
-      <div className="relative z-10 max-w-[var(--max-width)] mx-auto md:-mt-[0.5in] max-md:mt-6 max-md:w-full max-md:max-w-full max-md:px-1">
+      <div className="relative z-10 max-w-[var(--max-width)] mx-auto md:mt-8 max-md:mt-6 max-md:w-full max-md:max-w-full max-md:px-1">
         <div className="rounded-xl bg-white shadow-lg overflow-hidden max-md:rounded-none max-md:shadow-none">
           <div className="p-6 border-b border-gray-200 max-md:hidden">
             <div className="flex flex-wrap items-center justify-between gap-4">

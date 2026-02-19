@@ -8,7 +8,7 @@ export default async function CalendarsPage() {
   const session = await getServerSession(authOptions);
   const postEventHref = session?.user?.id ? "/my-community/post-event" : "/login?callbackUrl=/my-community/post-event";
   return (
-    <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+    <section className="pt-20 pb-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto text-center">
         <div className="flex flex-col items-center gap-4 mb-8 w-full max-md:px-2">
           <h1 className="text-3xl font-bold mb-2">Northwest Community Calendars</h1>

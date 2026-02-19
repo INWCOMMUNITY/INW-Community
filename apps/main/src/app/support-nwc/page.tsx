@@ -28,7 +28,7 @@ const PLANS = [
       "Join Northwest Community's Local Business Directory. Offer coupons, post events on our calendar, and gain visibility through the events NWC will put on.",
     imagePath: "2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg",
     benefitsHref: "/sponsor-nwc",
-    benefitsLabel: "Sponsor Benefits",
+    benefitsLabel: "Business Benefits",
   },
   {
     id: "seller",

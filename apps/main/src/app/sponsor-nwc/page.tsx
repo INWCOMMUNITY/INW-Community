@@ -12,7 +12,7 @@ const SPONSOR_BENEFITS = [
   { title: "Offer Coupons", description: "Add coupons to the NWC coupon book. Subscribers can redeem your discounts, driving traffic and loyalty to your business.", imageSrc: WIX_IMG(SPONSOR_INFO_BENEFIT_IMAGES[1]), imageAlt: "NWC coupons" },
   { title: "Post Events on Our Calendars", description: "Promote your events across our six community calendars: Fun Events, Local Art & Music, Non-Profit, Business Promo, Marketing, and Real Estate.", imageSrc: WIX_IMG(SPONSOR_INFO_BENEFIT_IMAGES[2]), imageAlt: "Event calendars" },
   { title: "Offer Rewards to the Community", description: "We as locally owned companies in Eastern Washington and North Idaho, want to team up and create incentives for residents in this area to support local vs corporate. Residents gain points for supporting local, and they can redeem points for rewards offered by NWC and Local Businesses in our area.", imageSrc: WIX_IMG(SPONSOR_INFO_BENEFIT_IMAGES[3]), imageAlt: "NWC community events" },
-  { title: "Support the Community", description: "Your sponsorship helps NWC put on events, create incentives, and keep this platform free for everyone.", imageSrc: WIX_IMG(SPONSOR_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
+  { title: "Support the Community", description: "Your business joining Northwest Community helps us put on events, create incentives, and keep this platform free for everyone.", imageSrc: WIX_IMG(SPONSOR_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
 ];
 
 export default async function SponsorNWCPage() {
@@ -20,11 +20,13 @@ export default async function SponsorNWCPage() {
   return (
     <>
       <InfoPageHeader
-        title="Interested in Becoming a Sponsor?"
+        title="Local Business Interested in Joining NWC?"
         logoUrl={logoUrl}
         description="Curious what benefits Northwest Community offers to our Sponsors? This page is here to answer your questions and demonstrate what we do for our sponsors. Read our policy and tag along with what we are doing!"
         policyHref="/policies/nwc-sponsor"
         policyLabel="NWC Sponsor Policy"
+        termsHref="/terms"
+        privacyHref="/privacy"
       />
       <InfoPageBenefitSections benefits={SPONSOR_BENEFITS} />
 

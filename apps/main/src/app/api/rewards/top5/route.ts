@@ -14,7 +14,7 @@ export async function GET() {
   if (now < campaign.startDate || now > campaign.endDate) {
     return NextResponse.json({ enabled: false });
   }
-  const prizes = (campaign.prizes as { rank: number; label: string; imageUrl?: string; businessId?: string }[]) ?? [];
+  const prizes = (campaign.prizes as { rank: number; label: string; imageUrl?: string; businessId?: string; prizeValue?: string; description?: string }[]) ?? [];
   const businessIds = prizes.map((p) => p.businessId).filter(Boolean) as string[];
   const businesses = businessIds.length
     ? await prisma.business.findMany({
@@ -25,6 +25,8 @@ export async function GET() {
   const businessMap = Object.fromEntries(businesses.map((b) => [b.id, b]));
   const prizesWithBusiness = prizes.map((p) => ({
     ...p,
+    prizeValue: p.prizeValue ?? null,
+    description: p.description ?? null,
     business: p.businessId ? businessMap[p.businessId] : null,
   }));
   return NextResponse.json({

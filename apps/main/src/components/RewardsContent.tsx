@@ -10,6 +10,8 @@ interface Top5Prize {
   label: string;
   imageUrl?: string | null;
   businessId?: string | null;
+  prizeValue?: string | null;
+  description?: string | null;
   business?: { id: string; name: string; slug: string; logoUrl: string | null } | null;
 }
 
@@ -197,48 +199,72 @@ export function RewardsContent() {
 
         {/* Top 10 Rewards - prizes for top 10 supporters */}
         <div
-          className="rounded-lg overflow-hidden border-2 shadow-sm w-full lg:max-w-[364px] lg:flex-1 flex flex-col min-h-0"
+          className="rounded-lg overflow-hidden border-2 shadow-sm w-full lg:flex-1 flex flex-col min-h-0"
           style={{ borderColor: "var(--color-primary)" }}
         >
           <div className="border-b px-3 py-2 text-center" style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}>
             <h2 className="text-base font-bold text-white">Top 10 Rewards</h2>
             <p className="text-xs text-white/90 mt-0.5">The Top 10 prizes awarded to the top 10 supporters of locally owned businesses.</p>
+            <p className="text-xs text-white/90 mt-1">
+              The Top 10 NWC Earners will get to pick their desired prize starting with 1st Place. Support Local Businesses and get in the Top 10!
+            </p>
           </div>
-          <div className="flex-1 overflow-y-auto bg-white divide-y divide-gray-100">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
-              const p = top5?.prizes?.find((x) => x.rank === rank);
-              const hasContent = p && (p.label?.trim() || p.imageUrl);
-              return (
-                <div key={rank} className="flex items-center gap-3 px-3 py-2 text-sm">
-                  <span className="w-6 shrink-0 font-semibold tabular-nums" style={{ color: "var(--color-primary)" }}>
-                    #{rank}
-                  </span>
-                  {hasContent ? (
-                    <>
-                      {p!.imageUrl ? (
-                        <img src={p!.imageUrl} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
-                      ) : (
-                        <div className="w-10 h-10 rounded bg-gray-100 shrink-0" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium truncate">{p!.label?.trim() || "—"}</p>
-                        {p!.business && (
+          <div className="flex-1 overflow-x-auto overflow-y-auto bg-white">
+            <table className="w-full text-sm min-w-[400px]">
+              <thead>
+                <tr className="text-left" style={{ backgroundColor: "var(--color-primary)", color: "white" }}>
+                  <th className="px-3 py-2 font-semibold">Title & Description</th>
+                  <th className="px-3 py-2 font-semibold">Prize Value</th>
+                  <th className="px-3 py-2 font-semibold">Offered By</th>
+                  <th className="px-3 py-2 font-semibold">Days Left</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
+                  const p = top5?.prizes?.find((x) => x.rank === rank);
+                  const hasContent = p && (p.label?.trim() || p.imageUrl || p.prizeValue || p.description);
+                  const daysLeft = top5?.endDate
+                    ? Math.max(0, Math.ceil((new Date(top5.endDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
+                    : null;
+                  return (
+                    <tr key={rank} className="border-b border-gray-100">
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold tabular-nums shrink-0" style={{ color: "var(--color-primary)" }}>
+                            #{rank}
+                          </span>
+                          {hasContent ? (
+                            <div className="min-w-0">
+                              <p className="font-medium">{p!.label?.trim() || "—"}</p>
+                              {p!.description?.trim() && <p className="text-xs text-gray-600 mt-0.5">{p!.description.trim()}</p>}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-gray-700">{hasContent && p!.prizeValue ? p!.prizeValue : "—"}</td>
+                      <td className="px-3 py-2">
+                        {hasContent && p!.business ? (
                           <Link
                             href={`/support-local/${p!.business.slug}`}
-                            className="text-xs truncate block"
+                            className="font-medium hover:underline"
                             style={{ color: "var(--color-primary)" }}
                           >
                             {p!.business.name}
                           </Link>
+                        ) : (
+                          "—"
                         )}
-                      </div>
-                    </>
-                  ) : (
-                    <span className="text-gray-400 flex-1">—</span>
-                  )}
-                </div>
-              );
-            })}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums text-gray-700">
+                        {daysLeft !== null ? daysLeft : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>

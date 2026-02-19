@@ -8,6 +8,8 @@ const defaultPrizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => ({
   label: "",
   imageUrl: null as string | null,
   businessId: null as string | null,
+  prizeValue: null as string | null,
+  description: null as string | null,
 }));
 
 const prizeSchema = z.object({
@@ -15,6 +17,8 @@ const prizeSchema = z.object({
   label: z.string(),
   imageUrl: z.string().url().nullable().optional().or(z.literal("")),
   businessId: z.string().nullable().optional(),
+  prizeValue: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
 });
 const patchSchema = z.object({
   enabled: z.boolean().optional(),
@@ -36,10 +40,12 @@ export async function GET(req: NextRequest) {
       prizes: defaultPrizes,
     });
   }
-  const prizes = (campaign.prizes as { rank: number; label: string; imageUrl?: string; businessId?: string }[]) ?? [];
+  const prizes = (campaign.prizes as { rank: number; label: string; imageUrl?: string; businessId?: string; prizeValue?: string; description?: string }[]) ?? [];
   const mergedPrizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
     const existing = prizes.find((p) => p.rank === rank);
-    return existing ?? { rank, label: "", imageUrl: null, businessId: null };
+    return existing
+      ? { ...existing, prizeValue: existing.prizeValue ?? null, description: existing.description ?? null }
+      : { rank, label: "", imageUrl: null, businessId: null, prizeValue: null, description: null };
   });
   return NextResponse.json({
     enabled: campaign.enabled,

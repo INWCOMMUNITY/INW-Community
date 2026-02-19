@@ -377,7 +377,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady }: BusinessF
       <div>
         <label className="block text-sm font-medium mb-1">Hours of operation</label>
         <p className="text-xs text-gray-500 mb-2">Enter hours for each day, e.g. 9:00 AM - 5:00 PM or CLOSED</p>
-        <div className="grid gap-y-2 gap-x-6 sm:grid-cols-2">
+        <div className="grid gap-y-2 gap-x-2 sm:grid-cols-2">
           {DAYS.map((day) => (
             <div key={day} className="flex items-center gap-2">
               <label className="w-24 capitalize text-sm shrink-0">{day}</label>
@@ -386,7 +386,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady }: BusinessF
                 value={hours[day] ?? ""}
                 onChange={(e) => setHours((h) => ({ ...h, [day]: e.target.value }))}
                 placeholder="9:00 AM - 5:00 PM"
-                className="flex-1 border rounded px-3 py-2 text-sm"
+                className="w-32 max-w-[8rem] border rounded px-2 py-2 text-sm shrink-0"
               />
             </div>
           ))}
