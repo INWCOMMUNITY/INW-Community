@@ -150,14 +150,14 @@ export function RewardsContent() {
             </div>
           )}
           <div
-            className="rounded-lg overflow-hidden border-2 shadow-sm w-full flex-1 min-h-0"
+            className="rounded-lg overflow-hidden border-2 shadow-sm w-full flex-1 min-h-0 flex flex-col"
             style={{ borderColor: "var(--color-primary)" }}
           >
-            <div className="border-b px-3 py-2 text-center" style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}>
+            <div className="border-b px-3 py-2 text-center shrink-0" style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}>
               <h2 className="text-base font-bold text-white">Top 10 NWC Earners</h2>
               <p className="text-xs text-white/90 mt-0.5">Members supporting local businesses and earning the most Community Points.</p>
             </div>
-            <ol className="divide-y text-sm bg-white" style={{ borderColor: "var(--color-primary)" }}>
+            <ol className="divide-y text-sm bg-white flex-1" style={{ borderColor: "var(--color-primary)" }}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
                 const m = top10Leaderboard[num - 1];
                 return (
@@ -197,20 +197,18 @@ export function RewardsContent() {
           </div>
         </div>
 
-        {/* Top 10 Rewards - separate header box then table box (per reference) */}
+        {/* Top 10 Rewards - header matches My Community Points, table aligns with Top 10 NWC Earners */}
         <div className="w-full lg:flex-1 flex flex-col gap-3 min-h-0">
-          {/* Green box 1: header with title and description */}
+          {/* Header box: matches My Community Points design and height */}
           <div
-            className="rounded-lg overflow-hidden border-2 shadow-sm shrink-0"
-            style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}
+            className="p-4 rounded-lg border-2 shadow-sm bg-white text-center shrink-0"
+            style={{ borderColor: "var(--color-primary)" }}
           >
-            <div className="px-3 py-2 text-center">
-              <h2 className="text-base font-bold text-white">Top 10 Rewards</h2>
-              <p className="text-xs text-white/90 mt-0.5">The Top 10 prizes awarded to the top 10 supporters of locally owned businesses.</p>
-              <p className="text-xs text-white/90 mt-1">The Top 10 NWC Earners will get to pick their desired prize starting with 1st Place. Support Local Businesses and get in the Top 10!</p>
-            </div>
+            <h2 className="text-base font-bold" style={{ color: "var(--color-primary)" }}>Top 10 Rewards</h2>
+            <p className="text-xs text-gray-600 mt-0.5">The Top 10 prizes awarded to the top 10 supporters of locally owned businesses.</p>
+            <p className="text-xs text-gray-600 mt-1">The Top 10 NWC Earners will get to pick their desired prize starting with 1st Place. Support Local Businesses and get in the Top 10!</p>
           </div>
-          {/* Green box 2: table with green header row, white body */}
+          {/* Table box: green header matches left box height, 1-10 rows aligned */}
           <div
             className="rounded-lg overflow-hidden border-2 shadow-sm flex-1 min-h-0 flex flex-col"
             style={{ borderColor: "var(--color-primary)" }}
@@ -219,7 +217,10 @@ export function RewardsContent() {
               <table className="w-full text-sm min-w-[400px]">
               <thead>
                 <tr className="text-left" style={{ backgroundColor: "var(--color-primary)", color: "white" }}>
-                  <th className="px-3 py-2 font-semibold">Title & Description</th>
+                  <th className="px-3 py-2 font-semibold align-top">
+                    <span className="block">Title & Description</span>
+                    <span className="text-xs text-white/90 block mt-0.5">Prize details from local businesses</span>
+                  </th>
                   <th className="px-3 py-2 font-semibold">Prize Value</th>
                   <th className="px-3 py-2 font-semibold">Offered By</th>
                   <th className="px-3 py-2 font-semibold">Days Left</th>
@@ -234,7 +235,7 @@ export function RewardsContent() {
                     : null;
                   return (
                     <tr key={rank} className="border-b border-gray-100">
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5 align-middle" style={{ minHeight: "2.75rem" }}>
                         <div className="flex items-center gap-2">
                           <span className="font-semibold tabular-nums shrink-0" style={{ color: "var(--color-primary)" }}>
                             #{rank}
@@ -249,8 +250,8 @@ export function RewardsContent() {
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-gray-700">{hasContent && p!.prizeValue ? p!.prizeValue : "—"}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5 text-gray-700 align-middle">{hasContent && p!.prizeValue ? p!.prizeValue : "—"}</td>
+                      <td className="px-3 py-2.5 align-middle">
                         {hasContent && p!.business ? (
                           <Link
                             href={`/support-local/${p!.business.slug}`}
@@ -263,7 +264,7 @@ export function RewardsContent() {
                           "—"
                         )}
                       </td>
-                      <td className="px-3 py-2 tabular-nums text-gray-700">
+                      <td className="px-3 py-2.5 tabular-nums text-gray-700 align-middle">
                         {daysLeft !== null ? daysLeft : "—"}
                       </td>
                     </tr>
