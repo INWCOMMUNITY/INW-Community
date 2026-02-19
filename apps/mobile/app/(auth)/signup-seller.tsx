@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  Image,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -345,16 +346,26 @@ export default function SignupSellerScreen() {
           <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
           <Text style={styles.backText}>Back</Text>
         </Pressable>
-        <Text style={styles.title}>Complete Subscription</Text>
-        <Text style={styles.subtitle}>
-          Subscribe as a Seller to list items on the Community Storefront. You can cancel anytime.
+        <View style={styles.checkoutLogoWrap}>
+          <Image
+            source={require("@/assets/images/nwc-community-logo.png")}
+            style={styles.checkoutLogo}
+            resizeMode="contain"
+            accessibilityLabel="Northwest Community"
+          />
+        </View>
+        <Text style={styles.checkoutTitle}>Subscribe to Northwest Community Seller</Text>
+        <Text style={styles.checkoutSubtitle}>
+          Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid. You can cancel anytime.
         </Text>
+        <View style={styles.checkoutBtnWrap}>
         <SubscriptionCheckoutWithFallback
           planId="seller"
           businessData={businessData ?? undefined}
           onSuccess={handleCheckoutSuccess}
           refreshMember={refreshMember}
         />
+        </View>
       </View>
     );
   }
@@ -387,6 +398,33 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginBottom: 24,
     lineHeight: 22,
+  },
+  checkoutLogoWrap: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  checkoutLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  checkoutTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: theme.colors.heading,
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  checkoutSubtitle: {
+    fontSize: 17,
+    color: theme.colors.text,
+    marginBottom: 24,
+    lineHeight: 26,
+    textAlign: "center",
+  },
+  checkoutBtnWrap: {
+    alignItems: "center",
+    width: "100%",
   },
   form: {
     padding: 20,

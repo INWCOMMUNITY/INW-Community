@@ -340,7 +340,7 @@ export default function SignupSellerPage() {
       )}
 
       {step === "checkout" && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="flex justify-center mb-4">
             <Image
               src="/nwc-logo-circle-crop.png"
@@ -350,11 +350,22 @@ export default function SignupSellerPage() {
               className="rounded-full object-cover"
             />
           </div>
-          <p className="text-gray-600 mb-4">
-            Subscribe as a Seller to list items on the Community Storefront. You can cancel anytime.
+          <h2 className="text-2xl md:text-3xl font-bold text-center mb-2" style={{ color: "var(--color-heading)" }}>
+            Subscribe to Northwest Community Seller
+          </h2>
+          <p className="text-lg text-gray-600 mb-6 text-center max-w-lg mx-auto leading-relaxed">
+            Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid. You can cancel anytime.
           </p>
-          <div className="flex flex-wrap items-center gap-4 mb-4">
-            <span className="text-sm font-medium text-gray-700">Billing:</span>
+          <div className="flex flex-col items-center gap-4 mb-6">
+            <div className="flex flex-col items-center gap-1 mb-2">
+              <p className="text-3xl md:text-4xl font-bold text-gray-900 text-center">
+                {interval === "monthly" ? "$40.00" : "$400.00"}
+                <span className="text-lg font-normal text-gray-600 ml-1">{interval === "monthly" ? "per month" : "per year"}</span>
+              </p>
+              {interval === "yearly" && (
+                <p className="text-base text-gray-500">$33.33 / month billed annually</p>
+              )}
+            </div>
             <div className="flex gap-2">
               <button
                 type="button"

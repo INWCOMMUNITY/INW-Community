@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -76,6 +77,14 @@ export default function SubscribeScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
       >
+        <View style={styles.logoWrap}>
+          <Image
+            source={require("@/assets/images/nwc-community-logo.png")}
+            style={styles.logo}
+            resizeMode="contain"
+            accessibilityLabel="Northwest Community"
+          />
+        </View>
         <Text style={styles.intro}>
           Support Northwest Community with a subscription. Subscribers get 2x
           points, access to coupons, exclusive events, and more.
@@ -131,7 +140,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "600",
     color: "#fff",
   },
@@ -142,10 +151,19 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
+  logoWrap: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  logo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
   intro: {
-    fontSize: 16,
+    fontSize: 18,
     color: theme.colors.text,
-    lineHeight: 24,
+    lineHeight: 28,
     marginBottom: 24,
   },
   checkoutSection: {

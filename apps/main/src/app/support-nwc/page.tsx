@@ -60,11 +60,10 @@ export default function SupportNWCInfoPage() {
             className="mx-auto mb-6 rounded-full object-cover"
             quality={100}
           />
-          {/* Plan: header font -30% on mobile */}
-          <h1 className="text-[2.1rem] md:text-3xl font-bold mb-2" style={{ color: "var(--color-heading)" }}>
+          <h1 className="text-2xl md:text-4xl font-bold mb-4" style={{ color: "var(--color-heading)" }}>
             NWC Services: Subscribe, Sponsor, or Sell!
           </h1>
-          <p className="text-xl opacity-80 max-w-2xl mx-auto">
+          <p className="text-lg md:text-xl opacity-80 max-w-2xl mx-auto leading-relaxed">
             Northwest Community is a local hub for the Inland Northwest—Spokane, Kootenai County, and beyond. Choose the plan that fits you below. Each subscription supports our mission and comes with real benefits.
           </p>
 
@@ -109,21 +108,28 @@ export default function SupportNWCInfoPage() {
                 />
               </div>
               <div className="p-6 flex flex-col flex-1">
-              <h2 className="text-xl font-bold mb-2 text-gray-900">
+              <h2 className="text-xl md:text-2xl font-bold mb-3 text-gray-900 text-center">
                 {plan.name}
               </h2>
-              {interval === "monthly" ? (
-                <p className="text-3xl font-bold mb-1 text-gray-900">
-                  ${plan.price}
-                  <span className="text-base font-normal opacity-80 text-gray-700"> / month</span>
-                </p>
-              ) : (
-                <p className="text-3xl font-bold mb-1 text-gray-900">
-                  ${plan.priceYearly}
-                  <span className="text-base font-normal opacity-80 text-gray-700"> / year</span>
-                </p>
-              )}
-              <p className="text-sm mb-3 opacity-90 text-gray-900">{plan.description}</p>
+              <div className="text-center mb-3">
+                {interval === "monthly" ? (
+                  <p className="text-3xl md:text-4xl font-bold mb-1 text-gray-900">
+                    ${plan.price}
+                    <span className="text-base md:text-lg font-normal opacity-80 text-gray-700"> / month</span>
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-3xl md:text-4xl font-bold mb-1 text-gray-900">
+                      ${plan.priceYearly}
+                      <span className="text-base md:text-lg font-normal opacity-80 text-gray-700"> / year</span>
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      ${(plan.priceYearly / 12).toFixed(2)} / month billed annually
+                    </p>
+                  </>
+                )}
+              </div>
+              <p className="text-base mb-3 opacity-90 text-gray-900">{plan.description}</p>
               <p className="text-xs opacity-70 mb-2 text-gray-700">Valid until canceled</p>
               <CheckoutButton
                 planId={plan.id}

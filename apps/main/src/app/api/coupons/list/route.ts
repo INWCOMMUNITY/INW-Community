@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, type Prisma } from "database";
+import { deduplicateCities } from "@/lib/city-utils";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -8,15 +9,15 @@ export async function GET(req: NextRequest) {
     const coupons = await prisma.coupon.findMany({
       include: { business: { select: { city: true, categories: true } } },
     });
-    const cities = new Set<string>();
+    const cityList: string[] = [];
     const categories = new Set<string>();
     coupons.forEach((c) => {
-      if (c.business?.city) cities.add(c.business.city);
+      if (c.business?.city) cityList.push(c.business.city);
       (c.business?.categories ?? []).forEach((cat) => categories.add(cat));
     });
     return NextResponse.json({
       categories: Array.from(categories).sort(),
-      cities: Array.from(cities).sort(),
+      cities: deduplicateCities(cityList),
     });
   }
   const category = searchParams.get("category");
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
   if (category || city) {
     where.business = {
       ...(category ? { categories: { has: category } } : {}),
-      ...(city ? { city } : {}),
+      ...(city ? { city: { equals: city, mode: "insensitive" } } : {}),
     };
   }
   if (search) {

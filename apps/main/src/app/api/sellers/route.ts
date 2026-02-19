@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
+import { deduplicateCities } from "@/lib/city-utils";
 
 /**
  * GET /api/sellers
@@ -32,10 +33,10 @@ export async function GET(req: NextRequest) {
         select: { categories: true, city: true },
       });
       const catSet = new Set(sellerBusinesses.flatMap((b) => b.categories).filter(Boolean));
-      const citySet = new Set(sellerBusinesses.map((c) => c.city).filter(Boolean));
+      const cities = deduplicateCities(sellerBusinesses.map((c) => c.city));
       return NextResponse.json({
         categories: Array.from(catSet).sort(),
-        cities: Array.from(citySet).sort(),
+        cities,
       });
     }
 
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
       where: {
         memberId: { in: memberIds },
         ...(category ? { categories: { has: category } } : {}),
-        ...(city ? { city } : {}),
+        ...(city ? { city: { equals: city, mode: "insensitive" } } : {}),
         ...(search
           ? {
               OR: [

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
+import { deduplicateCities } from "@/lib/city-utils";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateText, containsProfanity } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
@@ -64,10 +65,10 @@ export async function GET(req: NextRequest) {
       }),
     ]);
     const catSet = new Set(businesses.flatMap((b) => (b.categories ?? []).filter(Boolean)));
-    const citySet = new Set(cityRows.map((c) => c.city).filter(Boolean));
+    const cities = deduplicateCities(cityRows.map((c) => c.city));
     return NextResponse.json({
       categories: Array.from(catSet).sort(),
-      cities: Array.from(citySet).sort(),
+      cities,
     });
   }
   const category = searchParams.get("category");
@@ -77,7 +78,7 @@ export async function GET(req: NextRequest) {
     where: {
       nameApprovalStatus: "approved",
       ...(category ? { categories: { has: category } } : {}),
-      ...(city ? { city } : {}),
+      ...(city ? { city: { equals: city, mode: "insensitive" } } : {}),
       ...(search
         ? {
             OR: [
