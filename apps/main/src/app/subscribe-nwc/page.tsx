@@ -23,7 +23,7 @@ export default async function SubscribeNWCPage() {
         title="Interested in Subscribing to Northwest Community?"
         logoUrl={logoUrl}
         description="Curious about the benefits Northwest Community offers to our subscribers? This page is here to answer your questions and demonstrate what we do for our subscribers. Read our policy and learn how you can gain access to coupons, exclusive giveaways, exclusive events, and hints to our scavenger hunts!"
-        policyHref="/policies/nwc-subscriber"
+        policyHref="/terms"
         policyLabel="NWC Subscriber Policy"
       />
       <InfoPageBenefitSections benefits={SUBSCRIBER_BENEFITS} />

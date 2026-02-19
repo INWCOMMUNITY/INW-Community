@@ -163,7 +163,7 @@ export function RewardsContent() {
                 return (
                   <li
                     key={m?.id ?? `empty-${num}`}
-                    className="flex items-center gap-2 px-3 py-2 border-t border-gray-100 first:border-t-0"
+                    className="flex items-center gap-2 px-3 py-2.5 min-h-[2.75rem] border-t border-gray-100 first:border-t-0"
                   >
                     <span className="w-5 shrink-0 font-semibold tabular-nums" style={{ color: "var(--color-primary)" }}>
                       {num}.
@@ -197,20 +197,26 @@ export function RewardsContent() {
           </div>
         </div>
 
-        {/* Top 10 Rewards - prizes for top 10 supporters */}
-        <div
-          className="rounded-lg overflow-hidden border-2 shadow-sm w-full lg:flex-1 flex flex-col min-h-0"
-          style={{ borderColor: "var(--color-primary)" }}
-        >
-          <div className="border-b px-3 py-2 text-center" style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}>
-            <h2 className="text-base font-bold text-white">Top 10 Rewards</h2>
-            <p className="text-xs text-white/90 mt-0.5">The Top 10 prizes awarded to the top 10 supporters of locally owned businesses.</p>
-            <p className="text-xs text-white/90 mt-1">
-              The Top 10 NWC Earners will get to pick their desired prize starting with 1st Place. Support Local Businesses and get in the Top 10!
-            </p>
+        {/* Top 10 Rewards - separate header box then table box (per reference) */}
+        <div className="w-full lg:flex-1 flex flex-col gap-3 min-h-0">
+          {/* Green box 1: header with title and description */}
+          <div
+            className="rounded-lg overflow-hidden border-2 shadow-sm shrink-0"
+            style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}
+          >
+            <div className="px-3 py-2 text-center">
+              <h2 className="text-base font-bold text-white">Top 10 Rewards</h2>
+              <p className="text-xs text-white/90 mt-0.5">The Top 10 prizes awarded to the top 10 supporters of locally owned businesses.</p>
+              <p className="text-xs text-white/90 mt-1">The Top 10 NWC Earners will get to pick their desired prize starting with 1st Place. Support Local Businesses and get in the Top 10!</p>
+            </div>
           </div>
-          <div className="flex-1 overflow-x-auto overflow-y-auto bg-white">
-            <table className="w-full text-sm min-w-[400px]">
+          {/* Green box 2: table with green header row, white body */}
+          <div
+            className="rounded-lg overflow-hidden border-2 shadow-sm flex-1 min-h-0 flex flex-col"
+            style={{ borderColor: "var(--color-primary)" }}
+          >
+            <div className="flex-1 overflow-x-auto overflow-y-auto bg-white">
+              <table className="w-full text-sm min-w-[400px]">
               <thead>
                 <tr className="text-left" style={{ backgroundColor: "var(--color-primary)", color: "white" }}>
                   <th className="px-3 py-2 font-semibold">Title & Description</th>
@@ -265,6 +271,7 @@ export function RewardsContent() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       </section>

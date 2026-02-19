@@ -295,8 +295,7 @@ export default function SignupBusinessPage() {
           <p className="text-gray-600 mb-4">
             Subscribe as a Business to publish your storefront. You can cancel anytime.
           </p>
-          <div className="flex flex-wrap items-center gap-4 mb-4">
-            <span className="text-sm font-medium text-gray-700">Billing:</span>
+          <div className="flex flex-wrap justify-center items-center gap-2 mb-4">
             <div className="flex gap-2">
               <button
                 type="button"
@@ -322,7 +321,7 @@ export default function SignupBusinessPage() {
               </button>
             </div>
           </div>
-          {error && <p className="text-red-600 text-sm">{error}</p>}
+          {error && <p className="text-red-600 text-sm mb-2">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={() => setStep("contact")} className="btn flex-1">
               Back

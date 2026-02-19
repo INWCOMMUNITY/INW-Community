@@ -23,10 +23,8 @@ export default async function SponsorNWCPage() {
         title="Local Business Interested in Joining NWC?"
         logoUrl={logoUrl}
         description="Curious what benefits Northwest Community offers to our Sponsors? This page is here to answer your questions and demonstrate what we do for our sponsors. Read our policy and tag along with what we are doing!"
-        policyHref="/policies/nwc-sponsor"
-        policyLabel="NWC Sponsor Policy"
-        termsHref="/terms"
-        privacyHref="/privacy"
+        policyHref="/terms"
+        policyLabel="NWC Business Policy"
       />
       <InfoPageBenefitSections benefits={SPONSOR_BENEFITS} />
 

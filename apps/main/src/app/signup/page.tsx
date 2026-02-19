@@ -96,21 +96,21 @@ export default function SignupPage() {
       <h1 className="text-2xl font-bold mb-6">Sign up</h1>
 
       <p className="text-gray-600 mb-4">Choose your account type</p>
-      <div className="flex flex-col sm:flex-row gap-6 mb-8 justify-center items-stretch sm:items-start">
+      <div className="flex flex-col sm:flex-row gap-6 mb-8 justify-center items-center">
         <div className="flex flex-col items-center gap-2">
-          <Link href="/signup/business" className="btn w-full sm:w-auto min-w-[200px] flex justify-center items-center whitespace-nowrap">
-            Business Sign Up
+          <Link href="/signup/business" className="btn w-full sm:w-auto min-w-[200px] flex flex-col justify-center items-center whitespace-nowrap text-center py-4">
+            <span>Business Sign Up</span>
+            <span className="text-white font-normal">$25 a Month</span>
           </Link>
-          <p className="text-sm font-medium text-gray-700">$25 a Month</p>
           <Link href="/sponsor-nwc" className="text-sm underline hover:no-underline" style={{ color: "var(--color-primary)" }}>
             Business Benefits
           </Link>
         </div>
         <div className="flex flex-col items-center gap-2">
-          <Link href="/signup/seller" className="btn w-full sm:w-auto min-w-[200px] flex justify-center items-center whitespace-nowrap">
-            Seller Sign Up
+          <Link href="/signup/seller" className="btn w-full sm:w-auto min-w-[200px] flex flex-col justify-center items-center whitespace-nowrap text-center py-4">
+            <span>Seller Sign Up</span>
+            <span className="text-white font-normal">$40 a Month</span>
           </Link>
-          <p className="text-sm font-medium text-gray-700">$40 a Month</p>
           <Link href="/sell-nwc" className="text-sm underline hover:no-underline" style={{ color: "var(--color-primary)" }}>
             Seller Benefits
           </Link>
