@@ -73,8 +73,8 @@ export async function POST(req: NextRequest) {
 
     await prisma.siteSetting.upsert({
       where: { key: SITE_IMAGES_KEY },
-      create: { key: SITE_IMAGES_KEY, value: overrides },
-      update: { value: overrides },
+      create: { key: SITE_IMAGES_KEY, value: overrides as object },
+      update: { value: overrides as object },
     });
 
     revalidatePath("/", "layout");

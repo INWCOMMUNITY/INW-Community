@@ -59,7 +59,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const { overrides } = await getOverrides();
     delete overrides[key];
-    const value = { ...overrides, [VERSION_KEY]: Date.now() };
+    const value = { ...overrides, [VERSION_KEY]: Date.now() } as object;
     await prisma.siteSetting.upsert({
       where: { key: SITE_IMAGES_KEY },
       create: { key: SITE_IMAGES_KEY, value },
