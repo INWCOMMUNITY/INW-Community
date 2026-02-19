@@ -45,12 +45,18 @@ function LoginForm() {
           Account created. Sign in below to continue to My Community.
         </p>
       )}
+      {callbackUrl.includes("/admin") && (
+        <p className="mb-4 p-3 rounded-lg text-sm" style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}>
+          Admin sign-in: use the email and password from ADMIN_EMAIL and ADMIN_INITIAL_PASSWORD in your .env (run <code className="bg-white/50 px-1 rounded">pnpm db:seed</code> first).
+        </p>
+      )}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="email" className="block text-sm font-medium mb-1">Email</label>
+          <label htmlFor="email" className="block text-sm font-medium mb-1">Email or username</label>
           <input
             id="email"
-            type="email"
+            type="text"
+            autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required

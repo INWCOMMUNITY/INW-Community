@@ -6,6 +6,7 @@ import Image from "next/image";
 import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 import { CheckoutButton } from "@/components/CheckoutButton";
+import { useSiteImageUrls } from "@/components/SiteImageUrls";
 
 const PLANS = [
   {
@@ -45,6 +46,7 @@ const PLANS = [
 
 export default function SupportNWCInfoPage() {
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
+  const siteImages = useSiteImageUrls();
 
   return (
     <>
@@ -52,11 +54,12 @@ export default function SupportNWCInfoPage() {
       <div className="max-w-[var(--max-width)] mx-auto">
         <div className="text-center mb-10">
           <Image
-            src={cloudinaryFetchUrl("/nwc-logo-circle.png")}
+            src={siteImages["nwc-logo-circle"] ?? cloudinaryFetchUrl("/nwc-logo-circle.png")}
             alt="Northwest Community"
             width={160}
             height={160}
             className="mx-auto mb-6 rounded-full object-cover"
+            quality={100}
           />
           {/* Plan: header font -30% on mobile */}
           <h1 className="text-[2.1rem] md:text-3xl font-bold mb-2" style={{ color: "var(--color-heading)" }}>
@@ -158,7 +161,7 @@ export default function SupportNWCInfoPage() {
       {/* Why Northwest Community – full-bleed background photo wall-to-wall */}
       <section className="relative w-full min-h-[720px] flex items-center justify-center overflow-hidden mt-12">
         <img
-          src="/why-nwc-background.png"
+          src={siteImages["why-nwc-background"] ?? "/why-nwc-background.png"}
           alt=""
           className="absolute inset-0 w-full h-full object-cover object-[55%_50%] md:object-[50%_85%] min-w-full min-h-full"
         />

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 
 type SidebarItem = { href: string; label: string } | { divider: string };
@@ -38,7 +39,9 @@ function isActive(pathname: string, href: string): boolean {
 
 export function MyCommunityFloatingMenu() {
   const pathname = usePathname();
+  const { data: session } = useSession();
   const [open, setOpen] = useState(false);
+  const isAdmin = (session?.user as { isAdmin?: boolean })?.isAdmin;
 
   useLockBodyScroll(open);
 
@@ -121,6 +124,27 @@ export function MyCommunityFloatingMenu() {
                       </Link>
                     </li>
                   )
+                )}
+                {isAdmin && (
+                  <li className="pt-3 mt-3 border-t border-gray-200">
+                    <Link
+                      href="/admin"
+                      prefetch={false}
+                      onClick={() => setOpen(false)}
+                      className={`block py-2.5 px-4 rounded transition font-medium text-center ${
+                        pathname.startsWith("/admin")
+                          ? "text-white"
+                          : "text-gray-800 hover:bg-gray-100"
+                      }`}
+                      style={
+                        pathname.startsWith("/admin")
+                          ? { backgroundColor: "var(--color-primary)" }
+                          : undefined
+                      }
+                    >
+                      Admin
+                    </Link>
+                  </li>
                 )}
               </ul>
             </nav>

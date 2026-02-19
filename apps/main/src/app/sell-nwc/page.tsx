@@ -6,6 +6,7 @@ import { InfoPageBenefitSections } from "@/components/InfoPageBenefitSections";
 import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG, SELLER_INFO_BENEFIT_IMAGES, GALLERY_CTA_BACKGROUND } from "@/lib/wix-media";
 import { InfoPageSignupBanner } from "@/components/InfoPageSignupBanner";
+import { getSiteImageUrl } from "@/lib/site-images";
 
 const SELLER_BENEFITS = [
   { title: "Everything in Sponsor NWC", description: "You get all Sponsor benefits: directory listing, coupons, event calendars, and visibility at NWC events.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[0])), imageAlt: "Northwest Community" },
@@ -15,11 +16,13 @@ const SELLER_BENEFITS = [
   { title: "Full Access From Day One", description: "List your products and start selling on our storefront as soon as you sign up. No waiting period—get started right away.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[4])), imageAlt: "Northwest Community" },
 ];
 
-export default function SellNWCPage() {
+export default async function SellNWCPage() {
+  const logoUrl = await getSiteImageUrl("nwc-logo-circle");
   return (
     <>
       <InfoPageHeader
         title="Interested in Becoming a Northwest Community Seller?"
+        logoUrl={logoUrl}
         description="Curious about the benefits Northwest Community offers to our Sellers? This page is here to answer your questions and demonstrate what we do for our sellers. Read our policy and sell and ship local goods from the comfort of your home or office. All sellers are also sponsors—see our sponsor benefits page as well."
         policyHref="/policies/nwc-seller"
         policyLabel="Local Seller Policy"

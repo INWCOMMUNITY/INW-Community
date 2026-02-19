@@ -50,6 +50,7 @@ const SIDEBAR_SECTIONS = [
     divider: "Website",
     items: [
       { href: "/dashboard/design", label: "Design" },
+      { href: "/dashboard/site-images", label: "Site Images" },
       { href: MAIN_SITE_URL, label: "See Website", external: true },
     ],
   },

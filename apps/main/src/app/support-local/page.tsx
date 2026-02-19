@@ -2,17 +2,21 @@ import Link from "next/link";
 import Image from "next/image";
 import { SupportLocalGallery } from "@/components/SupportLocalGallery";
 import { NWCSellersGallery } from "@/components/NWCSellersGallery";
+import { getSiteImageUrl } from "@/lib/site-images";
 
-const SUPPORT_LOCAL_LOGO = "/support-local-logo.png";
+export default async function SupportLocalPage() {
+  const [directoryBgUrl, supportLocalLogoUrl] = await Promise.all([
+    getSiteImageUrl("directory-background"),
+    getSiteImageUrl("support-local-logo"),
+  ]);
 
-export default function SupportLocalPage() {
   return (
     <>
       {/* Header: gallery photo wall to wall, height 1.6x; logo 1:1 centered */}
       <header className="w-full overflow-hidden relative border-2 border-[var(--color-secondary)]">
         <div className="w-full relative aspect-[2.62] min-h-[280px]">
           <Image
-            src="/directory-background.jpg"
+            src={directoryBgUrl ?? "/directory-background.jpg"}
             alt="Northwest Community – support local"
             fill
             className="object-cover object-center"
@@ -23,7 +27,7 @@ export default function SupportLocalPage() {
           {/* Logo centered on photo, circle cropped */}
           <div className="absolute left-1/2 top-1/2 aspect-square w-[200px] sm:w-[240px] md:w-[280px] -translate-x-1/2 -translate-y-1/2 rounded-full overflow-hidden z-10">
             <img
-              src={SUPPORT_LOCAL_LOGO}
+              src={supportLocalLogoUrl ?? "/support-local-logo.png"}
               alt="Northwest Community"
               className="w-full h-full object-cover object-center"
             />

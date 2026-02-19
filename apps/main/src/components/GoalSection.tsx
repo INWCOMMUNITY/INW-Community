@@ -30,6 +30,7 @@ export function GoalSection({ number, title, children, imageSrc, imageAlt, secti
             fill
             className="object-cover"
             sizes="(max-width: 768px) 100vw, 75vw"
+            quality={100}
           />
         </div>
         {/* White box: below photo on mobile; overlaps photo on desktop */}

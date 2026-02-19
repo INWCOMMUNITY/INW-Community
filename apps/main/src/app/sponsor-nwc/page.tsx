@@ -6,6 +6,7 @@ import { InfoPageBenefitSections } from "@/components/InfoPageBenefitSections";
 import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG, SPONSOR_INFO_BENEFIT_IMAGES, GALLERY_CTA_BACKGROUND } from "@/lib/wix-media";
 import { InfoPageSignupBanner } from "@/components/InfoPageSignupBanner";
+import { getSiteImageUrl } from "@/lib/site-images";
 
 const SPONSOR_BENEFITS = [
   { title: "Local Business Directory Listing", description: "Your business appears in our Support Local directory, visible to residents of Spokane and Kootenai County who want to support local.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SPONSOR_INFO_BENEFIT_IMAGES[0])), imageAlt: "Support Local directory" },
@@ -15,11 +16,13 @@ const SPONSOR_BENEFITS = [
   { title: "Support the Community", description: "Your sponsorship helps NWC put on events, create incentives, and keep this platform free for everyone.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SPONSOR_INFO_BENEFIT_IMAGES[4])), imageAlt: "Northwest Community" },
 ];
 
-export default function SponsorNWCPage() {
+export default async function SponsorNWCPage() {
+  const logoUrl = await getSiteImageUrl("nwc-logo-circle");
   return (
     <>
       <InfoPageHeader
         title="Interested in Becoming a Sponsor?"
+        logoUrl={logoUrl}
         description="Curious what benefits Northwest Community offers to our Sponsors? This page is here to answer your questions and demonstrate what we do for our sponsors. Read our policy and tag along with what we are doing!"
         policyHref="/policies/nwc-sponsor"
         policyLabel="NWC Sponsor Policy"

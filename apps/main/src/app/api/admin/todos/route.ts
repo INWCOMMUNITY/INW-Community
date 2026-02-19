@@ -3,7 +3,7 @@ import { prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
 
 export async function GET(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const todos = await prisma.adminTodo.findMany({
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = await req.json();
     const text = String(body?.text ?? "").trim();

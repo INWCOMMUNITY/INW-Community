@@ -6,6 +6,7 @@ import { InfoPageBenefitSections } from "@/components/InfoPageBenefitSections";
 import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG, SUBSCRIBER_INFO_BENEFIT_IMAGES, GALLERY_CTA_BACKGROUND } from "@/lib/wix-media";
 import { InfoPageSignupBanner } from "@/components/InfoPageSignupBanner";
+import { getSiteImageUrl } from "@/lib/site-images";
 
 const SUBSCRIBER_BENEFITS = [
   { title: "Access to NWC Coupons", description: "Redeem discounts at local businesses in our coupon book. Save money while supporting local.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[0])), imageAlt: "NWC coupons" },
@@ -15,11 +16,13 @@ const SUBSCRIBER_BENEFITS = [
   { title: "This Site Stays Free", description: "Northwest Community is free for everyone. Subscribing is optional—but if you want to support what we do and unlock these benefits, we appreciate you.", imageSrc: cloudinaryFetchUrl(WIX_IMG(SUBSCRIBER_INFO_BENEFIT_IMAGES[4])), imageAlt: "Northwest Community" },
 ];
 
-export default function SubscribeNWCPage() {
+export default async function SubscribeNWCPage() {
+  const logoUrl = await getSiteImageUrl("nwc-logo-circle");
   return (
     <>
       <InfoPageHeader
         title="Interested in Subscribing to Northwest Community?"
+        logoUrl={logoUrl}
         description="Curious about the benefits Northwest Community offers to our subscribers? This page is here to answer your questions and demonstrate what we do for our subscribers. Read our policy and learn how you can gain access to coupons, exclusive giveaways, exclusive events, and hints to our scavenger hunts!"
         policyHref="/policies/nwc-subscriber"
         policyLabel="NWC Subscriber Policy"

@@ -1,0 +1,177 @@
+import { prisma } from "database";
+import Link from "next/link";
+import { headers } from "next/headers";
+import { DashboardTodoList } from "./DashboardTodoList";
+import { DashboardQuote } from "./DashboardQuote";
+
+const BASE_URL = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+function startOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function endOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+export default async function DashboardPage() {
+  const now = new Date();
+  const monthStart = startOfMonth(now);
+  const monthEnd = endOfMonth(now);
+  const headersList = await headers();
+  const cookie = headersList.get("cookie") ?? "";
+
+  const [
+    membersCount,
+    subscriptionsCount,
+    eventsCount,
+    couponsCount,
+    newMembersThisMonth,
+    storeOrdersThisMonth,
+    orderItemsThisMonth,
+    stripeStats,
+    analytics,
+  ] = await Promise.all([
+    prisma.member.count(),
+    prisma.subscription.count(),
+    prisma.event.count(),
+    prisma.coupon.count(),
+    prisma.member.count({
+      where: { createdAt: { gte: monthStart, lte: monthEnd } },
+    }),
+    prisma.storeOrder.findMany({
+      where: {
+        status: "paid",
+        createdAt: { gte: monthStart, lte: monthEnd },
+      },
+      select: { totalCents: true, shippingCostCents: true },
+    }),
+    prisma.orderItem.findMany({
+      where: {
+        order: {
+          status: "paid",
+          createdAt: { gte: monthStart, lte: monthEnd },
+        },
+      },
+      select: { quantity: true },
+    }),
+    fetch(`${BASE_URL}/api/admin/stripe-stats`, {
+      headers: { cookie },
+      next: { revalidate: 60 },
+    })
+      .then((r) => r.json())
+      .catch(() => ({ subscriptionRevenueThisMonthCents: 0 })),
+    fetch(`${BASE_URL}/api/admin/analytics`, {
+      headers: { cookie },
+      next: { revalidate: 60 },
+    })
+      .then((r) => r.json())
+      .catch(() => ({ appOpensWeek: 0 })),
+  ]);
+
+  const totalSalesCents = storeOrdersThisMonth.reduce((s, o) => s + o.totalCents, 0);
+  const totalShippingCents = storeOrdersThisMonth.reduce((s, o) => s + o.shippingCostCents, 0);
+  const totalItemsSold = orderItemsThisMonth.reduce((s, o) => s + o.quantity, 0);
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-8">
+      <h1 className="text-2xl font-bold">Dashboard</h1>
+
+      {/* To Do List */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <h2 className="text-lg font-bold mb-3">To Do List</h2>
+        <DashboardTodoList />
+      </div>
+
+      {/* Top Analytics */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-gray-600 text-sm">Money Made From Subscriptions</p>
+          <p className="text-2xl font-bold">
+            ${((stripeStats?.subscriptionRevenueThisMonthCents ?? 0) / 100).toFixed(2)}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">This month (from Stripe)</p>
+          <Link href="/admin/dashboard/subscriptions" className="text-sm hover:underline mt-1 block" style={{ color: "#505542" }}>
+            View
+          </Link>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-gray-600 text-sm">This Month&apos;s Growth</p>
+          <p className="text-2xl font-bold">{newMembersThisMonth}</p>
+          <p className="text-xs text-gray-500 mt-1">New members this month</p>
+          <Link href="/admin/dashboard/members" className="text-sm hover:underline mt-1 block" style={{ color: "#505542" }}>
+            View
+          </Link>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-gray-600 text-sm">App Opens (7 days)</p>
+          <p className="text-2xl font-bold">{(analytics?.appOpensWeek ?? 0).toLocaleString()}</p>
+          <p className="text-xs text-gray-500 mt-1">Tracked from app launches</p>
+          <Link href="/admin/dashboard/traffic" className="text-sm hover:underline mt-1 block" style={{ color: "#505542" }}>
+            View details
+          </Link>
+        </div>
+      </div>
+
+      {/* Quote of the Week */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <DashboardQuote />
+      </div>
+
+      {/* Store Front */}
+      <div>
+        <h2 className="text-lg font-bold mb-4">Store Front</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Total Sales This Month</p>
+            <p className="text-2xl font-bold">${(totalSalesCents / 100).toFixed(2)}</p>
+            <Link href="/admin/dashboard/sellers" className="text-sm hover:underline mt-1 block" style={{ color: "#505542" }}>
+              View
+            </Link>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Total Items Sold</p>
+            <p className="text-2xl font-bold">{totalItemsSold}</p>
+            <Link href="/admin/dashboard/sellers" className="text-sm hover:underline mt-1 block" style={{ color: "#505542" }}>
+              View
+            </Link>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Shipping Costs</p>
+            <p className="text-2xl font-bold">${(totalShippingCents / 100).toFixed(2)}</p>
+            <Link href="/admin/dashboard/sellers" className="text-sm hover:underline mt-1 block" style={{ color: "#505542" }}>
+              View
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Metrics */}
+      <div>
+        <h2 className="text-lg font-bold mb-4">Overview</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Members</p>
+            <p className="text-2xl font-bold">{membersCount}</p>
+            <Link href="/admin/dashboard/members" className="text-sm hover:underline" style={{ color: "#505542" }}>View</Link>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Subscriptions</p>
+            <p className="text-2xl font-bold">{subscriptionsCount}</p>
+            <Link href="/admin/dashboard/subscriptions" className="text-sm hover:underline" style={{ color: "#505542" }}>View</Link>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Events</p>
+            <p className="text-2xl font-bold">{eventsCount}</p>
+            <Link href="/admin/dashboard/events" className="text-sm hover:underline" style={{ color: "#505542" }}>View</Link>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Coupons</p>
+            <p className="text-2xl font-bold">{couponsCount}</p>
+            <Link href="/admin/dashboard/coupons" className="text-sm hover:underline" style={{ color: "#505542" }}>View</Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

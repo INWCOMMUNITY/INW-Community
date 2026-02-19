@@ -6,7 +6,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 const DEFAULT_POINTS = 5;
 
 export async function GET(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const [configs, businessRows, topEarners] = await Promise.all([
     prisma.categoryPointsConfig.findMany({
@@ -52,7 +52,7 @@ const patchSchema = z.object({
 });
 
 export async function PATCH(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const body = await req.json();

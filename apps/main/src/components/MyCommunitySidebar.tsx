@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 type SidebarItem = { href: string; label: string } | { divider: string };
 
@@ -38,6 +39,8 @@ function isActive(pathname: string, href: string): boolean {
 
 export function MyCommunitySidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as { isAdmin?: boolean })?.isAdmin;
 
   return (
     <nav className="border rounded-lg p-4 bg-gray-50 sticky top-24">
@@ -72,6 +75,26 @@ export function MyCommunitySidebar() {
               </Link>
             </li>
           )
+        )}
+        {isAdmin && (
+          <li className="pt-3 mt-3 border-t border-gray-200">
+            <Link
+              href="/admin"
+              prefetch={false}
+              className={`block py-2 px-3 rounded transition font-medium ${
+                pathname.startsWith("/admin")
+                  ? "text-white"
+                  : "text-gray-800 hover:bg-gray-200"
+              }`}
+              style={
+                pathname.startsWith("/admin")
+                  ? { backgroundColor: "var(--color-primary)" }
+                  : undefined
+              }
+            >
+              Admin
+            </Link>
+          </li>
         )}
       </ul>
     </nav>

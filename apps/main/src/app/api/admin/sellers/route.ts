@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 
 
 export async function GET(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const subscriptions = await prisma.subscription.findMany({
     where: { plan: "seller", status: "active" },

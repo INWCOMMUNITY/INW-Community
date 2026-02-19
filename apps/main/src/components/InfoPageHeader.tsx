@@ -8,9 +8,11 @@ export interface InfoPageHeaderProps {
   description: string;
   policyHref: string;
   policyLabel: string;
+  /** Override logo URL (from admin Site Images). */
+  logoUrl?: string | null;
 }
 
-export function InfoPageHeader({ title, description, policyHref, policyLabel }: InfoPageHeaderProps) {
+export function InfoPageHeader({ title, description, policyHref, policyLabel, logoUrl }: InfoPageHeaderProps) {
   return (
     <>
       {/* Plan: more space walls–header/paragraph; header font -30% on mobile */}
@@ -29,11 +31,12 @@ export function InfoPageHeader({ title, description, policyHref, policyLabel }: 
           </h1>
           <div className="w-36 h-36 md:w-44 md:h-44 lg:w-52 lg:h-52 rounded-full overflow-hidden shrink-0 mb-6 flex items-center justify-center bg-white/10">
             <Image
-              src="/nwc-logo-circle.png"
+              src={logoUrl ?? "/nwc-logo-circle.png"}
               alt="Northwest Community"
               width={208}
               height={208}
               className="w-full h-full object-cover"
+              quality={100}
             />
           </div>
           <p className="text-white/95 text-base md:text-lg lg:text-xl leading-relaxed mb-6 max-w-2xl">

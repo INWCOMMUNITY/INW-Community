@@ -11,7 +11,7 @@ const TOKEN_KEYS = [
 ];
 
 export async function GET(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const rows = await prisma.designTokens.findMany({
     where: { key: { in: TOKEN_KEYS } },
   });
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = (await req.json()) as Record<string, string>;
     for (const key of TOKEN_KEYS) {

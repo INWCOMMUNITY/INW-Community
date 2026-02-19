@@ -10,7 +10,7 @@ import type { Session } from "next-auth";
 
 export function Providers({ children, session }: { children: React.ReactNode; session?: Session | null }) {
   return (
-    <SessionProvider session={session} refetchInterval={0} refetchOnWindowFocus={false}>
+    <SessionProvider session={session} refetchInterval={0} refetchOnWindowFocus={true}>
       <CartProvider session={session}>
         <TagsProvider>
           <AnalyticsTracker />

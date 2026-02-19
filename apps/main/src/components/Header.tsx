@@ -194,6 +194,16 @@ export function Header() {
                             </Link>
                           );
                         })}
+                        {item.label === "Community" && (session?.user as { isAdmin?: boolean })?.isAdmin && (
+                          <Link
+                            href="/admin"
+                            prefetch={false}
+                            className="block py-2.5 px-5 rounded-b-md text-base text-center text-gray-700 hover:bg-gray-100 border-t border-gray-200"
+                            style={pathname.startsWith("/admin") ? { backgroundColor: SEGMENT_COLOR, color: "white" } : undefined}
+                          >
+                            Admin
+                          </Link>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -214,6 +224,15 @@ export function Header() {
           </div>
         </nav>
         <div className="hidden md:flex items-center justify-end gap-3 shrink-0">
+          {(session?.user as { isAdmin?: boolean })?.isAdmin && (
+            <Link
+              href="/admin/dashboard"
+              prefetch={false}
+              className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] text-gray-700 hover:bg-gray-100 transition-opacity shrink-0 border border-gray-300"
+            >
+              Admin
+            </Link>
+          )}
           {status === "loading" ? (
             <span className="text-sm text-gray-500 w-24">...</span>
           ) : session?.user?.isSubscriber ? (
@@ -231,21 +250,48 @@ export function Header() {
                   <Link
                     href="/resale-hub"
                     prefetch={false}
-                    className="block py-2.5 px-5 hover:bg-gray-100 rounded-md text-sm sm:text-base text-gray-700 text-center"
+                    className="block py-2.5 px-5 hover:bg-gray-100 rounded-t-md text-sm sm:text-base text-gray-700 text-center"
                   >
                     Resale Hub
+                  </Link>
+                  <Link
+                    href="/api/auth/signout?callbackUrl=%2F"
+                    className="block py-2.5 px-5 hover:bg-gray-100 rounded-b-md text-sm sm:text-base text-gray-700 text-center"
+                  >
+                    Log out
                   </Link>
                 </div>
               </div>
             </div>
           ) : (
-            <Link
-              href={session ? "/my-community" : "/login"}
-              className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] text-white hover:opacity-95 transition-opacity shrink-0"
-              style={{ backgroundColor: SEGMENT_COLOR }}
-            >
-              My Community
-            </Link>
+            <div className="relative group shrink-0">
+              <Link
+                href={session ? "/my-community" : "/login"}
+                className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] text-white hover:opacity-95 transition-opacity inline-flex items-center justify-center"
+                style={{ backgroundColor: SEGMENT_COLOR }}
+              >
+                My Community
+              </Link>
+              {session && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
+                  <div className="bg-white border border-gray-300 rounded-md shadow-lg min-w-[10rem]" style={{ borderColor: "#d1d5db", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                    <Link
+                      href="/my-community/profile"
+                      prefetch={false}
+                      className="block py-2.5 px-5 hover:bg-gray-100 rounded-t-md text-sm sm:text-base text-gray-700 text-center"
+                    >
+                      Edit profile
+                    </Link>
+<Link
+                    href="/api/auth/signout?callbackUrl=%2F"
+                    className="block py-2.5 px-5 hover:bg-gray-100 rounded-b-md text-sm sm:text-base text-gray-700 text-center"
+                  >
+                    Log out
+                  </Link>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           {cartCount > 0 && (
             <button
@@ -309,6 +355,17 @@ export function Header() {
                 className="w-24 h-24 object-contain"
               />
             </Link>
+            {(session?.user as { isAdmin?: boolean })?.isAdmin && (
+              <Link
+                href="/admin/dashboard"
+                prefetch={false}
+                onClick={() => setMobileOpen(false)}
+                className="w-full rounded-lg border-2 overflow-hidden text-left block py-3 px-4 font-medium text-gray-800 hover:bg-gray-50"
+                style={{ borderColor: "var(--color-primary)" }}
+              >
+                Admin
+              </Link>
+            )}
             {navItems.map((item) => {
               const hasChildren = "children" in item && (item.children?.length ?? 0) > 0;
               const isExpanded = expandedMobileItem === item.label;
@@ -362,6 +419,17 @@ export function Header() {
                             </Link>
                           );
                         })}
+                        {item.label === "Community" && (session?.user as { isAdmin?: boolean })?.isAdmin && (
+                          <Link
+                            href="/admin"
+                            prefetch={false}
+                            onClick={() => setMobileOpen(false)}
+                            className={`block py-2.5 px-4 text-sm ${pathname.startsWith("/admin") ? "text-white hover:bg-opacity-90" : "text-gray-700 hover:bg-gray-100"}`}
+                            style={pathname.startsWith("/admin") ? { backgroundColor: "var(--color-primary)" } : undefined}
+                          >
+                            Admin
+                          </Link>
+                        )}
                       </div>
                     )}
                   </div>
@@ -390,6 +458,16 @@ export function Header() {
                 style={{ borderColor: "var(--color-primary)", ...(pathname === "/resale-hub" || pathname.startsWith("/resale-hub/") ? { backgroundColor: "var(--color-primary)" } : {}) }}
               >
                 Resale Hub
+              </Link>
+            )}
+            {session?.user && (
+              <Link
+                href="/api/auth/signout?callbackUrl=%2F"
+                onClick={() => setMobileOpen(false)}
+                className="w-full rounded-lg border-2 overflow-hidden text-left block py-3 px-4 font-medium text-gray-800 hover:bg-gray-50"
+                style={{ borderColor: "var(--color-primary)" }}
+              >
+                Log out
               </Link>
             )}
           </nav>

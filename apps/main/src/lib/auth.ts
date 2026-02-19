@@ -34,6 +34,7 @@ export const authOptions = {
     async jwt({ token, user }: any) {
       if (user) {
         token.id = user.id;
+        token.email = user.email;
       }
       return token;
     },
@@ -49,12 +50,17 @@ export const authOptions = {
           });
           (session.user as { isSubscriber?: boolean }).isSubscriber = !!sub;
         }
+        const adminEmail = process.env.ADMIN_EMAIL;
+        (session.user as { isAdmin?: boolean }).isAdmin =
+          !!adminEmail && (token.email as string)?.toLowerCase() === adminEmail.toLowerCase();
       }
       return session;
     },
   },
   pages: {
     signIn: "/login",
+    signOut: "/auth/signout",
+    error: "/auth/error",
   },
   session: { strategy: "jwt" as const },
   secret: process.env.NEXTAUTH_SECRET,

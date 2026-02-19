@@ -21,6 +21,7 @@ function getBaseUrl(): string {
 /**
  * Proxy image URLs through Cloudinary for higher resolution and optimization.
  * Relative URLs are returned as-is unless proxyRelative: true (needs allowed fetch domain in Cloudinary).
+ * upscale: true applies Cloudinary AI upscaling (e_upscale) to enhance resolution.
  */
 export function cloudinaryFetchUrl(
   sourceUrl: string,
@@ -29,6 +30,8 @@ export function cloudinaryFetchUrl(
     quality?: "auto" | "auto:best" | "auto:good" | number;
     /** When true, proxy relative URLs (e.g. /thanks-landscape.png) through Cloudinary. Requires your domain in Cloudinary allowed fetch list. */
     proxyRelative?: boolean;
+    /** When true, apply Cloudinary AI upscale (e_upscale) to increase image resolution. Used for admin-replaced site images. */
+    upscale?: boolean;
   } = {}
 ): string {
   if (!cloudName || !sourceUrl) return sourceUrl ?? "";
@@ -42,6 +45,7 @@ export function cloudinaryFetchUrl(
   }
   const enc = encodeURIComponent(absUrl);
   const parts: string[] = ["f_auto", "q_auto:best"];
+  if (options.upscale) parts.push("e_upscale");
   if (options.width) parts.push(`w_${options.width}`);
   if (typeof options.quality === "number") parts.push(`q_${options.quality}`);
   return `https://res.cloudinary.com/${cloudName}/image/fetch/${parts.join(",")}/${enc}`;

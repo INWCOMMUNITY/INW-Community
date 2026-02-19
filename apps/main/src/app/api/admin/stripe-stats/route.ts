@@ -27,7 +27,7 @@ function endOfMonth(d: Date) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   if (!stripe || PRICE_IDS.length === 0) {
     return NextResponse.json({

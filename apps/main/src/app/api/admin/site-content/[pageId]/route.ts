@@ -7,7 +7,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ pageId: string }> }
 ) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { pageId } = await params;
   const row = await prisma.siteContent.findUnique({
     where: { pageId },
@@ -20,7 +20,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ pageId: string }> }
 ) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { pageId } = await params;
   let body: unknown;
   try {

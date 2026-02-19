@@ -3,21 +3,30 @@ import Image from "next/image";
 import { GoalSection } from "@/components/GoalSection";
 import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
+import { getSiteImageUrl } from "@/lib/site-images";
 
 const ABOUT_PAGE_TAN = "#F5E9CE";
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const [logoUrl, goals1Url, goals2Url, goals3Url, foundationUrl] = await Promise.all([
+    getSiteImageUrl("nwc-logo-circle"),
+    getSiteImageUrl("goals-1"),
+    getSiteImageUrl("goals-2"),
+    getSiteImageUrl("goals-3"),
+    getSiteImageUrl("foundation-background"),
+  ]);
   return (
     <div style={{ backgroundColor: ABOUT_PAGE_TAN, minHeight: "100%" }}>
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)", backgroundColor: "white" }}>
         <div className="max-w-[var(--max-width)] mx-auto flex flex-col items-center text-center">
           <Image
-            src={cloudinaryFetchUrl("/nwc-logo-circle.png")}
+            src={logoUrl ?? cloudinaryFetchUrl("/nwc-logo-circle.png")}
             alt="Northwest Community"
             width={200}
             height={200}
             className="mb-6 rounded-full object-cover"
             priority
+            quality={100}
           />
           <h1 className="text-3xl md:text-4xl font-bold mb-4" style={{ color: "var(--color-heading)" }}>
             About Northwest Community
@@ -31,7 +40,7 @@ export default function AboutPage() {
       <GoalSection
         number={1}
         title="Create a community page that benefits local businesses, people, and our local economy."
-        imageSrc={cloudinaryFetchUrl("/goals-1.png")}
+        imageSrc={goals1Url ?? cloudinaryFetchUrl("/goals-1.png")}
         imageAlt="Marina and local community"
         sectionBackground={ABOUT_PAGE_TAN}
       >
@@ -49,7 +58,7 @@ export default function AboutPage() {
       <GoalSection
         number={2}
         title="Host events that support the people in the surrounding cities."
-        imageSrc={cloudinaryFetchUrl("/goals-2.png")}
+        imageSrc={goals2Url ?? cloudinaryFetchUrl("/goals-2.png")}
         imageAlt="Community and local area"
         sectionBackground={ABOUT_PAGE_TAN}
       >
@@ -64,7 +73,7 @@ export default function AboutPage() {
       <GoalSection
         number={3}
         title="Create a successful local online shopping platform that makes supporting local businesses that much easier."
-        imageSrc={cloudinaryFetchUrl("/goals-3.png")}
+        imageSrc={goals3Url ?? cloudinaryFetchUrl("/goals-3.png")}
         imageAlt="Northwest community"
         sectionBackground={ABOUT_PAGE_TAN}
       >
@@ -79,7 +88,7 @@ export default function AboutPage() {
       {/* Northwest Communities Foundation – marina/beach background */}
       <section className="relative w-full min-h-[320px] flex items-center justify-center overflow-hidden">
         <img
-          src={cloudinaryFetchUrl("/foundation-background.png")}
+          src={foundationUrl ?? cloudinaryFetchUrl("/foundation-background.png")}
           alt=""
           className="absolute inset-0 w-full h-full object-cover"
         />

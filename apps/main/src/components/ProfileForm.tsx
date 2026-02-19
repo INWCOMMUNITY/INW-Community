@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getErrorMessage } from "@/lib/api-error";
 import { signOut } from "next-auth/react";
 
@@ -291,17 +292,12 @@ export function ProfileForm() {
 
       {/* Log out */}
       <div className="mt-8 pt-6 border-t border-gray-200">
-        <button
-          type="button"
-          onClick={async () => {
-            await signOut({ redirect: false });
-            router.push("/");
-            router.refresh();
-          }}
+        <Link
+          href="/api/auth/signout?callbackUrl=%2F"
           className="text-gray-600 hover:text-gray-800 hover:underline text-sm"
         >
           Log out
-        </button>
+        </Link>
       </div>
 
       {/* Delete account - only in Edit Profile */}

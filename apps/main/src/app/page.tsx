@@ -3,8 +3,10 @@ import Image from "next/image";
 import { Section } from "design-tokens";
 import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG, WIX_HERO_GALLERY, WIX_SUBSCRIBE_BACKGROUND, CALENDAR_IMAGES } from "@/lib/wix-media";
+import { getSiteImageUrl } from "@/lib/site-images";
 
 export default async function HomePage() {
+  const thanksLandscapeUrl = await getSiteImageUrl("thanks-landscape");
   return (
     <>
       <section className="relative min-h-[85vh] flex flex-col items-center justify-center px-4 py-16 text-center overflow-hidden">
@@ -204,7 +206,7 @@ export default async function HomePage() {
       >
         <div className="relative min-h-[400px] md:min-h-[500px] order-2 md:order-1">
           <Image
-            src="/thanks-landscape.png"
+            src={thanksLandscapeUrl ?? "/thanks-landscape.png"}
             alt="Northwest landscape — river and forest"
             className="object-cover"
             fill

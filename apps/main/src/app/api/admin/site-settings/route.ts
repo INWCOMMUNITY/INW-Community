@@ -5,7 +5,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 const ALLOWED_KEYS = ["quoteOfTheWeek", "platform_business", "admin_business", "time_away"];
 
 export async function GET(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const key = searchParams.get("key");
   if (key && ALLOWED_KEYS.includes(key)) {
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = await req.json();
     const key = body?.key as string;

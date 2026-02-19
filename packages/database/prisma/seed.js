@@ -1,9 +1,59 @@
+const path = require("path");
+const fs = require("fs");
 const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
+
+// Load root .env so ADMIN_EMAIL and ADMIN_INITIAL_PASSWORD are available (monorepo)
+const possibleRoots = [
+  path.resolve(__dirname, "..", "..", "..", ".env"), // from packages/database/prisma
+  path.resolve(process.cwd(), "..", ".env"), // from packages/database cwd
+  path.resolve(process.cwd(), "..", "..", ".env"), // if cwd is packages/database/prisma
+];
+const rootEnvPath = possibleRoots.find((p) => fs.existsSync(p));
+if (rootEnvPath) {
+  try {
+    require("dotenv").config({ path: rootEnvPath });
+  } catch {
+    // Fallback: manual parse if dotenv not available
+    const content = fs.readFileSync(rootEnvPath, "utf8");
+    for (const line of content.split(/\r?\n/)) {
+      const m = line.match(/^([^#=]+)=(.*)$/);
+      if (m) {
+        const key = m[1].trim();
+        const val = m[2].trim().replace(/^["']|["']$/g, "");
+        if (!process.env[key]) process.env[key] = val;
+      }
+    }
+  }
+}
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // Admin user – created when ADMIN_EMAIL and ADMIN_INITIAL_PASSWORD are set (one-time setup)
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_INITIAL_PASSWORD;
+  if (adminEmail && adminPassword) {
+    const email = adminEmail.trim().toLowerCase();
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
+    await prisma.member.upsert({
+      where: { email },
+      create: {
+        email,
+        passwordHash,
+        firstName: "Admin",
+        lastName: "User",
+        city: "",
+      },
+      update: { passwordHash },
+    });
+    console.log("Created/updated admin login:", email);
+    if (adminPassword.includes("<") || adminPassword.includes(">")) {
+      console.log("  Note: Your password includes angle brackets - type them exactly when logging in.");
+    }
+    console.log("  (Remove ADMIN_INITIAL_PASSWORD from .env after first seed)");
+  }
+
   const exampleEmail = "sponsor@nwc.local";
   let member = await prisma.member.findUnique({ where: { email: exampleEmail } });
 
