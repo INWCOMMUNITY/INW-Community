@@ -33,6 +33,7 @@ async function createBusinessFromMetadata(
   const phone = typeof data.phone === "string" && data.phone.trim() ? data.phone.trim() : null;
   const email = typeof data.email === "string" && data.email.trim() ? data.email.trim() : null;
   const logoUrl = typeof data.logoUrl === "string" && data.logoUrl.trim() ? data.logoUrl.trim() : null;
+  const coverPhotoUrl = typeof data.coverPhotoUrl === "string" && data.coverPhotoUrl.trim() ? data.coverPhotoUrl.trim() : null;
   const address = typeof data.address === "string" && data.address.trim() ? data.address.trim() : null;
   const photos = Array.isArray(data.photos) ? (data.photos as string[]).filter(Boolean) : [];
   const hoursOfOperation = data.hoursOfOperation && typeof data.hoursOfOperation === "object"
@@ -58,6 +59,7 @@ async function createBusinessFromMetadata(
       phone,
       email,
       logoUrl,
+      coverPhotoUrl,
       address,
       city,
       categories,

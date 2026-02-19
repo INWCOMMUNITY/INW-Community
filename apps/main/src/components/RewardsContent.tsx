@@ -128,9 +128,9 @@ export function RewardsContent() {
         Redeem your Community Points for rewards offered by local businesses. Support local to earn more points!
       </p>
 
-      {/* My Community Points + Top 10 Leaderboard - left column, theme green */}
-      <section className="mb-12 flex flex-col sm:flex-row gap-6 items-start">
-        <div className="w-full sm:w-auto sm:max-w-[364px] shrink-0 flex flex-col gap-3">
+      {/* My Community Points + Top 10 Leaderboard + Top 10 Rewards - side by side */}
+      <section className="mb-12 flex flex-col lg:flex-row gap-6 items-stretch">
+        <div className="w-full lg:w-auto lg:max-w-[364px] shrink-0 flex flex-col gap-3">
           {session?.user && points !== null && (
             <div
               className="p-4 rounded-lg border-2 shadow-sm bg-white text-center"
@@ -148,7 +148,7 @@ export function RewardsContent() {
             </div>
           )}
           <div
-            className="rounded-lg overflow-hidden border-2 shadow-sm w-full"
+            className="rounded-lg overflow-hidden border-2 shadow-sm w-full flex-1 min-h-0"
             style={{ borderColor: "var(--color-primary)" }}
           >
             <div className="border-b px-3 py-2 text-center" style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}>
@@ -192,6 +192,53 @@ export function RewardsContent() {
                 );
               })}
             </ol>
+          </div>
+        </div>
+
+        {/* Top 10 Rewards - prizes for top 10 supporters */}
+        <div
+          className="rounded-lg overflow-hidden border-2 shadow-sm w-full lg:max-w-[364px] lg:flex-1 flex flex-col min-h-0"
+          style={{ borderColor: "var(--color-primary)" }}
+        >
+          <div className="border-b px-3 py-2 text-center" style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}>
+            <h2 className="text-base font-bold text-white">Top 10 Rewards</h2>
+            <p className="text-xs text-white/90 mt-0.5">The Top 10 prizes awarded to the top 10 supporters of locally owned businesses.</p>
+          </div>
+          <div className="flex-1 overflow-y-auto bg-white divide-y divide-gray-100">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
+              const p = top5?.prizes?.find((x) => x.rank === rank);
+              const hasContent = p && (p.label?.trim() || p.imageUrl);
+              return (
+                <div key={rank} className="flex items-center gap-3 px-3 py-2 text-sm">
+                  <span className="w-6 shrink-0 font-semibold tabular-nums" style={{ color: "var(--color-primary)" }}>
+                    #{rank}
+                  </span>
+                  {hasContent ? (
+                    <>
+                      {p!.imageUrl ? (
+                        <img src={p!.imageUrl} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded bg-gray-100 shrink-0" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{p!.label?.trim() || "—"}</p>
+                        {p!.business && (
+                          <Link
+                            href={`/support-local/${p!.business.slug}`}
+                            className="text-xs truncate block"
+                            style={{ color: "var(--color-primary)" }}
+                          >
+                            {p!.business.name}
+                          </Link>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-gray-400 flex-1">—</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>

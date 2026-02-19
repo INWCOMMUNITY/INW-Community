@@ -1,7 +1,6 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 
 const RESALE_HUB_HEADER_IMAGE =
@@ -15,7 +14,7 @@ export function ResaleHubHeader() {
     <header
       className="relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] flex items-center justify-center overflow-hidden bg-gray-900"
       style={{
-        backgroundImage: `url(${cloudinaryFetchUrl(WIX_IMG(RESALE_HUB_HEADER_IMAGE))})`,
+        backgroundImage: `url(${WIX_IMG(RESALE_HUB_HEADER_IMAGE)})`,
         backgroundSize: "cover",
         backgroundPosition: "50% 65%",
         backgroundRepeat: "no-repeat",

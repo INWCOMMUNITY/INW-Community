@@ -1,7 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Section } from "design-tokens";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG, WIX_HERO_GALLERY, WIX_SUBSCRIBE_BACKGROUND, CALENDAR_IMAGES } from "@/lib/wix-media";
 import { getSiteImageUrl } from "@/lib/site-images";
 
@@ -14,7 +13,7 @@ export default async function HomePage() {
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{
-            backgroundImage: `url(${cloudinaryFetchUrl(WIX_IMG(WIX_HERO_GALLERY))})`,
+            backgroundImage: `url(${WIX_IMG(WIX_HERO_GALLERY)})`,
             filter: "brightness(1.2) contrast(1.1) saturate(1.05)",
           }}
           aria-hidden
@@ -70,15 +69,15 @@ export default async function HomePage() {
           </Link>
         </div>
         <div
-          className="flex justify-center items-center p-6 md:p-8 md:pl-8 min-h-[400px] md:min-h-[500px] w-full"
+          className="flex justify-center items-center p-6 md:p-8 md:pl-8 min-h-[280px] md:min-h-[340px] w-full"
           style={{ backgroundColor: "rgba(80, 85, 66, 0.8)" }}
         >
           <Image
-            src={cloudinaryFetchUrl(WIX_IMG("2bdd49_9e1e39816a194b7d9e3557eb8a025cad~mv2.jpg/v1/fill/w_1400,h_1446,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Photo%20Nov%2007%202025%2C%209%2033%2002%20PM.jpg"))}
+            src={WIX_IMG("2bdd49_9e1e39816a194b7d9e3557eb8a025cad~mv2.jpg/v1/fill/w_1400,h_1446,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Photo%20Nov%2007%202025%2C%209%2033%2002%20PM.jpg")}
             alt="Northwest Community"
-            className="rounded-lg object-cover border-2 border-[var(--color-secondary)]"
-            width={934}
-            height={964}
+            className="rounded-lg object-cover border-2 border-[var(--color-secondary)] w-[60%] max-w-[560px]"
+            width={560}
+            height={578}
             sizes="(max-width: 768px) 100vw, 50vw"
             quality={95}
           />
@@ -108,27 +107,27 @@ export default async function HomePage() {
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <Link href="/calendars/fun_events" className="block border-2 border-[var(--color-primary)] rounded-lg overflow-hidden">
-                <Image src={cloudinaryFetchUrl(CALENDAR_IMAGES.fun_events)} alt="Fun Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
+                <Image src={CALENDAR_IMAGES.fun_events} alt="Fun Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
                 <span className="block p-2 font-medium">Fun Events Calendar</span>
               </Link>
               <Link href="/calendars/local_art_music" className="block border-2 border-[var(--color-primary)] rounded-lg overflow-hidden">
-                <Image src={cloudinaryFetchUrl(CALENDAR_IMAGES.local_art_music)} alt="Local Art & Music" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
+                <Image src={CALENDAR_IMAGES.local_art_music} alt="Local Art & Music" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
                 <span className="block p-2 font-medium">Local Art & Music Calendar</span>
               </Link>
               <Link href="/calendars/non_profit" className="block border-2 border-[var(--color-primary)] rounded-lg overflow-hidden">
-                <Image src={cloudinaryFetchUrl(CALENDAR_IMAGES.non_profit)} alt="Non-Profit Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
+                <Image src={CALENDAR_IMAGES.non_profit} alt="Non-Profit Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
                 <span className="block p-2 font-medium">Non-Profit Events Calendar</span>
               </Link>
               <Link href="/calendars/business_promotional" className="block border-2 border-[var(--color-primary)] rounded-lg overflow-hidden">
-                <Image src={cloudinaryFetchUrl(CALENDAR_IMAGES.business_promotional)} alt="Business Promo" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
+                <Image src={CALENDAR_IMAGES.business_promotional} alt="Business Promo" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
                 <span className="block p-2 font-medium">Business Promo Events Calendar</span>
               </Link>
               <Link href="/calendars/marketing" className="block border-2 border-[var(--color-primary)] rounded-lg overflow-hidden">
-                <Image src={cloudinaryFetchUrl(CALENDAR_IMAGES.marketing)} alt="Marketing Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
+                <Image src={CALENDAR_IMAGES.marketing} alt="Marketing Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
                 <span className="block p-2 font-medium">Marketing Events Calendar</span>
               </Link>
               <Link href="/calendars/real_estate" className="block border-2 border-[var(--color-primary)] rounded-lg overflow-hidden">
-                <Image src={cloudinaryFetchUrl(CALENDAR_IMAGES.real_estate)} alt="Real Estate Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
+                <Image src={CALENDAR_IMAGES.real_estate} alt="Real Estate Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
                 <span className="block p-2 font-medium">Real Estate Events Calendar</span>
               </Link>
             </div>
@@ -156,7 +155,7 @@ export default async function HomePage() {
           </div>
           <div className="flex justify-center">
             <Image
-              src={cloudinaryFetchUrl(WIX_IMG("2bdd49_0061748f80f642939a6f4b70ddb4a27d~mv2.jpg/v1/fill/w_1449,h_1482,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Photo%20Nov%2007%202025%2C%208%2056%2020%20PM_edited_edited.jpg"))}
+              src={WIX_IMG("2bdd49_0061748f80f642939a6f4b70ddb4a27d~mv2.jpg/v1/fill/w_1449,h_1482,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Photo%20Nov%2007%202025%2C%208%2056%2020%20PM_edited_edited.jpg")}
               alt="Northwest Community"
               className="rounded-lg object-cover"
               width={966}
@@ -175,7 +174,7 @@ export default async function HomePage() {
         {/* Forest background image from Wix */}
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${cloudinaryFetchUrl(WIX_IMG(WIX_SUBSCRIBE_BACKGROUND))})` }}
+          style={{ backgroundImage: `url(${WIX_IMG(WIX_SUBSCRIBE_BACKGROUND)})` }}
           aria-hidden
         />
         <div className="relative z-10 max-w-2xl mx-auto w-full">
@@ -194,7 +193,7 @@ export default async function HomePage() {
               <Link href="/support-nwc" className="btn-sponsors">Subscribe</Link>
               <Link href="/coupons" className="btn-sponsors">Coupons</Link>
               <Link href="/rewards" className="btn-sponsors">Rewards</Link>
-              <Link href="/badges" className="btn-sponsors">Community Badges</Link>
+              <Link href="/badges" className="btn-sponsors">Badges</Link>
             </div>
           </div>
         </div>

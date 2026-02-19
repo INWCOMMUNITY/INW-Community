@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const sponsors = await prisma.subscription.findMany({
-    where: { plan: "sponsor", status: "active" },
+    where: { plan: { in: ["sponsor", "seller"] }, status: "active" },
     include: {
       member: {
         select: {

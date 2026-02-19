@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 
 const SELLER_HUB_HEADER_IMAGE =
@@ -17,6 +16,7 @@ export default async function SellerHubPage() {
     if (!session?.user?.id) {
       redirect("/login?callbackUrl=/seller-hub");
     }
+    const isAdmin = (session.user as { isAdmin?: boolean }).isAdmin === true;
     const sub = await prisma.subscription.findFirst({
       where: {
         memberId: session.user.id,
@@ -24,7 +24,7 @@ export default async function SellerHubPage() {
         status: "active",
       },
     });
-    const hasLocalDelivery = sub
+    const hasLocalDelivery = (sub || isAdmin)
       ? await prisma.storeItem
           .findFirst({
             where: { memberId: session.user.id, localDeliveryAvailable: true },
@@ -32,7 +32,7 @@ export default async function SellerHubPage() {
           })
           .then((r) => !!r)
       : false;
-    if (!sub) {
+    if (!sub && !isAdmin) {
       return (
         <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
           <div className="max-w-[var(--max-width)] mx-auto text-center">
@@ -51,7 +51,7 @@ export default async function SellerHubPage() {
         <header
           className="relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] flex items-center justify-center overflow-hidden bg-gray-900"
           style={{
-            backgroundImage: `url(${cloudinaryFetchUrl(WIX_IMG(SELLER_HUB_HEADER_IMAGE))})`,
+            backgroundImage: `url(${WIX_IMG(SELLER_HUB_HEADER_IMAGE)})`,
             backgroundSize: "cover",
             backgroundPosition: "50% 65%",
             backgroundRepeat: "no-repeat",
@@ -112,7 +112,7 @@ export default async function SellerHubPage() {
           </div>
           <div className="mt-12 pt-8 border-t border-gray-200">
             <Link href="/sponsor-hub" className="text-primary-600 hover:underline font-medium inline-block px-4 py-2 rounded transition hover:bg-[var(--color-section-alt)]">
-              ← Go to Sponsor Hub (business directory, coupons, events, rewards)
+              ← Go to Business Hub (business directory, coupons, events, rewards)
             </Link>
           </div>
         </div>

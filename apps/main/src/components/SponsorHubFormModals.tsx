@@ -79,13 +79,13 @@ export function SponsorHubFormModals({ businesses, isSeller }: SponsorHubFormMod
   useLockBodyScroll(!!openModal);
 
   const cardClass =
-    "w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)] text-left cursor-pointer max-md:text-center";
+    "border-2 border-[var(--color-primary)] rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)] text-left cursor-pointer max-md:text-center min-w-0";
   const businessCardClass =
-    "w-72 min-w-[240px] max-w-[320px] border-2 rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)] border-[var(--color-secondary)] bg-[var(--color-secondary)]/5";
+    "border-2 rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)] border-[var(--color-secondary)] bg-[var(--color-secondary)]/5 min-w-0";
 
   return (
     <>
-      <div className="flex flex-wrap justify-center gap-8 mb-8 max-md:flex-col max-md:items-center">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-8 max-md:grid-cols-1 max-md:place-items-center">
         <Link
           href="/sponsor-hub/business"
           title="Set up or edit up to 2 businesses"

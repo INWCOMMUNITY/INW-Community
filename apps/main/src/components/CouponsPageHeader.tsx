@@ -71,18 +71,24 @@ export function CouponsPageHeader() {
         </div>
       </div>
 
-      {/* Desktop: original layout */}
+      {/* Desktop: fluid scaling with clamp until mobile breakpoint */}
       <div
         className="hidden md:block w-full max-w-[var(--max-width)] mx-auto flex justify-center overflow-visible"
         style={{ paddingBottom: TAN_BELOW }}
       >
         <div
           className="relative w-full min-h-[500px] flex-shrink-0"
-          style={{ transform: `translateX(${BLOCK_CENTER_OFFSET})`, marginTop: "0.3in" }}
+          style={{
+            transform: `translateX(${BLOCK_CENTER_OFFSET})`,
+            marginTop: "clamp(0.2rem, 1.5vw, 0.3in)",
+          }}
         >
           <div
-            className="absolute left-1/2 bottom-0 w-[95%] min-w-[442px] max-w-[960px] aspect-[21/10] min-h-[520px] rounded-lg overflow-visible border-2 border-[var(--color-secondary)]"
-            style={{ transform: `translateX(calc(-50% - ${PHOTO_SHIFT_LEFT})) translateY(0)` }}
+            className="absolute left-1/2 bottom-0 w-[95%] min-w-[442px] max-w-[960px] aspect-[21/10] rounded-lg overflow-visible border-2 border-[var(--color-secondary)]"
+            style={{
+              transform: `translateX(calc(-50% - ${PHOTO_SHIFT_LEFT})) translateY(0)`,
+              minHeight: "clamp(420px, 45vw, 520px)",
+            }}
           >
             <div className="absolute inset-0 rounded-[calc(0.5rem-2px)] overflow-hidden bg-gray-800">
               <img
@@ -94,22 +100,45 @@ export function CouponsPageHeader() {
             <img
               src={NWC_LOGO}
               alt="Northwest Community"
-              className="absolute w-72 h-72 rounded-full object-contain -translate-x-1/2 translate-y-1/2 z-10"
-              style={{ left: `calc(62.5% + ${BOX_SHIFT_RIGHT} - 0.62in)`, bottom: "calc(90% - 0.7in)" }}
+              className="absolute rounded-full object-contain -translate-x-1/2 translate-y-1/2 z-10"
+              style={{
+                left: `calc(62.5% + ${BOX_SHIFT_RIGHT} - 0.62in)`,
+                bottom: "calc(90% - 0.7in)",
+                width: "clamp(8rem, 18vw, 18rem)",
+                height: "clamp(8rem, 18vw, 18rem)",
+              }}
             />
             <div
-              className="absolute w-[75%] min-w-[320px] aspect-[21/9] min-h-[260px] rounded-lg flex flex-col justify-center px-8 py-8 lg:px-10 lg:py-10 border-2 border-[var(--color-secondary)]"
+              className="absolute rounded-lg flex flex-col justify-center border-2 border-[var(--color-secondary)]"
               style={{
                 backgroundColor: BOX_BG,
                 boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
                 right: `-${BOX_SHIFT_RIGHT}`,
                 bottom: "calc(-0.7in - 1.9in + 2in)",
+                width: "75%",
+                minWidth: "320px",
+                aspectRatio: "21/9",
+                minHeight: "clamp(200px, 22vw, 260px)",
+                padding: "clamp(1.5rem, 2.5vw, 2.5rem)",
               }}
             >
-              <h1 className="text-3xl font-bold leading-tight lg:text-4xl mb-3" style={{ color: "var(--color-heading)", fontFamily: "var(--font-heading)" }}>
+              <h1
+                className="font-bold leading-tight mb-3"
+                style={{
+                  color: "var(--color-heading)",
+                  fontFamily: "var(--font-heading)",
+                  fontSize: "clamp(1.5rem, 2.5vw, 2.25rem)",
+                }}
+              >
                 {TITLE}
               </h1>
-              <p className="text-base leading-relaxed mb-6 max-w-2xl" style={{ color: "var(--color-text)" }}>
+              <p
+                className="leading-relaxed mb-6 max-w-2xl"
+                style={{
+                  color: "var(--color-text)",
+                  fontSize: "clamp(0.875rem, 1.1vw, 1rem)",
+                }}
+              >
                 {DESCRIPTION}
               </p>
               <Link href="/support-nwc" className="btn inline-block w-fit" style={{ backgroundColor: "var(--color-button)", color: "var(--color-button-text)" }}>

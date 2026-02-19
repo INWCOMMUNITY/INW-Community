@@ -96,11 +96,11 @@ export default function SignupPage() {
       <h1 className="text-2xl font-bold mb-6">Sign up</h1>
 
       <p className="text-gray-600 mb-4">Choose your account type</p>
-      <div className="flex flex-col sm:flex-row gap-3 mb-8">
-        <Link href="/signup/business" className="btn flex-1 text-center">
+      <div className="flex flex-col sm:flex-row gap-3 mb-8 justify-center items-center">
+        <Link href="/signup/business" className="btn flex-1 sm:flex-initial min-w-[200px] flex justify-center items-center">
           Sign Up as Business
         </Link>
-        <Link href="/signup/seller" className="btn flex-1 text-center">
+        <Link href="/signup/seller" className="btn flex-1 sm:flex-initial min-w-[200px] flex justify-center items-center">
           Sign Up as Seller
         </Link>
       </div>

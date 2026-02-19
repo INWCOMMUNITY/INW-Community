@@ -1,25 +1,30 @@
+import React, { forwardRef } from "react";
 import type { SVGProps } from "react";
 
 /** Icon components – simple SVGs for web. Map badge slugs to icons. */
 const SLUG_TO_ICON: Record<string, React.ComponentType<SVGProps<SVGSVGElement>>> = {};
 
-function createIcon(path: string, viewBox = "0 0 24 24") {
-  return function Icon(props: SVGProps<SVGSVGElement>) {
-    return (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox={viewBox}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        {...props}
-      >
-        <path d={path} />
-      </svg>
-    );
-  };
+function createIcon(path: string | string[], viewBox = "0 0 24 24") {
+  const paths = Array.isArray(path) ? path : [path];
+  const Icon = forwardRef<SVGSVGElement, SVGProps<SVGSVGElement>>((props, ref) => (
+    <svg
+      ref={ref}
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox={viewBox}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      {paths.map((d, i) => (
+        <path key={i} d={d} />
+      ))}
+    </svg>
+  ));
+  Icon.displayName = "BadgeIcon";
+  return Icon;
 }
 
 // Heroicons-style paths (outline)
@@ -71,9 +76,9 @@ export function getBadgeIcon(slug: string): React.ComponentType<SVGProps<SVGSVGE
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  member: "Member",
-  business: "Business",
-  seller: "Seller",
+  member: "Residents",
+  business: "Businesses",
+  seller: "Sellers",
   event: "Event",
   other: "Other",
 };

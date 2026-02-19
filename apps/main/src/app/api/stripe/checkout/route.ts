@@ -27,10 +27,24 @@ const PLANS: Record<
   },
 };
 
+/** Basic check – Stripe requires a valid email format for customer_email */
+function isValidEmail(s: string): boolean {
+  return typeof s === "string" && s.includes("@") && s.length > 3;
+}
+
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
   if (!session?.user?.id || !session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!isValidEmail(session.user.email)) {
+    return NextResponse.json(
+      {
+        error:
+          "Your account needs a valid email address to checkout. Please sign in with an account that has a real email, or update your profile email.",
+      },
+      { status: 400 }
+    );
   }
   try {
     const body = await req.json();
@@ -80,6 +94,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ url: checkout.url });
   } catch (e) {
     console.error("[stripe/checkout]", e);
-    return NextResponse.json({ error: "Checkout failed. Please try again." }, { status: 500 });
+    const msg =
+      e instanceof Error ? e.message : typeof e === "object" && e !== null && "message" in e ? String((e as { message: unknown }).message) : "Checkout failed. Please try again.";
+    return NextResponse.json({ error: msg || "Checkout failed. Please try again." }, { status: 500 });
   }
 }

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 import { CheckoutButton } from "@/components/CheckoutButton";
 import { useSiteImageUrls } from "@/components/SiteImageUrls";
@@ -54,7 +53,7 @@ export default function SupportNWCInfoPage() {
       <div className="max-w-[var(--max-width)] mx-auto">
         <div className="text-center mb-10">
           <Image
-            src={siteImages["nwc-logo-circle"] ?? cloudinaryFetchUrl("/nwc-logo-circle.png")}
+            src={siteImages["nwc-logo-circle"] ?? "/nwc-logo-circle.png"}
             alt="Northwest Community"
             width={160}
             height={160}
@@ -69,11 +68,11 @@ export default function SupportNWCInfoPage() {
             Northwest Community is a local hub for the Inland Northwest—Spokane, Kootenai County, and beyond. Choose the plan that fits you below. Each subscription supports our mission and comes with real benefits.
           </p>
 
-          <div className="flex justify-center gap-2 mt-6">
+          <div className="flex justify-center gap-3 mt-6">
             <button
               type="button"
               onClick={() => setInterval("monthly")}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+              className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
                 interval === "monthly"
                   ? "bg-[var(--color-primary)] text-white"
                   : "bg-gray-200 text-gray-700 hover:bg-gray-300"
@@ -84,7 +83,7 @@ export default function SupportNWCInfoPage() {
             <button
               type="button"
               onClick={() => setInterval("yearly")}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+              className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
                 interval === "yearly"
                   ? "bg-[var(--color-primary)] text-white"
                   : "bg-gray-200 text-gray-700 hover:bg-gray-300"
@@ -103,7 +102,7 @@ export default function SupportNWCInfoPage() {
             >
               <div className="w-full aspect-[4/3] shrink-0 bg-gray-100">
                 <img
-                  src={cloudinaryFetchUrl(WIX_IMG(plan.imagePath))}
+                  src={WIX_IMG(plan.imagePath)}
                   alt=""
                   className="w-full h-full object-cover"
                   sizes="(max-width: 768px) 100vw, 33vw"

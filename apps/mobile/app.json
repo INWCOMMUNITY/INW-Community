@@ -41,6 +41,7 @@
       [
         "@stripe/stripe-react-native",
         {
+          "merchantIdentifier": "merchant.com.northwestcommunity",
           "enableGooglePay": true,
           "includeOnramp": false
         }

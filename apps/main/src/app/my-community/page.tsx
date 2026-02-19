@@ -3,8 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { FeedPostCard } from "@/components/FeedPostCard";
-import { CreatePostButton } from "@/components/CreatePostButton";
-import { useTags } from "@/contexts/TagsContext";
 
 interface FeedPost {
   id: string;
@@ -36,7 +34,6 @@ interface FeedPost {
 }
 
 export default function MyCommunityFeedPage() {
-  const { setOpen: setTagsOpen } = useTags();
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -111,18 +108,6 @@ export default function MyCommunityFeedPage() {
       {/* Mobile: centered header, then Create post (left) + My Tags (right) same size. Desktop: original row */}
       <div className="flex flex-col max-md:items-center md:flex-row md:flex-wrap md:items-center md:justify-between gap-4 mb-6">
         <h1 className="text-2xl font-bold max-md:text-center md:order-1">Northwest Community Feed</h1>
-        <div className="flex items-stretch gap-3 w-full max-md:max-w-md md:order-3 md:w-auto">
-          <CreatePostButton className="btn flex-1 min-h-[2.75rem] flex items-center justify-center md:flex-none">
-            Create post
-          </CreatePostButton>
-          <button
-            type="button"
-            onClick={() => setTagsOpen(true)}
-            className="btn border border-gray-300 bg-white hover:bg-gray-50 flex-1 min-h-[2.75rem] flex items-center justify-center"
-          >
-            My Tags
-          </button>
-        </div>
       </div>
       <p className="text-gray-600 mb-6 max-md:text-center">
         Posts from people you follow and groups you&apos;ve joined. Share blogs to add them here!

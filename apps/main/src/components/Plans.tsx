@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 
 const PLANS = [
@@ -80,7 +79,7 @@ export function Plans() {
           {"imagePath" in plan && plan.imagePath && (
             <div className="flex justify-center mb-4">
               <img
-                src={cloudinaryFetchUrl(WIX_IMG(plan.imagePath))}
+                src={WIX_IMG(plan.imagePath)}
                 alt=""
                 width={147}
                 height={plan.id === "subscribe" ? 95 : 74}

@@ -24,12 +24,11 @@ const navItems: NavItem[] = [
       { href: "/calendars", label: "Events" },
       { href: "/community-groups", label: "Groups" },
       { href: "/blog", label: "Blogs" },
-      { href: "/badges", label: "Community Badges" },
-      { href: "/my-community/my-badges", label: "My Badges" },
+      { href: "/badges", label: "Badges" },
     ],
   },
   {
-    label: "Online Store",
+    label: "Storefront",
     href: "/storefront",
     children: [
       { href: "/storefront", label: "NWC Storefront" },
@@ -52,7 +51,7 @@ const navItems: NavItem[] = [
     children: [
       { href: "/about", label: "About" },
       { href: "/support-nwc", label: "Support NWC" },
-      { href: "/sponsor-hub", label: "Sponsor Hub" },
+      { href: "/sponsor-hub", label: "Business Hub" },
       { href: "/seller-hub", label: "Seller Hub" },
     ],
   },
@@ -187,7 +186,7 @@ export function Header() {
                               key={c.href}
                               href={c.href}
                               prefetch={false}
-                              className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base text-center ${isChildActive ? "text-white hover:opacity-90" : "text-gray-700 hover:bg-gray-100"}`}
+                              className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base text-center whitespace-nowrap ${isChildActive ? "text-white hover:opacity-90" : "text-gray-700 hover:bg-gray-100"}`}
                               style={isChildActive ? { backgroundColor: SEGMENT_COLOR } : undefined}
                             >
                               {c.label}

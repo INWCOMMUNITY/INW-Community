@@ -232,9 +232,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const ephemeralKey = await stripe.ephemeralKeys.create({
-      customer: customerId,
-    });
+    const ephemeralKey = await stripe.ephemeralKeys.create(
+      { customer: customerId },
+      { apiVersion: "2024-11-20.acacia" }
+    );
 
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,

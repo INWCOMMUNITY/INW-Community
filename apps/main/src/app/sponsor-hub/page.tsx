@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 import { SponsorHubFormModals } from "@/components/SponsorHubFormModals";
 
@@ -19,6 +18,7 @@ export default async function SponsorHubPage() {
     if (!session?.user?.id) {
       redirect("/login?callbackUrl=/sponsor-hub");
     }
+    const isAdmin = (session.user as { isAdmin?: boolean }).isAdmin === true;
     const sub = await prisma.subscription.findFirst({
       where: {
         memberId: session.user.id,
@@ -31,13 +31,13 @@ export default async function SponsorHubPage() {
       where: { memberId: session.user.id },
       select: { id: true, name: true },
     });
-    if (!sub) {
+    if (!sub && !isAdmin) {
       return (
         <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
           <div className="max-w-[var(--max-width)] mx-auto text-center">
-            <h1 className="text-[1.4rem] md:text-2xl font-bold mb-4">Sponsor Hub</h1>
+            <h1 className="text-[1.4rem] md:text-2xl font-bold mb-4">Business Hub</h1>
             <p className="mb-6">
-              Sponsor Hub is available to members on the Sponsor or Seller plan. Subscribe to unlock business directory listing, coupons, and event posting.
+              Business Hub is available to members on the Sponsor or Seller plan. Subscribe to unlock business directory listing, coupons, and event posting.
             </p>
             <Link href="/support-nwc" className="btn">View plans</Link>
           </div>
@@ -50,7 +50,7 @@ export default async function SponsorHubPage() {
         <header
           className="relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] flex items-center justify-center overflow-hidden bg-gray-900"
           style={{
-            backgroundImage: `url(${cloudinaryFetchUrl(WIX_IMG(SPONSOR_HUB_HEADER_IMAGE))})`,
+            backgroundImage: `url(${WIX_IMG(SPONSOR_HUB_HEADER_IMAGE)})`,
             backgroundSize: "cover",
             backgroundPosition: "50% 65%",
             backgroundRepeat: "no-repeat",
@@ -59,10 +59,10 @@ export default async function SponsorHubPage() {
           <div className="relative z-10 w-full max-w-2xl mx-auto px-3 max-md:px-2 py-4 max-md:py-3 md:px-6 md:py-10">
             <div className="bg-white/60 backdrop-blur-sm rounded-lg shadow-lg p-4 max-md:p-3 md:p-10 text-center max-md:max-h-[85%] max-md:overflow-auto max-md:max-w-[300px] max-md:mx-auto">
               <h1 className="text-[2.1rem] max-md:text-lg md:text-5xl font-bold mb-3 max-md:mb-2 text-black">
-                Sponsor Hub
+                Business Hub
               </h1>
               <p className="text-black leading-relaxed max-md:text-xs max-md:leading-snug">
-                Welcome Local Business Owner to Northwest Communities Sponsor Hub. Here you can set up your business page, offer coupons to the community, post events on our event calendars, and market your business by offering rewards to community members who most actively support local businesses! Thanks for being here!
+                Welcome Local Business Owner to Northwest Communities Business Hub. Here you can set up your business page, offer coupons to the community, post events on our event calendars, and market your business by offering rewards to community members who most actively support local businesses! Thanks for being here!
               </p>
             </div>
           </div>

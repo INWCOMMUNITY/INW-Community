@@ -8,11 +8,30 @@ import type { Business } from "database";
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 type HoursRecord = Partial<Record<(typeof DAYS)[number], string>>;
 
+export type BusinessFormData = {
+  name: string;
+  shortDescription: string | null;
+  fullDescription: string | null;
+  website: string | null;
+  phone: string | null;
+  email: string | null;
+  logoUrl: string | null;
+  coverPhotoUrl?: string | null;
+  address: string | null;
+  city: string;
+  categories: string[];
+  photos: string[];
+  hoursOfOperation?: Record<string, string> | null;
+};
+
 interface BusinessFormProps {
   existing?: Pick<
     Business,
     "id" | "name" | "shortDescription" | "fullDescription" | "website" | "phone" | "email" | "logoUrl" | "coverPhotoUrl" | "address" | "city" | "categories" | "photos" | "hoursOfOperation"
   >;
+  /** When "signup", form calls onDataReady instead of POSTing; used in signup flow */
+  mode?: "edit" | "signup";
+  onDataReady?: (data: BusinessFormData) => void;
 }
 
 function parseHours(ho: unknown): HoursRecord {
@@ -25,7 +44,7 @@ function parseHours(ho: unknown): HoursRecord {
   return r;
 }
 
-export function BusinessForm({ existing }: BusinessFormProps) {
+export function BusinessForm({ existing, mode = "edit", onDataReady }: BusinessFormProps) {
   const router = useRouter();
   const [name, setName] = useState(existing?.name ?? "");
   const [shortDescription, setShortDescription] = useState(existing?.shortDescription ?? "");
@@ -130,6 +149,28 @@ export function BusinessForm({ existing }: BusinessFormProps) {
     setDragIndex(null);
   }
 
+  function buildFormData() {
+    const cats = categories.filter((c) => c.trim()).slice(0, 2);
+    const hoursFiltered = Object.fromEntries(
+      Object.entries(hours).filter(([, v]) => typeof v === "string" && v.trim() !== "")
+    );
+    return {
+      name: name.trim(),
+      shortDescription: shortDescription?.trim() || null,
+      fullDescription: fullDescription?.trim() || null,
+      website: website?.trim() || null,
+      phone: phone?.trim() || null,
+      email: email?.trim() || null,
+      logoUrl: logoUrl?.trim() || null,
+      coverPhotoUrl: coverPhotoUrl?.trim() || null,
+      address: address?.trim() || null,
+      city: city.trim(),
+      categories: cats,
+      photos,
+      hoursOfOperation: Object.keys(hoursFiltered).length ? hoursFiltered : null,
+    };
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const cats = categories.filter((c) => c.trim()).slice(0, 2);
@@ -137,32 +178,22 @@ export function BusinessForm({ existing }: BusinessFormProps) {
       setError("At least one category is required.");
       return;
     }
+    if (!name.trim() || !city.trim()) {
+      setError("Company name and city are required.");
+      return;
+    }
     setError("");
+    if (mode === "signup" && onDataReady) {
+      onDataReady(buildFormData());
+      return;
+    }
     setSubmitting(true);
     try {
+      const formData = buildFormData();
       const res = await fetch(existing ? `/api/businesses/${existing.id}` : "/api/businesses", {
         method: existing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          shortDescription: shortDescription || null,
-          fullDescription: fullDescription || null,
-          website: website || null,
-          phone: phone || null,
-          email: email || null,
-          logoUrl: logoUrl || null,
-          coverPhotoUrl: coverPhotoUrl || null,
-          address: address || null,
-          city: city || null,
-          categories: cats,
-          photos,
-          hoursOfOperation: (() => {
-            const filtered = Object.fromEntries(
-              Object.entries(hours).filter(([, v]) => typeof v === "string" && v.trim() !== "")
-            );
-            return Object.keys(filtered).length ? filtered : null;
-          })(),
-        }),
+        body: JSON.stringify(formData),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -436,7 +467,7 @@ export function BusinessForm({ existing }: BusinessFormProps) {
       </div>
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <button type="submit" className="btn" disabled={submitting}>
-        {submitting ? "Saving…" : existing ? "Update business" : "Add business"}
+        {mode === "signup" ? "Continue" : submitting ? "Saving…" : existing ? "Update business" : "Add business"}
       </button>
     </form>
   );

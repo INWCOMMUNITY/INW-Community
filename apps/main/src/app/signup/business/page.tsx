@@ -3,19 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
+import { BusinessForm, type BusinessFormData } from "@/components/BusinessForm";
 
 type Step = "account" | "business" | "contact" | "checkout";
-
-const CATEGORY_OPTIONS = [
-  "Restaurant",
-  "Retail",
-  "Services",
-  "Health & Wellness",
-  "Entertainment",
-  "Education",
-  "Automotive",
-  "Other",
-];
 
 export default function SignupBusinessPage() {
   const [step, setStep] = useState<Step>("account");
@@ -24,14 +14,7 @@ export default function SignupBusinessPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
-  const [name, setName] = useState("");
-  const [shortDescription, setShortDescription] = useState("");
-  const [fullDescription, setFullDescription] = useState("");
-  const [website, setWebsite] = useState("");
-  const [businessPhone, setBusinessPhone] = useState("");
-  const [businessEmail, setBusinessEmail] = useState("");
-  const [city, setCity] = useState("");
-  const [categories, setCategories] = useState<string[]>([]);
+  const [businessData, setBusinessData] = useState<BusinessFormData | null>(null);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -96,18 +79,8 @@ export default function SignupBusinessPage() {
     }
   }
 
-  function handleBusinessSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    const cats = categories.filter(Boolean);
-    if (cats.length === 0) {
-      setError("Select at least one category.");
-      return;
-    }
-    if (!name.trim() || !shortDescription.trim() || !fullDescription.trim() || !city.trim()) {
-      setError("Please fill in all required fields.");
-      return;
-    }
+  function handleBusinessDataReady(data: BusinessFormData) {
+    setBusinessData(data);
     setStep("contact");
   }
 
@@ -145,22 +118,33 @@ export default function SignupBusinessPage() {
 
   async function handleCheckout() {
     setError("");
+    if (!businessData) {
+      setError("Business data is missing. Please go back and fill in business details.");
+      return;
+    }
     setLoading(true);
     try {
-      const businessData = {
-        name: name.trim(),
-        shortDescription: shortDescription.trim(),
-        fullDescription: fullDescription.trim(),
-        website: website.trim() || null,
-        phone: businessPhone.trim() || null,
-        email: businessEmail.trim() || null,
-        city: city.trim(),
-        categories: categories.filter(Boolean).slice(0, 2),
-      };
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: "sponsor", businessData }),
+        body: JSON.stringify({
+          planId: "sponsor",
+          businessData: {
+            name: businessData.name,
+            shortDescription: businessData.shortDescription,
+            fullDescription: businessData.fullDescription,
+            website: businessData.website,
+            phone: businessData.phone,
+            email: businessData.email,
+            logoUrl: businessData.logoUrl,
+            coverPhotoUrl: businessData.coverPhotoUrl,
+            address: businessData.address,
+            city: businessData.city,
+            categories: businessData.categories,
+            photos: businessData.photos,
+            hoursOfOperation: businessData.hoursOfOperation,
+          },
+        }),
         credentials: "same-origin",
       });
       const data = await res.json().catch(() => ({}));
@@ -181,7 +165,7 @@ export default function SignupBusinessPage() {
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-12">
+    <div className="max-w-2xl mx-auto px-4 py-12">
       <h1 className="text-2xl font-bold mb-6">Sign up as Business</h1>
 
       {step === "account" && (
@@ -237,95 +221,21 @@ export default function SignupBusinessPage() {
       )}
 
       {step === "business" && (
-        <form onSubmit={handleBusinessSubmit} className="space-y-4">
+        <div className="space-y-4">
           <p className="text-gray-600 mb-4">
-            Add your business details for your storefront.
+            Add your business details. Same form as Business Hub—your business will appear in the directory after signup.
           </p>
-          <div>
-            <label className="block text-sm font-medium mb-1">Company name *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Brief description *</label>
-            <textarea
-              value={shortDescription}
-              onChange={(e) => setShortDescription(e.target.value)}
-              rows={2}
-              required
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Full description *</label>
-            <textarea
-              value={fullDescription}
-              onChange={(e) => setFullDescription(e.target.value)}
-              rows={4}
-              required
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">City *</label>
-            <input
-              type="text"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              required
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Categories * (select 1-2)</label>
-            <div className="flex flex-wrap gap-2">
-              {CATEGORY_OPTIONS.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() =>
-                    setCategories((prev) =>
-                      prev.includes(cat)
-                        ? prev.filter((c) => c !== cat)
-                        : prev.length < 2
-                          ? [...prev, cat]
-                          : prev
-                    )
-                  }
-                  className={`px-3 py-1 rounded text-sm border ${
-                    categories.includes(cat) ? "bg-blue-100 border-blue-300" : "bg-white border-gray-300"
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Website (optional)</label>
-            <input type="url" value={website} onChange={(e) => setWebsite(e.target.value)} className="w-full border rounded px-3 py-2" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Phone (optional)</label>
-            <input type="tel" value={businessPhone} onChange={(e) => setBusinessPhone(e.target.value)} className="w-full border rounded px-3 py-2" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Email (optional)</label>
-            <input type="email" value={businessEmail} onChange={(e) => setBusinessEmail(e.target.value)} className="w-full border rounded px-3 py-2" />
-          </div>
+          <BusinessForm
+            mode="signup"
+            onDataReady={handleBusinessDataReady}
+          />
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={() => setStep("account")} className="btn flex-1">
               Back
             </button>
-            <button type="submit" className="btn flex-1">Continue</button>
           </div>
-        </form>
+        </div>
       )}
 
       {step === "contact" && (

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import { GoalSection } from "@/components/GoalSection";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 import { WIX_IMG } from "@/lib/wix-media";
 import { getSiteImageUrl } from "@/lib/site-images";
 
@@ -20,7 +19,7 @@ export default async function AboutPage() {
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)", backgroundColor: "white" }}>
         <div className="max-w-[var(--max-width)] mx-auto flex flex-col items-center text-center">
           <Image
-            src={logoUrl ?? cloudinaryFetchUrl("/nwc-logo-circle.png")}
+            src={logoUrl ?? "/nwc-logo-circle.png"}
             alt="Northwest Community"
             width={200}
             height={200}
@@ -40,7 +39,7 @@ export default async function AboutPage() {
       <GoalSection
         number={1}
         title="Create a community page that benefits local businesses, people, and our local economy."
-        imageSrc={goals1Url ?? cloudinaryFetchUrl("/goals-1.png")}
+        imageSrc={goals1Url ?? "/goals-1.png"}
         imageAlt="Marina and local community"
         sectionBackground={ABOUT_PAGE_TAN}
       >
@@ -58,7 +57,7 @@ export default async function AboutPage() {
       <GoalSection
         number={2}
         title="Host events that support the people in the surrounding cities."
-        imageSrc={goals2Url ?? cloudinaryFetchUrl("/goals-2.png")}
+        imageSrc={goals2Url ?? "/goals-2.png"}
         imageAlt="Community and local area"
         sectionBackground={ABOUT_PAGE_TAN}
       >
@@ -73,7 +72,7 @@ export default async function AboutPage() {
       <GoalSection
         number={3}
         title="Create a successful local online shopping platform that makes supporting local businesses that much easier."
-        imageSrc={goals3Url ?? cloudinaryFetchUrl("/goals-3.png")}
+        imageSrc={goals3Url ?? "/goals-3.png"}
         imageAlt="Northwest community"
         sectionBackground={ABOUT_PAGE_TAN}
       >
@@ -88,7 +87,7 @@ export default async function AboutPage() {
       {/* Northwest Communities Foundation – marina/beach background */}
       <section className="relative w-full min-h-[320px] flex items-center justify-center overflow-hidden">
         <img
-          src={foundationUrl ?? cloudinaryFetchUrl("/foundation-background.png")}
+          src={foundationUrl ?? "/foundation-background.png"}
           alt=""
           className="absolute inset-0 w-full h-full object-cover"
         />
@@ -110,7 +109,7 @@ export default async function AboutPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div>
               <img
-                src={cloudinaryFetchUrl(WIX_IMG("2bdd49_5e66f29694cd4b91a23e5a3e0ee2e0b7~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principles%203.jpg"))}
+                src={WIX_IMG("2bdd49_5e66f29694cd4b91a23e5a3e0ee2e0b7~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principles%203.jpg")}
                 alt="Supporting Local People"
                 width={421}
                 height={250}
@@ -121,7 +120,7 @@ export default async function AboutPage() {
             </div>
             <div>
               <img
-                src={cloudinaryFetchUrl(WIX_IMG("2bdd49_ebdd31ab774b493a9c0db7a420d45870~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/1.jpg"))}
+                src={WIX_IMG("2bdd49_ebdd31ab774b493a9c0db7a420d45870~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/1.jpg")}
                 alt="Helping the Community"
                 width={421}
                 height={250}
@@ -132,7 +131,7 @@ export default async function AboutPage() {
             </div>
             <div>
               <img
-                src={cloudinaryFetchUrl(WIX_IMG("2bdd49_83882a11455141ffbbb316c8d27fde32~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/0035_33_edited.jpg"))}
+                src={WIX_IMG("2bdd49_83882a11455141ffbbb316c8d27fde32~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/0035_33_edited.jpg")}
                 alt="Sharing Local Art & Artists"
                 width={421}
                 height={250}
@@ -143,7 +142,7 @@ export default async function AboutPage() {
             </div>
             <div>
               <img
-                src={cloudinaryFetchUrl(WIX_IMG("2bdd49_2d6af4dc1cf445c6b1befdcb25b3c7cd~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principle%203.jpg"))}
+                src={WIX_IMG("2bdd49_2d6af4dc1cf445c6b1befdcb25b3c7cd~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principle%203.jpg")}
                 alt="Supporting Local Business"
                 width={421}
                 height={250}
@@ -154,7 +153,7 @@ export default async function AboutPage() {
             </div>
             <div>
               <img
-                src={cloudinaryFetchUrl(WIX_IMG("2bdd49_46bd85d79e654db9bfc8b6d2a206d9a2~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/0005_3A.jpg"))}
+                src={WIX_IMG("2bdd49_46bd85d79e654db9bfc8b6d2a206d9a2~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/0005_3A.jpg")}
                 alt="Incentivize Supporting Local"
                 width={421}
                 height={250}
@@ -165,7 +164,7 @@ export default async function AboutPage() {
             </div>
             <div>
               <img
-                src={cloudinaryFetchUrl(WIX_IMG("2bdd49_9e6b238548344f30bffd2795c2bfc194~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/0036_34.jpg"))}
+                src={WIX_IMG("2bdd49_9e6b238548344f30bffd2795c2bfc194~mv2.jpg/v1/fill/w_421,h_250,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/0036_34.jpg")}
                 alt="Honest Business Practice"
                 width={421}
                 height={250}

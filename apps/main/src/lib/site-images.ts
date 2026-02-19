@@ -1,5 +1,4 @@
 import { prisma } from "database";
-import { cloudinaryFetchUrl } from "@/lib/cloudinary";
 
 const SITE_IMAGES_KEY = "site_images";
 
@@ -49,5 +48,5 @@ export async function getSiteImageUrl(key: SiteImageKey): Promise<string | null>
   if (typeof url !== "string") return null;
   const version = typeof v[VERSION_KEY] === "number" ? v[VERSION_KEY] : 0;
   const versionedUrl = version ? `${url}?v=${version}` : url;
-  return cloudinaryFetchUrl(versionedUrl, { upscale: true });
+  return versionedUrl;
 }

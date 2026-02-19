@@ -16,6 +16,7 @@ export default async function ResaleHubLayout({
     redirect("/login?callbackUrl=/resale-hub");
   }
 
+  const isAdmin = (session.user as { isAdmin?: boolean }).isAdmin === true;
   const subscribeSub = await prisma.subscription.findFirst({
     where: { memberId: session.user.id, plan: "subscribe", status: "active" },
   });
@@ -23,10 +24,10 @@ export default async function ResaleHubLayout({
     where: { memberId: session.user.id, plan: "seller", status: "active" },
   });
 
-  if (sellerSub) {
+  if (sellerSub && !isAdmin) {
     redirect("/seller-hub?resale=1");
   }
-  if (!subscribeSub) {
+  if (!subscribeSub && !isAdmin) {
     return (
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] mx-auto text-center">

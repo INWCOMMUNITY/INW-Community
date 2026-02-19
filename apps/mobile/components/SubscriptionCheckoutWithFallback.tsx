@@ -114,6 +114,8 @@ class CheckoutErrorBoundary extends React.Component<
  */
 export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWithFallbackProps) {
   const stripeKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
+  const merchantId =
+    process.env.EXPO_PUBLIC_STRIPE_MERCHANT_IDENTIFIER ?? "merchant.com.northwestcommunity";
   const hasValidKey = !!stripeKey && !stripeKey.includes("placeholder");
 
   const [StripeProvider, setStripeProvider] = useState<
@@ -172,7 +174,11 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
 
   return (
     <CheckoutErrorBoundary fallback={webFallback}>
-      <StripeProvider publishableKey={stripeKey} urlScheme="mobile">
+      <StripeProvider
+        publishableKey={stripeKey}
+        urlScheme="mobile"
+        merchantIdentifier={merchantId}
+      >
         <SubscriptionCheckoutSheet
           planId={props.planId}
           businessData={props.businessData}
