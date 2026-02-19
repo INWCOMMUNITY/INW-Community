@@ -28,6 +28,15 @@ The admin dashboard edits **the same site it runs on**:
 
 To edit the live site, use **https://inwcommunity.com/admin** (not localhost). Ensure Vercel has `NEXTAUTH_URL` and `DATABASE_URL` set to production values so the deployed admin connects to your live data.
 
+## Seeding production (businesses, badges, etc.)
+
+To add or update seed data (businesses, coupons, badges) on the live site:
+
+1. Add `DATABASE_URL_PRODUCTION` to your local `.env` – copy the value from **Vercel → Project → Settings → Environment Variables** (the `DATABASE_URL` used in production).
+2. Run: `pnpm db:seed:prod`
+
+The seed will run against the production database and create/update businesses, Northwest Community, coupons, etc.
+
 ## Build automation
 
 ### Single cycle

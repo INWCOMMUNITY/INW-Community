@@ -1,5 +1,11 @@
 const path = require("path");
 const fs = require("fs");
+
+// When run via pnpm db:seed:prod, set DATABASE_URL before any other loading
+if (process.env.SEED_DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.SEED_DATABASE_URL;
+}
+
 const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
 
