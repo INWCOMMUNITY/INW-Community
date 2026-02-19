@@ -186,7 +186,7 @@ export function Header() {
                               key={c.href}
                               href={c.href}
                               prefetch={false}
-                              className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base text-center whitespace-nowrap ${isChildActive ? "text-white hover:opacity-90" : "text-gray-700 hover:bg-gray-100"}`}
+                              className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base text-center whitespace-nowrap flex justify-center items-center ${isChildActive ? "text-white hover:opacity-90" : "text-gray-700 hover:bg-gray-100"}`}
                               style={isChildActive ? { backgroundColor: SEGMENT_COLOR } : undefined}
                             >
                               {c.label}
@@ -197,7 +197,7 @@ export function Header() {
                           <Link
                             href="/admin"
                             prefetch={false}
-                            className="block py-2.5 px-5 rounded-b-md text-base text-center text-gray-700 hover:bg-gray-100 border-t border-gray-200"
+                            className="block py-2.5 px-5 rounded-b-md text-base text-center text-gray-700 hover:bg-gray-100 border-t border-gray-200 flex justify-center items-center"
                             style={pathname.startsWith("/admin") ? { backgroundColor: SEGMENT_COLOR, color: "white" } : undefined}
                           >
                             Admin

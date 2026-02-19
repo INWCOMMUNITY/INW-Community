@@ -131,13 +131,14 @@ export function RewardsContent() {
       </p>
 
       {/* My Community Points + Top 10 Leaderboard + Top 10 Rewards - side by side */}
-      <section className="mb-12 flex flex-col lg:flex-row gap-6 items-stretch">
-        <div className="w-full lg:w-auto lg:max-w-[364px] shrink-0 flex flex-col gap-3">
-          {session?.user && points !== null && (
-            <div
-              className="p-4 rounded-lg border-2 shadow-sm bg-white text-center"
-              style={{ borderColor: "var(--color-primary)" }}
-            >
+      <section className="mb-12 grid grid-cols-1 lg:grid-cols-[364px_1fr] gap-6">
+        {/* Row 1 - Top boxes: same design and height */}
+        <div
+          className="p-4 rounded-lg border-2 shadow-sm bg-white text-center min-h-[7rem] flex flex-col justify-center order-1"
+          style={{ borderColor: "var(--color-primary)" }}
+        >
+          {session?.user && points !== null ? (
+            <>
               <p className="text-sm text-gray-600">My Community Points</p>
               <p className="text-2xl font-bold" style={{ color: "var(--color-primary)" }}>{points} points</p>
               <Link
@@ -147,83 +148,84 @@ export function RewardsContent() {
               >
                 View Community Points
               </Link>
-            </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-600">Sign in to see your Community Points</p>
           )}
-          <div
-            className="rounded-lg overflow-hidden border-2 shadow-sm w-full flex-1 min-h-0 flex flex-col"
-            style={{ borderColor: "var(--color-primary)" }}
-          >
-            <div className="border-b px-3 py-2 text-center shrink-0" style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}>
-              <h2 className="text-base font-bold text-white">Top 10 NWC Earners</h2>
-              <p className="text-xs text-white/90 mt-0.5">Members supporting local businesses and earning the most Community Points.</p>
-            </div>
-            <ol className="divide-y text-sm bg-white flex-1" style={{ borderColor: "var(--color-primary)" }}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
-                const m = top10Leaderboard[num - 1];
-                return (
-                  <li
-                    key={m?.id ?? `empty-${num}`}
-                    className="flex items-center gap-2 px-3 py-2.5 min-h-[2.75rem] border-t border-gray-100 first:border-t-0"
-                  >
-                    <span className="w-5 shrink-0 font-semibold tabular-nums" style={{ color: "var(--color-primary)" }}>
-                      {num}.
-                    </span>
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      {m ? (
-                        <>
-                          {m.profilePhotoUrl ? (
-                            <img src={m.profilePhotoUrl} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
-                          ) : (
-                            <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-gray-500 text-xs font-medium bg-gray-100" style={{ color: "var(--color-primary)" }}>
-                              {(m.firstName?.[0] ?? "?") + (m.lastName?.[0] ?? "")}
-                            </div>
-                          )}
-                          <span className="font-medium truncate text-gray-900">{m.firstName} {m.lastName}</span>
-                        </>
-                      ) : (
-                        <>
-                          <div className="w-7 h-7 rounded-full bg-gray-100 shrink-0" />
-                          <span className="text-gray-400 truncate">—</span>
-                        </>
-                      )}
-                    </div>
-                    <span className="font-semibold tabular-nums shrink-0 min-w-[2rem] text-right" style={{ color: m ? "var(--color-primary)" : undefined }}>
-                      {m ? m.points : "—"}
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
+        </div>
+        <div
+          className="p-4 rounded-lg border-2 shadow-sm bg-white text-center min-h-[7rem] flex flex-col justify-center order-3 lg:order-2"
+          style={{ borderColor: "var(--color-primary)" }}
+        >
+          <h2 className="text-base font-bold" style={{ color: "var(--color-primary)" }}>Top 10 Rewards</h2>
+          <p className="text-xs text-gray-600 mt-0.5">The Top 10 prizes awarded to the top 10 supporters of locally owned businesses.</p>
+          <p className="text-xs text-gray-600 mt-1">The Top 10 NWC Earners will get to pick their desired prize starting with 1st Place. Support Local Businesses and get in the Top 10!</p>
         </div>
 
-        {/* Top 10 Rewards - header matches My Community Points, table aligns with Top 10 NWC Earners */}
-        <div className="w-full lg:flex-1 flex flex-col gap-3 min-h-0">
-          {/* Header box: matches My Community Points design and height */}
+        {/* Row 2 - Bottom boxes: green headers same height, 1-10 rows aligned */}
+        <div
+          className="rounded-lg overflow-hidden border-2 shadow-sm flex flex-col order-2 lg:order-3"
+          style={{ borderColor: "var(--color-primary)" }}
+        >
           <div
-            className="p-4 rounded-lg border-2 shadow-sm bg-white text-center shrink-0"
-            style={{ borderColor: "var(--color-primary)" }}
+            className="border-b px-3 py-3 text-center shrink-0 flex flex-col justify-center h-[5rem]"
+            style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}
           >
-            <h2 className="text-base font-bold" style={{ color: "var(--color-primary)" }}>Top 10 Rewards</h2>
-            <p className="text-xs text-gray-600 mt-0.5">The Top 10 prizes awarded to the top 10 supporters of locally owned businesses.</p>
-            <p className="text-xs text-gray-600 mt-1">The Top 10 NWC Earners will get to pick their desired prize starting with 1st Place. Support Local Businesses and get in the Top 10!</p>
+            <h2 className="text-base font-bold text-white">Top 10 NWC Earners</h2>
+            <p className="text-xs text-white/90 mt-0.5">Members supporting local businesses and earning the most Community Points.</p>
           </div>
-          {/* Table box: green header matches left box height, 1-10 rows aligned */}
-          <div
-            className="rounded-lg overflow-hidden border-2 shadow-sm flex-1 min-h-0 flex flex-col"
-            style={{ borderColor: "var(--color-primary)" }}
-          >
-            <div className="flex-1 overflow-x-auto overflow-y-auto bg-white">
-              <table className="w-full text-sm min-w-[400px]">
+          <ol className="divide-y text-sm bg-white" style={{ borderColor: "var(--color-primary)" }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+              const m = top10Leaderboard[num - 1];
+              return (
+                <li
+                  key={m?.id ?? `empty-${num}`}
+                  className="flex items-center gap-2 px-3 py-2.5 h-[2.75rem] min-h-[2.75rem] border-t border-gray-100 first:border-t-0"
+                >
+                  <span className="w-5 shrink-0 font-semibold tabular-nums" style={{ color: "var(--color-primary)" }}>
+                    {num}.
+                  </span>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {m ? (
+                      <>
+                        {m.profilePhotoUrl ? (
+                          <img src={m.profilePhotoUrl} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
+                        ) : (
+                          <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-gray-500 text-xs font-medium bg-gray-100" style={{ color: "var(--color-primary)" }}>
+                            {(m.firstName?.[0] ?? "?") + (m.lastName?.[0] ?? "")}
+                          </div>
+                        )}
+                        <span className="font-medium truncate text-gray-900">{m.firstName} {m.lastName}</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-7 h-7 rounded-full bg-gray-100 shrink-0" />
+                        <span className="text-gray-400 truncate">—</span>
+                      </>
+                    )}
+                  </div>
+                  <span className="font-semibold tabular-nums shrink-0 min-w-[2rem] text-right" style={{ color: m ? "var(--color-primary)" : undefined }}>
+                    {m ? m.points : "—"}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+
+        {/* Table: green header matches left, 1-10 rows aligned exactly with left box */}
+        <div
+          className="rounded-lg overflow-hidden border-2 shadow-sm flex flex-col order-4"
+          style={{ borderColor: "var(--color-primary)" }}
+        >
+          <div className="overflow-x-auto bg-white">
+            <table className="w-full text-sm min-w-[400px]">
               <thead>
-                <tr className="text-left" style={{ backgroundColor: "var(--color-primary)", color: "white" }}>
-                  <th className="px-3 py-2 font-semibold align-top">
-                    <span className="block">Title & Description</span>
-                    <span className="text-xs text-white/90 block mt-0.5">Prize details from local businesses</span>
-                  </th>
-                  <th className="px-3 py-2 font-semibold">Prize Value</th>
-                  <th className="px-3 py-2 font-semibold">Offered By</th>
-                  <th className="px-3 py-2 font-semibold">Days Left</th>
+                <tr style={{ backgroundColor: "var(--color-primary)", color: "white" }}>
+                  <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-center">Reward</th>
+                  <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-center">Offered By</th>
+                  <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-center">Prize Value</th>
+                  <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-center">Days Left</th>
                 </tr>
               </thead>
               <tbody>
@@ -235,27 +237,26 @@ export function RewardsContent() {
                     : null;
                   return (
                     <tr key={rank} className="border-b border-gray-100">
-                      <td className="px-3 py-2.5 align-middle" style={{ minHeight: "2.75rem" }}>
+                      <td className="px-3 py-2.5 align-middle h-[2.75rem] min-h-[2.75rem]">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold tabular-nums shrink-0" style={{ color: "var(--color-primary)" }}>
                             #{rank}
                           </span>
                           {hasContent ? (
-                            <div className="min-w-0">
-                              <p className="font-medium">{p!.label?.trim() || "—"}</p>
-                              {p!.description?.trim() && <p className="text-xs text-gray-600 mt-0.5">{p!.description.trim()}</p>}
+                            <div className="min-w-0 truncate overflow-hidden">
+                              <p className="font-medium truncate">{p!.label?.trim() || "—"}</p>
+                              {p!.description?.trim() && <p className="text-xs text-gray-600 mt-0.5 truncate">{p!.description.trim()}</p>}
                             </div>
                           ) : (
                             <span className="text-gray-400">—</span>
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 text-gray-700 align-middle">{hasContent && p!.prizeValue ? p!.prizeValue : "—"}</td>
-                      <td className="px-3 py-2.5 align-middle">
+                      <td className="px-3 py-2.5 align-middle h-[2.75rem] text-center">
                         {hasContent && p!.business ? (
                           <Link
                             href={`/support-local/${p!.business.slug}`}
-                            className="font-medium hover:underline"
+                            className="font-medium hover:underline truncate block"
                             style={{ color: "var(--color-primary)" }}
                           >
                             {p!.business.name}
@@ -264,7 +265,8 @@ export function RewardsContent() {
                           "—"
                         )}
                       </td>
-                      <td className="px-3 py-2.5 tabular-nums text-gray-700 align-middle">
+                      <td className="px-3 py-2.5 text-gray-700 align-middle h-[2.75rem] text-center">{hasContent && p!.prizeValue ? p!.prizeValue : "—"}</td>
+                      <td className="px-3 py-2.5 tabular-nums text-gray-700 align-middle h-[2.75rem] text-center">
                         {daysLeft !== null ? daysLeft : "—"}
                       </td>
                     </tr>
@@ -272,7 +274,6 @@ export function RewardsContent() {
                 })}
               </tbody>
             </table>
-            </div>
           </div>
         </div>
       </section>

@@ -51,20 +51,34 @@ export function CouponsPageHeader() {
             style={{ bottom: "calc(25% + 1.8in)" }}
           />
           <div
-            className="absolute left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] rounded-lg flex flex-col justify-center px-4 py-4 border-2 border-[var(--color-secondary)] border-t-0 -mb-4"
+            className="absolute left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] rounded-lg flex flex-col justify-center px-4 py-4 border-2 border-[var(--color-secondary)] border-t-0 -mb-4 min-w-0 overflow-hidden"
             style={{
               backgroundColor: BOX_BG,
               boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
               top: "calc(100% - 0.35in)",
+              containerType: "inline-size",
             }}
           >
-            <h1 className="text-lg font-bold leading-tight mb-2" style={{ color: "var(--color-heading)", fontFamily: "var(--font-heading)" }}>
+            <h1
+              className="font-bold leading-tight mb-2 break-words"
+              style={{
+                color: "var(--color-heading)",
+                fontFamily: "var(--font-heading)",
+                fontSize: "clamp(0.75rem, 8cqi, 1.25rem)",
+              }}
+            >
               {TITLE}
             </h1>
-            <p className="text-xs leading-relaxed mb-3 max-w-2xl" style={{ color: "var(--color-text)" }}>
+            <p
+              className="leading-relaxed mb-3 break-words min-w-0"
+              style={{
+                color: "var(--color-text)",
+                fontSize: "clamp(0.6875rem, 3.5cqi, 0.875rem)",
+              }}
+            >
               {DESCRIPTION}
             </p>
-            <Link href="/support-nwc" className="btn inline-block w-fit text-sm py-1.5 px-3" style={{ backgroundColor: "var(--color-button)", color: "var(--color-button-text)" }}>
+            <Link href="/support-nwc" className="btn inline-block w-fit text-sm py-1.5 px-3 shrink-0" style={{ backgroundColor: "var(--color-button)", color: "var(--color-button-text)" }}>
               Subscribe
             </Link>
           </div>
@@ -109,39 +123,40 @@ export function CouponsPageHeader() {
               }}
             />
             <div
-              className="absolute rounded-lg flex flex-col justify-center border-2 border-[var(--color-secondary)]"
+              className="absolute rounded-lg flex flex-col justify-center border-2 border-[var(--color-secondary)] min-w-0 overflow-hidden -translate-x-1/2"
               style={{
                 backgroundColor: BOX_BG,
                 boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
-                right: `-${BOX_SHIFT_RIGHT}`,
+                left: `calc(62.5% + ${BOX_SHIFT_RIGHT} - 0.62in)`,
                 bottom: "calc(-0.7in - 1.9in + 2in)",
                 width: "75%",
                 minWidth: "320px",
                 aspectRatio: "21/9",
                 minHeight: "clamp(200px, 22vw, 260px)",
-                padding: "clamp(1.5rem, 2.5vw, 2.5rem)",
+                padding: "clamp(1rem, 2.5vw, 2.5rem)",
+                containerType: "inline-size",
               }}
             >
               <h1
-                className="font-bold leading-tight mb-3"
+                className="font-bold leading-tight mb-3 break-words min-w-0"
                 style={{
                   color: "var(--color-heading)",
                   fontFamily: "var(--font-heading)",
-                  fontSize: "clamp(1.5rem, 2.5vw, 2.25rem)",
+                  fontSize: "clamp(0.75rem, 6cqi, 2.25rem)",
                 }}
               >
                 {TITLE}
               </h1>
               <p
-                className="leading-relaxed mb-6 max-w-2xl"
+                className="leading-relaxed mb-6 max-w-2xl break-words min-w-0"
                 style={{
                   color: "var(--color-text)",
-                  fontSize: "clamp(0.875rem, 1.1vw, 1rem)",
+                  fontSize: "clamp(0.6875rem, 2.5cqi, 1rem)",
                 }}
               >
                 {DESCRIPTION}
               </p>
-              <Link href="/support-nwc" className="btn inline-block w-fit" style={{ backgroundColor: "var(--color-button)", color: "var(--color-button-text)" }}>
+              <Link href="/support-nwc" className="btn inline-block w-fit shrink-0" style={{ backgroundColor: "var(--color-button)", color: "var(--color-button-text)" }}>
                 Subscribe
               </Link>
             </div>
