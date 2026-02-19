@@ -1,10 +1,13 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { BlogsNavItem } from "./BlogsNavItem";
 import { FlaggedNavItem } from "./FlaggedNavItem";
+
+// When on localhost, this is the live admin URL to link to in the banner
+const LIVE_ADMIN_URL = process.env.NEXT_PUBLIC_LIVE_SITE_URL || process.env.NEXT_PUBLIC_MAIN_SITE_URL || "https://inwcommunity.com";
 
 const SIDEBAR_SECTIONS = [
   {
@@ -61,6 +64,10 @@ export default function AdminDashboardLayout({
 }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isLive, setIsLive] = useState<boolean | null>(null);
+  useEffect(() => {
+    setIsLive(typeof window !== "undefined" && !window.location.origin.includes("localhost"));
+  }, []);
 
   function isActive(href: string) {
     if (href.startsWith("http")) return false;
@@ -199,6 +206,12 @@ export default function AdminDashboardLayout({
 
       {/* Main content */}
       <div className="flex-1 md:pl-60 min-w-0">
+        {isLive === false && (
+          <div className="bg-amber-100 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
+            You&apos;re editing the <strong>local</strong> site. To edit the live site, go to{" "}
+            <a href={`${LIVE_ADMIN_URL}/admin`} className="font-medium underline hover:no-underline">{LIVE_ADMIN_URL}/admin</a>
+          </div>
+        )}
         <header className="sticky top-0 z-30 bg-white border-b px-4 py-3 flex items-center justify-between md:justify-end" style={{ borderColor: "#e5e3df" }}>
           <button
             type="button"

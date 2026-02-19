@@ -19,6 +19,15 @@
    ```
    Keep this private; it is gitignored.
 
+## Editing the live site
+
+The admin dashboard edits **the same site it runs on**:
+
+- **https://inwcommunity.com/admin** → edits the live site (production)
+- **http://localhost:3000/admin** → edits your local database
+
+To edit the live site, use **https://inwcommunity.com/admin** (not localhost). Ensure Vercel has `NEXTAUTH_URL` and `DATABASE_URL` set to production values so the deployed admin connects to your live data.
+
 ## Build automation
 
 ### Single cycle
