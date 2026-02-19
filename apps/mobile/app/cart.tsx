@@ -286,6 +286,7 @@ export default function CartScreen() {
       if (hasLocalDelivery && localDeliveryDetails) {
         payload.localDeliveryDetails = localDeliveryDetails;
       }
+      payload.returnBaseUrl = siteBase;
 
       const data = await apiPost<{ url?: string; error?: string }>(
         "/api/stripe/storefront-checkout",

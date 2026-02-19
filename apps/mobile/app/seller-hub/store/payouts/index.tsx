@@ -6,12 +6,14 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  Linking,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const siteBase = API_BASE.replace(/\/$/, "");
 
 interface Transaction {
   id: string;
@@ -54,8 +56,16 @@ export default function PayoutsScreen() {
 
   const handleSetup = async () => {
     try {
-      const res = await apiPost<{ url?: string }>("/api/stripe/connect/onboard", {});
-      if (res?.url) Linking.openURL(res.url).catch(() => {});
+      const res = await apiPost<{ url?: string }>("/api/stripe/connect/onboard", {
+        returnBaseUrl: siteBase,
+      });
+      if (res?.url) {
+        const webUrl =
+          `/web?url=${encodeURIComponent(res.url)}&title=Payment setup` +
+          `&successPattern=${encodeURIComponent("seller-hub/store")}` +
+          `&successRoute=${encodeURIComponent("/seller-hub/store")}`;
+        router.push(webUrl as never);
+      }
     } catch {
       setError("Failed to get setup link");
     }

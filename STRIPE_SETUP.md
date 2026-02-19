@@ -52,6 +52,7 @@ Stripe needs to notify your app when payments succeed. Configure a webhook endpo
    - `checkout.session.completed`
    - `payment_intent.succeeded`
    - `invoice.payment_succeeded`
+   - `customer.subscription.created`
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
 5. Click **Add endpoint**
@@ -88,15 +89,21 @@ STRIPE_PRICE_SELLER="price_xxxxxxxxxxxx"
 STRIPE_WEBHOOK_SECRET="whsec_xxxxxxxxxxxx"
 ```
 
-Update **`apps/mobile/.env`** so the app can show the payment sheet:
+Update **`apps/mobile/.env`** for payment sheet and checkout redirects:
 
 ```env
+# Base URL of your API (main site). Required for Stripe redirects.
+# Physical device: use your computer's IP (e.g. http://192.168.1.140:3000)
+# Production: https://your-domain.com
+EXPO_PUBLIC_API_URL=http://localhost:3000
+
 # Must match NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY from apps/main
 # Use pk_test_... for test mode, pk_live_... for production
-EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
+EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 ```
 
-Copy the publishable key from [dashboard.stripe.com/apikeys](https://dashboard.stripe.com/apikeys). The mobile key must match the main app: use test keys for development, live keys for production.
+- **EXPO_PUBLIC_API_URL**: Used for API calls and as `returnBaseUrl` for Stripe Checkout redirects. When testing on a physical device, use your machine's local IP (not `localhost`) so the WebView can load the order-success page after payment.
+- **EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY**: Required for the native Payment Sheet. Must match the main app. Copy from [dashboard.stripe.com/apikeys](https://dashboard.stripe.com/apikeys).
 
 ---
 
@@ -135,6 +142,72 @@ Restart your dev server after any env changes.
 4. **Mobile**: In the app, try a subscription or store purchase
 
 Use [Stripe test cards](https://docs.stripe.com/testing#cards) (e.g. `4242 4242 4242 4242`) when in test mode.
+
+---
+
+## Testing with Development Build
+
+The native Stripe Payment Sheet (`@stripe/stripe-react-native`) does not work in Expo Go. To test checkout with native in-app payment, use a **development build**. In Expo Go, Stripe checkout uses an in-app WebView (no external browser).
+
+### Prerequisites
+
+- **Xcode** installed (Mac)
+- **Apple Developer account** (for code signing)
+- **Main app running**: `pnpm run dev` in monorepo root or `apps/main`
+- **Stripe CLI** for local webhooks: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
+- **Physical device**: Set `EXPO_PUBLIC_API_URL` to your machine's IP (e.g. `http://192.168.1.140:3000`), not `localhost`, so WebView redirects work
+
+### Option A: EAS Build (recommended)
+
+1. Install EAS CLI: `npm install -g eas-cli`
+2. Log in: `eas login`
+3. Build: `cd apps/mobile && eas build --profile development --platform ios`
+4. When prompted, configure your Apple Developer account credentials (or run `eas credentials` first)
+5. Install the build on your device via the QR code or link from the build output
+6. Start Expo: `cd apps/mobile && npx expo start` and connect the dev build to your dev server
+
+### Option B: Local build with Xcode
+
+1. Ensure Xcode and your Apple Developer account are set up
+2. Run: `cd apps/mobile && npx expo run:ios`
+3. Sign in with your Apple Developer account when Xcode prompts for code signing
+4. App runs in the simulator or on a connected device
+
+### Configuration checklist
+
+- **eas.json**: `development` profile has `developmentClient: true` and `distribution: "internal"`
+- **app.json**: `bundleIdentifier` is `Northwestcommunity` (or your App ID)
+- **apps/mobile/.env**: `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` matches main app; `EXPO_PUBLIC_API_URL` is your machine's IP for device testing
+
+### Verification steps
+
+1. Run the dev build (EAS or `expo run:ios`).
+2. **Subscription checkout**: Sign up as Business or Seller → complete business form → contact → checkout. In a dev build, the native Payment Sheet should appear. In Expo Go, "Pay with card" opens an in-app WebView.
+3. **Test card**: Use `4242 4242 4242 4242`, any future expiry, any CVC.
+4. **Post-checkout**: Confirm redirect to My Community and that `member.subscriptionPlan` is correct.
+5. **Storefront**: Add item to cart → checkout → confirm in-app WebView completes and shows order-success.
+6. **Stripe Connect**: As a seller, go to Seller Hub → Before You Start or My Items → "Set up Stripe payments". Flow opens in an in-app WebView and returns to the app on success.
+7. **Billing Portal**: As a subscriber, go to My Community → "Manage Subscription". Stripe Billing Portal opens in-app; after updating or canceling, returns to My Community.
+
+---
+
+## Troubleshooting (App)
+
+### Subscriptions not working in app
+
+- **Expo Go**: Native Payment Sheet does not work in Expo Go. The app uses an in-app WebView for checkout (no external browser). Use a development build for native Payment Sheet.
+- **Stripe not configured**: Ensure `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` is set and not a placeholder. Restart Expo after changing `.env`.
+- **Sign in required**: Subscriptions require a logged-in user. If you see "Unauthorized" or "Sign in required", sign in first.
+
+### Storefront checkout redirect fails on physical device
+
+- Set `EXPO_PUBLIC_API_URL` to your computer's IP (e.g. `http://192.168.1.140:3000`), not `localhost`. The app passes this as `returnBaseUrl` so Stripe redirects to a URL the device can reach.
+- Ensure the main site is running and reachable from the device (same WiFi).
+
+### Payment Sheet fails to load
+
+- Verify `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` matches `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in `apps/main/.env`.
+- In Expo Go, the native module is unavailable; use the "Pay with card" in-app WebView fallback.
 
 ---
 

@@ -466,7 +466,7 @@ export async function POST(req: NextRequest) {
         try {
           const sub = await stripe.subscriptions.retrieve(subIdStr);
           const memberId = sub.metadata?.memberId;
-          const planId = sub.metadata?.planId as "sponsor" | "seller" | undefined;
+          const planId = sub.metadata?.planId as "subscribe" | "sponsor" | "seller" | undefined;
           if (memberId && planId) {
             await prisma.subscription.create({
               data: {

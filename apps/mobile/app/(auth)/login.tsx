@@ -6,7 +6,6 @@ import {
   View,
   ScrollView,
   Image,
-  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -106,11 +105,23 @@ export default function LoginScreen() {
         </Text>
       )}
       <View style={styles.legalRow}>
-        <Pressable onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/terms`)}>
+        <Pressable
+          onPress={() =>
+            router.push(
+              `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/terms`)}&title=${encodeURIComponent("Terms")}` as never
+            )
+          }
+        >
           <Text style={styles.legalLink}>Terms</Text>
         </Pressable>
         <Text style={styles.legalSeparator}> · </Text>
-        <Pressable onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/privacy`)}>
+        <Pressable
+          onPress={() =>
+            router.push(
+              `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/privacy`)}&title=${encodeURIComponent("Privacy")}` as never
+            )
+          }
+        >
           <Text style={styles.legalLink}>Privacy</Text>
         </Pressable>
       </View>

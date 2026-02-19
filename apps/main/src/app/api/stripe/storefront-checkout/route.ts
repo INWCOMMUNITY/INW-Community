@@ -4,7 +4,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 
-const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+const DEFAULT_BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 const PLATFORM_FEE_PERCENT = 0.05; // 5%
 const PLATFORM_FEE_MIN_CENTS = 50;
 
@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
       termsAcceptedAt?: string;
     };
     cashOrderIds?: string[];
+    /** Mobile app can pass this so redirect works on device (e.g. http://192.168.1.140:3000) */
+    returnBaseUrl?: string;
   };
   try {
     body = await req.json();
@@ -47,7 +49,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { items, shippingCostCents = 0, shippingAddress, localDeliveryDetails, cashOrderIds } = body;
+  const { items, shippingCostCents = 0, shippingAddress, localDeliveryDetails, cashOrderIds, returnBaseUrl } = body;
+  const baseUrl = (returnBaseUrl as string)?.trim?.() || DEFAULT_BASE_URL;
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "At least one item required" }, { status: 400 });
   }
@@ -222,8 +225,8 @@ export async function POST(req: NextRequest) {
 
   const successUrl =
     Array.isArray(cashOrderIds) && cashOrderIds.length > 0
-      ? `${BASE_URL}/storefront/order-success?session_id={CHECKOUT_SESSION_ID}&cash_order_ids=${encodeURIComponent(cashOrderIds.join(","))}`
-      : `${BASE_URL}/storefront/order-success?session_id={CHECKOUT_SESSION_ID}`;
+      ? `${baseUrl}/storefront/order-success?session_id={CHECKOUT_SESSION_ID}&cash_order_ids=${encodeURIComponent(cashOrderIds.join(","))}`
+      : `${baseUrl}/storefront/order-success?session_id={CHECKOUT_SESSION_ID}`;
 
   try {
     const branding = getStripeCheckoutBranding();
@@ -232,7 +235,7 @@ export async function POST(req: NextRequest) {
       line_items: lineItems,
       payment_method_types: ["card"] as const,
       success_url: successUrl,
-      cancel_url: `${BASE_URL}/storefront?canceled=1`,
+      cancel_url: `${baseUrl}/storefront?canceled=1`,
       metadata: { orderIds: orderIds.join(",") },
       ...(branding && { branding_settings: branding }),
     };

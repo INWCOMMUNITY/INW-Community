@@ -13,6 +13,14 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id || !session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  let baseUrl = process.env.NEXTAUTH_URL ?? "https://inwcommunity.com";
+  try {
+    const body = await req.json();
+    const returnBase = (body.returnBaseUrl as string)?.trim?.();
+    if (returnBase) baseUrl = returnBase;
+  } catch {
+    // use default
+  }
   try {
     const sub = await prisma.subscription.findFirst({
       where: { memberId: session.user.id, status: "active" },
@@ -26,7 +34,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const baseUrl = process.env.NEXTAUTH_URL ?? "https://inwcommunity.com";
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: `${baseUrl}/my-community/subscriptions`,

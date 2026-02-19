@@ -13,6 +13,10 @@ const PLANS: Record<
   string,
   { priceId: string; priceIdYearly?: string }
 > = {
+  subscribe: {
+    priceId: process.env.STRIPE_PRICE_SUBSCRIBE ?? "",
+    priceIdYearly: process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY ?? "",
+  },
   sponsor: {
     priceId: process.env.STRIPE_PRICE_SPONSOR ?? "",
     priceIdYearly: process.env.STRIPE_PRICE_SPONSOR_YEARLY ?? "",
@@ -117,7 +121,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (planId !== "sponsor" && planId !== "seller") {
+    if (planId !== "subscribe" && planId !== "sponsor" && planId !== "seller") {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
 
@@ -146,7 +150,7 @@ export async function POST(req: NextRequest) {
     const existingSub = await prisma.subscription.findFirst({
       where: {
         memberId: session.user.id,
-        plan: planId as "sponsor" | "seller",
+        plan: planId as "subscribe" | "sponsor" | "seller",
         status: { in: ["active", "trialing"] },
       },
     });
@@ -166,7 +170,9 @@ export async function POST(req: NextRequest) {
       metadata: {
         memberId: session.user.id,
         planId,
-        ...(businessData && Object.keys(businessData).length > 0
+        ...((planId === "sponsor" || planId === "seller") &&
+        businessData &&
+        Object.keys(businessData).length > 0
           ? { businessData: JSON.stringify(businessData) }
           : {}),
       },
@@ -197,7 +203,7 @@ export async function POST(req: NextRequest) {
         await prisma.subscription.create({
           data: {
             memberId: session.user.id,
-            plan: planId as "sponsor" | "seller",
+            plan: planId as "subscribe" | "sponsor" | "seller",
             stripeSubscriptionId: subId,
             stripeCustomerId: customerId,
             status: "active",

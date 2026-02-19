@@ -5,7 +5,7 @@ import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
 
 interface SubscriptionCheckoutSheetProps {
-  planId: "sponsor" | "seller";
+  planId: "subscribe" | "sponsor" | "seller";
   businessData?: Record<string, unknown>;
   onSuccess: () => void;
   onError?: (message: string) => void;
@@ -133,9 +133,11 @@ export function SubscriptionCheckoutSheet({
         <ActivityIndicator size="small" color="#fff" />
       ) : (
         <Text style={styles.buttonText}>
-          {planId === "sponsor"
-            ? "Subscribe as Business"
-            : "Subscribe as Seller"}
+          {planId === "subscribe"
+            ? "Subscribe"
+            : planId === "sponsor"
+              ? "Subscribe as Business"
+              : "Subscribe as Seller"}
         </Text>
       )}
     </Pressable>

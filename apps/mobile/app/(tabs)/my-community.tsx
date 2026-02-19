@@ -26,7 +26,7 @@ import { useOpenSellerMenu } from "./_layout";
 import { CouponFormModal } from "@/components/CouponFormModal";
 import { RewardFormModal } from "@/components/RewardFormModal";
 import { PostEventForm } from "@/components/PostEventForm";
-import { apiGet, getToken } from "@/lib/api";
+import { apiGet, apiPost, getToken } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -364,6 +364,7 @@ export default function MyCommunityScreen() {
   const [couponModalVisible, setCouponModalVisible] = useState(false);
   const [rewardModalVisible, setRewardModalVisible] = useState(false);
   const [eventModalVisible, setEventModalVisible] = useState(false);
+  const [billingPortalLoading, setBillingPortalLoading] = useState(false);
   const [businesses, setBusinesses] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [downloadPickerType, setDownloadPickerType] = useState<"qr" | "flyer" | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -384,6 +385,36 @@ export default function MyCommunityScreen() {
 
   const openBusinessSetup = () => {
     (router.push as (href: string) => void)("/sponsor-business");
+  };
+
+  const hasActiveSubscription =
+    member?.subscriptions?.some((s) => s.status === "active") ?? false;
+
+  const handleManageSubscription = async () => {
+    setBillingPortalLoading(true);
+    try {
+      const res = await apiPost<{ url?: string; error?: string }>(
+        "/api/stripe/billing-portal",
+        { returnBaseUrl: siteBase }
+      );
+      if (res?.url) {
+        const webUrl =
+          `/web?url=${encodeURIComponent(res.url)}&title=Manage subscription` +
+          `&successPattern=${encodeURIComponent("my-community/subscriptions")}` +
+          `&successRoute=${encodeURIComponent("/(tabs)/my-community")}` +
+          "&refreshOnSuccess=1";
+        (router.push as (href: string) => void)(webUrl);
+      } else {
+        Alert.alert("Error", res?.error ?? "Could not open subscription management.");
+      }
+    } catch (e) {
+      Alert.alert(
+        "Error",
+        (e as { error?: string })?.error ?? "Could not open subscription management."
+      );
+    } finally {
+      setBillingPortalLoading(false);
+    }
   };
 
   const handleDownloadFlyer = async (businessId: string, slug: string) => {
@@ -798,6 +829,26 @@ export default function MyCommunityScreen() {
       </View>
 
       <RNView style={styles.tanSection}>
+        {hasActiveSubscription && (
+          <RNView style={styles.buttonRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.tanButton,
+                pressed && styles.buttonPressed,
+                billingPortalLoading && { opacity: 0.7 },
+              ]}
+              onPress={handleManageSubscription}
+              disabled={billingPortalLoading}
+            >
+              {billingPortalLoading ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <ThemedText style={styles.tanButtonText}>Manage Subscription</ThemedText>
+              )}
+            </Pressable>
+            <RNView style={styles.tanButton} />
+          </RNView>
+        )}
         <RNView style={styles.buttonRow}>
           <Pressable
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}

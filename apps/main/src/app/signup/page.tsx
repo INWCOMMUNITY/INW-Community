@@ -94,6 +94,18 @@ export default function SignupPage() {
   return (
     <div className="max-w-md mx-auto px-4 py-12">
       <h1 className="text-2xl font-bold mb-6">Sign up</h1>
+
+      <p className="text-gray-600 mb-4">Choose your account type</p>
+      <div className="flex flex-col sm:flex-row gap-3 mb-8">
+        <Link href="/signup/business" className="btn flex-1 text-center">
+          Sign Up as Business
+        </Link>
+        <Link href="/signup/seller" className="btn flex-1 text-center">
+          Sign Up as Seller
+        </Link>
+      </div>
+
+      <p className="text-sm font-medium text-gray-600 mb-4">Sign up as Resident</p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label htmlFor="firstName" className="block text-sm font-medium mb-1">First name</label>

@@ -9,8 +9,8 @@ import {
   Image,
   ActivityIndicator,
   Dimensions,
-  Linking,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
@@ -56,6 +56,7 @@ export function CouponPopup({
   initialSaved = false,
   onSavedChange,
 }: CouponPopupProps) {
+  const router = useRouter();
   const [data, setData] = useState<CouponData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,9 +142,7 @@ export function CouponPopup({
               style={styles.subscribeBtn}
               onPress={() => {
                 onClose();
-                const base = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
-                const siteBase = base.replace(/\/api.*$/, "").replace(/\/$/, "");
-                Linking.openURL(`${siteBase}/support-nwc`);
+                (router.push as (href: string) => void)("/subscribe");
               }}
             >
               <Text style={styles.subscribeBtnText}>Sign up</Text>

@@ -25,9 +25,10 @@ const PLAN_LABELS: Record<SubscriptionPlan, string> = {
 
 export default function SignInScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ plan?: string; isSignUp?: string }>();
+  const params = useLocalSearchParams<{ plan?: string; isSignUp?: string; returnTo?: string }>();
   const { refreshMember } = useAuth();
   const plan = (params.plan as SubscriptionPlan) || "subscribe";
+  const returnTo = params.returnTo as string | undefined;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -45,7 +46,7 @@ export default function SignInScreen() {
     try {
       await signIn(email.trim(), password, plan);
       await refreshMember();
-      router.replace("/(tabs)/home");
+      router.replace((returnTo ?? "/(tabs)/home") as import("expo-router").Href);
     } catch (e) {
       const err = e as { error?: string; status?: number; message?: string };
       if (err.error) {

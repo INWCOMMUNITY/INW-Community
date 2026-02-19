@@ -10,6 +10,15 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
 const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
 export async function POST(req: NextRequest) {
+  let baseUrl = BASE_URL;
+  try {
+    const body = await req.json();
+    const returnBase = (body.returnBaseUrl as string)?.trim?.();
+    if (returnBase) baseUrl = returnBase;
+  } catch {
+    // use default
+  }
+
   const session = await getSessionForApi(req);
   const userId = session?.user?.id;
   if (!userId) {
@@ -66,8 +75,8 @@ export async function POST(req: NextRequest) {
 
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
-      refresh_url: `${BASE_URL}/seller-hub/store?refresh=1`,
-      return_url: `${BASE_URL}/seller-hub/store?success=1`,
+      refresh_url: `${baseUrl}/seller-hub/store?refresh=1`,
+      return_url: `${baseUrl}/seller-hub/store?success=1`,
       type: "account_onboarding",
     });
 

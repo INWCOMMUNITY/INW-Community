@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Linking,
   Switch,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -157,14 +156,22 @@ export default function SignupResidentScreen() {
             By signing up, you agree to our{" "}
             <Text
               style={styles.termsLink}
-              onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/terms`)}
+              onPress={() =>
+                router.push(
+                  `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/terms`)}&title=${encodeURIComponent("Terms of Service")}` as never
+                )
+              }
             >
               Terms of Service
             </Text>
             {" "}and{" "}
             <Text
               style={styles.termsLink}
-              onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/privacy`)}
+              onPress={() =>
+                router.push(
+                  `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/privacy`)}&title=${encodeURIComponent("Privacy Policy")}` as never
+                )
+              }
             >
               Privacy Policy
             </Text>

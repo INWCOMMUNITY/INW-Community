@@ -5,11 +5,9 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  Linking,
 } from "react-native";
 import Constants from "expo-constants";
-import * as WebBrowser from "expo-web-browser";
-import { useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
 
@@ -17,7 +15,7 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const siteBase = API_BASE.replace(/\/$/, "");
 
 interface SubscriptionCheckoutWithFallbackProps {
-  planId: "sponsor" | "seller";
+  planId: "subscribe" | "sponsor" | "seller";
   businessData?: Record<string, unknown>;
   onSuccess: () => void;
   onError?: (message: string) => void;
@@ -25,6 +23,7 @@ interface SubscriptionCheckoutWithFallbackProps {
 }
 
 function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -48,10 +47,12 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
         setError("Could not start checkout. Try again.");
         return;
       }
-      await WebBrowser.openBrowserAsync(data.url, {
-        presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
-      });
-      await props.refreshMember?.();
+      const webUrl =
+        `/web?url=${encodeURIComponent(data.url)}&title=Checkout` +
+        `&successPattern=${encodeURIComponent("my-community")}` +
+        `&successRoute=${encodeURIComponent("/(tabs)/my-community")}` +
+        "&refreshOnSuccess=1";
+      router.push(webUrl as never);
     } catch (e) {
       const err = e as { error?: string };
       setError(err.error ?? "Checkout failed. Please try again.");
@@ -59,12 +60,12 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
     } finally {
       setLoading(false);
     }
-  }, [props.planId, props.businessData, props.refreshMember, props.onError]);
+  }, [props.planId, props.businessData, props.onError, router]);
 
   return (
     <View style={styles.fallback}>
       <Text style={styles.fallbackText}>
-        Native payment isn&apos;t available. Complete checkout in your browser.
+        Native payment isn&apos;t available. Complete checkout below.
       </Text>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       <Pressable
@@ -78,7 +79,7 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
         {loading ? (
           <ActivityIndicator size="small" color="#fff" />
         ) : (
-          <Text style={styles.fallbackBtnText}>Pay in browser</Text>
+          <Text style={styles.fallbackBtnText}>Pay with card</Text>
         )}
       </Pressable>
     </View>
@@ -153,21 +154,7 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
   }, [hasValidKey, isExpoGo]);
 
   if (!hasValidKey) {
-    return (
-      <View style={styles.fallback}>
-        <Text style={styles.fallbackText}>Stripe is not configured.</Text>
-        <Pressable
-          style={({ pressed }) => [styles.fallbackBtn, pressed && styles.pressed]}
-          onPress={() =>
-            Linking.openURL(
-              `${siteBase}/support-nwc`
-            ).catch(() => {})
-          }
-        >
-          <Text style={styles.fallbackBtnText}>Open signup on website</Text>
-        </Pressable>
-      </View>
-    );
+    return webFallback;
   }
 
   if (loadError) {

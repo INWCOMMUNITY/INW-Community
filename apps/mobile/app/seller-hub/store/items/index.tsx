@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
-import { Linking } from "react-native";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
 
@@ -99,10 +98,15 @@ export default function MyItemsScreen() {
   const handleOnboard = async () => {
     try {
       const data = await apiPost<{ url?: string; error?: string }>(
-        "/api/stripe/connect/onboard"
+        "/api/stripe/connect/onboard",
+        { returnBaseUrl: siteBase }
       );
       if (data.url) {
-        Linking.openURL(data.url);
+        const webUrl =
+          `/web?url=${encodeURIComponent(data.url)}&title=Payment setup` +
+          `&successPattern=${encodeURIComponent("seller-hub/store")}` +
+          `&successRoute=${encodeURIComponent("/seller-hub/store")}`;
+        router.push(webUrl as never);
       } else {
         setFetchError(
           data.error ?? "Payment setup failed. Check Stripe configuration."

@@ -182,7 +182,7 @@ export default function RewardsScreen() {
         </View>
         <Pressable
           style={styles.subscribeBtn}
-          onPress={() => router.push("/web?url=" + encodeURIComponent(`${siteBase}/support-nwc`) + "&title=Subscribe")}
+          onPress={() => router.push("/subscribe" as import("expo-router").Href)}
         >
           <Text style={styles.subscribeBtnText}>Subscribe</Text>
         </Pressable>

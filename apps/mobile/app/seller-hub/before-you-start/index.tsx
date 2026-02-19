@@ -6,13 +6,15 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  Linking,
   Alert,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const siteBase = API_BASE.replace(/\/$/, "");
 
 interface TodoItem {
   id: string;
@@ -52,9 +54,15 @@ export default function BeforeYouStartScreen() {
   const handleStripeSetup = async () => {
     setStripeLoading(true);
     try {
-      const res = await apiPost<{ url?: string; error?: string }>("/api/stripe/connect/onboard", {});
+      const res = await apiPost<{ url?: string; error?: string }>("/api/stripe/connect/onboard", {
+        returnBaseUrl: siteBase,
+      });
       if (res?.url) {
-        await Linking.openURL(res.url);
+        const webUrl =
+          `/web?url=${encodeURIComponent(res.url)}&title=Payment setup` +
+          `&successPattern=${encodeURIComponent("seller-hub/store")}` +
+          `&successRoute=${encodeURIComponent("/seller-hub/store")}`;
+        router.push(webUrl as never);
       } else if (res?.error) {
         Alert.alert("Setup failed", res.error);
       }
