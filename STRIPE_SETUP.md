@@ -211,6 +211,19 @@ The native Stripe Payment Sheet (`@stripe/stripe-react-native`) does not work in
 
 ---
 
+## Troubleshooting (Live Site / Production)
+
+### Checkout from NWC Services (/support-nwc) not redirecting
+
+1. **Sign in first**: The Subscribe/Sponsor/Seller buttons require you to be signed in. If not signed in, you'll be redirected to login. After signing in, you'll return to support-nwc—click the plan button again to go to checkout.
+2. **Environment variables**: In Vercel (or your host), ensure all Stripe variables are set:
+   - `STRIPE_SECRET_KEY`, `STRIPE_PRICE_SUBSCRIBE`, `STRIPE_PRICE_SPONSOR`, `STRIPE_PRICE_SELLER`
+   - Yearly plans: `STRIPE_PRICE_SUBSCRIBE_YEARLY`, etc. if you use yearly billing
+3. **NEXTAUTH_URL**: Must exactly match your live site URL (e.g. `https://inwcommunity.com`). No trailing slash. If using `www`, include it. Mismatch can cause session/cookie issues.
+4. **Error message**: If the button shows an error (red text), that indicates the API response—e.g. "Invalid plan or Stripe not configured" means price IDs are missing.
+
+---
+
 ## Deployment (Vercel)
 
 Add all Stripe variables to your Vercel project:

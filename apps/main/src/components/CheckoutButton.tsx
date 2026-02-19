@@ -73,7 +73,7 @@ export function CheckoutButton({
             : children}
       </button>
       {error && (
-        <p className="mt-2 text-sm" style={{ color: "var(--color-primary)" }}>
+        <p className="mt-2 text-sm font-medium" style={{ color: "#c62828" }} role="alert">
           {error}
         </p>
       )}

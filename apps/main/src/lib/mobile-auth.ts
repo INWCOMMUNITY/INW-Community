@@ -91,8 +91,14 @@ export async function getSessionForApi(
     }
   }
 
-  // 2. Try NextAuth session (web)
-  const session = await getServerSession(authOptions);
+  // 2. Try NextAuth session (web) – pass request so cookies are read from the actual request
+  const reqContext = {
+    headers: Object.fromEntries(req.headers.entries()),
+    cookies: Object.fromEntries(req.cookies.getAll().map((c) => [c.name, c.value])),
+  };
+  const resContext = { getHeader: () => undefined, setCookie: () => {}, setHeader: () => {} };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const session = await getServerSession(reqContext as any, resContext as any, authOptions);
   if (session?.user) {
     const u = session.user as { id?: string; email?: string; name?: string; isSubscriber?: boolean; subscriptionPlan?: SubscriptionPlan };
     if (u.id) {
