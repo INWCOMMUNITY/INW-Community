@@ -101,6 +101,7 @@ export async function POST(req: NextRequest) {
         },
       });
       const businessDataRaw = session.metadata?.businessData;
+      const businessIdFromMeta = session.metadata?.businessId;
       if (planId === "sponsor" && businessDataRaw && typeof businessDataRaw === "string") {
         try {
           const businessData = JSON.parse(businessDataRaw) as Record<string, unknown>;
@@ -108,6 +109,8 @@ export async function POST(req: NextRequest) {
         } catch (bErr) {
           console.error("[webhook] business create from checkout metadata:", bErr);
         }
+      } else if ((planId === "sponsor" || planId === "seller") && businessIdFromMeta) {
+        if (process.env.NODE_ENV === "development") console.log("[webhook] Business already created as draft:", businessIdFromMeta);
       }
     }
 
@@ -480,6 +483,7 @@ export async function POST(req: NextRequest) {
               },
             });
             const businessDataRaw = sub.metadata?.businessData;
+            const businessIdFromSub = sub.metadata?.businessId;
             if (
               (planId === "sponsor" || planId === "seller") &&
               businessDataRaw &&
@@ -491,6 +495,8 @@ export async function POST(req: NextRequest) {
               } catch (bErr) {
                 console.error("[webhook] business create from invoice metadata:", bErr);
               }
+            } else if ((planId === "sponsor" || planId === "seller") && businessIdFromSub) {
+              if (process.env.NODE_ENV === "development") console.log("[webhook] Business already created as draft:", businessIdFromSub);
             }
           }
         } catch (err) {

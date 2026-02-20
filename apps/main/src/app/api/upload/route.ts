@@ -15,10 +15,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const sub = await prisma.subscription.findFirst({
-    where: { memberId: session.user.id, plan: { in: ["sponsor", "seller", "subscribe"] }, status: "active" },
-  });
-  if (!sub) {
+  const [sub, member] = await Promise.all([
+    prisma.subscription.findFirst({
+      where: { memberId: session.user.id, plan: { in: ["sponsor", "seller", "subscribe"] }, status: "active" },
+    }),
+    prisma.member.findUnique({
+      where: { id: session.user.id },
+      select: { signupIntent: true },
+    }),
+  ]);
+  const isSignupFlow = !sub && !!member?.signupIntent && ["business", "seller"].includes(member.signupIntent);
+  if (!sub && !isSignupFlow) {
     return NextResponse.json({ error: "Sponsor, Seller, or Subscribe plan required" }, { status: 403 });
   }
 

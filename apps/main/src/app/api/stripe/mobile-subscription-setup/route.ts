@@ -9,23 +9,22 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
 
 type BillingInterval = "monthly" | "yearly";
 
-const PLANS: Record<
-  string,
-  { priceId: string; priceIdYearly?: string }
-> = {
-  subscribe: {
-    priceId: process.env.STRIPE_PRICE_SUBSCRIBE ?? "",
-    priceIdYearly: process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY ?? "",
-  },
-  sponsor: {
-    priceId: process.env.STRIPE_PRICE_SPONSOR ?? "",
-    priceIdYearly: process.env.STRIPE_PRICE_SPONSOR_YEARLY ?? "",
-  },
-  seller: {
-    priceId: process.env.STRIPE_PRICE_SELLER ?? "",
-    priceIdYearly: process.env.STRIPE_PRICE_SELLER_YEARLY ?? "",
-  },
-};
+function getPlans(): Record<string, { priceId: string; priceIdYearly?: string }> {
+  return {
+    subscribe: {
+      priceId: process.env.STRIPE_PRICE_SUBSCRIBE ?? "",
+      priceIdYearly: process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY ?? "",
+    },
+    sponsor: {
+      priceId: process.env.STRIPE_PRICE_SPONSOR ?? "",
+      priceIdYearly: process.env.STRIPE_PRICE_SPONSOR_YEARLY ?? "",
+    },
+    seller: {
+      priceId: process.env.STRIPE_PRICE_SELLER ?? "",
+      priceIdYearly: process.env.STRIPE_PRICE_SELLER_YEARLY ?? "",
+    },
+  };
+}
 
 function slugify(s: string): string {
   return s
@@ -34,10 +33,10 @@ function slugify(s: string): string {
     .replace(/^-|-$/g, "");
 }
 
-async function createBusinessFromDraft(
+async function createBusinessDraftInDb(
   memberId: string,
   data: Record<string, unknown>
-): Promise<void> {
+): Promise<string | undefined> {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const city = typeof data.city === "string" ? data.city.trim() : "";
   const shortDescription = typeof data.shortDescription === "string" ? data.shortDescription.trim() : null;
@@ -46,8 +45,8 @@ async function createBusinessFromDraft(
     ? (data.categories as string[]).filter((c) => typeof c === "string" && c.trim()).slice(0, 2)
     : [];
 
-  if (!name || !city) return;
-  if (categories.length === 0) return;
+  if (!name || !city) return undefined;
+  if (categories.length === 0) return undefined;
 
   const website = typeof data.website === "string" && data.website.trim()
     ? (data.website.startsWith("http") ? data.website : `https://${data.website}`)
@@ -61,8 +60,14 @@ async function createBusinessFromDraft(
     ? (data.hoursOfOperation as Record<string, string>)
     : undefined;
 
+  const activeSub = await prisma.subscription.findFirst({
+    where: { memberId, status: "active", plan: { in: ["sponsor", "seller"] } },
+  });
+  if (!activeSub) {
+    await prisma.business.deleteMany({ where: { memberId } });
+  }
   const existingCount = await prisma.business.count({ where: { memberId } });
-  if (existingCount >= 2) return;
+  if (existingCount >= 2) return undefined;
 
   let slug = slugify(name);
   let suffix = 0;
@@ -90,6 +95,7 @@ async function createBusinessFromDraft(
   });
   const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
   awardBusinessSignupBadges(business.id).catch(() => {});
+  return business.id;
 }
 
 export async function POST(req: NextRequest) {
@@ -112,7 +118,8 @@ export async function POST(req: NextRequest) {
     const interval = (body.interval as BillingInterval) || "monthly";
     const businessData = body.businessData as Record<string, unknown> | undefined;
 
-    const plan = PLANS[planId];
+    const plans = getPlans();
+    const plan = plans[planId];
     const priceId = interval === "yearly" && plan?.priceIdYearly ? plan.priceIdYearly : plan?.priceId;
     if (!priceId) {
       return NextResponse.json(
@@ -127,11 +134,23 @@ export async function POST(req: NextRequest) {
 
     const member = await prisma.member.findUnique({
       where: { id: session.user.id },
-      select: { email: true, stripeCustomerId: true, firstName: true, lastName: true },
+      select: { email: true, stripeCustomerId: true, firstName: true, lastName: true, deliveryAddress: true },
     });
     if (!member) {
       return NextResponse.json({ error: "Member not found" }, { status: 404 });
     }
+
+    const addr = member.deliveryAddress as { street?: string; city?: string; state?: string; zip?: string } | null;
+    const stripeAddress: Stripe.AddressParam | undefined =
+      addr?.street || addr?.city || addr?.state || addr?.zip
+        ? {
+            line1: addr.street ?? "",
+            city: addr.city ?? "",
+            state: addr.state ?? "",
+            postal_code: addr.zip ?? "",
+            country: "US",
+          }
+        : undefined;
 
     let customerId = member.stripeCustomerId;
 
@@ -139,12 +158,15 @@ export async function POST(req: NextRequest) {
       const customer = await stripe.customers.create({
         email: member.email,
         name: `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() || undefined,
+        address: stripeAddress,
       });
       customerId = customer.id;
       await prisma.member.update({
         where: { id: session.user.id },
         data: { stripeCustomerId: customerId },
       });
+    } else if (stripeAddress) {
+      await stripe.customers.update(customerId, { address: stripeAddress });
     }
 
     const existingSub = await prisma.subscription.findFirst({
@@ -161,23 +183,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let businessId: string | undefined;
+    if (
+      (planId === "sponsor" || planId === "seller") &&
+      businessData &&
+      typeof businessData === "object" &&
+      Object.keys(businessData).length > 0
+    ) {
+      try {
+        businessId = await createBusinessDraftInDb(session.user.id, businessData);
+      } catch (bErr) {
+        console.error("[mobile-subscription-setup] business draft create:", bErr);
+      }
+    }
+
+    console.log("[mobile-subscription-setup] Using priceId:", priceId, "for plan:", planId, "interval:", interval);
+
     const subscriptionParams: Stripe.SubscriptionCreateParams = {
       customer: customerId,
       items: [{ price: priceId, quantity: 1 }],
       payment_behavior: "default_incomplete",
       payment_settings: { save_default_payment_method: "on_subscription" },
+      automatic_tax: { enabled: true },
       expand: ["latest_invoice"],
       metadata: {
         memberId: session.user.id,
         planId,
-        ...((planId === "sponsor" || planId === "seller") &&
-        businessData &&
-        Object.keys(businessData).length > 0
-          ? { businessData: JSON.stringify(businessData) }
-          : {}),
+        ...(businessId ? { businessId } : {}),
       },
     };
-
 
     const subscription = await stripe.subscriptions.create(subscriptionParams);
 
@@ -209,17 +243,7 @@ export async function POST(req: NextRequest) {
             status: "active",
           },
         });
-        if (
-          (planId === "sponsor" || planId === "seller") &&
-          businessData &&
-          typeof businessData === "object"
-        ) {
-          try {
-            await createBusinessFromDraft(session.user.id, businessData);
-          } catch (bErr) {
-            console.error("[mobile-subscription-setup] business create:", bErr);
-          }
-        }
+        
         return NextResponse.json({
           completed: true,
           subscriptionId: subscription.id,

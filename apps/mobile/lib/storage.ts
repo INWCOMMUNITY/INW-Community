@@ -7,7 +7,6 @@ import { Platform } from "react-native";
 
 const TOKEN_KEY = "nwc_token";
 
-// In-memory fallback so token works within the session even if SecureStore/AsyncStorage fails
 let memoryToken: string | null = null;
 
 async function readFromStorage(): Promise<string | null> {
@@ -16,7 +15,7 @@ async function readFromStorage(): Promise<string | null> {
       const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
       return await AsyncStorage.getItem(TOKEN_KEY);
     }
-    const SecureStore = (await import("expo-secure-store")).default;
+    const SecureStore = await import("expo-secure-store");
     return await SecureStore.getItemAsync(TOKEN_KEY);
   } catch {
     return null;
@@ -30,7 +29,7 @@ async function writeToStorage(token: string): Promise<void> {
       await AsyncStorage.setItem(TOKEN_KEY, token);
       return;
     }
-    const SecureStore = (await import("expo-secure-store")).default;
+    const SecureStore = await import("expo-secure-store");
     await SecureStore.setItemAsync(TOKEN_KEY, token);
   } catch (e) {
     console.warn("[storage] Failed to persist token", e);
@@ -44,7 +43,7 @@ async function removeFromStorage(): Promise<void> {
       await AsyncStorage.removeItem(TOKEN_KEY);
       return;
     }
-    const SecureStore = (await import("expo-secure-store")).default;
+    const SecureStore = await import("expo-secure-store");
     await SecureStore.deleteItemAsync(TOKEN_KEY);
   } catch (e) {
     console.warn("[storage] Failed to clear token", e);

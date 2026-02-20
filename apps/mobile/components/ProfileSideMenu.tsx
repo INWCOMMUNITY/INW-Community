@@ -121,6 +121,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     { href: "/profile-events", label: "My Events" },
     { href: "/profile-coupons", label: "My Coupons" },
     { href: "/profile-wishlist", label: "My Wishlist" },
+    { href: "/saved-posts", label: "Saved Posts" },
     {
       href: `/web?url=${encodeURIComponent(`${siteBase}/my-community/orders`)}&title=${encodeURIComponent("My Orders")}`,
       label: "My Orders",

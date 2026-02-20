@@ -12,9 +12,22 @@ export default function IndexScreen() {
     if (loading) return;
     if (!member) {
       router.replace("/(auth)/login");
-    } else {
-      router.replace("/(tabs)/home");
+      return;
     }
+
+    const intent = member.signupIntent;
+    const hasSub = (member.subscriptions ?? []).length > 0;
+
+    if ((intent === "business" || intent === "seller") && !hasSub) {
+      const route =
+        intent === "business"
+          ? "/(auth)/signup-business"
+          : "/(auth)/signup-seller";
+      router.replace(route as never);
+      return;
+    }
+
+    router.replace("/(tabs)/home");
   }, [member, loading, router]);
 
   if (loading) {

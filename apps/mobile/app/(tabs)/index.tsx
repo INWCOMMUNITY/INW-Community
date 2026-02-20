@@ -160,6 +160,17 @@ export default function CommunityScreen() {
     setCommentPostId(postId);
   }, []);
 
+  const handleSave = useCallback(async (postId: string) => {
+    if (postId.startsWith("example-")) return;
+    try {
+      const { apiPost } = await import("@/lib/api");
+      await apiPost("/api/saved", { type: "post", referenceId: postId });
+      Alert.alert("Saved", "Post saved! View it in your Saved Posts.");
+    } catch {
+      Alert.alert("Error", "Could not save post. Try again.");
+    }
+  }, []);
+
   const handleReport = useCallback((postId: string) => {
     if (postId.startsWith("example-")) return;
     Alert.alert(
@@ -167,8 +178,8 @@ export default function CommunityScreen() {
       "Why are you reporting this post?",
       [
         { text: "Political content", onPress: () => reportPost(postId, "political") },
-        { text: "Hate speech", onPress: () => reportPost(postId, "hate") },
         { text: "Nudity / explicit", onPress: () => reportPost(postId, "nudity") },
+        { text: "Spam", onPress: () => reportPost(postId, "spam") },
         { text: "Other", onPress: () => reportPost(postId, "other") },
         { text: "Cancel", style: "cancel" },
       ]
@@ -279,6 +290,7 @@ export default function CommunityScreen() {
               onComment={handleComment}
               onShare={handleShare}
               onReport={handleReport}
+              onSave={handleSave}
               onOpenCoupon={(id) => {
               if (id.startsWith("ex-")) {
                 Alert.alert("Demo", "This is an example coupon. Browse real coupons in Support Local!");

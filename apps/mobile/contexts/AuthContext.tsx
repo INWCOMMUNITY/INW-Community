@@ -24,6 +24,7 @@ export interface Member {
   isSubscriber?: boolean;
   subscriptionPlan?: SubscriptionPlan | null;
   subscriptions?: { plan: string; status: string }[];
+  signupIntent?: "resident" | "business" | "seller" | null;
 }
 
 interface AuthContextValue {

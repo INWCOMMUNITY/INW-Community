@@ -100,6 +100,7 @@ export default function SignupResidentScreen() {
             onChangeText={setFirstName}
             placeholderTextColor={theme.colors.placeholder}
             autoCapitalize="words"
+            textContentType="givenName"
           />
           <TextInput
             style={styles.input}
@@ -108,6 +109,7 @@ export default function SignupResidentScreen() {
             onChangeText={setLastName}
             placeholderTextColor={theme.colors.placeholder}
             autoCapitalize="words"
+            textContentType="familyName"
           />
           <TextInput
             style={styles.input}
@@ -117,6 +119,7 @@ export default function SignupResidentScreen() {
             autoCapitalize="none"
             keyboardType="email-address"
             placeholderTextColor={theme.colors.placeholder}
+            textContentType="emailAddress"
           />
           <TextInput
             style={styles.input}
@@ -125,6 +128,7 @@ export default function SignupResidentScreen() {
             onChangeText={setPassword}
             secureTextEntry
             placeholderTextColor={theme.colors.placeholder}
+            textContentType="newPassword"
           />
           <TextInput
             style={styles.input}
@@ -133,12 +137,13 @@ export default function SignupResidentScreen() {
             onChangeText={setRetypePassword}
             secureTextEntry
             placeholderTextColor={theme.colors.placeholder}
+            textContentType="newPassword"
           />
           <View style={styles.ageRow}>
             <Switch
               value={ageConfirmed}
               onValueChange={setAgeConfirmed}
-              trackColor={{ false: "#ccc", true: theme.colors.primary }}
+              trackColor={{ false: "#fff", true: "#d2b48c" }}
               thumbColor="#fff"
             />
             <Text style={styles.ageLabel}>I confirm I am 16 years or older (users under 18 need parent/guardian permission)</Text>
@@ -264,7 +269,7 @@ const styles = StyleSheet.create({
   ageLabel: {
     flex: 1,
     fontSize: 14,
-    color: "#000",
+    color: "#fff",
   },
   button: {
     backgroundColor: "#fff",

@@ -112,8 +112,8 @@ function RootLayoutNav() {
         <Stack.Screen name="cart" />
         <Stack.Screen name="business/[slug]" />
         <Stack.Screen name="seller/[slug]" />
-        <Stack.Screen name="coupons" />
-        <Stack.Screen name="rewards" />
+        <Stack.Screen name="coupons/index" />
+        <Stack.Screen name="rewards/index" />
         <Stack.Screen name="profile-edit" />
         <Stack.Screen name="policies" />
         <Stack.Screen name="profile-businesses" />
@@ -127,8 +127,11 @@ function RootLayoutNav() {
         <Stack.Screen name="badges" />
         <Stack.Screen name="my-badges" />
         <Stack.Screen name="my-sellers" />
+        <Stack.Screen name="scanner" options={{ presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="saved-posts" />
+        <Stack.Screen name="subscribe" />
         <Stack.Screen name="community" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="modal" options={{ presentation: 'containedModal' }} />
       </Stack>
     </NavThemeProvider>
     </ProfileViewLayout>

@@ -7,15 +7,16 @@ import { apiPost } from "@/lib/api";
 interface SubscriptionCheckoutSheetProps {
   planId: "subscribe" | "sponsor" | "seller";
   businessData?: Record<string, unknown>;
+  interval?: "monthly" | "yearly";
   onSuccess: () => void;
   onError?: (message: string) => void;
-  /** Called after payment - use to refresh member and navigate. Webhook may take a moment. */
   refreshMember?: () => Promise<void>;
 }
 
 export function SubscriptionCheckoutSheet({
   planId,
   businessData,
+  interval,
   onSuccess,
   onError,
   refreshMember,
@@ -35,6 +36,7 @@ export function SubscriptionCheckoutSheet({
         error?: string;
       }>("/api/stripe/mobile-subscription-setup", {
         planId,
+        interval: interval ?? "monthly",
         businessData: businessData ?? undefined,
       });
 
@@ -70,6 +72,17 @@ export function SubscriptionCheckoutSheet({
         googlePay: {
           merchantCountryCode: "US",
           testEnv: __DEV__ ?? false,
+        },
+        appearance: {
+          colors: {
+            primary: "#505542",
+            background: "#FDEDCC",
+            componentBackground: "#FFFFFF",
+            componentText: "#3E432F",
+            primaryText: "#3E432F",
+            secondaryText: "#505542",
+            icon: "#505542",
+          },
         },
       });
 
@@ -114,10 +127,12 @@ export function SubscriptionCheckoutSheet({
   }, [
     planId,
     businessData,
+    interval,
     initPaymentSheet,
     presentPaymentSheet,
     onSuccess,
     onError,
+    refreshMember,
   ]);
 
   return (
@@ -136,7 +151,7 @@ export function SubscriptionCheckoutSheet({
           {planId === "subscribe"
             ? "Subscribe"
             : planId === "sponsor"
-              ? "Subscribe as Business"
+              ? "Subscribe as Local Business"
               : "Subscribe as Seller"}
         </Text>
       )}

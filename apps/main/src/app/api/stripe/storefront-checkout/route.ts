@@ -236,6 +236,7 @@ export async function POST(req: NextRequest) {
       payment_method_types: ["card"] as const,
       success_url: successUrl,
       cancel_url: `${baseUrl}/storefront?canceled=1`,
+      automatic_tax: { enabled: true },
       metadata: { orderIds: orderIds.join(",") },
       ...(branding && { branding_settings: branding }),
     };

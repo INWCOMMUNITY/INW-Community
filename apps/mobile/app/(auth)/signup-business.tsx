@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -11,8 +11,10 @@ import {
   Platform,
   Switch,
   Image,
+  Alert,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
+import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiPost, apiPatch } from "@/lib/api";
@@ -23,9 +25,12 @@ import { SubscriptionCheckoutWithFallback } from "@/components/SubscriptionCheck
 
 type Step = "account" | "business" | "contact" | "checkout";
 
+const STEP_ORDER: Step[] = ["account", "business", "contact", "checkout"];
+
 export default function SignupBusinessScreen() {
   const router = useRouter();
-  const { refreshMember, member } = useAuth();
+  const navigation = useNavigation();
+  const { refreshMember, member, signOut } = useAuth();
 
   useFocusEffect(
     useCallback(() => {
@@ -40,10 +45,40 @@ export default function SignupBusinessScreen() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zip, setZip] = useState("");
   const [businessData, setBusinessData] = useState<Record<string, unknown> | null>(null);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const isExitingRef = useRef(false);
+
+  usePreventRemove(!isExitingRef.current, ({ data }) => {
+    const idx = STEP_ORDER.indexOf(step);
+    if (idx > 0) {
+      setStep(STEP_ORDER[idx - 1]);
+    } else {
+      Alert.alert(
+        "Leave Sign Up?",
+        "Are you sure you want to leave Business sign up? Progress will not be saved.",
+        [
+          { text: "Stay", style: "cancel" },
+          {
+            text: "Leave",
+            style: "destructive",
+            onPress: async () => {
+              await signOut();
+              isExitingRef.current = true;
+              navigation.dispatch(data.action);
+            },
+          },
+        ]
+      );
+    }
+  });
 
   const handleAccountSubmit = async () => {
     setError("");
@@ -104,12 +139,48 @@ export default function SignupBusinessScreen() {
       setError("First name and last name are required.");
       return;
     }
+    if (!street.trim() || !city.trim() || !state.trim() || !zip.trim()) {
+      setError("Full mailing address is required for tax calculation.");
+      return;
+    }
     setLoading(true);
     try {
+      const validation = await apiPost<{
+        valid: boolean;
+        error?: string;
+        formatted?: { street: string; city: string; state: string; zip: string };
+      }>("/api/validate-address", {
+        street: street.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        zip: zip.trim(),
+      });
+
+      if (!validation.valid) {
+        setError(validation.error ?? "We couldn't verify this address. Please check and try again.");
+        setLoading(false);
+        return;
+      }
+
+      if (validation.formatted) {
+        setStreet(validation.formatted.street);
+        setCity(validation.formatted.city);
+        setState(validation.formatted.state);
+        setZip(validation.formatted.zip);
+      }
+
+      const addr = validation.formatted ?? {
+        street: street.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        zip: zip.trim(),
+      };
+
       await apiPatch("/api/me", {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         phone: phone.trim() || null,
+        deliveryAddress: addr,
       });
       setStep("checkout");
     } catch (e) {
@@ -149,7 +220,7 @@ export default function SignupBusinessScreen() {
               <Switch
                 value={ageConfirmed}
                 onValueChange={setAgeConfirmed}
-                trackColor={{ false: "#ccc", true: theme.colors.primary }}
+                trackColor={{ false: "#fff", true: "#d2b48c" }}
                 thumbColor="#fff"
               />
               <Text style={styles.ageLabel}>I confirm I am 16 years or older</Text>
@@ -224,15 +295,19 @@ export default function SignupBusinessScreen() {
           <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
           <Text style={styles.backText}>Back</Text>
         </Pressable>
-        <Text style={styles.title}>Business Information</Text>
-        <Text style={styles.subtitle}>
-          Add your business details for your storefront. You can edit these later. Business must be noncorporate, located in Eastern Washington or North Idaho.
-        </Text>
-        {error ? <Text style={styles.errorRed}>{error}</Text> : null}
         <BusinessForm
           onSuccess={() => {}}
           onDraftSubmit={handleBusinessDraft}
           draftButtonLabel="Continue"
+          headerContent={
+            <>
+              <Text style={styles.title}>Business Information</Text>
+              <Text style={styles.subtitle}>
+                Add your business details for your storefront. You can edit these later. Business must be noncorporate, located in Eastern Washington or North Idaho.
+              </Text>
+              {error ? <Text style={styles.errorRed}>{error}</Text> : null}
+            </>
+          }
         />
       </View>
     );
@@ -249,26 +324,28 @@ export default function SignupBusinessScreen() {
           <Text style={styles.backText}>Back</Text>
         </Pressable>
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.title}>Personal Contact</Text>
+          <Text style={styles.title}>Contact & Mailing Address</Text>
           <Text style={styles.subtitle}>
-            Private contact details for NWC to reach you. This information is not shared publicly.
+            Private contact details for NWC to reach you. Your mailing address is used to calculate applicable sales tax. This information is not shared publicly.
           </Text>
           <View style={styles.form}>
             <TextInput
               style={styles.input}
-              placeholder="First name"
+              placeholder="First name *"
               value={firstName}
               onChangeText={setFirstName}
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
+              textContentType="givenName"
             />
             <TextInput
               style={styles.input}
-              placeholder="Last name"
+              placeholder="Last name *"
               value={lastName}
               onChangeText={setLastName}
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
+              textContentType="familyName"
             />
             <TextInput
               style={styles.input}
@@ -277,7 +354,48 @@ export default function SignupBusinessScreen() {
               onChangeText={setPhone}
               keyboardType="phone-pad"
               placeholderTextColor={theme.colors.placeholder}
+              textContentType="telephoneNumber"
             />
+            <TextInput
+              style={styles.input}
+              placeholder="Street address *"
+              value={street}
+              onChangeText={setStreet}
+              placeholderTextColor={theme.colors.placeholder}
+              autoCapitalize="words"
+              textContentType="streetAddressLine1"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="City *"
+              value={city}
+              onChangeText={setCity}
+              placeholderTextColor={theme.colors.placeholder}
+              autoCapitalize="words"
+              textContentType="addressCity"
+            />
+            <View style={styles.row}>
+              <TextInput
+                style={[styles.input, styles.halfInput]}
+                placeholder="State *"
+                value={state}
+                onChangeText={setState}
+                placeholderTextColor={theme.colors.placeholder}
+                autoCapitalize="characters"
+                maxLength={2}
+                textContentType="addressState"
+              />
+              <TextInput
+                style={[styles.input, styles.halfInput]}
+                placeholder="ZIP *"
+                value={zip}
+                onChangeText={setZip}
+                placeholderTextColor={theme.colors.placeholder}
+                keyboardType="number-pad"
+                maxLength={10}
+                textContentType="postalCode"
+              />
+            </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <Pressable
               style={({ pressed }) => [
@@ -301,7 +419,7 @@ export default function SignupBusinessScreen() {
 
   if (step === "checkout") {
     return (
-      <View style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
         <Pressable style={styles.back} onPress={() => setStep("contact")}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
           <Text style={styles.backText}>Back</Text>
@@ -314,19 +432,46 @@ export default function SignupBusinessScreen() {
             accessibilityLabel="Northwest Community"
           />
         </View>
-        <Text style={styles.checkoutTitle}>Subscribe to Northwest Community Business</Text>
+        <Text style={styles.checkoutTitle}>Subscribe as a Local Business</Text>
         <Text style={styles.checkoutSubtitle}>
           Join Northwest Community&apos;s Local Business Directory on the website and app. Offer coupons, post events on our calendar, gain visibility, and reward the community for supporting local businesses. Thank you for being here. Reach out anytime!
         </Text>
+        <View style={styles.pricingWrap}>
+          <View style={styles.intervalToggle}>
+            <Pressable
+              style={[styles.intervalBtn, billingInterval === "monthly" && styles.intervalBtnActive]}
+              onPress={() => setBillingInterval("monthly")}
+            >
+              <Text style={[styles.intervalBtnText, billingInterval === "monthly" && styles.intervalBtnTextActive]}>Monthly</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.intervalBtn, billingInterval === "yearly" && styles.intervalBtnActive]}
+              onPress={() => setBillingInterval("yearly")}
+            >
+              <Text style={[styles.intervalBtnText, billingInterval === "yearly" && styles.intervalBtnTextActive]}>Yearly</Text>
+            </Pressable>
+          </View>
+          <View style={styles.priceCard}>
+            {billingInterval === "monthly" ? (
+              <Text style={styles.priceText}><Text style={styles.priceAmount}>$25</Text> a month</Text>
+            ) : (
+              <>
+                <Text style={styles.priceText}><Text style={styles.priceAmount}>$250</Text> a year</Text>
+                <Text style={styles.priceSavings}>Save $50 a year</Text>
+              </>
+            )}
+          </View>
+        </View>
         <View style={styles.checkoutBtnWrap}>
           <SubscriptionCheckoutWithFallback
             planId="sponsor"
             businessData={businessData ?? undefined}
+            interval={billingInterval}
             onSuccess={handleCheckoutSuccess}
             refreshMember={refreshMember}
           />
         </View>
-      </View>
+      </ScrollView>
     );
   }
 
@@ -382,6 +527,63 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     textAlign: "center",
   },
+  pricingWrap: {
+    alignSelf: "center",
+    width: "80%",
+    marginBottom: 20,
+  },
+  intervalToggle: {
+    flexDirection: "row",
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    overflow: "hidden",
+  },
+  intervalBtn: {
+    paddingVertical: 14,
+    backgroundColor: "#fff",
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  intervalBtnActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  intervalBtnText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  intervalBtnTextActive: {
+    color: "#fff",
+  },
+  priceCard: {
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    borderWidth: 2,
+    borderTopWidth: 0,
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.cream ?? "#faf5ee",
+  },
+  priceText: {
+    fontSize: 19,
+    color: theme.colors.text,
+  },
+  priceAmount: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: theme.colors.heading,
+  },
+  priceSavings: {
+    fontSize: 14,
+    color: theme.colors.primary,
+    fontWeight: "600",
+    marginTop: 3,
+  },
   checkoutBtnWrap: {
     alignItems: "center",
     width: "100%",
@@ -392,6 +594,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#000",
     backgroundColor: theme.colors.primary,
+  },
+  row: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  halfInput: {
+    flex: 1,
   },
   input: {
     borderWidth: 2,

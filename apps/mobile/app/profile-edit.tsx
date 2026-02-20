@@ -32,6 +32,13 @@ function formatLoadError(e: unknown): string {
     : msg;
 }
 
+interface DeliveryAddress {
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+}
+
 interface ProfileData {
   firstName: string;
   lastName: string;
@@ -40,6 +47,7 @@ interface ProfileData {
   bio: string | null;
   city: string | null;
   phone: string | null;
+  deliveryAddress?: DeliveryAddress | null;
 }
 
 export default function ProfileEditScreen() {
@@ -54,6 +62,10 @@ export default function ProfileEditScreen() {
   const [city, setCity] = useState("");
   const [phone, setPhone] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [shipStreet, setShipStreet] = useState("");
+  const [shipCity, setShipCity] = useState("");
+  const [shipState, setShipState] = useState("");
+  const [shipZip, setShipZip] = useState("");
 
   useEffect(() => {
     getToken().then(async (token) => {
@@ -70,6 +82,12 @@ export default function ProfileEditScreen() {
         setCity(d.city ?? "");
         setPhone(d.phone ?? "");
         setProfilePhotoUrl(d.profilePhotoUrl ?? null);
+        if (d.deliveryAddress) {
+          setShipStreet(d.deliveryAddress.street ?? "");
+          setShipCity(d.deliveryAddress.city ?? "");
+          setShipState(d.deliveryAddress.state ?? "");
+          setShipZip(d.deliveryAddress.zip ?? "");
+        }
       } catch (e) {
         const err = e as { error?: string; status?: number };
         const msg = err?.error ?? "Failed to load profile.";
@@ -130,6 +148,10 @@ export default function ProfileEditScreen() {
     }
     setSubmitting(true);
     try {
+      const deliveryAddress =
+        shipStreet.trim() || shipCity.trim() || shipState.trim() || shipZip.trim()
+          ? { street: shipStreet.trim(), city: shipCity.trim(), state: shipState.trim(), zip: shipZip.trim() }
+          : null;
       await apiPatch("/api/me", {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -137,6 +159,7 @@ export default function ProfileEditScreen() {
         city: city.trim() || null,
         phone: phone.trim() || null,
         profilePhotoUrl: profilePhotoUrl || null,
+        deliveryAddress,
       });
       router.back();
     } catch (e) {
@@ -329,6 +352,52 @@ export default function ProfileEditScreen() {
           />
         </View>
 
+        <View style={styles.field}>
+          <Text style={styles.label}>Shipping Address (private)</Text>
+          <Text style={styles.fieldNote}>
+            Used to autofill checkout. This is never shared publicly.
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={shipStreet}
+            onChangeText={setShipStreet}
+            placeholder="Street address"
+            placeholderTextColor={theme.colors.placeholder}
+            autoCapitalize="words"
+            textContentType="streetAddressLine1"
+          />
+          <View style={styles.row}>
+            <TextInput
+              style={[styles.input, styles.inputHalf]}
+              value={shipCity}
+              onChangeText={setShipCity}
+              placeholder="City"
+              placeholderTextColor={theme.colors.placeholder}
+              autoCapitalize="words"
+              textContentType="addressCity"
+            />
+            <TextInput
+              style={[styles.input, styles.inputQuarter]}
+              value={shipState}
+              onChangeText={setShipState}
+              placeholder="State"
+              placeholderTextColor={theme.colors.placeholder}
+              autoCapitalize="characters"
+              maxLength={2}
+              textContentType="addressState"
+            />
+            <TextInput
+              style={[styles.input, styles.inputQuarter]}
+              value={shipZip}
+              onChangeText={setShipZip}
+              placeholder="ZIP"
+              placeholderTextColor={theme.colors.placeholder}
+              keyboardType="number-pad"
+              textContentType="postalCode"
+            />
+          </View>
+        </View>
+
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable
           style={({ pressed }) => [styles.saveBtn, submitting && styles.saveBtnDisabled, pressed && { opacity: 0.8 }]}
@@ -441,6 +510,18 @@ const styles = StyleSheet.create({
     minHeight: 100,
     textAlignVertical: "top",
   },
+  fieldNote: {
+    fontSize: 12,
+    color: "#888",
+    marginBottom: 8,
+    fontStyle: "italic",
+  },
+  row: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  inputHalf: { flex: 1 },
+  inputQuarter: { flex: 0.5 },
   error: {
     color: "#c62828",
     marginBottom: 12,
