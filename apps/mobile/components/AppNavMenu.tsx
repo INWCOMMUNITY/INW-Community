@@ -91,6 +91,13 @@ export function AppNavMenu({ visible, onClose, hasSponsor, hasSeller, hasSubscri
               >
                 <Text style={styles.navLinkText}>Profile</Text>
               </Pressable>
+              <Pressable
+                onPress={() => { onClose(); router.push("/subscribe" as import("expo-router").Href); }}
+                style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
+              >
+                <Ionicons name="star" size={16} color={theme.colors.primary} style={{ marginRight: 4 }} />
+                <Text style={[styles.navLinkText, { color: theme.colors.primary, fontWeight: "600" }]}>Subscribe</Text>
+              </Pressable>
             </View>
           </ScrollView>
         </View>
@@ -161,6 +168,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   navLink: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 10,
     paddingHorizontal: 12,
   },

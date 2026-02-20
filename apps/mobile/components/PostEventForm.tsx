@@ -11,6 +11,7 @@ import {
   Image,
   Modal,
   Platform,
+  KeyboardAvoidingView,
 } from "react-native";
 import DateTimePicker, {
   DateTimePickerAndroid,
@@ -158,8 +159,8 @@ export function PostEventForm({
         photos,
       });
       Alert.alert(
-        "Thank you!",
-        "Northwest Community will review your event soon.",
+        "Event Posted!",
+        "Thanks for posting an event on the Northwest Community Calendar!",
         [
           {
             text: "OK",
@@ -180,7 +181,12 @@ export function PostEventForm({
   };
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
+    >
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.field}>
         <Text style={styles.label}>Event title *</Text>
         <TextInput
@@ -429,6 +435,7 @@ export function PostEventForm({
         )}
       </Pressable>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

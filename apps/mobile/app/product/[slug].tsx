@@ -448,18 +448,6 @@ export default function ProductScreen() {
               <Text style={styles.soldByText}>
                 Sold by {item.member.firstName} {item.member.lastName}
               </Text>
-              {listingType === "resale" && member && (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.messageSellerBtn,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                  onPress={() => setMessageSellerModalOpen(true)}
-                >
-                  <Ionicons name="chatbubble-outline" size={18} color="#fff" />
-                  <Text style={styles.messageSellerBtnText}>Message seller</Text>
-                </Pressable>
-              )}
             </View>
           ) : null}
           <Text style={styles.price}>{formatPrice(item.priceCents)}</Text>
@@ -627,6 +615,21 @@ export default function ProductScreen() {
               <Text style={styles.description}>{item.description}</Text>
             </View>
           ) : null}
+
+          {listingType === "resale" && member && (
+            <View style={styles.section}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.messageSellerBtn,
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={() => setMessageSellerModalOpen(true)}
+              >
+                <Ionicons name="chatbubble-outline" size={18} color="#fff" />
+                <Text style={styles.messageSellerBtnText}>Message Seller</Text>
+              </Pressable>
+            </View>
+          )}
 
           {/* Store Information */}
           {item.business && (

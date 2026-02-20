@@ -53,12 +53,12 @@ export async function GET(req: NextRequest) {
       privacyLevel: true,
       phone: true,
       deliveryAddress: true,
+      signupIntent: true,
       acceptCashForPickupDelivery: true,
       sellerShippingPolicy: true,
       sellerLocalDeliveryPolicy: true,
       sellerPickupPolicy: true,
       sellerReturnPolicy: true,
-      // offerShipping, offerLocalDelivery, offerLocalPickup omitted until db:push adds columns - prevents sign-in redirect loop
     },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });

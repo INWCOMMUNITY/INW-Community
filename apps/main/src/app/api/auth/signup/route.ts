@@ -60,10 +60,57 @@ export async function POST(req: NextRequest) {
     const firstName = (parsed.firstName ?? "").trim() || "Pending";
     const lastName = (parsed.lastName ?? "").trim() || "Pending";
     const city = parsed.city ?? null;
-    const existing = await prisma.member.findUnique({ where: { email } });
+    const existing = await prisma.member.findUnique({
+      where: { email },
+      include: { subscriptions: { where: { status: { in: ["active", "trialing"] } }, take: 1 } },
+    });
+
     if (existing) {
-      return NextResponse.json({ error: "Email already registered. Try signing in or use a different email." }, { status: 400 });
+      const hasActiveSub = existing.subscriptions.length > 0;
+      const isIncomplete = !hasActiveSub && existing.firstName === "Pending" && existing.lastName === "Pending";
+
+      if (!isIncomplete) {
+        return NextResponse.json({ error: "Email already registered. Try signing in or use a different email." }, { status: 400 });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      const member = await prisma.member.update({
+        where: { id: existing.id },
+        data: {
+          passwordHash,
+          firstName,
+          lastName,
+          city: city ?? undefined,
+          signupIntent: signupIntent ?? "resident",
+        },
+      });
+      awardMemberSignupBadges(member.id, signupIntent ?? "resident").catch(() => {});
+      if (ref) {
+        const referralLink = await prisma.referralLink.findUnique({ where: { code: ref } });
+        if (referralLink && referralLink.memberId !== member.id) {
+          await prisma.referralSignup.upsert({
+            where: { newMemberId: member.id },
+            create: { referrerId: referralLink.memberId, newMemberId: member.id },
+            update: {},
+          });
+          awardSpreadingTheWordBadge(referralLink.memberId).catch(() => {});
+        }
+      }
+      if (tagIds?.length) {
+        const validTags = await prisma.tag.findMany({
+          where: { id: { in: tagIds } },
+          select: { id: true },
+        });
+        if (validTags.length) {
+          await prisma.followTag.createMany({
+            data: validTags.map((t) => ({ memberId: member.id, tagId: t.id })),
+            skipDuplicates: true,
+          });
+        }
+      }
+      return NextResponse.json({ ok: true });
     }
+
     const passwordHash = await bcrypt.hash(password, 10);
     const member = await prisma.member.create({
       data: {

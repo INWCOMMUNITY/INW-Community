@@ -17,6 +17,7 @@ const siteBase = API_BASE.replace(/\/$/, "");
 interface SubscriptionCheckoutWithFallbackProps {
   planId: "subscribe" | "sponsor" | "seller";
   businessData?: Record<string, unknown>;
+  interval?: "monthly" | "yearly";
   onSuccess: () => void;
   onError?: (message: string) => void;
   refreshMember?: () => Promise<void>;
@@ -39,7 +40,7 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
     try {
       const data = await apiPost<{ url?: string }>("/api/stripe/checkout", {
         planId: props.planId,
-        interval: "monthly",
+        interval: props.interval ?? "monthly",
         businessData: props.businessData ?? undefined,
         returnBaseUrl: siteBase,
       });
@@ -60,7 +61,7 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
     } finally {
       setLoading(false);
     }
-  }, [props.planId, props.businessData, props.onError, router]);
+  }, [props.planId, props.interval, props.businessData, props.onError, router]);
 
   return (
     <View style={styles.fallback}>
@@ -182,6 +183,7 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
         <SubscriptionCheckoutSheet
           planId={props.planId}
           businessData={props.businessData}
+          interval={props.interval}
           onSuccess={props.onSuccess}
           onError={props.onError}
           refreshMember={props.refreshMember}

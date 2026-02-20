@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Alert } from "react-native";
+import { Alert, Modal } from "react-native";
 import {
   StyleSheet,
   View,
@@ -35,15 +35,18 @@ interface FeedPostCardProps {
   onComment?: (postId: string) => void;
   onShare?: (postId: string) => void;
   onReport?: (postId: string) => void;
+  onSave?: (postId: string) => void;
+  onDeleteComment?: (commentId: string) => void;
   onOpenCoupon?: (couponId: string) => void;
 }
 
-export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onOpenCoupon }: FeedPostCardProps) {
+export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onSave, onOpenCoupon }: FeedPostCardProps) {
   const router = useRouter();
   const { member } = useAuth();
   const [blogSaved, setBlogSaved] = useState(false);
   const [blogSaving, setBlogSaving] = useState(false);
   const [blogShareOpen, setBlogShareOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const blog = post.type === "shared_blog" ? post.sourceBlog : null;
   useEffect(() => {
@@ -111,7 +114,46 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onOpe
             {new Date(post.createdAt).toLocaleDateString()}
           </Text>
         </View>
+        {member && !post.id.startsWith("example-") && (
+          <Pressable
+            style={styles.menuBtn}
+            onPress={() => setMenuOpen(true)}
+          >
+            <Ionicons name="ellipsis-vertical" size={20} color="#666" />
+          </Pressable>
+        )}
       </View>
+
+      {menuOpen && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+          <Pressable style={styles.menuOverlay} onPress={() => setMenuOpen(false)}>
+            <View style={styles.menuSheet}>
+              {onSave && (
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => { setMenuOpen(false); onSave(post.id); }}
+                >
+                  <Ionicons name="bookmark-outline" size={20} color={theme.colors.heading} />
+                  <Text style={styles.menuItemText}>Save Post</Text>
+                </Pressable>
+              )}
+              {onReport && (
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => { setMenuOpen(false); onReport(post.id); }}
+                >
+                  <Ionicons name="flag-outline" size={20} color="#c00" />
+                  <Text style={[styles.menuItemText, { color: "#c00" }]}>Report Post</Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.menuItem} onPress={() => setMenuOpen(false)}>
+                <Ionicons name="close" size={20} color="#666" />
+                <Text style={styles.menuItemText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
 
       {post.type === "shared_blog" && post.sourceBlog && (
         <View style={styles.blogCardWrap}>
@@ -317,14 +359,6 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onOpe
             <Text style={styles.actionText}>Share</Text>
           </Pressable>
         ) : null}
-        {onReport && !post.id.startsWith("example-") ? (
-          <Pressable
-            style={styles.actionBtn}
-            onPress={() => onReport(post.id)}
-          >
-            <Text style={styles.actionText}>Report</Text>
-          </Pressable>
-        ) : null}
       </View>
     </View>
   );
@@ -486,5 +520,36 @@ const styles = StyleSheet.create({
   },
   sharedPostLink: {
     marginTop: 8,
+  },
+  menuBtn: {
+    padding: 4,
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  menuSheet: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    width: "100%",
+    maxWidth: 300,
+    overflow: "hidden",
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  menuItemText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: theme.colors.heading,
   },
 });

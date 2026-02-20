@@ -20,7 +20,7 @@ export default function ScanPage() {
   useEffect(() => {
     if (status === "loading" || !session?.user || scanned) return;
     setLoading(true);
-    fetch("/api/scan", {
+    fetch("/api/rewards/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ businessId }),

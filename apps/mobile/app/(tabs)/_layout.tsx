@@ -271,15 +271,15 @@ function TabLayoutInner() {
         headerTintColor: "#ffffff",
         headerTitle: route.name === "my-community" ? () => <ProfileHeaderTitle /> : undefined,
         headerLeft:
-          route.name === "my-community" || route.name === "index"
+          route.name === "home"
             ? () => (
                 <Pressable
                   style={{ marginLeft: 16 }}
-                  onPress={() => router.push("/messages")}
+                  onPress={() => router.push("/scanner" as import("expo-router").Href)}
                 >
                   {({ pressed }) => (
                     <Ionicons
-                      name="mail"
+                      name="camera"
                       size={22}
                       color="#ffffff"
                       style={{ opacity: pressed ? 0.7 : 1 }}
@@ -287,22 +287,54 @@ function TabLayoutInner() {
                   )}
                 </Pressable>
               )
-            : undefined,
-        headerRight: () => (
-          <Pressable
-            style={{ marginRight: 16 }}
-            onPress={() => openSideMenu(route.name)}
-          >
-            {({ pressed }) => (
-              <Ionicons
-                name="menu"
-                size={24}
-                color="#ffffff"
-                style={{ opacity: pressed ? 0.5 : 1 }}
-              />
-            )}
-          </Pressable>
-        ),
+            : route.name === "my-community" || route.name === "index"
+              ? () => (
+                  <Pressable
+                    style={{ marginLeft: 16 }}
+                    onPress={() => router.push("/messages")}
+                  >
+                    {({ pressed }) => (
+                      <Ionicons
+                        name="mail"
+                        size={22}
+                        color="#ffffff"
+                        style={{ opacity: pressed ? 0.7 : 1 }}
+                      />
+                    )}
+                  </Pressable>
+                )
+              : undefined,
+        headerRight: route.name === "support-local"
+          ? () => (
+              <Pressable
+                style={{ marginRight: 16 }}
+                onPress={() => router.push("/scanner" as import("expo-router").Href)}
+              >
+                {({ pressed }) => (
+                  <Ionicons
+                    name="camera"
+                    size={24}
+                    color="#ffffff"
+                    style={{ opacity: pressed ? 0.5 : 1 }}
+                  />
+                )}
+              </Pressable>
+            )
+          : () => (
+              <Pressable
+                style={{ marginRight: 16 }}
+                onPress={() => openSideMenu(route.name)}
+              >
+                {({ pressed }) => (
+                  <Ionicons
+                    name="menu"
+                    size={24}
+                    color="#ffffff"
+                    style={{ opacity: pressed ? 0.5 : 1 }}
+                  />
+                )}
+              </Pressable>
+            ),
       })}
     >
       <Tabs.Screen

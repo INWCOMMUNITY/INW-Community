@@ -7,6 +7,7 @@ import {
   Modal,
   View,
   Text,
+  TextInput,
   ScrollView,
   Pressable,
   Image,
@@ -78,6 +79,7 @@ export function ShareToChatModal({
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   const [shareToFeedLoading, setShareToFeedLoading] = useState(false);
+  const [shareToFeedText, setShareToFeedText] = useState("");
   const [shareToGroupPicker, setShareToGroupPicker] = useState(false);
   const [shareToGroupLoading, setShareToGroupLoading] = useState<string | null>(null);
 
@@ -134,7 +136,8 @@ export function ShareToChatModal({
   const handleShareToFeed = async () => {
     setShareToFeedLoading(true);
     try {
-      await shareToFeed(content);
+      await shareToFeed(content, shareToFeedText);
+      setShareToFeedText("");
       onClose();
     } catch {
       Alert.alert("Error", "Could not share to feed. Try again.");
@@ -241,6 +244,15 @@ export function ShareToChatModal({
 
               {/* Share to Feed & Share to Group - green buttons */}
               <View style={styles.greenSection}>
+                <TextInput
+                  style={styles.shareTextInput}
+                  placeholder="Add a comment to your share..."
+                  placeholderTextColor="#999"
+                  value={shareToFeedText}
+                  onChangeText={setShareToFeedText}
+                  multiline
+                  numberOfLines={2}
+                />
                 <Pressable
                   style={({ pressed }) => [
                     styles.greenBtn,
@@ -427,6 +439,20 @@ const styles = StyleSheet.create({
     color: theme.colors.placeholder,
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  shareTextInput: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: "#333",
+    marginBottom: 12,
+    minHeight: 44,
+    maxHeight: 80,
+    textAlignVertical: "top",
   },
   greenSection: {
     backgroundColor: theme.colors.secondary,

@@ -9,10 +9,47 @@ import { z } from "zod";
 export async function GET(req: NextRequest) {
   try {
   const searchParams = req.nextUrl.searchParams;
+
+  const mine = searchParams.get("mine");
+  if (mine === "1") {
+    const session = await getSessionForApi(req);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const sub = await prisma.subscription.findFirst({
+      where: { memberId: session.user.id, plan: { in: ["sponsor", "seller"] }, status: "active" },
+    });
+    if (!sub) {
+      return NextResponse.json({ error: "Sponsor or Seller plan required" }, { status: 403 });
+    }
+    const businesses = await prisma.business.findMany({
+      where: { memberId: session.user.id },
+      select: { id: true, name: true, slug: true },
+      orderBy: { name: "asc" },
+    });
+    return NextResponse.json(businesses);
+  }
+
+  // Only show businesses whose owner has an active sponsor or seller subscription
+  const activeSubs = await prisma.subscription.findMany({
+    where: { plan: { in: ["sponsor", "seller"] }, status: "active" },
+    select: { memberId: true },
+  });
+  const activeMemberIds = activeSubs.map((s) => s.memberId);
+  if (activeMemberIds.length === 0) {
+    const slug = searchParams.get("slug")?.trim();
+    if (slug) return NextResponse.json({ error: "Business not found" }, { status: 404 });
+    const list = searchParams.get("list");
+    if (list === "meta") return NextResponse.json({ categories: [], cities: [] });
+    return NextResponse.json([]);
+  }
+
+  const activeSubFilter = { nameApprovalStatus: "approved" as const, memberId: { in: activeMemberIds } };
+
   const slug = searchParams.get("slug")?.trim();
   if (slug) {
     const business = await prisma.business.findFirst({
-      where: { slug, nameApprovalStatus: "approved" },
+      where: { slug, ...activeSubFilter },
       include: { coupons: true },
     });
     if (!business) {
@@ -36,31 +73,13 @@ export async function GET(req: NextRequest) {
       coupons: business.coupons,
     });
   }
+
   const list = searchParams.get("list");
-  const mine = searchParams.get("mine");
-  if (mine === "1") {
-    const session = await getSessionForApi(req);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const sub = await prisma.subscription.findFirst({
-      where: { memberId: session.user.id, plan: { in: ["sponsor", "seller"] }, status: "active" },
-    });
-    if (!sub) {
-      return NextResponse.json({ error: "Sponsor or Seller plan required" }, { status: 403 });
-    }
-    const businesses = await prisma.business.findMany({
-      where: { memberId: session.user.id },
-      select: { id: true, name: true, slug: true },
-      orderBy: { name: "asc" },
-    });
-    return NextResponse.json(businesses);
-  }
   if (list === "meta") {
     const [businesses, cityRows] = await Promise.all([
-      prisma.business.findMany({ where: { nameApprovalStatus: "approved" }, select: { categories: true } }),
+      prisma.business.findMany({ where: activeSubFilter, select: { categories: true } }),
       prisma.business.findMany({
-        where: { nameApprovalStatus: "approved", city: { not: null } },
+        where: { ...activeSubFilter, city: { not: null } },
         select: { city: true },
       }),
     ]);
@@ -76,7 +95,7 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get("search")?.trim();
   const businesses = await prisma.business.findMany({
     where: {
-      nameApprovalStatus: "approved",
+      ...activeSubFilter,
       ...(category ? { categories: { has: category } } : {}),
       ...(city ? { city: { equals: city, mode: "insensitive" } } : {}),
       ...(search

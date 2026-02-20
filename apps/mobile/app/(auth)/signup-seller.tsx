@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -11,8 +11,10 @@ import {
   Platform,
   Switch,
   Image,
+  Alert,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
+import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiPost, apiPatch } from "@/lib/api";
@@ -22,10 +24,12 @@ import { BusinessForm } from "@/components/BusinessForm";
 import { SubscriptionCheckoutWithFallback } from "@/components/SubscriptionCheckoutWithFallback";
 
 type Step = "account" | "business" | "contact" | "checkout";
+const STEP_ORDER: Step[] = ["account", "business", "contact", "checkout"];
 
 export default function SignupSellerScreen() {
   const router = useRouter();
-  const { refreshMember, member } = useAuth();
+  const navigation = useNavigation();
+  const { refreshMember, member, signOut } = useAuth();
 
   useFocusEffect(
     useCallback(() => {
@@ -48,6 +52,31 @@ export default function SignupSellerScreen() {
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const isExitingRef = useRef(false);
+
+  usePreventRemove(!isExitingRef.current, ({ data }) => {
+    const idx = STEP_ORDER.indexOf(step);
+    if (idx > 0) {
+      setStep(STEP_ORDER[idx - 1]);
+    } else {
+      Alert.alert(
+        "Leave Sign Up?",
+        "Are you sure you want to leave Seller sign up? Progress will not be saved.",
+        [
+          { text: "Stay", style: "cancel" },
+          {
+            text: "Leave",
+            style: "destructive",
+            onPress: async () => {
+              await signOut();
+              isExitingRef.current = true;
+              navigation.dispatch(data.action);
+            },
+          },
+        ]
+      );
+    }
+  });
 
   const handleAccountSubmit = async () => {
     setError("");
@@ -100,20 +129,46 @@ export default function SignupSellerScreen() {
 
   const handleContactSubmit = async () => {
     setError("");
+    if (!street.trim() || !city.trim() || !state.trim() || !zip.trim()) {
+      setError("Full mailing address is required for tax calculation.");
+      return;
+    }
     setLoading(true);
     try {
-      const deliveryAddress =
-        street.trim() || city.trim() || state.trim() || zip.trim()
-          ? {
-              street: street.trim() || undefined,
-              city: city.trim() || undefined,
-              state: state.trim() || undefined,
-              zip: zip.trim() || undefined,
-            }
-          : null;
+      const validation = await apiPost<{
+        valid: boolean;
+        error?: string;
+        formatted?: { street: string; city: string; state: string; zip: string };
+      }>("/api/validate-address", {
+        street: street.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        zip: zip.trim(),
+      });
+
+      if (!validation.valid) {
+        setError(validation.error ?? "We couldn't verify this address. Please check and try again.");
+        setLoading(false);
+        return;
+      }
+
+      if (validation.formatted) {
+        setStreet(validation.formatted.street);
+        setCity(validation.formatted.city);
+        setState(validation.formatted.state);
+        setZip(validation.formatted.zip);
+      }
+
+      const addr = validation.formatted ?? {
+        street: street.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        zip: zip.trim(),
+      };
+
       const payload: Record<string, unknown> = {
         phone: phone.trim() || null,
-        deliveryAddress,
+        deliveryAddress: addr,
       };
       if (firstName.trim()) payload.firstName = firstName.trim();
       if (lastName.trim()) payload.lastName = lastName.trim();
@@ -156,7 +211,7 @@ export default function SignupSellerScreen() {
               <Switch
                 value={ageConfirmed}
                 onValueChange={setAgeConfirmed}
-                trackColor={{ false: "#ccc", true: theme.colors.primary }}
+                trackColor={{ false: "#fff", true: "#d2b48c" }}
                 thumbColor="#fff"
               />
               <Text style={styles.ageLabel}>I confirm I am 16 years or older</Text>
@@ -231,15 +286,19 @@ export default function SignupSellerScreen() {
           <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
           <Text style={styles.backText}>Back</Text>
         </Pressable>
-        <Text style={styles.title}>Business Information</Text>
-        <Text style={styles.subtitle}>
-          Add your business details for your storefront. You can edit these later. Business must be noncorporate, located in Eastern Washington or North Idaho.
-        </Text>
-        {error ? <Text style={styles.errorRed}>{error}</Text> : null}
         <BusinessForm
           onSuccess={() => {}}
           onDraftSubmit={handleBusinessDraft}
           draftButtonLabel="Continue"
+          headerContent={
+            <>
+              <Text style={styles.title}>Business Information</Text>
+              <Text style={styles.subtitle}>
+                Add your business details for your storefront. You can edit these later. Business must be noncorporate, located in Eastern Washington or North Idaho.
+              </Text>
+              {error ? <Text style={styles.errorRed}>{error}</Text> : null}
+            </>
+          }
         />
       </View>
     );
@@ -256,9 +315,9 @@ export default function SignupSellerScreen() {
           <Text style={styles.backText}>Back</Text>
         </Pressable>
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.title}>Contact & Shipping</Text>
+          <Text style={styles.title}>Contact & Mailing Address</Text>
           <Text style={styles.subtitle}>
-            Contact details for order fulfillment. All fields are optional. You can update these later.
+            Contact details for order fulfillment. Your mailing address is required for tax calculation. You can update these later.
           </Text>
           <View style={styles.form}>
             <TextInput
@@ -268,6 +327,7 @@ export default function SignupSellerScreen() {
               onChangeText={setFirstName}
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
+              textContentType="givenName"
             />
             <TextInput
               style={styles.input}
@@ -276,6 +336,7 @@ export default function SignupSellerScreen() {
               onChangeText={setLastName}
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
+              textContentType="familyName"
             />
             <TextInput
               style={styles.input}
@@ -284,38 +345,46 @@ export default function SignupSellerScreen() {
               onChangeText={setPhone}
               keyboardType="phone-pad"
               placeholderTextColor={theme.colors.placeholder}
+              textContentType="telephoneNumber"
             />
-            <Text style={styles.sectionLabel}>Shipping address (optional)</Text>
+            <Text style={styles.sectionLabel}>Mailing address *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Street"
+              placeholder="Street address *"
               value={street}
               onChangeText={setStreet}
               placeholderTextColor={theme.colors.placeholder}
+              autoCapitalize="words"
+              textContentType="streetAddressLine1"
             />
             <View style={styles.row}>
               <TextInput
                 style={[styles.input, styles.inputHalf]}
-                placeholder="City"
+                placeholder="City *"
                 value={city}
                 onChangeText={setCity}
                 placeholderTextColor={theme.colors.placeholder}
+                autoCapitalize="words"
+                textContentType="addressCity"
               />
               <TextInput
                 style={[styles.input, styles.inputQuarter]}
-                placeholder="State"
+                placeholder="State *"
                 value={state}
                 onChangeText={setState}
                 placeholderTextColor={theme.colors.placeholder}
                 autoCapitalize="characters"
+                maxLength={2}
+                textContentType="addressState"
               />
               <TextInput
                 style={[styles.input, styles.inputQuarter]}
-                placeholder="ZIP"
+                placeholder="ZIP *"
                 value={zip}
                 onChangeText={setZip}
                 keyboardType="number-pad"
                 placeholderTextColor={theme.colors.placeholder}
+                textContentType="postalCode"
               />
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}

@@ -177,15 +177,8 @@ export default function RewardsScreen() {
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
-        <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>Rewards</Text>
-        </View>
-        <Pressable
-          style={styles.subscribeBtn}
-          onPress={() => router.push("/subscribe" as import("expo-router").Href)}
-        >
-          <Text style={styles.subscribeBtnText}>Subscribe</Text>
-        </Pressable>
+        <Text style={styles.headerTitle}>Rewards</Text>
+        <View style={{ width: 32 }} />
       </View>
 
       {connectionError ? (
@@ -210,9 +203,24 @@ export default function RewardsScreen() {
             />
           }
         >
+          <Pressable
+            style={styles.scanBtn}
+            onPress={() => router.push("/scanner" as import("expo-router").Href)}
+          >
+            <Ionicons name="camera" size={32} color="#fff" />
+            <Text style={styles.scanBtnText}>Scan QR Code</Text>
+          </Pressable>
+
           <Text style={styles.intro}>
             Redeem your Community Points for rewards from local businesses. Support local to earn more points! Subscribers earn 2x points.
           </Text>
+
+          <Pressable
+            style={styles.subscribeInlineBtn}
+            onPress={() => router.push("/subscribe" as import("expo-router").Href)}
+          >
+            <Text style={styles.subscribeInlineBtnText}>Subscribe to NWC</Text>
+          </Pressable>
 
           <View style={styles.sideBySide}>
             {signedIn && points !== null && (
@@ -425,20 +433,13 @@ const styles = StyleSheet.create({
     borderBottomColor: "#000",
   },
   backBtn: { padding: 4 },
-  headerTitleWrap: { flex: 1, alignItems: "center" },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: "#fff",
     textAlign: "center",
+    flex: 1,
   },
-  subscribeBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: "rgba(255,255,255,0.3)",
-  },
-  subscribeBtnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
   errorBlock: {
     padding: 48,
     alignItems: "center",
@@ -453,11 +454,38 @@ const styles = StyleSheet.create({
   retryBtnText: { fontSize: 16, fontWeight: "600", color: "#fff" },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 48 },
+  scanBtn: {
+    backgroundColor: "#3A624E",
+    paddingVertical: 18,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 20,
+  },
+  scanBtnText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#fff",
+  },
   intro: {
     fontSize: 16,
     color: "#666",
-    marginBottom: 24,
+    marginBottom: 16,
     lineHeight: 24,
+  },
+  subscribeInlineBtn: {
+    backgroundColor: "#3A624E",
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  subscribeInlineBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
   sideBySide: {
     flexDirection: "column",

@@ -20,7 +20,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { fetchComments, createComment, likeComment, type FeedComment } from "@/lib/feed-api";
 import type { FeedPost } from "@/lib/feed-api";
-import { apiPost, apiUploadFile, getToken } from "@/lib/api";
+import { apiPost, apiDelete, apiUploadFile, getToken } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { GifPickerModal } from "@/components/GifPickerModal";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
@@ -110,9 +111,10 @@ interface CommentRowProps {
   onLike: (commentId: string) => void;
   onReply: (comment: FeedComment) => void;
   onReportComment?: (commentId: string) => void;
+  onDeleteComment?: (commentId: string) => void;
 }
 
-function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment }: CommentRowProps) {
+function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment, onDeleteComment }: CommentRowProps) {
   const name = `${comment.member.firstName ?? ""} ${comment.member.lastName ?? ""}`.trim() || "Member";
   const initials = [comment.member.firstName?.[0], comment.member.lastName?.[0]]
     .filter(Boolean)
@@ -175,6 +177,14 @@ function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment
                 <Text style={styles.commentActionText}>Report</Text>
               </Pressable>
             )}
+            {onDeleteComment && (
+              <Pressable
+                onPress={() => onDeleteComment(comment.id)}
+                style={({ pressed }) => [styles.commentActionBtn, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={[styles.commentActionText, { color: "#c00" }]}>Delete</Text>
+              </Pressable>
+            )}
           </View>
         </View>
         <View style={styles.commentLikeWrap}>
@@ -215,6 +225,8 @@ export function FeedCommentsModal({
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ id: string; authorName: string } | null>(null);
   const [isDemoPost, setIsDemoPost] = useState(false);
+  const { member } = useAuth();
+  const isPostOwner = !!(member && post?.author?.id === member.id);
   const slideAnim = useRef(new Animated.Value(SHEET_HEIGHT)).current;
 
   useEffect(() => {
@@ -359,8 +371,8 @@ export function FeedCommentsModal({
 
   const reportOptions = [
     { text: "Political content", reason: "political" as const },
-    { text: "Hate speech", reason: "hate" as const },
     { text: "Nudity / explicit", reason: "nudity" as const },
+    { text: "Spam", reason: "spam" as const },
     { text: "Other", reason: "other" as const },
   ];
   const handleReportComment = (commentId: string) => {
@@ -400,6 +412,28 @@ export function FeedCommentsModal({
             ),
         })),
         { text: "Cancel", style: "cancel" },
+      ]
+    );
+  };
+
+  const handleDeleteComment = (commentId: string) => {
+    Alert.alert(
+      "Delete comment",
+      "Are you sure you want to delete this comment?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await apiDelete(`/api/feed/comments/${commentId}`);
+              setComments((prev) => prev.filter((c) => c.id !== commentId));
+            } catch {
+              Alert.alert("Error", "Could not delete comment.");
+            }
+          },
+        },
       ]
     );
   };
@@ -488,6 +522,7 @@ export function FeedCommentsModal({
                       onLike={handleLike}
                       onReply={handleReply}
                       onReportComment={isDemoPost ? undefined : handleReportComment}
+                      onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
                     />
                     {getReplies(c.id).map((r) => (
                       <CommentRow
@@ -498,6 +533,7 @@ export function FeedCommentsModal({
                         onLike={handleLike}
                         onReply={handleReply}
                         onReportComment={isDemoPost ? undefined : handleReportComment}
+                        onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
                       />
                     ))}
                   </View>

@@ -71,9 +71,11 @@ interface BusinessFormProps {
   onDraftSubmit?: (data: Record<string, unknown>) => void | Promise<void>;
   /** Custom button text when onDraftSubmit is used (default: "Complete registration") */
   draftButtonLabel?: string;
+  /** Content rendered at the top of the scroll area, before the form fields */
+  headerContent?: React.ReactNode;
 }
 
-export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, draftButtonLabel }: BusinessFormProps) {
+export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, draftButtonLabel, headerContent }: BusinessFormProps) {
   const [name, setName] = useState(existing?.name ?? "");
   const [shortDescription, setShortDescription] = useState(
     existing?.shortDescription ?? ""
@@ -129,7 +131,8 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         type: asset.mimeType ?? "image/jpeg",
         name: "logo.jpg",
       } as unknown as Blob);
-      const { url } = await apiUploadFile("/api/upload", formData);
+      const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
+      const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
       setLogoUrl(toFullUrl(url));
     } catch (e) {
       setError(
@@ -168,7 +171,8 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
           type: asset.mimeType ?? "image/jpeg",
           name: "photo.jpg",
         } as unknown as Blob);
-        const { url } = await apiUploadFile("/api/upload", formData);
+        const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
+        const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
         const fullUrl = toFullUrl(url);
         setPhotos((p) => (p.includes(fullUrl) ? p : [...p, fullUrl]));
       }
@@ -248,13 +252,14 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
     >
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
+        {headerContent}
         <View style={styles.field}>
           <Text style={styles.label}>Company name *</Text>
           <TextInput
@@ -275,6 +280,9 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             placeholderTextColor={theme.colors.placeholder}
             multiline
             numberOfLines={2}
+            autoCorrect={true}
+            autoCapitalize="sentences"
+            spellCheck={true}
           />
         </View>
         <View style={styles.field}>
@@ -287,6 +295,9 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             placeholderTextColor={theme.colors.placeholder}
             multiline
             numberOfLines={4}
+            autoCorrect={true}
+            autoCapitalize="sentences"
+            spellCheck={true}
           />
         </View>
         <View style={styles.field}>
@@ -478,9 +489,9 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  scroll: { flex: 1, backgroundColor: "#fff" },
-  scrollContent: { padding: 16, paddingBottom: 40, backgroundColor: "#fff" },
+  container: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 40 },
   field: { marginBottom: 16 },
   label: {
     fontSize: 14,

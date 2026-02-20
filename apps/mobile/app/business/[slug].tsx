@@ -18,6 +18,7 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { CouponPopup } from "@/components/CouponPopup";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
+import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { useAuth } from "@/contexts/AuthContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
@@ -68,6 +69,8 @@ export default function BusinessScreen() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSavedNote, setShowSavedNote] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
   const { member } = useAuth();
 
   const load = useCallback(async () => {
@@ -301,15 +304,25 @@ export default function BusinessScreen() {
                 const url = resolveUrl(p);
                 if (!url) return null;
                 return (
-                  <Image
+                  <Pressable
                     key={i}
-                    source={{ uri: url }}
-                    style={[styles.galleryImage, { width: width - 48 }]}
-                    resizeMode="cover"
-                  />
+                    onPress={() => { setGalleryIndex(i); setGalleryOpen(true); }}
+                  >
+                    <Image
+                      source={{ uri: url }}
+                      style={[styles.galleryImage, { width: width - 48 }]}
+                      resizeMode="cover"
+                    />
+                  </Pressable>
                 );
               })}
             </ScrollView>
+            <ImageGalleryViewer
+              visible={galleryOpen}
+              images={business.photos.map((p) => resolveUrl(p)!).filter(Boolean)}
+              initialIndex={galleryIndex}
+              onClose={() => setGalleryOpen(false)}
+            />
           </View>
         )}
 

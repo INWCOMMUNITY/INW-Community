@@ -197,11 +197,12 @@ export async function apiDelete<T = unknown>(path: string): Promise<T> {
 /** Upload file via FormData. Does not set Content-Type (browser sets multipart boundary). */
 export async function apiUploadFile(
   path: string,
-  formData: FormData
+  formData: FormData,
+  extraHeaders?: Record<string, string>
 ): Promise<{ url: string }> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
   const doUpload = async (authToken: string | null) => {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...extraHeaders };
     if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
     if (API_BASE.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
     if (API_BASE.includes("loca.lt")) headers["Bypass-Tunnel-Reminder"] = "true";

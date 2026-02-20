@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { View as ThemedView } from "@/components/Themed";
 import { theme } from "@/lib/theme";
 import { CALENDAR_TYPES, getCalendarImage, type CalendarType } from "@/lib/calendars";
@@ -328,6 +329,14 @@ export default function HomeScreen() {
           <Text style={styles.nwcRequestButtonText}>NWC Request</Text>
         </Pressable>
       </View>
+
+      <Pressable
+        style={({ pressed }) => [styles.subscribeHomeBtn, pressed && { opacity: 0.85 }]}
+        onPress={() => (router.push as (href: string) => void)("/subscribe")}
+      >
+        <Ionicons name="star" size={20} color="#fff" />
+        <Text style={styles.subscribeHomeBtnText}>Subscribe to NWC</Text>
+      </Pressable>
 
       <Modal
         visible={postEventModalVisible}
@@ -734,5 +743,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     fontFamily: theme.fonts.heading,
+  },
+  subscribeHomeBtn: {
+    backgroundColor: theme.colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 16,
+    marginHorizontal: 24,
+    marginVertical: 16,
+    borderRadius: 12,
+  },
+  subscribeHomeBtnText: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "700",
   },
 });
