@@ -88,11 +88,14 @@ export async function POST(req: NextRequest) {
       if (ref) {
         const referralLink = await prisma.referralLink.findUnique({ where: { code: ref } });
         if (referralLink && referralLink.memberId !== member.id) {
-          await prisma.referralSignup.upsert({
+          const existing = await prisma.referralSignup.findFirst({
             where: { newMemberId: member.id },
-            create: { referrerId: referralLink.memberId, newMemberId: member.id },
-            update: {},
           });
+          if (!existing) {
+            await prisma.referralSignup.create({
+              data: { referrerId: referralLink.memberId, newMemberId: member.id },
+            });
+          }
           awardSpreadingTheWordBadge(referralLink.memberId).catch(() => {});
         }
       }
