@@ -258,6 +258,9 @@ export interface CreatePostBody {
   photos?: string[];
   videos?: string[];
   tags?: string[];
+  taggedMemberIds?: string[];
+  sharedItemType?: "business" | "coupon" | "reward" | "store_item";
+  sharedItemId?: string;
 }
 
 export async function createPost(body: CreatePostBody): Promise<{ post?: FeedPost }> {

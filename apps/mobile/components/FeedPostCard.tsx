@@ -155,6 +155,10 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onSav
         </Modal>
       )}
 
+      {post.content && post.type?.startsWith("shared_") ? (
+        <Text style={styles.content}>{post.content}</Text>
+      ) : null}
+
       {post.type === "shared_blog" && post.sourceBlog && (
         <View style={styles.blogCardWrap}>
           <Pressable
@@ -300,7 +304,7 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onSav
         </View>
       ) : null}
 
-      {post.content ? (
+      {post.content && !post.type?.startsWith("shared_") ? (
         <Text style={styles.content}>{post.content}</Text>
       ) : null}
 

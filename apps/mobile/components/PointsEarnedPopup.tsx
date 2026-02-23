@@ -19,6 +19,9 @@ interface PointsEarnedPopupProps {
   pointsAwarded: number;
   previousTotal: number;
   newTotal: number;
+  icon?: keyof typeof Ionicons.glyphMap;
+  message?: string;
+  buttonText?: string;
 }
 
 export function PointsEarnedPopup({
@@ -28,6 +31,9 @@ export function PointsEarnedPopup({
   pointsAwarded,
   previousTotal,
   newTotal,
+  icon,
+  message,
+  buttonText,
 }: PointsEarnedPopupProps) {
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const [displayPoints, setDisplayPoints] = useState(previousTotal);
@@ -86,7 +92,7 @@ export function PointsEarnedPopup({
           </Pressable>
 
           <View style={styles.iconWrap}>
-            <Ionicons name="star" size={56} color={theme.colors.primary} />
+            <Ionicons name={icon ?? "star"} size={56} color={theme.colors.primary} />
           </View>
 
           <Text style={styles.congrats}>Points Earned!</Text>
@@ -94,9 +100,13 @@ export function PointsEarnedPopup({
           <Text style={styles.awarded}>+{pointsAwarded}</Text>
 
           <Text style={styles.message}>
-            You have earned {pointsAwarded} points for supporting{" "}
-            <Text style={styles.businessName}>{businessName}</Text>.{"\n"}
-            Thanks for supporting local businesses!
+            {message ?? (
+              <>
+                You have earned {pointsAwarded} points for supporting{" "}
+                <Text style={styles.businessName}>{businessName}</Text>.{"\n"}
+                Thanks for supporting local businesses!
+              </>
+            )}
           </Text>
 
           <View style={styles.totalWrap}>
@@ -108,7 +118,7 @@ export function PointsEarnedPopup({
             style={({ pressed }) => [styles.doneBtn, pressed && { opacity: 0.8 }]}
             onPress={onClose}
           >
-            <Text style={styles.doneBtnText}>Awesome!</Text>
+            <Text style={styles.doneBtnText}>{buttonText ?? "Awesome!"}</Text>
           </Pressable>
         </Animated.View>
       </View>

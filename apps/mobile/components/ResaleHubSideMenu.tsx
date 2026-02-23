@@ -12,6 +12,7 @@ import {
   Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 
@@ -20,6 +21,7 @@ const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
+const NAV_HEADER_HEIGHT = 44;
 
 type NavItem = { href: string; label: string; web?: boolean };
 
@@ -79,6 +81,8 @@ const RESALE_HUB_ITEMS: NavItem[] = [
 
 export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const drawerTop = insets.top + NAV_HEADER_HEIGHT;
 
   const handleNavigate = (item: NavItem) => {
     onClose();
@@ -96,7 +100,7 @@ export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) 
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.drawer}>
+        <View style={[styles.drawer, { top: drawerTop }]}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Resale Hub</Text>
             <Pressable
@@ -140,8 +144,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
   },
   drawer: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
     width: DRAWER_WIDTH,
-    maxHeight: "100%",
     backgroundColor: "#fff",
     borderLeftWidth: 2,
     borderLeftColor: theme.colors.primary,

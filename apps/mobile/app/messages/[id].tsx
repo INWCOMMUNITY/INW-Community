@@ -20,6 +20,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiUploadFile } from "@/lib/api";
@@ -127,6 +128,7 @@ const photoViewerStyles = StyleSheet.create({
 export default function DirectConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { member } = useAuth();
   const [conv, setConv] = useState<DirectConversation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -350,7 +352,7 @@ export default function DirectConversationScreen() {
   if (loading || !conv) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </Pressable>
@@ -369,7 +371,7 @@ export default function DirectConversationScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
@@ -513,7 +515,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 8,
     paddingVertical: 12,
-    paddingTop: 48,
     backgroundColor: theme.colors.primary,
     borderBottomWidth: 2,
     borderBottomColor: "#000",

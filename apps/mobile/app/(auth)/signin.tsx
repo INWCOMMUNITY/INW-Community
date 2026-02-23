@@ -92,6 +92,8 @@ export default function SignInScreen() {
           autoCapitalize="none"
           keyboardType="email-address"
           placeholderTextColor={theme.colors.placeholder}
+          textContentType="emailAddress"
+          autoComplete="email"
         />
         <TextInput
           style={styles.input}
@@ -100,6 +102,8 @@ export default function SignInScreen() {
           onChangeText={setPassword}
           secureTextEntry
           placeholderTextColor={theme.colors.placeholder}
+          textContentType="password"
+          autoComplete="password"
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable
@@ -119,9 +123,6 @@ export default function SignInScreen() {
         </Pressable>
       </ThemedView>
 
-      <Text style={styles.testHint}>
-        Universal test: universal@nwc.local / Universal123! (works as Resident, Business, or Seller)
-      </Text>
     </KeyboardAvoidingView>
   );
 }
@@ -187,11 +188,5 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontSize: 16,
     fontWeight: "600",
-  },
-  testHint: {
-    marginTop: 24,
-    fontSize: 12,
-    color: theme.colors.text,
-    textAlign: "center",
   },
 });

@@ -18,7 +18,7 @@ const PLANS = [
   {
     id: "sponsor",
     name: "Northwest Community Sponsor",
-    price: 20,
+    price: 25,
     interval: "month",
     description:
       "Join Northwest Community's Local Business Directory. Offer coupons, post events on our calendar, and gain visibility through the events NWC will put on.",
@@ -28,7 +28,7 @@ const PLANS = [
   {
     id: "seller",
     name: "Northwest Community Seller",
-    price: 30,
+    price: 40,
     interval: "month",
     description:
       "Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid, without NWC taking personal percentages from your sold items.",

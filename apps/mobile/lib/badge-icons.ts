@@ -22,7 +22,17 @@ const SLUG_TO_ICON: Record<string, IconName> = {
   party_planner: "sparkles-outline",
   super_scanner: "qr-code-outline",
   elite_scanner: "qr-code",
-  badger_badge: "paw",
+  badger_badge: "paw-outline",
+  party_animal: "beer-outline",
+  coffee_lover: "cafe-outline",
+  good_taste: "restaurant-outline",
+  penny_pusher: "calculator-outline",
+  car_trouble: "car-outline",
+  handy_dandy: "hammer-outline",
+  say_cheese: "camera-outline",
+  community_point_giver: "leaf-outline",
+  local_deliverer: "bicycle-outline",
+  here_in_town: "location-outline",
 };
 
 /** Returns an Ionicons name that fits the badge slug/name. Falls back to ribbon-outline. */

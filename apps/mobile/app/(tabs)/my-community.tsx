@@ -26,7 +26,9 @@ import { useOpenSellerMenu } from "./_layout";
 import { CouponFormModal } from "@/components/CouponFormModal";
 import { RewardFormModal } from "@/components/RewardFormModal";
 import { PostEventForm } from "@/components/PostEventForm";
-import { apiGet, apiPost, getToken } from "@/lib/api";
+import { QRCodeDisplayModal } from "@/components/QRCodeDisplayModal";
+import { apiGet, getToken } from "@/lib/api";
+import { getBadgeIcon } from "@/lib/badge-icons";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -364,10 +366,27 @@ export default function MyCommunityScreen() {
   const [couponModalVisible, setCouponModalVisible] = useState(false);
   const [rewardModalVisible, setRewardModalVisible] = useState(false);
   const [eventModalVisible, setEventModalVisible] = useState(false);
-  const [billingPortalLoading, setBillingPortalLoading] = useState(false);
   const [businesses, setBusinesses] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [downloadPickerType, setDownloadPickerType] = useState<"qr" | "flyer" | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [showQRBusiness, setShowQRBusiness] = useState<{ id: string; name: string } | null>(null);
+  const [qrPickerOpen, setQrPickerOpen] = useState(false);
+  const [profileBadges, setProfileBadges] = useState<
+    { id: string; badge: { slug: string; name: string }; displayOnProfile: boolean }[]
+  >([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      apiGet<{
+        memberBadges: { id: string; badge: { slug: string; name: string }; displayOnProfile: boolean }[];
+      }>("/api/me/badges")
+        .then((data) => {
+          const visible = (data?.memberBadges ?? []).filter((b) => b.displayOnProfile);
+          setProfileBadges(visible);
+        })
+        .catch(() => setProfileBadges([]));
+    }, [])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -385,36 +404,6 @@ export default function MyCommunityScreen() {
 
   const openBusinessSetup = () => {
     (router.push as (href: string) => void)("/sponsor-business");
-  };
-
-  const hasActiveSubscription =
-    member?.subscriptions?.some((s) => s.status === "active") ?? false;
-
-  const handleManageSubscription = async () => {
-    setBillingPortalLoading(true);
-    try {
-      const res = await apiPost<{ url?: string; error?: string }>(
-        "/api/stripe/billing-portal",
-        { returnBaseUrl: siteBase }
-      );
-      if (res?.url) {
-        const webUrl =
-          `/web?url=${encodeURIComponent(res.url)}&title=Manage subscription` +
-          `&successPattern=${encodeURIComponent("my-community/subscriptions")}` +
-          `&successRoute=${encodeURIComponent("/(tabs)/my-community")}` +
-          "&refreshOnSuccess=1";
-        (router.push as (href: string) => void)(webUrl);
-      } else {
-        Alert.alert("Error", res?.error ?? "Could not open subscription management.");
-      }
-    } catch (e) {
-      Alert.alert(
-        "Error",
-        (e as { error?: string })?.error ?? "Could not open subscription management."
-      );
-    } finally {
-      setBillingPortalLoading(false);
-    }
   };
 
   const handleDownloadFlyer = async (businessId: string, slug: string) => {
@@ -621,7 +610,29 @@ export default function MyCommunityScreen() {
 
           {businesses.length > 0 && (
             <RNView style={styles.businessHubDownloadSection}>
-              <Text style={styles.downloadSectionTitle}>Download</Text>
+              <Text style={styles.downloadSectionTitle}>QR Code</Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.showQRButton,
+                  pressed && { opacity: 0.85 },
+                ]}
+                onPress={() => {
+                  if (businesses.length === 1) {
+                    setShowQRBusiness(businesses[0]);
+                  } else {
+                    setQrPickerOpen(true);
+                  }
+                }}
+              >
+                <Ionicons name="qr-code" size={28} color="#fff" />
+                <Text style={styles.showQRButtonText}>Show My QR Code</Text>
+              </Pressable>
+              <Text style={styles.downloadHint}>
+                Show this QR code to customers so they can scan it and earn reward points for supporting
+                your business.
+              </Text>
+
+              <Text style={[styles.downloadSectionTitle, { marginTop: 20 }]}>Download</Text>
               <RNView style={styles.sellerHubGrid}>
                 <Pressable
                   style={({ pressed }) => [
@@ -661,8 +672,7 @@ export default function MyCommunityScreen() {
                 </Pressable>
               </RNView>
               <Text style={styles.downloadHint}>
-                These QR codes can be scanned so residents get reward points for supporting your local
-                business. Download the QR or print the Flyer and hang it up in your storefront.
+                Download the QR or print the Flyer and hang it up in your storefront.
               </Text>
             </RNView>
           )}
@@ -736,7 +746,6 @@ export default function MyCommunityScreen() {
         <Modal
           visible={eventModalVisible}
           animationType="slide"
-          presentationStyle="pageSheet"
           onRequestClose={() => setEventModalVisible(false)}
         >
           <View style={styles.eventModalContainer}>
@@ -758,6 +767,51 @@ export default function MyCommunityScreen() {
             />
           </View>
         </Modal>
+
+        {qrPickerOpen && businesses.length > 1 && (
+          <Modal
+            visible={qrPickerOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setQrPickerOpen(false)}
+          >
+            <Pressable
+              style={styles.businessPickerOverlay}
+              onPress={() => setQrPickerOpen(false)}
+            >
+              <RNView style={styles.businessPickerSheet}>
+                <Text style={styles.businessPickerTitle}>
+                  Show QR Code for
+                </Text>
+                {businesses.map((b) => (
+                  <Pressable
+                    key={b.id}
+                    style={({ pressed }) => [styles.businessPickerOption, pressed && styles.buttonPressed]}
+                    onPress={() => {
+                      setShowQRBusiness(b);
+                      setQrPickerOpen(false);
+                    }}
+                  >
+                    <Text style={styles.businessPickerOptionText}>{b.name}</Text>
+                  </Pressable>
+                ))}
+                <Pressable
+                  style={({ pressed }) => [styles.businessPickerCancel, pressed && styles.buttonPressed]}
+                  onPress={() => setQrPickerOpen(false)}
+                >
+                  <Text style={styles.businessPickerCancelText}>Cancel</Text>
+                </Pressable>
+              </RNView>
+            </Pressable>
+          </Modal>
+        )}
+
+        <QRCodeDisplayModal
+          visible={!!showQRBusiness}
+          onClose={() => setShowQRBusiness(null)}
+          businessId={showQRBusiness?.id ?? null}
+          businessName={showQRBusiness?.name ?? ""}
+        />
       </View>
     );
   }
@@ -812,6 +866,34 @@ export default function MyCommunityScreen() {
           </View>
         </View>
 
+        {profileBadges.length > 0 && (
+          <Pressable
+            style={({ pressed }) => [styles.badgesProfileRow, pressed && { opacity: 0.9 }]}
+            onPress={() => router.push("/my-badges")}
+          >
+            <RNView style={styles.badgesProfileIcons}>
+              {profileBadges.slice(0, 6).map((mb) => (
+                <RNView key={mb.id} style={styles.badgesProfileIconWrap}>
+                  <Ionicons
+                    name={getBadgeIcon(mb.badge.slug)}
+                    size={20}
+                    color={theme.colors.primary}
+                  />
+                </RNView>
+              ))}
+              {profileBadges.length > 6 && (
+                <Text style={styles.badgesProfileMore}>+{profileBadges.length - 6}</Text>
+              )}
+            </RNView>
+            <RNView style={styles.badgesProfileLabelRow}>
+              <Text style={styles.badgesProfileLabel}>
+                {profileBadges.length} badge{profileBadges.length !== 1 ? "s" : ""}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+            </RNView>
+          </Pressable>
+        )}
+
         <Pressable
           style={({ pressed }) => [styles.postsBox, pressed && { opacity: 0.9 }]}
           onPress={() => (router.push as (href: string) => void)("/(tabs)/index")}
@@ -829,26 +911,6 @@ export default function MyCommunityScreen() {
       </View>
 
       <RNView style={styles.tanSection}>
-        {hasActiveSubscription && (
-          <RNView style={styles.buttonRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.tanButton,
-                pressed && styles.buttonPressed,
-                billingPortalLoading && { opacity: 0.7 },
-              ]}
-              onPress={handleManageSubscription}
-              disabled={billingPortalLoading}
-            >
-              {billingPortalLoading ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : (
-                <ThemedText style={styles.tanButtonText}>Manage Subscription</ThemedText>
-              )}
-            </Pressable>
-            <RNView style={styles.tanButton} />
-          </RNView>
-        )}
         <RNView style={styles.buttonRow}>
           <Pressable
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
@@ -996,6 +1058,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#000",
   },
+  badgesProfileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: "#000",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  badgesProfileIcons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  badgesProfileIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: `${theme.colors.primary}15`,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgesProfileMore: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    marginLeft: 4,
+  },
+  badgesProfileLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  badgesProfileLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
   bioText: {
     fontSize: 15,
     color: "#000",
@@ -1088,6 +1190,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     marginTop: 8,
+  },
+  showQRButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  showQRButtonText: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#fff",
   },
   businessPickerOverlay: {
     flex: 1,

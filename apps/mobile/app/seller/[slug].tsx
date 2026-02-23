@@ -13,6 +13,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
@@ -64,6 +65,7 @@ function resolveUrl(path: string | null | undefined): string | undefined {
 export default function SellerStorefrontScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const cardWidth = (width - 16 * 3) / 2;
 
@@ -171,7 +173,7 @@ export default function SellerStorefrontScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.topHeader, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.headerBackBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
@@ -204,7 +206,7 @@ export default function SellerStorefrontScreen() {
       </View>
 
       {/* Name + Follow */}
-      <View style={styles.header}>
+      <View style={styles.nameRow}>
         <Text style={styles.name}>{seller.name}</Text>
         {member && (
           <Pressable
@@ -329,12 +331,11 @@ export default function SellerStorefrontScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  header: {
+  topHeader: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 8,
     paddingVertical: 12,
-    paddingTop: 48,
     backgroundColor: theme.colors.primary,
     borderBottomWidth: 2,
     borderBottomColor: "#000",
@@ -369,7 +370,7 @@ const styles = StyleSheet.create({
   },
   logo: { width: "100%", height: "100%" },
   logoPlaceholder: { alignItems: "center", justifyContent: "center" },
-  header: {
+  nameRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",

@@ -12,12 +12,14 @@ import {
   Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
+const NAV_HEADER_HEIGHT = 44;
 
 interface AppNavMenuProps {
   visible: boolean;
@@ -29,6 +31,8 @@ interface AppNavMenuProps {
 
 export function AppNavMenu({ visible, onClose, hasSponsor, hasSeller, hasSubscriber }: AppNavMenuProps) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const { setProfileView } = useProfileView();
 
   const handleNav = (view: "profile" | "business_hub" | "seller_hub" | "resale_hub") => {
@@ -41,7 +45,7 @@ export function AppNavMenu({ visible, onClose, hasSponsor, hasSeller, hasSubscri
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.drawer}>
+        <View style={[styles.drawer, { top: drawerTop }]}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Menu</Text>
             <Pressable
@@ -95,8 +99,7 @@ export function AppNavMenu({ visible, onClose, hasSponsor, hasSeller, hasSubscri
                 onPress={() => { onClose(); router.push("/subscribe" as import("expo-router").Href); }}
                 style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
               >
-                <Ionicons name="star" size={16} color={theme.colors.primary} style={{ marginRight: 4 }} />
-                <Text style={[styles.navLinkText, { color: theme.colors.primary, fontWeight: "600" }]}>Subscribe</Text>
+                <Text style={[styles.navLinkText, { color: theme.colors.primary }]}>Subscribe</Text>
               </Pressable>
             </View>
           </ScrollView>
@@ -121,8 +124,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
   },
   drawer: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
     width: DRAWER_WIDTH,
-    maxHeight: "100%",
     backgroundColor: "#fff",
     borderLeftWidth: 2,
     borderLeftColor: theme.colors.primary,

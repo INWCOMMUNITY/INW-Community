@@ -1,8 +1,18 @@
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
+import { Pressable } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 
 export default function CalendarsLayout() {
   const theme = useTheme();
+  const router = useRouter();
+
+  const backButton = () => (
+    <Pressable onPress={() => router.back()} style={{ padding: 4 }}>
+      <Ionicons name="arrow-back" size={24} color="#fff" />
+    </Pressable>
+  );
+
   return (
     <Stack
       screenOptions={{
@@ -15,21 +25,21 @@ export default function CalendarsLayout() {
         name="index"
         options={{
           title: "Calendars",
-          headerBackVisible: true,
+          headerLeft: backButton,
         }}
       />
       <Stack.Screen
         name="[type]"
         options={{
           title: "Calendar",
-          headerBackVisible: true,
+          headerLeft: backButton,
         }}
       />
       <Stack.Screen
         name="web"
         options={{
           title: "Post Event",
-          headerBackVisible: true,
+          headerLeft: backButton,
         }}
       />
     </Stack>

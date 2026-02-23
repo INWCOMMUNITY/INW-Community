@@ -516,6 +516,12 @@ export default function SupportLocalScreen() {
     );
   };
 
+  const searchLower = search.trim().toLowerCase();
+  const filteredCategories = searchLower
+    ? categories.filter((c) => c.toLowerCase().includes(searchLower))
+    : categories;
+  const filteredCities = cities;
+
   const listData = viewMode === "directory" ? businesses : sellers;
   const renderItem = viewMode === "directory" ? renderBusinessItem : renderSellerItem;
 
@@ -633,7 +639,7 @@ export default function SupportLocalScreen() {
           >
             <Text style={[styles.filterChipText, !category && styles.filterChipTextActive]}>All</Text>
           </Pressable>
-          {categories.map((c) => (
+          {filteredCategories.map((c) => (
             <Pressable
               key={c}
               style={[styles.filterChip, category === c && styles.filterChipActive]}
@@ -659,7 +665,7 @@ export default function SupportLocalScreen() {
               All cities
             </Text>
           </Pressable>
-          {cities.map((c) => (
+          {filteredCities.map((c) => (
             <Pressable
               key={c}
               style={[styles.filterChip, city === c && styles.filterChipActive]}

@@ -18,7 +18,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
-import { apiGet } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { apiGet, apiPost } from "@/lib/api";
 import { CouponPopup } from "@/components/CouponPopup";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 
@@ -68,6 +69,10 @@ export default function CouponsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [subscribing, setSubscribing] = useState(false);
+  const [showSubscribeBox, setShowSubscribeBox] = useState(false);
+  const { member } = useAuth();
+  const signedIn = !!member;
 
   const loadMeta = useCallback(async () => {
     try {
@@ -126,6 +131,33 @@ export default function CouponsScreen() {
   useEffect(() => {
     loadSaved();
   }, [loadSaved]);
+
+  const handleSubscribe = async () => {
+    if (!signedIn) {
+      router.push("/(tabs)/my-community");
+      return;
+    }
+    setSubscribing(true);
+    try {
+      const data = await apiPost<{ url?: string; error?: string }>("/api/stripe/checkout", {
+        planId: "subscribe",
+        interval: "monthly",
+        returnBaseUrl: siteBase,
+      });
+      if (!data?.url) {
+        setConnectionError(data?.error ?? "Could not start checkout.");
+        return;
+      }
+      router.push(
+        `/web?url=${encodeURIComponent(data.url)}&title=Checkout&successPattern=${encodeURIComponent("my-community")}&successRoute=${encodeURIComponent("/(tabs)/my-community")}&refreshOnSuccess=1` as never
+      );
+    } catch (e) {
+      const err = e as { error?: string };
+      setConnectionError(err.error ?? "Checkout failed. Please try again.");
+    } finally {
+      setSubscribing(false);
+    }
+  };
 
   const onRefresh = useCallback(() => {
     loadMeta();
@@ -203,82 +235,7 @@ export default function CouponsScreen() {
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>Coupons & Promotions</Text>
         </View>
-        <Pressable
-          style={styles.subscribeBtn}
-          onPress={() => router.push("/subscribe" as import("expo-router").Href)}
-        >
-          <Text style={styles.subscribeBtnText}>Subscribe</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.filters}>
-        <TextInput
-          style={[styles.searchInput, { borderColor: theme.colors.primary }]}
-          placeholder="Search coupons..."
-          placeholderTextColor={theme.colors.placeholder}
-          value={search}
-          onChangeText={setSearch}
-        />
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chips}
-          contentContainerStyle={styles.chipsContent}
-        >
-          <Pressable
-            style={[
-              styles.chip,
-              { borderColor: theme.colors.primary },
-              !category && [styles.chipActive, { backgroundColor: theme.colors.primary }],
-            ]}
-            onPress={() => setCategory("")}
-          >
-            <Text style={[styles.chipText, !category && styles.chipTextActive]}>All</Text>
-          </Pressable>
-          {categories.map((c) => (
-            <Pressable
-              key={c}
-              style={[
-                styles.chip,
-                { borderColor: theme.colors.primary },
-                category === c && [styles.chipActive, { backgroundColor: theme.colors.primary }],
-              ]}
-              onPress={() => setCategory(category === c ? "" : c)}
-            >
-              <Text style={[styles.chipText, category === c && styles.chipTextActive]}>{c}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chips}
-          contentContainerStyle={styles.chipsContent}
-        >
-          <Pressable
-            style={[
-              styles.chip,
-              { borderColor: theme.colors.primary },
-              !city && [styles.chipActive, { backgroundColor: theme.colors.primary }],
-            ]}
-            onPress={() => setCity("")}
-          >
-            <Text style={[styles.chipText, !city && styles.chipTextActive]}>All cities</Text>
-          </Pressable>
-          {cities.map((c) => (
-            <Pressable
-              key={c}
-              style={[
-                styles.chip,
-                { borderColor: theme.colors.primary },
-                city === c && [styles.chipActive, { backgroundColor: theme.colors.primary }],
-              ]}
-              onPress={() => setCity(city === c ? "" : c)}
-            >
-              <Text style={[styles.chipText, city === c && styles.chipTextActive]}>{c}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        <View style={{ width: 32 }} />
       </View>
 
       {loading && !refreshing ? (
@@ -309,6 +266,117 @@ export default function CouponsScreen() {
               onRefresh={onRefresh}
               colors={[theme.colors.primary]}
             />
+          }
+          ListHeaderComponent={
+            <>
+              <View style={styles.titleSection}>
+                <View style={[styles.titleCard, { borderColor: theme.colors.primary }]}>
+                  <Text style={[styles.titleCardHeading, { color: theme.colors.primary }]}>NWC Coupon Book</Text>
+                  <Text style={[styles.titleCardDesc, { color: theme.colors.primary }]}>
+                    Get discounts at local businesses when you shop Eastern Washington &amp; North Idaho.
+                  </Text>
+                  <Pressable
+                    style={styles.expandArrow}
+                    onPress={() => setShowSubscribeBox((v) => !v)}
+                  >
+                    <Ionicons
+                      name={showSubscribeBox ? "caret-up" : "caret-down"}
+                      size={18}
+                      color={theme.colors.primary}
+                    />
+                  </Pressable>
+                </View>
+
+                {showSubscribeBox && (
+                  <View style={[styles.subscribeBox, { backgroundColor: theme.colors.primary }]}>
+                    <Text style={styles.subscribeBoxText}>
+                      Subscribe to NWC to unlock exclusive coupons and earn 2x Community Points when supporting local businesses.
+                    </Text>
+                    <Pressable
+                      style={[styles.subscribeInlineBtn, subscribing && { opacity: 0.6 }]}
+                      onPress={handleSubscribe}
+                      disabled={subscribing}
+                    >
+                      {subscribing ? (
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                      ) : (
+                        <Text style={styles.subscribeInlineBtnText}>Subscribe</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.filters}>
+                <TextInput
+                  style={[styles.searchInput, { borderColor: theme.colors.primary }]}
+                  placeholder="Search coupons..."
+                  placeholderTextColor={theme.colors.placeholder}
+                  value={search}
+                  onChangeText={setSearch}
+                />
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.chips}
+                  contentContainerStyle={styles.chipsContent}
+                >
+                  <Pressable
+                    style={[
+                      styles.chip,
+                      { borderColor: theme.colors.primary },
+                      !category && [styles.chipActive, { backgroundColor: theme.colors.primary }],
+                    ]}
+                    onPress={() => setCategory("")}
+                  >
+                    <Text style={[styles.chipText, !category && styles.chipTextActive]}>All</Text>
+                  </Pressable>
+                  {categories.map((c) => (
+                    <Pressable
+                      key={c}
+                      style={[
+                        styles.chip,
+                        { borderColor: theme.colors.primary },
+                        category === c && [styles.chipActive, { backgroundColor: theme.colors.primary }],
+                      ]}
+                      onPress={() => setCategory(category === c ? "" : c)}
+                    >
+                      <Text style={[styles.chipText, category === c && styles.chipTextActive]}>{c}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.chips}
+                  contentContainerStyle={styles.chipsContent}
+                >
+                  <Pressable
+                    style={[
+                      styles.chip,
+                      { borderColor: theme.colors.primary },
+                      !city && [styles.chipActive, { backgroundColor: theme.colors.primary }],
+                    ]}
+                    onPress={() => setCity("")}
+                  >
+                    <Text style={[styles.chipText, !city && styles.chipTextActive]}>All cities</Text>
+                  </Pressable>
+                  {cities.map((c) => (
+                    <Pressable
+                      key={c}
+                      style={[
+                        styles.chip,
+                        { borderColor: theme.colors.primary },
+                        city === c && [styles.chipActive, { backgroundColor: theme.colors.primary }],
+                      ]}
+                      onPress={() => setCity(city === c ? "" : c)}
+                    >
+                      <Text style={[styles.chipText, city === c && styles.chipTextActive]}>{c}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            </>
           }
           ListEmptyComponent={
             <View style={styles.empty}>
@@ -360,19 +428,64 @@ const styles = StyleSheet.create({
     color: "#fff",
     textAlign: "center",
   },
-  subscribeBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: "rgba(255,255,255,0.3)",
+  titleSection: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
-  subscribeBtnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
+  titleCard: {
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    backgroundColor: "#fff",
+    marginBottom: 16,
+  },
+  titleCardHeading: {
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  titleCardDesc: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    paddingRight: 24,
+  },
+  expandArrow: {
+    position: "absolute",
+    bottom: 8,
+    right: 10,
+    padding: 4,
+  },
+  subscribeBox: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  subscribeBoxText: {
+    fontSize: 15,
+    color: "#fff",
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  subscribeInlineBtn: {
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  subscribeInlineBtnText: {
+    color: "#333",
+    fontSize: 15,
+    fontWeight: "600",
+  },
   filters: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
     backgroundColor: "#fafafa",
+    marginBottom: 12,
   },
   searchInput: {
     backgroundColor: "#fff",
@@ -405,7 +518,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: CARD_GAP,
   },
-  listContent: { padding: 16, paddingBottom: 48 },
+  listContent: { padding: 16, paddingTop: 8, paddingBottom: 48 },
   card: {
     width: CARD_WIDTH,
     borderRadius: 8,

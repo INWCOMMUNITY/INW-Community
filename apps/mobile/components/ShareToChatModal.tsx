@@ -1,6 +1,6 @@
 /**
  * ShareModal - Share content via NWC Messages, to feed, to groups, or externally.
- * Design: Friend row, Share to Feed, Share to Group, external (Text, Email, Copy Link).
+ * Tapping "Share to Feed" opens a compose view with preview + text input.
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -16,6 +16,8 @@ import {
   Linking,
   Alert,
   Share,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -59,6 +61,16 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+const TYPE_LABELS: Record<string, string> = {
+  post: "Post",
+  blog: "Blog Post",
+  store_item: "Store Item",
+  business: "Business",
+  coupon: "Coupon",
+  reward: "Reward",
+  photo: "Photo",
+};
+
 interface ShareToChatModalProps {
   visible: boolean;
   onClose: () => void;
@@ -80,6 +92,7 @@ export function ShareToChatModal({
   const [sending, setSending] = useState<string | null>(null);
   const [shareToFeedLoading, setShareToFeedLoading] = useState(false);
   const [shareToFeedText, setShareToFeedText] = useState("");
+  const [composing, setComposing] = useState(false);
   const [shareToGroupPicker, setShareToGroupPicker] = useState(false);
   const [shareToGroupLoading, setShareToGroupLoading] = useState<string | null>(null);
 
@@ -91,6 +104,7 @@ export function ShareToChatModal({
   };
   const url = buildShareUrl(content);
   const canShareToGroup = sharedContent.type === "post";
+  const typeLabel = TYPE_LABELS[sharedContent.type] ?? "Content";
 
   const load = useCallback(async () => {
     if (!visible) return;
@@ -113,6 +127,14 @@ export function ShareToChatModal({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!visible) {
+      setComposing(false);
+      setShareToFeedText("");
+      setShareToGroupPicker(false);
+    }
+  }, [visible]);
 
   const sendToFriend = async (addresseeId: string) => {
     const key = `friend-${addresseeId}`;
@@ -138,6 +160,7 @@ export function ShareToChatModal({
     try {
       await shareToFeed(content, shareToFeedText);
       setShareToFeedText("");
+      setComposing(false);
       onClose();
     } catch {
       Alert.alert("Error", "Could not share to feed. Try again.");
@@ -167,7 +190,7 @@ export function ShareToChatModal({
       });
       onClose();
     } catch {
-      // User dismissed share sheet - no error needed
+      // dismissed
     }
   };
 
@@ -184,6 +207,82 @@ export function ShareToChatModal({
     onClose();
   };
 
+  if (composing) {
+    return (
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={() => setComposing(false)}>
+        <KeyboardAvoidingView
+          style={styles.backdrop}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <Pressable style={styles.backdrop} onPress={() => setComposing(false)}>
+            <Pressable style={styles.composeSheet} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.composeHeader}>
+                <Pressable onPress={() => setComposing(false)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+                  <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
+                </Pressable>
+                <Text style={styles.composeTitle}>Share to Feed</Text>
+                <View style={{ width: 24 }} />
+              </View>
+
+              <ScrollView
+                style={styles.composeScroll}
+                contentContainerStyle={styles.composeScrollContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.previewCard}>
+                  <View style={styles.previewIconWrap}>
+                    <Ionicons
+                      name={
+                        sharedContent.type === "coupon" ? "pricetag" :
+                        sharedContent.type === "business" ? "business" :
+                        sharedContent.type === "blog" ? "newspaper" :
+                        sharedContent.type === "store_item" ? "bag-handle" :
+                        sharedContent.type === "reward" ? "star" :
+                        "share-social"
+                      }
+                      size={28}
+                      color={theme.colors.primary}
+                    />
+                  </View>
+                  <View style={styles.previewTextWrap}>
+                    <Text style={styles.previewType}>Sharing a {typeLabel}</Text>
+                    <Text style={styles.previewUrl} numberOfLines={1}>{url}</Text>
+                  </View>
+                </View>
+
+                <TextInput
+                  style={styles.composeInput}
+                  placeholder="Add a comment to your post..."
+                  placeholderTextColor="#999"
+                  value={shareToFeedText}
+                  onChangeText={setShareToFeedText}
+                  multiline
+                  autoFocus
+                />
+              </ScrollView>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.composeShareBtn,
+                  shareToFeedLoading && { opacity: 0.6 },
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={handleShareToFeed}
+                disabled={shareToFeedLoading}
+              >
+                {shareToFeedLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.composeShareBtnText}>Share</Text>
+                )}
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
@@ -197,7 +296,6 @@ export function ShareToChatModal({
             </View>
           ) : (
             <>
-              {/* Friend row - horizontal scroll */}
               <View style={styles.friendRowSection}>
                 <ScrollView
                   horizontal
@@ -242,31 +340,12 @@ export function ShareToChatModal({
                 )}
               </View>
 
-              {/* Share to Feed & Share to Group - green buttons */}
               <View style={styles.greenSection}>
-                <TextInput
-                  style={styles.shareTextInput}
-                  placeholder="Add a comment to your share..."
-                  placeholderTextColor="#999"
-                  value={shareToFeedText}
-                  onChangeText={setShareToFeedText}
-                  multiline
-                  numberOfLines={2}
-                />
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.greenBtn,
-                    pressed && styles.greenBtnPressed,
-                    shareToFeedLoading && styles.greenBtnDisabled,
-                  ]}
-                  onPress={handleShareToFeed}
-                  disabled={shareToFeedLoading}
+                  style={({ pressed }) => [styles.greenBtn, pressed && styles.greenBtnPressed]}
+                  onPress={() => setComposing(true)}
                 >
-                  {shareToFeedLoading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.greenBtnText}>Share to Feed</Text>
-                  )}
+                  <Text style={styles.greenBtnText}>Share to Feed</Text>
                 </Pressable>
                 {canShareToGroup ? (
                   shareToGroupPicker ? (
@@ -317,7 +396,6 @@ export function ShareToChatModal({
                 ) : null}
               </View>
 
-              {/* External sharing - tan section */}
               <View style={styles.tanSection}>
                 <Pressable
                   style={({ pressed }) => [styles.tanBtn, pressed && styles.tanBtnPressed]}
@@ -440,20 +518,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  shareTextInput: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: "#333",
-    marginBottom: 12,
-    minHeight: 44,
-    maxHeight: 80,
-    textAlignVertical: "top",
-  },
   greenSection: {
     backgroundColor: theme.colors.secondary,
     paddingHorizontal: 16,
@@ -549,5 +613,87 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: theme.colors.text,
+  },
+  composeSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: "90%",
+    paddingBottom: 24,
+  },
+  composeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  composeTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: theme.colors.heading,
+  },
+  composeScroll: {
+    maxHeight: 400,
+  },
+  composeScrollContent: {
+    padding: 16,
+  },
+  previewCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#f5f5f5",
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    marginBottom: 16,
+  },
+  previewIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: `${theme.colors.primary}15`,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewTextWrap: {
+    flex: 1,
+  },
+  previewType: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    marginBottom: 2,
+  },
+  previewUrl: {
+    fontSize: 12,
+    color: "#888",
+  },
+  composeInput: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: theme.colors.text,
+    minHeight: 100,
+    textAlignVertical: "top",
+  },
+  composeShareBtn: {
+    backgroundColor: theme.colors.primary,
+    marginHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  composeShareBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
   },
 });

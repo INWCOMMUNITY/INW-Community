@@ -9,6 +9,7 @@ import {
   Pressable,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiDelete } from "@/lib/api";
@@ -24,6 +25,7 @@ interface SavedItem {
 
 export default function SavedPostsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -59,7 +61,7 @@ export default function SavedPostsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
@@ -107,7 +109,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 12,
     paddingVertical: 12,
-    paddingTop: 48,
     backgroundColor: theme.colors.primary,
     borderBottomWidth: 2,
     borderBottomColor: "#000",

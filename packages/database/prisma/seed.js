@@ -869,12 +869,22 @@ async function main() {
     { slug: "super_scanner", name: "Super Scanner", description: "Scan 10 QR codes (1 per business per day). +extra Community Points.", category: "member", order: 16 },
     { slug: "elite_scanner", name: "Elite Scanner", description: "Scan 50 QR codes (1 per business per day). +100 Community Points.", category: "member", order: 17 },
     { slug: "badger_badge", name: "The Badger Badge", description: "Earn 10 badges.", category: "member", order: 18 },
+    { slug: "party_animal", name: "Party Animal", description: "Scan a local bar's QR code 10 times. +50 Community Points.", category: "member", order: 19, criteria: { type: "category_scan", categories: ["Bar"], scanCount: 10, bonusPoints: 50 } },
+    { slug: "coffee_lover", name: "Coffee Lover", description: "Scan a local coffee shop's QR code 20 times. +50 Community Points.", category: "member", order: 20, criteria: { type: "category_scan", categories: ["Coffee Shop"], scanCount: 20, bonusPoints: 50 } },
+    { slug: "good_taste", name: "Good Taste", description: "Scan a local restaurant's QR code 15 times. +50 Community Points.", category: "member", order: 21, criteria: { type: "category_scan", categories: ["Restaurant"], scanCount: 15, bonusPoints: 50 } },
+    { slug: "penny_pusher", name: "Penny Pusher", description: "Redeem 10 coupons. +50 Community Points.", category: "member", order: 22, criteria: { type: "coupon_redeem", count: 10, bonusPoints: 50 } },
+    { slug: "car_trouble", name: "Car Trouble", description: "Hire a local mechanic by scanning their QR code. +50 Community Points.", category: "member", order: 23, criteria: { type: "category_scan", categories: ["Mechanic"], scanCount: 1, bonusPoints: 50 } },
+    { slug: "handy_dandy", name: "Handy Dandy", description: "Hire a local handyman, plumber, electrician, drywaller, HVAC, or concrete worker by scanning their QR code. +80 Community Points.", category: "member", order: 24, criteria: { type: "category_scan", categories: ["Handyman", "Plumber", "Electrician", "Drywaller", "HVAC", "Concrete"], scanCount: 1, bonusPoints: 80 } },
+    { slug: "say_cheese", name: "Say Cheese", description: "Hire a local photographer by scanning their QR code. +40 Community Points.", category: "member", order: 25, criteria: { type: "category_scan", categories: ["Photographer"], scanCount: 1, bonusPoints: 40 } },
+    { slug: "community_point_giver", name: "Community Point Giver", description: "Awarded to businesses that display an NWC flyer or QR code. Point Givers get extra visibility.", category: "business", order: 26, criteria: { type: "admin_only" } },
+    { slug: "local_deliverer", name: "Local Deliverer", description: "Complete 3 local deliveries.", category: "seller", order: 27, criteria: { type: "seller_delivery", count: 3 } },
+    { slug: "here_in_town", name: "Here in Town", description: "Complete 1 pickup order.", category: "seller", order: 28, criteria: { type: "seller_pickup", count: 1 } },
   ];
   for (const b of BADGES) {
     await prisma.badge.upsert({
       where: { slug: b.slug },
       create: b,
-      update: { name: b.name, description: b.description, category: b.category, order: b.order },
+      update: { name: b.name, description: b.description, category: b.category, order: b.order, criteria: b.criteria ?? undefined },
     });
   }
   console.log("Ensured badges exist");

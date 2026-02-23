@@ -12,8 +12,10 @@ import {
   Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
@@ -62,6 +64,10 @@ function resolveUrl(path: string | null | undefined): string | undefined {
 export default function RewardsScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { member } = useAuth();
+  const [subscribing, setSubscribing] = useState(false);
+  const [showIntroBox, setShowIntroBox] = useState(false);
   const [top5, setTop5] = useState<Top5Config | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardMember[]>([]);
   const [top10Leaderboard, setTop10Leaderboard] = useState<LeaderboardMember[]>([]);
@@ -159,6 +165,33 @@ export default function RewardsScreen() {
     }
   };
 
+  const handleSubscribe = async () => {
+    if (!signedIn) {
+      router.push("/(tabs)/my-community");
+      return;
+    }
+    setSubscribing(true);
+    try {
+      const data = await apiPost<{ url?: string; error?: string }>("/api/stripe/checkout", {
+        planId: "subscribe",
+        interval: "monthly",
+        returnBaseUrl: siteBase,
+      });
+      if (!data?.url) {
+        setError(data?.error ?? "Could not start checkout.");
+        return;
+      }
+      router.push(
+        `/web?url=${encodeURIComponent(data.url)}&title=Checkout&successPattern=${encodeURIComponent("my-community")}&successRoute=${encodeURIComponent("/(tabs)/my-community")}&refreshOnSuccess=1` as never
+      );
+    } catch (e) {
+      const err = e as { error?: string };
+      setError(err.error ?? "Checkout failed. Please try again.");
+    } finally {
+      setSubscribing(false);
+    }
+  };
+
   const openBusiness = (slug: string) => {
     router.push(`/business/${slug}`);
   };
@@ -173,7 +206,7 @@ export default function RewardsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { backgroundColor: theme.colors.primary }]}>
+      <View style={[styles.header, { backgroundColor: theme.colors.primary, paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
@@ -185,7 +218,7 @@ export default function RewardsScreen() {
         <View style={styles.errorBlock}>
           <Text style={styles.errorText}>{connectionError}</Text>
           <Pressable
-            style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [styles.retryBtn, { backgroundColor: theme.colors.primary }, pressed && { opacity: 0.8 }]}
             onPress={onRefresh}
           >
             <Text style={styles.retryBtnText}>Retry</Text>
@@ -203,39 +236,59 @@ export default function RewardsScreen() {
             />
           }
         >
+          <Text style={styles.rewardsTitle}>NWC Rewards</Text>
+          <Text style={styles.rewardsDesc}>
+            Earn community points through supporting locally owned businesses in the Inland Northwest. Shop the Storefront or Scan QR Codes with our Businesses to earn. Subscribers earn 2x the Points.
+          </Text>
+
           <Pressable
-            style={styles.scanBtn}
+            style={[styles.scanBtn, { backgroundColor: theme.colors.primary }]}
             onPress={() => router.push("/scanner" as import("expo-router").Href)}
           >
             <Ionicons name="camera" size={32} color="#fff" />
             <Text style={styles.scanBtnText}>Scan QR Code</Text>
           </Pressable>
 
-          <Text style={styles.intro}>
-            Redeem your Community Points for rewards from local businesses. Support local to earn more points! Subscribers earn 2x points.
-          </Text>
+          {signedIn && points !== null && (
+            <View style={[styles.pointsCard, { borderColor: theme.colors.primary }]}>
+              <Text style={styles.pointsLabel}>My Community Points</Text>
+              <Text style={[styles.pointsValue, { color: theme.colors.primary }]}>
+                {points} points
+              </Text>
+              <Pressable
+                style={styles.expandArrow}
+                onPress={() => setShowIntroBox((v) => !v)}
+              >
+                <Ionicons
+                  name={showIntroBox ? "caret-up" : "caret-down"}
+                  size={18}
+                  color={theme.colors.primary}
+                />
+              </Pressable>
+            </View>
+          )}
 
-          <Pressable
-            style={styles.subscribeInlineBtn}
-            onPress={() => router.push("/subscribe" as import("expo-router").Href)}
-          >
-            <Text style={styles.subscribeInlineBtnText}>Subscribe to NWC</Text>
-          </Pressable>
+          {showIntroBox && (
+            <View style={[styles.introBox, { backgroundColor: theme.colors.primary }]}>
+              <Text style={styles.introBoxText}>
+                Redeem your Community Points for rewards from local businesses. Support local to earn more points! Subscribers earn 2x points.
+              </Text>
+
+              <Pressable
+                style={[styles.subscribeInlineBtn, subscribing && { opacity: 0.6 }]}
+                onPress={handleSubscribe}
+                disabled={subscribing}
+              >
+                {subscribing ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <Text style={styles.subscribeInlineBtnText}>Subscribe</Text>
+                )}
+              </Pressable>
+            </View>
+          )}
 
           <View style={styles.sideBySide}>
-            {signedIn && points !== null && (
-              <View style={[styles.pointsCard, { borderColor: theme.colors.primary }]}>
-                <Text style={styles.pointsLabel}>My Community Points</Text>
-                <Text style={[styles.pointsValue, { color: theme.colors.primary }]}>
-                  {points} points
-                </Text>
-                <Pressable onPress={() => router.push("/web?url=" + encodeURIComponent(`${siteBase}/my-community/points`) + "&title=Points")}>
-                  <Text style={[styles.pointsLink, { color: theme.colors.primary }]}>
-                    View Community Points
-                  </Text>
-                </Pressable>
-              </View>
-            )}
             <View style={[styles.leaderboardCard, { borderColor: theme.colors.primary }]}>
               <View style={[styles.leaderboardHeader, { backgroundColor: theme.colors.primary }]}>
                 <Text style={styles.leaderboardTitle}>Top 10 NWC Earners</Text>
@@ -314,7 +367,7 @@ export default function RewardsScreen() {
                     <Text style={styles.prizeLabel}>{prize.label || "TBD"}</Text>
                     {prize.business && (
                       <Pressable onPress={() => openBusiness(prize.business!.slug)}>
-                        <Text style={styles.businessLink}>{prize.business.name}</Text>
+                        <Text style={[styles.businessLink, { color: theme.colors.primary }]}>{prize.business.name}</Text>
                       </Pressable>
                     )}
                   </View>
@@ -410,6 +463,7 @@ export default function RewardsScreen() {
               })
             )}
           </View>
+
         </ScrollView>
       )}
     </View>
@@ -428,7 +482,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 8,
     paddingVertical: 12,
-    paddingTop: 48,
     borderBottomWidth: 2,
     borderBottomColor: "#000",
   },
@@ -449,13 +502,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: "#3A624E",
   },
   retryBtnText: { fontSize: 16, fontWeight: "600", color: "#fff" },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 48 },
+  rewardsTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#222",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  rewardsDesc: {
+    fontSize: 15,
+    color: "#444",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 16,
+  },
   scanBtn: {
-    backgroundColor: "#3A624E",
     paddingVertical: 18,
     borderRadius: 12,
     alignItems: "center",
@@ -469,22 +534,26 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#fff",
   },
-  intro: {
-    fontSize: 16,
-    color: "#666",
-    marginBottom: 16,
-    lineHeight: 24,
-  },
-  subscribeInlineBtn: {
-    backgroundColor: "#3A624E",
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: "center",
+  introBox: {
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 24,
   },
-  subscribeInlineBtnText: {
+  introBoxText: {
+    fontSize: 15,
     color: "#fff",
-    fontSize: 16,
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  subscribeInlineBtn: {
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  subscribeInlineBtnText: {
+    color: "#333",
+    fontSize: 15,
     fontWeight: "600",
   },
   sideBySide: {
@@ -497,6 +566,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 2,
     backgroundColor: "#fff",
+    marginBottom: 16,
+  },
+  expandArrow: {
+    position: "absolute",
+    bottom: 8,
+    right: 10,
+    padding: 4,
   },
   pointsLabel: { fontSize: 14, color: "#666", marginBottom: 4 },
   pointsValue: { fontSize: 24, fontWeight: "700" },
@@ -570,7 +646,7 @@ const styles = StyleSheet.create({
   },
   prizePlaceholderText: { fontSize: 12, color: "#999" },
   prizeLabel: { fontSize: 14, fontWeight: "600" },
-  businessLink: { fontSize: 12, color: "#3A624E", marginTop: 4, textDecorationLine: "underline" },
+  businessLink: { fontSize: 12, marginTop: 4, textDecorationLine: "underline" },
   leaderboardSubtitle: { fontSize: 16, fontWeight: "600", marginBottom: 8 },
   miniLeaderboard: {
     padding: 16,

@@ -20,6 +20,7 @@ model Member {
   bio               String?
   city              String?
   points            Int      @default(0) // Community Points (name subject to change)
+  couponsRedeemed   Int      @default(0) @map("coupons_redeemed")
   stripeConnectAccountId String? @map("stripe_connect_account_id") // For sellers
   stripeCustomerId      String? @map("stripe_customer_id") // For fallback payments (labels, etc.)
   easypostReferralCustomerId String? @map("easypost_referral_customer_id") // Seller's EasyPost Referral Customer (own billing)
@@ -211,29 +212,33 @@ model Business {
 }
 
 model Coupon {
-  id         String   @id @default(cuid())
-  businessId String   @map("business_id")
-  name       String
-  discount   String
-  code       String
-  imageUrl   String?  @map("image_url")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(cuid())
+  businessId     String   @map("business_id")
+  name           String
+  discount       String
+  code           String
+  imageUrl       String?  @map("image_url")
+  secretKey      String?  @map("secret_key")
+  maxMonthlyUses Int      @default(1) @map("max_monthly_uses")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   redemptions CouponRedeem[]
 }
 
 model CouponRedeem {
-  id        String   @id @default(cuid())
-  couponId  String   @map("coupon_id")
-  memberId  String?  @map("member_id")
-  createdAt DateTime @default(now()) @map("created_at")
+  id             String   @id @default(cuid())
+  couponId       String   @map("coupon_id")
+  memberId       String?  @map("member_id")
+  pointsAwarded  Int      @default(0) @map("points_awarded")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   coupon Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
   member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
 
   @@index([couponId])
+  @@index([memberId])
 }
 
 model Event {

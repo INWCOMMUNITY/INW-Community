@@ -13,6 +13,7 @@ import {
   Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import { theme } from "@/lib/theme";
@@ -82,6 +83,7 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
 
 export default function CartScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -326,7 +328,7 @@ export default function CartScreen() {
   if (checkoutUrl) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <Pressable onPress={() => setCheckoutUrl(null)} style={styles.backBtn}>
             <Ionicons name="close" size={24} color="#fff" />
           </Pressable>
@@ -343,7 +345,7 @@ export default function CartScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
@@ -614,7 +616,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 8,
     paddingVertical: 12,
-    paddingTop: 48,
     backgroundColor: theme.colors.primary,
     gap: 12,
   },

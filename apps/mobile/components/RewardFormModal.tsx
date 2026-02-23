@@ -188,7 +188,6 @@ export function RewardFormModal({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={handleClose}
     >
       <KeyboardAvoidingView

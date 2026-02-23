@@ -53,7 +53,6 @@ export default function ShipItemsPage() {
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [addingTrial, setAddingTrial] = useState(false);
   const [dimensions, setDimensions] = useState<
     Record<string, { weightOz: number; lengthIn: number; widthIn: number; heightIn: number }>
   >({});
@@ -144,34 +143,6 @@ export default function ShipItemsPage() {
       setSellerProfile(null);
     }
   }, [orders.length]);
-
-  async function addTrialOrder() {
-    setAddingTrial(true);
-    setFetchError(null);
-    try {
-      const res = await fetch("/api/store-orders/trial", { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setFetchError((data as { error?: string }).error ?? "Failed to add trial order.");
-        return;
-      }
-      const order = data as StoreOrder;
-      setOrders((prev) => [order, ...prev]);
-      setDimensions((prev) => ({
-        ...prev,
-        [order.id]: {
-          weightOz: order.packageWeightOz ?? DEFAULT_WEIGHT_OZ,
-          lengthIn: order.packageLengthIn ?? DEFAULT_LENGTH,
-          widthIn: order.packageWidthIn ?? DEFAULT_WIDTH,
-          heightIn: order.packageHeightIn ?? DEFAULT_HEIGHT,
-        },
-      }));
-    } catch {
-      setFetchError("Failed to add trial order.");
-    } finally {
-      setAddingTrial(false);
-    }
-  }
 
   function updateDimensions(
     key: string,
@@ -427,14 +398,6 @@ export default function ShipItemsPage() {
         {orders.length === 0 && !fetchError ? (
           <div className="space-y-4">
             <p className="text-gray-500">No orders need shipping. All paid orders have labels.</p>
-            <button
-              type="button"
-              onClick={addTrialOrder}
-              disabled={addingTrial}
-              className="btn"
-            >
-              {addingTrial ? "Adding…" : "Add trial order"}
-            </button>
           </div>
         ) : (
           <div className="space-y-6">

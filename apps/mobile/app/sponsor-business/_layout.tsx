@@ -8,6 +8,7 @@ export default function SponsorBusinessLayout() {
         headerShown: true,
         headerStyle: { backgroundColor: theme.colors.primary },
         headerTintColor: "#fff",
+        contentStyle: { backgroundColor: "#fff" },
       }}
     />
   );

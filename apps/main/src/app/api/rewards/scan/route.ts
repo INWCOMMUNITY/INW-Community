@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { awardScannerBadges, awardCategoryScanBadges, type EarnedBadge } from "@/lib/badge-award";
 
 const DEFAULT_POINTS = 10;
 
@@ -83,12 +84,31 @@ export async function POST(req: NextRequest) {
       }),
     ]);
 
+    let earnedBadges: EarnedBadge[] = [];
+    try {
+      const [scannerBadges, catBadges] = await Promise.all([
+        awardScannerBadges(session.user.id),
+        awardCategoryScanBadges(session.user.id, business.categories),
+      ]);
+      earnedBadges = [...scannerBadges, ...catBadges];
+    } catch {
+      // badge errors shouldn't break the scan response
+    }
+
+    // Re-fetch points if bonus points were awarded with badges
+    let totalPoints = member.points;
+    if (earnedBadges.length > 0) {
+      const updated = await prisma.member.findUnique({ where: { id: session.user.id }, select: { points: true } });
+      if (updated) totalPoints = updated.points;
+    }
+
     return NextResponse.json({
       ok: true,
       pointsAwarded: pointsToAward,
-      totalPoints: member.points,
+      totalPoints,
       businessName: business.name,
       scanId: scan.id,
+      earnedBadges,
     });
   } catch (e) {
     console.error("[rewards/scan]", e);

@@ -462,12 +462,17 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable
-          style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
+          style={[styles.submitBtn, (submitting || uploadingLogo || uploadingPhotos) && styles.submitBtnDisabled]}
           onPress={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || uploadingLogo || uploadingPhotos}
         >
           {submitting ? (
             <ActivityIndicator color="#fff" />
+          ) : uploadingLogo || uploadingPhotos ? (
+            <View style={styles.uploadingRow}>
+              <ActivityIndicator color="#fff" size="small" />
+              <Text style={styles.submitBtnText}>Uploading photos…</Text>
+            </View>
           ) : (
             <Text style={styles.submitBtnText}>
               {onDraftSubmit ? (draftButtonLabel ?? "Complete registration") : existing ? "Update business" : "Add business"}
@@ -489,7 +494,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: "#fff" },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
   field: { marginBottom: 16 },
@@ -571,6 +576,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   submitBtnDisabled: { opacity: 0.7 },
+  uploadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   submitBtnText: {
     color: theme.colors.buttonText,
     fontSize: 18,

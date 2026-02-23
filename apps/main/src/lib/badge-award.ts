@@ -14,6 +14,15 @@ async function ensureMemberBadge(memberId: string, badgeSlug: string): Promise<b
   await prisma.memberBadge.create({
     data: { memberId, badgeId: badge.id },
   });
+  // Award bonus points defined in badge criteria
+  const criteria = badge.criteria as Record<string, unknown> | null;
+  const bonusPoints = typeof criteria?.bonusPoints === "number" ? criteria.bonusPoints : 0;
+  if (bonusPoints > 0) {
+    await prisma.member.update({
+      where: { id: memberId },
+      data: { points: { increment: bonusPoints } },
+    });
+  }
   // The Badger Badge: earn 10 badges
   if (badgeSlug !== "badger_badge") {
     const count = await prisma.memberBadge.count({ where: { memberId } });
@@ -69,7 +78,8 @@ export async function awardNwcSellerBadge(memberId: string) {
 }
 
 /** Call when StoreOrder status becomes delivered */
-export async function awardSellerTierBadges(sellerId: string) {
+export async function awardSellerTierBadges(sellerId: string): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
   const deliveredCount = await prisma.storeOrder.count({
     where: { sellerId, status: "delivered" },
   });
@@ -81,9 +91,11 @@ export async function awardSellerTierBadges(sellerId: string) {
   ] as const;
   for (const [threshold, slug] of slugs) {
     if (deliveredCount >= threshold) {
-      await ensureMemberBadge(sellerId, slug);
+      const b = await ensureMemberBadgeWithInfo(sellerId, slug);
+      if (b) earned.push(b);
     }
   }
+  return earned;
 }
 
 /** Call after Post create with type=shared_blog */
@@ -141,13 +153,131 @@ export async function awardSpreadingTheWordBadge(referrerId: string) {
   }
 }
 
+export interface EarnedBadge {
+  slug: string;
+  name: string;
+  description: string;
+}
+
+async function ensureMemberBadgeWithInfo(memberId: string, badgeSlug: string): Promise<EarnedBadge | null> {
+  const badge = await prisma.badge.findUnique({ where: { slug: badgeSlug } });
+  if (!badge) return null;
+  const awarded = await ensureMemberBadge(memberId, badgeSlug);
+  if (!awarded) return null;
+  return { slug: badge.slug, name: badge.name, description: badge.description };
+}
+
 /** Call after QRScan create - Super Scanner (10), Elite Scanner (50) */
-export async function awardScannerBadges(memberId: string) {
+export async function awardScannerBadges(memberId: string): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
   const distinctBizCount = await prisma.qRScan.groupBy({
     by: ["businessId"],
     where: { memberId },
   });
   const count = distinctBizCount.length;
-  if (count >= 10) await ensureMemberBadge(memberId, "super_scanner");
-  if (count >= 50) await ensureMemberBadge(memberId, "elite_scanner");
+  if (count >= 10) {
+    const b = await ensureMemberBadgeWithInfo(memberId, "super_scanner");
+    if (b) earned.push(b);
+  }
+  if (count >= 50) {
+    const b = await ensureMemberBadgeWithInfo(memberId, "elite_scanner");
+    if (b) earned.push(b);
+  }
+  return earned;
+}
+
+interface CategoryScanCriteria {
+  type: "category_scan";
+  categories: string[];
+  scanCount: number;
+  bonusPoints?: number;
+}
+
+/** Call after QRScan create - checks all category_scan badges (total scans, not distinct) */
+export async function awardCategoryScanBadges(memberId: string, businessCategories: string[]): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
+  if (!businessCategories.length) return earned;
+
+  const catBadges = await prisma.badge.findMany({
+    where: { criteria: { path: ["type"], equals: "category_scan" } },
+  });
+
+  const bizCatsLower = businessCategories.map((c) => c.toLowerCase());
+
+  for (const badge of catBadges) {
+    const criteria = badge.criteria as unknown as CategoryScanCriteria | null;
+    if (!criteria?.categories?.length || !criteria.scanCount) continue;
+
+    const badgeCatsLower = criteria.categories.map((c) => c.toLowerCase());
+    if (!bizCatsLower.some((c) => badgeCatsLower.includes(c))) continue;
+
+    const matchingBusinesses = await prisma.business.findMany({
+      where: {
+        OR: criteria.categories.map((cat) => ({
+          categories: { has: cat },
+        })),
+      },
+      select: { id: true },
+    });
+
+    if (!matchingBusinesses.length) continue;
+
+    const totalScans = await prisma.qRScan.count({
+      where: {
+        memberId,
+        businessId: { in: matchingBusinesses.map((b) => b.id) },
+      },
+    });
+
+    if (totalScans >= criteria.scanCount) {
+      const b = await ensureMemberBadgeWithInfo(memberId, badge.slug);
+      if (b) earned.push(b);
+    }
+  }
+  return earned;
+}
+
+/** Call after CouponRedeem create - Penny Pusher (10 redemptions) */
+export async function awardCouponRedeemBadges(memberId: string): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
+  const count = await prisma.couponRedeem.count({ where: { memberId } });
+  if (count >= 10) {
+    const b = await ensureMemberBadgeWithInfo(memberId, "penny_pusher");
+    if (b) earned.push(b);
+  }
+  return earned;
+}
+
+/** Call when a local delivery order is completed */
+export async function awardSellerDeliveryBadge(sellerId: string): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
+  const deliveryCount = await prisma.storeOrder.count({
+    where: {
+      sellerId,
+      status: "delivered",
+      items: { some: { fulfillmentType: "local_delivery" } },
+    },
+  });
+  if (deliveryCount >= 3) {
+    const b = await ensureMemberBadgeWithInfo(sellerId, "local_deliverer");
+    if (b) earned.push(b);
+  }
+  return earned;
+}
+
+/** Call when a pickup order is completed */
+export async function awardSellerPickupBadge(sellerId: string): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
+  const pickupCount = await prisma.storeOrder.count({
+    where: {
+      sellerId,
+      status: "delivered",
+      items: { some: { fulfillmentType: "pickup" } },
+    },
+  });
+  if (pickupCount >= 1) {
+    const b = await ensureMemberBadgeWithInfo(sellerId, "here_in_town");
+    if (b) earned.push(b);
+  }
+  return earned;
 }

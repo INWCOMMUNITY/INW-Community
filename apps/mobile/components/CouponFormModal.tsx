@@ -13,6 +13,8 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiUploadFile, getToken } from "@/lib/api";
@@ -51,6 +53,8 @@ export function CouponFormModal({
   const [name, setName] = useState("");
   const [discount, setDiscount] = useState("");
   const [code, setCode] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  const [maxMonthlyUses, setMaxMonthlyUses] = useState("1");
   const [imageUrl, setImageUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -76,6 +80,8 @@ export function CouponFormModal({
     setName("");
     setDiscount("");
     setCode("");
+    setSecretKey("");
+    setMaxMonthlyUses("1");
     setImageUrl("");
     setError("");
   };
@@ -145,9 +151,16 @@ export function CouponFormModal({
         discount: discount.trim(),
         code: code.trim(),
         imageUrl: imageUrl || null,
+        secretKey: secretKey.trim() || "",
+        maxMonthlyUses: Math.max(1, parseInt(maxMonthlyUses, 10) || 1),
       });
       resetForm();
       onClose();
+      Alert.alert(
+        "Coupon Added!",
+        "Thanks for offering discounts in our community!",
+        [{ text: "OK" }]
+      );
       onSuccess?.();
     } catch (e) {
       setError(
@@ -170,6 +183,7 @@ export function CouponFormModal({
     onClose();
   };
 
+  const insets = useSafeAreaInsets();
   const selectedBusiness = businesses.find((b) => b.id === businessId);
 
   if (!visible) return null;
@@ -178,7 +192,6 @@ export function CouponFormModal({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={handleClose}
     >
       <KeyboardAvoidingView
@@ -186,13 +199,13 @@ export function CouponFormModal({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <Pressable
             onPress={handleClose}
             disabled={submitting}
             style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressed]}
           >
-            <Text style={styles.cancelBtnText}>Cancel</Text>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
           </Pressable>
           <Text style={styles.headerTitle}>Offer a Coupon</Text>
           <Pressable
@@ -206,7 +219,7 @@ export function CouponFormModal({
             ]}
           >
             {submitting ? (
-              <ActivityIndicator size="small" color={theme.colors.buttonText} />
+              <ActivityIndicator size="small" color="#fff" />
             ) : (
               <Text style={styles.submitBtnText}>Add coupon</Text>
             )}
@@ -288,6 +301,36 @@ export function CouponFormModal({
                   value={code}
                   onChangeText={setCode}
                   placeholder="e.g. SAVE25"
+                  placeholderTextColor={theme.colors.placeholder}
+                />
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Secret Key</Text>
+                <Text style={styles.hint}>
+                  Set a secret key that customers enter when they use the coupon. They earn 10 Community Points per use. This is the only way to track how many times a coupon is redeemed.
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  value={secretKey}
+                  onChangeText={setSecretKey}
+                  placeholder="e.g. PLUMBER2026"
+                  placeholderTextColor={theme.colors.placeholder}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Max uses per month</Text>
+                <Text style={styles.hint}>
+                  How many times a single customer can redeem this coupon per calendar month.
+                </Text>
+                <TextInput
+                  style={[styles.input, { width: 80 }]}
+                  value={maxMonthlyUses}
+                  onChangeText={(t) => setMaxMonthlyUses(t.replace(/[^0-9]/g, ""))}
+                  keyboardType="number-pad"
+                  placeholder="1"
                   placeholderTextColor={theme.colors.placeholder}
                 />
               </View>
@@ -397,37 +440,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    backgroundColor: theme.colors.primary,
   },
   cancelBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    padding: 4,
   },
   cancelBtnText: {
     fontSize: 16,
-    color: theme.colors.primary,
+    color: "#fff",
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: theme.colors.heading,
+    color: "#fff",
   },
   submitBtn: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: "rgba(255,255,255,0.2)",
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 6,
   },
   submitBtnDisabled: {
-    opacity: 0.5,
+    opacity: 0.4,
   },
   submitBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: theme.colors.buttonText,
+    color: "#fff",
   },
   pressed: { opacity: 0.8 },
   scroll: { flex: 1 },
@@ -465,6 +506,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: theme.colors.heading,
     marginBottom: 6,
+  },
+  hint: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 8,
+    lineHeight: 18,
   },
   input: {
     borderWidth: 2,

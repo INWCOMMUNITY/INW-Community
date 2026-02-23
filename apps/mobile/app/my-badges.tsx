@@ -10,7 +10,8 @@ import {
   useWindowDimensions,
   Pressable,
 } from "react-native";
-import { useNavigation } from "expo-router";
+import { useNavigation, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { getBadgeIcon } from "@/lib/badge-icons";
@@ -42,6 +43,8 @@ interface BusinessBadge {
 
 export default function MyBadgesScreen() {
   const navigation = useNavigation();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const gap = 12;
   const padding = 20;
@@ -113,18 +116,26 @@ export default function MyBadgesScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => load(true)}
-          colors={[theme.colors.primary]}
-        />
-      }
-    >
-      <Text style={styles.subtitle}>
+    <View style={styles.screen}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </Pressable>
+        <Text style={styles.headerTitle}>My Badges</Text>
+        <View style={{ width: 32 }} />
+      </View>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => load(true)}
+            colors={[theme.colors.primary]}
+          />
+        }
+      >
+        <Text style={styles.subtitle}>
         Toggle which badges to display on your profile, seller page, or business page.
       </Text>
 
@@ -206,11 +217,27 @@ export default function MyBadgesScreen() {
           You haven&apos;t earned any badges yet. Keep participating to unlock them!
         </Text>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: "#fff" },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: theme.colors.primary,
+  },
+  backBtn: { padding: 4 },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#fff",
+  },
   center: {
     flex: 1,
     justifyContent: "center",

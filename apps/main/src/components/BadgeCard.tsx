@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getBadgeIcon, getBadgeCategoryLabel } from "@/lib/badge-icons";
+import { BadgeIcon, getBadgeCategoryLabel } from "@/lib/badge-icons";
 
 interface Badge {
   id: string;
@@ -17,7 +17,6 @@ export function BadgeCard({ badge }: { badge: Badge }) {
   const [expanded, setExpanded] = useState(false);
   const desc = badge.description ?? "";
   const needsExpand = desc.length > 80;
-  const Icon = getBadgeIcon(badge.slug);
 
   return (
     <div
@@ -29,7 +28,7 @@ export function BadgeCard({ badge }: { badge: Badge }) {
           className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
           style={{ backgroundColor: "#FDEDCC", color: "var(--color-primary)" }}
         >
-          <Icon className="w-7 h-7" style={{ width: 28, height: 28 }} />
+          <BadgeIcon slug={badge.slug} size={28} />
         </div>
         <div className="min-w-0 w-full">
           <h2 className="font-semibold text-lg" style={{ color: "var(--color-heading)" }}>

@@ -7,12 +7,25 @@ import {
   ActivityIndicator,
   Dimensions,
 } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiPost, apiGet } from "@/lib/api";
 import { PointsEarnedPopup } from "@/components/PointsEarnedPopup";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+
+let CameraView: any = null;
+let useCameraPermissions: any = null;
+let cameraAvailable = false;
+try {
+  const cam = require("expo-camera");
+  CameraView = cam.CameraView;
+  useCameraPermissions = cam.useCameraPermissions;
+  cameraAvailable = !!CameraView && !!useCameraPermissions;
+} catch {
+  cameraAvailable = false;
+}
 
 const SITE_DOMAINS = ["inwcommunity.com", "www.inwcommunity.com"];
 const SCAN_PATH_REGEX = /\/scan\/([a-zA-Z0-9_-]+)/;
@@ -33,7 +46,9 @@ function extractBusinessId(data: string): string | null {
 
 export default function ScannerScreen() {
   const router = useRouter();
-  const [permission, requestPermission] = useCameraPermissions();
+  const insets = useSafeAreaInsets();
+  const permHook = cameraAvailable ? useCameraPermissions() : [null, () => {}];
+  const [permission, requestPermission] = permHook;
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -43,6 +58,10 @@ export default function ScannerScreen() {
     previousTotal: number;
     newTotal: number;
   } | null>(null);
+  const [earnedBadges, setEarnedBadges] = useState<
+    { slug: string; name: string; description?: string }[]
+  >([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
   const cooldownRef = useRef(false);
 
   const handleBarCodeScanned = useCallback(
@@ -66,6 +85,7 @@ export default function ScannerScreen() {
           totalPoints?: number;
           businessName?: string;
           error?: string;
+          earnedBadges?: { slug: string; name: string; description?: string }[];
         }>("/api/rewards/scan", { businessId });
 
         if (result.error) {
@@ -75,6 +95,9 @@ export default function ScannerScreen() {
             cooldownRef.current = false;
           }, 3000);
         } else {
+          if (result.earnedBadges?.length) {
+            setEarnedBadges(result.earnedBadges);
+          }
           setPopupData({
             businessName: result.businessName ?? "Local Business",
             pointsAwarded: result.pointsAwarded ?? 0,
@@ -98,8 +121,38 @@ export default function ScannerScreen() {
 
   const handleClosePopup = () => {
     setPopupData(null);
-    router.back();
+    if (earnedBadges.length > 0) {
+      setBadgePopupIndex(0);
+    } else {
+      router.back();
+    }
   };
+
+  const handleCloseBadgePopup = () => {
+    const next = badgePopupIndex + 1;
+    if (next < earnedBadges.length) {
+      setBadgePopupIndex(next);
+    } else {
+      setBadgePopupIndex(-1);
+      setEarnedBadges([]);
+      router.back();
+    }
+  };
+
+  if (!cameraAvailable) {
+    return (
+      <View style={styles.center}>
+        <Ionicons name="camera-outline" size={64} color={theme.colors.primary} style={{ marginBottom: 16 }} />
+        <Text style={styles.permTitle}>Camera Not Available</Text>
+        <Text style={styles.permDesc}>
+          The QR scanner requires a custom build and is not available in Expo Go. Please use a development or production build.
+        </Text>
+        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backBtnText}>Go Back</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (!permission) {
     return (
@@ -138,7 +191,7 @@ export default function ScannerScreen() {
       />
 
       <View style={styles.overlay}>
-        <View style={styles.topBar}>
+        <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
           <Pressable style={styles.closeButton} onPress={() => router.back()}>
             <Ionicons name="close" size={28} color="#fff" />
           </Pressable>
@@ -176,6 +229,16 @@ export default function ScannerScreen() {
           newTotal={popupData.newTotal}
         />
       )}
+
+      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
+        <BadgeEarnedPopup
+          visible
+          onClose={handleCloseBadgePopup}
+          badgeName={earnedBadges[badgePopupIndex].name}
+          badgeSlug={earnedBadges[badgePopupIndex].slug}
+          badgeDescription={earnedBadges[badgePopupIndex].description}
+        />
+      )}
     </View>
   );
 }
@@ -209,7 +272,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 56,
     paddingHorizontal: 16,
   },
   closeButton: {

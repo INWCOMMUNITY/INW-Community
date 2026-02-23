@@ -81,7 +81,6 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView

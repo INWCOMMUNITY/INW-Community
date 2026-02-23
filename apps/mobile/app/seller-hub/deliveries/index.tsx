@@ -11,6 +11,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch } from "@/lib/api";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 interface LocalDeliveryDetails {
   firstName?: string;
   lastName?: string;
@@ -40,6 +41,10 @@ export default function DeliveriesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [earnedBadges, setEarnedBadges] = useState<
+    { slug: string; name: string; description?: string }[]
+  >([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
   const load = useCallback(() => {
     apiGet<OrderWithDelivery[]>("/api/store-orders?mine=1")
@@ -61,12 +66,18 @@ export default function DeliveriesScreen() {
   const markDelivered = async (orderId: string) => {
     setConfirmingId(orderId);
     try {
-      await apiPatch(`/api/store-orders/${orderId}`, { deliveryConfirmed: true });
+      const res = await apiPatch<{
+        earnedBadges?: { slug: string; name: string; description?: string }[];
+      }>(`/api/store-orders/${orderId}`, { deliveryConfirmed: true });
       setOrders((prev) =>
         prev.map((o) =>
           o.id === orderId ? { ...o, deliveryConfirmedAt: new Date().toISOString() } : o
         )
       );
+      if (res?.earnedBadges?.length) {
+        setEarnedBadges(res.earnedBadges);
+        setBadgePopupIndex(0);
+      }
     } catch {
       // error
     } finally {
@@ -170,6 +181,23 @@ export default function DeliveriesScreen() {
             </>
           )}
         </>
+      )}
+      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
+        <BadgeEarnedPopup
+          visible
+          onClose={() => {
+            const next = badgePopupIndex + 1;
+            if (next < earnedBadges.length) {
+              setBadgePopupIndex(next);
+            } else {
+              setBadgePopupIndex(-1);
+              setEarnedBadges([]);
+            }
+          }}
+          badgeName={earnedBadges[badgePopupIndex].name}
+          badgeSlug={earnedBadges[badgePopupIndex].slug}
+          badgeDescription={earnedBadges[badgePopupIndex].description}
+        />
       )}
     </ScrollView>
   );

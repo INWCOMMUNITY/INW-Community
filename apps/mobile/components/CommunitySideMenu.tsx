@@ -11,11 +11,13 @@ import {
   Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
+const NAV_HEADER_HEIGHT = 44;
 
 interface CommunitySideMenuProps {
   visible: boolean;
@@ -29,6 +31,8 @@ export function CommunitySideMenu({
   onOpenCreatePost,
 }: CommunitySideMenuProps) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const drawerTop = insets.top + NAV_HEADER_HEIGHT;
 
   const handleCreatePost = () => {
     onClose();
@@ -43,6 +47,7 @@ export function CommunitySideMenu({
   const items: { label: string; href: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { label: "Create Post", href: "create-post", icon: "create" },
     { label: "My Friends", href: "/community/my-friends", icon: "people" },
+    { label: "Tags", href: "/community/tags", icon: "pricetags" },
     { label: "Groups", href: "/community/groups", icon: "people-circle" },
     { label: "Blogs", href: "/community/blogs", icon: "newspaper" },
     { label: "Invites", href: "/community/invites", icon: "calendar" },
@@ -53,7 +58,7 @@ export function CommunitySideMenu({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.drawer}>
+        <View style={[styles.drawer, { top: drawerTop }]}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Community</Text>
             <Pressable
@@ -105,8 +110,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
   },
   drawer: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
     width: DRAWER_WIDTH,
-    maxHeight: "100%",
     backgroundColor: "#fff",
     borderLeftWidth: 2,
     borderLeftColor: theme.colors.primary,

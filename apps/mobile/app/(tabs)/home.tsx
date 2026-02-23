@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { View as ThemedView } from "@/components/Themed";
 import { theme } from "@/lib/theme";
 import { CALENDAR_TYPES, getCalendarImage, type CalendarType } from "@/lib/calendars";
@@ -307,6 +306,8 @@ export default function HomeScreen() {
         </View>
       </View>
 
+      <View style={[styles.greenDivider, { marginTop: 32 }]} />
+
       <View style={styles.nwcRequestsSection}>
         <View style={styles.nwcRequestsOverlay}>
           <Text style={styles.nwcRequestsTitle}>NWC Requests</Text>
@@ -330,18 +331,18 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
+      <View style={styles.greenDivider} />
+      <Text style={styles.subscribePrompt}>Like what we are doing?</Text>
       <Pressable
         style={({ pressed }) => [styles.subscribeHomeBtn, pressed && { opacity: 0.85 }]}
         onPress={() => (router.push as (href: string) => void)("/subscribe")}
       >
-        <Ionicons name="star" size={20} color="#fff" />
         <Text style={styles.subscribeHomeBtnText}>Subscribe to NWC</Text>
       </Pressable>
 
       <Modal
         visible={postEventModalVisible}
         animationType="slide"
-        presentationStyle="pageSheet"
         onRequestClose={() => setPostEventModalVisible(false)}
       >
         <View style={styles.modalContainer}>
@@ -697,8 +698,8 @@ const styles = StyleSheet.create({
   },
   nwcRequestsSection: {
     width: "100%",
-    marginTop: 24,
-    marginBottom: 40,
+    marginTop: 32,
+    marginBottom: 32,
     marginHorizontal: -containerPadding,
     alignItems: "center",
   },
@@ -744,20 +745,30 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontFamily: theme.fonts.heading,
   },
-  subscribeHomeBtn: {
+  greenDivider: {
+    height: 2,
     backgroundColor: theme.colors.primary,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 16,
-    marginHorizontal: 24,
-    marginVertical: 16,
-    borderRadius: 12,
+    marginHorizontal: -24,
+    alignSelf: "stretch",
+  },
+  subscribePrompt: {
+    fontSize: 16,
+    color: theme.colors.text,
+    textAlign: "center",
+    marginTop: 32,
+  },
+  subscribeHomeBtn: {
+    marginTop: 16,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignSelf: "center",
   },
   subscribeHomeBtnText: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "700",
+    color: theme.colors.buttonText,
+    fontSize: 16,
+    fontWeight: "600",
+    fontFamily: theme.fonts.heading,
   },
 });

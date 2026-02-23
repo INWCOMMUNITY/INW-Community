@@ -9,6 +9,7 @@ import {
   Image,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { getToken } from "@/lib/api";
@@ -21,7 +22,8 @@ const PLANS = [
   {
     id: "subscribe",
     name: "Subscribe",
-    price: "$4.99/mo",
+    price: "$10/mo",
+    priceYearly: "$100/yr",
     icon: "leaf" as const,
     description:
       "Support Northwest Community and get 2x points, access to coupons, exclusive events, resale marketplace, and more.",
@@ -37,7 +39,8 @@ const PLANS = [
   {
     id: "sponsor",
     name: "Sponsor (Local Business)",
-    price: "$19.99/mo",
+    price: "$25/mo",
+    priceYearly: "$250/yr",
     icon: "storefront" as const,
     description:
       "List your local business on the NWC directory. Includes a full business page, coupons, rewards, events, and all Subscriber benefits.",
@@ -54,7 +57,8 @@ const PLANS = [
   {
     id: "seller",
     name: "Seller",
-    price: "$29.99/mo",
+    price: "$40/mo",
+    priceYearly: "$400/yr",
     icon: "cart" as const,
     description:
       "Sell products on the NWC Storefront. Includes a full online store, shipping management, and all Sponsor benefits.",
@@ -72,6 +76,7 @@ const PLANS = [
 
 export default function SubscribeScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { member, loading: authLoading } = useAuth();
 
   useEffect(() => {
@@ -99,7 +104,7 @@ export default function SubscribeScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
@@ -181,7 +186,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 12,
     paddingVertical: 12,
-    paddingTop: 48,
     backgroundColor: theme.colors.primary,
     borderBottomWidth: 2,
     borderBottomColor: "#000",

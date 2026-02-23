@@ -15,15 +15,18 @@ import {
   Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, getToken } from "@/lib/api";
+import { apiGet, apiPost, getToken } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
+const NAV_HEADER_HEIGHT = 44;
 
 type NavItem = { href: string; label: string };
 
@@ -80,9 +83,16 @@ const RESALE_HUB_ITEMS: NavItem[] = [
 
 export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }: ProfileSideMenuProps) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const showResaleHub = hasSubscriber || hasSponsor;
+  const { member } = useAuth();
+
+  const hasActiveSubscription =
+    member?.subscriptions?.some((s) => s.status === "active") ?? false;
 
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
 
   const handleInviteFriends = async () => {
     setInviteLoading(true);
@@ -108,6 +118,34 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     }
   };
 
+  const handleManageSubscription = async () => {
+    setBillingLoading(true);
+    try {
+      const res = await apiPost<{ url?: string; error?: string }>(
+        "/api/stripe/billing-portal",
+        { returnBaseUrl: siteBase }
+      );
+      if (res?.url) {
+        onClose();
+        const webUrl =
+          `/web?url=${encodeURIComponent(res.url)}&title=Manage subscription` +
+          `&successPattern=${encodeURIComponent("my-community/subscriptions")}` +
+          `&successRoute=${encodeURIComponent("/(tabs)/my-community")}` +
+          "&refreshOnSuccess=1";
+        router.push(webUrl as any);
+      } else {
+        Alert.alert("Error", res?.error ?? "Could not open subscription management.");
+      }
+    } catch (e) {
+      Alert.alert(
+        "Error",
+        (e as { error?: string })?.error ?? "Could not open subscription management."
+      );
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
   const items: NavItem[] = [
     { href: "/messages", label: "Inbox" },
     { href: "/my-sellers", label: "My Sellers" },
@@ -127,11 +165,18 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
       label: "My Orders",
     },
     { href: "/profile-edit", label: "Edit Profile" },
+    ...(hasActiveSubscription
+      ? [{ href: "action:manage-subscription", label: "Manage Subscription" }]
+      : []),
   ];
 
   const handleNavigate = (href: string) => {
     if (href === "invite:friends") {
       handleInviteFriends();
+      return;
+    }
+    if (href === "action:manage-subscription") {
+      handleManageSubscription();
       return;
     }
     onClose();
@@ -142,7 +187,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.drawer}>
+        <View style={[styles.drawer, { top: drawerTop }]}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Profile</Text>
             <Pressable
@@ -186,8 +231,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
   },
   drawer: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
     width: DRAWER_WIDTH,
-    maxHeight: "100%",
     backgroundColor: "#fff",
     borderLeftWidth: 2,
     borderLeftColor: theme.colors.primary,

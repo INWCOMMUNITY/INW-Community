@@ -33,7 +33,6 @@ export default function SellerOrdersPage() {
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
-  const [addingTrial, setAddingTrial] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -71,24 +70,6 @@ export default function SellerOrdersPage() {
       setSellerProfile(null);
     }
   }, [orders.length]);
-
-  async function addTrialOrder() {
-    setAddingTrial(true);
-    setFetchError(null);
-    try {
-      const res = await fetch("/api/store-orders/trial", { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setFetchError((data as { error?: string }).error ?? "Failed to add trial order.");
-        return;
-      }
-      setOrders((prev) => [data as StoreOrder, ...prev]);
-    } catch {
-      setFetchError("Failed to add trial order.");
-    } finally {
-      setAddingTrial(false);
-    }
-  }
 
   async function markShipped(orderId: string) {
     setUpdating(orderId);
@@ -135,14 +116,6 @@ export default function SellerOrdersPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={addTrialOrder}
-              disabled={addingTrial}
-              className="btn bg-gray-600 hover:bg-gray-700 text-white"
-            >
-              {addingTrial ? "Adding…" : "Add trial order"}
-            </button>
             {ordersToPrint.length > 0 && sellerProfile && (
               <>
                 <button

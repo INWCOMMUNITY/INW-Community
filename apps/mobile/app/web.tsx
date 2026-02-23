@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StyleSheet, View, ActivityIndicator, Pressable, Text } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import { useState, useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,6 +16,7 @@ export default function WebScreen() {
     refreshOnSuccess?: string;
   }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { refreshMember } = useAuth();
   const [loading, setLoading] = useState(true);
 
@@ -43,7 +45,7 @@ export default function WebScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable
           style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.7 }]}
           onPress={() => router.back()}
@@ -81,7 +83,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 8,
     paddingVertical: 12,
-    paddingTop: 48,
     backgroundColor: theme.colors.primary,
     gap: 12,
   },

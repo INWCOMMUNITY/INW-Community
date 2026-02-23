@@ -83,7 +83,6 @@ export default function ShipScreen() {
   const [selectedRate, setSelectedRate] = useState<Record<string, Rate>>({});
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [addingTrial, setAddingTrial] = useState(false);
   const [savingPackingSlip, setSavingPackingSlip] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -280,29 +279,6 @@ export default function ShipScreen() {
     setCollapsed((prev) => ({ ...prev, [key]: true }));
   };
 
-  const addTrialOrder = async () => {
-    setAddingTrial(true);
-    setError(null);
-    try {
-      const order = await apiPost<StoreOrder>("/api/store-orders/trial");
-      setOrders((prev) => [order, ...prev]);
-      setDims((prev) => ({
-        ...prev,
-        [order.id]: {
-          weightOz: DEFAULT_WEIGHT,
-          lengthIn: DEFAULT_LENGTH,
-          widthIn: DEFAULT_WIDTH,
-          heightIn: DEFAULT_HEIGHT,
-        },
-      }));
-    } catch (e: unknown) {
-      const err = e as { error?: string };
-      setError(err?.error ?? "Failed to add trial order");
-    } finally {
-      setAddingTrial(false);
-    }
-  };
-
   const handleSavePackingSlips = async () => {
     if (orders.length === 0) return;
     setSavingPackingSlip(true);
@@ -383,17 +359,6 @@ export default function ShipScreen() {
         <Text style={styles.title}>Ship Items</Text>
         <Text style={styles.hint}>No orders need shipping. Labels are charged to your EasyPost account.</Text>
         <Text style={styles.empty}>No orders to ship</Text>
-        <Pressable
-          style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
-          onPress={addTrialOrder}
-          disabled={addingTrial}
-        >
-          {addingTrial ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.btnText}>Add trial order</Text>
-          )}
-        </Pressable>
       </View>
     );
   }

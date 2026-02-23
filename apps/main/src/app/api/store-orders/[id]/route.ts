@@ -50,9 +50,22 @@ export async function PATCH(
     where: { id },
     data: update,
   });
-  if (update.status === "delivered" && order.sellerId) {
-    const { awardSellerTierBadges } = await import("@/lib/badge-award");
-    awardSellerTierBadges(order.sellerId).catch(() => {});
+  const shouldAwardBadges =
+    (update.status === "delivered" || update.deliveryConfirmedAt) && order.sellerId;
+
+  let earnedBadges: { slug: string; name: string; description: string }[] = [];
+  if (shouldAwardBadges) {
+    const { awardSellerTierBadges, awardSellerDeliveryBadge, awardSellerPickupBadge } = await import("@/lib/badge-award");
+    try {
+      const [tierBadges, deliveryBadges, pickupBadges] = await Promise.all([
+        awardSellerTierBadges(order.sellerId!),
+        awardSellerDeliveryBadge(order.sellerId!),
+        awardSellerPickupBadge(order.sellerId!),
+      ]);
+      earnedBadges = [...tierBadges, ...deliveryBadges, ...pickupBadges];
+    } catch {
+      // badge errors shouldn't block order update
+    }
   }
-  return NextResponse.json(order);
+  return NextResponse.json({ ...order, earnedBadges });
 }

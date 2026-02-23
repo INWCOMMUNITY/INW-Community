@@ -397,7 +397,7 @@ const styles = StyleSheet.create({
     gap: 12,
     justifyContent: "center",
     flexWrap: "wrap",
-    marginTop: 36,
+    marginTop: 8,
   },
   createPostBtn: {
     backgroundColor: theme.colors.primary,

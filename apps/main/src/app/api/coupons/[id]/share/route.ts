@@ -17,11 +17,15 @@ export async function POST(
     return NextResponse.json({ error: "Coupon not found" }, { status: 404 });
   }
 
+  const body = await req.json().catch(() => ({}));
+  const text = typeof body?.content === "string" ? body.content.trim().slice(0, 5000) : null;
+
   const post = await prisma.post.create({
     data: {
       type: "shared_coupon",
       authorId: session.user.id,
       sourceCouponId: coupon.id,
+      content: text || null,
       photos: [],
     },
     include: {

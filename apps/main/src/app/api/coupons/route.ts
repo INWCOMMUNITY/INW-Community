@@ -8,7 +8,9 @@ const bodySchema = z.object({
   name: z.string().min(1),
   discount: z.string().min(1),
   code: z.string().min(1),
-  imageUrl: z.string().url().nullable().optional().or(z.literal("")),
+  imageUrl: z.string().nullable().optional(),
+  secretKey: z.string().optional().default(""),
+  maxMonthlyUses: z.number().int().min(1).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -32,12 +34,15 @@ export async function POST(req: NextRequest) {
         discount: data.discount,
         code: data.code,
         imageUrl: data.imageUrl ?? null,
+        secretKey: data.secretKey || null,
+        maxMonthlyUses: data.maxMonthlyUses ?? 1,
       },
     });
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: e.flatten() }, { status: 400 });
+      const msgs = e.errors.map((err) => err.message).join(", ");
+      return NextResponse.json({ error: msgs || "Validation failed" }, { status: 400 });
     }
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
