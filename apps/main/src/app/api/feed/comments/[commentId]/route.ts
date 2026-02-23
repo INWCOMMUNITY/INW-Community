@@ -13,7 +13,7 @@ export async function DELETE(
 
   const { commentId } = params;
 
-  const comment = await prisma.feedComment.findUnique({
+  const comment = await prisma.postComment.findUnique({
     where: { id: commentId },
     select: { id: true, memberId: true, post: { select: { authorId: true } } },
   });
@@ -29,7 +29,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Not authorized to delete this comment" }, { status: 403 });
   }
 
-  await prisma.feedComment.delete({ where: { id: commentId } });
+  await prisma.postComment.delete({ where: { id: commentId } });
 
   return NextResponse.json({ ok: true });
 }
