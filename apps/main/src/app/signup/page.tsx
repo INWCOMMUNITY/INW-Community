@@ -93,23 +93,22 @@ export default function SignupPage() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold mb-6">Sign up</h1>
+      <h1 className="text-2xl font-bold mb-6 text-center">Sign up</h1>
 
-      <p className="text-gray-600 mb-4">Choose your account type</p>
       <div className="flex flex-col sm:flex-row gap-6 mb-8 justify-center items-center">
         <div className="flex flex-col items-center gap-2">
-          <Link href="/signup/business" className="btn w-full sm:w-auto min-w-[200px] flex flex-col justify-center items-center whitespace-nowrap text-center py-4">
+          <Link href="/signup/business" className="group btn w-full sm:w-auto min-w-[200px] flex flex-col justify-center items-center whitespace-nowrap text-center py-4">
             <span>Business Sign Up</span>
-            <span className="text-white font-normal">$25 a Month</span>
+            <span className="text-sm font-normal text-gray-600 group-hover:![color:var(--color-primary)]">$25 a Month</span>
           </Link>
           <Link href="/sponsor-nwc" className="text-sm underline hover:no-underline" style={{ color: "var(--color-primary)" }}>
             Business Benefits
           </Link>
         </div>
         <div className="flex flex-col items-center gap-2">
-          <Link href="/signup/seller" className="btn w-full sm:w-auto min-w-[200px] flex flex-col justify-center items-center whitespace-nowrap text-center py-4">
+          <Link href="/signup/seller" className="group btn w-full sm:w-auto min-w-[200px] flex flex-col justify-center items-center whitespace-nowrap text-center py-4">
             <span>Seller Sign Up</span>
-            <span className="text-white font-normal">$40 a Month</span>
+            <span className="text-sm font-normal text-gray-600 group-hover:![color:var(--color-primary)]">$40 a Month</span>
           </Link>
           <Link href="/sell-nwc" className="text-sm underline hover:no-underline" style={{ color: "var(--color-primary)" }}>
             Seller Benefits
