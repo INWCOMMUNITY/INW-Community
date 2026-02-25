@@ -33,7 +33,8 @@ To edit the live site, use **https://inwcommunity.com/admin** (not localhost). E
 To add or update seed data (businesses, coupons, badges) on the live site:
 
 1. Add `DATABASE_URL_PRODUCTION` to your local `.env` – copy the value from **Vercel → Project → Settings → Environment Variables** (the `DATABASE_URL` used in production).
-2. Run: `pnpm db:seed:prod`
+2. If production schema is behind (e.g. seed fails with "column X does not"), apply migrations. If you see **P3005** ("The database schema is not empty"), run once: `pnpm db:baseline:prod` (marks existing migrations as applied, then runs new ones). Otherwise: `pnpm db:migrate:prod`
+3. Run: `pnpm db:seed:prod`
 
 The seed will run against the production database and create/update businesses, Northwest Community, coupons, etc.
 
