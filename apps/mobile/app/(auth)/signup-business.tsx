@@ -249,7 +249,7 @@ export default function SignupBusinessScreen() {
                 style={styles.termsLink}
                 onPress={() =>
                   router.push(
-                    `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/terms`)}&title=${encodeURIComponent("Terms of Service")}` as never
+                    `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com"}/terms`)}&title=${encodeURIComponent("Terms of Service")}` as never
                   )
                 }
               >
@@ -260,7 +260,7 @@ export default function SignupBusinessScreen() {
                 style={styles.termsLink}
                 onPress={() =>
                   router.push(
-                    `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/privacy`)}&title=${encodeURIComponent("Privacy Policy")}` as never
+                    `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com"}/privacy`)}&title=${encodeURIComponent("Privacy Policy")}` as never
                   )
                 }
               >

@@ -108,7 +108,7 @@ export default function LoginScreen() {
         <Pressable
           onPress={() =>
             router.push(
-              `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/terms`)}&title=${encodeURIComponent("Terms")}` as never
+              `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com"}/terms`)}&title=${encodeURIComponent("Terms")}` as never
             )
           }
         >
@@ -118,7 +118,7 @@ export default function LoginScreen() {
         <Pressable
           onPress={() =>
             router.push(
-              `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://inwcommunity.com"}/privacy`)}&title=${encodeURIComponent("Privacy")}` as never
+              `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com"}/privacy`)}&title=${encodeURIComponent("Privacy")}` as never
             )
           }
         >

@@ -55,7 +55,7 @@ interface CouponData {
 
 function resolveImageUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
-  const base = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+  const base = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
   const siteBase = base.replace(/\/api.*$/, "").replace(/\/$/, "");
   return url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
 }

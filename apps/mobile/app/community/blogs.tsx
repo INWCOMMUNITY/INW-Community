@@ -47,7 +47,7 @@ export default function BlogsScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "http://localhost:3000";
+  const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
 
   return (
     <ScrollView

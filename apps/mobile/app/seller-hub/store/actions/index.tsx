@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const ACTIONS: Array<

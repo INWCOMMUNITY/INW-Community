@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { getToken } from "@/lib/api";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   let binary = "";

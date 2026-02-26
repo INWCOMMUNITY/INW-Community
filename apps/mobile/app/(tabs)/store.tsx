@@ -31,7 +31,7 @@ import {
   type DeliveryFilter,
 } from "@/components/StoreFilterDrawer";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const HEADER_LIST_GAP = 16;
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -129,7 +129,7 @@ export default function StoreScreen() {
       } catch (e) {
         setItems([]);
         const err = e as { error?: string; status?: number };
-        const apiUrl = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+        const apiUrl = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
         const msg = err?.status === 0
           ? `Cannot reach ${apiUrl}. Ensure: 1) pnpm dev:main is running. 2) EXPO_PUBLIC_API_URL in .env matches your computer's IP. 3) Restart Expo after changing .env. 4) Same WiFi.`
           : err?.error ?? "Failed to load.";

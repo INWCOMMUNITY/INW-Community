@@ -20,7 +20,7 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

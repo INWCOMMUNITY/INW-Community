@@ -1,34 +1,46 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "INW Community",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": "inwcommunity",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#f8e7c9"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "Northwestcommunity",
+      "bundleIdentifier": "com.northwestcommunity.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSExceptionDomains": {
+            "inwcommunity.com": {
+              "NSExceptionRequiresForwardSecrecy": false,
+              "NSIncludesSubdomains": true
+            }
+          }
+        }
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#f8e7c9"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
-      "package": "com.anonymous.mobile"
+      "usesCleartextTraffic": false,
+      "package": "com.northwestcommunity.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -39,11 +51,31 @@
       "expo-router",
       "@react-native-community/datetimepicker",
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#f8e7c9"
+        }
+      ],
+      [
         "@stripe/stripe-react-native",
         {
-          "merchantIdentifier": "merchant.com.northwestcommunity",
           "enableGooglePay": true,
           "includeOnramp": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow INW Community to use the camera to scan QR codes at local businesses."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow INW Community to access your photos so you can share images in posts, messages, and your profile."
         }
       ]
     ],
@@ -55,6 +87,7 @@
       "eas": {
         "projectId": "d6f27282-4d48-4851-981f-bd2fba7cb69c"
       }
-    }
+    },
+    "owner": "northwestcommunity"
   }
 }

@@ -30,7 +30,7 @@ import { QRCodeDisplayModal } from "@/components/QRCodeDisplayModal";
 import { apiGet, getToken } from "@/lib/api";
 import { getBadgeIcon } from "@/lib/badge-icons";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

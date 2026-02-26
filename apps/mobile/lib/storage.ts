@@ -32,7 +32,7 @@ async function writeToStorage(token: string): Promise<void> {
     const SecureStore = await import("expo-secure-store");
     await SecureStore.setItemAsync(TOKEN_KEY, token);
   } catch (e) {
-    console.warn("[storage] Failed to persist token", e);
+    if (__DEV__) console.warn("[storage] Failed to persist token", e);
   }
 }
 
@@ -46,7 +46,7 @@ async function removeFromStorage(): Promise<void> {
     const SecureStore = await import("expo-secure-store");
     await SecureStore.deleteItemAsync(TOKEN_KEY);
   } catch (e) {
-    console.warn("[storage] Failed to clear token", e);
+    if (__DEV__) console.warn("[storage] Failed to clear token", e);
   }
 }
 

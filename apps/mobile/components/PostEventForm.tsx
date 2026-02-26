@@ -121,7 +121,7 @@ export function PostEventForm({
         } as unknown as Blob);
         const { url } = await apiUploadFile("/api/upload/event", formData);
         const base =
-          process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+          process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
         const siteBase = base.replace(/\/api.*$/, "").replace(/\/$/, "");
         const fullUrl = url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
         setPhotos((p) => (p.includes(fullUrl) ? p : [...p, fullUrl]));

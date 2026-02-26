@@ -33,7 +33,7 @@ const CARD_GAP = 12;
 const CARD_PADDING = 16;
 const CARD_WIDTH = (width - CARD_PADDING * 2 - CARD_GAP) / 2;
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 interface Business {
@@ -131,7 +131,7 @@ export default function SupportLocalScreen() {
         setBusinesses([]);
         setSellers([]);
         const err = e as { error?: string; status?: number };
-        const apiUrl = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+        const apiUrl = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
         const msg = err?.status === 0
           ? `Cannot reach ${apiUrl}. Ensure: 1) pnpm dev:main is running. 2) EXPO_PUBLIC_API_URL in apps/mobile/.env matches your computer's IP. 3) Restart Expo after changing .env. 4) Same WiFi.`
           : err?.error ?? "Failed to load.";

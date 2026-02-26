@@ -3,7 +3,7 @@
  * Uses EXPO_PUBLIC_API_URL. In-memory cache for session persistence.
  */
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 export interface EventItem {
@@ -84,37 +84,6 @@ export async function setCachedEvents(
   memoryCache.set(key, { events, fetchedAt: Date.now() });
 }
 
-/** Demo events shown when the API is unreachable (site not yet live). */
-function getDemoEvents(from: Date, to: Date): EventItem[] {
-  const titles = [
-    "Community Meetup",
-    "Local Art Walk",
-    "Farmers Market",
-    "Live Music Night",
-    "Workshop: Get Started",
-  ];
-  const events: EventItem[] = [];
-  const year = from.getFullYear();
-  const month = from.getMonth();
-  [5, 12, 18, 25].forEach((day, i) => {
-    const d = new Date(year, month, day);
-    if (d >= from && d <= to) {
-      events.push({
-        id: `demo-${i}`,
-        slug: `demo-event-${i}`,
-        title: titles[i % titles.length],
-        date: `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
-        time: i % 2 === 0 ? "10:00" : "18:00",
-        endTime: null,
-        location: "Downtown",
-        city: "Spokane",
-        business: null,
-      });
-    }
-  });
-  return events;
-}
-
 export async function fetchEvents(
   calendarType: string,
   from: Date,
@@ -141,9 +110,9 @@ export async function fetchEvents(
     const events = Array.isArray(data) ? data : [];
     await setCachedEvents(calendarType, from, to, events, city);
     return events;
-  } catch (e) {
+  } catch {
     clearTimeout(timeout);
-    return getDemoEvents(from, to);
+    return [];
   }
 }
 

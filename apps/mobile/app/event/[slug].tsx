@@ -18,7 +18,7 @@ import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { fetchEventBySlug, type EventDetail } from "@/lib/events-api";
 import { formatTime12h } from "@/lib/format-time";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 interface SavedItem {

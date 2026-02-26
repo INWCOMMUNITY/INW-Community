@@ -21,7 +21,7 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");

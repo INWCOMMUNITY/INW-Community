@@ -119,7 +119,7 @@ export default function MyFriendsScreen() {
                   key={s.id}
                   style={({ pressed }) => [styles.friendCard, pressed && styles.buttonPressed]}
                   onPress={() => {
-                    const base = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "http://localhost:3000";
+                    const base = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
                     (router.push as (href: string) => void)(`/web?url=${encodeURIComponent(`${base}/members/${s.id}`)}&title=Profile`);
                   }}
                 >
@@ -157,7 +157,7 @@ export default function MyFriendsScreen() {
                   key={f.id}
                   style={({ pressed }) => [styles.friendCard, pressed && styles.buttonPressed]}
                   onPress={() => {
-                    const base = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "http://localhost:3000";
+                    const base = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
                     (router.push as (href: string) => void)(`/web?url=${encodeURIComponent(`${base}/members/${f.id}`)}&title=Profile`);
                   }}
                 >

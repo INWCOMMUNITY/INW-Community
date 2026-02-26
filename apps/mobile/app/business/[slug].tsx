@@ -22,7 +22,7 @@ import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { useAuth } from "@/contexts/AuthContext";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 interface Coupon {

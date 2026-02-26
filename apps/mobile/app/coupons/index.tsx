@@ -23,7 +23,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { CouponPopup } from "@/components/CouponPopup";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const { width } = Dimensions.get("window");

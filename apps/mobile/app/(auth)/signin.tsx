@@ -15,6 +15,7 @@ import { Text as ThemedText, View as ThemedView } from "@/components/Themed";
 import { theme } from "@/lib/theme";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
+import { API_BASE } from "@/lib/api";
 import type { SubscriptionPlan } from "@/lib/auth";
 
 const PLAN_LABELS: Record<SubscriptionPlan, string> = {
@@ -22,6 +23,16 @@ const PLAN_LABELS: Record<SubscriptionPlan, string> = {
   sponsor: "Business",
   seller: "Seller",
 };
+
+function getApiHost(): string {
+  try {
+    const base = (API_BASE ?? "").trim();
+    if (base) return new URL(base.replace(/\/$/, "") || "https://www.inwcommunity.com").hostname;
+  } catch {
+    // ignore
+  }
+  return "inwcommunity.com";
+}
 
 export default function SignInScreen() {
   const router = useRouter();
@@ -32,37 +43,69 @@ export default function SignInScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
 
   const planLabel = PLAN_LABELS[plan];
+  const signInUrl = `${(API_BASE ?? "").replace(/\/$/, "")}/api/auth/mobile-signin`;
 
   async function handleSignIn() {
     setError("");
+    setErrorDetails(null);
     if (!email.trim() || !password) {
       setError("Email and password required");
       return;
     }
     setSigningIn(true);
     try {
+      const meUrl = `${(API_BASE ?? "").replace(/\/$/, "")}/api/me`;
+      const probeController = new AbortController();
+      const probeTimeout = setTimeout(() => probeController.abort(), 10000);
+      try {
+        const probeRes = await fetch(meUrl, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "User-Agent": "INWCommunity/1.0 (com.northwestcommunity.app; iOS)",
+          },
+          signal: probeController.signal,
+        });
+        clearTimeout(probeTimeout);
+        // Any response (e.g. 401) means server is reachable; proceed to sign-in.
+      } catch (probeErr) {
+        clearTimeout(probeTimeout);
+        const msg = (probeErr as { message?: string }).message ?? String(probeErr);
+        setErrorDetails(`Probe GET: ${meUrl}\nError: ${msg}`);
+        setError(
+          `Can't reach the server. Check Wi‑Fi or cellular — GET to server failed (${getApiHost()}).`
+        );
+        return;
+      }
+
       await signIn(email.trim(), password, plan);
       await refreshMember();
       router.replace((returnTo ?? "/(tabs)/home") as import("expo-router").Href);
     } catch (e) {
       const err = e as { error?: string; status?: number; message?: string };
-      if (err.error) {
-        setError(err.error);
-      } else if (
-        err.message?.toLowerCase().includes("fetch") ||
-        err.message?.toLowerCase().includes("network") ||
-        err.message?.toLowerCase().includes("failed to fetch")
-      ) {
+      const msg = err.error ?? err.message ?? "";
+      const rawError = String(e);
+      setErrorDetails(`URL: ${signInUrl}\nError: ${msg || rawError}`);
+
+      const isNetworkError =
+        err.status === 0 ||
+        /network request failed|failed to fetch|timed out|unable to resolve|econnrefused/i.test(msg);
+
+      if (isNetworkError) {
+        const host = getApiHost();
         setError(
-          "Cannot reach server. Ensure: 1) Site is running (pnpm dev:main). 2) .env has EXPO_PUBLIC_API_URL set. 3) Phone and computer on same WiFi."
+          `Can't reach the server (${host}). Check your connection — try Wi‑Fi if on cellular, or another network. If Safari can open inwcommunity.com, the app may need an update.`
         );
       } else if (err.status === 401) {
         setError("Invalid email or password.");
+      } else if (msg) {
+        setError(msg);
       } else {
-        setError(err.message ?? "Sign in failed");
+        setError("Sign in failed");
       }
     } finally {
       setSigningIn(false);
@@ -81,6 +124,7 @@ export default function SignInScreen() {
 
       <View style={styles.header}>
         <Text style={styles.title}>Sign in as {planLabel}</Text>
+        <Text style={styles.serverHint}>Server: {getApiHost()}</Text>
       </View>
 
       <ThemedView style={styles.form} lightColor="#fff" darkColor={theme.colors.secondary}>
@@ -106,6 +150,11 @@ export default function SignInScreen() {
           autoComplete="password"
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {errorDetails ? (
+          <Text style={styles.errorDetails} selectable>
+            {errorDetails}
+          </Text>
+        ) : null}
         <Pressable
           style={({ pressed }) => [
             styles.button,
@@ -154,6 +203,11 @@ const styles = StyleSheet.create({
     color: theme.colors.heading,
     fontFamily: theme.fonts.heading,
   },
+  serverHint: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 6,
+  },
   form: {
     padding: 20,
     borderRadius: 8,
@@ -175,6 +229,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginBottom: 12,
     fontSize: 14,
+  },
+  errorDetails: {
+    color: "rgba(255,255,255,0.9)",
+    marginBottom: 12,
+    fontSize: 11,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
   },
   button: {
     backgroundColor: "#fff",

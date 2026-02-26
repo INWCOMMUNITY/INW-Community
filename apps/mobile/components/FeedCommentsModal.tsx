@@ -24,7 +24,7 @@ import { apiPost, apiDelete, apiUploadFile, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { GifPickerModal } from "@/components/GifPickerModal";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 const resolveUri = (u: string) =>
   u.startsWith("http") ? u : `${siteBase}${u.startsWith("/") ? "" : "/"}${u}`;
@@ -224,7 +224,6 @@ export function FeedCommentsModal({
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ id: string; authorName: string } | null>(null);
-  const [isDemoPost, setIsDemoPost] = useState(false);
   const { member } = useAuth();
   const isPostOwner = !!(member && post?.author?.id === member.id);
   const slideAnim = useRef(new Animated.Value(SHEET_HEIGHT)).current;
@@ -235,8 +234,6 @@ export function FeedCommentsModal({
     setInput("");
     setPhotos([]);
     setReplyingTo(null);
-    const demo = postId.startsWith("example-");
-    setIsDemoPost(demo);
     setLoading(true);
     slideAnim.setValue(SHEET_HEIGHT);
     Animated.spring(slideAnim, {
@@ -245,10 +242,6 @@ export function FeedCommentsModal({
       tension: 65,
       friction: 11,
     }).start();
-    if (demo) {
-      setLoading(false);
-      return;
-    }
     fetchComments(postId)
       .then(({ comments: c }) => setComments(c ?? []))
       .catch(() => setComments([]))
@@ -317,13 +310,6 @@ export function FeedCommentsModal({
   };
 
   const handleSubmit = async () => {
-    if (isDemoPost) {
-      Alert.alert(
-        "Demo post",
-        "This is a sample post. Sign in and refresh to see real posts you can comment on."
-      );
-      return;
-    }
     const text = input.trim();
     const hasContent = text.length > 0 || photos.length > 0;
     if (!hasContent || submitting) return;
@@ -471,14 +457,12 @@ export function FeedCommentsModal({
               Comments {comments.length > 0 ? `(${comments.length})` : ""}
             </Text>
             <View style={styles.headerActions}>
-              {!isDemoPost && (
-                <Pressable
-                  onPress={handleReportPost}
-                  style={({ pressed }) => [styles.reportBtn, pressed && { opacity: 0.7 }]}
-                >
-                  <Text style={styles.reportBtnText}>Report post</Text>
-                </Pressable>
-              )}
+              <Pressable
+                onPress={handleReportPost}
+                style={({ pressed }) => [styles.reportBtn, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.reportBtnText}>Report post</Text>
+              </Pressable>
               <Pressable
                 onPress={handleClose}
                 style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}
@@ -498,21 +482,11 @@ export function FeedCommentsModal({
               keyboardShouldPersistTaps="handled"
             >
               {post && <PostPreview post={post} />}
-              {isDemoPost && (
-                <View style={styles.demoBanner}>
-                  <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
-                  <Text style={styles.demoBannerText}>
-                    This is a sample post. Sign in and refresh to see real posts you can comment on.
-                  </Text>
-                </View>
-              )}
               <View style={styles.commentsSection}>
                 <Text style={styles.commentsLabel}>
-                  {isDemoPost
-                    ? "Demo comments"
-                    : comments.length === 0
-                      ? "No comments yet. Be the first!"
-                      : "Comments"}
+                  {comments.length === 0
+                    ? "No comments yet. Be the first!"
+                    : "Comments"}
                 </Text>
                 {topLevel.map((c) => (
                   <View key={c.id}>
@@ -521,7 +495,7 @@ export function FeedCommentsModal({
                       postId={postId}
                       onLike={handleLike}
                       onReply={handleReply}
-                      onReportComment={isDemoPost ? undefined : handleReportComment}
+                      onReportComment={handleReportComment}
                       onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
                     />
                     {getReplies(c.id).map((r) => (
@@ -532,7 +506,7 @@ export function FeedCommentsModal({
                         postId={postId}
                         onLike={handleLike}
                         onReply={handleReply}
-                        onReportComment={isDemoPost ? undefined : handleReportComment}
+                        onReportComment={handleReportComment}
                         onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
                       />
                     ))}
@@ -541,7 +515,7 @@ export function FeedCommentsModal({
               </View>
             </ScrollView>
           )}
-          <View style={[styles.inputSection, isDemoPost && styles.inputSectionDisabled]}>
+          <View style={styles.inputSection}>
             {replyingTo && (
               <View style={styles.replyingToBar}>
                 <Text style={styles.replyingToText}>
@@ -607,18 +581,16 @@ export function FeedCommentsModal({
               <TextInput
                 style={styles.input}
                 placeholder={
-                  isDemoPost
-                    ? "Demo post – sign in for real posts"
-                    : replyingTo
-                      ? `Reply to ${replyingTo.authorName}… (text optional)`
-                      : "Add a comment, or just a photo or GIF…"
+                  replyingTo
+                    ? `Reply to ${replyingTo.authorName}… (text optional)`
+                    : "Add a comment, or just a photo or GIF…"
                 }
                 placeholderTextColor={theme.colors.placeholder}
                 value={input}
                 onChangeText={setInput}
                 multiline
                 maxLength={2000}
-                editable={!submitting && !isDemoPost}
+                editable={!submitting}
               />
               <Pressable
                 onPress={handleSubmit}

@@ -17,7 +17,6 @@ import {
   fetchFeed,
   toggleLike,
   type FeedPost,
-  EXAMPLE_FEED_POSTS,
 } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
@@ -26,7 +25,7 @@ import { CreatePostModal } from "@/components/CreatePostModal";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { useCreatePost } from "@/contexts/CreatePostContext";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 export default function CommunityScreen() {
@@ -65,12 +64,11 @@ export default function CommunityScreen() {
     setLoading(true);
     loadFeed()
       .then(({ posts: p, nextCursor: c }) => {
-        const displayPosts = (p?.length ?? 0) > 0 ? p : EXAMPLE_FEED_POSTS;
-        setPosts(displayPosts);
-        setNextCursor((p?.length ?? 0) > 0 ? c : null);
+        setPosts(p ?? []);
+        setNextCursor(c ?? null);
       })
       .catch(() => {
-        setPosts(EXAMPLE_FEED_POSTS);
+        setPosts([]);
         setNextCursor(null);
       })
       .finally(() => setLoading(false));
@@ -91,12 +89,11 @@ export default function CommunityScreen() {
     setRefreshing(true);
     loadFeed()
       .then(({ posts: p, nextCursor: c }) => {
-        const displayPosts = (p?.length ?? 0) > 0 ? p : EXAMPLE_FEED_POSTS;
-        setPosts(displayPosts);
-        setNextCursor((p?.length ?? 0) > 0 ? c : null);
+        setPosts(p ?? []);
+        setNextCursor(c ?? null);
       })
       .catch(() => {
-        setPosts(EXAMPLE_FEED_POSTS);
+        setPosts([]);
         setNextCursor(null);
       })
       .finally(() => setRefreshing(false));
@@ -114,20 +111,6 @@ export default function CommunityScreen() {
   }, [nextCursor, loadingMore, loadFeed]);
 
   const handleLike = useCallback(async (postId: string) => {
-    if (postId.startsWith("example-")) {
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === postId
-            ? {
-                ...p,
-                liked: !p.liked,
-                likeCount: p.likeCount + (p.liked ? -1 : 1),
-              }
-            : p
-        )
-      );
-      return;
-    }
     try {
       const { liked } = await toggleLike(postId);
       setPosts((prev) =>
@@ -145,23 +128,14 @@ export default function CommunityScreen() {
   }, []);
 
   const handleShare = useCallback((postId: string) => {
-    if (postId.startsWith("example-")) {
-      Alert.alert("Demo", "This is an example post. Share real posts from your feed!");
-      return;
-    }
     setShareToChatPost({ id: postId });
   }, []);
 
   const handleComment = useCallback((postId: string) => {
-    if (postId.startsWith("example-")) {
-      Alert.alert("Demo", "This is an example post. Comment on real posts from your feed!");
-      return;
-    }
     setCommentPostId(postId);
   }, []);
 
   const handleSave = useCallback(async (postId: string) => {
-    if (postId.startsWith("example-")) return;
     try {
       const { apiPost } = await import("@/lib/api");
       await apiPost("/api/saved", { type: "post", referenceId: postId });
@@ -172,7 +146,6 @@ export default function CommunityScreen() {
   }, []);
 
   const handleReport = useCallback((postId: string) => {
-    if (postId.startsWith("example-")) return;
     Alert.alert(
       "Report post",
       "Why are you reporting this post?",
@@ -291,13 +264,7 @@ export default function CommunityScreen() {
               onShare={handleShare}
               onReport={handleReport}
               onSave={handleSave}
-              onOpenCoupon={(id) => {
-              if (id.startsWith("ex-")) {
-                Alert.alert("Demo", "This is an example coupon. Browse real coupons in Support Local!");
-                return;
-              }
-              setCouponPopupId(id);
-            }}
+              onOpenCoupon={(id) => setCouponPopupId(id)}
             />
           ))}
           {nextCursor ? (

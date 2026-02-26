@@ -10,6 +10,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect } from 'react';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
@@ -21,11 +22,76 @@ import {
 } from '@/contexts/ProfileViewContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { trackAppOpen } from '@/lib/api';
+import { theme } from '@/lib/theme';
 
-export {
-  // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
-} from 'expo-router';
+/** True if the string looks like HTML (never render raw in UI). */
+function looksLikeHtml(s: string): boolean {
+  const t = s?.trim() ?? '';
+  return t.startsWith('<!') || t.startsWith('<html');
+}
+
+/** Custom ErrorBoundary so unhandled errors show a friendly screen instead of RCTFatal. */
+export function ErrorBoundary({
+  error,
+  retry,
+}: {
+  error: Error;
+  retry: () => void;
+}) {
+  const raw = error?.message ?? 'Something went wrong.';
+  const message = looksLikeHtml(raw)
+    ? 'The server returned an unexpected response. Please check your connection or try again later.'
+    : raw;
+
+  return (
+    <View style={errorBoundaryStyles.container}>
+      <Text style={errorBoundaryStyles.title}>Something went wrong</Text>
+      <Text style={errorBoundaryStyles.message} numberOfLines={5}>
+        {message}
+      </Text>
+      <Pressable
+        style={({ pressed }) => [errorBoundaryStyles.button, pressed && { opacity: 0.8 }]}
+        onPress={retry}
+      >
+        <Text style={errorBoundaryStyles.buttonText}>Try again</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const errorBoundaryStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: '#fff',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: theme.colors.heading,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  message: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  button: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
 
 export const unstable_settings = {
   // Ensure that reloading on `/modal` keeps a back button present.

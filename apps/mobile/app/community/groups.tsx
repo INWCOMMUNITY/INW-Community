@@ -85,7 +85,7 @@ export default function GroupsScreen() {
       setShowCreate(false);
       setCreateName("");
       if (data?.group?.slug) {
-        (router.push as (href: string) => void)(`/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "http://localhost:3000"}/groups/${data.group.slug}`)}&title=Group`);
+        (router.push as (href: string) => void)(`/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com"}/groups/${data.group.slug}`)}&title=Group`);
       }
       load();
     } catch (e) {
@@ -96,7 +96,7 @@ export default function GroupsScreen() {
     }
   };
 
-  const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "http://localhost:3000";
+  const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
 
   return (
     <ScrollView

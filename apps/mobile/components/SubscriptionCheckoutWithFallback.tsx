@@ -11,7 +11,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/$/, "");
 
 interface SubscriptionCheckoutWithFallbackProps {

@@ -45,7 +45,7 @@ function endOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
 }
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 export default function CalendarDetailScreen() {
@@ -84,9 +84,9 @@ export default function CalendarDetailScreen() {
           selectedCity !== "All cities" ? selectedCity : undefined
         );
         setEvents(data);
-        setLoadError(data.some((e) => e.id?.startsWith("demo-")) ? "sample" : null);
+        setLoadError(null);
       } catch (e) {
-        setLoadError("Your site isn't live yet.");
+        setLoadError("Could not load events. Please check your connection.");
         setEvents((prev) => (prev.length > 0 ? prev : []));
       } finally {
         setLoading(false);
@@ -349,16 +349,11 @@ export default function CalendarDetailScreen() {
                       </View>
                       <View style={styles.dayEvents}>
                         {dayEvents.slice(0, 3).map((ev) => {
-                          const isDemo = ev.id?.startsWith("demo-");
                           return (
                             <Pressable
                               key={ev.id}
                               style={styles.dayEventChip}
-                              onPress={() => {
-                                if (!isDemo) {
-                                  router.push(`/event/${ev.slug}`);
-                                }
-                              }}
+                              onPress={() => router.push(`/event/${ev.slug}`)}
                             >
                               <Text style={styles.dayEventText} numberOfLines={1}>
                                 {ev.title}
@@ -407,7 +402,6 @@ export default function CalendarDetailScreen() {
                   ? `${formatTime12h(ev.time)} – ${formatTime12h(ev.endTime)}`
                   : formatTime12h(ev.time)
                 : "";
-              const isDemo = ev.id?.startsWith("demo-");
               return (
                 <Pressable
                   key={ev.id}
@@ -415,11 +409,7 @@ export default function CalendarDetailScreen() {
                     styles.eventCard,
                     pressed && styles.buttonPressed,
                   ]}
-                  onPress={() => {
-                    if (!isDemo) {
-                      router.push(`/event/${ev.slug}`);
-                    }
-                  }}
+                  onPress={() => router.push(`/event/${ev.slug}`)}
                 >
                   <Text style={styles.eventTitle}>{ev.title}</Text>
                   <Text style={styles.eventDate}>

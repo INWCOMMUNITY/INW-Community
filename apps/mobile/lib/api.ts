@@ -15,16 +15,30 @@ export function trackAppOpen(): void {
   const url = `${API_BASE}/api/analytics/track`;
   fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": "INWCommunity/1.0 (com.northwestcommunity.app; iOS)",
+    },
     body: JSON.stringify({ event: "app_open", source }),
   }).catch(() => {});
 }
 
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const PRODUCTION_API_URL = "https://www.inwcommunity.com";
+
+/** Base URL for API requests. Never relative – always use production if env is missing or invalid. */
+export const API_BASE = (() => {
+  const raw = process.env.EXPO_PUBLIC_API_URL ?? "";
+  const url = (typeof raw === "string" ? raw : "").trim();
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return PRODUCTION_API_URL;
+})();
 
 /** Timeout in ms – prevents indefinite hang when server is unreachable */
-const FETCH_TIMEOUT_MS = 15000;
+const FETCH_TIMEOUT_MS = 25000;
+
+/** User-Agent so the server treats the app as a normal client (some hosts block missing or bot-like UA). */
+const USER_AGENT = "INWCommunity/1.0 (com.northwestcommunity.app; iOS)";
 
 export interface ApiError {
   error: string;
@@ -50,7 +64,7 @@ async function fetchWithTimeout(
     if (err.name === "AbortError") {
       throw {
         error:
-          "Request timed out. Ensure the site is running (pnpm dev:main) and your phone is on the same WiFi.",
+          "Request timed out. Please check your internet connection and try again.",
         status: 0,
       };
     }
@@ -89,6 +103,8 @@ async function fetchWithAuth(
   const token = await getToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "Accept": "application/json",
+    "User-Agent": USER_AGENT,
     // Bypass tunnel interstitials for API requests
     ...(API_BASE.includes("ngrok")
       ? { "ngrok-skip-browser-warning": "true" }
@@ -110,8 +126,15 @@ async function fetchWithAuth(
   try {
     res = await fetchWithTimeout(url, { ...options, headers });
   } catch (e) {
-    const err = e as { error?: string; status?: number };
-    throw err.error ? err : { error: String(e), status: 0 };
+    const err = e as { error?: string; message?: string; status?: number };
+    const msg = err.error ?? err.message ?? String(e);
+    const isNetworkFailure = /network request failed|failed to fetch|could not connect|econnrefused|enotfound/i.test(msg);
+    throw {
+      error: isNetworkFailure
+        ? "Can't reach the server. Check your internet connection (try Wi‑Fi if on cellular), then try again."
+        : msg,
+      status: 0,
+    };
   }
   if (res.status === 401 && token) {
     const isRefreshRoute = path.includes("/api/auth/refresh");
@@ -129,7 +152,7 @@ async function fetchWithAuth(
 function parseError(res: Response, data: unknown): string {
   const raw = (data as { error?: string | unknown })?.error;
   if (raw != null) {
-    if (typeof raw === "string") return raw;
+    if (typeof raw === "string") return sanitizeError(raw);
     if (typeof raw === "object") {
       const obj = raw as { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
       if (Array.isArray(obj.formErrors) && obj.formErrors[0]) return obj.formErrors[0];
@@ -142,13 +165,35 @@ function parseError(res: Response, data: unknown): string {
   if (res.status === 401) return "Please sign in.";
   if (res.status === 404) return "Not found.";
   if (res.status >= 500) return "Server error. Try again.";
-  if (res.status === 0) return "Cannot connect. Ensure pnpm dev:main is running and use your computer's IP (not localhost) if on a physical device.";
+  if (res.status === 0) return "Could not connect. Please check your internet connection and try again.";
   return `Request failed (${res.status})`;
+}
+
+const HTML_ERROR_MESSAGE =
+  "The server returned a web page instead of app data. Please check your connection or try again later.";
+
+/** Throw if the server returned HTML instead of JSON (e.g. redirect or error page). */
+function ensureJsonResponse(res: Response): void {
+  const ct = res.headers.get("content-type") ?? "";
+  if (ct.includes("text/html")) {
+    throw { error: HTML_ERROR_MESSAGE, status: res.status };
+  }
+}
+
+/** Never use a response body as error message if it looks like HTML. */
+function sanitizeError(error: string): string {
+  const t = (error ?? "").trim();
+  if (t.startsWith("<!") || t.startsWith("<html")) return HTML_ERROR_MESSAGE;
+  return error;
 }
 
 export async function apiGet<T = unknown>(path: string): Promise<T> {
   const res = await fetchWithAuth(path);
-  const data = await res.json().catch(() => ({}));
+  ensureJsonResponse(res);
+  const data = await res.json().catch((e) => {
+    const msg = e?.message ?? String(e);
+    throw { error: sanitizeError(msg), status: res.status };
+  });
   if (!res.ok) {
     throw { error: parseError(res, data), status: res.status };
   }
@@ -163,7 +208,11 @@ export async function apiPost<T = unknown>(
     method: "POST",
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json().catch(() => ({}));
+  ensureJsonResponse(res);
+  const data = await res.json().catch((e) => {
+    const msg = e?.message ?? String(e);
+    throw { error: sanitizeError(msg), status: res.status };
+  });
   if (!res.ok) {
     throw { error: parseError(res, data), status: res.status };
   }
@@ -178,18 +227,26 @@ export async function apiPatch<T = unknown>(
     method: "PATCH",
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json().catch(() => ({}));
+  ensureJsonResponse(res);
+  const data = await res.json().catch((e) => {
+    const msg = e?.message ?? String(e);
+    throw { error: sanitizeError(msg), status: res.status };
+  });
   if (!res.ok) {
-    throw { error: (data as { error?: string }).error ?? "Request failed", status: res.status };
+    throw { error: sanitizeError((data as { error?: string }).error ?? "Request failed"), status: res.status };
   }
   return data as T;
 }
 
 export async function apiDelete<T = unknown>(path: string): Promise<T> {
   const res = await fetchWithAuth(path, { method: "DELETE" });
-  const data = await res.json().catch(() => ({}));
+  ensureJsonResponse(res);
+  const data = await res.json().catch((e) => {
+    const msg = e?.message ?? String(e);
+    throw { error: sanitizeError(msg), status: res.status };
+  });
   if (!res.ok) {
-    throw { error: (data as { error?: string }).error ?? "Request failed", status: res.status };
+    throw { error: sanitizeError((data as { error?: string }).error ?? "Request failed"), status: res.status };
   }
   return data as T;
 }
@@ -218,6 +275,7 @@ export async function apiUploadFile(
     }
     if (res.status === 401) await clearToken();
   }
+  ensureJsonResponse(res);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw { error: (data as { error?: string }).error ?? "Upload failed", status: res.status };
