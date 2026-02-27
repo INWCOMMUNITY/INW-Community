@@ -131,9 +131,10 @@ export default function SupportLocalScreen() {
         setBusinesses([]);
         setSellers([]);
         const err = e as { error?: string; status?: number };
-        const apiUrl = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
         const msg = err?.status === 0
-          ? `Cannot reach ${apiUrl}. Ensure: 1) pnpm dev:main is running. 2) EXPO_PUBLIC_API_URL in apps/mobile/.env matches your computer's IP. 3) Restart Expo after changing .env. 4) Same WiFi.`
+          ? typeof __DEV__ !== "undefined" && __DEV__
+            ? `Cannot reach server. Ensure: 1) pnpm dev:main is running. 2) EXPO_PUBLIC_API_URL in .env matches your computer's IP. 3) Restart Expo after changing .env. 4) Same WiFi.`
+            : "Cannot reach server. Check your connection (Wi‑Fi or cellular) and try again."
           : err?.error ?? "Failed to load.";
         setConnectionError(msg);
       } finally {

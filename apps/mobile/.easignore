@@ -1,0 +1,7 @@
+# Prevent local env from overriding eas.json profile env (e.g. EXPO_PUBLIC_API_URL).
+# EAS production/profile env should be the only source for production builds.
+.env
+.env.*
+.env.local
+.env.development
+.env.production

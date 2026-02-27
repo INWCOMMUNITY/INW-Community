@@ -29,7 +29,9 @@ function formatLoadError(e: unknown): string {
   const isNetwork =
     /unable to resolve|network request failed|failed to fetch|econnrefused|timed out/i.test(msg);
   return isNetwork
-    ? `Cannot reach server (${msg}). Check: 1) Main site running (pnpm dev:main). 2) .env has EXPO_PUBLIC_API_URL=http://YOUR_IP:3000. 3) Phone and computer on same WiFi. 4) Restart Expo after changing .env.`
+    ? typeof __DEV__ !== "undefined" && __DEV__
+      ? `Cannot reach server (${msg}). Check: 1) Main site running (pnpm dev:main). 2) .env has EXPO_PUBLIC_API_URL=http://YOUR_IP:3000. 3) Phone and computer on same WiFi. 4) Restart Expo after changing .env.`
+      : `Cannot reach server. Check your connection (Wi‑Fi or cellular) and try again.`
     : msg;
 }
 

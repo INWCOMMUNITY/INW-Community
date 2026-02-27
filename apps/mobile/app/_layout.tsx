@@ -10,10 +10,12 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Linking } from 'react-native';
+import { useRouter } from 'expo-router';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
+import { setToken } from '@/lib/api';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import {
@@ -133,6 +135,27 @@ export default function RootLayout() {
   return <RootLayoutNav />;
 }
 
+/** When app is opened via inwcommunity://auth?token=... (e.g. after browser login), store token and go home. */
+function AuthDeepLinkHandler() {
+  const { refreshMember } = useAuth();
+  const router = useRouter();
+  useEffect(() => {
+    const handleUrl = async (url: string | null) => {
+      if (!url?.startsWith('inwcommunity://auth')) return;
+      const match = url.match(/[?&]token=([^&]+)/);
+      const token = match ? decodeURIComponent(match[1]) : null;
+      if (!token) return;
+      await setToken(token);
+      await refreshMember?.().catch(() => {});
+      router.replace('/(tabs)/home' as never);
+    };
+    Linking.getInitialURL().then(handleUrl);
+    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    return () => sub.remove();
+  }, [refreshMember, router]);
+  return null;
+}
+
 function ProfileViewLayout({ children }: { children: React.ReactNode }) {
   const { member, subscriptionPlan } = useAuth();
   const hasSponsor = member?.subscriptions?.some((s) => s.plan === "sponsor") ?? false;
@@ -165,6 +188,7 @@ function RootLayoutNav() {
     <GestureHandlerRootView style={{ flex: 1 }}>
     <ThemeProvider>
       <AuthProvider>
+      <AuthDeepLinkHandler />
       <ProfileViewLayout>
       <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack screenOptions={{ headerShown: false }}>

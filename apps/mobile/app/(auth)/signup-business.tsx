@@ -119,7 +119,7 @@ export default function SignupBusinessScreen() {
         const msg = err.error ?? "Sign up failed. Try again.";
         setError(msg);
         if (__DEV__ && err.status === 0) {
-          console.warn("[signup-business] API error:", msg, "API_BASE=", process.env.EXPO_PUBLIC_API_URL || "localhost:3000");
+          console.warn("[signup-business] API error:", msg, "API_BASE=", process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com");
         }
       }
     } finally {

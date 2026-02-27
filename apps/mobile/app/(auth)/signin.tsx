@@ -8,7 +8,9 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Share,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Text as ThemedText, View as ThemedView } from "@/components/Themed";
@@ -44,14 +46,25 @@ export default function SignInScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
+  const [errorPayload, setErrorPayload] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
 
   const planLabel = PLAN_LABELS[plan];
   const signInUrl = `${(API_BASE ?? "").replace(/\/$/, "")}/api/auth/mobile-signin`;
+  const siteBase = (API_BASE ?? "").replace(/\/$/, "") || "https://www.inwcommunity.com";
+  const browserLoginUrl =
+    `/web?url=${encodeURIComponent(`${siteBase}/login/mobile?plan=${plan}`)}` +
+    `&title=${encodeURIComponent("Sign in")}` +
+    `&successPattern=${encodeURIComponent("inwcommunity://auth")}` +
+    `&successRoute=${encodeURIComponent(returnTo ?? "/(tabs)/home")}` +
+    `&refreshOnSuccess=1`;
 
   async function handleSignIn() {
     setError("");
     setErrorDetails(null);
+    setErrorPayload(null);
+    setCopied(false);
     if (!email.trim() || !password) {
       setError("Email and password required");
       return;
@@ -67,6 +80,9 @@ export default function SignInScreen() {
           headers: {
             Accept: "application/json",
             "User-Agent": "INWCommunity/1.0 (com.northwestcommunity.app; iOS)",
+            ...(meUrl.includes("inwcommunity.com")
+              ? { Origin: "https://www.inwcommunity.com", Referer: "https://www.inwcommunity.com/" }
+              : {}),
           },
           signal: probeController.signal,
         });
@@ -76,6 +92,15 @@ export default function SignInScreen() {
         clearTimeout(probeTimeout);
         const msg = (probeErr as { message?: string }).message ?? String(probeErr);
         setErrorDetails(`Probe GET: ${meUrl}\nError: ${msg}`);
+        const probePayload = [
+          "--- INW Community sign-in error (probe) ---",
+          `Time: ${new Date().toISOString()}`,
+          `Platform: ${Platform.OS}`,
+          `Probe URL: ${meUrl}`,
+          `Error: ${msg}`,
+          "--- Paste this when reporting the issue ---",
+        ].join("\n");
+        setErrorPayload(probePayload);
         setError(
           `Can't reach the server. Check Wi‑Fi or cellular — GET to server failed (${getApiHost()}).`
         );
@@ -86,10 +111,33 @@ export default function SignInScreen() {
       await refreshMember();
       router.replace((returnTo ?? "/(tabs)/home") as import("expo-router").Href);
     } catch (e) {
-      const err = e as { error?: string; status?: number; message?: string };
+      const err = e as {
+        error?: string;
+        status?: number;
+        message?: string;
+        name?: string;
+        code?: string | number;
+        [k: string]: unknown;
+      };
       const msg = err.error ?? err.message ?? "";
       const rawError = String(e);
       setErrorDetails(`URL: ${signInUrl}\nError: ${msg || rawError}`);
+
+      const payload = [
+        "--- INW Community sign-in error ---",
+        `Time: ${new Date().toISOString()}`,
+        `Platform: ${Platform.OS}`,
+        `API_BASE: ${(API_BASE ?? "").replace(/\/$/, "")}`,
+        `Sign-in URL: ${signInUrl}`,
+        `Error: ${msg || rawError}`,
+        err.status != null ? `Status: ${err.status}` : null,
+        err.name ? `Name: ${err.name}` : null,
+        err.code != null ? `Code: ${err.code}` : null,
+        "--- Paste this when reporting the issue ---",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      setErrorPayload(payload);
 
       const isNetworkError =
         err.status === 0 ||
@@ -155,6 +203,31 @@ export default function SignInScreen() {
             {errorDetails}
           </Text>
         ) : null}
+        {errorPayload ? (
+          <Pressable
+            style={styles.copyButton}
+            onPress={async () => {
+              try {
+                await Clipboard.setStringAsync(errorPayload);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              } catch {
+                try {
+                  await Share.share({
+                    message: errorPayload,
+                    title: "Sign-in error details",
+                  });
+                } catch {
+                  // ignore
+                }
+              }
+            }}
+          >
+            <Text style={styles.copyButtonText}>
+              {copied ? "Copied to clipboard" : "Copy error details"}
+            </Text>
+          </Pressable>
+        ) : null}
         <Pressable
           style={({ pressed }) => [
             styles.button,
@@ -169,6 +242,15 @@ export default function SignInScreen() {
           ) : (
             <Text style={styles.buttonText}>Sign In</Text>
           )}
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.browserLink, pressed && { opacity: 0.8 }]}
+          onPress={() => router.push(browserLoginUrl as never)}
+          disabled={signingIn}
+        >
+          <Text style={styles.browserLinkText}>
+            Sign in with browser (if app sign-in fails)
+          </Text>
         </Pressable>
       </ThemedView>
 
@@ -235,6 +317,28 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 11,
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  copyButton: {
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 8,
+  },
+  copyButtonText: {
+    fontSize: 13,
+    color: "#fff",
+  },
+  browserLink: {
+    marginTop: 16,
+    paddingVertical: 8,
+    alignSelf: "center",
+  },
+  browserLinkText: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.95)",
+    textDecorationLine: "underline",
   },
   button: {
     backgroundColor: "#fff",

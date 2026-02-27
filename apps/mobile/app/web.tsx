@@ -1,11 +1,20 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { StyleSheet, View, ActivityIndicator, Pressable, Text } from "react-native";
+import { StyleSheet, View, ActivityIndicator, Pressable, Text, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { useAuth } from "@/contexts/AuthContext";
+import { setToken } from "@/lib/api";
+
+const AUTH_SCHEME = "inwcommunity://auth";
+
+function parseTokenFromAuthUrl(url: string): string | null {
+  if (!url.startsWith(AUTH_SCHEME)) return null;
+  const match = url.match(/[?&]token=([^&]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
 
 export default function WebScreen() {
   const { url, title, successPattern, successRoute, refreshOnSuccess } = useLocalSearchParams<{
@@ -19,14 +28,37 @@ export default function WebScreen() {
   const insets = useSafeAreaInsets();
   const { refreshMember } = useAuth();
   const [loading, setLoading] = useState(true);
+  const authHandled = useRef(false);
 
   const resolvedUrl = url ? decodeURIComponent(url) : "";
   const resolvedSuccessPattern = successPattern ? decodeURIComponent(successPattern) : "";
   const resolvedSuccessRoute = successRoute ? decodeURIComponent(successRoute) : "";
   const shouldRefreshOnSuccess = refreshOnSuccess === "1";
 
+  const handleAuthRedirect = useCallback(
+    async (targetUrl: string) => {
+      const token = parseTokenFromAuthUrl(targetUrl);
+      if (!token || authHandled.current) return;
+      authHandled.current = true;
+      try {
+        await setToken(token);
+        if (shouldRefreshOnSuccess) {
+          await refreshMember?.().catch(() => {});
+        }
+        router.replace((resolvedSuccessRoute || "/(tabs)/home") as never);
+      } catch {
+        authHandled.current = false;
+      }
+    },
+    [shouldRefreshOnSuccess, refreshMember, router, resolvedSuccessRoute]
+  );
+
   const onNavigationStateChange = useCallback(
     (nav: { url: string }) => {
+      if (nav.url.startsWith(AUTH_SCHEME)) {
+        handleAuthRedirect(nav.url);
+        return;
+      }
       if (!resolvedSuccessPattern || !resolvedSuccessRoute) return;
       if (!nav.url.includes(resolvedSuccessPattern)) return;
       (async () => {
@@ -36,7 +68,18 @@ export default function WebScreen() {
         router.replace(resolvedSuccessRoute as never);
       })();
     },
-    [resolvedSuccessPattern, resolvedSuccessRoute, shouldRefreshOnSuccess, refreshMember, router]
+    [resolvedSuccessPattern, resolvedSuccessRoute, shouldRefreshOnSuccess, refreshMember, router, handleAuthRedirect]
+  );
+
+  const onShouldStartLoadWithRequest = useCallback(
+    (request: { url: string }) => {
+      if (request.url.startsWith(AUTH_SCHEME)) {
+        handleAuthRedirect(request.url);
+        return false;
+      }
+      return true;
+    },
+    [handleAuthRedirect]
   );
 
   if (!resolvedUrl) {
@@ -67,6 +110,7 @@ export default function WebScreen() {
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}
         onNavigationStateChange={onNavigationStateChange}
+        onShouldStartLoadWithRequest={Platform.OS === "ios" ? onShouldStartLoadWithRequest : undefined}
         androidLayerType="hardware"
       />
     </View>

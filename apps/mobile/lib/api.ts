@@ -1,6 +1,6 @@
 /**
  * API client for Northwest Community backend.
- * Uses EXPO_PUBLIC_API_URL (or default localhost) for the base URL.
+ * Uses EXPO_PUBLIC_API_URL; in release builds always https://www.inwcommunity.com.
  * Token storage: SecureStore on native, AsyncStorage on web (platform-specific).
  */
 
@@ -26,13 +26,27 @@ export function trackAppOpen(): void {
 
 const PRODUCTION_API_URL = "https://www.inwcommunity.com";
 
-/** Base URL for API requests. Never relative – always use production if env is missing or invalid. */
+/** Base URL for API requests. Never relative – always use production if env is missing or invalid. No trailing slash. */
 export const API_BASE = (() => {
   const raw = process.env.EXPO_PUBLIC_API_URL ?? "";
   const url = (typeof raw === "string" ? raw : "").trim();
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  return PRODUCTION_API_URL;
+  // In release builds (e.g. TestFlight), always use production unless env is explicitly the production URL.
+  // This avoids any .env or build cache supplying a wrong URL.
+  const isRelease = typeof __DEV__ === "boolean" && !__DEV__;
+  const isProductionUrl =
+    url.startsWith("https://www.inwcommunity.com") || url === "https://www.inwcommunity.com";
+  if (isRelease && (!url || !isProductionUrl)) {
+    return PRODUCTION_API_URL;
+  }
+  const base = url.startsWith("http://") || url.startsWith("https://") ? url : PRODUCTION_API_URL;
+  return base.replace(/\/+$/, "") || base;
 })();
+
+/** Browser-like headers for production so WAF/firewalls don't block app requests. */
+const BROWSER_LIKE_HEADERS =
+  API_BASE.includes("inwcommunity.com")
+    ? { Origin: "https://www.inwcommunity.com", Referer: "https://www.inwcommunity.com/" }
+    : {};
 
 /** Timeout in ms – prevents indefinite hang when server is unreachable */
 const FETCH_TIMEOUT_MS = 25000;
@@ -105,6 +119,7 @@ async function fetchWithAuth(
     "Content-Type": "application/json",
     "Accept": "application/json",
     "User-Agent": USER_AGENT,
+    ...BROWSER_LIKE_HEADERS,
     // Bypass tunnel interstitials for API requests
     ...(API_BASE.includes("ngrok")
       ? { "ngrok-skip-browser-warning": "true" }
@@ -122,19 +137,35 @@ async function fetchWithAuth(
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
+  const isNetworkFailure = (err: { error?: string; message?: string; status?: number }) => {
+    const msg = err.error ?? err.message ?? "";
+    return err.status === 0 || /network request failed|failed to fetch|could not connect|econnrefused|enotfound/i.test(msg);
+  };
   let res: Response;
   try {
     res = await fetchWithTimeout(url, { ...options, headers });
   } catch (e) {
     const err = e as { error?: string; message?: string; status?: number };
-    const msg = err.error ?? err.message ?? String(e);
-    const isNetworkFailure = /network request failed|failed to fetch|could not connect|econnrefused|enotfound/i.test(msg);
-    throw {
-      error: isNetworkFailure
-        ? "Can't reach the server. Check your internet connection (try Wi‑Fi if on cellular), then try again."
-        : msg,
-      status: 0,
-    };
+    if (isNetworkFailure(err)) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        res = await fetchWithTimeout(url, { ...options, headers });
+      } catch (retryErr) {
+        const re = retryErr as { error?: string; message?: string; status?: number };
+        const msg = re.error ?? re.message ?? String(retryErr);
+        throw {
+          error: isNetworkFailure(re)
+            ? "Can't reach the server. Check your internet connection (try Wi‑Fi if on cellular), then try again."
+            : msg,
+          status: 0,
+        };
+      }
+    } else {
+      throw {
+        error: err.error ?? err.message ?? String(e),
+        status: 0,
+      };
+    }
   }
   if (res.status === 401 && token) {
     const isRefreshRoute = path.includes("/api/auth/refresh");
