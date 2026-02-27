@@ -53,19 +53,11 @@ export async function POST(req: NextRequest) {
 
     const subscriptionPlan = await resolvePlan(member.id, validPlan);
 
-    // Allow sign-in with sponsor/seller plan even without subscription (registration in progress)
-    if (validPlan && validPlan !== "subscribe" && !subscriptionPlan) {
-      // User is completing business/seller signup; subscription will be created after form
-    } else if (validPlan && !subscriptionPlan) {
-      const labels: Record<SubscriptionPlan, string> = {
-        subscribe: "Resident",
-        sponsor: "Business",
-        seller: "Seller",
-      };
-      return NextResponse.json(
-        { error: `You don't have an active ${labels[validPlan]} subscription. Sign up on the website.` },
-        { status: 403 }
-      );
+    // Resident (subscribe): no subscription required — they're just creating an account.
+    // Sponsor/seller: allow without subscription when completing registration.
+    if (validPlan && !subscriptionPlan) {
+      // subscribe = resident signup; sponsor/seller = business/seller signup in progress
+      // Allow sign-in in all cases; do not require an active subscription for resident.
     }
 
     const sub = await prisma.subscription.findFirst({
