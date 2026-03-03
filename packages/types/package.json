@@ -2,6 +2,7 @@
   "name": "types",
   "version": "0.0.0",
   "private": true,
+  "scripts": { "build": "echo no-op" },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "devDependencies": {

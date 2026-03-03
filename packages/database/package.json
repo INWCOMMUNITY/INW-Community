@@ -8,6 +8,7 @@
     "seed": "node prisma/seed.js"
   },
   "scripts": {
+    "build": "echo no-op",
     "postinstall": "prisma generate",
     "generate": "prisma generate",
     "push": "prisma db push",
