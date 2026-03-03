@@ -51,14 +51,14 @@ export async function GET(req: NextRequest) {
     const listingWhere = { listingType } as const;
 
     if (list === "meta") {
-    const excludeTestFromMeta = { category: { not: "Test" } };
+    const categoryForMeta = { AND: [{ category: { not: null } }, { category: { not: "Test" } }] };
     const [catItems, variantItems] = await Promise.all([
       prisma.storeItem.findMany({
-        where: { status: "active", category: { not: null }, ...listingWhere, ...excludeTestFromMeta },
+        where: { status: "active", ...listingWhere, ...categoryForMeta },
         select: { category: true },
       }),
       prisma.storeItem.findMany({
-        where: { status: "active", variants: { not: Prisma.JsonNull }, ...listingWhere, ...excludeTestFromMeta },
+        where: { status: "active", variants: { not: Prisma.JsonNull }, ...listingWhere, category: { not: "Test" } },
         select: { variants: true },
       }),
     ]);
