@@ -24,7 +24,7 @@ export async function GET(
   }
 
   const session = await getSessionForApi(req as NextRequest);
-  const comments = await prisma.postComment.findMany({
+  let comments = await prisma.postComment.findMany({
     where: { postId: id },
     include: {
       member: {
@@ -36,6 +36,15 @@ export async function GET(
     },
     orderBy: { createdAt: "asc" },
   });
+
+  if (session?.user?.id) {
+    const blocks = await prisma.memberBlock.findMany({
+      where: { blockerId: session.user.id },
+      select: { blockedId: true },
+    });
+    const blockedIds = new Set(blocks.map((b) => b.blockedId));
+    comments = comments.filter((c) => !blockedIds.has(c.memberId));
+  }
 
   const commentIds = comments.map((c) => c.id);
   const [likeCounts, likedByMe] = await Promise.all([

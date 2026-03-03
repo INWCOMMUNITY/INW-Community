@@ -36,6 +36,15 @@ export async function GET(
   if (!isMember) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const blocks = await prisma.memberBlock.findMany({
+    where: { blockerId: session.user.id },
+    select: { blockedId: true },
+  });
+  const blockedIds = new Set(blocks.map((b) => b.blockedId));
+  const otherMemberIds = conversation.members.map((m) => m.memberId).filter((mid) => mid !== session.user.id);
+  if (otherMemberIds.some((mid) => blockedIds.has(mid))) {
+    return NextResponse.json({ error: "Conversation not available" }, { status: 404 });
+  }
 
   const messages = await prisma.groupConversationMessage.findMany({
     where: { conversationId: id },

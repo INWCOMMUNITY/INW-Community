@@ -32,6 +32,7 @@ import {
   PickupTermsModal,
   type PickupDetails,
 } from "@/components/PickupTermsModal";
+import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -104,6 +105,8 @@ export default function ProductScreen() {
   const [quantity, setQuantity] = useState(1);
   const [selectedVariant, setSelectedVariant] = useState<Record<string, string>>({});
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
   const [addingToCart, setAddingToCart] = useState(false);
   const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>("ship");
   const [localDeliveryModalOpen, setLocalDeliveryModalOpen] = useState(false);
@@ -407,7 +410,14 @@ export default function ProductScreen() {
               {photos.map((p, i) => {
                 const url = resolvePhotoUrl(p);
                 return (
-                  <View key={i} style={[styles.gallerySlide, { width }]}>
+                  <Pressable
+                    key={i}
+                    style={[styles.gallerySlide, { width }]}
+                    onPress={() => {
+                      setGalleryIndex(i);
+                      setGalleryOpen(true);
+                    }}
+                  >
                     {url ? (
                       <Image source={{ uri: url }} style={styles.galleryImage} resizeMode="contain" />
                     ) : (
@@ -415,7 +425,7 @@ export default function ProductScreen() {
                         <Ionicons name="image-outline" size={48} color={theme.colors.primary} />
                       </View>
                     )}
-                  </View>
+                  </Pressable>
                 );
               })}
             </ScrollView>
@@ -435,6 +445,15 @@ export default function ProductScreen() {
             </View>
           )}
         </View>
+
+        {photos.length > 0 && (
+          <ImageGalleryViewer
+            visible={galleryOpen}
+            images={photos.map((p) => resolvePhotoUrl(p)).filter((u): u is string => !!u)}
+            initialIndex={galleryIndex}
+            onClose={() => setGalleryOpen(false)}
+          />
+        )}
 
         <View style={styles.body}>
           <Text style={styles.title}>{item.title}</Text>

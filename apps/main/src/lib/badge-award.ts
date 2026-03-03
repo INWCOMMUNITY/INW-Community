@@ -46,18 +46,22 @@ async function ensureBusinessBadge(businessId: string, badgeSlug: string): Promi
   return true;
 }
 
-/** Call after Member create (signup). signupIntent: resident | business | seller */
-export async function awardMemberSignupBadges(memberId: string, signupIntent?: string | null) {
+/** Call after Member create (signup). signupIntent: resident | business | seller. Returns badges just awarded for this signup. */
+export async function awardMemberSignupBadges(memberId: string, signupIntent?: string | null): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
   const intent = signupIntent ?? "resident";
   if (intent === "resident") {
-    await ensureMemberBadge(memberId, "community_member");
+    const b1 = await ensureMemberBadgeWithInfo(memberId, "community_member");
+    if (b1) earned.push(b1);
     const residentCount = await prisma.member.count({
       where: { signupIntent: "resident" },
     });
     if (residentCount <= 1000) {
-      await ensureMemberBadge(memberId, "og_community_member");
+      const b2 = await ensureMemberBadgeWithInfo(memberId, "og_community_member");
+      if (b2) earned.push(b2);
     }
   }
+  return earned;
 }
 
 /** Call after Business create */

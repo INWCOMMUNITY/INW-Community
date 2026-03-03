@@ -13,16 +13,24 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiUploadFile } from "@/lib/api";
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
+function toFullUrl(url: string): string {
+  return url.startsWith("http") ? url : `${API_BASE}${url.startsWith("/") ? "" : "/"}${url}`;
+}
 
 interface Group {
   id: string;
   name: string;
   slug: string;
   description: string | null;
+  category: string | null;
   coverImageUrl: string | null;
+  rules: string | null;
   isMember: boolean;
   memberRole: string | null;
   _count?: { members: number; groupPosts: number };
@@ -36,11 +44,20 @@ export default function GroupsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createName, setCreateName] = useState("");
+  const [createDescription, setCreateDescription] = useState("");
+  const [createCategory, setCreateCategory] = useState("");
+  const [createRules, setCreateRules] = useState("");
+  const [createCoverUrl, setCreateCoverUrl] = useState<string | null>(null);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
 
   const load = useCallback(async () => {
     try {
-      const q = searchQuery.trim() ? `?q=${encodeURIComponent(searchQuery.trim())}` : "";
+      const params = new URLSearchParams();
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+      if (categoryFilter.trim()) params.set("category", categoryFilter.trim());
+      const q = params.toString() ? `?${params.toString()}` : "";
       const data = await apiGet<{ groups: Group[] }>(`/api/groups${q}`);
       setGroups(data?.groups ?? []);
     } catch {
@@ -49,7 +66,7 @@ export default function GroupsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [searchQuery]);
+  }, [searchQuery, categoryFilter]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -72,6 +89,38 @@ export default function GroupsScreen() {
     }
   };
 
+  const pickCover = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow access to photos to add a group photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    setUploadingCover(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", {
+        uri: result.assets[0].uri,
+        type: result.assets[0].mimeType ?? "image/jpeg",
+        name: "photo.jpg",
+      } as unknown as Blob);
+      formData.append("type", "image");
+      const { url } = await apiUploadFile("/api/upload/post", formData);
+      const fullUrl = toFullUrl(url);
+      setCreateCoverUrl(fullUrl);
+    } catch (e) {
+      Alert.alert("Error", (e as { error?: string })?.error ?? "Failed to upload photo.");
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+
   const handleCreate = async () => {
     if (!createName.trim()) {
       Alert.alert("Error", "Enter a group name");
@@ -81,11 +130,19 @@ export default function GroupsScreen() {
     try {
       const data = await apiPost<{ group: { slug: string } }>("/api/groups", {
         name: createName.trim(),
+        description: createDescription.trim() || undefined,
+        category: createCategory.trim() || undefined,
+        coverImageUrl: createCoverUrl ?? undefined,
+        rules: createRules.trim() || undefined,
       });
       setShowCreate(false);
       setCreateName("");
+      setCreateDescription("");
+      setCreateCategory("");
+      setCreateRules("");
+      setCreateCoverUrl(null);
       if (data?.group?.slug) {
-        (router.push as (href: string) => void)(`/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com"}/groups/${data.group.slug}`)}&title=Group`);
+        (router.push as (href: string) => void)(`/community/group/${data.group.slug}`);
       }
       load();
     } catch (e) {
@@ -96,7 +153,10 @@ export default function GroupsScreen() {
     }
   };
 
-  const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
+  const categoriesFromGroups = groups
+    .map((g) => g.category)
+    .filter((c): c is string => !!c?.trim());
+  const uniqueCategories = [...new Set(categoriesFromGroups)];
 
   return (
     <ScrollView
@@ -126,17 +186,65 @@ export default function GroupsScreen() {
       {showCreate && (
         <View style={styles.createCard}>
           <Text style={styles.createTitle}>Create a group</Text>
+          <Pressable onPress={pickCover} style={styles.coverPicker} disabled={uploadingCover}>
+            {createCoverUrl ? (
+              <Image source={{ uri: createCoverUrl }} style={styles.coverPickerImage} resizeMode="cover" />
+            ) : (
+              <View style={styles.coverPickerPlaceholder}>
+                {uploadingCover ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <>
+                    <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
+                    <Text style={styles.coverPickerText}>Add group photo</Text>
+                  </>
+                )}
+              </View>
+            )}
+          </Pressable>
           <TextInput
             style={styles.input}
-            placeholder="Group name"
+            placeholder="Group name *"
             placeholderTextColor={theme.colors.placeholder}
             value={createName}
             onChangeText={setCreateName}
           />
+          <TextInput
+            style={[styles.input, styles.inputMultiline]}
+            placeholder="Description (optional)"
+            placeholderTextColor={theme.colors.placeholder}
+            value={createDescription}
+            onChangeText={setCreateDescription}
+            multiline
+            numberOfLines={3}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Category (optional)"
+            placeholderTextColor={theme.colors.placeholder}
+            value={createCategory}
+            onChangeText={setCreateCategory}
+          />
+          <TextInput
+            style={[styles.input, styles.inputMultiline]}
+            placeholder="Group rules (optional). Members must agree to join."
+            placeholderTextColor={theme.colors.placeholder}
+            value={createRules}
+            onChangeText={setCreateRules}
+            multiline
+            numberOfLines={4}
+          />
           <View style={styles.createActions}>
             <Pressable
               style={({ pressed }) => [styles.cancelBtn, pressed && styles.buttonPressed]}
-              onPress={() => { setShowCreate(false); setCreateName(""); }}
+              onPress={() => {
+                setShowCreate(false);
+                setCreateName("");
+                setCreateDescription("");
+                setCreateCategory("");
+                setCreateRules("");
+                setCreateCoverUrl(null);
+              }}
             >
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </Pressable>
@@ -153,6 +261,26 @@ export default function GroupsScreen() {
             </Pressable>
           </View>
         </View>
+      )}
+
+      {uniqueCategories.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterRowContent}>
+          <Pressable
+            style={[styles.filterChip, !categoryFilter && styles.filterChipActive]}
+            onPress={() => setCategoryFilter("")}
+          >
+            <Text style={[styles.filterChipText, !categoryFilter && styles.filterChipTextActive]}>All</Text>
+          </Pressable>
+          {uniqueCategories.map((c) => (
+            <Pressable
+              key={c}
+              style={[styles.filterChip, categoryFilter === c && styles.filterChipActive]}
+              onPress={() => setCategoryFilter(c)}
+            >
+              <Text style={[styles.filterChipText, categoryFilter === c && styles.filterChipTextActive]}>{c}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       )}
 
       {loading ? (
@@ -239,6 +367,10 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   createTitle: { fontSize: 16, fontWeight: "600", marginBottom: 12 },
+  coverPicker: { width: "100%", height: 120, marginBottom: 12, borderRadius: 8, overflow: "hidden", borderWidth: 2, borderColor: theme.colors.primary },
+  coverPickerImage: { width: "100%", height: "100%" },
+  coverPickerPlaceholder: { width: "100%", height: "100%", backgroundColor: theme.colors.cream, alignItems: "center", justifyContent: "center" },
+  coverPickerText: { fontSize: 14, color: theme.colors.placeholder, marginTop: 4 },
   input: {
     borderWidth: 2,
     borderColor: theme.colors.primary,
@@ -247,6 +379,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
   },
+  inputMultiline: { minHeight: 72, textAlignVertical: "top" },
+  filterRow: { marginBottom: 12, maxHeight: 44 },
+  filterRowContent: { gap: 8, paddingVertical: 4 },
+  filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.colors.cream },
+  filterChipActive: { backgroundColor: theme.colors.primary },
+  filterChipText: { fontSize: 14, color: theme.colors.heading },
+  filterChipTextActive: { color: "#fff", fontWeight: "600" },
   createActions: { flexDirection: "row", gap: 8, justifyContent: "flex-end" },
   cancelBtn: { paddingVertical: 8, paddingHorizontal: 16 },
   cancelBtnText: { color: "#666", fontSize: 16 },

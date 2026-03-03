@@ -12,6 +12,15 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 
+const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+  coupon: "pricetag",
+  badges: "ribbon",
+  store: "cart",
+  qr: "qr-code-outline",
+};
+
+export type PointsEarnedCategory = keyof typeof CATEGORY_ICONS;
+
 interface PointsEarnedPopupProps {
   visible: boolean;
   onClose: () => void;
@@ -19,6 +28,7 @@ interface PointsEarnedPopupProps {
   pointsAwarded: number;
   previousTotal: number;
   newTotal: number;
+  category?: PointsEarnedCategory;
   icon?: keyof typeof Ionicons.glyphMap;
   message?: string;
   buttonText?: string;
@@ -31,10 +41,12 @@ export function PointsEarnedPopup({
   pointsAwarded,
   previousTotal,
   newTotal,
+  category,
   icon,
   message,
   buttonText,
 }: PointsEarnedPopupProps) {
+  const resolvedIcon = icon ?? (category ? CATEGORY_ICONS[category] : undefined) ?? "star";
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const [displayPoints, setDisplayPoints] = useState(previousTotal);
   const counterRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -92,7 +104,7 @@ export function PointsEarnedPopup({
           </Pressable>
 
           <View style={styles.iconWrap}>
-            <Ionicons name={icon ?? "star"} size={56} color={theme.colors.primary} />
+            <Ionicons name={resolvedIcon} size={56} color={theme.colors.primary} />
           </View>
 
           <Text style={styles.congrats}>Points Earned!</Text>

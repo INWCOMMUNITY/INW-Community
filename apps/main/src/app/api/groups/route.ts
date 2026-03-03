@@ -20,6 +20,7 @@ const postSchema = z.object({
     .refine((v) => !v || v.startsWith("/") || v.startsWith("http"), "Invalid cover image URL")
     .optional()
     .nullable(),
+  rules: z.string().max(5000).optional().nullable(),
 });
 
 export async function GET(req: NextRequest) {
@@ -99,6 +100,7 @@ export async function POST(req: NextRequest) {
         description: data.description ?? null,
         category: data.category ?? null,
         coverImageUrl: data.coverImageUrl ?? null,
+        rules: data.rules ?? null,
         slug,
         createdById: session.user.id,
       },

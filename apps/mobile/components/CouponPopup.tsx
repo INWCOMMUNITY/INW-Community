@@ -411,7 +411,7 @@ export function CouponPopup({
           pointsAwarded={pointsPopup.pointsAwarded}
           previousTotal={pointsPopup.previousTotal}
           newTotal={pointsPopup.newTotal}
-          icon="cut-outline"
+          category="coupon"
           message={`You're basically snipping them from the book! Thanks for using ${pointsPopup.businessName}'s coupon! Redeem more coupons for more savings and more points!`}
           buttonText="Super!"
         />

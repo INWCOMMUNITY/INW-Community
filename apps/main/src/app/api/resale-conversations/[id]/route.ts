@@ -37,6 +37,15 @@ export async function GET(
   if (conversation.buyerId !== session.user.id && conversation.sellerId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const otherId = conversation.buyerId === session.user.id ? conversation.sellerId : conversation.buyerId;
+  const blocked = await prisma.memberBlock.findUnique({
+    where: {
+      blockerId_blockedId: { blockerId: session.user.id, blockedId: otherId },
+    },
+  });
+  if (blocked) {
+    return NextResponse.json({ error: "Conversation not available" }, { status: 404 });
+  }
 
   return NextResponse.json(conversation);
 }

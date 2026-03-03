@@ -25,6 +25,38 @@ export async function PATCH(req: NextRequest) {
     if (!["pending", "reviewed", "removed"].includes(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
+
+    const row = await prisma.flaggedContent.findUnique({ where: { id } });
+    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    if (status === "removed" && row.contentId) {
+      const contentId = row.contentId;
+      switch (row.contentType) {
+        case "post":
+          await prisma.post.deleteMany({ where: { id: contentId } });
+          break;
+        case "message":
+          await prisma.directMessage.deleteMany({ where: { id: contentId } });
+          await prisma.groupConversationMessage.deleteMany({ where: { id: contentId } });
+          await prisma.resaleMessage.deleteMany({ where: { id: contentId } });
+          break;
+        case "business":
+          await prisma.business.deleteMany({ where: { id: contentId } });
+          break;
+        case "event":
+          await prisma.event.deleteMany({ where: { id: contentId } });
+          break;
+        case "store_item":
+          await prisma.storeItem.updateMany({
+            where: { id: contentId },
+            data: { status: "inactive" },
+          });
+          break;
+        default:
+          break;
+      }
+    }
+
     await prisma.flaggedContent.update({
       where: { id },
       data: { status },

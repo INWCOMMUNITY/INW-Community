@@ -15,6 +15,7 @@ import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { theme as defaultTheme } from "@/lib/theme";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { apiGet, apiPost, apiUploadFile, getToken } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -43,7 +44,15 @@ const PLACEHOLDER_COLOR = "#888888";
 export default function ResaleHubListScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { member } = useAuth();
   const placeholderColor = PLACEHOLDER_COLOR;
+
+  const canListResale =
+    member?.subscriptions?.some(
+      (s) => (s.plan === "subscribe" || s.plan === "seller") && s.status === "active"
+    ) ?? false;
+  const showSubscribeGate = member != null && !canListResale;
+  const showSignInGate = member == null;
 
   const [categories, setCategories] = useState<string[]>([]);
   const [sellerProfileShippingPolicy, setSellerProfileShippingPolicy] = useState("");
@@ -290,6 +299,35 @@ export default function ResaleHubListScreen() {
   };
 
   const showDeliveryOptions = offerShipping || offerLocalDelivery || offerLocalPickup;
+
+  if (showSignInGate || showSubscribeGate) {
+    return (
+      <View style={styles.screenWrapper}>
+        <View style={styles.gateBlock}>
+          <Text style={styles.gateTitle}>
+            {showSignInGate ? "Sign in to list items" : "Subscribe to list items on Community Resale"}
+          </Text>
+          <Text style={styles.gateText}>
+            {showSignInGate
+              ? "Sign in to list items on Community Resale."
+              : "You can sell pre-loved items and ship or offer local delivery."}
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.gateBtn, pressed && { opacity: 0.8 }]}
+            onPress={() =>
+              router.push(
+                showSignInGate
+                  ? ("/(tabs)/my-community" as any)
+                  : (`/web?url=${encodeURIComponent(toFullUrl("/support-nwc"))}&title=${encodeURIComponent("Support NWC")}` as any)
+              )
+            }
+          >
+            <Text style={styles.gateBtnText}>{showSignInGate ? "Sign in" : "View plans"}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screenWrapper}>
@@ -698,6 +736,11 @@ export default function ResaleHubListScreen() {
 
 const styles = StyleSheet.create({
   screenWrapper: { flex: 1, backgroundColor: "#fff" },
+  gateBlock: { flex: 1, padding: 24, justifyContent: "center", alignItems: "center" },
+  gateTitle: { fontSize: 20, fontWeight: "600", marginBottom: 12, textAlign: "center" },
+  gateText: { fontSize: 16, color: defaultTheme.colors.placeholder, textAlign: "center", marginBottom: 24, paddingHorizontal: 16 },
+  gateBtn: { backgroundColor: defaultTheme.colors.primary, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 8 },
+  gateBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 20, paddingBottom: 40 },
   err: { color: "#c62828", marginBottom: 16, fontSize: 14 },

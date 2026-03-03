@@ -11,6 +11,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Modal,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -53,6 +54,7 @@ export default function GroupConversationScreen() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
@@ -72,6 +74,67 @@ export default function GroupConversationScreen() {
   }, [load]);
 
   const groupName = conv?.name ?? conv?.members?.map((m) => m.member.firstName).filter(Boolean).join(", ") ?? "Group";
+  const otherMembers = conv?.members?.filter((m) => m.member.id !== member?.id).map((m) => m.member) ?? [];
+
+  const handleReportConversation = () => {
+    setMenuOpen(false);
+    if (!id) return;
+    Alert.alert(
+      "Report conversation",
+      "Why are you reporting this conversation?",
+      [
+        { text: "Political content", onPress: () => submitReport("political") },
+        { text: "Nudity / explicit", onPress: () => submitReport("nudity") },
+        { text: "Spam", onPress: () => submitReport("spam") },
+        { text: "Other", onPress: () => submitReport("other") },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  };
+  const submitReport = async (reason: "political" | "hate" | "nudity" | "spam" | "other") => {
+    if (!id) return;
+    try {
+      await apiPost("/api/reports", {
+        contentType: "group_message",
+        contentId: id,
+        reason,
+      });
+      Alert.alert("Report submitted", "Thank you. We will review this.");
+    } catch (e) {
+      Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.");
+    }
+  };
+
+  const handleBlockUser = (targetMember: { id: string; firstName: string | null; lastName: string | null }) => {
+    setMenuOpen(false);
+    const name = `${targetMember.firstName ?? ""} ${targetMember.lastName ?? ""}`.trim() || "User";
+    Alert.alert(
+      "Block user",
+      `Block ${name}? They will not be able to message you in this group.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await apiPost("/api/members/block", { memberId: targetMember.id });
+              await apiPost("/api/reports", {
+                contentType: "group_message",
+                contentId: id ?? "",
+                reason: "other",
+                details: "User blocked by viewer",
+              }).catch(() => {});
+              router.back();
+              Alert.alert("User blocked", "They have been blocked.");
+            } catch (e) {
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not block user.");
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const pickAndSendPhoto = async () => {
     if (!conv || sending || uploadingPhoto) return;
@@ -202,7 +265,33 @@ export default function GroupConversationScreen() {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>{groupName}</Text>
+        <Pressable onPress={() => setMenuOpen(true)} style={styles.headerMenuBtn}>
+          <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
+        </Pressable>
       </View>
+
+      {menuOpen && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+          <Pressable style={styles.menuOverlay} onPress={() => setMenuOpen(false)}>
+            <View style={styles.menuSheet}>
+              <Pressable style={styles.menuItem} onPress={handleReportConversation}>
+                <Ionicons name="flag-outline" size={20} color="#c00" />
+                <Text style={[styles.menuItemText, { color: "#c00" }]}>Report conversation</Text>
+              </Pressable>
+              {otherMembers.map((m) => (
+                <Pressable key={m.id} style={styles.menuItem} onPress={() => handleBlockUser(m)}>
+                  <Ionicons name="ban-outline" size={20} color="#c00" />
+                  <Text style={[styles.menuItemText, { color: "#c00" }]}>Block {m.firstName ?? "user"}</Text>
+                </Pressable>
+              ))}
+              <Pressable style={styles.menuItem} onPress={() => setMenuOpen(false)}>
+                <Ionicons name="close" size={20} color="#666" />
+                <Text style={styles.menuItemText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
 
       <FlatList
         ref={flatListRef}
@@ -287,6 +376,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#fff",
   },
+  headerMenuBtn: { padding: 8 },
+  menuOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end", paddingBottom: 40 },
+  menuSheet: { backgroundColor: "#fff", borderTopLeftRadius: 12, borderTopRightRadius: 12, padding: 16 },
+  menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
+  menuItemText: { fontSize: 16, color: theme.colors.heading },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   messageList: { padding: 16, paddingBottom: 8 },
   bubbleWrap: { marginBottom: 12, alignItems: "flex-start" },

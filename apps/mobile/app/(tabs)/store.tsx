@@ -26,6 +26,7 @@ import { useRouter, useNavigation, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, getToken } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   StoreFilterDrawer,
   type DeliveryFilter,
@@ -55,7 +56,13 @@ export default function StoreScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const params = useLocalSearchParams<{ listingType?: string }>();
+  const { member } = useAuth();
   const { width } = useWindowDimensions();
+
+  const canListResale =
+    member?.subscriptions?.some(
+      (s) => (s.plan === "subscribe" || s.plan === "seller") && s.status === "active"
+    ) ?? false;
   const padding = 16;
   const gap = 12;
   const cardWidth = (width - padding * 2 - gap) / 2;
@@ -173,6 +180,12 @@ export default function StoreScreen() {
           { text: "Cancel", style: "cancel" },
           { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
         ]
+      );
+      return;
+    }
+    if (!canListResale) {
+      (router.push as (href: string) => void)(
+        `/web?url=${encodeURIComponent(`${siteBase}/support-nwc`)}&title=${encodeURIComponent("Support NWC")}`
       );
       return;
     }
@@ -337,7 +350,9 @@ export default function StoreScreen() {
                 onPress={openListItem}
               >
                 <Ionicons name="add-circle-outline" size={20} color="#fff" />
-                <Text style={styles.listItemBtnText}>List an Item</Text>
+                <Text style={styles.listItemBtnText}>
+                  {member && !canListResale ? "Subscribe to list items" : "List an Item"}
+                </Text>
               </Pressable>
             )}
         </View>
@@ -386,10 +401,7 @@ export default function StoreScreen() {
           renderItem={renderItem}
           numColumns={2}
           columnWrapperStyle={styles.row}
-          contentContainerStyle={[
-            styles.listContent,
-            listingType === "resale" && { paddingTop: 12 },
-          ]}
+          contentContainerStyle={styles.listContent}
           onScroll={handleScroll}
           onScrollEndDrag={handleScrollEnd}
           onMomentumScrollEnd={handleScrollEnd}
@@ -516,7 +528,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 16,
-    paddingTop: 0,
+    paddingTop: 12,
     paddingBottom: 32,
     backgroundColor: "#fff",
   },

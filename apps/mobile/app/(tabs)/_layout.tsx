@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, View, Text, Modal } from "react-native";
-import { Tabs, useRouter } from "expo-router";
+import { Tabs, useRouter, usePathname } from "expo-router";
 
 import { useClientOnlyValue } from "@/components/useClientOnlyValue";
 
@@ -10,6 +11,7 @@ export function useOpenSellerMenu() {
   return () => openSellerMenuRef.current?.();
 }
 import { useTheme } from "@/contexts/ThemeContext";
+import { apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 import { SellerHubSideMenu } from "@/components/SellerHubSideMenu";
@@ -209,18 +211,32 @@ function ProfileSwitcherModal() {
 
 type SideMenuType = "seller" | "business" | "resale" | "profile" | "app" | "community" | null;
 
+const switcherShownOnceRef = { current: false };
+
 function TabLayoutInner() {
   const theme = useTheme();
   const router = useRouter();
+  const pathname = usePathname();
   const { member, subscriptionPlan, loading } = useAuth();
-  const { profileView, showSwitcher, hasSponsor, hasSeller, hasSubscriber } = useProfileView();
+  const { profileView, showSwitcher, openSwitcher, hasSponsor, hasSeller, hasSubscriber } = useProfileView();
   const [sideMenuType, setSideMenuType] = useState<SideMenuType>(null);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
+  useFocusEffect(
+    useCallback(() => {
+      apiGet<{ unreadMessages?: number }>("/api/me/sidebar-alerts")
+        .then((d) => setUnreadMessages(Number(d?.unreadMessages) || 0))
+        .catch(() => {});
+    }, [])
+  );
+
+  const isProfileTab = typeof pathname === "string" && pathname.includes("my-community");
   useEffect(() => {
-    if (!loading && !member) {
-      router.replace("/(auth)/login");
+    if (isProfileTab && showSwitcher && !switcherShownOnceRef.current) {
+      switcherShownOnceRef.current = true;
+      openSwitcher();
     }
-  }, [member, loading, router]);
+  }, [isProfileTab, showSwitcher, openSwitcher]);
 
   const profileIconName =
     profileView === "business_hub"
@@ -294,12 +310,40 @@ function TabLayoutInner() {
                     onPress={() => router.push("/messages")}
                   >
                     {({ pressed }) => (
-                      <Ionicons
-                        name="mail"
-                        size={22}
-                        color="#ffffff"
-                        style={{ opacity: pressed ? 0.7 : 1 }}
-                      />
+                      <View style={{ position: "relative" }}>
+                        <Ionicons
+                          name="mail"
+                          size={22}
+                          color="#ffffff"
+                          style={{ opacity: pressed ? 0.7 : 1 }}
+                        />
+                        {unreadMessages > 0 && (
+                          <View
+                            style={{
+                              position: "absolute",
+                              top: -6,
+                              right: -8,
+                              minWidth: 18,
+                              height: 18,
+                              borderRadius: 9,
+                              backgroundColor: "#fff",
+                              justifyContent: "center",
+                              alignItems: "center",
+                              paddingHorizontal: 4,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                fontWeight: "700",
+                                color: theme.colors.primary,
+                              }}
+                            >
+                              {unreadMessages > 99 ? "99+" : unreadMessages}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                     )}
                   </Pressable>
                 )

@@ -39,9 +39,9 @@ export default function ReportsPage() {
 
   async function updateStatus(id: string, status: string) {
     try {
-const res = await fetch(`/api/admin/reports/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      const res = await fetch(`/api/admin/reports/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
       if (res.ok) {
@@ -51,6 +51,28 @@ const res = await fetch(`/api/admin/reports/${id}`, {
     } catch {
       // Ignore
     }
+  }
+
+  async function removeContent(r: Report) {
+    if (r.contentType !== "post" || !r.contentId) return;
+    try {
+      const res = await fetch(`/api/admin/posts/${r.contentId}`, { method: "DELETE" });
+      if (res.ok) {
+        await updateStatus(r.id, "resolved");
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  function reportAge(createdAt: string): { text: string; overdue: boolean } {
+    const reported = new Date(createdAt).getTime();
+    const now = Date.now();
+    const hours = (now - reported) / (1000 * 60 * 60);
+    if (hours < 1) return { text: "< 1 hour ago", overdue: false };
+    if (hours < 24) return { text: `${Math.round(hours)} hours ago`, overdue: false };
+    const days = Math.floor(hours / 24);
+    return { text: `${days} day(s) ago`, overdue: true };
   }
 
   if (loading) return <p className="text-gray-500">Loading…</p>;
@@ -95,7 +117,12 @@ const res = await fetch(`/api/admin/reports/${id}`, {
                     <p className="text-sm mt-2 text-gray-700">{r.details}</p>
                   )}
                   <p className="text-xs text-gray-400 mt-1">
-                    {new Date(r.createdAt).toLocaleString()}
+                    Reported at: {new Date(r.createdAt).toLocaleString()}
+                    {" · "}
+                    {reportAge(r.createdAt).text}
+                    {r.status === "pending" && reportAge(r.createdAt).overdue && (
+                      <span className="ml-2 font-medium text-red-600">Overdue (24h)</span>
+                    )}
                   </p>
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
@@ -110,6 +137,15 @@ const res = await fetch(`/api/admin/reports/${id}`, {
                   >
                     {r.status}
                   </span>
+                  {r.contentType === "post" && r.contentId && (
+                    <button
+                      type="button"
+                      onClick={() => removeContent(r)}
+                      className="text-sm text-red-600 hover:underline"
+                    >
+                      Remove content
+                    </button>
+                  )}
                   {r.status !== "reviewed" && (
                     <button
                       type="button"

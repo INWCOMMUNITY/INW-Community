@@ -113,11 +113,7 @@ function SellerHubContent() {
     icon: keyof typeof Ionicons.glyphMap;
   }[] = [
     { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
-    {
-      label: "Manage Store",
-      icon: "list",
-      onPress: openSellerMenu,
-    },
+    { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
     { label: "My Orders", href: "/seller-hub/orders", icon: "receipt" },
     { label: "Ship Orders", href: "/seller-hub/ship", icon: "paper-plane" },
     { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
@@ -526,10 +522,27 @@ export default function MyCommunityScreen() {
     setDownloadPickerType(type);
   };
 
-  if (loading || !member) {
+  if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (!member) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.guestPromptTitle}>Sign in to view profile</Text>
+        <Text style={styles.guestPromptDesc}>
+          Create an account or sign in to access your profile, saved items, and more.
+        </Text>
+        <Pressable
+          style={({ pressed }) => [styles.guestSignInBtn, pressed && { opacity: 0.8 }]}
+          onPress={() => router.replace("/(auth)/login")}
+        >
+          <ThemedText style={styles.guestSignInBtnText}>Sign in</ThemedText>
+        </Pressable>
       </View>
     );
   }
@@ -914,18 +927,16 @@ export default function MyCommunityScreen() {
         <RNView style={styles.buttonRow}>
           <Pressable
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
-            onPress={() =>
-              router.push(
-                `/web?url=${encodeURIComponent(`${siteBase}/my-community/friends`)}&title=${encodeURIComponent("My Friends")}`
-              )
-            }
+            onPress={() => (router.push as (href: string) => void)("/community/my-friends")}
           >
+            <Ionicons name="people" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Friends</ThemedText>
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
             onPress={() => router.push("/profile-businesses")}
           >
+            <Ionicons name="business" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Businesses</ThemedText>
           </Pressable>
         </RNView>
@@ -934,12 +945,14 @@ export default function MyCommunityScreen() {
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
             onPress={() => router.push("/profile-events")}
           >
+            <Ionicons name="calendar" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Events</ThemedText>
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
             onPress={() => router.push("/profile-coupons")}
           >
+            <Ionicons name="pricetag" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Coupons</ThemedText>
           </Pressable>
         </RNView>
@@ -948,16 +961,14 @@ export default function MyCommunityScreen() {
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
             onPress={() => router.push("/profile-wishlist")}
           >
+            <Ionicons name="heart" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Wishlist</ThemedText>
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
-            onPress={() =>
-              router.push(
-                `/web?url=${encodeURIComponent(`${siteBase}/my-community/orders`)}&title=${encodeURIComponent("My Orders")}`
-              )
-            }
+            onPress={() => (router.push as (href: string) => void)("/seller-hub/orders")}
           >
+            <Ionicons name="receipt" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Orders</ThemedText>
           </Pressable>
         </RNView>
@@ -972,6 +983,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#ffffff",
+  },
+  guestPromptTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    marginBottom: 8,
+    textAlign: "center",
+    paddingHorizontal: 24,
+  },
+  guestPromptDesc: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    paddingHorizontal: 32,
+    marginBottom: 24,
+  },
+  guestSignInBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  guestSignInBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
   container: {
     flex: 1,
@@ -1254,13 +1291,18 @@ const styles = StyleSheet.create({
   },
   tanButton: {
     flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
     backgroundColor: theme.colors.primary,
     borderWidth: 1,
     borderColor: theme.colors.primary,
     borderRadius: 6,
     padding: 10,
-    alignItems: "center",
-    justifyContent: "center",
+  },
+  tanButtonIcon: {
+    marginRight: 0,
   },
   tanButtonText: {
     fontSize: 16,

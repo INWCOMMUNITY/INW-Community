@@ -18,6 +18,14 @@ export async function POST(req: NextRequest) {
   } catch {
     // use default
   }
+  baseUrl = baseUrl.trim().replace(/\/$/, "") || BASE_URL;
+
+  if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY === "sk_test_...") {
+    return NextResponse.json(
+      { error: "Stripe is not configured. Add STRIPE_SECRET_KEY to .env for storefront payments." },
+      { status: 503 }
+    );
+  }
 
   const session = await getSessionForApi(req);
   const userId = session?.user?.id;
@@ -51,12 +59,6 @@ export async function POST(req: NextRequest) {
 
   try {
     if (!accountId) {
-      if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY === "sk_test_...") {
-        return NextResponse.json(
-          { error: "Stripe is not configured. Add STRIPE_SECRET_KEY to .env for storefront payments." },
-          { status: 503 }
-        );
-      }
       const account = await stripe.accounts.create({
         type: "express",
         country: "US",

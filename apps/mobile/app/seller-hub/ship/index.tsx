@@ -339,16 +339,18 @@ export default function ShipScreen() {
   if (!connected) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Ship Items</Text>
-        <Text style={styles.hint}>
-          Connect your EasyPost account to purchase shipping labels.
-        </Text>
-        <Pressable
-          style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
-          onPress={() => (router.push as (href: string) => void)("/seller-hub/shipping-setup")}
-        >
-          <Text style={styles.btnText}>Set up shipping</Text>
-        </Pressable>
+        <View style={styles.content}>
+          <Text style={styles.title}>Ship Items</Text>
+          <Text style={styles.hint}>
+            Connect your EasyPost account to purchase shipping labels.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
+            onPress={() => (router.push as (href: string) => void)("/seller-hub/shipping-setup")}
+          >
+            <Text style={styles.btnText}>Set up shipping</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -528,6 +530,9 @@ export default function ShipScreen() {
         <View style={styles.purchaseSection}>
           <Text style={styles.easypostNote}>
             All labels will be purchased from the payment option on file for your EasyPost account.
+          </Text>
+          <Text style={styles.easypostNote}>
+            Labels open in your browser—use Print or Share to print.
           </Text>
           <Pressable
             style={({ pressed }) => [styles.purchaseLabelsBtn, pressed && { opacity: 0.8 }]}

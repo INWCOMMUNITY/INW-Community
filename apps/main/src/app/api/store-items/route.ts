@@ -51,13 +51,14 @@ export async function GET(req: NextRequest) {
     const listingWhere = { listingType } as const;
 
     if (list === "meta") {
+    const excludeTestFromMeta = { category: { not: "Test" } };
     const [catItems, variantItems] = await Promise.all([
       prisma.storeItem.findMany({
-        where: { status: "active", category: { not: null }, ...listingWhere },
+        where: { status: "active", category: { not: null }, ...listingWhere, ...excludeTestFromMeta },
         select: { category: true },
       }),
       prisma.storeItem.findMany({
-        where: { status: "active", variants: { not: Prisma.JsonNull }, ...listingWhere },
+        where: { status: "active", variants: { not: Prisma.JsonNull }, ...listingWhere, ...excludeTestFromMeta },
         select: { variants: true },
       }),
     ]);
@@ -186,11 +187,21 @@ export async function GET(req: NextRequest) {
   const localDelivery = searchParams.get("localDelivery");
   const shippingOnly = searchParams.get("shippingOnly");
 
+  // Exclude test/trial placeholder items from storefront and resale lists (App Store 2.1(a))
+  const excludeTestItems = {
+    AND: [
+      { category: { not: "Test" } },
+      { slug: { not: { contains: "trial", mode: "insensitive" } } },
+      { slug: { not: { contains: "test-resale", mode: "insensitive" } } },
+    ],
+  };
+
   let items = await prisma.storeItem.findMany({
     where: {
       status: "active",
       quantity: { gt: 0 },
       ...listingWhere,
+      ...excludeTestItems,
       ...(category ? { category } : {}),
       ...(memberId ? { memberId } : {}),
       ...(excludeId ? { id: { not: excludeId } } : {}),

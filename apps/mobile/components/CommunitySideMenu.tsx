@@ -49,6 +49,7 @@ export function CommunitySideMenu({
     { label: "My Friends", href: "/community/my-friends", icon: "people" },
     { label: "Tags", href: "/community/tags", icon: "pricetags" },
     { label: "Groups", href: "/community/groups", icon: "people-circle" },
+    { label: "Posts and Photos", href: "/community/posts-photos", icon: "images" },
     { label: "Blogs", href: "/community/blogs", icon: "newspaper" },
     { label: "Invites", href: "/community/invites", icon: "calendar" },
     { label: "Badges", href: "/my-badges", icon: "ribbon" },

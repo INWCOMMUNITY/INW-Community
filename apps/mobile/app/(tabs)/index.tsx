@@ -47,7 +47,6 @@ export default function CommunityScreen() {
   const checkAuth = useCallback(() => {
     getToken().then((token) => {
       setSignedIn(!!token);
-      if (!token) setLoading(false);
     });
   }, []);
 
@@ -79,13 +78,12 @@ export default function CommunityScreen() {
   }, [checkAuth]);
 
   useEffect(() => {
-    if (signedIn) {
+    if (signedIn !== null) {
       loadInitial();
     }
   }, [signedIn, loadInitial]);
 
   const onRefresh = useCallback(() => {
-    if (!signedIn) return;
     setRefreshing(true);
     loadFeed()
       .then(({ posts: p, nextCursor: c }) => {
@@ -97,7 +95,7 @@ export default function CommunityScreen() {
         setNextCursor(null);
       })
       .finally(() => setRefreshing(false));
-  }, [signedIn, loadFeed]);
+  }, [loadFeed]);
 
   const loadMore = useCallback(() => {
     if (!nextCursor || loadingMore) return;
@@ -110,40 +108,70 @@ export default function CommunityScreen() {
       .finally(() => setLoadingMore(false));
   }, [nextCursor, loadingMore, loadFeed]);
 
-  const handleLike = useCallback(async (postId: string) => {
-    try {
-      const { liked } = await toggleLike(postId);
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === postId
-            ? {
-                ...p,
-                liked,
-                likeCount: p.likeCount + (liked ? 1 : -1),
-              }
-            : p
-        )
-      );
-    } catch (_) {}
-  }, []);
+  const handleLike = useCallback(
+    async (postId: string) => {
+      if (!signedIn) {
+        Alert.alert("Sign in", "Sign in to like posts.", [
+          { text: "OK" },
+          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+        ]);
+        return;
+      }
+      try {
+        const { liked } = await toggleLike(postId);
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === postId
+              ? {
+                  ...p,
+                  liked,
+                  likeCount: p.likeCount + (liked ? 1 : -1),
+                }
+              : p
+          )
+        );
+      } catch (_) {}
+    },
+    [signedIn]
+  );
 
   const handleShare = useCallback((postId: string) => {
     setShareToChatPost({ id: postId });
   }, []);
 
-  const handleComment = useCallback((postId: string) => {
-    setCommentPostId(postId);
-  }, []);
+  const handleComment = useCallback(
+    (postId: string) => {
+      if (!signedIn) {
+        Alert.alert("Sign in", "Sign in to comment on posts.", [
+          { text: "OK" },
+          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+        ]);
+        return;
+      }
+      setCommentPostId(postId);
+    },
+    [signedIn]
+  );
 
-  const handleSave = useCallback(async (postId: string) => {
-    try {
-      const { apiPost } = await import("@/lib/api");
-      await apiPost("/api/saved", { type: "post", referenceId: postId });
-      Alert.alert("Saved", "Post saved! View it in your Saved Posts.");
-    } catch {
-      Alert.alert("Error", "Could not save post. Try again.");
-    }
-  }, []);
+  const handleSave = useCallback(
+    async (postId: string) => {
+      if (!signedIn) {
+        Alert.alert("Sign in", "Sign in to save posts.", [
+          { text: "OK" },
+          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+        ]);
+        return;
+      }
+      try {
+        const { apiPost } = await import("@/lib/api");
+        await apiPost("/api/saved", { type: "post", referenceId: postId });
+        Alert.alert("Saved", "Post saved! View it in your Saved Posts.");
+      } catch {
+        Alert.alert("Error", "Could not save post. Try again.");
+      }
+    },
+    [signedIn]
+  );
 
   const handleReport = useCallback((postId: string) => {
     Alert.alert(
@@ -159,7 +187,7 @@ export default function CommunityScreen() {
     );
   }, []);
 
-  const reportPost = async (postId: string, reason: "political" | "hate" | "nudity" | "other") => {
+  const reportPost = async (postId: string, reason: "political" | "hate" | "nudity" | "spam" | "other") => {
     try {
       const { apiPost } = await import("@/lib/api");
       await apiPost("/api/reports", { contentType: "post", contentId: postId, reason });
@@ -168,6 +196,36 @@ export default function CommunityScreen() {
       Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.");
     }
   };
+
+  const handleBlockUser = useCallback(async (memberId: string, postId: string) => {
+    Alert.alert(
+      "Block user",
+      "This user will be blocked. Their posts will be removed from your feed and they will not be able to message you.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { apiPost } = await import("@/lib/api");
+              await apiPost("/api/members/block", { memberId });
+              await apiPost("/api/reports", {
+                contentType: "post",
+                contentId: postId,
+                reason: "other",
+                details: "User blocked by viewer",
+              }).catch(() => {});
+              setPosts((prev) => prev.filter((p) => p.author.id !== memberId));
+              Alert.alert("User blocked", "They have been blocked and their posts removed from your feed.");
+            } catch (e) {
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not block user.");
+            }
+          },
+        },
+      ]
+    );
+  }, []);
 
   const handleCommentAdded = useCallback(() => {
     if (!commentPostId) return;
@@ -191,28 +249,6 @@ export default function CommunityScreen() {
     );
   }
 
-  if (!signedIn) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.title}>Northwest Community Feed</Text>
-        <Text style={styles.subtitle}>
-          Sign in to see posts from people you follow and groups you've joined.
-        </Text>
-        <Pressable
-          style={({ pressed }) => [
-            styles.primaryButton,
-            pressed && styles.buttonPressed,
-          ]}
-          onPress={() => {
-            (router.push as (href: string) => void)("/(tabs)/my-community");
-          }}
-        >
-          <Text style={styles.primaryButtonText}>Sign In</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   return (
     <ScrollView
       style={styles.scroll}
@@ -228,18 +264,32 @@ export default function CommunityScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Northwest Community Feed</Text>
         <Text style={styles.subtitle}>
-          Posts from people you follow and groups you've joined.
+          {signedIn
+            ? "Posts from people you follow and groups you've joined."
+            : "Browse recent posts. Sign in to like, comment, and save."}
         </Text>
         <View style={styles.headerBtns}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.createPostBtn,
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={() => openCreatePost()}
-          >
-            <Text style={styles.createPostBtnText}>Create post</Text>
-          </Pressable>
+          {signedIn ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.createPostBtn,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => openCreatePost()}
+            >
+              <Text style={styles.createPostBtnText}>Create post</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [
+                styles.createPostBtn,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => router.push("/(auth)/login")}
+            >
+              <Text style={styles.createPostBtnText}>Sign in</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -263,6 +313,7 @@ export default function CommunityScreen() {
               onComment={handleComment}
               onShare={handleShare}
               onReport={handleReport}
+              onBlockUser={signedIn ? handleBlockUser : undefined}
               onSave={handleSave}
               onOpenCoupon={(id) => setCouponPopupId(id)}
             />

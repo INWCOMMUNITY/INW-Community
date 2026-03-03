@@ -17,7 +17,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPatch, apiUploadFile, getToken } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, apiUploadFile, getToken } from "@/lib/api";
 import { signOut } from "@/lib/auth";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -70,6 +70,8 @@ export default function ProfileEditScreen() {
   const [shipCity, setShipCity] = useState("");
   const [shipState, setShipState] = useState("");
   const [shipZip, setShipZip] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     getToken().then(async (token) => {
@@ -181,6 +183,21 @@ export default function ProfileEditScreen() {
       setError(msg);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await apiPost("/api/me/delete");
+      await signOut();
+      router.replace("/(auth)/login");
+    } catch (e) {
+      const err = e as { error?: string; status?: number };
+      setError(err?.error ?? "Failed to delete account. Try again.");
+      setDeleting(false);
     }
   };
 
@@ -370,7 +387,7 @@ export default function ProfileEditScreen() {
             autoCapitalize="words"
             textContentType="streetAddressLine1"
           />
-          <View style={styles.row}>
+          <View style={[styles.row, styles.addressRow]}>
             <TextInput
               style={[styles.input, styles.inputHalf]}
               value={shipCity}
@@ -424,6 +441,39 @@ export default function ProfileEditScreen() {
         >
           <Text style={styles.signOutBtnText}>Sign Out</Text>
         </Pressable>
+
+        <View style={styles.deleteSection}>
+          <Text style={styles.deleteLabel}>Delete account</Text>
+          <Text style={styles.deleteDescription}>
+            Permanently delete your account and all saved data. This cannot be undone.
+          </Text>
+          {!deleteConfirm ? (
+            <Pressable onPress={() => setDeleteConfirm(true)} style={styles.deleteLink}>
+              <Text style={styles.deleteLinkText}>I want to delete my account</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.deleteConfirmRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.deleteConfirmBtn,
+                  deleting && styles.deleteConfirmBtnDisabled,
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={handleDeleteAccount}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.deleteConfirmBtnText}>Yes, delete my account</Text>
+                )}
+              </Pressable>
+              <Pressable onPress={() => setDeleteConfirm(false)} style={styles.deleteCancel}>
+                <Text style={styles.deleteCancelText}>Cancel</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -523,6 +573,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
+  addressRow: {
+    marginTop: 12,
+  },
   inputHalf: { flex: 1 },
   inputQuarter: { flex: 0.5 },
   error: {
@@ -553,6 +606,40 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textDecorationLine: "underline",
   },
+  deleteSection: {
+    marginTop: 32,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+  },
+  deleteLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    marginBottom: 6,
+  },
+  deleteDescription: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 12,
+  },
+  deleteLink: { marginBottom: 8 },
+  deleteLinkText: {
+    fontSize: 14,
+    color: "#c62828",
+    textDecorationLine: "underline",
+  },
+  deleteConfirmRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  deleteConfirmBtn: {
+    backgroundColor: "#c62828",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  deleteConfirmBtnDisabled: { opacity: 0.6 },
+  deleteConfirmBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  deleteCancel: { paddingVertical: 4 },
+  deleteCancelText: { fontSize: 14, color: "#666", textDecorationLine: "underline" },
   loadError: {
     color: "#000",
     fontSize: 16,

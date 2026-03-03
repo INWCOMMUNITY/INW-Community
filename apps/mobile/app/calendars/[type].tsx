@@ -288,13 +288,9 @@ export default function CalendarDetailScreen() {
             />
           }
         >
-          {loadError === "sample" ? (
+          {loadError ? (
             <Text style={styles.offlineHint}>
-              Sample events. Real events will appear when your site is live. Pull to refresh.
-            </Text>
-          ) : loadError ? (
-            <Text style={styles.offlineHint}>
-              Showing cached events. New events will sync when your site is live.
+              Pull to refresh for the latest events.
             </Text>
           ) : null}
 

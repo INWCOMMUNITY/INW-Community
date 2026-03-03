@@ -23,7 +23,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiUploadFile } from "@/lib/api";
+import { apiGet, apiPost, apiUploadFile, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -137,6 +137,7 @@ export default function DirectConversationScreen() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoViewerUri, setPhotoViewerUri] = useState<string | null>(null);
   const [savingPhoto, setSavingPhoto] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const lastTapRef = useRef<{ messageId: string; time: number } | null>(null);
 
@@ -242,6 +243,66 @@ export default function DirectConversationScreen() {
     : conv?.memberA;
   const otherName = otherMember ? `${otherMember.firstName} ${otherMember.lastName}`.trim() : "Unknown";
   const otherPhoto = resolvePhotoUrl(otherMember?.profilePhotoUrl ?? undefined);
+
+  const handleReportConversation = () => {
+    setMenuOpen(false);
+    if (!conv || !id) return;
+    Alert.alert(
+      "Report conversation",
+      "Why are you reporting this conversation?",
+      [
+        { text: "Political content", onPress: () => submitReport("political") },
+        { text: "Nudity / explicit", onPress: () => submitReport("nudity") },
+        { text: "Spam", onPress: () => submitReport("spam") },
+        { text: "Other", onPress: () => submitReport("other") },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  };
+  const submitReport = async (reason: "political" | "hate" | "nudity" | "spam" | "other") => {
+    if (!id) return;
+    try {
+      await apiPost("/api/reports", {
+        contentType: "direct_message",
+        contentId: id,
+        reason,
+      });
+      Alert.alert("Report submitted", "Thank you. We will review this.");
+    } catch (e) {
+      Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.");
+    }
+  };
+
+  const handleBlockUser = () => {
+    setMenuOpen(false);
+    if (!otherMember || !member) return;
+    Alert.alert(
+      "Block user",
+      `Block ${otherName}? They will not be able to message you and their messages will be hidden.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await apiPost("/api/members/block", { memberId: otherMember.id });
+              await apiPost("/api/reports", {
+                contentType: "direct_message",
+                contentId: id ?? "",
+                reason: "other",
+                details: "User blocked by viewer",
+              }).catch(() => {});
+              router.back();
+              Alert.alert("User blocked", "They have been blocked.");
+            } catch (e) {
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not block user.");
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const pickAndSendPhoto = async () => {
     if (!conv || sending || uploadingPhoto) return;
@@ -385,7 +446,31 @@ export default function DirectConversationScreen() {
           )}
           <Text style={styles.headerTitle} numberOfLines={1}>{otherName}</Text>
         </View>
+        <Pressable onPress={() => setMenuOpen(true)} style={styles.headerMenuBtn}>
+          <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
+        </Pressable>
       </View>
+
+      {menuOpen && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+          <Pressable style={styles.menuOverlay} onPress={() => setMenuOpen(false)}>
+            <View style={styles.menuSheet}>
+              <Pressable style={styles.menuItem} onPress={handleReportConversation}>
+                <Ionicons name="flag-outline" size={20} color="#c00" />
+                <Text style={[styles.menuItemText, { color: "#c00" }]}>Report conversation</Text>
+              </Pressable>
+              <Pressable style={styles.menuItem} onPress={handleBlockUser}>
+                <Ionicons name="ban-outline" size={20} color="#c00" />
+                <Text style={[styles.menuItemText, { color: "#c00" }]}>Block user</Text>
+              </Pressable>
+              <Pressable style={styles.menuItem} onPress={() => setMenuOpen(false)}>
+                <Ionicons name="close" size={20} color="#666" />
+                <Text style={styles.menuItemText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
 
       <FlatList
         ref={flatListRef}
@@ -524,6 +609,11 @@ const styles = StyleSheet.create({
   headerAvatar: { width: 36, height: 36, borderRadius: 18 },
   avatarPlaceholder: { backgroundColor: theme.colors.cream, alignItems: "center", justifyContent: "center" },
   headerTitle: { fontSize: 17, fontWeight: "600", color: "#fff", flex: 1 },
+  headerMenuBtn: { padding: 8 },
+  menuOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end", paddingBottom: 40 },
+  menuSheet: { backgroundColor: "#fff", borderTopLeftRadius: 12, borderTopRightRadius: 12, padding: 16 },
+  menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
+  menuItemText: { fontSize: 16, color: theme.colors.heading },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   messageList: { padding: 16, paddingBottom: 8 },
   bubbleWrap: { marginBottom: 12, alignItems: "flex-start" },

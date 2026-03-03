@@ -8,7 +8,7 @@ function isCuid(s: string): boolean {
 }
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ slugOrId: string }> }
 ) {
   const session = await getServerSession(authOptions);
@@ -24,6 +24,16 @@ export async function POST(
 
   if (!group) {
     return NextResponse.json({ error: "Group not found" }, { status: 404 });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const agreedToRules = body?.agreedToRules === true;
+  const hasRules = group.rules != null && String(group.rules).trim().length > 0;
+  if (hasRules && !agreedToRules) {
+    return NextResponse.json(
+      { error: "You must agree to the group rules to join." },
+      { status: 400 }
+    );
   }
 
   const member = await prisma.member.findUnique({

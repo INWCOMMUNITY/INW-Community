@@ -227,6 +227,7 @@ export default function ScannerScreen() {
           pointsAwarded={popupData.pointsAwarded}
           previousTotal={popupData.previousTotal}
           newTotal={popupData.newTotal}
+          category="qr"
         />
       )}
 

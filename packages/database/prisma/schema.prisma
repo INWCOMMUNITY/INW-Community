@@ -407,6 +407,7 @@ model Group {
   description   String?  @db.Text
   category      String?
   coverImageUrl String?  @map("cover_image_url")
+  rules         String?  @db.Text
   slug          String   @unique
   createdById   String   @map("created_by_id")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -1109,7 +1110,7 @@ model NwcRequest {
 model Report {
   id          String   @id @default(cuid())
   reporterId  String   @map("reporter_id")
-  contentType String  @map("content_type") // post | comment | direct_message | group_message | resale_message
+  contentType String  @map("content_type") // post | comment | direct_message | group_message | resale_message | event
   contentId   String   @map("content_id")
   reason      String   // political | hate | nudity | csam | other
   details     String?  @db.Text

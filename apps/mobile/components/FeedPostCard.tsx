@@ -35,12 +35,13 @@ interface FeedPostCardProps {
   onComment?: (postId: string) => void;
   onShare?: (postId: string) => void;
   onReport?: (postId: string) => void;
+  onBlockUser?: (memberId: string, postId: string) => void;
   onSave?: (postId: string) => void;
   onDeleteComment?: (commentId: string) => void;
   onOpenCoupon?: (couponId: string) => void;
 }
 
-export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onSave, onOpenCoupon }: FeedPostCardProps) {
+export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlockUser, onSave, onOpenCoupon }: FeedPostCardProps) {
   const router = useRouter();
   const { member } = useAuth();
   const [blogSaved, setBlogSaved] = useState(false);
@@ -124,6 +125,16 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onSav
         )}
       </View>
 
+      {post.sourceGroup && (
+        <Pressable
+          style={styles.groupRibbon}
+          onPress={() => router.push(`/community/group/${post.sourceGroup!.slug}` as any)}
+        >
+          <Ionicons name="people" size={14} color={theme.colors.primary} />
+          <Text style={styles.groupRibbonText}>From {post.sourceGroup.name}</Text>
+        </Pressable>
+      )}
+
       {menuOpen && (
         <Modal visible transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
           <Pressable style={styles.menuOverlay} onPress={() => setMenuOpen(false)}>
@@ -144,6 +155,15 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onSav
                 >
                   <Ionicons name="flag-outline" size={20} color="#c00" />
                   <Text style={[styles.menuItemText, { color: "#c00" }]}>Report Post</Text>
+                </Pressable>
+              )}
+              {onBlockUser && member?.id !== post.author.id && (
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => { setMenuOpen(false); onBlockUser(post.author.id, post.id); }}
+                >
+                  <Ionicons name="ban-outline" size={20} color="#c00" />
+                  <Text style={[styles.menuItemText, { color: "#c00" }]}>Block user</Text>
                 </Pressable>
               )}
               <Pressable style={styles.menuItem} onPress={() => setMenuOpen(false)}>
@@ -412,6 +432,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     marginTop: 2,
+  },
+  groupRibbon: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6,
+    marginBottom: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: theme.colors.cream,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+  },
+  groupRibbonText: {
+    fontSize: 13,
+    color: theme.colors.primary,
+    fontWeight: "600",
   },
   blogCardWrap: {},
   blogActions: {

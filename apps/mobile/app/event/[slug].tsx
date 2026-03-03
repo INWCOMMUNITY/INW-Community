@@ -85,6 +85,34 @@ export default function EventDetailScreen() {
     if (event?.id) loadSaved(event.id);
   }, [event?.id, loadSaved]);
 
+  const reportEvent = () => {
+    if (!event) return;
+    Alert.alert(
+      "Report event",
+      "Why are you reporting this event?",
+      [
+        { text: "Political content", onPress: () => submitReport("political") },
+        { text: "Nudity / explicit", onPress: () => submitReport("nudity") },
+        { text: "Spam", onPress: () => submitReport("spam") },
+        { text: "Other", onPress: () => submitReport("other") },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  };
+  const submitReport = async (reason: "political" | "hate" | "nudity" | "spam" | "other") => {
+    if (!event) return;
+    try {
+      await apiPost("/api/reports", {
+        contentType: "event",
+        contentId: event.id,
+        reason,
+      });
+      Alert.alert("Report submitted", "Thank you. We will review this event.");
+    } catch (e) {
+      Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.");
+    }
+  };
+
   const toggleFavorite = async () => {
     if (!event) return;
     const token = await getToken();
@@ -170,6 +198,9 @@ export default function EventDetailScreen() {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <Text style={styles.headerTitle}>Event</Text>
+        <Pressable onPress={reportEvent} style={styles.reportBtn}>
+          <Ionicons name="flag-outline" size={22} color="#fff" />
+        </Pressable>
       </View>
 
       <ScrollView
@@ -287,10 +318,14 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   headerTitle: {
+    flex: 1,
     fontSize: 18,
     fontWeight: "700",
     fontFamily: theme.fonts.heading,
     color: "#fff",
+  },
+  reportBtn: {
+    padding: 8,
   },
   errorText: {
     fontSize: 16,

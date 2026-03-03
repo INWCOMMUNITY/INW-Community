@@ -17,6 +17,7 @@ const patchSchema = z.object({
     .refine((v) => !v || v.startsWith("/") || v.startsWith("http"), "Invalid cover image URL")
     .optional()
     .nullable(),
+  rules: z.string().max(5000).optional().nullable(),
 });
 
 export async function GET(
@@ -96,6 +97,7 @@ export async function PATCH(
         ...(data.description !== undefined && { description: data.description }),
         ...(data.category !== undefined && { category: data.category }),
         ...(data.coverImageUrl !== undefined && { coverImageUrl: data.coverImageUrl }),
+        ...(data.rules !== undefined && { rules: data.rules }),
       },
     });
     return NextResponse.json(updated);

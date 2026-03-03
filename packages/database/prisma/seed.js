@@ -701,42 +701,45 @@ async function main() {
     }
   }
 
-  // Trial order for universal account (shipping test)
-  const existingTrialOrder = await prisma.storeOrder.findFirst({
-    where: { sellerId: universal.id, buyerId: universal.id, status: "paid" },
-  });
-  if (!existingTrialOrder) {
-    const slug = `trial-shipping-${Date.now()}`;
-    const trialItem = await prisma.storeItem.create({
-      data: {
-        memberId: universal.id,
-        title: "Trial item (shipping test)",
-        description: "Sample order for testing shipping labels and rates. You can delete this item from your store.",
-        photos: ["https://static.wixstatic.com/media/2bdd49_46bd85d79e654db9bfc8b6d2a206d9a2~mv2.jpg/v1/fill/w_200,h_200,al_c,q_80,enc_avif,quality_auto/0005_3A.jpg"],
-        category: "Test",
-        priceCents: 999,
-        quantity: 1,
-        status: "active",
-        shippingCostCents: 500,
-        shippingPolicy: "Standard shipping. Trial item for testing.",
-        slug,
-      },
+  // Trial order for universal account (shipping test) – only in dev or when SEED_TRIAL_ITEMS=1
+  const seedTrialItems = process.env.NODE_ENV !== "production" || process.env.SEED_TRIAL_ITEMS === "1";
+  if (seedTrialItems) {
+    const existingTrialOrder = await prisma.storeOrder.findFirst({
+      where: { sellerId: universal.id, buyerId: universal.id, status: "paid" },
     });
-    await prisma.storeOrder.create({
-      data: {
-        buyerId: universal.id,
-        sellerId: universal.id,
-        subtotalCents: 999,
-        shippingCostCents: 500,
-        totalCents: 1499,
-        status: "paid",
-        shippingAddress: { street: "123 Test Street", city: "Spokane", state: "WA", zip: "99201" },
-        items: {
-          create: { storeItemId: trialItem.id, quantity: 1, priceCentsAtPurchase: 999 },
+    if (!existingTrialOrder) {
+      const slug = `trial-shipping-${Date.now()}`;
+      const trialItem = await prisma.storeItem.create({
+        data: {
+          memberId: universal.id,
+          title: "Trial item (shipping test)",
+          description: "Sample order for testing shipping labels and rates. You can delete this item from your store.",
+          photos: ["https://static.wixstatic.com/media/2bdd49_46bd85d79e654db9bfc8b6d2a206d9a2~mv2.jpg/v1/fill/w_200,h_200,al_c,q_80,enc_avif,quality_auto/0005_3A.jpg"],
+          category: "Test",
+          priceCents: 999,
+          quantity: 1,
+          status: "active",
+          shippingCostCents: 500,
+          shippingPolicy: "Standard shipping. Trial item for testing.",
+          slug,
         },
-      },
-    });
-    console.log("Created trial order for universal@nwc.local (for shipping test)");
+      });
+      await prisma.storeOrder.create({
+        data: {
+          buyerId: universal.id,
+          sellerId: universal.id,
+          subtotalCents: 999,
+          shippingCostCents: 500,
+          totalCents: 1499,
+          status: "paid",
+          shippingAddress: { street: "123 Test Street", city: "Spokane", state: "WA", zip: "99201" },
+          items: {
+            create: { storeItemId: trialItem.id, quantity: 1, priceCentsAtPurchase: 999 },
+          },
+        },
+      });
+      console.log("Created trial order for universal@nwc.local (for shipping test)");
+    }
   }
 
   // Test subscriber account (Community Resale hub, no Seller plan)
@@ -812,40 +815,42 @@ async function main() {
     }
   }
 
-  // Test resale item (owned by subscriber so you can test as buyer when logged in as someone else)
-  const testResaleSlug = "test-resale-item";
-  let testResaleItem = await prisma.storeItem.findUnique({
-    where: { slug: testResaleSlug },
-  });
-  if (!testResaleItem) {
-    testResaleItem = await prisma.storeItem.create({
-      data: {
-        memberId: subscriber.id,
-        businessId: null,
-        title: "Test Resale Item – Used Book",
-        description: "A test listing for Community Resale. Use this to try Make Offer, Send Message to Seller, and checkout (Pay by Card / Pay in Cash).",
-        photos: [],
-        category: "Books",
-        priceCents: 999,
-        variants: null,
-        quantity: 1,
-        status: "active",
-        shippingCostCents: 299,
-        shippingPolicy: "Ships via USPS. Allow 3–5 business days.",
-        localDeliveryAvailable: true,
-        localDeliveryFeeCents: 0,
-        inStorePickupAvailable: true,
-        shippingDisabled: false,
-        localDeliveryTerms: "Local delivery within 20 miles. Contact to arrange.",
-        slug: testResaleSlug,
-        listingType: "resale",
-        acceptOffers: true,
-        minOfferCents: 500,
-      },
+  // Test resale item – only in dev or when SEED_TRIAL_ITEMS=1 (do not create in production for App Store)
+  if (seedTrialItems) {
+    const testResaleSlug = "test-resale-item";
+    let testResaleItem = await prisma.storeItem.findUnique({
+      where: { slug: testResaleSlug },
     });
-    console.log("Created test resale item:", testResaleItem.title, "→ /resale/" + testResaleSlug);
-  } else {
-    console.log("Test resale item already exists → /resale/" + testResaleSlug);
+    if (!testResaleItem) {
+      testResaleItem = await prisma.storeItem.create({
+        data: {
+          memberId: subscriber.id,
+          businessId: null,
+          title: "Test Resale Item – Used Book",
+          description: "A test listing for Community Resale. Use this to try Make Offer, Send Message to Seller, and checkout (Pay by Card / Pay in Cash).",
+          photos: [],
+          category: "Books",
+          priceCents: 999,
+          variants: null,
+          quantity: 1,
+          status: "active",
+          shippingCostCents: 299,
+          shippingPolicy: "Ships via USPS. Allow 3–5 business days.",
+          localDeliveryAvailable: true,
+          localDeliveryFeeCents: 0,
+          inStorePickupAvailable: true,
+          shippingDisabled: false,
+          localDeliveryTerms: "Local delivery within 20 miles. Contact to arrange.",
+          slug: testResaleSlug,
+          listingType: "resale",
+          acceptOffers: true,
+          minOfferCents: 500,
+        },
+      });
+      console.log("Created test resale item:", testResaleItem.title, "→ /resale/" + testResaleSlug);
+    } else {
+      console.log("Test resale item already exists → /resale/" + testResaleSlug);
+    }
   }
 
   // Badges

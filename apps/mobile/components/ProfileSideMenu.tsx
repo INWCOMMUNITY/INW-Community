@@ -1,7 +1,7 @@
 /**
  * Profile side menu - links to profile-related screens.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Modal,
   View,
@@ -28,7 +28,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
 const NAV_HEADER_HEIGHT = 44;
 
-type NavItem = { href: string; label: string };
+type NavItem = { href: string; label: string; badgeCount?: number };
 
 interface ProfileSideMenuProps {
   visible: boolean;
@@ -38,12 +38,20 @@ interface ProfileSideMenuProps {
 }
 
 function NavLink({ item, onPress }: { item: NavItem; onPress: () => void }) {
+  const showBadge = (item.badgeCount ?? 0) > 0;
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
     >
       <Text style={styles.navLinkText}>{item.label}</Text>
+      {showBadge && (
+        <View style={styles.inboxBadge}>
+          <Text style={styles.inboxBadgeText}>
+            {item.badgeCount! > 99 ? "99+" : item.badgeCount}
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -86,13 +94,14 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const showResaleHub = hasSubscriber || hasSponsor;
-  const { member } = useAuth();
+  const { member, signOut } = useAuth();
 
   const hasActiveSubscription =
     member?.subscriptions?.some((s) => s.status === "active") ?? false;
 
   const [inviteLoading, setInviteLoading] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   const handleInviteFriends = async () => {
     setInviteLoading(true);
@@ -146,28 +155,39 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     }
   };
 
-  const items: NavItem[] = [
-    { href: "/messages", label: "Inbox" },
-    { href: "/my-sellers", label: "My Sellers" },
-    { href: "/my-badges", label: "My Badges" },
-    { href: "invite:friends", label: "Invite Friends" },
-    {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/my-community/friends`)}&title=${encodeURIComponent("My Friends")}`,
-      label: "My Friends",
-    },
-    { href: "/profile-businesses", label: "My Businesses" },
+  useEffect(() => {
+    if (visible) {
+      apiGet<{ unreadMessages?: number }>("/api/me/sidebar-alerts")
+        .then((d) => setUnreadMessages(Number(d?.unreadMessages) || 0))
+        .catch(() => {});
+    }
+  }, [visible]);
+
+  const communityItems: NavItem[] = [
+    { href: "/messages", label: "Inbox", badgeCount: unreadMessages || undefined },
+    { href: "/community/my-friends", label: "My Friends" },
+    { href: "/community/invites", label: "My Invites" },
+    { href: "/saved-posts", label: "My Saved Posts" },
+    { href: "/community/groups", label: "My Groups" },
     { href: "/profile-events", label: "My Events" },
-    { href: "/profile-coupons", label: "My Coupons" },
+    { href: "/my-badges", label: "My Badges" },
+    { href: "invite:friends", label: "Share App" },
+  ];
+
+  const supportLocalItems: NavItem[] = [
+    { href: "/profile-businesses", label: "My Businesses" },
+    { href: "/my-sellers", label: "My Sellers" },
     { href: "/profile-wishlist", label: "My Wishlist" },
-    { href: "/saved-posts", label: "Saved Posts" },
-    {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/my-community/orders`)}&title=${encodeURIComponent("My Orders")}`,
-      label: "My Orders",
-    },
+    { href: "/seller-hub/orders", label: "My Orders" },
+  ];
+
+  const profileItems: NavItem[] = [
     { href: "/profile-edit", label: "Edit Profile" },
     ...(hasActiveSubscription
       ? [{ href: "action:manage-subscription", label: "Manage Subscription" }]
       : []),
+    { href: "/profile-edit", label: "Delete account" },
+    { href: "action:logout", label: "Logout" },
   ];
 
   const handleNavigate = (href: string) => {
@@ -177,6 +197,11 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     }
     if (href === "action:manage-subscription") {
       handleManageSubscription();
+      return;
+    }
+    if (href === "action:logout") {
+      onClose();
+      signOut?.().then(() => router.replace("/(auth)/login" as any));
       return;
     }
     onClose();
@@ -204,7 +229,9 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <Section title="Profile" items={items} onNavigate={handleNavigate} />
+            <Section title="Community" items={communityItems} onNavigate={handleNavigate} />
+            <Section title="Support Local" items={supportLocalItems} onNavigate={handleNavigate} />
+            <Section title="Profile" items={profileItems} onNavigate={handleNavigate} />
             {showResaleHub && (
               <Section title="Resale Hub" items={RESALE_HUB_ITEMS} onNavigate={handleNavigate} />
             )}
@@ -280,6 +307,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   navLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
@@ -290,5 +320,19 @@ const styles = StyleSheet.create({
   navLinkText: {
     fontSize: 15,
     color: "#444",
+  },
+  inboxBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: theme.colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 6,
+  },
+  inboxBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#fff",
   },
 });

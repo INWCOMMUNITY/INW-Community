@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
           signupIntent: signupIntent ?? "resident",
         },
       });
-      awardMemberSignupBadges(member.id, signupIntent ?? "resident").catch(() => {});
+      const earnedBadges = await awardMemberSignupBadges(member.id, signupIntent ?? "resident").catch(() => []);
       if (ref) {
         const referralLink = await prisma.referralLink.findUnique({ where: { code: ref } });
         if (referralLink && referralLink.memberId !== member.id) {
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
           });
         }
       }
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [] });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
         signupIntent: signupIntent ?? "resident",
       },
     });
-    awardMemberSignupBadges(member.id, signupIntent ?? "resident").catch(() => {});
+    const earnedBadges = await awardMemberSignupBadges(member.id, signupIntent ?? "resident").catch(() => []);
     if (ref) {
       const referralLink = await prisma.referralLink.findUnique({ where: { code: ref } });
       if (referralLink && referralLink.memberId !== member.id) {
@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
         });
       }
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [] });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: zodErrorToMessage(e) }, { status: 400 });

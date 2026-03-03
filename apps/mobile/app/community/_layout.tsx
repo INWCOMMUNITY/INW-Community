@@ -12,6 +12,8 @@ export default function CommunityLayout() {
       }}
     >
       <Stack.Screen name="tags" options={{ title: "Tags" }} />
+      <Stack.Screen name="posts-photos" options={{ title: "Posts and Photos" }} />
+      <Stack.Screen name="groups" options={{ title: "Community Groups" }} />
     </Stack>
   );
 }

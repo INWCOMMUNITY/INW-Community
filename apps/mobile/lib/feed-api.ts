@@ -57,6 +57,7 @@ export interface FeedPost {
     priceCents: number;
   } | null;
   sourcePost?: unknown;
+  sourceGroup?: { id: string; name: string; slug: string } | null;
   liked: boolean;
   likeCount: number;
   commentCount: number;

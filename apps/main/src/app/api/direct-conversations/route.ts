@@ -14,26 +14,37 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const conversations = await prisma.directConversation.findMany({
-    where: {
-      OR: [
-        { memberAId: session.user.id },
-        { memberBId: session.user.id },
-      ],
-    },
-    include: {
-      memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-      memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-      messages: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: { content: true, createdAt: true, senderId: true },
+  const [conversations, blocks] = await Promise.all([
+    prisma.directConversation.findMany({
+      where: {
+        OR: [
+          { memberAId: session.user.id },
+          { memberBId: session.user.id },
+        ],
       },
-    },
-    orderBy: { updatedAt: "desc" },
+      include: {
+        memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+        memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { content: true, createdAt: true, senderId: true },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.memberBlock.findMany({
+      where: { blockerId: session.user.id },
+      select: { blockedId: true },
+    }),
+  ]);
+  const blockedIds = new Set(blocks.map((b) => b.blockedId));
+  const filtered = conversations.filter((c) => {
+    const otherId = c.memberAId === session.user.id ? c.memberBId : c.memberAId;
+    return !blockedIds.has(otherId);
   });
 
-  return NextResponse.json(conversations);
+  return NextResponse.json(filtered);
 }
 
 const postBodySchema = z.object({

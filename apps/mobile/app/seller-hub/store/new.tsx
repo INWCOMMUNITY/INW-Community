@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Switch,
   Alert,
+  Modal,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
@@ -100,7 +101,9 @@ export default function ListItemScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadedDraft, setLoadedDraft] = useState(false);
+  const [showListingSuccessModal, setShowListingSuccessModal] = useState(false);
   const isExitingRef = useRef(false);
+  const submittedRef = useRef(false);
 
   const hasContent =
     !!title.trim() ||
@@ -420,7 +423,9 @@ export default function ListItemScreen() {
 
     setSubmitting(true);
     setError(null);
+    submittedRef.current = true;
     try {
+      isExitingRef.current = true;
       await apiPost("/api/store-items", {
         title: title.trim(),
         description: description.trim() || null,
@@ -450,9 +455,12 @@ export default function ListItemScreen() {
         localDeliveryFeeCents: localFee,
         variants: variantPayload,
       });
-      (router.replace as (href: string) => void)("/seller-hub/store/items");
+      isExitingRef.current = true;
+      setShowListingSuccessModal(true);
     } catch (e) {
       setError((e as { error?: string })?.error ?? "Failed to create listing");
+      submittedRef.current = false;
+      isExitingRef.current = false;
     } finally {
       setSubmitting(false);
     }
@@ -460,6 +468,33 @@ export default function ListItemScreen() {
 
   return (
     <View style={styles.screenWrapper}>
+    <Modal visible={showListingSuccessModal} transparent animationType="fade">
+      <View style={styles.successModalOverlay}>
+        <View style={styles.successModalCard}>
+          <Text style={styles.successModalTitle}>Item listed successfully</Text>
+          <Text style={styles.successModalSubtitle}>Your listing is now live.</Text>
+          <Pressable
+            style={({ pressed }) => [styles.successModalBtn, pressed && { opacity: 0.8 }]}
+            onPress={() => {
+              setShowListingSuccessModal(false);
+              (router.replace as (href: string) => void)("/seller-hub/store/items");
+            }}
+          >
+            <Text style={styles.successModalBtnText}>See Listing</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.successModalBtnSecondary, pressed && { opacity: 0.8 }]}
+            onPress={() => {
+              setShowListingSuccessModal(false);
+              submittedRef.current = false;
+              (router.replace as (href: string) => void)("/seller-hub/store/new");
+            }}
+          >
+            <Text style={styles.successModalBtnTextSecondary}>List Another Item</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {error && <Text style={styles.err}>{error}</Text>}
 
@@ -1028,6 +1063,55 @@ const styles = StyleSheet.create({
   screenWrapper: { flex: 1, backgroundColor: "#fff" },
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 20, paddingBottom: 40 },
+  successModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  successModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    borderWidth: 2,
+    borderColor: defaultTheme.colors.primary,
+  },
+  successModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#000",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  successModalSubtitle: {
+    fontSize: 15,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  successModalBtn: {
+    backgroundColor: defaultTheme.colors.primary,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  successModalBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  successModalBtnSecondary: {
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: defaultTheme.colors.primary,
+  },
+  successModalBtnTextSecondary: {
+    color: defaultTheme.colors.primary,
+    fontSize: 16,
+    fontWeight: "600",
+  },
   err: { color: "#c62828", marginBottom: 16, fontSize: 14 },
   label: { fontSize: 14, fontWeight: "600", marginBottom: 8, color: "#000" },
   hint: { fontSize: 12, color: defaultTheme.colors.labelMuted, marginBottom: 12 },

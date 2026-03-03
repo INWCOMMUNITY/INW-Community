@@ -111,10 +111,11 @@ interface CommentRowProps {
   onLike: (commentId: string) => void;
   onReply: (comment: FeedComment) => void;
   onReportComment?: (commentId: string) => void;
+  onBlockUser?: (memberId: string, commentId: string) => void;
   onDeleteComment?: (commentId: string) => void;
 }
 
-function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment, onDeleteComment }: CommentRowProps) {
+function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment, onBlockUser, onDeleteComment }: CommentRowProps) {
   const name = `${comment.member.firstName ?? ""} ${comment.member.lastName ?? ""}`.trim() || "Member";
   const initials = [comment.member.firstName?.[0], comment.member.lastName?.[0]]
     .filter(Boolean)
@@ -175,6 +176,14 @@ function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment
                 style={({ pressed }) => [styles.commentActionBtn, pressed && { opacity: 0.7 }]}
               >
                 <Text style={styles.commentActionText}>Report</Text>
+              </Pressable>
+            )}
+            {onBlockUser && (
+              <Pressable
+                onPress={() => onBlockUser(comment.member.id, comment.id)}
+                style={({ pressed }) => [styles.commentActionBtn, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={[styles.commentActionText, { color: "#c00" }]}>Block user</Text>
               </Pressable>
             )}
             {onDeleteComment && (
@@ -424,6 +433,36 @@ export function FeedCommentsModal({
     );
   };
 
+  const handleBlockUser = (memberId: string, commentId: string) => {
+    if (member?.id === memberId) return;
+    Alert.alert(
+      "Block user",
+      "This user will be blocked. Their comments will be hidden and they will not be able to message you.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await apiPost("/api/members/block", { memberId });
+              await apiPost("/api/reports", {
+                contentType: "comment",
+                contentId: commentId,
+                reason: "other",
+                details: "User blocked by viewer",
+              }).catch(() => {});
+              setComments((prev) => prev.filter((c) => c.member.id !== memberId));
+              Alert.alert("User blocked", "They have been blocked.");
+            } catch (e) {
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not block user.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const canSubmit = (input.trim().length > 0 || photos.length > 0) && !submitting;
 
   // Build tree: top-level comments + nested replies
@@ -496,6 +535,7 @@ export function FeedCommentsModal({
                       onLike={handleLike}
                       onReply={handleReply}
                       onReportComment={handleReportComment}
+                      onBlockUser={member ? handleBlockUser : undefined}
                       onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
                     />
                     {getReplies(c.id).map((r) => (
@@ -507,6 +547,7 @@ export function FeedCommentsModal({
                         onLike={handleLike}
                         onReply={handleReply}
                         onReportComment={handleReportComment}
+                        onBlockUser={member ? handleBlockUser : undefined}
                         onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
                       />
                     ))}

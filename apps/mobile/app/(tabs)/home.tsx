@@ -19,6 +19,7 @@ import { NWCRequestsModal } from "@/components/NWCRequestsModal";
 import { getToken, apiGet } from "@/lib/api";
 import { fetchEvents } from "@/lib/events-api";
 import { useState, useEffect, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -94,6 +95,13 @@ export default function HomeScreen() {
     if (isSignedIn) loadPoints();
     else setPoints(null);
   }, [isSignedIn, loadPoints]);
+
+  // Refetch points when home tab is focused (e.g. after QR scan or reward redemption)
+  useFocusEffect(
+    useCallback(() => {
+      if (isSignedIn) loadPoints();
+    }, [isSignedIn, loadPoints])
+  );
 
   useEffect(() => {
     apiGet<Top10Config>("/api/rewards/top5").then(setTop10).catch(() => setTop10({ enabled: false }));

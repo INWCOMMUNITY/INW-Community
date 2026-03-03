@@ -131,20 +131,20 @@ export default function SupportNWCInfoPage() {
               </div>
               <p className="text-base mb-3 opacity-90 text-gray-900">{plan.description}</p>
               <p className="text-xs opacity-70 mb-2 text-gray-700">Valid until canceled</p>
+              <Link
+                href={plan.benefitsHref}
+                className="btn w-full text-center inline-block mb-4"
+                style={{ backgroundColor: "var(--color-primary)", color: "var(--color-button-text)" }}
+              >
+                Learn more
+              </Link>
               <CheckoutButton
                 planId={plan.id}
                 interval={interval}
-                className="btn w-full text-center inline-block mb-4"
+                className="btn w-full text-center inline-block"
               >
                 Subscribe
               </CheckoutButton>
-              <Link
-                href={plan.benefitsHref}
-                className="btn w-full text-center inline-block"
-                style={{ backgroundColor: "var(--color-primary)", color: "var(--color-button-text)" }}
-              >
-                {plan.benefitsLabel}
-              </Link>
               </div>
             </div>
           ))}

@@ -17,6 +17,13 @@ import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+
+interface EarnedBadge {
+  slug: string;
+  name: string;
+  description?: string;
+}
 
 export default function SignupResidentScreen() {
   const router = useRouter();
@@ -30,6 +37,18 @@ export default function SignupResidentScreen() {
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [earnedBadges, setEarnedBadges] = useState<EarnedBadge[]>([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+
+  const finishSignup = async () => {
+    try {
+      await signIn(email.trim(), password, "subscribe");
+      await refreshMember?.();
+      router.replace("/(tabs)");
+    } catch {
+      setError("Signed up but could not sign in. Please log in from the login screen.");
+    }
+  };
 
   const handleSubmit = async () => {
     setError("");
@@ -59,7 +78,7 @@ export default function SignupResidentScreen() {
     }
     setLoading(true);
     try {
-      await apiPost("/api/auth/signup", {
+      const res = await apiPost<{ ok?: boolean; earnedBadges?: EarnedBadge[] }>("/api/auth/signup", {
         email: email.trim().toLowerCase(),
         password,
         firstName: firstName.trim(),
@@ -67,9 +86,12 @@ export default function SignupResidentScreen() {
         city: city.trim() || undefined,
         signupIntent: "resident",
       });
-      await signIn(email.trim(), password, "subscribe");
-      await refreshMember();
-      router.replace("/(tabs)");
+      if (res?.earnedBadges?.length) {
+        setEarnedBadges(res.earnedBadges);
+        setBadgePopupIndex(0);
+      } else {
+        await finishSignup();
+      }
     } catch (e) {
       const err = e as { error?: string };
       setError(err.error ?? "Sign up failed. Try again.");
@@ -198,6 +220,25 @@ export default function SignupResidentScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
+        <BadgeEarnedPopup
+          visible
+          onClose={() => {
+            const next = badgePopupIndex + 1;
+            if (next < earnedBadges.length) {
+              setBadgePopupIndex(next);
+            } else {
+              setBadgePopupIndex(-1);
+              setEarnedBadges([]);
+              finishSignup();
+            }
+          }}
+          badgeName={earnedBadges[badgePopupIndex].name}
+          badgeSlug={earnedBadges[badgePopupIndex].slug}
+          badgeDescription={earnedBadges[badgePopupIndex].description}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
