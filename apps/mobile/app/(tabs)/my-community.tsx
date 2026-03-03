@@ -244,10 +244,7 @@ function ResaleHubContent() {
     },
     {
       label: "My Listings",
-      onPress: () =>
-        router.push(
-          `/web?url=${encodeURIComponent(`${siteBase}/resale-hub/listings`)}&title=${encodeURIComponent("My Listings")}`
-        ),
+      onPress: () => (router.push as (href: string) => void)("/resale-hub/listings"),
       icon: "list",
     },
     {
@@ -263,6 +260,21 @@ function ResaleHubContent() {
           `/web?url=${encodeURIComponent(`${siteBase}/resale-hub/payouts`)}&title=${encodeURIComponent("My Payouts")}`
         ),
       icon: "wallet",
+    },
+    {
+      label: "Ship Items",
+      onPress: () => (router.push as (href: string) => void)("/resale-hub/ship"),
+      icon: "boat-outline",
+    },
+    {
+      label: "Pick Ups",
+      onPress: () => (router.push as (href: string) => void)("/resale-hub/pickups"),
+      icon: "hand-left-outline",
+    },
+    {
+      label: "Deliveries",
+      onPress: () => (router.push as (href: string) => void)("/resale-hub/deliveries"),
+      icon: "car-outline",
     },
     {
       label: "Policies",
@@ -543,6 +555,12 @@ export default function MyCommunityScreen() {
         >
           <ThemedText style={styles.guestSignInBtnText}>Sign in</ThemedText>
         </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.guestMaybeLaterBtn, pressed && { opacity: 0.8 }]}
+          onPress={() => router.replace("/(tabs)")}
+        >
+          <Text style={styles.guestMaybeLaterText}>Maybe later</Text>
+        </Pressable>
       </View>
     );
   }
@@ -762,7 +780,7 @@ export default function MyCommunityScreen() {
           onRequestClose={() => setEventModalVisible(false)}
         >
           <View style={styles.eventModalContainer}>
-            <View style={styles.eventModalHeader}>
+            <View style={[styles.eventModalHeader, { paddingTop: 48 }]}>
               <Pressable
                 style={({ pressed }) => [
                   styles.eventModalCancelBtn,
@@ -770,9 +788,9 @@ export default function MyCommunityScreen() {
                 ]}
                 onPress={() => setEventModalVisible(false)}
               >
-                <Text style={styles.eventModalCancelText}>Cancel</Text>
+                <Text style={styles.eventModalCancelTextWhite}>Cancel</Text>
               </Pressable>
-              <Text style={styles.eventModalTitle}>Post Event</Text>
+              <Text style={styles.eventModalTitleWhite}>Post Event</Text>
               <View style={styles.eventModalSpacer} />
             </View>
             <PostEventForm
@@ -1009,6 +1027,15 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  guestMaybeLaterBtn: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  guestMaybeLaterText: {
+    fontSize: 16,
+    color: theme.colors.primary,
   },
   container: {
     flex: 1,
@@ -1389,8 +1416,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
+    backgroundColor: theme.colors.primary,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: "rgba(255,255,255,0.2)",
   },
   eventModalCancelBtn: {
     paddingVertical: 8,
@@ -1400,10 +1428,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: theme.colors.primary,
   },
+  eventModalCancelTextWhite: {
+    fontSize: 16,
+    color: "#fff",
+  },
   eventModalTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: theme.colors.heading,
+  },
+  eventModalTitleWhite: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#fff",
   },
   eventModalSpacer: {
     width: 60,

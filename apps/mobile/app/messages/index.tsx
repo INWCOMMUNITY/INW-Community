@@ -149,16 +149,16 @@ export default function MessagesInboxScreen() {
           <Text style={[styles.tabText, tab === "direct" && styles.tabTextActive]}>Direct</Text>
         </Pressable>
         <Pressable
-          style={[styles.tab, tab === "resale" && styles.tabActive]}
-          onPress={() => setTab("resale")}
-        >
-          <Text style={[styles.tabText, tab === "resale" && styles.tabTextActive]}>Resale</Text>
-        </Pressable>
-        <Pressable
           style={[styles.tab, tab === "groups" && styles.tabActive]}
           onPress={() => setTab("groups")}
         >
           <Text style={[styles.tabText, tab === "groups" && styles.tabTextActive]}>Groups</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tab, tab === "resale" && styles.tabActive]}
+          onPress={() => setTab("resale")}
+        >
+          <Text style={[styles.tabText, tab === "resale" && styles.tabTextActive]}>Resale</Text>
         </Pressable>
       </View>
 

@@ -46,11 +46,24 @@ export default function LoginScreen() {
     });
   };
 
+  const handleClose = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)" as never);
+    }
+  };
+
   return (
     <ScrollView
       style={styles.scroll}
       contentContainerStyle={styles.container}
     >
+      <View style={styles.closeBar}>
+        <Pressable onPress={handleClose} style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}>
+          <Ionicons name="close" size={28} color={theme.colors.heading} />
+        </Pressable>
+      </View>
       <View style={styles.header}>
         <Image
           source={require("@/assets/images/nwc-community-logo.png")}
@@ -133,8 +146,18 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: "#ffffff" },
   container: {
     padding: 24,
-    paddingTop: 64,
+    paddingTop: 16,
     alignItems: "center",
+  },
+  closeBar: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  closeBtn: {
+    padding: 8,
   },
   header: {
     marginBottom: 28,

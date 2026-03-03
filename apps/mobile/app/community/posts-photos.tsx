@@ -51,7 +51,7 @@ export default function PostsAndPhotosScreen() {
       const params = new URLSearchParams({ limit: "30" });
       if (!refresh && cursor) params.set("cursor", cursor);
       const data = await apiGet<{ posts: FeedPost[]; nextCursor: string | null }>(
-        `/api/feed?${params.toString()}`
+        `/api/me/posts?${params.toString()}`
       );
       const list = data?.posts ?? [];
       setPosts((prev) => (refresh ? list : [...prev, ...list]));
@@ -88,14 +88,14 @@ export default function PostsAndPhotosScreen() {
       }
     >
       <Text style={styles.title}>Posts and Photos</Text>
-      <Text style={styles.subtitle}>Community feed from people and businesses you follow.</Text>
+      <Text style={styles.subtitle}>Posts and photos your profile shares.</Text>
 
       {loading && posts.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : posts.length === 0 ? (
-        <Text style={styles.empty}>No posts yet. Follow friends and businesses to see their posts here.</Text>
+        <Text style={styles.empty}>You haven&apos;t shared any posts yet.</Text>
       ) : (
         <View style={styles.grid}>
           {posts.map((p) => {

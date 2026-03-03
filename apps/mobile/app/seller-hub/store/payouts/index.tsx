@@ -13,7 +13,7 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/$/, "");
+const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 interface Transaction {
   id: string;
