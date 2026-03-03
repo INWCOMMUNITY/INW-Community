@@ -105,7 +105,16 @@ export default function SignupResidentScreen() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <Pressable style={styles.back} onPress={() => router.back()}>
+      <Pressable
+        style={styles.back}
+        onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/(tabs)" as import("expo-router").Href);
+          }
+        }}
+      >
         <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
         <Text style={styles.backText}>Back</Text>
       </Pressable>

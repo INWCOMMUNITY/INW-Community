@@ -56,11 +56,15 @@ export async function GET(req: NextRequest) {
     }
 
     if (mine === "1") {
-      const sub = await prisma.subscription.findFirst({
-        where: { memberId: userId, plan: "seller", status: "active" },
+      const sellerOrSubscribe = await prisma.subscription.findFirst({
+        where: {
+          memberId: userId,
+          plan: { in: ["seller", "subscribe"] },
+          status: "active",
+        },
       });
-      if (!sub) {
-        return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
+      if (!sellerOrSubscribe) {
+        return NextResponse.json({ error: "Seller or Subscribe plan required" }, { status: 403 });
       }
       const where: { sellerId: string; status?: string } = { sellerId: userId };
       if (needsShipment) {

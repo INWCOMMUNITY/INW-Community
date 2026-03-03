@@ -68,15 +68,15 @@ function Section({
 const RESALE_HUB_ITEMS: NavItem[] = [
   { href: "/my-badges", label: "My Badges", web: false },
   { href: "/resale-hub/list", label: "List Items", web: false },
-  { href: "/resale-hub/listings", label: "My Listings", web: true },
+  { href: "/resale-hub/listings", label: "My Listings", web: false },
   { href: "/messages?tab=resale", label: "Resale Conversations", web: false },
   { href: "/resale-hub/payouts", label: "Payouts", web: true },
+  { href: "/resale-hub/ship", label: "Ship an Item", web: false },
+  { href: "/resale-hub/deliveries", label: "My Deliveries", web: false },
+  { href: "/resale-hub/pickups", label: "My Pickups", web: false },
+  { href: "/resale-hub/offers", label: "New Offers", web: false },
+  { href: "/resale-hub/cancellations", label: "Cancellations", web: false },
   { href: "/policies", label: "Policies", web: false },
-  { href: "/resale-hub/ship", label: "Ship an Item", web: true },
-  { href: "/resale-hub/deliveries", label: "My Deliveries", web: true },
-  { href: "/resale-hub/pickups", label: "My Pickups", web: true },
-  { href: "/resale-hub/offers", label: "New Offers", web: true },
-  { href: "/resale-hub/cancellations", label: "Cancellations", web: true },
 ];
 
 export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) {

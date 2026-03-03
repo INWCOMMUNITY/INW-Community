@@ -6,14 +6,19 @@ import {
   Pressable,
   ActivityIndicator,
   Dimensions,
+  Modal,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiPost, apiGet } from "@/lib/api";
+import { apiPost, apiGet, API_BASE } from "@/lib/api";
 import { PointsEarnedPopup } from "@/components/PointsEarnedPopup";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+
+const PENDING_SCAN_KEY = "nwc_pending_scan_business_id";
 
 let CameraView: any = null;
 let useCameraPermissions: any = null;
@@ -63,6 +68,50 @@ export default function ScannerScreen() {
   >([]);
   const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
   const cooldownRef = useRef(false);
+  const [guestPopup, setGuestPopup] = useState<{
+    pointsIfEarned: number;
+    businessName: string;
+    businessId: string;
+  } | null>(null);
+
+  const tryClaimPendingScan = useCallback(async () => {
+    try {
+      const pending = await AsyncStorage.getItem(PENDING_SCAN_KEY);
+      if (!pending) return;
+      const me = await apiGet<{ points?: number }>("/api/me");
+      const previousTotal = me?.points ?? 0;
+      const result = await apiPost<{
+        ok?: boolean;
+        pointsAwarded?: number;
+        totalPoints?: number;
+        businessName?: string;
+        error?: string;
+        earnedBadges?: { slug: string; name: string; description?: string }[];
+      }>("/api/rewards/scan", { businessId: pending });
+      await AsyncStorage.removeItem(PENDING_SCAN_KEY);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      if (result.earnedBadges?.length) {
+        setEarnedBadges(result.earnedBadges);
+      }
+      setPopupData({
+        businessName: result.businessName ?? "Local Business",
+        pointsAwarded: result.pointsAwarded ?? 0,
+        previousTotal,
+        newTotal: result.totalPoints ?? previousTotal,
+      });
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      tryClaimPendingScan();
+    }, [tryClaimPendingScan])
+  );
 
   const handleBarCodeScanned = useCallback(
     async ({ data }: { data: string }) => {
@@ -76,9 +125,43 @@ export default function ScannerScreen() {
       setError("");
 
       try {
-        const me = await apiGet<{ points?: number }>("/api/me");
-        const previousTotal = me?.points ?? 0;
+        let me: { points?: number } | null = null;
+        try {
+          me = await apiGet<{ points?: number }>("/api/me");
+        } catch {
+          me = null;
+        }
 
+        if (!me) {
+          const previewUrl = `${API_BASE.replace(/\/$/, "")}/api/rewards/scan-preview?businessId=${encodeURIComponent(businessId)}`;
+          const res = await fetch(previewUrl, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+          });
+          const preview = await res.json().catch(() => ({})) as {
+            requiresAuth?: boolean;
+            pointsIfEarned?: number;
+            businessName?: string;
+            error?: string;
+          };
+          if (preview.error) {
+            setError(preview.error);
+          } else {
+            setGuestPopup({
+              pointsIfEarned: preview.pointsIfEarned ?? 10,
+              businessName: preview.businessName ?? "Local Business",
+              businessId,
+            });
+          }
+          setTimeout(() => {
+            setScanned(false);
+            cooldownRef.current = false;
+          }, 500);
+          setLoading(false);
+          return;
+        }
+
+        const previousTotal = me?.points ?? 0;
         const result = await apiPost<{
           ok?: boolean;
           pointsAwarded?: number;
@@ -118,6 +201,22 @@ export default function ScannerScreen() {
     },
     [scanned, loading]
   );
+
+  const handleGuestSignIn = () => {
+    if (guestPopup) {
+      AsyncStorage.setItem(PENDING_SCAN_KEY, guestPopup.businessId);
+      setGuestPopup(null);
+      router.push("/(auth)/login" as never);
+    }
+  };
+
+  const handleGuestSignUp = () => {
+    if (guestPopup) {
+      AsyncStorage.setItem(PENDING_SCAN_KEY, guestPopup.businessId);
+      setGuestPopup(null);
+      router.push("/(auth)/login" as never);
+    }
+  };
 
   const handleClosePopup = () => {
     setPopupData(null);
@@ -239,6 +338,43 @@ export default function ScannerScreen() {
           badgeSlug={earnedBadges[badgePopupIndex].slug}
           badgeDescription={earnedBadges[badgePopupIndex].description}
         />
+      )}
+
+      {guestPopup && (
+        <Modal visible transparent animationType="fade">
+          <View style={styles.guestModalBackdrop}>
+            <View style={styles.guestModalBox}>
+              <Text style={styles.guestModalTitle}>
+                Earn {guestPopup.pointsIfEarned} points
+              </Text>
+              <Text style={styles.guestModalDesc}>
+                Log in or sign up to earn {guestPopup.pointsIfEarned} points from {guestPopup.businessName}.
+              </Text>
+              <Pressable
+                style={({ pressed }) => [styles.guestModalBtn, pressed && { opacity: 0.8 }]}
+                onPress={handleGuestSignIn}
+              >
+                <Text style={styles.guestModalBtnText}>Log in</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.guestModalBtnSecondary, pressed && { opacity: 0.8 }]}
+                onPress={handleGuestSignUp}
+              >
+                <Text style={styles.guestModalBtnTextSecondary}>Sign up</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.guestModalCancel, pressed && { opacity: 0.8 }]}
+                onPress={() => {
+                  setGuestPopup(null);
+                  setScanned(false);
+                  cooldownRef.current = false;
+                }}
+              >
+                <Text style={styles.guestModalCancelText}>Maybe later</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       )}
     </View>
   );
@@ -381,4 +517,53 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "500",
   },
+  guestModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  guestModalBox: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 24,
+    width: "100%",
+    maxWidth: 320,
+  },
+  guestModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  guestModalDesc: {
+    fontSize: 15,
+    color: theme.colors.text,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  guestModalBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  guestModalBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  guestModalBtnSecondary: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  guestModalBtnTextSecondary: { color: theme.colors.primary, fontSize: 16, fontWeight: "600" },
+  guestModalCancel: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  guestModalCancelText: { color: theme.colors.placeholder, fontSize: 15 },
 });

@@ -18,6 +18,12 @@ export default function ResaleHubLayout() {
         }}
       >
         <Stack.Screen name="list" options={{ title: "List an Item" }} />
+        <Stack.Screen name="listings" options={{ title: "My Listings" }} />
+        <Stack.Screen name="ship" options={{ title: "Ship an Item" }} />
+        <Stack.Screen name="deliveries" options={{ title: "My Deliveries" }} />
+        <Stack.Screen name="pickups" options={{ title: "My Pickups" }} />
+        <Stack.Screen name="offers" options={{ title: "New Offers" }} />
+        <Stack.Screen name="cancellations" options={{ title: "Cancellations" }} />
       </Stack>
     </>
   );

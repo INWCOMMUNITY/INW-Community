@@ -8,6 +8,7 @@ import {
   Image,
   TextInput,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -72,13 +73,25 @@ export default function NewGroupScreen() {
     if (selectedIds.size === 0 || creating) return;
     setCreating(true);
     try {
-      const conv = await apiPost<{ id: string }>("/api/group-conversations", {
+      const conv = await apiPost<{ id?: string; error?: string }>("/api/group-conversations", {
         memberIds: Array.from(selectedIds),
         name: groupName.trim() || undefined,
       });
-      setCreating(false);
-      router.replace(`/messages/group/${conv.id}`);
-    } catch {
+      const id = conv?.id;
+      if (id) {
+        router.replace(`/messages/group/${id}` as never);
+      } else {
+        const msg = (conv as { error?: string })?.error ?? "Could not create group. Please try again.";
+        if (typeof Alert !== "undefined") {
+          Alert.alert("Error", msg);
+        }
+      }
+    } catch (e) {
+      const msg = (e as { error?: string })?.error ?? "Could not create group. Please try again.";
+      if (typeof Alert !== "undefined") {
+        Alert.alert("Error", msg);
+      }
+    } finally {
       setCreating(false);
     }
   };

@@ -11,12 +11,12 @@ import {
   Switch,
   Alert,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { theme as defaultTheme } from "@/lib/theme";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiGet, apiPost, apiUploadFile, getToken } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -41,11 +41,34 @@ interface Meta {
 
 const PLACEHOLDER_COLOR = "#888888";
 
+interface StoreItemEdit {
+  id: string;
+  title: string;
+  description: string | null;
+  photos: string[];
+  category: string | null;
+  priceCents: number;
+  quantity: number;
+  shippingDisabled: boolean;
+  shippingCostCents: number | null;
+  shippingPolicy: string | null;
+  localDeliveryAvailable: boolean;
+  localDeliveryFeeCents: number | null;
+  inStorePickupAvailable: boolean;
+  localDeliveryTerms: string | null;
+  pickupTerms: string | null;
+  acceptOffers: boolean;
+  minOfferCents: number | null;
+}
+
 export default function ResaleHubListScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{ edit?: string }>();
+  const editId = params.edit?.trim() || undefined;
   const { member } = useAuth();
   const placeholderColor = PLACEHOLDER_COLOR;
+  const [editLoading, setEditLoading] = useState(false);
 
   const canListResale =
     member?.subscriptions?.some(
@@ -91,6 +114,46 @@ export default function ResaleHubListScreen() {
   const effectiveShippingPolicy = useSellerProfileShipping
     ? sellerProfileShippingPolicy
     : shippingPolicy;
+
+  useEffect(() => {
+    if (editId) {
+      setEditLoading(true);
+      apiGet<StoreItemEdit>(`/api/store-items/${editId}`)
+        .then((item) => {
+          setTitle(item.title ?? "");
+          setDescription(item.description ?? "");
+          setPhotos(item.photos ?? []);
+          setCategory(item.category ?? "");
+          setPriceCents(item.priceCents != null ? (item.priceCents / 100).toFixed(2) : "");
+          setQuantity(String(item.quantity ?? 1));
+          setShippingDisabled(item.shippingDisabled ?? false);
+          setShippingCostDollars(
+            item.shippingCostCents != null && item.shippingCostCents > 0
+              ? (item.shippingCostCents / 100).toFixed(2)
+              : ""
+          );
+          setShippingFree(item.shippingCostCents === 0);
+          setShippingPolicy(item.shippingPolicy ?? "");
+          setLocalDeliveryAvailable(item.localDeliveryAvailable ?? false);
+          setLocalDeliveryFeeDollars(
+            item.localDeliveryFeeCents != null && item.localDeliveryFeeCents > 0
+              ? (item.localDeliveryFeeCents / 100).toFixed(2)
+              : ""
+          );
+          setLocalDeliveryTerms(item.localDeliveryTerms ?? "");
+          setInStorePickupAvailable(item.inStorePickupAvailable ?? false);
+          setPickupTerms(item.pickupTerms ?? "");
+          setAcceptOffers(item.acceptOffers ?? false);
+          setMinOfferCents(
+            item.minOfferCents != null && item.minOfferCents > 0
+              ? (item.minOfferCents / 100).toFixed(2)
+              : ""
+          );
+        })
+        .catch(() => setError("Failed to load listing"))
+        .finally(() => setEditLoading(false));
+    }
+  }, [editId]);
 
   useEffect(() => {
     apiGet<Meta>("/api/store-items?list=meta")
@@ -260,18 +323,16 @@ export default function ResaleHubListScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      await apiPost("/api/store-items", {
+      const payload = {
         title: title.trim(),
         description: description.trim() || null,
         photos,
         category: category.trim() || null,
         priceCents: price,
         quantity: qty,
-        listingType: "resale",
         shippingDisabled,
         localDeliveryAvailable,
         inStorePickupAvailable,
-        businessId: null,
         shippingCostCents:
           !shippingDisabled ? (shippingFree ? 0 : shipCost > 0 ? shipCost : null) : null,
         shippingPolicy:
@@ -289,10 +350,20 @@ export default function ResaleHubListScreen() {
         localDeliveryFeeCents: localFee,
         acceptOffers: acceptOffers || undefined,
         minOfferCents: acceptOffers && minOffer != null && minOffer >= 0 ? minOffer : null,
-      });
-      router.replace("/(tabs)/my-community");
+      };
+      if (editId) {
+        await apiPatch(`/api/store-items/${editId}`, payload);
+        router.replace("/resale-hub/listings" as never);
+      } else {
+        await apiPost("/api/store-items", {
+          ...payload,
+          listingType: "resale",
+          businessId: null,
+        });
+        router.replace("/(tabs)/my-community");
+      }
     } catch (e) {
-      setError((e as { error?: string })?.error ?? "Failed to create listing");
+      setError((e as { error?: string })?.error ?? (editId ? "Failed to update listing" : "Failed to create listing"));
     } finally {
       setSubmitting(false);
     }
@@ -325,6 +396,15 @@ export default function ResaleHubListScreen() {
             <Text style={styles.gateBtnText}>{showSignInGate ? "Sign in" : "View plans"}</Text>
           </Pressable>
         </View>
+      </View>
+    );
+  }
+
+  if (editId && editLoading) {
+    return (
+      <View style={[styles.screenWrapper, { justifyContent: "center", alignItems: "center" }]}>
+        <ActivityIndicator size="large" color={defaultTheme.colors.primary} />
+        <Text style={{ marginTop: 12, color: defaultTheme.colors.text }}>Loading listing…</Text>
       </View>
     );
   }
@@ -693,15 +773,15 @@ export default function ResaleHubListScreen() {
           style={({ pressed }) => [
             styles.submitBtn,
             pressed && { opacity: 0.8 },
-            submitting && styles.submitDisabled,
+            (submitting || editLoading) && styles.submitDisabled,
           ]}
           onPress={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || editLoading}
         >
           {submitting ? (
             <ActivityIndicator color="#fff" size="small" />
           ) : (
-            <Text style={styles.submitBtnText}>List Item</Text>
+            <Text style={styles.submitBtnText}>{editId ? "Update listing" : "List Item"}</Text>
           )}
         </Pressable>
 

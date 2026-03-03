@@ -201,9 +201,9 @@ export function RewardFormModal({
             disabled={submitting}
             style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressed]}
           >
-            <Text style={styles.cancelBtnText}>Cancel</Text>
+            <Text style={styles.cancelBtnTextWhite}>Cancel</Text>
           </Pressable>
-          <Text style={styles.headerTitle}>Offer a Reward</Text>
+          <Text style={styles.headerTitleWhite}>Offer a Reward</Text>
           <Pressable
             onPress={handleSubmit}
             disabled={submitting || loading || businesses.length === 0}
@@ -481,8 +481,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
+    paddingTop: 48,
+    backgroundColor: theme.colors.primary,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: "rgba(255,255,255,0.2)",
   },
   cancelBtn: {
     paddingVertical: 8,
@@ -492,10 +494,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: theme.colors.primary,
   },
+  cancelBtnTextWhite: {
+    fontSize: 16,
+    color: "#fff",
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: theme.colors.heading,
+  },
+  headerTitleWhite: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#fff",
   },
   submitBtn: {
     backgroundColor: theme.colors.primary,

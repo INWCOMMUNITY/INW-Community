@@ -312,7 +312,7 @@ export default function BusinessScreen() {
                   >
                     <Image
                       source={{ uri: url }}
-                      style={[styles.galleryImage, { width: 120, height: 120 }]}
+                      style={[styles.galleryImage, { width: 240, height: 240 }]}
                       resizeMode="cover"
                     />
                   </Pressable>
@@ -528,8 +528,8 @@ const styles = StyleSheet.create({
     marginHorizontal: -16,
   },
   galleryImage: {
-    width: 120,
-    height: 120,
+    width: 240,
+    height: 240,
     borderRadius: 8,
     marginHorizontal: 8,
   },
