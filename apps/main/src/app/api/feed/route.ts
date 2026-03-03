@@ -231,7 +231,7 @@ export async function GET(req: NextRequest) {
   const sourceRewardIds = items.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
   const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
-  const groupIds = items.filter((p) => p.groupId).map((p) => p.groupId!);
+  const postGroupIds = items.filter((p) => p.groupId).map((p) => p.groupId!);
 
   const [blogs, businesses, coupons, rewards, storeItems, sourcePosts, groups] = await Promise.all([
     sourceBlogIds.length > 0
@@ -279,9 +279,9 @@ export async function GET(req: NextRequest) {
           },
         })
       : [],
-    groupIds.length > 0
+    postGroupIds.length > 0
       ? prisma.group.findMany({
-          where: { id: { in: groupIds } },
+          where: { id: { in: postGroupIds } },
           select: { id: true, name: true, slug: true },
         })
       : [],
