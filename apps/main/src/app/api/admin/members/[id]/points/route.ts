@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
+import { awardPoints } from "@/lib/award-points";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -16,10 +16,7 @@ export async function POST(
   try {
     const body = await req.json();
     const { points } = bodySchema.parse(body);
-    await prisma.member.update({
-      where: { id },
-      data: { points: { increment: points } },
-    });
+    await awardPoints(id, points);
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {

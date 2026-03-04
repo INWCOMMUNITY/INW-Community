@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getCurrentSeasonId } from "@/lib/award-points";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -50,6 +51,7 @@ export async function GET(req: NextRequest) {
       bio: true,
       city: true,
       points: true,
+      allTimePointsEarned: true,
       privacyLevel: true,
       phone: true,
       deliveryAddress: true,
@@ -62,6 +64,23 @@ export async function GET(req: NextRequest) {
     },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const seasonId = await getCurrentSeasonId();
+  let seasonPointsEarned: number | undefined;
+  let currentSeason: { id: string; name: string } | undefined;
+  if (seasonId) {
+    const season = await prisma.season.findUnique({
+      where: { id: seasonId },
+      select: { id: true, name: true },
+    });
+    if (season) {
+      currentSeason = season;
+      const msp = await prisma.memberSeasonPoints.findUnique({
+        where: { memberId_seasonId: { memberId: session.user.id, seasonId } },
+        select: { pointsEarned: true },
+      });
+      seasonPointsEarned = msp?.pointsEarned ?? 0;
+    }
+  }
   const [sub, subscriptions] = await Promise.all([
     prisma.subscription.findFirst({
       where: { memberId: session.user.id, plan: "subscribe", status: "active" },
@@ -75,6 +94,8 @@ export async function GET(req: NextRequest) {
   const subscriptionPlan = session.user.subscriptionPlan ?? subscriptions[0]?.plan ?? null;
   return NextResponse.json({
     ...member,
+    seasonPointsEarned,
+    currentSeason,
     isSubscriber: !!sub,
     subscriptionPlan,
     subscriptions: subscriptions.map((s) => ({ plan: s.plan, status: s.status })),

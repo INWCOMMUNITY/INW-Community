@@ -19,8 +19,9 @@ model Member {
   profilePhotoUrl   String?  @map("profile_photo_url")
   bio               String?
   city              String?
-  points            Int      @default(0) // Community Points (name subject to change)
-  couponsRedeemed   Int      @default(0) @map("coupons_redeemed")
+  points                Int      @default(0) // Community Points (spendable balance)
+  allTimePointsEarned   Int      @default(0) @map("all_time_points_earned")
+  couponsRedeemed       Int      @default(0) @map("coupons_redeemed")
   stripeConnectAccountId String? @map("stripe_connect_account_id") // For sellers
   stripeCustomerId      String? @map("stripe_customer_id") // For fallback payments (labels, etc.)
   easypostReferralCustomerId String? @map("easypost_referral_customer_id") // Seller's EasyPost Referral Customer (own billing)
@@ -51,8 +52,9 @@ model Member {
   storeItemsSold   StoreItem[]
   storeOrdersAsBuyer StoreOrder[] @relation("BuyerOrders")
   storeOrdersAsSeller StoreOrder[] @relation("SellerOrders")
-  qrScans          QRScan[]
-  blocksGiven      MemberBlock[] @relation("blocksGiven")
+  qrScans              QRScan[]
+  memberSeasonPoints   MemberSeasonPoints[]
+  blocksGiven          MemberBlock[] @relation("blocksGiven")
   blocksReceived   MemberBlock[] @relation("blocksReceived")
   sellerBalance    SellerBalance?
   sellerBalanceTransactions SellerBalanceTransaction[]
@@ -309,6 +311,7 @@ enum SavedItemType {
   store_item
   blog
   post
+  reward
 }
 
 // Blog system - admin-approved posts
@@ -650,6 +653,37 @@ model Policy {
   title     String   // e.g. "Terms of Service"
   content   String   @db.Text
   updatedAt DateTime @updatedAt @map("updated_at")
+}
+
+// Admin-defined season for points/leaderboard (e.g. "Season 1", 3 months)
+model Season {
+  id        String   @id @default(cuid())
+  name      String   // e.g. "Season 1"
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberSeasonPoints MemberSeasonPoints[]
+
+  @@map("season")
+}
+
+// Points earned by a member in a given season (for leaderboard; does not reset balance)
+model MemberSeasonPoints {
+  id           String   @id @default(cuid())
+  memberId     String   @map("member_id")
+  seasonId     String   @map("season_id")
+  pointsEarned Int      @default(0) @map("points_earned")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  member  Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  season  Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, seasonId])
+  @@index([seasonId])
+  @@map("member_season_points")
 }
 
 // Top 5 Supporters competition - admin controlled

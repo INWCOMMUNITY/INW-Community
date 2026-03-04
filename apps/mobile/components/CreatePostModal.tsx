@@ -505,13 +505,15 @@ export function CreatePostModal({
               <Text style={styles.pickerDone}>Done</Text>
             </Pressable>
           </View>
-          <TextInput
-            style={[styles.pickerSearch, { marginHorizontal: 16, marginBottom: 8 }]}
-            placeholder="Search friends..."
-            placeholderTextColor="#999"
-            value={friendSearch}
-            onChangeText={setFriendSearch}
-          />
+          <View style={[styles.pickerSearchRow, { marginBottom: 8 }]}>
+            <TextInput
+              style={styles.pickerSearch}
+              placeholder="Search friends..."
+              placeholderTextColor="#999"
+              value={friendSearch}
+              onChangeText={setFriendSearch}
+            />
+          </View>
           {friendLoading ? (
             <ActivityIndicator style={{ marginTop: 20 }} color={theme.colors.primary} />
           ) : (

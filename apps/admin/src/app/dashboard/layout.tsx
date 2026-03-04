@@ -23,6 +23,7 @@ const SIDEBAR_SECTIONS = [
     divider: "Incentives",
     items: [
       { href: "/dashboard/coupons", label: "Coupons" },
+      { href: "/dashboard/seasons", label: "Seasons" },
       { href: "/dashboard/top5", label: "NWC Top 10 Prizes" },
       { href: "/dashboard/points-config", label: "Points" },
       { href: "/dashboard/badges", label: "Badges" },

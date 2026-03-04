@@ -10,6 +10,9 @@ import {
   RefreshControl,
   Linking,
   Dimensions,
+  TextInput,
+  FlatList,
+  Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,11 +20,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiGet, apiPost, getToken } from "@/lib/api";
+import { HeartSaveButton } from "@/components/HeartSaveButton";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
-const CARD_WIDTH = Dimensions.get("window").width - 32;
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const CARD_PADDING = 16;
+const CARD_GAP = 12;
+const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
 
 interface LeaderboardMember {
   id: string;
@@ -35,6 +42,7 @@ interface Top5Prize {
   rank: number;
   label: string;
   imageUrl?: string | null;
+  description?: string | null;
   business?: { id: string; name: string; slug: string; logoUrl: string | null } | null;
 }
 
@@ -73,12 +81,19 @@ export default function RewardsScreen() {
   const [top10Leaderboard, setTop10Leaderboard] = useState<LeaderboardMember[]>([]);
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [points, setPoints] = useState<number | null>(null);
+  const [seasonPointsEarned, setSeasonPointsEarned] = useState<number | null>(null);
+  const [currentSeason, setCurrentSeason] = useState<{ id: string; name: string } | null>(null);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [redeeming, setRedeeming] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [rewardSearch, setRewardSearch] = useState("");
+  const [expandedRewardId, setExpandedRewardId] = useState<string | null>(null);
+  const [showPrizes, setShowPrizes] = useState(true);
+  const [savedRewardIds, setSavedRewardIds] = useState<Set<string>>(new Set());
+  const [prizePopupPrize, setPrizePopupPrize] = useState<Top5Prize | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -111,13 +126,26 @@ export default function RewardsScreen() {
     setSignedIn(!!token);
     if (!token) {
       setPoints(null);
+      setSeasonPointsEarned(null);
+      setCurrentSeason(null);
+      setSavedRewardIds(new Set());
       return;
     }
     try {
-      const me = await apiGet<{ points?: number }>("/api/me");
+      const me = await apiGet<{
+        points?: number;
+        seasonPointsEarned?: number;
+        currentSeason?: { id: string; name: string };
+      }>("/api/me");
       setPoints(me?.points ?? 0);
+      setSeasonPointsEarned(me?.seasonPointsEarned ?? 0);
+      setCurrentSeason(me?.currentSeason ?? null);
+      const saved = await apiGet<{ referenceId: string }[]>("/api/saved?type=reward").catch(() => []);
+      setSavedRewardIds(new Set(Array.isArray(saved) ? saved.map((i) => i.referenceId) : []));
     } catch {
       setPoints(null);
+      setSeasonPointsEarned(null);
+      setCurrentSeason(null);
     }
   }, []);
 
@@ -255,6 +283,11 @@ export default function RewardsScreen() {
               <Text style={[styles.pointsValue, { color: theme.colors.primary }]}>
                 {points} points
               </Text>
+              {currentSeason != null && seasonPointsEarned != null && (
+                <Text style={styles.seasonPointsLine}>
+                  {currentSeason.name}: {seasonPointsEarned} Points
+                </Text>
+              )}
               <Pressable
                 style={styles.expandArrow}
                 onPress={() => setShowIntroBox((v) => !v)}
@@ -288,179 +321,287 @@ export default function RewardsScreen() {
             </View>
           )}
 
-          <View style={styles.sideBySide}>
-            <View style={[styles.leaderboardCard, { borderColor: theme.colors.primary }]}>
-              <View style={[styles.leaderboardHeader, { backgroundColor: theme.colors.primary }]}>
-                <Text style={styles.leaderboardTitle}>Top 10 NWC Earners</Text>
-                <Text style={styles.leaderboardSub}>
-                  Members supporting local and earning the most points.
-                </Text>
+          {top5?.enabled && (top5.prizes?.length ?? 0) > 0 && (
+            <View style={styles.section}>
+              <View style={styles.toggleRow}>
+                <Pressable
+                  style={[styles.toggleBtn, showPrizes && styles.toggleBtnActive]}
+                  onPress={() => setShowPrizes(true)}
+                >
+                  <Text style={[styles.toggleText, showPrizes && styles.toggleTextActive]}>
+                    Top 10 Prizes
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.toggleBtn, !showPrizes && styles.toggleBtnActive]}
+                  onPress={() => setShowPrizes(false)}
+                >
+                  <Text style={[styles.toggleText, !showPrizes && styles.toggleTextActive]}>
+                    Leaderboard
+                  </Text>
+                </Pressable>
               </View>
-              <View style={styles.leaderboardList}>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
-                  const m = top10Leaderboard[num - 1];
-                  return (
-                    <View key={m?.id ?? `empty-${num}`} style={styles.leaderboardRow}>
-                      <Text style={[styles.rank, { color: theme.colors.primary }]}>{num}.</Text>
-                      <View style={styles.memberInfo}>
+              {showPrizes ? (
+                <ScrollView style={styles.prizesList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
+                    const p = top5.prizes?.find((x: Top5Prize) => x.rank === rank);
+                    const hasContent = p && (p.label?.trim() || p.imageUrl);
+                    return (
+                      <View key={rank} style={styles.prizeRow}>
+                        <Text style={styles.prizeRank}>#{rank}</Text>
+                        {hasContent ? (
+                          <>
+                            {p!.imageUrl ? (
+                              <Image
+                                source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
+                                style={styles.prizeThumb}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <View style={[styles.prizeThumb, styles.prizeThumbPlaceholder]} />
+                            )}
+                            <Text style={styles.prizeLabel} numberOfLines={1}>
+                              {p!.label?.trim() || "—"}
+                            </Text>
+                            {p!.business && (
+                              <Text style={styles.prizeBusiness} numberOfLines={1}>
+                                {p!.business.name}
+                              </Text>
+                            )}
+                            <Pressable
+                              style={styles.prizeDetailsBtn}
+                              onPress={() => setPrizePopupPrize(p!)}
+                            >
+                              <Ionicons name="information-circle-outline" size={22} color={theme.colors.primary} />
+                            </Pressable>
+                          </>
+                        ) : (
+                          <Text style={styles.prizeEmpty}>—</Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              ) : (
+                <ScrollView style={styles.leaderboardList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                    const m = top10Leaderboard[num - 1];
+                    return (
+                      <View key={m?.id ?? `empty-${num}`} style={styles.leaderRow}>
+                        <Text style={styles.leaderRank}>{num}</Text>
                         {m ? (
                           <>
                             {m.profilePhotoUrl ? (
-                              <Image
-                                source={{ uri: resolveUrl(m.profilePhotoUrl) }}
-                                style={styles.avatar}
-                              />
+                              <Image source={{ uri: resolveUrl(m.profilePhotoUrl) }} style={styles.leaderAvatar} />
                             ) : (
-                              <View style={styles.avatarPlaceholder}>
-                                <Text style={styles.avatarText}>
-                                  {(m.firstName?.[0] ?? "?") + (m.lastName?.[0] ?? "")}
+                              <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]}>
+                                <Text style={styles.leaderInitials}>
+                                  {(m.firstName?.[0] ?? "") + (m.lastName?.[0] ?? "")}
                                 </Text>
                               </View>
                             )}
-                            <Text style={styles.memberName}>
+                            <Text style={styles.leaderName} numberOfLines={1}>
                               {m.firstName} {m.lastName}
                             </Text>
+                            <Text style={styles.leaderPoints}>{m.points}</Text>
                           </>
                         ) : (
                           <>
-                            <View style={styles.avatarPlaceholder} />
-                            <Text style={styles.memberNameEmpty}>—</Text>
+                            <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]} />
+                            <Text style={styles.leaderEmpty} numberOfLines={1}>—</Text>
+                            <Text style={styles.leaderPoints}>—</Text>
                           </>
                         )}
                       </View>
-                      <Text style={[styles.memberPoints, { color: m ? theme.colors.primary : undefined }]}>
-                        {m ? m.points : "—"}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
-          </View>
-
-          {top5?.enabled && (top5.prizes?.length ?? 0) > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Top 5 Supporters&apos; Rewards</Text>
-              <Text style={styles.sectionDesc}>
-                Whoever collects the most points by the end of the period wins these prizes.
-              </Text>
-              {top5.startDate && top5.endDate && (
-                <Text style={styles.period}>
-                  Period: {new Date(top5.startDate).toLocaleDateString()} – {new Date(top5.endDate).toLocaleDateString()}
-                </Text>
+                    );
+                  })}
+                </ScrollView>
               )}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.prizesRow}>
-                {(top5.prizes ?? []).map((prize) => (
-                  <View key={prize.rank} style={styles.prizeCard}>
-                    <Text style={styles.prizeRank}>#{prize.rank} Prize</Text>
-                    {prize.imageUrl ? (
-                      <Image
-                        source={{ uri: resolveUrl(prize.imageUrl) }}
-                        style={styles.prizeImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={styles.prizePlaceholder}>
-                        <Text style={styles.prizePlaceholderText}>No image</Text>
-                      </View>
-                    )}
-                    <Text style={styles.prizeLabel}>{prize.label || "TBD"}</Text>
-                    {prize.business && (
-                      <Pressable onPress={() => openBusiness(prize.business!.slug)}>
-                        <Text style={[styles.businessLink, { color: theme.colors.primary }]}>{prize.business.name}</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                ))}
-              </ScrollView>
-              <Text style={styles.leaderboardSubtitle}>Current leaderboard</Text>
-              <View style={styles.miniLeaderboard}>
-                {leaderboard.length === 0 ? (
-                  <Text style={styles.emptyLeaderboard}>No points yet. Start supporting local!</Text>
-                ) : (
-                  leaderboard.map((m) => (
-                    <View key={m.id} style={styles.miniRow}>
-                      <Text style={styles.miniName}>
-                        {m.firstName} {m.lastName}
-                      </Text>
-                      <Text style={styles.miniPoints}>— {m.points} points</Text>
-                    </View>
-                  ))
-                )}
-              </View>
             </View>
           )}
 
+          {prizePopupPrize && (
+            <Modal visible transparent animationType="fade">
+              <Pressable style={styles.prizeModalBackdrop} onPress={() => setPrizePopupPrize(null)}>
+                <View style={styles.prizeModalPanel} onStartShouldSetResponder={() => true}>
+                  <Text style={styles.prizeModalTitle}>
+                    {prizePopupPrize.rank === 1
+                      ? "1st"
+                      : prizePopupPrize.rank === 2
+                        ? "2nd"
+                        : prizePopupPrize.rank === 3
+                          ? "3rd"
+                          : `${prizePopupPrize.rank}th`}{" "}
+                    Place Prize for {currentSeason?.name ?? "Season"}
+                  </Text>
+                  {prizePopupPrize.imageUrl ? (
+                    <Image
+                      source={{ uri: resolveUrl(prizePopupPrize.imageUrl) }}
+                      style={styles.prizeModalImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={[styles.prizeModalImage, styles.prizeImagePlaceholder]}>
+                      <Text style={styles.prizePlaceholderText}>No image</Text>
+                    </View>
+                  )}
+                  {prizePopupPrize.description ? (
+                    <Text style={styles.prizeModalDesc}>{prizePopupPrize.description}</Text>
+                  ) : null}
+                  {prizePopupPrize.business && (
+                    <Pressable onPress={() => { setPrizePopupPrize(null); openBusiness(prizePopupPrize.business!.slug); }}>
+                      <Text style={[styles.prizeModalBusiness, { color: theme.colors.primary }]}>
+                        {prizePopupPrize.business.name}
+                      </Text>
+                    </Pressable>
+                  )}
+                  <Pressable style={styles.prizeModalClose} onPress={() => setPrizePopupPrize(null)}>
+                    <Text style={styles.prizeModalCloseText}>Close</Text>
+                  </Pressable>
+                </View>
+              </Pressable>
+            </Modal>
+          )}
+
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Redeem with Points</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Redeem with Points</Text>
+              <Pressable onPress={() => router.push("/rewards/my-rewards")} style={styles.myRewardsLink}>
+                <Text style={[styles.myRewardsLinkText, { color: theme.colors.primary }]}>My Rewards</Text>
+                <Ionicons name="chevron-forward" size={18} color={theme.colors.primary} />
+              </Pressable>
+            </View>
             <Text style={styles.sectionDesc}>
               Local businesses offer these rewards. Redeem them with your Community Points.
             </Text>
+            <TextInput
+              style={[styles.searchInput, { borderColor: theme.colors.primary, color: theme.colors.text }]}
+              placeholder="Search rewards…"
+              placeholderTextColor="#999"
+              value={rewardSearch}
+              onChangeText={setRewardSearch}
+            />
             {error ? <Text style={styles.errorMsg}>{error}</Text> : null}
             {rewards.length === 0 ? (
               <Text style={styles.emptyText}>No rewards available right now. Check back soon!</Text>
             ) : (
-              rewards.map((r) => {
-                const canRedeem = signedIn && points !== null && points >= r.pointsRequired;
-                const remaining = r.redemptionLimit - r.timesRedeemed;
+              (() => {
+                const q = rewardSearch.trim().toLowerCase();
+                const filtered = q
+                  ? rewards.filter(
+                      (r) =>
+                        r.title.toLowerCase().includes(q) ||
+                        (r.description?.toLowerCase().includes(q)) ||
+                        r.business.name.toLowerCase().includes(q)
+                    )
+                  : rewards;
                 return (
-                  <View key={r.id} style={[styles.rewardCard, { borderColor: theme.colors.primary }]}>
-                    {r.imageUrl ? (
-                      <Image
-                        source={{ uri: resolveUrl(r.imageUrl) }}
-                        style={styles.rewardImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={styles.rewardImagePlaceholder}>
-                        <Text style={styles.rewardPlaceholderText}>No image</Text>
-                      </View>
-                    )}
-                    <Text style={styles.rewardTitle}>{r.title}</Text>
-                    <Pressable onPress={() => openBusiness(r.business.slug)}>
-                      <Text style={[styles.rewardBusiness, { color: theme.colors.primary }]}>
-                        {r.business.name}
-                      </Text>
-                    </Pressable>
-                    {r.description ? (
-                      <Text style={styles.rewardDesc} numberOfLines={2}>
-                        {r.description}
-                      </Text>
-                    ) : null}
-                    <Text style={styles.rewardMeta}>
-                      {r.pointsRequired} points · {remaining} left
-                    </Text>
-                    {signedIn ? (
-                      <Pressable
-                        style={[
-                          styles.redeemBtn,
-                          { backgroundColor: theme.colors.primary },
-                          (!canRedeem || redeeming === r.id) && styles.redeemBtnDisabled,
-                        ]}
-                        onPress={() => handleRedeem(r.id)}
-                        disabled={!canRedeem || redeeming === r.id}
-                      >
-                        {redeeming === r.id ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : canRedeem ? (
-                          <Text style={styles.redeemBtnText}>Redeem</Text>
-                        ) : (
-                          <Text style={styles.redeemBtnText}>
-                            Need {r.pointsRequired - (points ?? 0)} more points
+                  <FlatList
+                    data={filtered}
+                    keyExtractor={(r) => r.id}
+                    numColumns={2}
+                    scrollEnabled={false}
+                    columnWrapperStyle={styles.rewardRow}
+                    listKey="rewards-grid"
+                    renderItem={({ item: r }) => {
+                      const canRedeem = signedIn && points !== null && points >= r.pointsRequired;
+                      const remaining = r.redemptionLimit - r.timesRedeemed;
+                      const expanded = expandedRewardId === r.id;
+                      const isSaved = savedRewardIds.has(r.id);
+                      return (
+                        <View style={[styles.rewardCardGrid, { borderColor: theme.colors.primary }]}>
+                          <View style={styles.rewardCardImageWrap}>
+                            {r.imageUrl ? (
+                              <Image
+                                source={{ uri: resolveUrl(r.imageUrl) }}
+                                style={styles.rewardImage1x1}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <View style={styles.rewardImage1x1Placeholder}>
+                                <Text style={styles.rewardPlaceholderText}>No image</Text>
+                              </View>
+                            )}
+                            <View style={styles.rewardCardHeart}>
+                              <HeartSaveButton
+                                type="reward"
+                                referenceId={r.id}
+                                initialSaved={isSaved}
+                                onSavedChange={(s) =>
+                                  setSavedRewardIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (s) next.add(r.id);
+                                    else next.delete(r.id);
+                                    return next;
+                                  })
+                                }
+                              />
+                            </View>
+                          </View>
+                          <Text style={styles.rewardTitleGrid} numberOfLines={2}>{r.title}</Text>
+                          <Pressable onPress={() => openBusiness(r.business.slug)}>
+                            <Text style={[styles.rewardBusinessGrid, { color: theme.colors.primary }]} numberOfLines={1}>
+                              {r.business.name}
+                            </Text>
+                          </Pressable>
+                          {r.description ? (
+                            <>
+                              <Pressable
+                                style={styles.rewardDescToggle}
+                                onPress={() => setExpandedRewardId((id) => (id === r.id ? null : r.id))}
+                              >
+                                <Text
+                                  style={styles.rewardDescText}
+                                  numberOfLines={expanded ? undefined : 2}
+                                  ellipsizeMode={expanded ? undefined : "tail"}
+                                >
+                                  {r.description}
+                                </Text>
+                                <Ionicons
+                                  name={expanded ? "chevron-up" : "chevron-down"}
+                                  size={18}
+                                  color={theme.colors.primary}
+                                />
+                              </Pressable>
+                            </>
+                          ) : null}
+                          <Text style={styles.rewardMetaGrid}>
+                            {r.pointsRequired} pts · {remaining} left
                           </Text>
-                        )}
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        style={[styles.redeemBtn, { backgroundColor: theme.colors.primary }]}
-                        onPress={() => router.push("/(tabs)/my-community")}
-                      >
-                        <Text style={styles.redeemBtnText}>Sign in to redeem</Text>
-                      </Pressable>
-                    )}
-                  </View>
+                          {signedIn ? (
+                            <Pressable
+                              style={[
+                                styles.redeemBtnGrid,
+                                { backgroundColor: theme.colors.primary },
+                                (!canRedeem || redeeming === r.id) && styles.redeemBtnDisabled,
+                              ]}
+                              onPress={() => handleRedeem(r.id)}
+                              disabled={!canRedeem || redeeming === r.id}
+                            >
+                              {redeeming === r.id ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                              ) : canRedeem ? (
+                                <Text style={styles.redeemBtnText}>Redeem</Text>
+                              ) : (
+                                <Text style={styles.redeemBtnText}>
+                                  Need {r.pointsRequired - (points ?? 0)} more
+                                </Text>
+                              )}
+                            </Pressable>
+                          ) : (
+                            <Pressable
+                              style={[styles.redeemBtnGrid, { backgroundColor: theme.colors.primary }]}
+                              onPress={() => router.push("/(tabs)/my-community")}
+                            >
+                              <Text style={styles.redeemBtnText}>Sign in to Redeem</Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    }}
+                  />
                 );
-              })
+              })()
             )}
           </View>
 
@@ -576,7 +717,116 @@ const styles = StyleSheet.create({
   },
   pointsLabel: { fontSize: 14, color: "#666", marginBottom: 4 },
   pointsValue: { fontSize: 24, fontWeight: "700" },
+  seasonPointsLine: { fontSize: 13, color: "#666", marginTop: 4 },
   pointsLink: { fontSize: 14, fontWeight: "500", marginTop: 8, textDecorationLine: "underline" },
+  toggleRow: {
+    flexDirection: "row",
+    marginBottom: 12,
+    borderRadius: 8,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  toggleBtn: { flex: 1, paddingVertical: 10, alignItems: "center" },
+  toggleBtnActive: { backgroundColor: "#f0f0f0" },
+  toggleText: { fontSize: 14, fontWeight: "500", color: "#666" },
+  toggleTextActive: { fontWeight: "700", color: "#333" },
+  prizesList: { maxHeight: 320, marginBottom: 8 },
+  prizeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    gap: 8,
+  },
+  prizeThumb: { width: 40, height: 40, borderRadius: 6 },
+  prizeThumbPlaceholder: { backgroundColor: "#f0f0f0" },
+  prizeBusiness: { fontSize: 12, color: "#666", flex: 1 },
+  prizeDetailsBtn: { padding: 4 },
+  prizeEmpty: { fontSize: 14, color: "#999", flex: 1 },
+  leaderboardList: { maxHeight: 320 },
+  leaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    gap: 8,
+  },
+  leaderRank: { width: 24, fontWeight: "600", fontSize: 14 },
+  leaderAvatar: { width: 32, height: 32, borderRadius: 16 },
+  leaderAvatarPlaceholder: { backgroundColor: "#e8e8e8", alignItems: "center", justifyContent: "center" },
+  leaderInitials: { fontSize: 12, fontWeight: "600", color: "#666" },
+  leaderName: { flex: 1, fontSize: 14, fontWeight: "500" },
+  leaderEmpty: { flex: 1, fontSize: 14, color: "#999" },
+  leaderPoints: { fontWeight: "600", fontSize: 14 },
+  prizeModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  prizeModalPanel: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 20,
+    alignItems: "center",
+  },
+  prizeModalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 12, textAlign: "center" },
+  prizeModalImage: { width: "100%", aspectRatio: 1, borderRadius: 8, marginBottom: 12 },
+  prizeImagePlaceholder: { backgroundColor: "#f0f0f0", alignItems: "center", justifyContent: "center" },
+  prizeModalDesc: { fontSize: 14, color: "#444", marginBottom: 8, textAlign: "center" },
+  prizeModalBusiness: { fontSize: 14, marginBottom: 16, textDecorationLine: "underline" },
+  prizeModalClose: { paddingVertical: 10, paddingHorizontal: 24, borderRadius: 8, backgroundColor: "#eee" },
+  prizeModalCloseText: { fontSize: 16, fontWeight: "600", color: "#333" },
+  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  myRewardsLink: { flexDirection: "row", alignItems: "center", paddingVertical: 4, paddingHorizontal: 4 },
+  myRewardsLinkText: { fontSize: 15, fontWeight: "600" },
+  searchInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    marginBottom: 12,
+  },
+  rewardRow: { gap: CARD_GAP, marginBottom: CARD_GAP },
+  rewardCardGrid: {
+    width: CARD_WIDTH,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 2,
+    backgroundColor: "#fff",
+  },
+  rewardCardImageWrap: { position: "relative", marginBottom: 8 },
+  rewardImage1x1: { width: "100%", aspectRatio: 1, borderRadius: 6 },
+  rewardImage1x1Placeholder: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 6,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rewardCardHeart: { position: "absolute", top: 4, right: 4 },
+  rewardTitleGrid: { fontSize: 14, fontWeight: "700", color: "#333", marginBottom: 2 },
+  rewardBusinessGrid: { fontSize: 12, marginBottom: 4 },
+  rewardDescToggle: { marginBottom: 4 },
+  rewardDescText: { fontSize: 12, color: "#666", marginBottom: 2 },
+  rewardMetaGrid: { fontSize: 11, color: "#666", marginBottom: 8 },
+  redeemBtnGrid: {
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 36,
+  },
   leaderboardCard: {
     borderRadius: 8,
     borderWidth: 2,

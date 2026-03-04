@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
+import { awardPoints } from "@/lib/award-points";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -159,10 +160,7 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        await prisma.member.update({
-          where: { id: order.buyerId },
-          data: { points: { increment: pointsAwarded } },
-        });
+        await awardPoints(order.buyerId, pointsAwarded);
 
         const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
         awardLocalBusinessProBadge(order.buyerId).catch(() => {});
@@ -199,10 +197,7 @@ export async function POST(req: NextRequest) {
           storeItems.every((s) => s.listingType === "resale");
         if (allResale) {
           const sellerPoints = Math.round(totalCents / 100);
-          await prisma.member.update({
-            where: { id: order.sellerId },
-            data: { points: { increment: sellerPoints } },
-          });
+          await awardPoints(order.sellerId, sellerPoints);
         }
 
         if (order.shippingCostCents > 0) {
@@ -299,10 +294,7 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        await prisma.member.update({
-          where: { id: buyerId },
-          data: { points: { increment: pointsAwarded } },
-        });
+        await awardPoints(buyerId, pointsAwarded);
 
         const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
         awardLocalBusinessProBadge(buyerId).catch(() => {});
@@ -340,10 +332,7 @@ export async function POST(req: NextRequest) {
           storeItems.every((s) => s.listingType === "resale");
         if (allResale) {
           const sellerPoints = Math.round(totalCents / 100);
-          await prisma.member.update({
-            where: { id: sellerId },
-            data: { points: { increment: sellerPoints } },
-          });
+          await awardPoints(sellerId, sellerPoints);
         }
 
         if (shippingCostCents > 0) {
@@ -401,10 +390,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      await prisma.member.update({
-        where: { id: order.buyerId },
-        data: { points: { increment: pointsAwarded } },
-      });
+      await awardPoints(order.buyerId, pointsAwarded);
 
       await prisma.sellerBalance.upsert({
         where: { memberId: order.sellerId },
@@ -438,10 +424,7 @@ export async function POST(req: NextRequest) {
         storeItems.every((s) => s.listingType === "resale");
       if (allResale) {
         const sellerPoints = Math.round(totalCents / 100);
-        await prisma.member.update({
-          where: { id: order.sellerId },
-          data: { points: { increment: sellerPoints } },
-        });
+        await awardPoints(order.sellerId, sellerPoints);
       }
 
       if (order.shippingCostCents > 0) {

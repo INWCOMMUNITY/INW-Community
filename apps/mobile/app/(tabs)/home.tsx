@@ -70,6 +70,8 @@ export default function HomeScreen() {
   const [nwcRequestModalVisible, setNwcRequestModalVisible] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
   const [points, setPoints] = useState<number | null>(null);
+  const [seasonPointsEarned, setSeasonPointsEarned] = useState<number | null>(null);
+  const [currentSeason, setCurrentSeason] = useState<{ id: string; name: string } | null>(null);
   const [top10, setTop10] = useState<Top10Config | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardMember[]>([]);
   const [showPrizes, setShowPrizes] = useState(true);
@@ -78,13 +80,23 @@ export default function HomeScreen() {
     const token = await getToken();
     if (!token) {
       setPoints(null);
+      setSeasonPointsEarned(null);
+      setCurrentSeason(null);
       return;
     }
     try {
-      const me = await apiGet<{ points?: number }>("/api/me");
+      const me = await apiGet<{
+        points?: number;
+        seasonPointsEarned?: number;
+        currentSeason?: { id: string; name: string };
+      }>("/api/me");
       setPoints(me?.points ?? 0);
+      setSeasonPointsEarned(me?.seasonPointsEarned ?? 0);
+      setCurrentSeason(me?.currentSeason ?? null);
     } catch {
       setPoints(null);
+      setSeasonPointsEarned(null);
+      setCurrentSeason(null);
     }
   }, []);
 
@@ -177,6 +189,11 @@ export default function HomeScreen() {
         <View style={styles.pointsCard}>
           <Text style={styles.pointsLabel}>My Community Points</Text>
           <Text style={styles.pointsValue}>{points} points</Text>
+          {currentSeason != null && seasonPointsEarned != null && (
+            <Text style={styles.seasonPointsLine}>
+              {currentSeason.name}: {seasonPointsEarned} Points
+            </Text>
+          )}
         </View>
       )}
 
@@ -445,6 +462,11 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: theme.colors.primary,
     fontFamily: theme.fonts.heading,
+  },
+  seasonPointsLine: {
+    fontSize: 13,
+    color: "#666",
+    marginTop: 4,
   },
   top10Section: {
     width: "100%",

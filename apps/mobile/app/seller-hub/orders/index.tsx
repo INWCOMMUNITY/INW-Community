@@ -73,11 +73,7 @@ export default function OrdersScreen() {
         renderItem={({ item }) => (
           <Pressable
             style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
-            onPress={() =>
-              router.push(
-                `/web?url=${encodeURIComponent(`${siteBase}/seller-hub/orders`)}&title=${encodeURIComponent("Orders")}`
-              )
-            }
+            onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
           >
             <View style={styles.cardRow}>
               <Text style={styles.orderId}>#{item.id.slice(0, 8)}</Text>
@@ -94,9 +90,6 @@ export default function OrdersScreen() {
     </View>
   );
 }
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },

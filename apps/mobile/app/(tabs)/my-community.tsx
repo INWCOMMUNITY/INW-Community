@@ -255,10 +255,7 @@ function ResaleHubContent() {
     },
     {
       label: "Payouts",
-      onPress: () =>
-        router.push(
-          `/web?url=${encodeURIComponent(`${siteBase}/resale-hub/payouts`)}&title=${encodeURIComponent("My Payouts")}`
-        ),
+      onPress: () => (router.push as (href: string) => void)("/resale-hub/payouts"),
       icon: "wallet",
     },
     {

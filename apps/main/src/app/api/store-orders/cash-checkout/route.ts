@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { awardPoints } from "@/lib/award-points";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
@@ -146,6 +147,7 @@ export async function POST(req: NextRequest) {
       },
     });
     orderIds.push(order.id);
+    await awardPoints(buyerId, pointsAwarded);
 
     const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
     awardLocalBusinessProBadge(buyerId).catch(() => {});

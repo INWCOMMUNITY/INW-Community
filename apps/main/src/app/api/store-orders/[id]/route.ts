@@ -2,6 +2,39 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSessionForApi(_req);
+  const userId = session?.user?.id;
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const order = await prisma.storeOrder.findUnique({
+    where: { id },
+    include: {
+      buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
+      items: {
+        include: {
+          storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true } },
+        },
+      },
+      shipment: true,
+    },
+  });
+  if (!order) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (order.sellerId !== userId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  return NextResponse.json(order);
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

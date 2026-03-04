@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardScannerBadges, awardCategoryScanBadges, type EarnedBadge } from "@/lib/badge-award";
+import { awardPoints } from "@/lib/award-points";
 
 const DEFAULT_POINTS = 10;
 
@@ -70,19 +71,14 @@ export async function POST(req: NextRequest) {
       pointsToAward *= 2;
     }
 
-    const [scan, member] = await prisma.$transaction([
-      prisma.qRScan.create({
-        data: {
-          memberId: session.user.id,
-          businessId: business.id,
-          pointsAwarded: pointsToAward,
-        },
-      }),
-      prisma.member.update({
-        where: { id: session.user.id },
-        data: { points: { increment: pointsToAward } },
-      }),
-    ]);
+    const scan = await prisma.qRScan.create({
+      data: {
+        memberId: session.user.id,
+        businessId: business.id,
+        pointsAwarded: pointsToAward,
+      },
+    });
+    await awardPoints(session.user.id, pointsToAward);
 
     let earnedBadges: EarnedBadge[] = [];
     try {
@@ -95,8 +91,9 @@ export async function POST(req: NextRequest) {
       // badge errors shouldn't break the scan response
     }
 
-    // Re-fetch points if bonus points were awarded with badges
-    let totalPoints = member.points;
+    // Re-fetch points (balance) after award and any badge bonuses
+    const member = await prisma.member.findUnique({ where: { id: session.user.id }, select: { points: true } });
+    let totalPoints = member?.points ?? pointsToAward;
     if (earnedBadges.length > 0) {
       const updated = await prisma.member.findUnique({ where: { id: session.user.id }, select: { points: true } });
       if (updated) totalPoints = updated.points;

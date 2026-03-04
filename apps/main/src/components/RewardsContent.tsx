@@ -48,6 +48,9 @@ export function RewardsContent() {
   const [top10Leaderboard, setTop10Leaderboard] = useState<LeaderboardMember[]>([]);
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [points, setPoints] = useState<number | null>(null);
+  const [seasonPointsEarned, setSeasonPointsEarned] = useState<number | null>(null);
+  const [currentSeason, setCurrentSeason] = useState<{ id: string; name: string } | null>(null);
+  const [savedRewardIds, setSavedRewardIds] = useState<Set<string>>(new Set());
   const [redeeming, setRedeeming] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -85,10 +88,27 @@ export function RewardsContent() {
     if (session?.user?.id) {
       fetch("/api/me")
         .then((r) => r.json())
-        .then((d) => setPoints(d?.points ?? 0))
-        .catch(() => setPoints(null));
+        .then((d) => {
+          setPoints(d?.points ?? 0);
+          setSeasonPointsEarned(d?.seasonPointsEarned ?? 0);
+          setCurrentSeason(d?.currentSeason ?? null);
+        })
+        .catch(() => {
+          setPoints(null);
+          setSeasonPointsEarned(null);
+          setCurrentSeason(null);
+        });
+      fetch("/api/saved?type=reward")
+        .then((r) => r.json())
+        .then((items: { referenceId: string }[]) => {
+          setSavedRewardIds(new Set(Array.isArray(items) ? items.map((i) => i.referenceId) : []));
+        })
+        .catch(() => setSavedRewardIds(new Set()));
     } else {
       setPoints(null);
+      setSeasonPointsEarned(null);
+      setCurrentSeason(null);
+      setSavedRewardIds(new Set());
     }
   }, [session?.user?.id]);
 
@@ -120,6 +140,33 @@ export function RewardsContent() {
     }
   }
 
+  async function toggleSaved(rewardId: string, currentlySaved: boolean) {
+    setSavedRewardIds((prev) => {
+      const next = new Set(prev);
+      if (currentlySaved) next.delete(rewardId);
+      else next.add(rewardId);
+      return next;
+    });
+    try {
+      if (currentlySaved) {
+        await fetch(`/api/saved?type=reward&referenceId=${encodeURIComponent(rewardId)}`, { method: "DELETE" });
+      } else {
+        await fetch("/api/saved", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "reward", referenceId: rewardId }),
+        });
+      }
+    } catch {
+      setSavedRewardIds((prev) => {
+        const next = new Set(prev);
+        if (currentlySaved) next.add(rewardId);
+        else next.delete(rewardId);
+        return next;
+      });
+    }
+  }
+
   if (status === "loading") {
     return <p className="text-gray-500">Loading…</p>;
   }
@@ -141,13 +188,25 @@ export function RewardsContent() {
             <>
               <p className="text-sm text-gray-600">My Community Points</p>
               <p className="text-2xl font-bold" style={{ color: "var(--color-primary)" }}>{points} points</p>
-              <Link
-                href="/my-community/points"
-                className="text-sm font-medium hover:underline underline-offset-2"
-                style={{ color: "var(--color-primary)" }}
-              >
-                View Community Points
-              </Link>
+              {currentSeason != null && seasonPointsEarned != null && (
+                <p className="text-sm text-gray-600 mt-1">{currentSeason.name}: {seasonPointsEarned} Points</p>
+              )}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                <Link
+                  href="/my-community/points"
+                  className="text-sm font-medium hover:underline underline-offset-2"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  View Community Points
+                </Link>
+                <Link
+                  href="/my-community/my-rewards"
+                  className="text-sm font-medium hover:underline underline-offset-2"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  My Rewards
+                </Link>
+              </div>
             </>
           ) : (
             <p className="text-sm text-gray-600">Sign in to see your Community Points</p>
@@ -171,8 +230,8 @@ export function RewardsContent() {
             className="border-b px-3 py-3 text-center shrink-0 flex flex-col justify-center h-[5rem]"
             style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-primary)" }}
           >
-            <h2 className="text-base font-bold text-white">Top 10 NWC Earners</h2>
-            <p className="text-xs text-white/90 mt-0.5">Members supporting local businesses and earning the most Community Points.</p>
+            <h2 className="text-base font-bold text-white">Top 10 NWC Earners{currentSeason ? " (Season)" : ""}</h2>
+            <p className="text-xs text-white/90 mt-0.5">Members supporting local businesses and earning the most Community Points{currentSeason ? " this season" : ""}.</p>
           </div>
           <ol className="divide-y text-sm bg-white" style={{ borderColor: "var(--color-primary)" }}>
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
@@ -333,7 +392,18 @@ export function RewardsContent() {
 
       {/* Redeemable rewards section */}
       <section>
-        <h2 className="text-xl font-bold mb-4">Redeem with Points</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <h2 className="text-xl font-bold">Redeem with Points</h2>
+          {session?.user && (
+            <Link
+              href="/my-community/my-rewards"
+              className="text-sm font-semibold hover:underline"
+              style={{ color: "var(--color-primary)" }}
+            >
+              My Rewards
+            </Link>
+          )}
+        </div>
         <p className="text-gray-600 mb-6">
           Local businesses offer these rewards. Redeem them with your Community Points.
         </p>
@@ -345,15 +415,29 @@ export function RewardsContent() {
             {rewards.map((r) => {
               const canRedeem = session?.user && points !== null && points >= r.pointsRequired;
               const remaining = r.redemptionLimit - r.timesRedeemed;
+              const isSaved = savedRewardIds.has(r.id);
               return (
-                <div key={r.id} className="border-2 border-[var(--color-primary)] rounded-lg p-4 transition">
-                  {r.imageUrl ? (
-                    <img src={r.imageUrl} alt={r.title} className="w-full h-32 object-cover rounded mb-3" />
-                  ) : (
-                    <div className="w-full h-32 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm mb-3">
-                      No image
-                    </div>
-                  )}
+                <div key={r.id} className="border-2 border-[var(--color-primary)] rounded-lg p-4 transition relative">
+                  <div className="relative">
+                    {r.imageUrl ? (
+                      <img src={r.imageUrl} alt={r.title} className="w-full h-32 object-cover rounded mb-3" />
+                    ) : (
+                      <div className="w-full h-32 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm mb-3">
+                        No image
+                      </div>
+                    )}
+                    {session?.user && (
+                      <button
+                        type="button"
+                        onClick={() => toggleSaved(r.id, isSaved)}
+                        className="absolute top-1 right-1 p-1.5 rounded-full bg-white/90 border border-gray-200 hover:bg-white shadow-sm"
+                        aria-label={isSaved ? "Remove from liked" : "Like reward"}
+                        title={isSaved ? "Remove from liked" : "Save reward"}
+                      >
+                        <span className={isSaved ? "text-red-500" : "text-gray-400"} style={{ fontSize: "1.25rem" }}>{isSaved ? "♥" : "♡"}</span>
+                      </button>
+                    )}
+                  </div>
                   <h3 className="font-bold text-lg">{r.title}</h3>
                   <Link href={`/support-local/${r.business.slug}`} className="text-sm text-primary-600 hover:underline">
                     {r.business.name}
@@ -376,7 +460,7 @@ export function RewardsContent() {
                       </>
                     ) : (
                       <Link href="/login?callbackUrl=/rewards" className="btn w-full inline-block text-center">
-                        Sign in to redeem
+                        Sign in to Redeem
                       </Link>
                     )}
                   </div>

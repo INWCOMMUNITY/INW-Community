@@ -17,7 +17,7 @@ import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { theme as defaultTheme } from "@/lib/theme";
 import { useTheme } from "@/contexts/ThemeContext";
-import { apiGet, apiPost, apiUploadFile, getToken } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -55,16 +55,17 @@ export default function ListItemScreen() {
   const theme = useTheme();
   const router = useRouter();
   const navigation = useNavigation();
-  const params = useLocalSearchParams<{ draftId?: string }>();
+  const params = useLocalSearchParams<{ draftId?: string; edit?: string }>();
   const draftId = params.draftId;
+  const editId = params.edit?.trim() || undefined;
   const placeholderColor = PLACEHOLDER_COLOR;
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: "List an Item",
+      title: editId ? "Edit Item" : "List an Item",
       contentStyle: { backgroundColor: "#fff" },
     });
-  }, [navigation]);
+  }, [navigation, editId]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [sellerProfileShippingPolicy, setSellerProfileShippingPolicy] = useState("");
@@ -101,7 +102,9 @@ export default function ListItemScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadedDraft, setLoadedDraft] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
   const [showListingSuccessModal, setShowListingSuccessModal] = useState(false);
+  const [editSuccess, setEditSuccess] = useState(false);
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
 
@@ -173,7 +176,66 @@ export default function ListItemScreen() {
   ]);
 
   useEffect(() => {
-    if (draftId && !loadedDraft) {
+    if (editId) {
+      setEditLoading(true);
+      setError(null);
+      apiGet<{
+        title: string;
+        description: string | null;
+        photos: string[];
+        category: string | null;
+        priceCents: number;
+        quantity: number;
+        shippingDisabled: boolean;
+        shippingCostCents: number | null;
+        shippingPolicy: string | null;
+        localDeliveryAvailable: boolean;
+        localDeliveryFeeCents: number | null;
+        localDeliveryTerms: string | null;
+        inStorePickupAvailable: boolean;
+        pickupTerms: string | null;
+        businessId: string | null;
+        variants: Variant[];
+        useSellerProfileShipping?: boolean;
+        useSellerProfileLocalDelivery?: boolean;
+        useSellerProfilePickup?: boolean;
+      }>(`/api/store-items/${editId}`)
+        .then((item) => {
+          setTitle(item.title ?? "");
+          setDescription(item.description ?? "");
+          setPhotos(item.photos ?? []);
+          setCategory(item.category ?? "");
+          setPriceCents(item.priceCents != null ? (item.priceCents / 100).toFixed(2) : "");
+          setQuantity(String(item.quantity ?? 1));
+          setShippingDisabled(item.shippingDisabled ?? false);
+          setShippingCostDollars(
+            item.shippingCostCents != null && item.shippingCostCents > 0
+              ? (item.shippingCostCents / 100).toFixed(2)
+              : ""
+          );
+          setShippingFree(item.shippingCostCents === 0);
+          setShippingPolicy(item.shippingPolicy ?? "");
+          setLocalDeliveryAvailable(item.localDeliveryAvailable ?? false);
+          setLocalDeliveryFeeDollars(
+            item.localDeliveryFeeCents != null && item.localDeliveryFeeCents > 0
+              ? (item.localDeliveryFeeCents / 100).toFixed(2)
+              : ""
+          );
+          setLocalDeliveryTerms(item.localDeliveryTerms ?? "");
+          setInStorePickupAvailable(item.inStorePickupAvailable ?? false);
+          setPickupTerms(item.pickupTerms ?? "");
+          setBusinessId(item.businessId ?? null);
+          setVariants(Array.isArray(item.variants) ? item.variants : []);
+          if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
+          if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
+          if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
+        })
+        .catch(() => setError("Failed to load item"))
+        .finally(() => {
+          setEditLoading(false);
+          setLoadedDraft(true);
+        });
+    } else if (draftId && !loadedDraft) {
       getDraft(draftId).then((draft) => {
         if (draft) {
           setTitle(draft.title);
@@ -200,10 +262,10 @@ export default function ListItemScreen() {
         }
         setLoadedDraft(true);
       });
-    } else if (!draftId) {
+    } else if (!draftId && !editId) {
       setLoadedDraft(true);
     }
-  }, [draftId, loadedDraft]);
+  }, [draftId, editId, loadedDraft]);
 
   const shouldPreventRemove = hasContent && !submitting && !isExitingRef.current;
   usePreventRemove(shouldPreventRemove, ({ data }) => {
@@ -424,41 +486,47 @@ export default function ListItemScreen() {
     setSubmitting(true);
     setError(null);
     submittedRef.current = true;
+    const payload = {
+      title: title.trim(),
+      description: description.trim() || null,
+      photos,
+      category: category.trim() || null,
+      priceCents: price,
+      quantity: qty,
+      listingType: editId ? ("new" as const) : listingType,
+      shippingDisabled,
+      localDeliveryAvailable,
+      inStorePickupAvailable,
+      businessId: businessId || null,
+      shippingCostCents:
+        !shippingDisabled ? (shippingFree ? 0 : shipCost > 0 ? shipCost : null) : null,
+      shippingPolicy:
+        shippingDisabled || useSellerProfileShipping
+          ? null
+          : shippingPolicy.trim() || null,
+      localDeliveryTerms:
+        localDeliveryAvailable && !useSellerProfileLocalDelivery
+          ? localDeliveryTerms.trim() || null
+          : null,
+      pickupTerms:
+        inStorePickupAvailable && !useSellerProfilePickup
+          ? pickupTerms.trim() || null
+          : null,
+      localDeliveryFeeCents: localFee,
+      variants: variantPayload,
+    };
     try {
       isExitingRef.current = true;
-      await apiPost("/api/store-items", {
-        title: title.trim(),
-        description: description.trim() || null,
-        photos,
-        category: category.trim() || null,
-        priceCents: price,
-        quantity: qty,
-        listingType,
-        shippingDisabled,
-        localDeliveryAvailable,
-        inStorePickupAvailable,
-        businessId: businessId || null,
-        shippingCostCents:
-          !shippingDisabled ? (shippingFree ? 0 : shipCost > 0 ? shipCost : null) : null,
-        shippingPolicy:
-          shippingDisabled || useSellerProfileShipping
-            ? null
-            : shippingPolicy.trim() || null,
-        localDeliveryTerms:
-          localDeliveryAvailable && !useSellerProfileLocalDelivery
-            ? localDeliveryTerms.trim() || null
-            : null,
-        pickupTerms:
-          inStorePickupAvailable && !useSellerProfilePickup
-            ? pickupTerms.trim() || null
-            : null,
-        localDeliveryFeeCents: localFee,
-        variants: variantPayload,
-      });
+      if (editId) {
+        await apiPatch(`/api/store-items/${editId}`, payload);
+        setEditSuccess(true);
+      } else {
+        await apiPost("/api/store-items", payload);
+      }
       isExitingRef.current = true;
       setShowListingSuccessModal(true);
     } catch (e) {
-      setError((e as { error?: string })?.error ?? "Failed to create listing");
+      setError((e as { error?: string })?.error ?? (editId ? "Failed to update listing" : "Failed to create listing"));
       submittedRef.current = false;
       isExitingRef.current = false;
     } finally {
@@ -471,27 +539,36 @@ export default function ListItemScreen() {
     <Modal visible={showListingSuccessModal} transparent animationType="fade">
       <View style={styles.successModalOverlay}>
         <View style={styles.successModalCard}>
-          <Text style={styles.successModalTitle}>Item listed successfully</Text>
-          <Text style={styles.successModalSubtitle}>Your listing is now live.</Text>
+          <Text style={styles.successModalTitle}>
+            {editSuccess ? "Item updated" : "Item listed successfully"}
+          </Text>
+          <Text style={styles.successModalSubtitle}>
+            {editSuccess ? "Your changes have been saved." : "Your listing is now live."}
+          </Text>
           <Pressable
             style={({ pressed }) => [styles.successModalBtn, pressed && { opacity: 0.8 }]}
             onPress={() => {
               setShowListingSuccessModal(false);
+              setEditSuccess(false);
               (router.replace as (href: string) => void)("/seller-hub/store/items");
             }}
           >
-            <Text style={styles.successModalBtnText}>See Listing</Text>
+            <Text style={styles.successModalBtnText}>
+              {editSuccess ? "Back to My Items" : "See Listing"}
+            </Text>
           </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.successModalBtnSecondary, pressed && { opacity: 0.8 }]}
-            onPress={() => {
-              setShowListingSuccessModal(false);
-              submittedRef.current = false;
-              (router.replace as (href: string) => void)("/seller-hub/store/new");
-            }}
-          >
-            <Text style={styles.successModalBtnTextSecondary}>List Another Item</Text>
-          </Pressable>
+          {!editSuccess && (
+            <Pressable
+              style={({ pressed }) => [styles.successModalBtnSecondary, pressed && { opacity: 0.8 }]}
+              onPress={() => {
+                setShowListingSuccessModal(false);
+                submittedRef.current = false;
+                (router.replace as (href: string) => void)("/seller-hub/store/new");
+              }}
+            >
+              <Text style={styles.successModalBtnTextSecondary}>List Another Item</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </Modal>
@@ -1013,7 +1090,7 @@ export default function ListItemScreen() {
         {submitting ? (
           <ActivityIndicator color="#fff" size="small" />
         ) : (
-          <Text style={styles.submitBtnText}>List an Item</Text>
+          <Text style={styles.submitBtnText}>{editId ? "Update Item" : "List an Item"}</Text>
         )}
       </Pressable>
     </ScrollView>

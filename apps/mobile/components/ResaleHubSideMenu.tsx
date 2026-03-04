@@ -70,7 +70,7 @@ const RESALE_HUB_ITEMS: NavItem[] = [
   { href: "/resale-hub/list", label: "List Items", web: false },
   { href: "/resale-hub/listings", label: "My Listings", web: false },
   { href: "/messages?tab=resale", label: "Resale Conversations", web: false },
-  { href: "/resale-hub/payouts", label: "Payouts", web: true },
+  { href: "/resale-hub/payouts", label: "Payouts", web: false },
   { href: "/resale-hub/ship", label: "Ship an Item", web: false },
   { href: "/resale-hub/deliveries", label: "My Deliveries", web: false },
   { href: "/resale-hub/pickups", label: "My Pickups", web: false },

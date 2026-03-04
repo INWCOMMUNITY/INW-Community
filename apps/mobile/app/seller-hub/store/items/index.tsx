@@ -8,11 +8,12 @@ import {
   Pressable,
   Image,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -43,6 +44,7 @@ export default function MyItemsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
+  const [actingId, setActingId] = useState<string | null>(null);
 
   const load = () => {
     setFetchError(null);
@@ -120,8 +122,45 @@ export default function MyItemsScreen() {
   };
 
   const openEdit = (itemId: string) => {
-    router.push(
-      `/web?url=${encodeURIComponent(`${siteBase}/seller-hub/store/${itemId}`)}&title=${encodeURIComponent("Edit item")}` as any
+    router.push(`/seller-hub/store/new?edit=${itemId}` as never);
+  };
+
+  const markAsSold = async (id: string) => {
+    setActingId(id);
+    try {
+      await apiPatch(`/api/store-items/${id}`, { status: "sold_out" });
+      setItems((prev) => prev.filter((i) => i.id !== id));
+    } catch (e) {
+      const err = e as { error?: string };
+      Alert.alert("Error", err.error ?? "Failed to mark as sold");
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const deleteItem = (id: string) => {
+    Alert.alert(
+      "Remove listing",
+      "Remove this listing? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            setActingId(id);
+            try {
+              await apiDelete(`/api/store-items/${id}`);
+              setItems((prev) => prev.filter((i) => i.id !== id));
+            } catch (e) {
+              const err = e as { error?: string };
+              Alert.alert("Error", err.error ?? "Failed to delete");
+            } finally {
+              setActingId(null);
+            }
+          },
+        },
+      ]
     );
   };
 
@@ -218,15 +257,40 @@ export default function MyItemsScreen() {
                   </Text>
                 </View>
               </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.editBtn,
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={() => openEdit(item.id)}
-              >
-                <Text style={styles.editBtnText}>Edit</Text>
-              </Pressable>
+              <View style={styles.actionsRow}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  onPress={() => openEdit(item.id)}
+                  disabled={!!actingId}
+                >
+                  <Text style={styles.editBtnText}>Edit</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  onPress={() => markAsSold(item.id)}
+                  disabled={!!actingId}
+                >
+                  <Text style={styles.markSoldBtnText}>
+                    {actingId === item.id ? "…" : "Mark sold"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  onPress={() => deleteItem(item.id)}
+                  disabled={!!actingId}
+                >
+                  <Text style={styles.deleteBtnText}>Delete</Text>
+                </Pressable>
+              </View>
             </View>
           )}
         />
@@ -320,14 +384,29 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, marginLeft: 12, justifyContent: "center" },
   cardTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
   cardPrice: { fontSize: 12, color: "#666", marginTop: 4 },
-  editBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  actionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
     marginLeft: 8,
+    gap: 8,
+  },
+  actionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
   editBtnText: {
     fontSize: 14,
     fontWeight: "600",
     color: theme.colors.primary,
+  },
+  markSoldBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#059669",
+  },
+  deleteBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#dc2626",
   },
 });

@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { apiPost, apiDelete, getToken } from "@/lib/api";
 
 interface HeartSaveButtonProps {
-  type: "event" | "business" | "coupon" | "store_item";
+  type: "event" | "business" | "coupon" | "store_item" | "reward";
   referenceId: string;
   initialSaved?: boolean;
   onSavedChange?: (saved: boolean) => void;

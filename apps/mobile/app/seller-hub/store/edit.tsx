@@ -329,6 +329,7 @@ export default function EditSellerProfileScreen() {
             value={packingSlipNote}
             onChangeText={setPackingSlipNote}
             placeholder="e.g. Thank you for your order!"
+            placeholderTextColor="#666"
             multiline
             numberOfLines={2}
           />

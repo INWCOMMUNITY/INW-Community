@@ -11,6 +11,7 @@ interface Prize {
   label: string;
   imageUrl: string | null;
   businessId: string | null;
+  description?: string | null;
 }
 
 interface Business {
@@ -30,6 +31,7 @@ export default function Top5AdminPage() {
       label: "",
       imageUrl: null,
       businessId: null,
+      description: null,
     }))
   );
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -53,7 +55,7 @@ export default function Top5AdminPage() {
           setPrizes(
             [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
               const p = top5.prizes.find((x: Prize) => x.rank === rank);
-              return p ?? { rank, label: "", imageUrl: null, businessId: null };
+              return p ?? { rank, label: "", imageUrl: null, businessId: null, description: null };
             })
           );
         }
@@ -87,9 +89,9 @@ export default function Top5AdminPage() {
     }
   }
 
-  function updatePrize(rank: number, field: keyof Prize, value: string | null) {
+  function updatePrize(rank: number, field: keyof Prize, value: string | null | undefined) {
     setPrizes((prev) =>
-      prev.map((p) => (p.rank === rank ? { ...p, [field]: value } : p))
+      prev.map((p) => (p.rank === rank ? { ...p, [field]: value ?? null } : p))
     );
   }
 
@@ -177,6 +179,16 @@ export default function Top5AdminPage() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Description</label>
+                    <textarea
+                      value={prize.description ?? ""}
+                      onChange={(e) => updatePrize(prize.rank, "description", e.target.value || null)}
+                      placeholder="Prize details for the app popup"
+                      rows={3}
+                      className="w-full border rounded px-3 py-2"
+                    />
                   </div>
                 </div>
               </div>

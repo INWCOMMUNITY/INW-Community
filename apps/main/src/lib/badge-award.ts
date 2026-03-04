@@ -3,6 +3,7 @@
  * Uses badge slugs from seed. Safe to call multiple times - badges are unique per member/business.
  */
 import { prisma } from "database";
+import { awardPoints } from "@/lib/award-points";
 
 async function ensureMemberBadge(memberId: string, badgeSlug: string): Promise<boolean> {
   const badge = await prisma.badge.findUnique({ where: { slug: badgeSlug } });
@@ -18,10 +19,7 @@ async function ensureMemberBadge(memberId: string, badgeSlug: string): Promise<b
   const criteria = badge.criteria as Record<string, unknown> | null;
   const bonusPoints = typeof criteria?.bonusPoints === "number" ? criteria.bonusPoints : 0;
   if (bonusPoints > 0) {
-    await prisma.member.update({
-      where: { id: memberId },
-      data: { points: { increment: bonusPoints } },
-    });
+    await awardPoints(memberId, bonusPoints);
   }
   // The Badger Badge: earn 10 badges
   if (badgeSlug !== "badger_badge") {

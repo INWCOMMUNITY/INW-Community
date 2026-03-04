@@ -95,7 +95,7 @@ export default function PostsAndPhotosScreen() {
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : posts.length === 0 ? (
-        <Text style={styles.empty}>You haven&apos;t shared any posts yet.</Text>
+        <Text style={styles.empty}>Awaiting a collection of the members&apos; photos and posts.</Text>
       ) : (
         <View style={styles.grid}>
           {posts.map((p) => {

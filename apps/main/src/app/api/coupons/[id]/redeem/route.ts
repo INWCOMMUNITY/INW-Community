@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardCouponRedeemBadges, type EarnedBadge } from "@/lib/badge-award";
+import { awardPoints } from "@/lib/award-points";
 
 const POINTS_PER_REDEEM = 10;
 
@@ -83,12 +84,10 @@ export async function POST(
     }),
     prisma.member.update({
       where: { id: userId },
-      data: {
-        points: { increment: POINTS_PER_REDEEM },
-        couponsRedeemed: { increment: 1 },
-      },
+      data: { couponsRedeemed: { increment: 1 } },
     }),
   ]);
+  await awardPoints(userId, POINTS_PER_REDEEM);
 
   let earnedBadges: EarnedBadge[] = [];
   try {

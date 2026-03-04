@@ -85,7 +85,7 @@ const RESALE_HUB_ITEMS: NavItem[] = [
   { href: "/resale-hub/list", label: "List Items" },
   { href: "/resale-hub/listings", label: "My Listings" },
   { href: "/messages?tab=resale", label: "Resale Conversations" },
-  { href: `/web?url=${encodeURIComponent(siteBase + "/resale-hub/payouts")}&title=${encodeURIComponent("My Payouts")}`, label: "Payouts" },
+  { href: "/resale-hub/payouts", label: "Payouts" },
   { href: "/policies", label: "Policies" },
 ];
 
