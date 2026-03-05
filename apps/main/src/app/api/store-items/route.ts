@@ -206,8 +206,8 @@ export async function GET(req: NextRequest) {
     const excludeTestItems = {
       AND: [
         { category: { not: "Test" } },
-        { slug: { not: { contains: "trial", mode: "insensitive" } } },
-        { slug: { not: { contains: "test-resale", mode: "insensitive" } } },
+        { slug: { not: { contains: "trial" } } },
+        { slug: { not: { contains: "test-resale" } } },
       ],
     };
 
@@ -227,9 +227,9 @@ export async function GET(req: NextRequest) {
         ...(search
           ? {
               OR: [
-                { title: { contains: search, mode: "insensitive" } },
-                { description: { contains: search, mode: "insensitive" } },
-                { category: { contains: search, mode: "insensitive" } },
+                { title: { contains: search } },
+                { description: { contains: search } },
+                { category: { contains: search } },
               ],
             }
           : {}),
