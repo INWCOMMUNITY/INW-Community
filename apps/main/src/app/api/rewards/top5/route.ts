@@ -25,7 +25,7 @@ export async function GET() {
       return NextResponse.json({ enabled: false, prizes: [] });
     }
     const raw = campaign.prizes;
-    const prizes: PrizeRow[] = Array.isArray(raw) ? raw : [];
+    const prizes: PrizeRow[] = Array.isArray(raw) ? (raw as PrizeRow[]) : [];
     const businessIds = prizes.map((p) => p?.businessId).filter(Boolean) as string[];
     const businesses = businessIds.length
       ? await prisma.business.findMany({
