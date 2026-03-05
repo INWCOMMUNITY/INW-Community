@@ -278,26 +278,28 @@ export default function RewardsScreen() {
           </Pressable>
 
           {signedIn && points !== null && (
-            <View style={[styles.pointsCard, { borderColor: theme.colors.primary }]}>
-              <Text style={styles.pointsLabel}>My Community Points</Text>
-              <Text style={[styles.pointsValue, { color: theme.colors.primary }]}>
-                {points} points
-              </Text>
-              {currentSeason != null && seasonPointsEarned != null && (
-                <Text style={styles.seasonPointsLine}>
-                  {currentSeason.name}: {seasonPointsEarned} Points
+            <View style={styles.pointsCardWrap}>
+              <View style={[styles.pointsCard, { borderColor: theme.colors.primary }]}>
+                <Text style={styles.pointsLabel}>My Community Points</Text>
+                <Text style={[styles.pointsValue, { color: theme.colors.primary }]}>
+                  {points} points
                 </Text>
-              )}
-              <Pressable
-                style={styles.expandArrow}
-                onPress={() => setShowIntroBox((v) => !v)}
-              >
-                <Ionicons
-                  name={showIntroBox ? "caret-up" : "caret-down"}
-                  size={18}
-                  color={theme.colors.primary}
-                />
-              </Pressable>
+                {currentSeason != null && seasonPointsEarned != null && (
+                  <Text style={styles.seasonPointsLine}>
+                    {currentSeason.name} Total: {seasonPointsEarned} Points
+                  </Text>
+                )}
+                <Pressable
+                  style={styles.expandArrow}
+                  onPress={() => setShowIntroBox((v) => !v)}
+                >
+                  <Ionicons
+                    name={showIntroBox ? "caret-up" : "caret-down"}
+                    size={18}
+                    color={theme.colors.primary}
+                  />
+                </Pressable>
+              </View>
             </View>
           )}
 
@@ -321,9 +323,8 @@ export default function RewardsScreen() {
             </View>
           )}
 
-          {top5?.enabled && (top5.prizes?.length ?? 0) > 0 && (
-            <View style={styles.section}>
-              <View style={styles.toggleRow}>
+          <View style={styles.section}>
+            <View style={styles.toggleRow}>
                 <Pressable
                   style={[styles.toggleBtn, showPrizes && styles.toggleBtnActive]}
                   onPress={() => setShowPrizes(true)}
@@ -341,84 +342,93 @@ export default function RewardsScreen() {
                   </Text>
                 </Pressable>
               </View>
-              {showPrizes ? (
-                <ScrollView style={styles.prizesList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
-                    const p = top5.prizes?.find((x: Top5Prize) => x.rank === rank);
-                    const hasContent = p && (p.label?.trim() || p.imageUrl);
-                    return (
-                      <View key={rank} style={styles.prizeRow}>
-                        <Text style={styles.prizeRank}>#{rank}</Text>
-                        {hasContent ? (
-                          <>
-                            {p!.imageUrl ? (
-                              <Image
-                                source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
-                                style={styles.prizeThumb}
-                                resizeMode="cover"
-                              />
-                            ) : (
-                              <View style={[styles.prizeThumb, styles.prizeThumbPlaceholder]} />
-                            )}
-                            <Text style={styles.prizeLabel} numberOfLines={1}>
-                              {p!.label?.trim() || "—"}
-                            </Text>
-                            {p!.business && (
-                              <Text style={styles.prizeBusiness} numberOfLines={1}>
-                                {p!.business.name}
+            {top5?.enabled && (top5.prizes?.length ?? 0) > 0 ? (
+              <>
+                {showPrizes ? (
+                  <ScrollView style={styles.prizesList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
+                      const p = top5.prizes?.find((x: Top5Prize) => x.rank === rank);
+                      const hasContent = p && (p.label?.trim() || p.imageUrl);
+                      return (
+                        <View key={rank} style={styles.prizeRow}>
+                          <Text style={styles.prizeRank}>#{rank}</Text>
+                          {hasContent ? (
+                            <>
+                              {p!.imageUrl ? (
+                                <Image
+                                  source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
+                                  style={styles.prizeThumb}
+                                  resizeMode="cover"
+                                />
+                              ) : (
+                                <View style={[styles.prizeThumb, styles.prizeThumbPlaceholder]} />
+                              )}
+                              <Text style={styles.prizeLabel} numberOfLines={1}>
+                                {p!.label?.trim() || "—"}
                               </Text>
-                            )}
-                            <Pressable
-                              style={styles.prizeDetailsBtn}
-                              onPress={() => setPrizePopupPrize(p!)}
-                            >
-                              <Ionicons name="information-circle-outline" size={22} color={theme.colors.primary} />
-                            </Pressable>
-                          </>
-                        ) : (
-                          <Text style={styles.prizeEmpty}>—</Text>
-                        )}
-                      </View>
-                    );
-                  })}
-                </ScrollView>
-              ) : (
-                <ScrollView style={styles.leaderboardList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
-                    const m = top10Leaderboard[num - 1];
-                    return (
-                      <View key={m?.id ?? `empty-${num}`} style={styles.leaderRow}>
-                        <Text style={styles.leaderRank}>{num}</Text>
-                        {m ? (
-                          <>
-                            {m.profilePhotoUrl ? (
-                              <Image source={{ uri: resolveUrl(m.profilePhotoUrl) }} style={styles.leaderAvatar} />
-                            ) : (
-                              <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]}>
-                                <Text style={styles.leaderInitials}>
-                                  {(m.firstName?.[0] ?? "") + (m.lastName?.[0] ?? "")}
+                              {p!.business && (
+                                <Text style={styles.prizeBusiness} numberOfLines={1}>
+                                  {p!.business.name}
                                 </Text>
-                              </View>
-                            )}
-                            <Text style={styles.leaderName} numberOfLines={1}>
-                              {m.firstName} {m.lastName}
-                            </Text>
-                            <Text style={styles.leaderPoints}>{m.points}</Text>
-                          </>
-                        ) : (
-                          <>
-                            <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]} />
-                            <Text style={styles.leaderEmpty} numberOfLines={1}>—</Text>
-                            <Text style={styles.leaderPoints}>—</Text>
-                          </>
-                        )}
-                      </View>
-                    );
-                  })}
-                </ScrollView>
-              )}
-            </View>
-          )}
+                              )}
+                              <Pressable
+                                style={styles.prizeDetailsBtn}
+                                onPress={() => setPrizePopupPrize(p!)}
+                              >
+                                <Ionicons name="information-circle-outline" size={22} color={theme.colors.primary} />
+                              </Pressable>
+                            </>
+                          ) : (
+                            <Text style={styles.prizeEmpty}>—</Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                ) : (
+                  <ScrollView style={styles.leaderboardList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                      const m = top10Leaderboard[num - 1];
+                      return (
+                        <View key={m?.id ?? `empty-${num}`} style={styles.leaderRow}>
+                          <Text style={styles.leaderRank}>{num}</Text>
+                          {m ? (
+                            <>
+                              {m.profilePhotoUrl ? (
+                                <Image source={{ uri: resolveUrl(m.profilePhotoUrl) }} style={styles.leaderAvatar} />
+                              ) : (
+                                <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]}>
+                                  <Text style={styles.leaderInitials}>
+                                    {(m.firstName?.[0] ?? "") + (m.lastName?.[0] ?? "")}
+                                  </Text>
+                                </View>
+                              )}
+                              <Text style={styles.leaderName} numberOfLines={1}>
+                                {m.firstName} {m.lastName}
+                              </Text>
+                              <Text style={styles.leaderPoints}>{m.points}</Text>
+                            </>
+                          ) : (
+                            <>
+                              <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]} />
+                              <Text style={styles.leaderEmpty} numberOfLines={1}>—</Text>
+                              <Text style={styles.leaderPoints}>—</Text>
+                            </>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+              </>
+            ) : (
+              <View style={styles.top10Placeholder}>
+                <Text style={styles.top10PlaceholderText}>
+                  Top 10 prizes and season leaderboard will appear here when a campaign is active.
+                </Text>
+              </View>
+            )}
+          </View>
 
           {prizePopupPrize && (
             <Modal visible transparent animationType="fade">
@@ -527,6 +537,7 @@ export default function RewardsScreen() {
                                 type="reward"
                                 referenceId={r.id}
                                 initialSaved={isSaved}
+                                onRequireAuth={() => router.push("/(tabs)/my-community")}
                                 onSavedChange={(s) =>
                                   setSavedRewardIds((prev) => {
                                     const next = new Set(prev);
@@ -536,6 +547,7 @@ export default function RewardsScreen() {
                                   })
                                 }
                               />
+                              <Text style={styles.rewardCardSaveLabel}>{isSaved ? "Saved" : "Save"}</Text>
                             </View>
                           </View>
                           <Text style={styles.rewardTitleGrid} numberOfLines={2}>{r.title}</Text>
@@ -702,12 +714,17 @@ const styles = StyleSheet.create({
     gap: 16,
     marginBottom: 32,
   },
+  pointsCardWrap: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
   pointsCard: {
     padding: 16,
     borderRadius: 8,
     borderWidth: 2,
     backgroundColor: "#fff",
-    marginBottom: 16,
+    minWidth: 280,
+    maxWidth: 360,
   },
   expandArrow: {
     position: "absolute",
@@ -717,7 +734,7 @@ const styles = StyleSheet.create({
   },
   pointsLabel: { fontSize: 14, color: "#666", marginBottom: 4 },
   pointsValue: { fontSize: 24, fontWeight: "700" },
-  seasonPointsLine: { fontSize: 13, color: "#666", marginTop: 4 },
+  seasonPointsLine: { fontSize: 14, color: "#666", marginTop: 4 },
   pointsLink: { fontSize: 14, fontWeight: "500", marginTop: 8, textDecorationLine: "underline" },
   toggleRow: {
     flexDirection: "row",
@@ -731,6 +748,18 @@ const styles = StyleSheet.create({
   toggleBtnActive: { backgroundColor: "#f0f0f0" },
   toggleText: { fontSize: 14, fontWeight: "500", color: "#666" },
   toggleTextActive: { fontWeight: "700", color: "#333" },
+  top10Placeholder: {
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  top10PlaceholderText: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
+  },
   prizesList: { maxHeight: 320, marginBottom: 8 },
   prizeRow: {
     flexDirection: "row",
@@ -814,7 +843,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  rewardCardHeart: { position: "absolute", top: 4, right: 4 },
+  rewardCardHeart: { position: "absolute", top: 4, right: 4, alignItems: "center" },
+  rewardCardSaveLabel: { fontSize: 10, color: "#555", marginTop: 2 },
   rewardTitleGrid: { fontSize: 14, fontWeight: "700", color: "#333", marginBottom: 2 },
   rewardBusinessGrid: { fontSize: 12, marginBottom: 4 },
   rewardDescToggle: { marginBottom: 4 },
@@ -939,5 +969,5 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   redeemBtnDisabled: { opacity: 0.6 },
-  redeemBtnText: { fontSize: 16, fontWeight: "600", color: "#fff" },
+  redeemBtnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
 });

@@ -63,7 +63,8 @@ export default function PayoutsScreen() {
         const webUrl =
           `/web?url=${encodeURIComponent(res.url)}&title=Payment setup` +
           `&successPattern=${encodeURIComponent("seller-hub/store")}` +
-          `&successRoute=${encodeURIComponent("/seller-hub/store")}`;
+          `&successRoute=${encodeURIComponent("/seller-hub/store/payouts")}` +
+          "&refreshOnSuccess=1";
         router.push(webUrl as never);
       }
     } catch {

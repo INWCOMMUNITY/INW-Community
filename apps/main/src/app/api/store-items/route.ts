@@ -174,8 +174,14 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
       }
     }
-    const where: { memberId: string; listingType?: string } = { memberId: userId };
+    const where: { memberId: string; listingType?: string; status?: string } = { memberId: userId };
     if (listingTypeFilter) where.listingType = listingTypeFilter;
+    const soldOnly = searchParams.get("sold") === "1";
+    if (soldOnly) {
+      where.status = "sold_out";
+    } else {
+      where.status = { not: "sold_out" };
+    }
     const items = await prisma.storeItem.findMany({
       where,
       include: { business: { select: { id: true, name: true, slug: true } } },

@@ -17,10 +17,10 @@ export async function GET(req: NextRequest) {
   }
 
   const sub = await prisma.subscription.findFirst({
-    where: { memberId: userId, plan: "seller", status: "active" },
+    where: { memberId: userId, plan: { in: ["seller", "subscribe"] }, status: "active" },
   });
   if (!sub) {
-    return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
+    return NextResponse.json({ error: "Seller or Subscribe plan required" }, { status: 403 });
   }
 
   const balance = await prisma.sellerBalance.findUnique({
@@ -31,17 +31,27 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
     take: 50,
   });
-  const connectStatus = await prisma.member.findUnique({
+  const member = await prisma.member.findUnique({
     where: { id: userId },
     select: { stripeConnectAccountId: true },
   });
+
+  let hasStripeConnect = false;
+  if (member?.stripeConnectAccountId) {
+    try {
+      const account = await stripe.accounts.retrieve(member.stripeConnectAccountId);
+      hasStripeConnect = account.charges_enabled === true;
+    } catch {
+      hasStripeConnect = false;
+    }
+  }
 
   return NextResponse.json({
     balanceCents: balance?.balanceCents ?? 0,
     totalEarnedCents: balance?.totalEarnedCents ?? 0,
     totalPaidOutCents: balance?.totalPaidOutCents ?? 0,
     transactions,
-    hasStripeConnect: !!connectStatus?.stripeConnectAccountId,
+    hasStripeConnect,
   });
 }
 
@@ -53,10 +63,10 @@ export async function POST(req: NextRequest) {
   }
 
   const sub = await prisma.subscription.findFirst({
-    where: { memberId: userId, plan: "seller", status: "active" },
+    where: { memberId: userId, plan: { in: ["seller", "subscribe"] }, status: "active" },
   });
   if (!sub) {
-    return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
+    return NextResponse.json({ error: "Seller or Subscribe plan required" }, { status: 403 });
   }
 
   const member = await prisma.member.findUnique({

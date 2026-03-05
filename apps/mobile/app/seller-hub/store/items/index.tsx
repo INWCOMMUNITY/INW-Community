@@ -9,9 +9,11 @@ import {
   Image,
   RefreshControl,
   Alert,
+  Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 
@@ -45,6 +47,7 @@ export default function MyItemsScreen() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [menuItemId, setMenuItemId] = useState<string | null>(null);
 
   const load = () => {
     setFetchError(null);
@@ -107,7 +110,8 @@ export default function MyItemsScreen() {
         const webUrl =
           `/web?url=${encodeURIComponent(data.url)}&title=Payment setup` +
           `&successPattern=${encodeURIComponent("seller-hub/store")}` +
-          `&successRoute=${encodeURIComponent("/seller-hub/store")}`;
+          `&successRoute=${encodeURIComponent("/seller-hub/store/payouts")}` +
+          "&refreshOnSuccess=1";
         router.push(webUrl as never);
       } else {
         setFetchError(
@@ -139,6 +143,7 @@ export default function MyItemsScreen() {
   };
 
   const deleteItem = (id: string) => {
+    setMenuItemId(null);
     Alert.alert(
       "Remove listing",
       "Remove this listing? This cannot be undone.",
@@ -164,6 +169,10 @@ export default function MyItemsScreen() {
     );
   };
 
+  const openMenu = (id: string) => {
+    setMenuItemId(id);
+  };
+
   if (loading && items.length === 0) {
     return (
       <View style={styles.center}>
@@ -176,7 +185,15 @@ export default function MyItemsScreen() {
     <View style={styles.container}>
       <Text style={styles.pageTitle}>My Items</Text>
       <View style={styles.header}>
-        <Text style={styles.hint}>Manage your storefront listings.</Text>
+        <View>
+          <Text style={styles.hint}>Manage your storefront listings.</Text>
+          <Pressable
+            onPress={() => router.push("/seller-hub/store/sold")}
+            style={({ pressed }) => [styles.soldLink, pressed && { opacity: 0.8 }]}
+          >
+            <Text style={styles.soldLinkText}>Sold items</Text>
+          </Pressable>
+        </View>
         <Pressable
           style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
           onPress={() => router.push("/seller-hub/store/new")}
@@ -257,44 +274,63 @@ export default function MyItemsScreen() {
                   </Text>
                 </View>
               </Pressable>
-              <View style={styles.actionsRow}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.actionBtn,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                  onPress={() => openEdit(item.id)}
-                  disabled={!!actingId}
-                >
-                  <Text style={styles.editBtnText}>Edit</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.actionBtn,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                  onPress={() => markAsSold(item.id)}
-                  disabled={!!actingId}
-                >
-                  <Text style={styles.markSoldBtnText}>
-                    {actingId === item.id ? "…" : "Mark sold"}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.actionBtn,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                  onPress={() => deleteItem(item.id)}
-                  disabled={!!actingId}
-                >
-                  <Text style={styles.deleteBtnText}>Delete</Text>
-                </Pressable>
-              </View>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.menuBtn,
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={() => openMenu(item.id)}
+                disabled={!!actingId}
+              >
+                <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
+              </Pressable>
             </View>
           )}
         />
       )}
+
+      <Modal
+        visible={!!menuItemId}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuItemId(null)}
+      >
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuItemId(null)}>
+          <View style={styles.menuPanel} onStartShouldSetResponder={() => true}>
+            <Pressable
+              style={styles.menuOption}
+              onPress={() => {
+                if (menuItemId) {
+                  openEdit(menuItemId);
+                  setMenuItemId(null);
+                }
+              }}
+            >
+              <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>Edit</Text>
+            </Pressable>
+            <Pressable
+              style={styles.menuOption}
+              onPress={() => {
+                if (menuItemId) {
+                  setMenuItemId(null);
+                  markAsSold(menuItemId);
+                }
+              }}
+            >
+              <Text style={styles.menuOptionTextGreen}>Mark sold</Text>
+            </Pressable>
+            <Pressable
+              style={styles.menuOption}
+              onPress={() => menuItemId && deleteItem(menuItemId)}
+            >
+              <Text style={styles.menuOptionTextRed}>Delete</Text>
+            </Pressable>
+            <Pressable style={styles.menuOption} onPress={() => setMenuItemId(null)}>
+              <Text style={styles.menuOptionText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -322,6 +358,8 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   hint: { fontSize: 14, color: "#666" },
+  soldLink: { marginTop: 4 },
+  soldLinkText: { fontSize: 14, fontWeight: "600", color: theme.colors.primary },
   addBtn: {
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -384,29 +422,39 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, marginLeft: 12, justifyContent: "center" },
   cardTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
   cardPrice: { fontSize: 12, color: "#666", marginTop: 4 },
-  actionsRow: {
-    flexDirection: "row",
+  menuBtn: {
+    padding: 8,
+    marginLeft: 4,
+  },
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
     alignItems: "center",
-    marginLeft: 8,
-    gap: 8,
+    padding: 24,
   },
-  actionBtn: {
+  menuPanel: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    minWidth: 200,
     paddingVertical: 8,
-    paddingHorizontal: 10,
   },
-  editBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: theme.colors.primary,
+  menuOption: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
   },
-  markSoldBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
+  menuOptionText: {
+    fontSize: 16,
+    color: "#333",
+  },
+  menuOptionTextGreen: {
+    fontSize: 16,
     color: "#059669",
-  },
-  deleteBtnText: {
-    fontSize: 14,
     fontWeight: "600",
+  },
+  menuOptionTextRed: {
+    fontSize: 16,
     color: "#dc2626",
+    fontWeight: "600",
   },
 });

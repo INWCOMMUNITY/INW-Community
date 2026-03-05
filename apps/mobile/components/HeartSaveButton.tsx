@@ -8,6 +8,8 @@ interface HeartSaveButtonProps {
   referenceId: string;
   initialSaved?: boolean;
   onSavedChange?: (saved: boolean) => void;
+  /** When provided and user is not signed in, called on press instead of doing nothing */
+  onRequireAuth?: () => void;
   size?: number;
 }
 
@@ -16,6 +18,7 @@ export function HeartSaveButton({
   referenceId,
   initialSaved = false,
   onSavedChange,
+  onRequireAuth,
   size = 24,
 }: HeartSaveButtonProps) {
   const [saved, setSaved] = useState(initialSaved);
@@ -27,7 +30,10 @@ export function HeartSaveButton({
 
   async function handlePress() {
     const token = await getToken();
-    if (!token) return;
+    if (!token) {
+      onRequireAuth?.();
+      return;
+    }
     setLoading(true);
     try {
       if (saved) {
@@ -52,13 +58,13 @@ export function HeartSaveButton({
     <Pressable
       onPress={handlePress}
       disabled={loading}
-      style={({ pressed }) => [styles.btn, pressed && { opacity: 0.7 }]}
+      style={({ pressed }) => [styles.btn, styles.btnTouchable, pressed && { opacity: 0.8 }]}
       hitSlop={8}
     >
       <Ionicons
         name={saved ? "heart" : "heart-outline"}
         size={size}
-        color={saved ? "#e74c3c" : "#999"}
+        color={saved ? "#e74c3c" : "#555"}
       />
     </Pressable>
   );
@@ -66,4 +72,8 @@ export function HeartSaveButton({
 
 const styles = StyleSheet.create({
   btn: { padding: 4 },
+  btnTouchable: {
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderRadius: 14,
+  },
 });

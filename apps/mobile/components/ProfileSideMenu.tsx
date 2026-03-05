@@ -178,6 +178,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     { href: "/profile-businesses", label: "My Businesses" },
     { href: "/my-sellers", label: "My Sellers" },
     { href: "/profile-wishlist", label: "My Wishlist" },
+    { href: "/rewards/my-rewards", label: "My Rewards" },
     { href: "/seller-hub/orders", label: "My Orders" },
   ];
 

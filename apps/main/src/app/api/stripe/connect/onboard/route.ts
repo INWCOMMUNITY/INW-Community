@@ -36,13 +36,13 @@ export async function POST(req: NextRequest) {
   const sub = await prisma.subscription.findFirst({
     where: {
       memberId: userId,
-      plan: "seller",
+      plan: { in: ["seller", "subscribe"] },
       status: "active",
     },
   });
   if (!sub) {
     return NextResponse.json(
-      { error: "Seller plan required to list items" },
+      { error: "Seller or Subscribe plan required for payouts" },
       { status: 403 }
     );
   }
@@ -77,8 +77,8 @@ export async function POST(req: NextRequest) {
 
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
-      refresh_url: `${baseUrl}/seller-hub/store?refresh=1`,
-      return_url: `${baseUrl}/seller-hub/store?success=1`,
+      refresh_url: `${baseUrl}/seller-hub/store/payouts?refresh=1`,
+      return_url: `${baseUrl}/seller-hub/store/payouts?success=1`,
       type: "account_onboarding",
     });
 

@@ -69,6 +69,7 @@ const RESALE_HUB_ITEMS: NavItem[] = [
   { href: "/my-badges", label: "My Badges", web: false },
   { href: "/resale-hub/list", label: "List Items", web: false },
   { href: "/resale-hub/listings", label: "My Listings", web: false },
+  { href: "/seller-hub/store/sold", label: "Sold Items", web: false },
   { href: "/messages?tab=resale", label: "Resale Conversations", web: false },
   { href: "/resale-hub/payouts", label: "Payouts", web: false },
   { href: "/resale-hub/ship", label: "Ship an Item", web: false },

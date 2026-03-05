@@ -222,9 +222,15 @@ export default function MyRewardsScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Liked rewards</Text>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>Liked rewards</Text>
+            <Pressable onPress={() => router.push("/rewards")} style={styles.saveMoreLink}>
+              <Text style={[styles.saveMoreLinkText, { color: theme.colors.primary }]}>Save more</Text>
+              <Ionicons name="heart-outline" size={16} color={theme.colors.primary} />
+            </Pressable>
+          </View>
           {likedRewards.length === 0 ? (
-            <Text style={styles.emptyText}>No saved rewards. Like rewards on the Rewards screen to see them here.</Text>
+            <Text style={styles.emptyText}>No saved rewards. Tap the heart on the Rewards screen to save rewards here.</Text>
           ) : (
             likedRewards.map((r) => (
               <View key={r.id} style={[styles.likedCard, { borderColor: theme.colors.primary }]}>
@@ -317,7 +323,10 @@ const styles = StyleSheet.create({
   pointsLabel: { fontSize: 14, color: "#666" },
   pointsValue: { fontSize: 16, fontWeight: "600" },
   section: { marginBottom: 28 },
-  sectionTitle: { fontSize: 18, fontWeight: "700", color: "#333", marginBottom: 12 },
+  sectionTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  sectionTitle: { fontSize: 18, fontWeight: "700", color: "#333" },
+  saveMoreLink: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 4 },
+  saveMoreLinkText: { fontSize: 14, fontWeight: "600" },
   emptyText: { fontSize: 14, color: "#999", marginBottom: 8 },
   redemptionRow: {
     flexDirection: "row",

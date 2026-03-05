@@ -191,7 +191,7 @@ export default function HomeScreen() {
           <Text style={styles.pointsValue}>{points} points</Text>
           {currentSeason != null && seasonPointsEarned != null && (
             <Text style={styles.seasonPointsLine}>
-              {currentSeason.name}: {seasonPointsEarned} Points
+              {currentSeason.name} Total: {seasonPointsEarned} Points
             </Text>
           )}
         </View>
@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.fonts.heading,
   },
   seasonPointsLine: {
-    fontSize: 13,
+    fontSize: 14,
     color: "#666",
     marginTop: 4,
   },

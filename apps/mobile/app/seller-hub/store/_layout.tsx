@@ -20,6 +20,10 @@ export default function SellerStoreLayout() {
         name="drafts"
         options={{ title: "Drafts" }}
       />
+      <Stack.Screen
+        name="sold"
+        options={{ title: "Sold Items" }}
+      />
     </Stack>
   );
 }
