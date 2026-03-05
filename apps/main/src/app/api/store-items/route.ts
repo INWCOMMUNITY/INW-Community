@@ -51,27 +51,31 @@ export async function GET(req: NextRequest) {
     const listingWhere = { listingType } as const;
 
     if (list === "meta") {
-    const categoryForMeta = { AND: [{ category: { not: null } }, { category: { not: "Test" } }] };
-    const [catItems, variantItems] = await Promise.all([
-      prisma.storeItem.findMany({
-        where: { status: "active", ...listingWhere, ...categoryForMeta },
-        select: { category: true },
-      }),
-      prisma.storeItem.findMany({
-        where: { status: "active", variants: { not: Prisma.JsonNull }, ...listingWhere, category: { not: "Test" } },
-        select: { variants: true },
-      }),
-    ]);
-    const catSet = new Set(catItems.map((i) => i.category).filter(Boolean));
-    const sizeSet = new Set<string>();
-    for (const i of variantItems) {
-      getSizesFromVariants(i.variants).forEach((s) => sizeSet.add(s));
+      try {
+        const categoryForMeta = { AND: [{ category: { not: null } }, { category: { not: "Test" } }] };
+        const [catItems, variantItems] = await Promise.all([
+          prisma.storeItem.findMany({
+            where: { status: "active", ...listingWhere, ...categoryForMeta },
+            select: { category: true },
+          }),
+          prisma.storeItem.findMany({
+            where: { status: "active", variants: { not: Prisma.JsonNull }, ...listingWhere, category: { not: "Test" } },
+            select: { variants: true },
+          }),
+        ]);
+        const catSet = new Set(catItems.map((i) => i.category).filter(Boolean));
+        const sizeSet = new Set<string>();
+        for (const i of variantItems) {
+          getSizesFromVariants(i.variants).forEach((s) => sizeSet.add(s));
+        }
+        return NextResponse.json({
+          categories: Array.from(catSet).sort(),
+          sizes: Array.from(sizeSet).sort(),
+        });
+      } catch {
+        return NextResponse.json({ categories: [], sizes: [] });
+      }
     }
-    return NextResponse.json({
-      categories: Array.from(catSet).sort(),
-      sizes: Array.from(sizeSet).sort(),
-    });
-  }
 
   if (slug) {
     const slugListingType = searchParams.get("listingType");
@@ -197,62 +201,67 @@ export async function GET(req: NextRequest) {
   const localDelivery = searchParams.get("localDelivery");
   const shippingOnly = searchParams.get("shippingOnly");
 
-  // Exclude test/trial placeholder items from storefront and resale lists (App Store 2.1(a))
-  const excludeTestItems = {
-    AND: [
-      { category: { not: "Test" } },
-      { slug: { not: { contains: "trial", mode: "insensitive" } } },
-      { slug: { not: { contains: "test-resale", mode: "insensitive" } } },
-    ],
-  };
+  try {
+    // Exclude test/trial placeholder items from storefront and resale lists (App Store 2.1(a))
+    const excludeTestItems = {
+      AND: [
+        { category: { not: "Test" } },
+        { slug: { not: { contains: "trial", mode: "insensitive" } } },
+        { slug: { not: { contains: "test-resale", mode: "insensitive" } } },
+      ],
+    };
 
-  let items = await prisma.storeItem.findMany({
-    where: {
-      status: "active",
-      quantity: { gt: 0 },
-      ...listingWhere,
-      ...excludeTestItems,
-      ...(category ? { category } : {}),
-      ...(memberId ? { memberId } : {}),
-      ...(excludeId ? { id: { not: excludeId } } : {}),
-      ...(localDelivery === "1" ? { localDeliveryAvailable: true } : {}),
-      ...(shippingOnly === "1"
-        ? { shippingDisabled: false, localDeliveryAvailable: false, inStorePickupAvailable: false }
-        : {}),
-      ...(search
-        ? {
-            OR: [
-              { title: { contains: search, mode: "insensitive" } },
-              { description: { contains: search, mode: "insensitive" } },
-              { category: { contains: search, mode: "insensitive" } },
-            ],
-          }
-        : {}),
-    },
-    include: {
-      member: { include: { sellerTimeAway: true } },
-      business: { select: { id: true, name: true, slug: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  const now = new Date();
-  const MAX_ALLOW_SALES_DAYS = 14;
-  items = items.filter((item) => {
-    const ta = item.member?.sellerTimeAway;
-    if (!ta) return true;
-    const start = new Date(ta.startAt);
-    const end = new Date(ta.endAt);
-    if (now < start || now > end) return true;
-    const allowThrough = new Date(start);
-    allowThrough.setDate(allowThrough.getDate() + MAX_ALLOW_SALES_DAYS);
-    const effectiveAllow = allowThrough <= end ? allowThrough : end;
-    if (now <= effectiveAllow) return true;
-    return false;
-  });
-  if (size) {
-    items = items.filter((item) => itemHasSize(item, size));
+    let items = await prisma.storeItem.findMany({
+      where: {
+        status: "active",
+        quantity: { gt: 0 },
+        ...listingWhere,
+        ...excludeTestItems,
+        ...(category ? { category } : {}),
+        ...(memberId ? { memberId } : {}),
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        ...(localDelivery === "1" ? { localDeliveryAvailable: true } : {}),
+        ...(shippingOnly === "1"
+          ? { shippingDisabled: false, localDeliveryAvailable: false, inStorePickupAvailable: false }
+          : {}),
+        ...(search
+          ? {
+              OR: [
+                { title: { contains: search, mode: "insensitive" } },
+                { description: { contains: search, mode: "insensitive" } },
+                { category: { contains: search, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+      include: {
+        member: { include: { sellerTimeAway: true } },
+        business: { select: { id: true, name: true, slug: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    const now = new Date();
+    const MAX_ALLOW_SALES_DAYS = 14;
+    items = items.filter((item) => {
+      const ta = item.member?.sellerTimeAway;
+      if (!ta) return true;
+      const start = new Date(ta.startAt);
+      const end = new Date(ta.endAt);
+      if (now < start || now > end) return true;
+      const allowThrough = new Date(start);
+      allowThrough.setDate(allowThrough.getDate() + MAX_ALLOW_SALES_DAYS);
+      const effectiveAllow = allowThrough <= end ? allowThrough : end;
+      if (now <= effectiveAllow) return true;
+      return false;
+    });
+    if (size) {
+      items = items.filter((item) => itemHasSize(item, size));
+    }
+    return NextResponse.json(items);
+  } catch (e) {
+    console.error("[store-items] Public listing error:", e);
+    return NextResponse.json([]);
   }
-  return NextResponse.json(items);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Database error";
     const isConn = /P1001|ECONNREFUSED|connect/i.test(String(e));

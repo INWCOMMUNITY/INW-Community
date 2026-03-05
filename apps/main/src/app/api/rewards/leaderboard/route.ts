@@ -2,52 +2,58 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getCurrentSeasonId } from "@/lib/award-points";
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "10", 10) || 10, 1), 100);
-  const seasonIdParam = searchParams.get("seasonId");
-  const useSeason = seasonIdParam !== "balance"; // "balance" = legacy by spendable points; default = current season
-  const seasonId = useSeason ? await getCurrentSeasonId() : null;
+export const dynamic = "force-dynamic";
 
-  if (seasonId) {
-    const topBySeason = await prisma.memberSeasonPoints.findMany({
-      where: { seasonId, pointsEarned: { gt: 0 } },
-      orderBy: { pointsEarned: "desc" },
-      take: limit,
-      include: {
-        member: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            profilePhotoUrl: true,
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "10", 10) || 10, 1), 100);
+    const seasonIdParam = searchParams.get("seasonId");
+    const useSeason = seasonIdParam !== "balance"; // "balance" = legacy by spendable points; default = current season
+    const seasonId = useSeason ? await getCurrentSeasonId() : null;
+
+    if (seasonId) {
+      const topBySeason = await prisma.memberSeasonPoints.findMany({
+        where: { seasonId, pointsEarned: { gt: 0 } },
+        orderBy: { pointsEarned: "desc" },
+        take: limit,
+        include: {
+          member: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              profilePhotoUrl: true,
+            },
           },
         },
-      },
-    });
-    return NextResponse.json(
-      topBySeason.map((msp) => ({
-        id: msp.member.id,
-        firstName: msp.member.firstName,
-        lastName: msp.member.lastName,
-        profilePhotoUrl: msp.member.profilePhotoUrl,
-        points: msp.pointsEarned,
-      }))
-    );
-  }
+      });
+      return NextResponse.json(
+        topBySeason.map((msp) => ({
+          id: msp.member.id,
+          firstName: msp.member.firstName,
+          lastName: msp.member.lastName,
+          profilePhotoUrl: msp.member.profilePhotoUrl,
+          points: msp.pointsEarned,
+        }))
+      );
+    }
 
-  // No current season (or seasonId=balance): fallback to ranking by spendable balance
-  const topMembers = await prisma.member.findMany({
-    where: { points: { gt: 0 } },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      profilePhotoUrl: true,
-      points: true,
-    },
-    orderBy: { points: "desc" },
-    take: limit,
-  });
-  return NextResponse.json(topMembers);
+    // No current season (or seasonId=balance): fallback to ranking by spendable balance
+    const topMembers = await prisma.member.findMany({
+      where: { points: { gt: 0 } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        profilePhotoUrl: true,
+        points: true,
+      },
+      orderBy: { points: "desc" },
+      take: limit,
+    });
+    return NextResponse.json(topMembers);
+  } catch {
+    return NextResponse.json([]);
+  }
 }

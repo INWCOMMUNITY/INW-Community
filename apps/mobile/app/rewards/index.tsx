@@ -323,110 +323,104 @@ export default function RewardsScreen() {
             </View>
           )}
 
-          <View style={styles.section}>
+          <View style={[styles.section, styles.top10Box]}>
+            <Text style={styles.top10BoxTitle}>Top 10 Prizes & Leaderboard</Text>
+            <Text style={styles.top10BoxSubtitle}>
+              When a campaign is active, prizes and rankings appear here. Below is how the box will look.
+            </Text>
             <View style={styles.toggleRow}>
-                <Pressable
-                  style={[styles.toggleBtn, showPrizes && styles.toggleBtnActive]}
-                  onPress={() => setShowPrizes(true)}
-                >
-                  <Text style={[styles.toggleText, showPrizes && styles.toggleTextActive]}>
-                    Top 10 Prizes
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.toggleBtn, !showPrizes && styles.toggleBtnActive]}
-                  onPress={() => setShowPrizes(false)}
-                >
-                  <Text style={[styles.toggleText, !showPrizes && styles.toggleTextActive]}>
-                    Leaderboard
-                  </Text>
-                </Pressable>
-              </View>
-            {top5?.enabled && (top5.prizes?.length ?? 0) > 0 ? (
-              <>
-                {showPrizes ? (
-                  <ScrollView style={styles.prizesList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
-                      const p = top5.prizes?.find((x: Top5Prize) => x.rank === rank);
-                      const hasContent = p && (p.label?.trim() || p.imageUrl);
-                      return (
-                        <View key={rank} style={styles.prizeRow}>
-                          <Text style={styles.prizeRank}>#{rank}</Text>
-                          {hasContent ? (
-                            <>
-                              {p!.imageUrl ? (
-                                <Image
-                                  source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
-                                  style={styles.prizeThumb}
-                                  resizeMode="cover"
-                                />
-                              ) : (
-                                <View style={[styles.prizeThumb, styles.prizeThumbPlaceholder]} />
-                              )}
-                              <Text style={styles.prizeLabel} numberOfLines={1}>
-                                {p!.label?.trim() || "—"}
-                              </Text>
-                              {p!.business && (
-                                <Text style={styles.prizeBusiness} numberOfLines={1}>
-                                  {p!.business.name}
-                                </Text>
-                              )}
-                              <Pressable
-                                style={styles.prizeDetailsBtn}
-                                onPress={() => setPrizePopupPrize(p!)}
-                              >
-                                <Ionicons name="information-circle-outline" size={22} color={theme.colors.primary} />
-                              </Pressable>
-                            </>
-                          ) : (
-                            <Text style={styles.prizeEmpty}>—</Text>
-                          )}
-                        </View>
-                      );
-                    })}
-                  </ScrollView>
-                ) : (
-                  <ScrollView style={styles.leaderboardList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
-                      const m = top10Leaderboard[num - 1];
-                      return (
-                        <View key={m?.id ?? `empty-${num}`} style={styles.leaderRow}>
-                          <Text style={styles.leaderRank}>{num}</Text>
-                          {m ? (
-                            <>
-                              {m.profilePhotoUrl ? (
-                                <Image source={{ uri: resolveUrl(m.profilePhotoUrl) }} style={styles.leaderAvatar} />
-                              ) : (
-                                <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]}>
-                                  <Text style={styles.leaderInitials}>
-                                    {(m.firstName?.[0] ?? "") + (m.lastName?.[0] ?? "")}
-                                  </Text>
-                                </View>
-                              )}
-                              <Text style={styles.leaderName} numberOfLines={1}>
-                                {m.firstName} {m.lastName}
-                              </Text>
-                              <Text style={styles.leaderPoints}>{m.points}</Text>
-                            </>
-                          ) : (
-                            <>
-                              <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]} />
-                              <Text style={styles.leaderEmpty} numberOfLines={1}>—</Text>
-                              <Text style={styles.leaderPoints}>—</Text>
-                            </>
-                          )}
-                        </View>
-                      );
-                    })}
-                  </ScrollView>
-                )}
-              </>
-            ) : (
-              <View style={styles.top10Placeholder}>
-                <Text style={styles.top10PlaceholderText}>
-                  Top 10 prizes and season leaderboard will appear here when a campaign is active.
+              <Pressable
+                style={[styles.toggleBtn, showPrizes && styles.toggleBtnActive]}
+                onPress={() => setShowPrizes(true)}
+              >
+                <Text style={[styles.toggleText, showPrizes && styles.toggleTextActive]}>
+                  Top 10 Prizes
                 </Text>
-              </View>
+              </Pressable>
+              <Pressable
+                style={[styles.toggleBtn, !showPrizes && styles.toggleBtnActive]}
+                onPress={() => setShowPrizes(false)}
+              >
+                <Text style={[styles.toggleText, !showPrizes && styles.toggleTextActive]}>
+                  Leaderboard
+                </Text>
+              </Pressable>
+            </View>
+            {showPrizes ? (
+              <ScrollView style={styles.prizesList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
+                  const p = top5?.prizes?.find((x: Top5Prize) => x.rank === rank);
+                  const hasContent = p && (p.label?.trim() || p.imageUrl);
+                  return (
+                    <View key={rank} style={styles.prizeRow}>
+                      <Text style={styles.prizeRank}>#{rank}</Text>
+                      {hasContent ? (
+                        <>
+                          {p!.imageUrl ? (
+                            <Image
+                              source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
+                              style={styles.prizeThumb}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View style={[styles.prizeThumb, styles.prizeThumbPlaceholder]} />
+                          )}
+                          <Text style={styles.prizeLabel} numberOfLines={1}>
+                            {p!.label?.trim() || "—"}
+                          </Text>
+                          {p!.business && (
+                            <Text style={styles.prizeBusiness} numberOfLines={1}>
+                              {p!.business.name}
+                            </Text>
+                          )}
+                          <Pressable
+                            style={styles.prizeDetailsBtn}
+                            onPress={() => setPrizePopupPrize(p!)}
+                          >
+                            <Ionicons name="information-circle-outline" size={22} color={theme.colors.primary} />
+                          </Pressable>
+                        </>
+                      ) : (
+                        <Text style={styles.prizeEmpty}>—</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            ) : (
+              <ScrollView style={styles.leaderboardList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                  const m = top10Leaderboard[num - 1];
+                  return (
+                    <View key={m?.id ?? `empty-${num}`} style={styles.leaderRow}>
+                      <Text style={styles.leaderRank}>{num}</Text>
+                      {m ? (
+                        <>
+                          {m.profilePhotoUrl ? (
+                            <Image source={{ uri: resolveUrl(m.profilePhotoUrl) }} style={styles.leaderAvatar} />
+                          ) : (
+                            <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]}>
+                              <Text style={styles.leaderInitials}>
+                                {(m.firstName?.[0] ?? "") + (m.lastName?.[0] ?? "")}
+                              </Text>
+                            </View>
+                          )}
+                          <Text style={styles.leaderName} numberOfLines={1}>
+                            {m.firstName} {m.lastName}
+                          </Text>
+                          <Text style={styles.leaderPoints}>{m.points}</Text>
+                        </>
+                      ) : (
+                        <>
+                          <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]} />
+                          <Text style={styles.leaderEmpty} numberOfLines={1}>—</Text>
+                          <Text style={styles.leaderPoints}>—</Text>
+                        </>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
             )}
           </View>
 
@@ -736,31 +730,39 @@ const styles = StyleSheet.create({
   pointsValue: { fontSize: 24, fontWeight: "700" },
   seasonPointsLine: { fontSize: 14, color: "#666", marginTop: 4 },
   pointsLink: { fontSize: 14, fontWeight: "500", marginTop: 8, textDecorationLine: "underline" },
+  top10Box: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+    padding: 12,
+  },
+  top10BoxTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 4,
+  },
+  top10BoxSubtitle: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 12,
+    lineHeight: 18,
+  },
   toggleRow: {
     flexDirection: "row",
-    marginBottom: 12,
-    borderRadius: 8,
+    marginBottom: 0,
+    borderRadius: 6,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "#e0e0e0",
   },
   toggleBtn: { flex: 1, paddingVertical: 10, alignItems: "center" },
-  toggleBtnActive: { backgroundColor: "#f0f0f0" },
+  toggleBtnActive: { backgroundColor: theme.colors.primary },
   toggleText: { fontSize: 14, fontWeight: "500", color: "#666" },
-  toggleTextActive: { fontWeight: "700", color: "#333" },
-  top10Placeholder: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  top10PlaceholderText: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    lineHeight: 20,
-  },
-  prizesList: { maxHeight: 320, marginBottom: 8 },
+  toggleTextActive: { fontWeight: "700", color: theme.colors.buttonText ?? "#fff" },
+  prizesList: { maxHeight: 320, marginTop: 12, marginBottom: 8 },
   prizeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -775,7 +777,7 @@ const styles = StyleSheet.create({
   prizeBusiness: { fontSize: 12, color: "#666", flex: 1 },
   prizeDetailsBtn: { padding: 4 },
   prizeEmpty: { fontSize: 14, color: "#999", flex: 1 },
-  leaderboardList: { maxHeight: 320 },
+  leaderboardList: { maxHeight: 320, marginTop: 12 },
   leaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -870,7 +872,6 @@ const styles = StyleSheet.create({
   },
   leaderboardTitle: { fontSize: 16, fontWeight: "700", color: "#fff" },
   leaderboardSub: { fontSize: 12, color: "rgba(255,255,255,0.9)", marginTop: 4 },
-  leaderboardList: {},
   leaderboardRow: {
     flexDirection: "row",
     alignItems: "center",
