@@ -202,18 +202,13 @@ export async function GET(req: NextRequest) {
   const shippingOnly = searchParams.get("shippingOnly");
 
   try {
-    // Exclude test/trial placeholder items from storefront and resale lists (App Store 2.1(a)).
-    // Slug exclusion is done in-memory to avoid Prisma NestedStringFilter + mode limitation (Neon adapter).
-    const excludeTestItems = {
-      AND: [{ category: { not: "Test" } }],
-    };
-
+    // Exclude Test category in DB. Trial/test-resale slugs excluded in-memory below (Neon adapter does not support mode in nested slug filter).
     let items = await prisma.storeItem.findMany({
       where: {
         status: "active",
         quantity: { gt: 0 },
         ...listingWhere,
-        ...excludeTestItems,
+        AND: [{ category: { not: "Test" } }],
         ...(category ? { category } : {}),
         ...(memberId ? { memberId } : {}),
         ...(excludeId ? { id: { not: excludeId } } : {}),
@@ -415,7 +410,7 @@ export async function POST(req: NextRequest) {
         businessId: data.businessId || null,
         title: data.title.trim(),
         description: data.description?.trim() || null,
-        photos: Array.isArray(data.photos) ? data.photos : [],
+        photos: Array.isArray(data.photos) ? data.photos.map((p) => (p != null ? String(p) : "")).filter(Boolean) : [],
         category: data.category?.trim() || null,
         priceCents,
         variants: data.variants === null ? Prisma.JsonNull : (data.variants as object),
@@ -449,11 +444,25 @@ export async function POST(req: NextRequest) {
       .catch((err) => console.error("[store-items] Auto-post failed:", err));
     return NextResponse.json(item);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Database error";
-    const isConn = /P1001|ECONNREFUSED|connect/i.test(String(e));
-    return NextResponse.json(
-      { error: isConn ? "Database connection failed. Make sure PostgreSQL is running." : msg },
-      { status: 500 }
-    );
+    const msg = e instanceof Error ? e.message : String(e);
+    const isConn = /P1001|ECONNREFUSED|connect/i.test(msg);
+    const isPrismaValidation =
+      /Invalid `prisma\.|Unknown arg|Argument.*is not valid|Invalid value/i.test(msg);
+    if (isConn) {
+      return NextResponse.json(
+        { error: "Database connection failed. Make sure PostgreSQL is running." },
+        { status: 500 }
+      );
+    }
+    if (isPrismaValidation) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid listing. Please check that title, price, quantity, and photos are valid and try again.",
+        },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

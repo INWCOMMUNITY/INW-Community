@@ -112,6 +112,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
 
   const storefrontItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items" },
+    { href: "/seller-hub/store/sold", label: "Sold Items" },
     { href: "/seller-hub/store/drafts", label: "Drafts" },
     { href: "/seller-hub/orders", label: "My Orders" },
     ...(showDeliveries ? [{ href: "/seller-hub/deliveries", label: "My Deliveries" }] : []),

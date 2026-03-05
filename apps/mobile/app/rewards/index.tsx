@@ -672,6 +672,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   scanBtn: {
+    width: "100%",
     paddingVertical: 18,
     borderRadius: 12,
     alignItems: "center",
@@ -713,16 +714,17 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   pointsCardWrap: {
-    alignItems: "center",
+    width: "100%",
     marginBottom: 16,
   },
   pointsCard: {
+    width: "100%",
     padding: 16,
     borderRadius: 8,
     borderWidth: 2,
     backgroundColor: "#fff",
-    minWidth: 280,
-    maxWidth: 360,
+    alignItems: "center",
+    justifyContent: "center",
   },
   expandArrow: {
     position: "absolute",
@@ -730,9 +732,9 @@ const styles = StyleSheet.create({
     right: 10,
     padding: 4,
   },
-  pointsLabel: { fontSize: 14, color: "#666", marginBottom: 4 },
-  pointsValue: { fontSize: 24, fontWeight: "700" },
-  seasonPointsLine: { fontSize: 14, color: "#666", marginTop: 4 },
+  pointsLabel: { fontSize: 14, color: "#666", marginBottom: 4, textAlign: "center" },
+  pointsValue: { fontSize: 24, fontWeight: "700", textAlign: "center" },
+  seasonPointsLine: { fontSize: 14, color: "#666", marginTop: 4, textAlign: "center" },
   pointsLink: { fontSize: 14, fontWeight: "500", marginTop: 8, textDecorationLine: "underline" },
   top10Box: {
     borderWidth: 2,

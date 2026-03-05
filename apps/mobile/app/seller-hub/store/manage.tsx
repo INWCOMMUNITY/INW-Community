@@ -32,6 +32,18 @@ export default function ManageStoreScreen() {
 
       <Pressable
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+        onPress={() => (router.push as (href: string) => void)("/seller-hub/store/sold")}
+      >
+        <Ionicons name="checkmark-done" size={28} color={theme.colors.primary} />
+        <View style={styles.cardText}>
+          <Text style={styles.cardTitle}>Sold Items</Text>
+          <Text style={styles.cardDesc}>Items you’ve marked as sold</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={22} color="#999" />
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
         onPress={() => (router.push as (href: string) => void)("/seller-hub/offers")}
       >
         <Ionicons name="pricetag" size={28} color={theme.colors.primary} />
