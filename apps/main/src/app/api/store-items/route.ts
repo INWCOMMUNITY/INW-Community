@@ -174,7 +174,11 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
       }
     }
-    const where: { memberId: string; listingType?: string; status?: string } = { memberId: userId };
+    const where: {
+      memberId: string;
+      listingType?: string;
+      status?: string | { not: string };
+    } = { memberId: userId };
     if (listingTypeFilter) where.listingType = listingTypeFilter;
     const soldOnly = searchParams.get("sold") === "1";
     if (soldOnly) {
