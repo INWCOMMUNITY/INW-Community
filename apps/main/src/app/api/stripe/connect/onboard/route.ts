@@ -84,7 +84,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ url: accountLink.url });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Stripe setup failed";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const raw = e instanceof Error ? e.message : String(e);
+    // Stripe returns an error about "responsibilities for managing losses" until the platform
+    // completes Connect settings: https://dashboard.stripe.com/settings/connect/platform-profile
+    const isPlatformProfileError =
+      /responsibilities|platform-profile|managing losses|connect.*profile/i.test(raw);
+    const error = isPlatformProfileError
+      ? "Payment setup is not available yet. The platform needs to complete Stripe Connect configuration in the Dashboard. Please try again later or contact support."
+      : raw;
+    return NextResponse.json({ error }, { status: 500 });
   }
 }

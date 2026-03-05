@@ -4,7 +4,7 @@
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "scripts": { "build": "echo no-op" },
+  "scripts": { "build": "echo no-op", "check": "tsc --noEmit" },
   "peerDependencies": {
     "react": "^18.2.0"
   },

@@ -798,7 +798,7 @@ export default function ProductScreen() {
           <PickupTermsModal
             visible={pickupModalOpen}
             onClose={() => setPickupModalOpen(false)}
-            policyText={item.pickupTerms ?? item.member?.sellerPickupPolicy ?? undefined}
+            policyText={(item as { pickupTerms?: string }).pickupTerms ?? item.member?.sellerPickupPolicy ?? undefined}
             initialForm={{
               firstName: pickupForm.firstName ?? "",
               lastName: pickupForm.lastName ?? "",

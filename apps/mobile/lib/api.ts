@@ -119,21 +119,21 @@ async function fetchWithAuth(
     "Content-Type": "application/json",
     "Accept": "application/json",
     "User-Agent": USER_AGENT,
-    ...BROWSER_LIKE_HEADERS,
-    // Bypass tunnel interstitials for API requests
-    ...(API_BASE.includes("ngrok")
-      ? { "ngrok-skip-browser-warning": "true" }
-      : API_BASE.includes("loca.lt")
-        ? { "Bypass-Tunnel-Reminder": "true" }
-        : {}),
-    ...(typeof options.headers === "object" &&
+  };
+  if (API_BASE.includes("inwcommunity.com")) {
+    headers["Origin"] = "https://www.inwcommunity.com";
+    headers["Referer"] = "https://www.inwcommunity.com/";
+  }
+  if (API_BASE.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
+  else if (API_BASE.includes("loca.lt")) headers["Bypass-Tunnel-Reminder"] = "true";
+  if (typeof options.headers === "object" &&
     options.headers !== null &&
     !(options.headers instanceof Headers)
-      ? Object.fromEntries(
-          Object.entries(options.headers).map(([k, v]) => [k, String(v)])
-        )
-      : {}),
-  };
+  ) {
+    Object.assign(headers, Object.fromEntries(
+      Object.entries(options.headers).map(([k, v]) => [k, String(v)])
+    ));
+  }
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }

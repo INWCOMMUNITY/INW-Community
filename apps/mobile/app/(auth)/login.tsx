@@ -60,6 +60,17 @@ export default function LoginScreen() {
         },
       ]}
     >
+      <Pressable
+        style={({ pressed }) => [
+          styles.backArrow,
+          { top: insets.top + 8 },
+          pressed && styles.backArrowPressed,
+        ]}
+        onPress={() => router.back()}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      >
+        <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
+      </Pressable>
       <View style={styles.header}>
         <Image
           source={require("@/assets/images/nwc-community-logo.png")}
@@ -144,6 +155,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     alignItems: "center",
   },
+  backArrow: {
+    position: "absolute",
+    left: 24,
+    zIndex: 10,
+    padding: 4,
+  },
+  backArrowPressed: { opacity: 0.7 },
   header: {
     marginBottom: 20,
     alignItems: "center",

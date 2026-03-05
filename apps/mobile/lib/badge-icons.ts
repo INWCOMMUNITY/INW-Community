@@ -38,5 +38,6 @@ const SLUG_TO_ICON: Record<string, IconName> = {
 /** Returns an Ionicons name that fits the badge slug/name. Falls back to ribbon-outline. */
 export function getBadgeIcon(slug: string): IconName {
   const key = slug?.toLowerCase?.().replace(/\s+/g, "_");
-  return (key && SLUG_TO_ICON[key]) ?? "ribbon-outline";
+  const icon = key ? (SLUG_TO_ICON as Record<string, IconName>)[key] : undefined;
+  return (icon ?? "ribbon-outline") as IconName;
 }

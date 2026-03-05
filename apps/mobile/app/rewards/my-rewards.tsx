@@ -89,7 +89,7 @@ export default function MyRewardsScreen() {
       ]);
       setPointsSummary(me ?? null);
       setRedemptions(Array.isArray(redemptionsRes?.redemptions) ? redemptionsRes.redemptions : []);
-      const savedIds = Array.isArray(savedRes) ? new Set(savedRes.map((i) => i.referenceId)) : new Set();
+      const savedIds = Array.isArray(savedRes) ? new Set((savedRes as { referenceId: string }[]).map((i) => i.referenceId)) : new Set<string>();
       setSavedRewardIds(savedIds);
       const allRewards = Array.isArray(rewardsRes) ? rewardsRes : [];
       setLikedRewards(allRewards.filter((r) => savedIds.has(r.id)));

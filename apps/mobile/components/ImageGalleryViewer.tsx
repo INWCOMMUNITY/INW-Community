@@ -17,6 +17,7 @@ import Animated, {
   withTiming,
   interpolate,
   runOnJS,
+  type SharedValue,
 } from "react-native-reanimated";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -29,7 +30,7 @@ interface ZoomableImageProps {
   uri: string;
   onZoomChange: (zoomed: boolean) => void;
   onDismiss: () => void;
-  dismissY: Animated.SharedValue<number>;
+  dismissY: SharedValue<number>;
 }
 
 function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImageProps) {

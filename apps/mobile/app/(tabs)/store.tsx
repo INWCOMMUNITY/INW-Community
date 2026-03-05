@@ -130,9 +130,15 @@ export default function StoreScreen() {
         if (size) params.set("size", size);
         if (deliveryFilter === "local") params.set("localDelivery", "1");
         if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
-        const data = await apiGet<StoreItem[]>(`/api/store-items?${params}`);
-        setItems(Array.isArray(data) ? data : []);
-        setConnectionError(null);
+        const data = await apiGet<StoreItem[] | { error?: string }>(`/api/store-items?${params}`);
+        if (Array.isArray(data)) {
+          setItems(data);
+          setConnectionError(null);
+        } else {
+          const errObj = data as { error?: string };
+          setItems([]);
+          setConnectionError(errObj?.error ?? "Invalid response from server. Please try again.");
+        }
       } catch (e) {
         setItems([]);
         const err = e as { error?: string; status?: number };

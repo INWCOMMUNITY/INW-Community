@@ -45,7 +45,7 @@ function CartProviderInner({ children, session }: { children: React.ReactNode; s
 
   return (
     <CartContext.Provider value={{ count, refresh, open, setOpen }}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {/* eslint-disable-next-line */}
       {(children as any)}
     </CartContext.Provider>
   );

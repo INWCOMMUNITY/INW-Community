@@ -32,6 +32,7 @@ export default function SignupBusinessScreen() {
   const navigation = useNavigation();
   const { refreshMember, member, signOut } = useAuth();
 
+  const [step, setStep] = useState<Step>("account");
   useFocusEffect(
     useCallback(() => {
       if (step === "checkout" && member?.subscriptionPlan === "sponsor") {
@@ -39,7 +40,6 @@ export default function SignupBusinessScreen() {
       }
     }, [step, member?.subscriptionPlan])
   );
-  const [step, setStep] = useState<Step>("account");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");

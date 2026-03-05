@@ -523,8 +523,9 @@ export default function SupportLocalScreen() {
     : categories;
   const filteredCities = cities;
 
-  const listData = viewMode === "directory" ? businesses : sellers;
-  const renderItem = viewMode === "directory" ? renderBusinessItem : renderSellerItem;
+  const listData: (Business | Seller)[] = viewMode === "directory" ? businesses : sellers;
+  const renderItem = ({ item }: { item: Business | Seller }) =>
+    viewMode === "directory" ? renderBusinessItem({ item: item as Business }) : renderSellerItem({ item: item as Seller });
 
   return (
     <View style={styles.container}>
@@ -696,7 +697,7 @@ export default function SupportLocalScreen() {
           </Pressable>
         </View>
       ) : (
-        <FlatList
+        <FlatList<Business | Seller>
           ref={listRef}
           data={listData}
           keyExtractor={(item) => item.id}

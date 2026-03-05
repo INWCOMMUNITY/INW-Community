@@ -174,7 +174,7 @@ export default function GroupConversationScreen() {
         content: "",
       });
       setConv((prev) =>
-        prev
+        (prev
           ? {
               ...prev,
               messages: [
@@ -186,11 +186,11 @@ export default function GroupConversationScreen() {
                   senderId: msg.senderId,
                   sharedContentType: "photo",
                   sharedContentId: fullUrl,
-                  sender: msg.sender,
+                  sender: msg.sender ? { ...msg.sender, profilePhotoUrl: null } : undefined,
                 },
               ],
             }
-          : null
+          : null) as GroupConversation | null
       );
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (e) {
@@ -214,7 +214,7 @@ export default function GroupConversationScreen() {
         sender: { id: string; firstName: string; lastName: string };
       }>(`/api/group-conversations/${id}`, { content: text });
       setConv((prev) =>
-        prev
+        (prev
           ? {
               ...prev,
               messages: [
@@ -224,11 +224,11 @@ export default function GroupConversationScreen() {
                   content: msg.content,
                   createdAt: msg.createdAt,
                   senderId: msg.senderId,
-                  sender: msg.sender,
+                  sender: msg.sender ? { ...msg.sender, profilePhotoUrl: null } : undefined,
                 },
               ],
             }
-          : null
+          : null) as GroupConversation | null
       );
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch {
@@ -405,6 +405,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
     backgroundColor: theme.colors.primary,
   },
+  bubbleThem: {},
   bubbleText: { fontSize: 16, color: theme.colors.heading },
   bubbleTextMe: { color: "#fff" },
   sharedPhoto: { width: 200, height: 200, borderRadius: 12, marginBottom: 8 },

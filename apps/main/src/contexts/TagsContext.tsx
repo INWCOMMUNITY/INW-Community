@@ -16,7 +16,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <TagsContext.Provider value={{ open, setOpen }}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {/* eslint-disable-next-line */}
       {(children as any)}
     </TagsContext.Provider>
   );

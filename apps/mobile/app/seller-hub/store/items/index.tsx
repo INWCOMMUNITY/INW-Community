@@ -188,7 +188,7 @@ export default function MyItemsScreen() {
         <View>
           <Text style={styles.hint}>Manage your storefront listings.</Text>
           <Pressable
-            onPress={() => router.push("/seller-hub/store/sold")}
+            onPress={() => (router.push as (href: string) => void)("/seller-hub/store/sold")}
             style={({ pressed }) => [styles.soldLink, pressed && { opacity: 0.8 }]}
           >
             <Text style={styles.soldLinkText}>Sold items</Text>

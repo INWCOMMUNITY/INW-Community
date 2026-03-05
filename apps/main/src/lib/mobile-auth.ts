@@ -97,7 +97,7 @@ export async function getSessionForApi(
     cookies: Object.fromEntries(req.cookies.getAll().map((c) => [c.name, c.value])),
   };
   const resContext = { getHeader: () => undefined, setCookie: () => {}, setHeader: () => {} };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line
   const session = await getServerSession(reqContext as any, resContext as any, authOptions);
   if (session?.user) {
     const u = session.user as { id?: string; email?: string; name?: string; isSubscriber?: boolean; subscriptionPlan?: SubscriptionPlan };

@@ -30,9 +30,9 @@ export default function ActionsScreen() {
           key={action.label}
           style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
           onPress={() => {
-            if (action.href) {
+            if ("href" in action) {
               (router.push as (href: string) => void)(action.href);
-            } else if (action.web) {
+            } else {
               (router.push as (href: string) => void)(
                 `/web?url=${encodeURIComponent(action.web)}&title=${encodeURIComponent(action.webTitle ?? action.label)}`
               );

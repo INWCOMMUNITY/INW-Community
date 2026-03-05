@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { theme as defaultTheme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 
@@ -471,7 +472,7 @@ export default function RewardsScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Redeem with Points</Text>
-              <Pressable onPress={() => router.push("/rewards/my-rewards")} style={styles.myRewardsLink}>
+              <Pressable onPress={() => (router.push as (href: string) => void)("/rewards/my-rewards")} style={styles.myRewardsLink}>
                 <Text style={[styles.myRewardsLinkText, { color: theme.colors.primary }]}>My Rewards</Text>
                 <Ionicons name="chevron-forward" size={18} color={theme.colors.primary} />
               </Pressable>
@@ -508,7 +509,6 @@ export default function RewardsScreen() {
                     numColumns={2}
                     scrollEnabled={false}
                     columnWrapperStyle={styles.rewardRow}
-                    listKey="rewards-grid"
                     renderItem={({ item: r }) => {
                       const canRedeem = signedIn && points !== null && points >= r.pointsRequired;
                       const remaining = r.redemptionLimit - r.timesRedeemed;
@@ -736,7 +736,7 @@ const styles = StyleSheet.create({
   pointsLink: { fontSize: 14, fontWeight: "500", marginTop: 8, textDecorationLine: "underline" },
   top10Box: {
     borderWidth: 2,
-    borderColor: theme.colors.primary,
+    borderColor: defaultTheme.colors.primary,
     borderRadius: 8,
     overflow: "hidden",
     backgroundColor: "#fff",
@@ -745,7 +745,7 @@ const styles = StyleSheet.create({
   top10BoxTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: theme.colors.heading,
+    color: defaultTheme.colors.heading,
     marginBottom: 4,
   },
   top10BoxSubtitle: {
@@ -763,9 +763,9 @@ const styles = StyleSheet.create({
     borderColor: "#e0e0e0",
   },
   toggleBtn: { flex: 1, paddingVertical: 10, alignItems: "center" },
-  toggleBtnActive: { backgroundColor: theme.colors.primary },
+  toggleBtnActive: { backgroundColor: defaultTheme.colors.primary },
   toggleText: { fontSize: 14, fontWeight: "500", color: "#666" },
-  toggleTextActive: { fontWeight: "700", color: theme.colors.buttonText ?? "#fff" },
+  toggleTextActive: { fontWeight: "700", color: defaultTheme.colors.buttonText ?? "#fff" },
   prizesList: { maxHeight: 320, marginTop: 12, marginBottom: 8 },
   prizeRow: {
     flexDirection: "row",

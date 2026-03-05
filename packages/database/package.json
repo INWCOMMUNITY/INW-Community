@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "echo no-op",
+    "check": "prisma generate && tsc --noEmit",
     "postinstall": "prisma generate",
     "generate": "prisma generate",
     "push": "prisma db push",

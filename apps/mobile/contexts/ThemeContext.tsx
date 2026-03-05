@@ -27,7 +27,7 @@ function mapDesignTokensToTheme(tokens: Record<string, string>): AppTheme {
       headingRegular: defaultTheme.fonts.headingRegular,
       body: defaultTheme.fonts.body,
     },
-  };
+  } as AppTheme;
 }
 
 const ThemeContext = createContext<AppTheme>(defaultTheme);

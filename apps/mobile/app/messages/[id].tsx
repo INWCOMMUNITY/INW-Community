@@ -175,7 +175,7 @@ export default function DirectConversationScreen() {
                   liked,
                   likeCount: (m.likeCount ?? 0) + (liked ? 1 : -1),
                   likedBy: liked
-                    ? [...(m.likedBy ?? []), { id: member.id, profilePhotoUrl: member.profilePhotoUrl, firstName: member.firstName }]
+                    ? [...(m.likedBy ?? []), { id: member.id ?? "", profilePhotoUrl: member.profilePhotoUrl ?? null, firstName: member.firstName }]
                     : (m.likedBy ?? []).filter((u) => u.id !== member.id),
                 }
               : m
@@ -226,7 +226,8 @@ export default function DirectConversationScreen() {
     setSavingPhoto(true);
     try {
       const filename = `nwc_${Date.now()}.jpg`;
-      const localPath = `${FileSystem.documentDirectory}${filename}`;
+      const docDir = (FileSystem as { documentDirectory?: string }).documentDirectory ?? "";
+      const localPath = `${docDir}${filename}`;
       const { uri } = await FileSystem.downloadAsync(photoViewerUri, localPath);
       await MediaLibrary.createAssetAsync(uri);
       Alert.alert("Saved", "Photo saved to your library.");
@@ -340,7 +341,7 @@ export default function DirectConversationScreen() {
           senderId: res.senderId,
           sharedContentType: "photo",
           sharedContentId: fullUrl,
-          sender: res.sender,
+          sender: res.sender ? { ...res.sender, id: res.senderId } : undefined,
           likeCount: 0,
           liked: false,
         },
@@ -351,13 +352,13 @@ export default function DirectConversationScreen() {
           content: res.botReply.content,
           createdAt: res.botReply.createdAt,
           senderId: res.botReply.senderId,
-          sender: res.botReply.sender,
+          sender: res.botReply.sender ? { ...res.botReply.sender, id: res.botReply.senderId } : undefined,
           likeCount: 0,
           liked: false,
         });
       }
       setConv((prev) =>
-        prev ? { ...prev, messages: [...prev.messages, ...newMessages] } : null
+        (prev ? { ...prev, messages: [...prev.messages, ...newMessages] } : null) as DirectConversation | null
       );
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (e) {
@@ -383,7 +384,7 @@ export default function DirectConversationScreen() {
           content: res.content,
           createdAt: res.createdAt,
           senderId: res.senderId,
-          sender: res.sender,
+          sender: res.sender ? { ...res.sender, id: res.senderId } : undefined,
           likeCount: 0,
           liked: false,
         },
@@ -400,7 +401,7 @@ export default function DirectConversationScreen() {
         });
       }
       setConv((prev) =>
-        prev ? { ...prev, messages: [...prev.messages, ...newMessages] } : null
+        (prev ? { ...prev, messages: [...prev.messages, ...newMessages] } : null) as DirectConversation | null
       );
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch {
@@ -632,6 +633,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
     backgroundColor: theme.colors.primary,
   },
+  bubbleThem: {},
   bubblePhoto: {
     backgroundColor: "#f5f5f5",
     borderColor: "#e0e0e0",

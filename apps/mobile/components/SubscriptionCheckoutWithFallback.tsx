@@ -120,7 +120,12 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
   const hasValidKey = !!stripeKey && !stripeKey.includes("placeholder");
 
   const [StripeProvider, setStripeProvider] = useState<
-    React.ComponentType<{ publishableKey: string; urlScheme: string; children: React.ReactNode }> | null
+    React.ComponentType<{
+      publishableKey: string;
+      urlScheme: string;
+      children: React.ReactNode;
+      merchantIdentifier?: string;
+    }> | null
   >(null);
   const [SubscriptionCheckoutSheet, setSubscriptionCheckoutSheet] = useState<
     React.ComponentType<SubscriptionCheckoutWithFallbackProps> | null
@@ -147,7 +152,12 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
       .then(([stripeMod, sheetMod]) => {
         const Provider = stripeMod?.StripeProvider;
         if (Provider && typeof Provider === "function" && sheetMod?.SubscriptionCheckoutSheet) {
-          setStripeProvider(() => Provider);
+          setStripeProvider(() => Provider as React.ComponentType<{
+            publishableKey: string;
+            urlScheme: string;
+            children: React.ReactNode;
+            merchantIdentifier?: string;
+          }>);
           setSubscriptionCheckoutSheet(() => sheetMod.SubscriptionCheckoutSheet);
         } else {
           setLoadError(true);

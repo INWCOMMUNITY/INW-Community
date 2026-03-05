@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "build": "echo no-op",
+    "check": "tsc --noEmit",
     "convert-assets-to-png": "node scripts/convert-assets-to-png.mjs",
     "start": "expo start --port 8082",
     "start:tunnel": "expo start --tunnel --port 8082",

@@ -17,7 +17,7 @@ export async function requireAdmin(req: NextRequest): Promise<boolean> {
     cookies: Object.fromEntries(req.cookies.getAll().map((c) => [c.name, c.value])),
   };
   const resContext = { getHeader: () => {}, setCookie: () => {}, setHeader: () => {} };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line
   const session = await getServerSession(reqContext as any, resContext as any, authOptions);
   const user = session?.user as { email?: string } | undefined;
   return !!user?.email && user.email.toLowerCase() === adminEmail.toLowerCase();

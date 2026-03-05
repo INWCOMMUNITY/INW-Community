@@ -202,13 +202,10 @@ export async function GET(req: NextRequest) {
   const shippingOnly = searchParams.get("shippingOnly");
 
   try {
-    // Exclude test/trial placeholder items from storefront and resale lists (App Store 2.1(a))
+    // Exclude test/trial placeholder items from storefront and resale lists (App Store 2.1(a)).
+    // Slug exclusion is done in-memory to avoid Prisma NestedStringFilter + mode limitation (Neon adapter).
     const excludeTestItems = {
-      AND: [
-        { category: { not: "Test" } },
-        { slug: { not: { contains: "trial" } } },
-        { slug: { not: { contains: "test-resale" } } },
-      ],
+      AND: [{ category: { not: "Test" } }],
     };
 
     let items = await prisma.storeItem.findMany({
@@ -240,6 +237,12 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { createdAt: "desc" },
     });
+    // Exclude trial/test-resale slugs (case-insensitive) without using Prisma mode in nested filter
+    items = items.filter(
+      (item) =>
+        !item.slug.toLowerCase().includes("trial") &&
+        !item.slug.toLowerCase().includes("test-resale")
+    );
     const now = new Date();
     const MAX_ALLOW_SALES_DAYS = 14;
     items = items.filter((item) => {

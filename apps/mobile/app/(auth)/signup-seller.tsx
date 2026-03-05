@@ -31,6 +31,7 @@ export default function SignupSellerScreen() {
   const navigation = useNavigation();
   const { refreshMember, member, signOut } = useAuth();
 
+  const [step, setStep] = useState<Step>("account");
   useFocusEffect(
     useCallback(() => {
       if (step === "checkout" && member?.subscriptionPlan === "seller") {
@@ -38,7 +39,6 @@ export default function SignupSellerScreen() {
       }
     }, [step, member?.subscriptionPlan])
   );
-  const [step, setStep] = useState<Step>("account");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");

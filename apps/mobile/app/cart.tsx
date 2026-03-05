@@ -60,6 +60,7 @@ interface CartItem {
     lastName?: string;
     phone?: string;
     deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string };
+    note?: string;
   } | null;
   pickupDetails?: {
     firstName?: string;

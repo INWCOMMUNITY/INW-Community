@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line -- EasyPost SDK types omit optional id
     const boughtShipment = await client.Shipment.buy(easypostShipmentId, { id: rateId } as any);
 
     const postageLabel = boughtShipment.postage_label as { label_url?: string } | undefined;

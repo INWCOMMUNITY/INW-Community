@@ -113,7 +113,8 @@ export default function MessagesInboxScreen() {
     return c.memberA.id === myId ? c.memberB : c.memberA;
   };
 
-  const list = tab === "direct" ? direct : tab === "groups" ? groups : resale;
+  const list: (DirectConversation | ResaleConversation | GroupConversation)[] =
+    tab === "direct" ? direct : tab === "groups" ? groups : resale;
   const isEmpty = list.length === 0;
 
   return (

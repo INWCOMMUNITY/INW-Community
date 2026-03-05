@@ -146,7 +146,7 @@ export default function ResaleConversationScreen() {
                   content: msg.content,
                   createdAt: msg.createdAt,
                   senderId: msg.senderId,
-                  sender: msg.sender,
+                  sender: msg.sender ? { id: msg.senderId, ...msg.sender } : undefined,
                 },
               ],
             }
@@ -297,6 +297,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
     backgroundColor: theme.colors.primary,
   },
+  bubbleThem: {},
   bubbleText: { fontSize: 16, color: theme.colors.heading },
   bubbleTextMe: { color: "#fff" },
   inputRow: {

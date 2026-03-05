@@ -2,7 +2,7 @@
   "name": "types",
   "version": "0.0.0",
   "private": true,
-  "scripts": { "build": "echo no-op" },
+  "scripts": { "build": "echo no-op", "check": "tsc --noEmit" },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "devDependencies": {
