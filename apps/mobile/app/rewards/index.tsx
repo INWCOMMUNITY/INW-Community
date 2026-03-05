@@ -102,12 +102,12 @@ export default function RewardsScreen() {
     setError("");
     try {
       const [top5Data, leader5, leader10, rewardsData] = await Promise.all([
-        apiGet<Top5Config>("/api/rewards/top5").catch(() => ({ enabled: false })),
+        apiGet<Top5Config>("/api/rewards/top5").catch(() => ({ enabled: false, prizes: [] })),
         apiGet<LeaderboardMember[]>("/api/rewards/leaderboard?limit=5").catch(() => []),
         apiGet<LeaderboardMember[]>("/api/rewards/leaderboard?limit=10").catch(() => []),
         apiGet<Reward[]>("/api/rewards").catch(() => []),
       ]);
-      setTop5(top5Data);
+      setTop5(top5Data && typeof top5Data === "object" ? { ...top5Data, prizes: Array.isArray(top5Data.prizes) ? top5Data.prizes : [] } : { enabled: false, prizes: [] });
       setLeaderboard(Array.isArray(leader5) ? leader5 : []);
       setTop10Leaderboard(Array.isArray(leader10) ? leader10 : []);
       setRewards(Array.isArray(rewardsData) ? rewardsData : []);
@@ -349,7 +349,8 @@ export default function RewardsScreen() {
             {showPrizes ? (
               <ScrollView style={styles.prizesList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
-                  const p = top5?.prizes?.find((x: Top5Prize) => x.rank === rank);
+                  const prizesList = Array.isArray(top5?.prizes) ? top5.prizes : [];
+                  const p = prizesList.find((x: Top5Prize) => x.rank === rank);
                   const hasContent = p && (p.label?.trim() || p.imageUrl);
                   return (
                     <View key={rank} style={styles.prizeRow}>
@@ -491,14 +492,15 @@ export default function RewardsScreen() {
             ) : (
               (() => {
                 const q = rewardSearch.trim().toLowerCase();
-                const filtered = q
+                const filtered = (q
                   ? rewards.filter(
                       (r) =>
-                        r.title.toLowerCase().includes(q) ||
-                        (r.description?.toLowerCase().includes(q)) ||
-                        r.business.name.toLowerCase().includes(q)
+                        (r?.title?.toLowerCase().includes(q)) ||
+                        (r?.description?.toLowerCase().includes(q)) ||
+                        (r?.business?.name?.toLowerCase().includes(q) ?? false)
                     )
-                  : rewards;
+                  : rewards
+                ).filter((r): r is Reward => !!r && typeof r.id === "string");
                 return (
                   <FlatList
                     data={filtered}
@@ -544,12 +546,14 @@ export default function RewardsScreen() {
                               <Text style={styles.rewardCardSaveLabel}>{isSaved ? "Saved" : "Save"}</Text>
                             </View>
                           </View>
-                          <Text style={styles.rewardTitleGrid} numberOfLines={2}>{r.title}</Text>
-                          <Pressable onPress={() => openBusiness(r.business.slug)}>
-                            <Text style={[styles.rewardBusinessGrid, { color: theme.colors.primary }]} numberOfLines={1}>
-                              {r.business.name}
-                            </Text>
-                          </Pressable>
+                          <Text style={styles.rewardTitleGrid} numberOfLines={2}>{r.title ?? ""}</Text>
+                          {r.business && (
+                            <Pressable onPress={() => openBusiness(r.business!.slug)}>
+                              <Text style={[styles.rewardBusinessGrid, { color: theme.colors.primary }]} numberOfLines={1}>
+                                {r.business.name}
+                              </Text>
+                            </Pressable>
+                          )}
                           {r.description ? (
                             <>
                               <Pressable

@@ -5,16 +5,21 @@ const now = () => new Date();
 /**
  * Returns the current season id if there is a season whose startDate <= now <= endDate.
  * At most one such season should exist (admin responsibility).
+ * Returns null if the season table does not exist (e.g. migrations not yet run) or on any error.
  */
 export async function getCurrentSeasonId(): Promise<string | null> {
-  const season = await prisma.season.findFirst({
-    where: {
-      startDate: { lte: now() },
-      endDate: { gte: now() },
-    },
-    select: { id: true },
-  });
-  return season?.id ?? null;
+  try {
+    const season = await prisma.season.findFirst({
+      where: {
+        startDate: { lte: now() },
+        endDate: { gte: now() },
+      },
+      select: { id: true },
+    });
+    return season?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

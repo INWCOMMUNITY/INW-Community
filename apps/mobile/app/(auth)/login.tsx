@@ -8,6 +8,7 @@ import {
   Image,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import type { SubscriptionPlan } from "@/lib/auth";
@@ -25,6 +26,7 @@ const PLAN_OPTIONS: {
 
 export default function LoginScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [isSignUp, setIsSignUp] = useState(false);
 
   const handleChoose = (plan: SubscriptionPlan) => {
@@ -49,7 +51,14 @@ export default function LoginScreen() {
   return (
     <ScrollView
       style={styles.scroll}
-      contentContainerStyle={styles.container}
+      contentContainerStyle={[
+        styles.container,
+        {
+          paddingTop: insets.top + 24,
+          paddingBottom: insets.bottom + 32,
+          flexGrow: 1,
+        },
+      ]}
     >
       <View style={styles.header}>
         <Image
@@ -132,18 +141,17 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: "#ffffff" },
   container: {
-    padding: 24,
-    paddingTop: 16,
+    paddingHorizontal: 24,
     alignItems: "center",
   },
   header: {
-    marginBottom: 28,
+    marginBottom: 20,
     alignItems: "center",
   },
   logo: {
-    width: 160,
-    height: 160,
-    marginBottom: 14,
+    width: 140,
+    height: 140,
+    marginBottom: 10,
   },
   welcomeText: {
     fontSize: 14,
@@ -164,7 +172,7 @@ const styles = StyleSheet.create({
   },
   toggle: {
     flexDirection: "row",
-    marginBottom: 32,
+    marginBottom: 20,
     backgroundColor: theme.colors.cream,
     borderRadius: 8,
     padding: 4,
@@ -226,7 +234,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 24,
+    marginTop: 20,
   },
   legalLink: {
     fontSize: 12,
