@@ -1,8 +1,29 @@
+import React, { useEffect } from "react";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { useRouter } from "expo-router";
+import { theme } from "@/lib/theme";
+
 /**
- * Resale Hub "Ship an Item" uses the same in-app EasyPost flow as Seller Hub.
- * Same APIs (store-orders, shipping/status, rates, label); keep ship icon in menu.
+ * Redirect to Seller Hub Ship screen.
  */
-import ShipScreen from "@/app/seller-hub/ship";
-export default function ResaleHubShipScreen() {
-  return <ShipScreen />;
+export default function ResaleHubShipRedirect() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace("/seller-hub/ship" as never);
+  }, [router]);
+
+  return (
+    <View style={styles.center}>
+      <ActivityIndicator size="large" color={theme.colors.primary} />
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+});

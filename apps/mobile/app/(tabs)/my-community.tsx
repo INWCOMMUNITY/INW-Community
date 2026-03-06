@@ -239,12 +239,12 @@ function ResaleHubContent() {
   }[] = [
     {
       label: "List Items",
-      onPress: () => (router.push as (href: string) => void)("/resale-hub/list"),
+      onPress: () => (router.push as (href: string) => void)("/seller-hub/store/new?listingType=resale"),
       icon: "add-circle",
     },
     {
       label: "My Listings",
-      onPress: () => (router.push as (href: string) => void)("/resale-hub/listings"),
+      onPress: () => (router.push as (href: string) => void)("/seller-hub/store/items?listingType=resale"),
       icon: "list",
     },
     {
@@ -255,12 +255,12 @@ function ResaleHubContent() {
     },
     {
       label: "Payouts",
-      onPress: () => (router.push as (href: string) => void)("/resale-hub/payouts"),
+      onPress: () => (router.push as (href: string) => void)("/seller-hub/store/payouts"),
       icon: "wallet",
     },
     {
       label: "Ship Items",
-      onPress: () => (router.push as (href: string) => void)("/resale-hub/ship"),
+      onPress: () => (router.push as (href: string) => void)("/seller-hub/ship"),
       icon: "boat-outline",
     },
     {
@@ -270,7 +270,7 @@ function ResaleHubContent() {
     },
     {
       label: "Deliveries",
-      onPress: () => (router.push as (href: string) => void)("/resale-hub/deliveries"),
+      onPress: () => (router.push as (href: string) => void)("/seller-hub/deliveries"),
       icon: "car-outline",
     },
     {

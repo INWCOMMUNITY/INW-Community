@@ -55,9 +55,10 @@ export default function ListItemScreen() {
   const theme = useTheme();
   const router = useRouter();
   const navigation = useNavigation();
-  const params = useLocalSearchParams<{ draftId?: string; edit?: string }>();
+  const params = useLocalSearchParams<{ draftId?: string; edit?: string; listingType?: string }>();
   const draftId = params.draftId;
   const editId = params.edit?.trim() || undefined;
+  const listingTypeParam = params.listingType === "resale" ? "resale" : "new";
   const placeholderColor = PLACEHOLDER_COLOR;
 
   useLayoutEffect(() => {
@@ -85,7 +86,7 @@ export default function ListItemScreen() {
   const [category, setCategory] = useState("");
   const [priceCents, setPriceCents] = useState("");
   const [quantity, setQuantity] = useState("1");
-  const [listingType, setListingType] = useState<"new" | "resale">("new");
+  const [listingType, setListingType] = useState<"new" | "resale">(listingTypeParam);
   const [shippingDisabled, setShippingDisabled] = useState(false);
   const [shippingCostDollars, setShippingCostDollars] = useState("");
   const [shippingFree, setShippingFree] = useState(false);
@@ -196,6 +197,7 @@ export default function ListItemScreen() {
         pickupTerms: string | null;
         businessId: string | null;
         variants: Variant[];
+        listingType?: "new" | "resale";
         useSellerProfileShipping?: boolean;
         useSellerProfileLocalDelivery?: boolean;
         useSellerProfilePickup?: boolean;
@@ -226,6 +228,7 @@ export default function ListItemScreen() {
           setPickupTerms(item.pickupTerms ?? "");
           setBusinessId(item.businessId ?? null);
           setVariants(Array.isArray(item.variants) ? item.variants : []);
+          if (item.listingType === "resale" || item.listingType === "new") setListingType(item.listingType);
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);

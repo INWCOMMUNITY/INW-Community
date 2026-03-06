@@ -67,16 +67,16 @@ function Section({
 
 const RESALE_HUB_ITEMS: NavItem[] = [
   { href: "/my-badges", label: "My Badges", web: false },
-  { href: "/resale-hub/list", label: "List Items", web: false },
-  { href: "/resale-hub/listings", label: "My Listings", web: false },
+  { href: "/seller-hub/store/new?listingType=resale", label: "List Items", web: false },
+  { href: "/seller-hub/store/items?listingType=resale", label: "My Listings", web: false },
   { href: "/seller-hub/store/sold", label: "Sold Items", web: false },
   { href: "/messages?tab=resale", label: "Resale Conversations", web: false },
-  { href: "/resale-hub/payouts", label: "Payouts", web: false },
-  { href: "/resale-hub/ship", label: "Ship an Item", web: false },
-  { href: "/resale-hub/deliveries", label: "My Deliveries", web: false },
+  { href: "/seller-hub/store/payouts", label: "Payouts", web: false },
+  { href: "/seller-hub/ship", label: "Ship an Item", web: false },
+  { href: "/seller-hub/deliveries", label: "My Deliveries", web: false },
   { href: "/resale-hub/pickups", label: "My Pickups", web: false },
-  { href: "/resale-hub/offers", label: "New Offers", web: false },
-  { href: "/resale-hub/cancellations", label: "Cancellations", web: false },
+  { href: "/seller-hub/offers", label: "New Offers", web: false },
+  { href: "/seller-hub/store/cancellations", label: "Cancellations", web: false },
   { href: "/policies", label: "Policies", web: false },
 ];
 

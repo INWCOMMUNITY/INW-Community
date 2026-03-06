@@ -83,22 +83,12 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
-  const [showDeliveries, setShowDeliveries] = useState(false);
   const [pendingShip, setPendingShip] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
-    apiGet<{ localDeliveryAvailable?: boolean }[] | { error?: string }>(
-      "/api/store-items?mine=1"
-    )
-      .then((data) => {
-        const items = Array.isArray(data) ? data : [];
-        setShowDeliveries(items.some((i) => i.localDeliveryAvailable === true));
-      })
-      .catch(() => setShowDeliveries(false));
-
     apiGet<{
       pendingShip?: number;
       pendingReturns?: number;
@@ -115,7 +105,8 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
     { href: "/seller-hub/store/sold", label: "Sold Items" },
     { href: "/seller-hub/store/drafts", label: "Drafts" },
     { href: "/seller-hub/orders", label: "My Orders" },
-    ...(showDeliveries ? [{ href: "/seller-hub/deliveries", label: "My Deliveries" }] : []),
+    { href: "/seller-hub/deliveries", label: "My Deliveries" },
+    { href: "/seller-hub/pickups", label: "My Pickups" },
     { href: "/seller-hub/store/payouts", label: "My Funds", alert: payoutReady },
   ];
 

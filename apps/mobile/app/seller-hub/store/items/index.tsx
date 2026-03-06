@@ -11,7 +11,7 @@ import {
   Alert,
   Modal,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
@@ -41,6 +41,8 @@ function formatPrice(cents: number): string {
 
 export default function MyItemsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ listingType?: string }>();
+  const listingType = params.listingType === "resale" ? "resale" : undefined;
   const [items, setItems] = useState<StoreItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -49,10 +51,14 @@ export default function MyItemsScreen() {
   const [actingId, setActingId] = useState<string | null>(null);
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
 
-  const load = () => {
+  const itemsUrl = listingType
+    ? "/api/store-items?mine=1&listingType=resale"
+    : "/api/store-items?mine=1";
+
+  const load = useCallback(() => {
     setFetchError(null);
     Promise.allSettled([
-      apiGet<StoreItem[] | { error: string }>("/api/store-items?mine=1"),
+      apiGet<StoreItem[] | { error: string }>(itemsUrl),
       apiGet<ConnectStatus | { error: string }>("/api/stripe/connect/status"),
     ])
       .then(([itemsResult, statusResult]) => {
@@ -94,11 +100,11 @@ export default function MyItemsScreen() {
         setLoading(false);
         setRefreshing(false);
       });
-  };
+  }, [itemsUrl]);
 
   useFocusEffect(useCallback(() => {
     load();
-  }, []));
+  }, [load]));
 
   const handleOnboard = async () => {
     try {

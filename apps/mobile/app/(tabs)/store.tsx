@@ -195,7 +195,7 @@ export default function StoreScreen() {
       );
       return;
     }
-    (router.push as (href: string) => void)("/resale-hub/list");
+    (router.push as (href: string) => void)("/seller-hub/store/new?listingType=resale");
   };
 
   const resolvePhotoUrl = (path: string | undefined): string | undefined => {
