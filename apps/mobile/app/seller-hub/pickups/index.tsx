@@ -6,6 +6,7 @@ import {
   FlatList,
   ActivityIndicator,
   Pressable,
+  Image,
   RefreshControl,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -16,12 +17,19 @@ import { apiGet } from "@/lib/api";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
+interface OrderItemType {
+  id: string;
+  quantity: number;
+  storeItem: { id: string; title: string; slug: string; photos: string[] };
+}
+
 interface StoreOrder {
   id: string;
   status: string;
   totalCents: number;
   createdAt: string;
   buyer?: { firstName: string; lastName: string };
+  items?: OrderItemType[];
 }
 
 function formatPrice(cents: number): string {
@@ -34,6 +42,11 @@ function formatDate(s: string): string {
   } catch {
     return s;
   }
+}
+
+function resolvePhotoUrl(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
 export default function SellerHubPickupsScreen() {
@@ -75,26 +88,48 @@ export default function SellerHubPickupsScreen() {
         }
         contentContainerStyle={styles.list}
         ListEmptyComponent={<Text style={styles.empty}>No pickup orders right now.</Text>}
-        renderItem={({ item }) => (
-          <Pressable
-            style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
-            onPress={() =>
-              router.push(
-                `/web?url=${encodeURIComponent(`${siteBase}/seller-hub/pickups`)}&title=${encodeURIComponent("My Pickups")}` as never
-              )
-            }
-          >
-            <View style={styles.cardRow}>
-              <Text style={styles.orderId}>#{item.id.slice(0, 8)}</Text>
-              <Text style={styles.status}>{item.status}</Text>
-            </View>
-            <Text style={styles.buyer}>
-              {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
-            </Text>
-            <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
-            <Text style={styles.total}>{formatPrice(item.totalCents)}</Text>
-          </Pressable>
-        )}
+        renderItem={({ item }) => {
+          const items = item.items ?? [];
+          return (
+            <Pressable
+              style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
+              onPress={() =>
+                router.push(
+                  `/web?url=${encodeURIComponent(`${siteBase}/seller-hub/pickups`)}&title=${encodeURIComponent("My Pickups")}` as never
+                )
+              }
+            >
+              <View style={styles.cardRow}>
+                <Text style={styles.orderId}>#{item.id.slice(0, 8)}</Text>
+                <Text style={styles.status}>{item.status}</Text>
+              </View>
+              <Text style={styles.buyer}>
+                {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
+              </Text>
+              <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
+              <Text style={styles.total}>{formatPrice(item.totalCents)}</Text>
+              {items.length > 0 && (
+                <View style={styles.itemsRow}>
+                  {items.map((oi) => {
+                    const photoUrl = resolvePhotoUrl(oi.storeItem?.photos?.[0]);
+                    return (
+                      <View key={oi.id} style={styles.itemChip}>
+                        {photoUrl ? (
+                          <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
+                        ) : (
+                          <View style={[styles.itemThumb, styles.itemThumbPlaceholder]} />
+                        )}
+                        <Text style={styles.itemTitle} numberOfLines={1}>
+                          {oi.storeItem?.title ?? "Item"} × {oi.quantity}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </Pressable>
+          );
+        }}
       />
     </View>
   );
@@ -113,4 +148,9 @@ const styles = StyleSheet.create({
   buyer: { fontSize: 14, color: "#444", marginTop: 8 },
   date: { fontSize: 12, color: "#888", marginTop: 4 },
   total: { fontSize: 16, fontWeight: "600", color: theme.colors.primary, marginTop: 8 },
+  itemsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  itemChip: { flexDirection: "row", alignItems: "center", gap: 6 },
+  itemThumb: { width: 36, height: 36, borderRadius: 6 },
+  itemThumbPlaceholder: { backgroundColor: "#ddd" },
+  itemTitle: { fontSize: 12, color: "#555", maxWidth: 120 },
 });

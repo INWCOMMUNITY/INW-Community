@@ -166,6 +166,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
   const communityItems: NavItem[] = [
     { href: "/messages", label: "Inbox", badgeCount: unreadMessages || undefined },
     { href: "/community/my-friends", label: "My Friends" },
+    { href: "/community/friend-requests", label: "Friend Requests" },
     { href: "/community/invites", label: "My Invites" },
     { href: "/saved-posts", label: "My Saved Posts" },
     { href: "/community/groups", label: "My Groups" },
@@ -179,7 +180,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     { href: "/my-sellers", label: "My Sellers" },
     { href: "/profile-wishlist", label: "My Wishlist" },
     { href: "/rewards/my-rewards", label: "My Rewards" },
-    { href: "/seller-hub/orders", label: "My Orders" },
+    { href: "/community/my-orders", label: "My Orders" },
   ];
 
   const profileItems: NavItem[] = [

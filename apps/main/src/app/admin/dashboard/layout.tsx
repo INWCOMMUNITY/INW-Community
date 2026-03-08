@@ -14,6 +14,7 @@ const SIDEBAR_SECTIONS = [
     divider: "NW Community",
     items: [
       { href: "/admin/dashboard/members", label: "Members" },
+      { href: "/admin/dashboard/mailing-list", label: "Mailing list" },
       { href: "/admin/dashboard/subscriptions", label: "Subscriptions" },
       { href: "/admin/dashboard/sponsors", label: "Sponsors" },
       { href: "/admin/dashboard/businesses", label: "Businesses" },

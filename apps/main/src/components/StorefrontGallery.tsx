@@ -307,6 +307,7 @@ export function StorefrontGallery({
     if (search) params.set("search", search);
     if (deliveryFilter === "local") params.set("localDelivery", "1");
     if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
+    params.set("_", String(Date.now()));
     fetch(`/api/store-items?${params}`)
       .then(async (r) => {
         const d = await r.json().catch(() => ({}));

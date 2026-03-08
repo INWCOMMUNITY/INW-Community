@@ -576,8 +576,6 @@ export default function ListItemScreen() {
       </View>
     </Modal>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {error && <Text style={styles.err}>{error}</Text>}
-
       <View style={styles.typeRow}>
         <Text style={styles.label}>Listing type</Text>
         <View style={styles.typeBtns}>
@@ -1081,6 +1079,12 @@ export default function ListItemScreen() {
         </>
       )}
 
+      {error && (
+        <View style={styles.errorWrap}>
+          <Text style={styles.err}>{error}</Text>
+        </View>
+      )}
+
       <Pressable
         style={({ pressed }) => [
           styles.submitBtn,
@@ -1192,7 +1196,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  err: { color: "#c62828", marginBottom: 16, fontSize: 14 },
+  errorWrap: { marginTop: 8, marginBottom: 16 },
+  err: { color: "#c62828", marginBottom: 0, fontSize: 14 },
   label: { fontSize: 14, fontWeight: "600", marginBottom: 8, color: "#000" },
   hint: { fontSize: 12, color: defaultTheme.colors.labelMuted, marginBottom: 12 },
   input: {

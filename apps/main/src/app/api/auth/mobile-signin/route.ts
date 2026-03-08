@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
     const effectivePlan = subscriptionPlan ?? (sub ? "subscribe" : null);
 
     try {
+      // Only update lastLogin; never overwrite profile fields (firstName, lastName, bio, etc.)
       await prisma.member.update({
         where: { id: member.id },
         data: { lastLogin: new Date() },

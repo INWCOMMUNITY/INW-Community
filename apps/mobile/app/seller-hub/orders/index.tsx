@@ -7,11 +7,20 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
+  Image,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
+const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+function resolvePhotoUrl(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
 
 interface StoreOrder {
   id: string;
@@ -19,7 +28,7 @@ interface StoreOrder {
   totalCents: number;
   createdAt: string;
   buyer?: { firstName: string; lastName: string };
-  items?: { quantity: number; storeItem?: { title: string } }[];
+  items?: { quantity: number; storeItem?: { title: string; photos?: string[] } }[];
 }
 
 function formatPrice(cents: number): string {
@@ -101,10 +110,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
   },
-  cardRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  cardRow: { flexDirection: "row", alignItems: "center" },
+  cardThumb: { width: 48, height: 48, borderRadius: 8, marginRight: 12 },
+  cardThumbPlaceholder: { backgroundColor: "#ddd" },
+  cardBody: { flex: 1 },
+  cardRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   orderId: { fontSize: 14, fontWeight: "600", color: "#333" },
   status: { fontSize: 12, color: "#666", textTransform: "capitalize" },
-  buyer: { fontSize: 14, color: "#444", marginTop: 8 },
-  date: { fontSize: 12, color: "#888", marginTop: 4 },
-  total: { fontSize: 16, fontWeight: "600", color: theme.colors.primary, marginTop: 8 },
+  buyer: { fontSize: 14, color: "#444", marginTop: 4 },
+  date: { fontSize: 12, color: "#888", marginTop: 2 },
+  total: { fontSize: 16, fontWeight: "600", color: theme.colors.primary, marginTop: 4 },
 });

@@ -167,6 +167,16 @@ export async function POST(req: NextRequest) {
         where: { id: oi.storeItemId },
         data: { quantity: { decrement: oi.quantity } },
       });
+      const updated = await prisma.storeItem.findUnique({
+        where: { id: oi.storeItemId },
+        select: { quantity: true },
+      });
+      if (updated && updated.quantity <= 0) {
+        await prisma.storeItem.update({
+          where: { id: oi.storeItemId },
+          data: { status: "sold_out" },
+        });
+      }
     }
     const { sendPushNotification } = await import("@/lib/send-push-notification");
     sendPushNotification(sellerId, {

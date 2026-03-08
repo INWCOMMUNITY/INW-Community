@@ -981,7 +981,7 @@ export default function MyCommunityScreen() {
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
-            onPress={() => (router.push as (href: string) => void)("/seller-hub/orders")}
+            onPress={() => (router.push as (href: string) => void)("/community/my-orders")}
           >
             <Ionicons name="receipt" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Orders</ThemedText>

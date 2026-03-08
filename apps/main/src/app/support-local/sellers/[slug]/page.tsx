@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
@@ -9,6 +10,31 @@ import { FollowBusinessButton } from "./FollowBusinessButton";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const business = await prisma.business.findFirst({
+    where: isCuid(slug) ? { id: slug } : { slug },
+    select: { name: true, shortDescription: true, logoUrl: true },
+  });
+  if (!business) return { title: "Business | Northwest Community" };
+  const title = `${business.name} | Northwest Community`;
+  const description =
+    business.shortDescription ?? `Shop local at ${business.name} on Northwest Community.`;
+  const images = business.logoUrl
+    ? [{ url: business.logoUrl, width: 512, height: 512, alt: business.name }]
+    : undefined;
+  return {
+    title,
+    description,
+    openGraph: { title, description, images },
+    twitter: { card: "summary", title, description, images: business.logoUrl ? [business.logoUrl] : undefined },
+  };
 }
 
 export default async function SellerStorefrontPage({

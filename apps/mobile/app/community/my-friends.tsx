@@ -14,7 +14,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost, apiPatch } from "@/lib/api";
 
 interface Friend {
   id: string;
@@ -28,52 +28,195 @@ interface SuggestedFriend extends Friend {
   mutualCount: number;
 }
 
+type FriendStatus = "none" | "friends" | "pending_outgoing" | "pending_incoming";
+
+interface FriendData {
+  friends: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null }[];
+  incoming: { id: string; requester: Friend }[];
+  outgoing: { id: string; addressee: Friend }[];
+}
+
+function getFriendStatus(memberId: string, friendData: FriendData | null): FriendStatus {
+  if (!friendData) return "none";
+  if (friendData.friends.some((f) => f.id === memberId)) return "friends";
+  if (friendData.outgoing.some((r) => r.addressee?.id === memberId)) return "pending_outgoing";
+  if (friendData.incoming.some((r) => r.requester?.id === memberId)) return "pending_incoming";
+  return "none";
+}
+
+function getIncomingRequestId(memberId: string, friendData: FriendData | null): string | null {
+  if (!friendData) return null;
+  const req = friendData.incoming.find((r) => r.requester?.id === memberId);
+  return req?.id ?? null;
+}
+
+function MemberCard({
+  member,
+  status,
+  incomingRequestId,
+  onAddFriend,
+  onAccept,
+  onRefresh,
+  router,
+}: {
+  member: Friend;
+  status: FriendStatus;
+  incomingRequestId: string | null;
+  onAddFriend: (memberId: string) => Promise<void>;
+  onAccept: (requestId: string) => Promise<void>;
+  onRefresh: () => void;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const [loading, setLoading] = useState(false);
+  const base = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
+
+  const handleAction = async () => {
+    if (status === "friends" || status === "pending_outgoing") return;
+    setLoading(true);
+    try {
+      if (status === "pending_incoming" && incomingRequestId) {
+        await onAccept(incomingRequestId);
+      } else {
+        await onAddFriend(member.id);
+      }
+      onRefresh();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.friendCard, pressed && styles.buttonPressed]}
+      onPress={() =>
+        (router.push as (href: string) => void)(
+          `/web?url=${encodeURIComponent(`${base}/members/${member.id}`)}&title=Profile`
+        )
+      }
+    >
+      {member.profilePhotoUrl ? (
+        <Image source={{ uri: member.profilePhotoUrl }} style={styles.avatar} />
+      ) : (
+        <View style={styles.avatarPlaceholder}>
+          <Text style={styles.avatarText}>
+            {member.firstName?.[0]}
+            {member.lastName?.[0]}
+          </Text>
+        </View>
+      )}
+      <View style={styles.friendInfo}>
+        <Text style={styles.friendName}>
+          {member.firstName} {member.lastName}
+        </Text>
+        {member.city && <Text style={styles.friendCity}>{member.city}</Text>}
+      </View>
+      <View style={styles.actionWrap}>
+        {status === "friends" && <Text style={styles.statusLabel}>Friends</Text>}
+        {status === "pending_outgoing" && <Text style={styles.statusLabel}>Request sent</Text>}
+        {(status === "none" || status === "pending_incoming") && (
+          <Pressable
+            style={({ pressed }) => [styles.addFriendBtn, pressed && styles.buttonPressed, loading && styles.addFriendBtnDisabled]}
+            onPress={(e) => {
+              e.stopPropagation();
+              handleAction();
+            }}
+            disabled={loading}
+          >
+            <Text style={styles.addFriendBtnText}>
+              {loading ? "…" : status === "pending_incoming" ? "Accept" : "Add Friend"}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+      <Ionicons name="chevron-forward" size={20} color="#999" />
+    </Pressable>
+  );
+}
+
 export default function MyFriendsScreen() {
   const router = useRouter();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [suggested, setSuggested] = useState<SuggestedFriend[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Friend[]>([]);
+  const [browseMembers, setBrowseMembers] = useState<Friend[]>([]);
+  const [friendData, setFriendData] = useState<FriendData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [browseLoading, setBrowseLoading] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [friendsRes, suggestedRes] = await Promise.all([
+      const [friendsRes, suggestedRes, requestsRes] = await Promise.all([
         apiGet<{ friends: Friend[] }>("/api/me/friends"),
         apiGet<{ suggested: SuggestedFriend[] }>("/api/me/suggested-friends"),
+        apiGet<FriendData>("/api/friend-requests"),
       ]);
       setFriends(friendsRes?.friends ?? []);
       setSuggested(suggestedRes?.suggested ?? []);
+      setFriendData(requestsRes ?? null);
+      setBrowseLoading(true);
+      apiGet<{ members: Friend[] }>("/api/members?limit=50")
+        .then((d) => setBrowseMembers(d?.members ?? []))
+        .catch(() => setBrowseMembers([]))
+        .finally(() => setBrowseLoading(false));
     } catch {
       setFriends([]);
       setSuggested([]);
+      setFriendData(null);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
     load();
   };
 
-  const searchMembers = async () => {
-    if (!searchQuery.trim()) return;
+  const searchMembers = useCallback(async () => {
+    const q = searchQuery.trim();
+    if (!q || q.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
     try {
       const data = await apiGet<{ members: Friend[] }>(
-        `/api/members/search?q=${encodeURIComponent(searchQuery.trim())}`
+        `/api/members?q=${encodeURIComponent(q)}&limit=30`
       );
       setSearchResults(data?.members ?? []);
     } catch {
       setSearchResults([]);
+    } finally {
+      setSearching(false);
     }
-  };
+  }, [searchQuery]);
 
-  const hasSearchApi = false; // Add /api/members/search if needed
+  const addFriend = useCallback(async (addresseeId: string) => {
+    await apiPost("/api/friend-requests", { addresseeId });
+  }, []);
+
+  const acceptRequest = useCallback(async (requestId: string) => {
+    await apiPatch(`/api/friend-requests/${requestId}`, { status: "accepted" });
+  }, []);
+
+  const refreshFriendData = useCallback(async () => {
+    try {
+      const data = await apiGet<FriendData>("/api/friend-requests");
+      setFriendData(data ?? null);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   return (
     <ScrollView
@@ -97,12 +240,14 @@ export default function MyFriendsScreen() {
             style={({ pressed }) => [styles.searchBtn, pressed && styles.buttonPressed]}
             onPress={searchMembers}
           >
-            <Ionicons name="search" size={22} color="#fff" />
+            {searching ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="search" size={22} color="#fff" />
+            )}
           </Pressable>
         </View>
-        {!hasSearchApi && (
-          <Text style={styles.hint}>Search coming soon. Browse your friends and suggested friends below.</Text>
-        )}
+        <Text style={styles.hint}>Search by name (2+ characters) or browse below.</Text>
       </View>
 
       {loading ? (
@@ -111,45 +256,73 @@ export default function MyFriendsScreen() {
         </View>
       ) : (
         <>
-          {suggested.length > 0 && (
+          {searchResults.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Recommended (mutual friends)</Text>
-              {suggested.map((s) => (
-                <Pressable
-                  key={s.id}
-                  style={({ pressed }) => [styles.friendCard, pressed && styles.buttonPressed]}
-                  onPress={() => {
-                    const base = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
-                    (router.push as (href: string) => void)(`/web?url=${encodeURIComponent(`${base}/members/${s.id}`)}&title=Profile`);
-                  }}
-                >
-                  {s.profilePhotoUrl ? (
-                    <Image source={{ uri: s.profilePhotoUrl }} style={styles.avatar} />
-                  ) : (
-                    <View style={styles.avatarPlaceholder}>
-                      <Text style={styles.avatarText}>
-                        {s.firstName?.[0]}{s.lastName?.[0]}
-                      </Text>
-                    </View>
-                  )}
-                  <View style={styles.friendInfo}>
-                    <Text style={styles.friendName}>
-                      {s.firstName} {s.lastName}
-                    </Text>
-                    {s.city && <Text style={styles.friendCity}>{s.city}</Text>}
-                    <Text style={styles.mutualText}>{s.mutualCount} mutual friend{s.mutualCount !== 1 ? "s" : ""}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color="#999" />
-                </Pressable>
+              <Text style={styles.sectionTitle}>Search results</Text>
+              {searchResults.map((m) => (
+                <MemberCard
+                  key={m.id}
+                  member={m}
+                  status={getFriendStatus(m.id, friendData)}
+                  incomingRequestId={getIncomingRequestId(m.id, friendData)}
+                  onAddFriend={addFriend}
+                  onAccept={acceptRequest}
+                  onRefresh={refreshFriendData}
+                  router={router}
+                />
               ))}
             </View>
+          )}
+
+          {!searchQuery.trim() && (
+            <>
+              {browseLoading ? (
+                <View style={styles.center}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                </View>
+              ) : browseMembers.length > 0 && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Browse members</Text>
+                  {browseMembers.map((m) => (
+                    <MemberCard
+                      key={m.id}
+                      member={m}
+                      status={getFriendStatus(m.id, friendData)}
+                      incomingRequestId={getIncomingRequestId(m.id, friendData)}
+                      onAddFriend={addFriend}
+                      onAccept={acceptRequest}
+                      onRefresh={refreshFriendData}
+                      router={router}
+                    />
+                  ))}
+                </View>
+              )}
+
+              {suggested.length > 0 && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Recommended (mutual friends)</Text>
+                  {suggested.map((s) => (
+                    <MemberCard
+                      key={s.id}
+                      member={s}
+                      status={getFriendStatus(s.id, friendData)}
+                      incomingRequestId={getIncomingRequestId(s.id, friendData)}
+                      onAddFriend={addFriend}
+                      onAccept={acceptRequest}
+                      onRefresh={refreshFriendData}
+                      router={router}
+                    />
+                  ))}
+                </View>
+              )}
+            </>
           )}
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>My Friends ({friends.length})</Text>
             {friends.length === 0 ? (
               <Text style={styles.emptyText}>
-                No friends yet. Discover members above or invite friends from Profile.
+                No friends yet. Search or browse members above to add friends.
               </Text>
             ) : (
               friends.map((f) => (
@@ -157,8 +330,12 @@ export default function MyFriendsScreen() {
                   key={f.id}
                   style={({ pressed }) => [styles.friendCard, pressed && styles.buttonPressed]}
                   onPress={() => {
-                    const base = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
-                    (router.push as (href: string) => void)(`/web?url=${encodeURIComponent(`${base}/members/${f.id}`)}&title=Profile`);
+                    const base =
+                      process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") ||
+                      "https://www.inwcommunity.com";
+                    (router.push as (href: string) => void)(
+                      `/web?url=${encodeURIComponent(`${base}/members/${f.id}`)}&title=Profile`
+                    );
                   }}
                 >
                   {f.profilePhotoUrl ? (
@@ -166,7 +343,8 @@ export default function MyFriendsScreen() {
                   ) : (
                     <View style={styles.avatarPlaceholder}>
                       <Text style={styles.avatarText}>
-                        {f.firstName?.[0]}{f.lastName?.[0]}
+                        {f.firstName?.[0]}
+                        {f.lastName?.[0]}
                       </Text>
                     </View>
                   )}
@@ -190,7 +368,7 @@ export default function MyFriendsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 16, paddingBottom: 40 },
-  center: { paddingVertical: 48, alignItems: "center" },
+  center: { paddingVertical: 24, alignItems: "center" },
   searchSection: { marginBottom: 24 },
   section: { marginBottom: 24 },
   sectionTitle: {
@@ -214,6 +392,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     justifyContent: "center",
+    minWidth: 48,
   },
   hint: { fontSize: 12, color: "#666", marginTop: 8 },
   buttonPressed: { opacity: 0.8 },
@@ -240,6 +419,16 @@ const styles = StyleSheet.create({
   friendInfo: { flex: 1, marginLeft: 12 },
   friendName: { fontSize: 16, fontWeight: "600", color: "#333" },
   friendCity: { fontSize: 13, color: "#666", marginTop: 2 },
-  mutualText: { fontSize: 12, color: theme.colors.primary, marginTop: 2 },
+  actionWrap: { marginRight: 8 },
+  statusLabel: { fontSize: 12, color: "#666" },
+  addFriendBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+  },
+  addFriendBtnDisabled: { opacity: 0.7 },
+  addFriendBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  mutualHint: { fontSize: 11, color: "#888", marginTop: 4 },
   emptyText: { fontSize: 14, color: "#888", marginTop: 8 },
 });

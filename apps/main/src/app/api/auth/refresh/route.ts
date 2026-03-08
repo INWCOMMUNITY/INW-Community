@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Only update lastLogin; never overwrite profile fields
     await prisma.member.update({
       where: { id },
       data: { lastLogin: new Date() },

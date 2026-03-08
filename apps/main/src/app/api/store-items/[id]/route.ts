@@ -91,6 +91,17 @@ export async function PATCH(
     }
   }
 
+  const member = await prisma.member.findUnique({
+    where: { id: session.user.id },
+    select: { stripeConnectAccountId: true, easypostApiKeyEncrypted: true },
+  });
+  if (!member?.stripeConnectAccountId?.trim()) {
+    return NextResponse.json(
+      { error: "You must complete Stripe Connect setup (payment account) before listing items. Go to Seller Hub → Payouts to set up." },
+      { status: 403 }
+    );
+  }
+
   if (data.businessId !== undefined && data.businessId) {
     const biz = await prisma.business.findFirst({
       where: { id: data.businessId, memberId: session.user.id },
@@ -106,6 +117,29 @@ export async function PATCH(
   if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
     return NextResponse.json(
       { error: "When 'only local delivery/pickup' is on, enable at least local delivery or pickup." },
+      { status: 400 }
+    );
+  }
+
+  if (!shippingDisabled && !member?.easypostApiKeyEncrypted) {
+    return NextResponse.json(
+      { error: "You must set up Easy Ship (shipping) before offering shipping on listings. Connect your shipping account in Seller Hub." },
+      { status: 403 }
+    );
+  }
+
+  const shippingPolicy = data.shippingPolicy !== undefined ? data.shippingPolicy : existing.shippingPolicy;
+  if (!shippingDisabled && (!shippingPolicy || !String(shippingPolicy).trim())) {
+    return NextResponse.json(
+      { error: "Shipping policy is required when you offer shipping." },
+      { status: 400 }
+    );
+  }
+
+  const pickupTerms = data.pickupTerms !== undefined ? data.pickupTerms : existing.pickupTerms;
+  if (inStorePickupAvailable && (!pickupTerms || !String(pickupTerms).trim())) {
+    return NextResponse.json(
+      { error: "Pickup terms are required when you offer local pickup." },
       { status: 400 }
     );
   }

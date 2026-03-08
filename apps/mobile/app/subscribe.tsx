@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -12,11 +12,11 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { getToken } from "@/lib/api";
+import { getToken, API_BASE } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
+const siteBase = API_URL.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const PLANS = [
   {
@@ -78,6 +78,7 @@ export default function SubscribeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { member, loading: authLoading } = useAuth();
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +94,41 @@ export default function SubscribeScreen() {
       cancelled = true;
     };
   }, [router]);
+
+  const startCheckout = async (planId: string, interval: "monthly" | "yearly" = "monthly") => {
+    setCheckoutLoading(planId);
+    try {
+      const token = await getToken();
+      if (!token) {
+        router.replace({ pathname: "/signin", params: { plan: planId, returnTo: "/subscribe" } } as never);
+        return;
+      }
+      const res = await fetch(`${API_BASE}/api/stripe/checkout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ planId, interval }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (data.url) {
+        router.push(
+          `/web?url=${encodeURIComponent(data.url)}&title=${encodeURIComponent("Checkout")}` as import("expo-router").Href
+        );
+        return;
+      }
+      if (res.status === 401) {
+        router.replace({ pathname: "/signin", params: { returnTo: "/subscribe" } } as never);
+        return;
+      }
+      alert(data.error ?? "Could not start checkout. Please try again.");
+    } catch {
+      alert("Something went wrong. Please try again.");
+    } finally {
+      setCheckoutLoading(null);
+    }
+  };
 
   if (authLoading) {
     return (
@@ -155,19 +191,36 @@ export default function SubscribeScreen() {
                   <Text style={styles.activeBadgeText}>Current Plan</Text>
                 </View>
               ) : (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.learnMoreBtn,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                  onPress={() =>
-                    router.push(
-                      `/web?url=${encodeURIComponent(siteBase + plan.webPath)}&title=${encodeURIComponent(plan.name)}` as import("expo-router").Href
-                    )
-                  }
-                >
-                  <Text style={styles.learnMoreText}>Learn More</Text>
-                </Pressable>
+                <>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.learnMoreBtn,
+                      pressed && { opacity: 0.8 },
+                    ]}
+                    onPress={() =>
+                      router.push(
+                        `/web?url=${encodeURIComponent(siteBase + plan.webPath)}&title=${encodeURIComponent(plan.name)}` as import("expo-router").Href
+                      )
+                    }
+                  >
+                    <Text style={styles.learnMoreText}>Learn More</Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.subscribeBtn,
+                      pressed && { opacity: 0.8 },
+                      checkoutLoading === plan.id && styles.subscribeBtnDisabled,
+                    ]}
+                    onPress={() => startCheckout(plan.id)}
+                    disabled={checkoutLoading !== null}
+                  >
+                    {checkoutLoading === plan.id ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.subscribeBtnText}>Subscribe</Text>
+                    )}
+                  </Pressable>
+                </>
               )}
             </View>
           );
@@ -265,8 +318,23 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",
+    marginBottom: 10,
   },
   learnMoreText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  subscribeBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#000",
+  },
+  subscribeBtnDisabled: { opacity: 0.7 },
+  subscribeBtnText: {
     color: "#fff",
     fontSize: 15,
     fontWeight: "600",

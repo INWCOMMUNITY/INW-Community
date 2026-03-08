@@ -11,10 +11,24 @@ import { ThemeLoader } from "@/components/ThemeLoader";
 
 const fahkwang = Fahkwang({ weight: ["400", "500", "600", "700"], subsets: ["latin"], display: "swap", variable: "--font-fahkwang" });
 
+const baseUrl = process.env.NEXTAUTH_URL ?? "https://inwcommunity.com";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(baseUrl),
   title: "Northwest Community",
   description: "Connecting the good people of Spokane & Kootenai County",
   icons: { icon: "/nwc-logo-circle.png" },
+  openGraph: {
+    title: "Northwest Community",
+    description: "Connecting the good people of Spokane & Kootenai County",
+    images: [{ url: "/nwc-logo-circle.png", width: 512, height: 512, alt: "Northwest Community" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "Northwest Community",
+    description: "Connecting the good people of Spokane & Kootenai County",
+    images: ["/nwc-logo-circle.png"],
+  },
 };
 
 export const viewport: Viewport = {

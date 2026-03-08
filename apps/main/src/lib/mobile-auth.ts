@@ -75,6 +75,7 @@ export async function getSessionForApi(
     const payload = await verifyMobileToken(bearer);
     if (payload) {
       const { prisma } = await import("database");
+      // Only update lastLogin for sliding session; never overwrite profile fields
       prisma.member
         .update({ where: { id: payload.id }, data: { lastLogin: new Date() } })
         .catch(() => {});

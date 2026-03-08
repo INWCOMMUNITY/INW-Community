@@ -7,6 +7,7 @@ import {
   Pressable,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
@@ -20,13 +21,21 @@ interface LocalDeliveryDetails {
   note?: string;
 }
 
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
+const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+function resolvePhotoUrl(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
 interface OrderWithDelivery {
   id: string;
   createdAt: string;
   totalCents: number;
   localDeliveryDetails: LocalDeliveryDetails | null;
   deliveryConfirmedAt: string | null;
-  items: { storeItem: { title: string }; quantity: number }[];
+  items: { id?: string; storeItem: { title: string; photos?: string[] }; quantity: number }[];
 }
 
 function formatAddr(d: LocalDeliveryDetails | null): string {
@@ -134,9 +143,23 @@ export default function DeliveriesScreen() {
                       </>
                     )}
                     <Text style={styles.label}>Items</Text>
-                    <Text style={styles.value}>
-                      {o.items.map((i) => `${i.storeItem.title} × ${i.quantity}`).join(", ")}
-                    </Text>
+                    <View style={styles.itemsRow}>
+                      {o.items.map((i, idx) => {
+                        const photoUrl = resolvePhotoUrl(i.storeItem?.photos?.[0]);
+                        return (
+                          <View key={i.id ?? `item-${idx}`} style={styles.itemRow}>
+                            {photoUrl ? (
+                              <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
+                            ) : (
+                              <View style={[styles.itemThumb, styles.itemThumbPlaceholder]} />
+                            )}
+                            <Text style={styles.itemText}>
+                              {i.storeItem?.title} × {i.quantity}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
                     <Pressable
                       style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
                       onPress={() => markDelivered(o.id)}
@@ -233,4 +256,9 @@ const styles = StyleSheet.create({
   btnText: { color: "#fff", fontWeight: "600" },
   toggle: { marginBottom: 12 },
   toggleText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },
+  itemsRow: { marginTop: 4 },
+  itemRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
+  itemThumb: { width: 32, height: 32, borderRadius: 6 },
+  itemThumbPlaceholder: { backgroundColor: "#ddd" },
+  itemText: { fontSize: 14, color: "#333", flex: 1 },
 });
