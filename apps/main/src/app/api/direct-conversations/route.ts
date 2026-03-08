@@ -134,6 +134,18 @@ export async function POST(req: NextRequest) {
       where: { id: conversation.id },
       data: { updatedAt: new Date() },
     });
+    const otherId =
+      conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
+    const pushBody =
+      contentTrimmed.length > 0
+        ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+        : "New message";
+    const { sendPushNotification } = await import("@/lib/send-push-notification");
+    sendPushNotification(otherId, {
+      title: "New message",
+      body: pushBody,
+      data: { screen: "messages", conversationId: conversation.id },
+    }).catch(() => {});
     conversation = await prisma.directConversation.findUnique({
       where: { id: conversation.id },
       include: {

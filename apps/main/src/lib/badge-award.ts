@@ -166,6 +166,15 @@ async function ensureMemberBadgeWithInfo(memberId: string, badgeSlug: string): P
   if (!badge) return null;
   const awarded = await ensureMemberBadge(memberId, badgeSlug);
   if (!awarded) return null;
+  import("@/lib/send-push-notification")
+    .then(({ sendPushNotification }) =>
+      sendPushNotification(memberId, {
+        title: "Badge earned",
+        body: `You earned the ${badge.name} badge!`,
+        data: { screen: "my-badges" },
+      })
+    )
+    .catch(() => {});
   return { slug: badge.slug, name: badge.name, description: badge.description };
 }
 

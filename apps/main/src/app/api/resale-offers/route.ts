@@ -89,6 +89,14 @@ export async function POST(req: NextRequest) {
       status: "pending",
     },
   });
+
+  const { sendPushNotification } = await import("@/lib/send-push-notification");
+  sendPushNotification(storeItem.memberId, {
+    title: "You received an offer",
+    body: `Someone made an offer on your item.`,
+    data: { screen: "resale-hub/offers" },
+  }).catch(() => {});
+
   return NextResponse.json(offer);
 }
 

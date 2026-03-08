@@ -322,6 +322,13 @@ export async function POST(req: NextRequest) {
           },
         });
 
+        const { sendPushNotification } = await import("@/lib/send-push-notification");
+        sendPushNotification(sellerId, {
+          title: "You sold an item",
+          body: "A customer purchased from your store.",
+          data: { screen: "seller-hub/orders", orderId: order.id },
+        }).catch(() => {});
+
         const storeItemIds = orderItems.map((oi) => oi.storeItemId);
         const storeItems = await prisma.storeItem.findMany({
           where: { id: { in: storeItemIds } },
@@ -413,6 +420,13 @@ export async function POST(req: NextRequest) {
           description: `Sale: Order #${order.id.slice(-6)}`,
         },
       });
+
+      const { sendPushNotification } = await import("@/lib/send-push-notification");
+      sendPushNotification(order.sellerId, {
+        title: "You sold an item",
+        body: "A customer purchased from your store.",
+        data: { screen: "seller-hub/orders", orderId: order.id },
+      }).catch(() => {});
 
       const storeItemIds = order.items.map((oi) => oi.storeItemId);
       const storeItems = await prisma.storeItem.findMany({

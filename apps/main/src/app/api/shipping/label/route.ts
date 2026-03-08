@@ -151,6 +151,17 @@ export async function POST(req: NextRequest) {
       return s;
     });
 
+    const { sendPushNotification } = await import("@/lib/send-push-notification");
+    for (const o of orders) {
+      sendPushNotification(o.buyerId, {
+        title: "Your order shipped",
+        body: trackingNumber
+          ? `Track your order: ${carrier} ${trackingNumber}`
+          : "Your order has been shipped.",
+        data: { screen: "resale-hub/list", orderId: o.id },
+      }).catch(() => {});
+    }
+
     if (trackingNumber) {
       const orderWithBuyer = await prisma.storeOrder.findUnique({
         where: { id: primaryId },

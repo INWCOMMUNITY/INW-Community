@@ -102,6 +102,20 @@ model Member {
   referralSignupsAsReferrer ReferralSignup[] @relation("ReferralSignupReferrer")
   referralSignupsAsNewMember ReferralSignup[] @relation("ReferralSignupNewMember")
   reports                  Report[]
+  pushTokens               MemberPushToken[]
+}
+
+model MemberPushToken {
+  id        String   @id @default(cuid())
+  memberId  String   @map("member_id")
+  token     String   @unique // Expo push token (ExponentPushToken[...])
+  deviceId  String?  @map("device_id") // Optional device identifier for upsert
+  createdAt DateTime @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@map("member_push_token")
 }
 
 model SellerTimeAway {

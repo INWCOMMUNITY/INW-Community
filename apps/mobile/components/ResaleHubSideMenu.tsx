@@ -1,7 +1,9 @@
 /**
  * Resale Hub side menu - matches website ResaleHubSidebar structure.
- * Community Resale: List an Item, My Listings, Ship an Item, My Deliveries, My Pickups, New Offers, My Messages, Cancellations, My Payouts.
+ * Sections: Community Resale (List Item, My Listings, Sold Items, Offers, Messages, Cancellations, Policy);
+ * Delivery (Ship Items, Local Deliveries, Local Pickups); Get Paid (Set Up / Payouts).
  */
+import { useEffect, useState } from "react";
 import {
   Modal,
   View,
@@ -15,6 +17,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
+import { apiGet } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -65,25 +68,42 @@ function Section({
   );
 }
 
-const RESALE_HUB_ITEMS: NavItem[] = [
-  { href: "/my-badges", label: "My Badges", web: false },
-  { href: "/seller-hub/store/new?listingType=resale", label: "List Items", web: false },
+const COMMUNITY_RESALE_ITEMS: NavItem[] = [
+  { href: "/seller-hub/store/new?listingType=resale", label: "List Item", web: false },
   { href: "/seller-hub/store/items?listingType=resale", label: "My Listings", web: false },
   { href: "/seller-hub/store/sold", label: "Sold Items", web: false },
-  { href: "/messages?tab=resale", label: "Resale Conversations", web: false },
-  { href: "/seller-hub/store/payouts", label: "Payouts", web: false },
-  { href: "/seller-hub/ship", label: "Ship an Item", web: false },
-  { href: "/seller-hub/deliveries", label: "My Deliveries", web: false },
-  { href: "/resale-hub/pickups", label: "My Pickups", web: false },
-  { href: "/seller-hub/offers", label: "New Offers", web: false },
+  { href: "/seller-hub/offers", label: "Offers", web: false },
+  { href: "/messages?tab=resale", label: "Messages", web: false },
   { href: "/seller-hub/store/cancellations", label: "Cancellations", web: false },
-  { href: "/policies", label: "Policies", web: false },
+  { href: "/policies", label: "Policy", web: false },
+];
+
+const DELIVERY_ITEMS: NavItem[] = [
+  { href: "/seller-hub/ship", label: "Ship Items", web: false },
+  { href: "/seller-hub/deliveries", label: "Local Deliveries", web: false },
+  { href: "/resale-hub/pickups", label: "Local Pickups", web: false },
 ];
 
 export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
+  const [payoutReady, setPayoutReady] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    apiGet<{ payoutReady?: boolean }>("/api/seller-hub/pending-actions")
+      .then((data) => setPayoutReady(Boolean(data.payoutReady)))
+      .catch(() => {});
+  }, [visible]);
+
+  const getPaidItems: NavItem[] = [
+    {
+      href: "/seller-hub/store/payouts",
+      label: payoutReady ? "Payouts" : "Set Up",
+      web: false,
+    },
+  ];
 
   const handleNavigate = (item: NavItem) => {
     onClose();
@@ -120,9 +140,11 @@ export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) 
           >
             <Section
               title="Community Resale"
-              items={RESALE_HUB_ITEMS}
+              items={COMMUNITY_RESALE_ITEMS}
               onNavigate={handleNavigate}
             />
+            <Section title="Delivery" items={DELIVERY_ITEMS} onNavigate={handleNavigate} />
+            <Section title="Get Paid" items={getPaidItems} onNavigate={handleNavigate} />
           </ScrollView>
         </View>
       </View>

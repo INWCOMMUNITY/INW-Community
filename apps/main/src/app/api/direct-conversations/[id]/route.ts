@@ -180,9 +180,20 @@ export async function POST(
     data: { updatedAt: new Date() },
   });
 
+  const otherMemberId = conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
+  const pushBody =
+    contentTrimmed.length > 0
+      ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+      : "New message";
+  const { sendPushNotification } = await import("@/lib/send-push-notification");
+  sendPushNotification(otherMemberId, {
+    title: "New message",
+    body: pushBody,
+    data: { screen: "messages", conversationId: id },
+  }).catch(() => {});
+
   // Test Friend bot: when you message testfriend@nwc.local, they auto-reply " :)"
   let botReply: { id: string; content: string; createdAt: Date; senderId: string; sender: { id: string; firstName: string; lastName: string } } | null = null;
-  const otherMemberId = conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
   const testFriend = await prisma.member.findUnique({
     where: { email: "testfriend@nwc.local" },
     select: { id: true },

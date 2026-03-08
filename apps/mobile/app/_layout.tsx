@@ -24,6 +24,7 @@ import {
 } from '@/contexts/ProfileViewContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { trackAppOpen } from '@/lib/api';
+import { PushNotificationHandler } from '@/components/PushNotificationHandler';
 import { theme } from '@/lib/theme';
 
 /** True if the string looks like HTML (never render raw in UI). */
@@ -189,6 +190,7 @@ function RootLayoutNav() {
     <ThemeProvider>
       <AuthProvider>
       <AuthDeepLinkHandler />
+      <PushNotificationHandler />
       <ProfileViewLayout>
       <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack screenOptions={{ headerShown: false }}>

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSessionForApi } from "@/lib/mobile-auth";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -9,7 +8,7 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -56,6 +55,21 @@ export async function POST(req: NextRequest) {
         status: "pending",
       },
     });
+
+    const sender = await prisma.member.findUnique({
+      where: { id: session.user.id },
+      select: { firstName: true, lastName: true },
+    });
+    const senderName =
+      (session.user as { name?: string }).name ??
+      (sender ? [sender.firstName, sender.lastName].filter(Boolean).join(" ") : null);
+    const { sendPushNotification } = await import("@/lib/send-push-notification");
+    sendPushNotification(addresseeId, {
+      title: "Friend request",
+      body: senderName ? `${senderName} sent you a friend request` : "You received a friend request",
+      data: { screen: "community/my-friends" },
+    }).catch(() => {});
+
     return NextResponse.json(req_);
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -66,7 +80,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

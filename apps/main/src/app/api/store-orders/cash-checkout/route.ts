@@ -168,6 +168,12 @@ export async function POST(req: NextRequest) {
         data: { quantity: { decrement: oi.quantity } },
       });
     }
+    const { sendPushNotification } = await import("@/lib/send-push-notification");
+    sendPushNotification(sellerId, {
+      title: "You sold an item",
+      body: "A customer purchased from your store.",
+      data: { screen: "seller-hub/orders", orderId: order.id },
+    }).catch(() => {});
   }
 
   const orderIdsParam = orderIds.join(",");

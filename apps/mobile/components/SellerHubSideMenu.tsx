@@ -105,14 +105,17 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
     { href: "/seller-hub/store/sold", label: "Sold Items" },
     { href: "/seller-hub/store/drafts", label: "Drafts" },
     { href: "/seller-hub/orders", label: "My Orders" },
-    { href: "/seller-hub/deliveries", label: "My Deliveries" },
-    { href: "/seller-hub/pickups", label: "My Pickups" },
     { href: "/seller-hub/store/payouts", label: "My Funds", alert: payoutReady },
+  ];
+
+  const deliveryItems: NavItem[] = [
+    { href: "/seller-hub/ship", label: "Ship Items", alert: pendingShip > 0 },
+    { href: "/seller-hub/deliveries", label: "Local Deliveries" },
+    { href: "/seller-hub/pickups", label: "Local Pickups" },
   ];
 
   const actionItems: NavItem[] = [
     { href: "/seller-hub/store/new", label: "List Items" },
-    { href: "/seller-hub/ship", label: "Ship Items", alert: pendingShip > 0 },
     { href: "/seller-hub/offers", label: "New Offers" },
     { href: "/seller-hub/store/returns", label: "Return Requests", alert: pendingReturns > 0 },
     { href: "/seller-hub/store/cancellations", label: "Cancellations" },
@@ -159,6 +162,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
           >
             <Section title="Seller Profile" items={sellerProfileItems} onNavigate={handleNavigate} />
             <Section title="Storefront" items={storefrontItems} onNavigate={handleNavigate} />
+            <Section title="Delivery" items={deliveryItems} onNavigate={handleNavigate} />
             <Section title="Actions" items={actionItems} onNavigate={handleNavigate} />
           </ScrollView>
         </View>
