@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 
+// Opt out of static prerender: this route reads query params (businessId) at request time
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 const DEFAULT_POINTS = 10;
 
 /**
@@ -10,7 +14,8 @@ const DEFAULT_POINTS = 10;
  */
 export async function GET(req: NextRequest) {
   try {
-    const businessId = req.nextUrl?.searchParams?.get("businessId")?.trim();
+    const url = new URL(req.url);
+    const businessId = url.searchParams.get("businessId")?.trim();
     if (!businessId) {
       return NextResponse.json({ error: "Missing businessId" }, { status: 400 });
     }
