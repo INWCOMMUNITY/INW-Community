@@ -124,8 +124,7 @@ export default function MyOrdersScreen() {
           renderItem={({ item }) => {
             const sellerName =
               item.seller?.businesses?.[0]?.name ??
-              `${item.seller?.firstName ?? ""} ${item.seller?.lastName ?? ""}`.trim() ||
-              "Seller";
+              (`${item.seller?.firstName ?? ""} ${item.seller?.lastName ?? ""}`.trim() || "Seller");
             const firstPhoto = item.items?.[0]?.storeItem?.photos?.[0];
             const photoUrl = resolvePhotoUrl(firstPhoto);
 
