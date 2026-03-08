@@ -29,6 +29,9 @@ interface FundsData {
   totalPaidOutCents: number;
   transactions: Transaction[];
   hasStripeConnect: boolean;
+  availableForPayoutCents?: number;
+  pendingCents?: number;
+  payoutScheduleDescription?: string;
 }
 
 function formatPrice(cents: number): string {
@@ -86,6 +89,26 @@ export default function PayoutsScreen() {
     }
   };
 
+  const handleManageAccount = async () => {
+    setError(null);
+    try {
+      const d = await apiGet<{ url?: string; error?: string }>("/api/stripe/connect/express-dashboard");
+      if (d?.url) {
+        const webUrl =
+          `/web?url=${encodeURIComponent(d.url)}&title=Payment account` +
+          `&successRoute=${encodeURIComponent("/seller-hub/store/payouts")}`;
+        (router.push as (href: string) => void)(webUrl);
+      } else {
+        setError((d as { error?: string })?.error ?? "Could not open payment account");
+      }
+    } catch {
+      setError("Could not open payment account");
+    }
+  };
+
+  const availableCents =
+    data?.availableForPayoutCents !== undefined ? data.availableForPayoutCents : data?.balanceCents ?? 0;
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -114,9 +137,19 @@ export default function PayoutsScreen() {
         <>
           <View style={styles.cards}>
             <View style={styles.balanceCard}>
-              <Text style={styles.cardLabel}>Available balance</Text>
-              <Text style={styles.balance}>{formatPrice(data?.balanceCents ?? 0)}</Text>
+              <Text style={styles.cardLabel}>Available for payout</Text>
+              <Text style={styles.balance}>{formatPrice(availableCents)}</Text>
+              <Text style={styles.cardHint}>Ready to send to your bank</Text>
             </View>
+            {(data?.pendingCents ?? 0) > 0 && (
+              <View style={styles.balanceCard}>
+                <Text style={styles.cardLabel}>Pending</Text>
+                <Text style={styles.balance}>{formatPrice(data?.pendingCents ?? 0)}</Text>
+                {data?.payoutScheduleDescription ? (
+                  <Text style={styles.cardHint}>{data.payoutScheduleDescription}</Text>
+                ) : null}
+              </View>
+            )}
             <View style={styles.balanceCard}>
               <Text style={styles.cardLabel}>Total earned</Text>
               <Text style={styles.balance}>{formatPrice(data?.totalEarnedCents ?? 0)}</Text>
@@ -127,10 +160,13 @@ export default function PayoutsScreen() {
             </View>
           </View>
 
-          <Text style={styles.hint}>
-            Funds from sales are added to your balance. Use them for shipping labels and returns, or
-            request a payout to your bank account.
-          </Text>
+          {data?.payoutScheduleDescription && (data?.pendingCents ?? 0) === 0 ? (
+            <Text style={styles.hint}>{data.payoutScheduleDescription}</Text>
+          ) : (
+            <Text style={styles.hint}>
+              Send available funds to your bank or manage your payment account in Stripe.
+            </Text>
+          )}
 
           {error && <Text style={styles.err}>{error}</Text>}
 
@@ -138,21 +174,28 @@ export default function PayoutsScreen() {
             style={({ pressed }) => [
               styles.btn,
               pressed && { opacity: 0.8 },
-              ((data?.balanceCents ?? 0) < 100 || payoutLoading) && styles.btnDisabled,
+              (availableCents < 100 || payoutLoading) && styles.btnDisabled,
             ]}
             onPress={handlePayout}
-            disabled={payoutLoading || (data?.balanceCents ?? 0) < 100}
+            disabled={payoutLoading || availableCents < 100}
           >
             {payoutLoading ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={styles.btnText}>Request payout</Text>
+              <Text style={styles.btnText}>Send to bank</Text>
             )}
           </Pressable>
 
-          {(data?.balanceCents ?? 0) < 100 && (
+          {availableCents < 100 && (
             <Text style={styles.minHint}>Minimum payout is $1.00</Text>
           )}
+
+          <Pressable
+            style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }, { marginTop: 12 }]}
+            onPress={handleManageAccount}
+          >
+            <Text style={styles.linkText}>Manage payment account</Text>
+          </Pressable>
 
           <View style={styles.links}>
             <Pressable
@@ -211,6 +254,7 @@ const styles = StyleSheet.create({
   },
   cardLabel: { fontSize: 12, color: "#666", marginBottom: 4 },
   balance: { fontSize: 20, fontWeight: "700", color: "#333" },
+  cardHint: { fontSize: 11, color: "#888", marginTop: 2 },
   hint: { fontSize: 14, color: "#666", marginBottom: 16 },
   err: { color: "#c62828", marginBottom: 12, fontSize: 14 },
   btn: {

@@ -63,12 +63,21 @@ export async function POST(req: NextRequest) {
         type: "express",
         country: "US",
         email: member.email,
+        business_type: "individual",
         capabilities: {
           card_payments: { requested: true },
           transfers: { requested: true },
         },
       });
       accountId = account.id;
+      // Prefill representative so Stripe doesn't ask for name again during onboarding
+      if (member.firstName?.trim() || member.lastName?.trim()) {
+        await stripe.accounts.createPerson(accountId, {
+          first_name: (member.firstName ?? "").trim() || undefined,
+          last_name: (member.lastName ?? "").trim() || undefined,
+          relationship: { representative: true },
+        });
+      }
       await prisma.member.update({
         where: { id: userId },
         data: { stripeConnectAccountId: accountId },

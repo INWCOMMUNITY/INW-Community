@@ -1,20 +1,22 @@
-import Link from "next/link";
+"use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+/**
+ * Redirect to Seller Hub Payouts so Resale Hub "My Payouts" shows the same
+ * full funds UI (Available for payout, Pending, Send to bank, Manage payment account).
+ */
 export default function ResaleHubPayoutsPage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace("/seller-hub/store/payouts");
+  }, [router]);
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-4">My Payouts</h1>
-      <p className="text-gray-600 mb-6">
-        When you sell items on Community Resale, earnings are added to your
-        balance. Set up payouts to receive your funds.
-      </p>
-      <p className="text-sm text-gray-500 mb-6">
-        Payout setup and balance will be available here once you have made a sale
-        or connected your account.
-      </p>
-      <Link href="/resale-hub" className="text-[var(--color-link)] hover:underline">
-        Back to Resale Hub
-      </Link>
+    <div className="flex items-center justify-center min-h-[200px]">
+      <p className="text-gray-500">Redirecting to payouts…</p>
     </div>
   );
 }

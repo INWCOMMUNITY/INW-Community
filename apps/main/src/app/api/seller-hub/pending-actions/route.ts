@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
 const MIN_PAYOUT_CENTS = 100;
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
+  apiVersion: "2024-11-20.acacia" as "2023-10-16",
+});
 
 /** Returns counts of actions needing seller attention (ship, returns, payout ready) for sidebar indicators. */
 export async function GET(req: NextRequest) {
@@ -44,7 +49,20 @@ export async function GET(req: NextRequest) {
     ]);
     const hasStripeConnect = !!member?.stripeConnectAccountId;
     const balanceCents = balance?.balanceCents ?? 0;
-    const payoutReady = hasStripeConnect && balanceCents >= MIN_PAYOUT_CENTS;
+    let stripeAvailableCents = 0;
+    if (member?.stripeConnectAccountId) {
+      try {
+        const stripeBalance = await stripe.balance.retrieve({
+          stripeAccount: member.stripeConnectAccountId,
+        });
+        const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
+        stripeAvailableCents = usdAvailable?.amount ?? 0;
+      } catch {
+        // use balanceCents only
+      }
+    }
+    const payoutReady =
+      hasStripeConnect && (stripeAvailableCents >= MIN_PAYOUT_CENTS || balanceCents >= MIN_PAYOUT_CENTS);
     return NextResponse.json({ pendingShip, pendingReturns, payoutReady });
   } catch {
     return NextResponse.json({ pendingShip: 0, pendingReturns: 0, payoutReady: false }, { status: 200 });

@@ -37,10 +37,40 @@ export async function GET(req: NextRequest) {
   });
 
   let hasStripeConnect = false;
+  let availableForPayoutCents: number | undefined;
+  let pendingCents: number | undefined;
+  let payoutScheduleDescription: string | undefined;
+
   if (member?.stripeConnectAccountId) {
     try {
       const account = await stripe.accounts.retrieve(member.stripeConnectAccountId);
       hasStripeConnect = account.charges_enabled === true;
+      const stripeBalance = await stripe.balance.retrieve({
+        stripeAccount: member.stripeConnectAccountId,
+      });
+      const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
+      const usdPending = stripeBalance.pending?.find((b) => b.currency === "usd");
+      availableForPayoutCents = usdAvailable?.amount ?? 0;
+      pendingCents = usdPending?.amount ?? 0;
+      const schedule = account.settings?.payouts?.schedule;
+      if (schedule) {
+        const delay = schedule.delay_days ?? 2;
+        const interval = schedule.interval ?? "daily";
+        if (interval === "daily") {
+          payoutScheduleDescription =
+            delay <= 0
+              ? "Funds are available immediately"
+              : `Funds typically available in ${delay} business day${delay === 1 ? "" : "s"}`;
+        } else if (interval === "weekly" && schedule.weekly_anchor) {
+          payoutScheduleDescription = `Payouts weekly on ${schedule.weekly_anchor}`;
+        } else if (interval === "monthly") {
+          payoutScheduleDescription = "Payouts monthly";
+        } else {
+          payoutScheduleDescription = `Funds typically available in ${delay} business days`;
+        }
+      } else {
+        payoutScheduleDescription = "Funds typically available in 2 business days";
+      }
     } catch {
       hasStripeConnect = false;
     }
@@ -52,6 +82,9 @@ export async function GET(req: NextRequest) {
     totalPaidOutCents: balance?.totalPaidOutCents ?? 0,
     transactions,
     hasStripeConnect,
+    ...(availableForPayoutCents !== undefined && { availableForPayoutCents }),
+    ...(pendingCents !== undefined && { pendingCents }),
+    ...(payoutScheduleDescription !== undefined && { payoutScheduleDescription }),
   });
 }
 
@@ -80,43 +113,34 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const balance = await prisma.sellerBalance.findUnique({
-    where: { memberId: userId },
-  });
-  const availableCents = balance?.balanceCents ?? 0;
+  let availableCents: number;
+  try {
+    const stripeBalance = await stripe.balance.retrieve({
+      stripeAccount: member.stripeConnectAccountId,
+    });
+    const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
+    availableCents = usdAvailable?.amount ?? 0;
+  } catch {
+    return NextResponse.json({ error: "Could not load your Stripe balance" }, { status: 500 });
+  }
+
   if (availableCents < 100) {
     return NextResponse.json(
-      { error: "Minimum payout is $1.00" },
+      { error: "Minimum payout is $1.00. No funds available for payout yet." },
       { status: 400 }
     );
   }
 
   try {
-    const transfer = await stripe.transfers.create({
-      amount: availableCents,
-      currency: "usd",
-      destination: member.stripeConnectAccountId,
-      metadata: { memberId: userId },
-    });
-
-    await prisma.sellerBalance.update({
-      where: { memberId: userId },
-      data: {
-        balanceCents: 0,
-        totalPaidOutCents: { increment: availableCents },
+    const payout = await stripe.payouts.create(
+      {
+        amount: availableCents,
+        currency: "usd",
+        metadata: { memberId: userId },
       },
-    });
-    await prisma.sellerBalanceTransaction.create({
-      data: {
-        memberId: userId,
-        type: "payout",
-        amountCents: -availableCents,
-        stripeTransferId: transfer.id,
-        description: `Payout to bank: $${(availableCents / 100).toFixed(2)}`,
-      },
-    });
-
-    return NextResponse.json({ ok: true, transferId: transfer.id });
+      { stripeAccount: member.stripeConnectAccountId }
+    );
+    return NextResponse.json({ ok: true, payoutId: payout.id });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Payout failed";
     return NextResponse.json({ error: msg }, { status: 500 });

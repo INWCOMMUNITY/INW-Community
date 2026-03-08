@@ -15,17 +15,33 @@ type SummaryItem = {
   lineTotalCents: number;
 };
 
+type PaymentItem = { clientSecret: string; orderIds: string[] };
+
 type CheckoutData = {
-  clientSecret: string;
+  payments: PaymentItem[];
+  paymentIndex: number;
   orderIds: string[];
   summary: { items: SummaryItem[]; totalCents: number };
   successUrl: string;
+  /** Legacy: single payment */
+  clientSecret?: string;
 };
 
-function PaymentForm({ successUrl, orderIds }: { successUrl: string; orderIds: string[] }) {
+function PaymentForm({
+  clientSecret,
+  successUrl,
+  orderIds,
+  onSuccess,
+  paymentLabel,
+}: {
+  clientSecret: string;
+  successUrl: string;
+  orderIds: string[];
+  onSuccess: () => void;
+  paymentLabel?: string;
+}) {
   const stripe = useStripe();
   const elements = useElements();
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elementReady, setElementReady] = useState(false);
@@ -47,8 +63,7 @@ function PaymentForm({ successUrl, orderIds }: { successUrl: string; orderIds: s
         setLoading(false);
         return;
       }
-      window.sessionStorage.removeItem(CHECKOUT_STORAGE_KEY);
-      router.push(successUrl);
+      onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payment failed");
     } finally {
@@ -58,7 +73,13 @@ function PaymentForm({ successUrl, orderIds }: { successUrl: string; orderIds: s
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {paymentLabel && (
+        <p className="text-sm" style={{ color: "var(--color-text)" }}>
+          {paymentLabel}
+        </p>
+      )}
       <PaymentElement
+        key={clientSecret}
         onReady={() => setElementReady(true)}
         options={{
           paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
@@ -81,9 +102,29 @@ function PaymentForm({ successUrl, orderIds }: { successUrl: string; orderIds: s
   );
 }
 
+function normalizeCheckoutData(parsed: CheckoutData & { payments?: PaymentItem[]; paymentIndex?: number }): CheckoutData | null {
+  if (!parsed.summary?.items || parsed.orderIds?.length === 0) return null;
+  const payments =
+    Array.isArray(parsed.payments) && parsed.payments.length > 0
+      ? parsed.payments
+      : parsed.clientSecret
+        ? [{ clientSecret: parsed.clientSecret, orderIds: parsed.orderIds }]
+        : null;
+  if (!payments?.length) return null;
+  const paymentIndex = Math.min(parsed.paymentIndex ?? 0, payments.length - 1);
+  return {
+    payments,
+    paymentIndex,
+    orderIds: parsed.orderIds,
+    summary: parsed.summary,
+    successUrl: parsed.successUrl,
+  };
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const [data, setData] = useState<CheckoutData | null>(null);
+  const [paymentIndex, setPaymentIndex] = useState(0);
   const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
 
   useEffect(() => {
@@ -93,12 +134,14 @@ export default function CheckoutPage() {
       return;
     }
     try {
-      const parsed = JSON.parse(raw) as CheckoutData;
-      if (!parsed.clientSecret || !parsed.summary?.items || parsed.orderIds?.length === 0) {
+      const parsed = JSON.parse(raw) as CheckoutData & { payments?: PaymentItem[]; paymentIndex?: number };
+      const normalized = normalizeCheckoutData(parsed);
+      if (!normalized) {
         router.replace("/cart");
         return;
       }
-      setData(parsed);
+      setData(normalized);
+      setPaymentIndex(normalized.paymentIndex);
     } catch {
       router.replace("/cart");
     }
@@ -155,7 +198,31 @@ export default function CheckoutPage() {
     );
   }
 
-  const { summary, orderIds, successUrl } = data;
+  const { summary, orderIds, successUrl, payments } = data;
+  const current = payments[paymentIndex];
+  const paymentLabel =
+    payments.length > 1 ? `Payment ${paymentIndex + 1} of ${payments.length}` : undefined;
+
+  const handlePaymentSuccess = () => {
+    if (paymentIndex < payments.length - 1) {
+      const nextIndex = paymentIndex + 1;
+      setPaymentIndex(nextIndex);
+      try {
+        sessionStorage.setItem(
+          CHECKOUT_STORAGE_KEY,
+          JSON.stringify({
+            ...data,
+            paymentIndex: nextIndex,
+          })
+        );
+      } catch {
+        // continue
+      }
+    } else {
+      window.sessionStorage.removeItem(CHECKOUT_STORAGE_KEY);
+      router.push(successUrl);
+    }
+  };
 
   return (
     <section style={{ padding: "var(--section-padding)" }} className="overflow-x-hidden">
@@ -221,9 +288,10 @@ export default function CheckoutPage() {
             Payment
           </h2>
           <Elements
+            key={current.clientSecret}
             stripe={stripePromise}
             options={{
-              clientSecret: data.clientSecret,
+              clientSecret: current.clientSecret,
               appearance: {
                 theme: "stripe",
                 variables: {
@@ -232,7 +300,13 @@ export default function CheckoutPage() {
               },
             }}
           >
-            <PaymentForm successUrl={successUrl} orderIds={orderIds} />
+            <PaymentForm
+              clientSecret={current.clientSecret}
+              successUrl={successUrl}
+              orderIds={current.orderIds}
+              onSuccess={handlePaymentSuccess}
+              paymentLabel={paymentLabel}
+            />
           </Elements>
         </div>
       </div>

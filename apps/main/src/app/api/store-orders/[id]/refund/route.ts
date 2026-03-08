@@ -32,7 +32,7 @@ export async function POST(
   const { id } = await params;
   const order = await prisma.storeOrder.findFirst({
     where: { id, sellerId: userId },
-    include: { items: true },
+    include: { items: true, seller: { select: { stripeConnectAccountId: true } } },
   });
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -45,6 +45,37 @@ export async function POST(
   }
 
   const totalCents = order.totalCents;
+  const connectAccountId = order.seller?.stripeConnectAccountId?.trim() || null;
+
+  if (connectAccountId) {
+    try {
+      await stripe.refunds.create(
+        {
+          payment_intent: order.stripePaymentIntentId,
+          amount: totalCents,
+          reason: "requested_by_customer",
+        },
+        { stripeAccount: connectAccountId }
+      );
+      await prisma.$transaction(async (tx) => {
+        await tx.storeOrder.update({
+          where: { id: order.id },
+          data: { status: "refunded" },
+        });
+        for (const oi of order.items) {
+          await tx.storeItem.update({
+            where: { id: oi.storeItemId },
+            data: { quantity: { increment: oi.quantity } },
+          });
+        }
+      });
+      return NextResponse.json({ ok: true });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Refund failed";
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
+  }
+
   const platformFeeCents = Math.max(
     PLATFORM_FEE_MIN_CENTS,
     Math.floor(totalCents * PLATFORM_FEE_PERCENT)

@@ -386,6 +386,43 @@ export default function ProductDetailPage() {
           termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
         };
       }
+
+      const useEmbeddedCheckout = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
+      if (useEmbeddedCheckout) {
+        const intentRes = await fetch("/api/stripe/storefront-checkout-intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const intentData = await intentRes.json().catch(() => ({}));
+        if (intentRes.ok) {
+          const payments =
+            Array.isArray(intentData.payments) && intentData.payments.length > 0
+              ? intentData.payments
+              : intentData.clientSecret && intentData.orderIds?.length
+                ? [{ clientSecret: intentData.clientSecret, orderIds: intentData.orderIds }]
+                : null;
+          if (payments && intentData.summary && intentData.orderIds?.length && intentData.successUrl) {
+            try {
+              sessionStorage.setItem(
+                "storefront_checkout",
+                JSON.stringify({
+                  payments,
+                  paymentIndex: 0,
+                  orderIds: intentData.orderIds,
+                  summary: intentData.summary,
+                  successUrl: intentData.successUrl,
+                })
+              );
+              window.location.href = "/storefront/checkout";
+              return;
+            } catch {
+              // fall through to redirect checkout
+            }
+          }
+        }
+      }
+
       const res = await fetch("/api/stripe/storefront-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

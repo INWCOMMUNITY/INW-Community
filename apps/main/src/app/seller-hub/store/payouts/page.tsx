@@ -17,6 +17,9 @@ interface FundsData {
   totalPaidOutCents: number;
   transactions: Transaction[];
   hasStripeConnect: boolean;
+  availableForPayoutCents?: number;
+  pendingCents?: number;
+  payoutScheduleDescription?: string;
 }
 
 export default function MyFundsPage() {
@@ -63,6 +66,20 @@ export default function MyFundsPage() {
     }
   }
 
+  async function handleManageAccount() {
+    try {
+      const res = await fetch("/api/stripe/connect/express-dashboard");
+      const d = await res.json().catch(() => ({}));
+      if (d.url) window.open(d.url, "_blank", "noopener,noreferrer");
+      else setError(d.error ?? "Could not open payment account");
+    } catch {
+      setError("Could not open payment account");
+    }
+  }
+
+  const availableCents =
+    data?.availableForPayoutCents !== undefined ? data.availableForPayoutCents : data?.balanceCents ?? 0;
+
   if (loading) return <p className="text-gray-500">Loading…</p>;
 
   return (
@@ -79,9 +96,19 @@ export default function MyFundsPage() {
         <>
           <div className="grid md:grid-cols-3 gap-4 mb-6">
             <div className="border rounded-lg p-4 bg-gray-50">
-              <p className="text-sm text-gray-500 mb-1">Available balance</p>
-              <p className="text-2xl font-bold">${((data?.balanceCents ?? 0) / 100).toFixed(2)}</p>
+              <p className="text-sm text-gray-500 mb-1">Available for payout</p>
+              <p className="text-2xl font-bold">${(availableCents / 100).toFixed(2)}</p>
+              <p className="text-xs text-gray-500 mt-1">Ready to send to your bank</p>
             </div>
+            {(data?.pendingCents ?? 0) > 0 && (
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <p className="text-sm text-gray-500 mb-1">Pending</p>
+                <p className="text-2xl font-bold">${((data?.pendingCents ?? 0) / 100).toFixed(2)}</p>
+                {data?.payoutScheduleDescription && (
+                  <p className="text-xs text-gray-500 mt-1">{data.payoutScheduleDescription}</p>
+                )}
+              </div>
+            )}
             <div className="border rounded-lg p-4 bg-gray-50">
               <p className="text-sm text-gray-500 mb-1">Total earned</p>
               <p className="text-2xl font-bold">${((data?.totalEarnedCents ?? 0) / 100).toFixed(2)}</p>
@@ -92,18 +119,29 @@ export default function MyFundsPage() {
             </div>
           </div>
 
+          {data?.payoutScheduleDescription && (data?.pendingCents ?? 0) === 0 && (
+            <p className="text-sm text-gray-500 mb-4">{data.payoutScheduleDescription}</p>
+          )}
+
           <p className="text-gray-600 mb-4">
-            Funds from sales are added to your balance. Use them for shipping labels and returns, or request a payout to your bank account.
+            Send available funds to your bank account or manage your payment account in Stripe.
           </p>
 
           <div className="flex flex-wrap gap-4 mb-6">
             <button
               type="button"
               onClick={handlePayout}
-              disabled={payoutLoading || (data?.balanceCents ?? 0) < 100}
+              disabled={payoutLoading || availableCents < 100}
               className="btn disabled:opacity-50"
             >
-              {payoutLoading ? "Processing…" : "Request payout"}
+              {payoutLoading ? "Processing…" : "Send to bank"}
+            </button>
+            <button
+              type="button"
+              onClick={handleManageAccount}
+              className="btn border border-gray-300 bg-white hover:bg-gray-50"
+            >
+              Manage payment account
             </button>
             <Link href="/seller-hub/ship" className="btn border border-gray-300 bg-white hover:bg-gray-50">
               Ship items
@@ -113,7 +151,7 @@ export default function MyFundsPage() {
             </Link>
           </div>
 
-          {(data?.balanceCents ?? 0) < 100 && (
+          {availableCents < 100 && (
             <p className="text-sm text-gray-500 mb-4">Minimum payout is $1.00</p>
           )}
 
@@ -123,6 +161,13 @@ export default function MyFundsPage() {
             </div>
           )}
 
+          <p className="text-sm text-gray-500 mb-2">
+            View full payout history and bank details in your{" "}
+            <button type="button" onClick={handleManageAccount} className="underline hover:no-underline">
+              payment account
+            </button>
+            .
+          </p>
           <h3 className="font-semibold mb-3">Transaction history</h3>
           {data?.transactions && data.transactions.length > 0 ? (
             <div className="border rounded-lg overflow-hidden">

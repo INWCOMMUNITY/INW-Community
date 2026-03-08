@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     bySeller.get(sellerId)!.push(item);
   }
 
-  const orderIds: string[] = [];
+  const sellerOrderPairs: { sellerId: string; orderId: string; totalCents: number }[] = [];
   const summaryItems: { name: string; quantity: number; unitPriceCents: number; lineTotalCents: number }[] = [];
   let shippingAssigned = false;
   let grandTotalCents = 0;
@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
         localDeliveryDetails: localDeliveryDetails && hasLocalDelivery ? (localDeliveryDetails as object) : Prisma.JsonNull,
       },
     });
-    orderIds.push(order.id);
+    sellerOrderPairs.push({ sellerId, orderId: order.id, totalCents });
 
     for (const oi of orderItems) {
       await prisma.orderItem.create({
@@ -198,31 +198,62 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: grandTotalCents,
-      currency: "usd",
-      metadata: { orderIds: orderIds.join(",") },
-      automatic_payment_methods: { enabled: true },
-    });
+  const orderIds = sellerOrderPairs.map((p) => p.orderId);
+  const sellerIds = [...new Set(sellerOrderPairs.map((p) => p.sellerId))];
+  const members = await prisma.member.findMany({
+    where: { id: { in: sellerIds } },
+    select: { id: true, stripeConnectAccountId: true },
+  });
+  const sellerConnectMap = new Map(members.map((m) => [m.id, m.stripeConnectAccountId]));
 
-    const successParams = new URLSearchParams();
-    successParams.set("order_ids", orderIds.join(","));
-    if (Array.isArray(cashOrderIds) && cashOrderIds.length > 0) {
-      successParams.set("cash_order_ids", cashOrderIds.join(","));
+  const payments: { clientSecret: string; orderIds: string[] }[] = [];
+  for (const pair of sellerOrderPairs) {
+    const connectAccountId = sellerConnectMap.get(pair.sellerId);
+    if (!connectAccountId?.trim()) {
+      return NextResponse.json(
+        { error: `Seller payment account is not set up. Please try again or contact support.` },
+        { status: 400 }
+      );
     }
-
-    return NextResponse.json({
-      clientSecret: paymentIntent.client_secret,
-      orderIds,
-      summary: {
-        items: summaryItems,
-        totalCents: grandTotalCents,
-      },
-      successUrl: `${BASE_URL}/storefront/order-success?${successParams.toString()}`,
-    });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Checkout failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    try {
+      const paymentIntent = await stripe.paymentIntents.create(
+        {
+          amount: pair.totalCents,
+          currency: "usd",
+          metadata: { orderId: pair.orderId },
+          automatic_payment_methods: { enabled: true },
+        },
+        { stripeAccount: connectAccountId }
+      );
+      if (!paymentIntent.client_secret) {
+        return NextResponse.json({ error: "Failed to create payment session" }, { status: 500 });
+      }
+      payments.push({
+        clientSecret: paymentIntent.client_secret,
+        orderIds: [pair.orderId],
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Checkout failed";
+      return NextResponse.json(
+        { error: `Payment setup failed for one seller: ${message}` },
+        { status: 400 }
+      );
+    }
   }
+
+  const successParams = new URLSearchParams();
+  successParams.set("order_ids", orderIds.join(","));
+  if (Array.isArray(cashOrderIds) && cashOrderIds.length > 0) {
+    successParams.set("cash_order_ids", cashOrderIds.join(","));
+  }
+
+  return NextResponse.json({
+    payments,
+    orderIds,
+    summary: {
+      items: summaryItems,
+      totalCents: grandTotalCents,
+    },
+    successUrl: `${BASE_URL}/storefront/order-success?${successParams.toString()}`,
+  });
 }

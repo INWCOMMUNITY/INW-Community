@@ -360,11 +360,20 @@ export async function POST(req: NextRequest) {
 
   if (event.type === "payment_intent.succeeded") {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
-    const orderIdsRaw = paymentIntent.metadata?.orderIds;
-    const orderIdsList: string[] =
-      orderIdsRaw && typeof orderIdsRaw === "string" && orderIdsRaw.trim()
-        ? orderIdsRaw.split(",").map((id) => id.trim()).filter(Boolean)
-        : [];
+    const isConnectEvent = Boolean((event as { account?: string }).account);
+
+    const orderIdsList: string[] = (() => {
+      const orderId = paymentIntent.metadata?.orderId;
+      if (orderId && typeof orderId === "string" && orderId.trim()) {
+        return [orderId.trim()];
+      }
+      const orderIdsRaw = paymentIntent.metadata?.orderIds;
+      if (orderIdsRaw && typeof orderIdsRaw === "string" && orderIdsRaw.trim()) {
+        return orderIdsRaw.split(",").map((id) => id.trim()).filter(Boolean);
+      }
+      return [];
+    })();
+
     for (const orderId of orderIdsList) {
       const order = await prisma.storeOrder.findFirst({
         where: { id: orderId, status: "pending" },
@@ -373,8 +382,6 @@ export async function POST(req: NextRequest) {
       if (!order) continue;
 
       const totalCents = order.totalCents;
-      const platformFeeCents = Math.max(50, Math.floor(totalCents * 0.05));
-      const sellerCreditsCents = totalCents - platformFeeCents;
       let pointsAwarded = Math.round(totalCents / 200);
       const subscriber = await prisma.subscription.findFirst({
         where: { memberId: order.buyerId, plan: "subscribe", status: "active" },
@@ -399,27 +406,43 @@ export async function POST(req: NextRequest) {
 
       await awardPoints(order.buyerId, pointsAwarded);
 
-      await prisma.sellerBalance.upsert({
-        where: { memberId: order.sellerId },
-        create: {
-          memberId: order.sellerId,
-          balanceCents: sellerCreditsCents,
-          totalEarnedCents: sellerCreditsCents,
-        },
-        update: {
-          balanceCents: { increment: sellerCreditsCents },
-          totalEarnedCents: { increment: sellerCreditsCents },
-        },
-      });
-      await prisma.sellerBalanceTransaction.create({
-        data: {
-          memberId: order.sellerId,
-          type: "sale",
-          amountCents: sellerCreditsCents,
-          orderId: order.id,
-          description: `Sale: Order #${order.id.slice(-6)}`,
-        },
-      });
+      if (!isConnectEvent) {
+        const platformFeeCents = Math.max(50, Math.floor(totalCents * 0.05));
+        const sellerCreditsCents = totalCents - platformFeeCents;
+        await prisma.sellerBalance.upsert({
+          where: { memberId: order.sellerId },
+          create: {
+            memberId: order.sellerId,
+            balanceCents: sellerCreditsCents,
+            totalEarnedCents: sellerCreditsCents,
+          },
+          update: {
+            balanceCents: { increment: sellerCreditsCents },
+            totalEarnedCents: { increment: sellerCreditsCents },
+          },
+        });
+        await prisma.sellerBalanceTransaction.create({
+          data: {
+            memberId: order.sellerId,
+            type: "sale",
+            amountCents: sellerCreditsCents,
+            orderId: order.id,
+            description: `Sale: Order #${order.id.slice(-6)}`,
+          },
+        });
+        if (order.shippingCostCents > 0) {
+          try {
+            await stripe.payouts.create({
+              amount: order.shippingCostCents,
+              currency: "usd",
+              method: "instant",
+              metadata: { orderId: order.id, reason: "shipping" },
+            });
+          } catch (payoutErr) {
+            console.error("[webhook] Instant payout for shipping failed:", payoutErr);
+          }
+        }
+      }
 
       const { sendPushNotification } = await import("@/lib/send-push-notification");
       sendPushNotification(order.sellerId, {
@@ -439,19 +462,6 @@ export async function POST(req: NextRequest) {
       if (allResale) {
         const sellerPoints = Math.round(totalCents / 100);
         await awardPoints(order.sellerId, sellerPoints);
-      }
-
-      if (order.shippingCostCents > 0) {
-        try {
-          await stripe.payouts.create({
-            amount: order.shippingCostCents,
-            currency: "usd",
-            method: "instant",
-            metadata: { orderId: order.id, reason: "shipping" },
-          });
-        } catch (payoutErr) {
-          console.error("[webhook] Instant payout for shipping failed:", payoutErr);
-        }
       }
     }
   }

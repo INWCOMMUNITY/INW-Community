@@ -349,12 +349,19 @@ export default function CartPage() {
         setError(getErrorMessage(data.error, "Checkout failed"));
         return;
       }
-      if (data.clientSecret && data.summary && data.orderIds?.length) {
+      const payments =
+        Array.isArray(data.payments) && data.payments.length > 0
+          ? data.payments
+          : data.clientSecret && data.orderIds?.length
+            ? [{ clientSecret: data.clientSecret, orderIds: data.orderIds }]
+            : null;
+      if (payments && data.summary && data.orderIds?.length) {
         try {
           sessionStorage.setItem(
             "storefront_checkout",
             JSON.stringify({
-              clientSecret: data.clientSecret,
+              payments,
+              paymentIndex: 0,
               orderIds: data.orderIds,
               summary: data.summary,
               successUrl: data.successUrl,
