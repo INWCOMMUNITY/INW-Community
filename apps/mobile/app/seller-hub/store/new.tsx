@@ -119,6 +119,7 @@ export default function ListItemScreen() {
   const [inStorePickupAvailable, setInStorePickupAvailable] = useState(false);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [variants, setVariants] = useState<Variant[]>([]);
+  const [optionsEnabled, setOptionsEnabled] = useState(false);
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -130,9 +131,8 @@ export default function ListItemScreen() {
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
 
-  const hasVariantsWithOptions = variants.some(
-    (v) => v.name.trim() && v.options.length > 0
-  );
+  const hasVariantsWithOptions =
+    optionsEnabled && variants.some((v) => v.name.trim() && v.options.length > 0);
   const hasContent =
     !!title.trim() ||
     !!description.trim() ||
@@ -252,7 +252,9 @@ export default function ListItemScreen() {
           setInStorePickupAvailable(item.inStorePickupAvailable ?? false);
           setPickupTerms(item.pickupTerms ?? "");
           setBusinessId(item.businessId ?? null);
-          setVariants(normalizeVariants(item.variants));
+          const normalized = normalizeVariants(item.variants);
+          setVariants(normalized);
+          setOptionsEnabled(normalized.some((v) => v.name.trim() && v.options.length > 0));
           if (item.listingType === "resale" || item.listingType === "new") setListingType(item.listingType);
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
@@ -286,7 +288,9 @@ export default function ListItemScreen() {
           setPickupTerms(draft.pickupTerms ?? "");
           setUseSellerProfilePickup(draft.useSellerProfilePickup ?? true);
           setBusinessId(draft.businessId);
-          setVariants(normalizeVariants(draft.variants));
+          const normalized = normalizeVariants(draft.variants);
+          setVariants(normalized);
+          setOptionsEnabled(normalized.some((v) => v.name.trim() && v.options.length > 0));
         }
         setLoadedDraft(true);
       });
@@ -742,19 +746,105 @@ export default function ListItemScreen() {
         keyboardType="decimal-pad"
       />
 
-      {!hasVariantsWithOptions && (
-        <>
-          <Text style={styles.label}>Quantity *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="1"
-            placeholderTextColor={placeholderColor}
-            value={quantity}
-            onChangeText={setQuantity}
-            keyboardType="number-pad"
-          />
-        </>
-      )}
+      {/* Options: Enable Options checkbox, then either Quantity or option groups */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Options (Size, Color, etc.)</Text>
+        <View style={styles.checkboxRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.checkbox,
+              optionsEnabled && styles.checkboxChecked,
+              pressed && { opacity: 0.8 },
+            ]}
+            onPress={() => setOptionsEnabled((prev) => !prev)}
+          >
+            {optionsEnabled && <Text style={styles.checkboxCheck}>✓</Text>}
+          </Pressable>
+          <Text style={styles.switchLabel}>Enable Options</Text>
+        </View>
+        {optionsEnabled ? (
+          <>
+            <Text style={styles.hint}>
+              Add option groups like Size with values and quantity per option (e.g. Small: 2, Medium: 5).
+            </Text>
+            {variants.map((v, vi) => (
+              <View key={vi} style={styles.variantCard}>
+                <View style={styles.variantHeader}>
+                  <TextInput
+                    style={[styles.input, styles.variantName]}
+                    placeholder="Option name (e.g. Size)"
+                    placeholderTextColor={placeholderColor}
+                    value={v.name}
+                    onChangeText={(val) =>
+                      setVariants((prev) => {
+                        const next = [...prev];
+                        next[vi] = { ...next[vi], name: val };
+                        return next;
+                      })
+                    }
+                  />
+                  <Pressable
+                    onPress={() =>
+                      setVariants((prev) => prev.filter((_, i) => i !== vi))
+                    }
+                  >
+                    <Text style={styles.removeVariantText}>Remove</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.hint}>Option value and Quantity (e.g. Small: 3, Medium: 5)</Text>
+                <View style={styles.variantOptions}>
+                  {v.options.map((opt, oi) => (
+                    <View key={oi} style={styles.optionChip}>
+                      <Text style={styles.optionChipText}>{opt.value}</Text>
+                      <TextInput
+                        style={styles.optionQtyInput}
+                        placeholder="0"
+                        placeholderTextColor={placeholderColor}
+                        value={String(opt.quantity || "")}
+                        onChangeText={(t) => {
+                          const n = parseInt(t.replace(/\D/g, ""), 10);
+                          setVariantOptionQuantity(vi, oi, Number.isNaN(n) ? 0 : n);
+                        }}
+                        keyboardType="number-pad"
+                      />
+                      <Pressable
+                        onPress={() => removeVariantOption(vi, oi)}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.optionChipRemove}>×</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                  <AddOptionInput onAdd={(val) => addVariantOption(vi, val)} placeholderColor={placeholderColor} />
+                </View>
+              </View>
+            ))}
+            <Pressable
+              style={({ pressed }) => [
+                styles.addVariantBtn,
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={() =>
+                setVariants((prev) => [...prev, { name: "", options: [] }])
+              }
+            >
+              <Text style={styles.addVariantBtnText}>+ Add option group</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={styles.label}>Quantity *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="1"
+              placeholderTextColor={placeholderColor}
+              value={quantity}
+              onChangeText={setQuantity}
+              keyboardType="number-pad"
+            />
+          </>
+        )}
+      </View>
 
       <Text style={styles.label}>Category</Text>
       <TextInput
@@ -1054,77 +1144,6 @@ export default function ListItemScreen() {
           <Text style={styles.hint}>Loading your policies…</Text>
         </View>
       )}
-
-      {/* Option groups */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Options (Size, Color, etc.)</Text>
-        <Text style={styles.hint}>
-          Add option groups like Size - Small + Medium + Large.
-        </Text>
-        {variants.map((v, vi) => (
-          <View key={vi} style={styles.variantCard}>
-            <View style={styles.variantHeader}>
-              <TextInput
-                style={[styles.input, styles.variantName]}
-                placeholder="Option name (e.g. Size)"
-                placeholderTextColor={placeholderColor}
-                value={v.name}
-                onChangeText={(val) =>
-                  setVariants((prev) => {
-                    const next = [...prev];
-                    next[vi] = { ...next[vi], name: val };
-                    return next;
-                  })
-                }
-              />
-              <Pressable
-                onPress={() =>
-                  setVariants((prev) => prev.filter((_, i) => i !== vi))
-                }
-              >
-                <Text style={styles.removeVariantText}>Remove</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.hint}>Option value and quantity (e.g. Small: 3, Medium: 5)</Text>
-            <View style={styles.variantOptions}>
-              {v.options.map((opt, oi) => (
-                <View key={oi} style={styles.optionChip}>
-                  <Text style={styles.optionChipText}>{opt.value}</Text>
-                  <TextInput
-                    style={styles.optionQtyInput}
-                    placeholder="0"
-                    placeholderTextColor={placeholderColor}
-                    value={String(opt.quantity || "")}
-                    onChangeText={(t) => {
-                      const n = parseInt(t.replace(/\D/g, ""), 10);
-                      setVariantOptionQuantity(vi, oi, Number.isNaN(n) ? 0 : n);
-                    }}
-                    keyboardType="number-pad"
-                  />
-                  <Pressable
-                    onPress={() => removeVariantOption(vi, oi)}
-                    hitSlop={8}
-                  >
-                    <Text style={styles.optionChipRemove}>×</Text>
-                  </Pressable>
-                </View>
-              ))}
-              <AddOptionInput onAdd={(val) => addVariantOption(vi, val)} placeholderColor={placeholderColor} />
-            </View>
-          </View>
-        ))}
-        <Pressable
-          style={({ pressed }) => [
-            styles.addVariantBtn,
-            pressed && { opacity: 0.8 },
-          ]}
-          onPress={() =>
-            setVariants((prev) => [...prev, { name: "", options: [] }])
-          }
-        >
-          <Text style={styles.addVariantBtnText}>+ Add option group</Text>
-        </Pressable>
-      </View>
 
       {businesses.length >= 2 && (
         <>

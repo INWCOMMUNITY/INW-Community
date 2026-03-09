@@ -84,8 +84,9 @@ export default function MyOrderDetailScreen() {
           setOrder(data as StoreOrder);
         }
       })
-      .catch(() => {
-        setError("Failed to load order");
+      .catch((e) => {
+        const err = e as { error?: string };
+        setError(err.error ?? "Failed to load order");
         setOrder(null);
       })
       .finally(() => setLoading(false));

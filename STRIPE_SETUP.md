@@ -68,6 +68,19 @@ Stripe needs to notify your app when payments succeed. Configure a webhook endpo
    ```
 3. The CLI prints a webhook signing secret like `whsec_...` — use that in your local `.env`
 
+### Connect webhook (required for seller payments in app)
+
+When sellers receive payments via Stripe Connect (in-app storefront checkout), Stripe sends `payment_intent.succeeded` from **connected accounts** to a separate webhook. Configure a second endpoint:
+
+1. Go to [Stripe Dashboard → Webhooks](https://dashboard.stripe.com/webhooks)
+2. Click **Add endpoint**
+3. **Endpoint URL**: `https://your-domain.com/api/stripe/webhook` (same URL as above)
+4. **Listen to**: Select **Listen to events on Connected accounts**
+5. Subscribe to at least: `payment_intent.succeeded`
+6. Click **Add endpoint** and reveal the **Signing secret** (starts with `whsec_`)
+
+Add this secret to your env as `STRIPE_CONNECT_WEBHOOK_SECRET`. The app uses it to verify Connect events so orders are marked paid when a buyer pays a seller in the app.
+
 ---
 
 ## Step 3: Update Environment Variables
@@ -85,8 +98,11 @@ STRIPE_PRICE_SELLER="price_xxxxxxxxxxxx"
 # STRIPE_PRICE_SPONSOR_YEARLY="price_xxxxxxxxxxxx"
 # STRIPE_PRICE_SELLER_YEARLY="price_xxxxxxxxxxxx"
 
-# From Step 2 – webhook signing secret
+# From Step 2 – webhook signing secret (platform events, e.g. checkout.session.completed)
 STRIPE_WEBHOOK_SECRET="whsec_xxxxxxxxxxxx"
+
+# From Step 2 – Connect webhook (required for in-app storefront so seller orders are marked paid)
+STRIPE_CONNECT_WEBHOOK_SECRET="whsec_xxxxxxxxxxxx"
 ```
 
 Update **`apps/mobile/.env`** for payment sheet and checkout redirects:
@@ -231,8 +247,9 @@ Add all Stripe variables to your Vercel project:
 - `STRIPE_SECRET_KEY`
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_CONNECT_WEBHOOK_SECRET` (for in-app storefront seller payments)
 - `STRIPE_PRICE_SUBSCRIBE`
 - `STRIPE_PRICE_SPONSOR`
 - `STRIPE_PRICE_SELLER`
 
-Create the webhook for your production URL (Step 2) and use the **live** signing secret in Vercel env vars.
+Create both webhooks (platform and Connect) for your production URL (Step 2) and use the **live** signing secrets in Vercel env vars.

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -12,6 +12,7 @@ import {
   TextInput,
   Linking,
 } from "react-native";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,8 +27,17 @@ import {
   PickupTermsModal,
   type PickupDetails,
 } from "@/components/PickupTermsModal";
+import {
+  StorefrontNativeCheckoutButton,
+  type StorefrontCheckoutPayload,
+} from "@/components/StorefrontNativeCheckoutButton";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
+const hasStripeKey = !!stripePublishableKey && !stripePublishableKey.includes("placeholder");
+const isExpoGo = Constants.appOwnership === "expo";
+const useNativeStorefrontCheckout = hasStripeKey && !isExpoGo;
 
 interface CartItemStoreItem {
   id: string;
@@ -97,53 +107,6 @@ export default function CartScreen() {
     state: "",
     zip: "",
   });
-  const [addressSearchQuery, setAddressSearchQuery] = useState("");
-  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; placeId: string }[]>([]);
-  const [addressSuggestionsLoading, setAddressSuggestionsLoading] = useState(false);
-  const addressSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const fetchAddressDetails = useCallback(async (placeId: string) => {
-    try {
-      const data = await apiGet<{ street?: string; city?: string; state?: string; zip?: string }>(
-        `${API_BASE}/api/address-details?placeId=${encodeURIComponent(placeId)}`
-      );
-      setShippingAddress((prev) => ({
-        ...prev,
-        street: data.street ?? prev.street,
-        city: data.city ?? prev.city,
-        state: data.state ?? prev.state,
-        zip: data.zip ?? prev.zip,
-      }));
-    } catch {
-      // keep current fields on error
-    }
-  }, []);
-
-  useEffect(() => {
-    const q = addressSearchQuery.trim();
-    if (q.length < 3) {
-      setAddressSuggestions([]);
-      return;
-    }
-    if (addressSearchDebounceRef.current) clearTimeout(addressSearchDebounceRef.current);
-    addressSearchDebounceRef.current = setTimeout(async () => {
-      setAddressSuggestionsLoading(true);
-      try {
-        const data = await apiGet<{ suggestions: { description: string; placeId: string }[] }>(
-          `${API_BASE}/api/address-autocomplete?input=${encodeURIComponent(q)}`
-        );
-        setAddressSuggestions(data.suggestions ?? []);
-      } catch {
-        setAddressSuggestions([]);
-      } finally {
-        setAddressSuggestionsLoading(false);
-      }
-    }, 300);
-    return () => {
-      if (addressSearchDebounceRef.current) clearTimeout(addressSearchDebounceRef.current);
-    };
-  }, [addressSearchQuery]);
-
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
     else setLoading(true);
@@ -494,50 +457,14 @@ export default function CartScreen() {
               {hasShippedItem && (
                 <View style={styles.formSection}>
                   <Text style={styles.formTitle}>Shipping address</Text>
-                  <Text style={styles.addressSearchHint}>Search to autofill for accurate labels</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Search address (street, city, or ZIP)"
-                    placeholderTextColor={theme.colors.placeholder}
-                    value={addressSearchQuery}
-                    onChangeText={setAddressSearchQuery}
-                    autoCorrect={false}
-                  />
-                  {addressSuggestionsLoading && (
-                    <View style={styles.suggestionsLoading}>
-                      <ActivityIndicator size="small" color={theme.colors.primary} />
-                    </View>
-                  )}
-                  {addressSuggestions.length > 0 && (
-                    <View style={styles.suggestionsList}>
-                      {addressSuggestions.slice(0, 5).map((s, idx) => (
-                        <Pressable
-                          key={s.placeId}
-                          style={({ pressed }) => [
-                            styles.suggestionItem,
-                            idx === Math.min(4, addressSuggestions.length - 1) && styles.suggestionItemLast,
-                            pressed && { backgroundColor: theme.colors.creamAlt },
-                          ]}
-                          onPress={() => {
-                            fetchAddressDetails(s.placeId);
-                            setAddressSearchQuery("");
-                            setAddressSuggestions([]);
-                          }}
-                        >
-                          <Ionicons name="location-outline" size={18} color={theme.colors.primary} />
-                          <Text style={styles.suggestionText} numberOfLines={2}>
-                            {s.description}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
                   <TextInput
                     style={styles.input}
                     placeholder="Street address"
                     placeholderTextColor={theme.colors.placeholder}
                     value={shippingAddress.street}
                     onChangeText={(t) => setShippingAddress((s) => ({ ...s, street: t }))}
+                    textContentType="streetAddressLine1"
+                    autoComplete="street-address"
                   />
                   <TextInput
                     style={styles.input}
@@ -545,6 +472,8 @@ export default function CartScreen() {
                     placeholderTextColor={theme.colors.placeholder}
                     value={shippingAddress.aptOrSuite}
                     onChangeText={(t) => setShippingAddress((s) => ({ ...s, aptOrSuite: t }))}
+                    textContentType="streetAddressLine2"
+                    autoComplete="address-line2"
                   />
                   <View style={styles.row2}>
                     <TextInput
@@ -553,6 +482,8 @@ export default function CartScreen() {
                       placeholderTextColor={theme.colors.placeholder}
                       value={shippingAddress.city}
                       onChangeText={(t) => setShippingAddress((s) => ({ ...s, city: t }))}
+                      textContentType="addressCity"
+                      autoComplete="address-level2"
                     />
                     <TextInput
                       style={[styles.input, styles.inputHalf]}
@@ -560,6 +491,8 @@ export default function CartScreen() {
                       placeholderTextColor={theme.colors.placeholder}
                       value={shippingAddress.state}
                       onChangeText={(t) => setShippingAddress((s) => ({ ...s, state: t }))}
+                      textContentType="addressState"
+                      autoComplete="address-level1"
                     />
                   </View>
                   <TextInput
@@ -569,6 +502,8 @@ export default function CartScreen() {
                     value={shippingAddress.zip}
                     onChangeText={(t) => setShippingAddress((s) => ({ ...s, zip: t }))}
                     keyboardType="numeric"
+                    textContentType="postalCode"
+                    autoComplete="postal-code"
                   />
                 </View>
               )}
@@ -613,17 +548,47 @@ export default function CartScreen() {
                 </Text>
               </View>
 
-              <Pressable
-                style={[styles.checkoutBtn, (checkingOut || !canCheckout) && styles.checkoutBtnDisabled]}
-                onPress={doCheckout}
-                disabled={checkingOut || !canCheckout}
-              >
-                {checkingOut ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.checkoutBtnText}>Checkout</Text>
-                )}
-              </Pressable>
+              {useNativeStorefrontCheckout ? (
+                <StorefrontNativeCheckoutButton
+                  payload={{
+                    items: items.map((i) => ({
+                      storeItemId: i.storeItemId,
+                      quantity: i.quantity,
+                      variant: i.variant ?? undefined,
+                      fulfillmentType: i.fulfillmentType ?? "ship",
+                    })),
+                    shippingCostCents: items.reduce((sum, i) => {
+                      if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
+                        return sum + i.storeItem.shippingCostCents * i.quantity;
+                      }
+                      return sum;
+                    }, 0),
+                    ...(hasShippedItem && { shippingAddress }),
+                    ...(hasLocalDelivery && localDeliveryDetails && { localDeliveryDetails }),
+                  }}
+                  onSuccess={() => {
+                    load();
+                    router.back();
+                  }}
+                  onError={setError}
+                  setCheckingOut={setCheckingOut}
+                  disabled={!canCheckout || checkingOut}
+                  buttonStyle={styles.checkoutBtn}
+                  buttonDisabledStyle={styles.checkoutBtnDisabled}
+                />
+              ) : (
+                <Pressable
+                  style={[styles.checkoutBtn, (checkingOut || !canCheckout) && styles.checkoutBtnDisabled]}
+                  onPress={doCheckout}
+                  disabled={checkingOut || !canCheckout}
+                >
+                  {checkingOut ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.checkoutBtnText}>Checkout</Text>
+                  )}
+                </Pressable>
+              )}
             </>
           )}
         </ScrollView>
@@ -839,39 +804,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: theme.colors.heading,
-  },
-  addressSearchHint: {
-    fontSize: 12,
-    color: theme.colors.labelMuted ?? "#666",
-    marginBottom: 6,
-  },
-  suggestionsLoading: {
-    paddingVertical: 8,
-    alignItems: "center",
-  },
-  suggestionsList: {
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.cream ?? "#eee",
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  suggestionItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.cream ?? "#eee",
-  },
-  suggestionItemLast: {
-    borderBottomWidth: 0,
-  },
-  suggestionText: {
-    flex: 1,
-    fontSize: 14,
-    color: theme.colors.text,
   },
   input: {
     borderWidth: 2,

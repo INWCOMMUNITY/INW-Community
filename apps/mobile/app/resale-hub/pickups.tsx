@@ -14,6 +14,7 @@ interface StoreOrder {
   totalCents: number;
   createdAt: string;
   buyer?: { firstName: string; lastName: string };
+  items?: { fulfillmentType?: string | null }[];
 }
 
 function formatPrice(cents: number): string {
@@ -36,7 +37,13 @@ export default function ResaleHubPickupsScreen() {
 
   const load = useCallback(() => {
     apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1")
-      .then((data) => setOrders(Array.isArray(data) ? data : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        const pickupOnly = list.filter((o) =>
+          o.items?.some((i) => (i.fulfillmentType ?? "").toLowerCase() === "pickup")
+        );
+        setOrders(pickupOnly);
+      })
       .catch(() => setOrders([]))
       .finally(() => {
         setLoading(false);

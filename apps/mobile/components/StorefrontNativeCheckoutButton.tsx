@@ -1,0 +1,160 @@
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+} from "react-native";
+import { usePaymentSheet } from "@stripe/stripe-react-native";
+import { theme } from "@/lib/theme";
+import { apiPost } from "@/lib/api";
+
+export interface StorefrontCheckoutPayload {
+  items: { storeItemId: string; quantity: number; variant?: unknown; fulfillmentType?: string }[];
+  shippingCostCents: number;
+  shippingAddress?: { street: string; aptOrSuite?: string; city: string; state: string; zip: string };
+  localDeliveryDetails?: unknown;
+  cashOrderIds?: string[];
+}
+
+interface StorefrontNativeCheckoutButtonProps {
+  payload: StorefrontCheckoutPayload;
+  onSuccess: () => void;
+  onError: (message: string) => void;
+  setCheckingOut: (v: boolean) => void;
+  disabled: boolean;
+  buttonStyle?: object;
+  buttonDisabledStyle?: object;
+}
+
+export function StorefrontNativeCheckoutButton({
+  payload,
+  onSuccess,
+  onError,
+  setCheckingOut,
+  disabled,
+  buttonStyle,
+  buttonDisabledStyle,
+}: StorefrontNativeCheckoutButtonProps) {
+  const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
+  const [loading, setLoading] = useState(false);
+
+  const handlePress = useCallback(async () => {
+    if (disabled || loading) return;
+    setCheckingOut(true);
+    setLoading(true);
+    onError("");
+
+    try {
+      const data = await apiPost<{
+        payments?: { clientSecret: string; orderIds: string[] }[];
+        error?: string;
+      }>("/api/stripe/storefront-checkout-intent", payload);
+
+      if (data.error) {
+        onError(data.error);
+        return;
+      }
+
+      const payments = data.payments ?? [];
+      if (payments.length === 0) {
+        onError("Checkout could not be started. Try redirect checkout.");
+        return;
+      }
+
+      for (let i = 0; i < payments.length; i++) {
+        const p = payments[i];
+        const { error: initErr } = await initPaymentSheet({
+          merchantDisplayName: "Northwest Community",
+          paymentIntentClientSecret: p.clientSecret,
+          returnURL: "mobile://stripe-redirect",
+          applePay: { merchantCountryCode: "US" },
+          googlePay: {
+            merchantCountryCode: "US",
+            testEnv: __DEV__ ?? false,
+          },
+          appearance: {
+            colors: {
+              primary: "#505542",
+              background: "#FDEDCC",
+              componentBackground: "#FFFFFF",
+              componentText: "#3E432F",
+              primaryText: "#3E432F",
+              secondaryText: "#505542",
+              icon: "#505542",
+            },
+          },
+        });
+
+        if (initErr) {
+          onError(initErr.message);
+          return;
+        }
+
+        const { error: presentErr } = await presentPaymentSheet();
+
+        if (presentErr) {
+          if (presentErr.code !== "Canceled") {
+            onError(presentErr.message ?? "Payment failed");
+            Alert.alert("Payment failed", presentErr.message ?? "Payment could not be completed.");
+          }
+          return;
+        }
+      }
+
+      onSuccess();
+    } catch (e) {
+      const err = e as { error?: string; status?: number };
+      if (err.status === 401) {
+        Alert.alert("Sign in required", "Please sign in to checkout.", [{ text: "OK" }]);
+      } else {
+        onError(err.error ?? "Checkout failed");
+      }
+    } finally {
+      setLoading(false);
+      setCheckingOut(false);
+    }
+  }, [
+    payload,
+    disabled,
+    loading,
+    initPaymentSheet,
+    presentPaymentSheet,
+    onSuccess,
+    onError,
+    setCheckingOut,
+  ]);
+
+  const isDisabled = disabled || loading;
+
+  return (
+    <Pressable
+      style={[styles.button, buttonStyle, isDisabled && (buttonDisabledStyle ?? styles.buttonDisabled)]}
+      onPress={handlePress}
+      disabled={isDisabled}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color="#fff" />
+      ) : (
+        <Text style={styles.buttonText}>Checkout</Text>
+      )}
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  button: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  buttonDisabled: { opacity: 0.7 },
+  buttonText: {
+    color: theme.colors.buttonText ?? "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+});

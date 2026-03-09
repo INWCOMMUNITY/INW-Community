@@ -14,6 +14,7 @@ import { View, Text, StyleSheet, Pressable, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import 'react-native-reanimated';
 
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { useColorScheme } from '@/components/useColorScheme';
 import { setToken } from '@/lib/api';
 import { ThemeProvider } from '@/contexts/ThemeContext';
@@ -182,17 +183,14 @@ function ProfileViewLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '';
+const hasStripeKey = !!stripePublishableKey && !stripePublishableKey.includes('placeholder');
+const stripeMerchantId = process.env.EXPO_PUBLIC_STRIPE_MERCHANT_IDENTIFIER ?? 'merchant.com.northwestcommunity';
+
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
 
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-    <ThemeProvider>
-      <AuthProvider>
-      <AuthDeepLinkHandler />
-      <PushNotificationHandler />
-      <ProfileViewLayout>
-      <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+  const content = (
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
@@ -225,6 +223,27 @@ function RootLayoutNav() {
         <Stack.Screen name="community" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'containedModal' }} />
       </Stack>
+  );
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+    <ThemeProvider>
+      <AuthProvider>
+      <AuthDeepLinkHandler />
+      <PushNotificationHandler />
+      <ProfileViewLayout>
+      <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      {hasStripeKey ? (
+        <StripeProvider
+          publishableKey={stripePublishableKey}
+          urlScheme="mobile"
+          merchantIdentifier={stripeMerchantId}
+        >
+          {content}
+        </StripeProvider>
+      ) : (
+        content
+      )}
     </NavThemeProvider>
     </ProfileViewLayout>
     </AuthProvider>
