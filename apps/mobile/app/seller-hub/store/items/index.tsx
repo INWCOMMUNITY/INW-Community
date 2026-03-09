@@ -140,6 +140,13 @@ export default function MyItemsScreen() {
     try {
       await apiPatch(`/api/store-items/${id}`, { status: "sold_out" });
       setItems((prev) => prev.filter((i) => i.id !== id));
+      Alert.alert("Marked as sold", "This item has been moved to Sold Items and no longer appears in My Items.", [
+        { text: "OK" },
+        {
+          text: "View Sold Items",
+          onPress: () => (router.push as (href: string) => void)("/seller-hub/store/sold"),
+        },
+      ]);
     } catch (e) {
       const err = e as { error?: string };
       Alert.alert("Error", err.error ?? "Failed to mark as sold");
@@ -192,12 +199,14 @@ export default function MyItemsScreen() {
       <Text style={styles.pageTitle}>My Items</Text>
       <View style={styles.header}>
         <View>
-          <Text style={styles.hint}>Manage your storefront listings.</Text>
+          <Text style={styles.hint}>
+            Manage your storefront listings. Sold items move to Sold Items and no longer appear here.
+          </Text>
           <Pressable
             onPress={() => (router.push as (href: string) => void)("/seller-hub/store/sold")}
             style={({ pressed }) => [styles.soldLink, pressed && { opacity: 0.8 }]}
           >
-            <Text style={styles.soldLinkText}>Sold items</Text>
+            <Text style={styles.soldLinkText}>Sold Items</Text>
           </Pressable>
         </View>
         <Pressable

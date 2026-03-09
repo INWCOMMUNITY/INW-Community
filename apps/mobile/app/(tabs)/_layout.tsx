@@ -56,14 +56,22 @@ function ProfileHeaderTitle() {
   );
 }
 
-function ProfileTabButton(props: { children?: React.ReactNode; onPress?: () => void; [key: string]: unknown }) {
+function ProfileTabButton(props: {
+  children?: React.ReactNode;
+  onPress?: () => void;
+  switcherShownOnceRef?: { current: boolean };
+  [key: string]: unknown;
+}) {
   const { openSwitcher } = useProfileView();
-  const { onPress, children, ...rest } = props;
+  const { onPress, children, switcherShownOnceRef, ...rest } = props;
   return (
     <Pressable
       {...rest}
       onPress={() => {
-        openSwitcher();
+        if (switcherShownOnceRef && !switcherShownOnceRef.current) {
+          switcherShownOnceRef.current = true;
+          openSwitcher();
+        }
         onPress?.();
       }}
     >
@@ -417,7 +425,11 @@ function TabLayoutInner() {
           tabBarIcon: ({ color }) => (
             <TabBarIcon name={profileIconName} color={color} />
           ),
-          tabBarButton: showSwitcher ? (props: any) => <ProfileTabButton {...props} /> : undefined,
+          tabBarButton: showSwitcher
+            ? (props: any) => (
+                <ProfileTabButton {...props} switcherShownOnceRef={switcherShownOnceRef} />
+              )
+            : undefined,
         }}
       />
     </Tabs>

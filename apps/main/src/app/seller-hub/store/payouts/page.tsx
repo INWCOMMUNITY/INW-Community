@@ -160,17 +160,15 @@ export default function MyFundsPage() {
             >
               Manage payment account
             </button>
-            {process.env.NODE_ENV === "development" && (
-              <button
-                type="button"
-                onClick={handleDisconnectStripe}
-                disabled={disconnectLoading}
-                className="btn border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 disabled:opacity-50"
-                title="Clear Stripe Connect so you can run onboarding again (dev only)"
-              >
-                {disconnectLoading ? "Disconnecting…" : "Disconnect Stripe (re-test onboarding)"}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleDisconnectStripe}
+              disabled={disconnectLoading}
+              className="btn border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 disabled:opacity-50"
+              title="Disconnect your Stripe account. Your listings will be disabled until you complete payment setup again."
+            >
+              {disconnectLoading ? "Disconnecting…" : "Disconnect Stripe account"}
+            </button>
             <Link href="/seller-hub/ship" className="btn border border-gray-300 bg-white hover:bg-gray-50">
               Ship items
             </Link>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireAdmin } from "@/lib/admin-auth";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { z } from "zod";
@@ -61,7 +62,8 @@ export async function PATCH(
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (existing.memberId !== session.user.id) {
+  const isAdmin = await requireAdmin(req);
+  if (!isAdmin && existing.memberId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -74,41 +76,70 @@ export async function PATCH(
     return NextResponse.json({ error: String(msg) }, { status: 400 });
   }
 
-  if (data.listingType !== undefined) {
-    const sellerSub = await prisma.subscription.findFirst({
-      where: { memberId: session.user.id, plan: "seller", status: "active" },
-    });
-    const subscribeSub = await prisma.subscription.findFirst({
-      where: { memberId: session.user.id, plan: "subscribe", status: "active" },
-    });
-    if (data.listingType === "new") {
-      if (!sellerSub) {
-        return NextResponse.json({ error: "Seller plan required to list new items on the storefront" }, { status: 403 });
+  const ownerId = isAdmin ? existing.memberId : session.user.id;
+  if (!isAdmin) {
+    if (data.listingType !== undefined) {
+      const sellerSub = await prisma.subscription.findFirst({
+        where: { memberId: session.user.id, plan: "seller", status: "active" },
+      });
+      const subscribeSub = await prisma.subscription.findFirst({
+        where: { memberId: session.user.id, plan: "subscribe", status: "active" },
+      });
+      if (data.listingType === "new") {
+        if (!sellerSub) {
+          return NextResponse.json({ error: "Seller plan required to list new items on the storefront" }, { status: 403 });
+        }
+      } else {
+        if (!sellerSub && !subscribeSub) {
+          return NextResponse.json({ error: "Subscribe or Seller plan required to list resale items" }, { status: 403 });
+        }
       }
-    } else {
-      if (!sellerSub && !subscribeSub) {
-        return NextResponse.json({ error: "Subscribe or Seller plan required to list resale items" }, { status: 403 });
+    }
+
+    const member = await prisma.member.findUnique({
+      where: { id: session.user.id },
+      select: { stripeConnectAccountId: true, easypostApiKeyEncrypted: true },
+    });
+    if (!member?.stripeConnectAccountId?.trim()) {
+      return NextResponse.json(
+        { error: "You must complete Stripe Connect setup (payment account) before listing items. Go to Seller Hub → Payouts to set up." },
+        { status: 403 }
+      );
+    }
+
+    if (data.businessId !== undefined && data.businessId) {
+      const biz = await prisma.business.findFirst({
+        where: { id: data.businessId, memberId: session.user.id },
+      });
+      if (!biz) {
+        return NextResponse.json({ error: "Business not found" }, { status: 400 });
       }
+    }
+
+    const shippingDisabled = data.shippingDisabled ?? existing.shippingDisabled;
+    const localDeliveryAvailable = data.localDeliveryAvailable ?? existing.localDeliveryAvailable;
+    const inStorePickupAvailable = data.inStorePickupAvailable ?? existing.inStorePickupAvailable;
+    if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
+      return NextResponse.json(
+        { error: "When 'only local delivery/pickup' is on, enable at least local delivery or pickup." },
+        { status: 400 }
+      );
+    }
+
+    if (!shippingDisabled && !member?.easypostApiKeyEncrypted) {
+      return NextResponse.json(
+        { error: "You must set up Easy Ship (shipping) before offering shipping on listings. Connect your shipping account in Seller Hub." },
+        { status: 403 }
+      );
     }
   }
 
-  const member = await prisma.member.findUnique({
-    where: { id: session.user.id },
-    select: { stripeConnectAccountId: true, easypostApiKeyEncrypted: true },
-  });
-  if (!member?.stripeConnectAccountId?.trim()) {
-    return NextResponse.json(
-      { error: "You must complete Stripe Connect setup (payment account) before listing items. Go to Seller Hub → Payouts to set up." },
-      { status: 403 }
-    );
-  }
-
-  if (data.businessId !== undefined && data.businessId) {
+  if (data.businessId !== undefined && data.businessId && isAdmin) {
     const biz = await prisma.business.findFirst({
-      where: { id: data.businessId, memberId: session.user.id },
+      where: { id: data.businessId, memberId: ownerId },
     });
     if (!biz) {
-      return NextResponse.json({ error: "Business not found" }, { status: 400 });
+      return NextResponse.json({ error: "Business not found or not owned by this listing's seller." }, { status: 400 });
     }
   }
 
@@ -119,13 +150,6 @@ export async function PATCH(
     return NextResponse.json(
       { error: "When 'only local delivery/pickup' is on, enable at least local delivery or pickup." },
       { status: 400 }
-    );
-  }
-
-  if (!shippingDisabled && !member?.easypostApiKeyEncrypted) {
-    return NextResponse.json(
-      { error: "You must set up Easy Ship (shipping) before offering shipping on listings. Connect your shipping account in Seller Hub." },
-      { status: 403 }
     );
   }
 
@@ -217,7 +241,8 @@ export async function DELETE(
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (existing.memberId !== session.user.id) {
+  const isAdmin = await requireAdmin(req);
+  if (!isAdmin && existing.memberId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

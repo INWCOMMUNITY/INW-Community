@@ -388,53 +388,48 @@ export default function ProductDetailPage() {
       }
 
       const useEmbeddedCheckout = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
-      if (useEmbeddedCheckout) {
-        const intentRes = await fetch("/api/stripe/storefront-checkout-intent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const intentData = await intentRes.json().catch(() => ({}));
-        if (intentRes.ok) {
-          const payments =
-            Array.isArray(intentData.payments) && intentData.payments.length > 0
-              ? intentData.payments
-              : intentData.clientSecret && intentData.orderIds?.length
-                ? [{ clientSecret: intentData.clientSecret, orderIds: intentData.orderIds }]
-                : null;
-          if (payments && intentData.summary && intentData.orderIds?.length && intentData.successUrl) {
-            try {
-              sessionStorage.setItem(
-                "storefront_checkout",
-                JSON.stringify({
-                  payments,
-                  paymentIndex: 0,
-                  orderIds: intentData.orderIds,
-                  summary: intentData.summary,
-                  successUrl: intentData.successUrl,
-                })
-              );
-              window.location.href = "/storefront/checkout";
-              return;
-            } catch {
-              // fall through to redirect checkout
-            }
-          }
-        }
+      if (!useEmbeddedCheckout) {
+        setError(
+          "Card payment is not configured. Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to enable checkout. Payments go directly to sellers."
+        );
+        return;
       }
 
-      const res = await fetch("/api/stripe/storefront-checkout", {
+      const intentRes = await fetch("/api/stripe/storefront-checkout-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(getErrorMessage(data.error, "Checkout failed"));
+      const intentData = await intentRes.json().catch(() => ({}));
+      if (!intentRes.ok) {
+        setError(getErrorMessage(intentData.error, "Checkout failed"));
         return;
       }
-      if (data.url) {
-        window.location.href = data.url;
+      const payments =
+        Array.isArray(intentData.payments) && intentData.payments.length > 0
+          ? intentData.payments
+          : intentData.clientSecret && intentData.orderIds?.length
+            ? [{ clientSecret: intentData.clientSecret, orderIds: intentData.orderIds }]
+            : null;
+      if (payments && intentData.summary && intentData.orderIds?.length && intentData.successUrl) {
+        try {
+          sessionStorage.setItem(
+            "storefront_checkout",
+            JSON.stringify({
+              payments,
+              paymentIndex: 0,
+              orderIds: intentData.orderIds,
+              summary: intentData.summary,
+              successUrl: intentData.successUrl,
+            })
+          );
+          window.location.href = "/storefront/checkout";
+          return;
+        } catch {
+          setError("Could not start checkout.");
+        }
+      } else {
+        setError(getErrorMessage(intentData.error, "Checkout could not be started."));
       }
     } finally {
       setCheckingOut(false);

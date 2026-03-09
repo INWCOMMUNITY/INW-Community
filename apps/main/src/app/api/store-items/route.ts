@@ -197,6 +197,7 @@ export async function GET(req: NextRequest) {
       status?: string | { not: string };
     } = { memberId: userId };
     if (listingTypeFilter) where.listingType = listingTypeFilter;
+    // My Items: exclude sold (they appear only in Sold Items). Sold Items: sold=1 returns only sold_out.
     const soldOnly = searchParams.get("sold") === "1";
     if (soldOnly) {
       where.status = "sold_out";

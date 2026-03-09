@@ -320,22 +320,9 @@ export default function CartPage() {
 
       const useEmbeddedCheckout = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
       if (!useEmbeddedCheckout) {
-        // Publishable key not set: use Stripe Checkout redirect so payment still works
-        const res = await fetch("/api/stripe/storefront-checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(stripeBody),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setError(getErrorMessage(data.error, "Checkout failed"));
-          return;
-        }
-        if (data.url) {
-          window.location.href = data.url;
-        } else {
-          setError("Checkout could not be started.");
-        }
+        setError(
+          "Card payment is not configured. Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to enable checkout. Payments go directly to sellers."
+        );
         return;
       }
 

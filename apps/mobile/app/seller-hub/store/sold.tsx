@@ -81,7 +81,7 @@ export default function SoldItemsScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.pageTitle}>Sold Items</Text>
-      <Text style={styles.hint}>Items you’ve marked as sold (storefront and resale).</Text>
+      <Text style={styles.hint}>Items you’ve sold — they no longer appear in My Items (storefront and resale).</Text>
 
       {fetchError && (
         <View style={styles.errorBanner}>

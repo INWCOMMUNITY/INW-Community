@@ -1,28 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 
 /**
- * POST: Disconnect Stripe Connect for the current user (development only).
- * Sets stripeConnectAccountId to null so you can re-test Stripe Connect onboarding.
- * Only available when NODE_ENV === "development".
+ * POST: Disconnect Stripe Connect for the current user.
+ * Clears stripeConnectAccountId and disables all active store listings so they
+ * no longer appear for sale. Allows Stripe Connect onboarding to be run again.
  */
 export async function POST(req: NextRequest) {
-  if (process.env.NODE_ENV !== "development") {
-    return NextResponse.json(
-      { error: "This action is only available in development." },
-      { status: 403 }
-    );
-  }
   const session = (await getSessionForApi(req)) ?? (await getServerSession(authOptions));
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  await prisma.member.update({
-    where: { id: session.user.id },
-    data: { stripeConnectAccountId: null },
-  });
+  await disconnectStripeAndDisableListings(session.user.id);
   return NextResponse.json({ ok: true });
 }

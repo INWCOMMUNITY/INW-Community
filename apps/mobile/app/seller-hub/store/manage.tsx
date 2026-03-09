@@ -37,7 +37,7 @@ export default function ManageStoreScreen() {
         <Ionicons name="checkmark-done" size={28} color={theme.colors.primary} />
         <View style={styles.cardText}>
           <Text style={styles.cardTitle}>Sold Items</Text>
-          <Text style={styles.cardDesc}>Items you’ve marked as sold</Text>
+          <Text style={styles.cardDesc}>Items you’ve sold — moved here from My Items</Text>
         </View>
         <Ionicons name="chevron-forward" size={22} color="#999" />
       </Pressable>

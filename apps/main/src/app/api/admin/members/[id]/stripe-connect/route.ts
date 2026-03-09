@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
+import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 
 /**
  * DELETE: Disconnect Stripe Connect for a member (admin only).
- * Sets stripeConnectAccountId to null so the member can re-run Stripe Connect onboarding.
- * For testing or support only.
+ * Clears stripeConnectAccountId and disables all active store listings so the
+ * member can re-run Stripe Connect onboarding.
  */
 export async function DELETE(
   req: NextRequest,
@@ -15,9 +15,6 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await params;
-  await prisma.member.update({
-    where: { id },
-    data: { stripeConnectAccountId: null },
-  });
+  await disconnectStripeAndDisableListings(id);
   return NextResponse.json({ ok: true });
 }

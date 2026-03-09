@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
 import { decrementOptionQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
+import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -109,6 +110,21 @@ export async function POST(req: NextRequest) {
   if (!event) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
+
+  // Connected account disconnected the platform; clear our link and disable their listings
+  if (event.type === "account.application.deauthorized") {
+    const connectAccountId = (event as Stripe.Event & { account?: string }).account;
+    if (connectAccountId) {
+      const member = await prisma.member.findFirst({
+        where: { stripeConnectAccountId: connectAccountId },
+        select: { id: true },
+      });
+      if (member) {
+        await disconnectStripeAndDisableListings(member.id);
+      }
+    }
+  }
+
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
     const memberId = session.metadata?.memberId;
@@ -458,7 +474,8 @@ export async function POST(req: NextRequest) {
 
   if (event.type === "payment_intent.succeeded") {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
-    const isConnectEvent = Boolean((event as { account?: string }).account);
+    const connectAccountId = (event as Stripe.Event & { account?: string }).account ?? null;
+    const isConnectEvent = Boolean(connectAccountId);
     const piMeta = paymentIntent.metadata ?? {};
 
     const orderIdsList: string[] = (() => {
@@ -479,10 +496,32 @@ export async function POST(req: NextRequest) {
 
     for (const orderId of orderIdsList) {
       const order = await prisma.storeOrder.findFirst({
-        where: { id: orderId, status: "pending" },
+        where: { id: orderId },
         include: { items: true },
       });
       if (!order) continue;
+
+      // Idempotency: do not process the same payment twice
+      if (order.status === "paid" && order.stripePaymentIntentId === paymentIntent.id) continue;
+
+      // Only process pending orders (avoid race / duplicate events)
+      if (order.status !== "pending") continue;
+
+      // Connect events: ensure payment was for this order's seller's Connect account (funds go to seller, not platform)
+      if (isConnectEvent && connectAccountId) {
+        const seller = await prisma.member.findUnique({
+          where: { id: order.sellerId },
+          select: { stripeConnectAccountId: true },
+        });
+        if (seller?.stripeConnectAccountId !== connectAccountId) {
+          console.warn("[webhook] payment_intent.succeeded: Connect account mismatch, skipping order", {
+            orderId,
+            eventAccount: connectAccountId,
+            orderSellerId: order.sellerId,
+          });
+          continue;
+        }
+      }
 
       const totalCents = order.totalCents;
       let pointsAwarded = Math.round(totalCents / 200);
