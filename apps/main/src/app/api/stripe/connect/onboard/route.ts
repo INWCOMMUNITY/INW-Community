@@ -89,6 +89,10 @@ export async function POST(req: NextRequest) {
       refresh_url: `${baseUrl}/seller-hub/store/payouts?refresh=1`,
       return_url: `${baseUrl}/seller-hub/store/payouts?success=1`,
       type: "account_onboarding",
+      collection_options: {
+        fields: "currently_due",
+        future_requirements: "omit",
+      },
     });
 
     return NextResponse.json({ url: accountLink.url });

@@ -77,13 +77,36 @@ async function createBusinessFromMetadata(
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const sig = req.headers.get("stripe-signature");
-  if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
-    return NextResponse.json({ error: "Missing signature or webhook secret" }, { status: 400 });
+  if (!sig) {
+    return NextResponse.json({ error: "Missing signature" }, { status: 400 });
+  }
+  const platformSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const connectSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+  if (!platformSecret?.trim() && !connectSecret?.trim()) {
+    return NextResponse.json({ error: "Missing webhook secret(s)" }, { status: 400 });
   }
   let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (e) {
+  let lastError: unknown;
+  if (platformSecret?.trim()) {
+    try {
+      event = stripe.webhooks.constructEvent(body, sig, platformSecret);
+    } catch (e) {
+      lastError = e;
+      event = null as unknown as Stripe.Event;
+    }
+  } else {
+    lastError = new Error("No platform secret");
+    event = null as unknown as Stripe.Event;
+  }
+  if (!event && connectSecret?.trim()) {
+    try {
+      event = stripe.webhooks.constructEvent(body, sig, connectSecret);
+    } catch (e) {
+      lastError = e;
+      event = null as unknown as Stripe.Event;
+    }
+  }
+  if (!event) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
   if (event.type === "checkout.session.completed") {

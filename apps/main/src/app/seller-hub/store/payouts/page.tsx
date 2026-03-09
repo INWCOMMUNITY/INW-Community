@@ -26,6 +26,7 @@ export default function MyFundsPage() {
   const [data, setData] = useState<FundsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [payoutLoading, setPayoutLoading] = useState(false);
+  const [disconnectLoading, setDisconnectLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function fetchFunds() {
@@ -74,6 +75,22 @@ export default function MyFundsPage() {
       else setError(d.error ?? "Could not open payment account");
     } catch {
       setError("Could not open payment account");
+    }
+  }
+
+  async function handleDisconnectStripe() {
+    setDisconnectLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/me/disconnect-stripe", { method: "POST" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(d.error ?? "Could not disconnect");
+        return;
+      }
+      fetchFunds();
+    } finally {
+      setDisconnectLoading(false);
     }
   }
 
@@ -143,6 +160,17 @@ export default function MyFundsPage() {
             >
               Manage payment account
             </button>
+            {process.env.NODE_ENV === "development" && (
+              <button
+                type="button"
+                onClick={handleDisconnectStripe}
+                disabled={disconnectLoading}
+                className="btn border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 disabled:opacity-50"
+                title="Clear Stripe Connect so you can run onboarding again (dev only)"
+              >
+                {disconnectLoading ? "Disconnecting…" : "Disconnect Stripe (re-test onboarding)"}
+              </button>
+            )}
             <Link href="/seller-hub/ship" className="btn border border-gray-300 bg-white hover:bg-gray-50">
               Ship items
             </Link>
