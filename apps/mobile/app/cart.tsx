@@ -27,7 +27,6 @@ import {
   type PickupDetails,
 } from "@/components/PickupTermsModal";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 interface CartItemStoreItem {
