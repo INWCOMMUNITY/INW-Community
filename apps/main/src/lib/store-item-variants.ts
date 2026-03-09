@@ -31,7 +31,7 @@ function isVariantWithOptionQuantities(v: unknown): v is VariantWithOptionQuanti
 /** True if this item uses per-option quantities (new format). */
 export function hasOptionQuantities(variants: unknown): boolean {
   if (!variants || !Array.isArray(variants)) return false;
-  return (variants as VariantsJson).some(isVariantWithOptionQuantities);
+  return (variants as unknown[]).some(isVariantWithOptionQuantities);
 }
 
 /** Get available quantity for the item. If selectedVariant is provided and item has option quantities, returns that option's quantity; otherwise storeItem.quantity. */
