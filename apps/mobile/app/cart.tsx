@@ -483,7 +483,7 @@ export default function CartScreen() {
                       value={shippingAddress.city}
                       onChangeText={(t) => setShippingAddress((s) => ({ ...s, city: t }))}
                       textContentType="addressCity"
-                      autoComplete="address-level2"
+                      autoComplete="address-line2"
                     />
                     <TextInput
                       style={[styles.input, styles.inputHalf]}
@@ -492,7 +492,7 @@ export default function CartScreen() {
                       value={shippingAddress.state}
                       onChangeText={(t) => setShippingAddress((s) => ({ ...s, state: t }))}
                       textContentType="addressState"
-                      autoComplete="address-level1"
+                      autoComplete="address-line1"
                     />
                   </View>
                   <TextInput

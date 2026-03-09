@@ -90,10 +90,14 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
     Linking.openURL(`${siteBase}${path}`).catch(() => {});
   };
 
+  const openProfile = (memberId: string) => {
+    (router.push as (href: string) => void)(`/members/${memberId}`);
+  };
+
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Pressable onPress={() => openUrl(`/members/${post.author.id}`)}>
+        <Pressable onPress={() => openProfile(post.author.id)}>
           {post.author.profilePhotoUrl ? (
             <Image
               source={{ uri: resolveUri(post.author.profilePhotoUrl) }}
@@ -106,7 +110,7 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
           )}
         </Pressable>
         <View style={styles.headerText}>
-          <Pressable onPress={() => openUrl(`/members/${post.author.id}`)}>
+          <Pressable onPress={() => openProfile(post.author.id)}>
             <Text style={styles.authorName} numberOfLines={1}>
               {authorName}
             </Text>

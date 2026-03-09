@@ -39,6 +39,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ url: loginLink.url });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to create dashboard link";
+    const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
+    if (accountGone) {
+      await prisma.member.update({
+        where: { id: userId },
+        data: { stripeConnectAccountId: null },
+      });
+      return NextResponse.json(
+        { error: "Your previous Stripe account is no longer available. Please complete setup again." },
+        { status: 400 }
+      );
+    }
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

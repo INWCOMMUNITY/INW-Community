@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 
 interface MemberProfileProps {
@@ -11,7 +11,9 @@ interface MemberProfileProps {
     profilePhotoUrl: string | null;
     bio: string | null;
     city: string | null;
+    allTimePointsEarned?: number;
   };
+  badges?: Array<{ id: string; name: string; slug: string }>;
   blogs: Array<{
     id: string;
     slug: string;
@@ -35,6 +37,7 @@ interface MemberProfileProps {
 
 export function MemberProfile({
   member,
+  badges = [],
   blogs,
   favoriteBusinesses = [],
   sessionUserId,
@@ -48,6 +51,18 @@ export function MemberProfile({
   const [following, setFollowing] = useState(isFollowing);
   const [friendPending, setFriendPending] = useState(pendingFriendRequest);
   const [loading, setLoading] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [blockReportLoading, setBlockReportLoading] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
 
   async function handleFollow() {
     if (!sessionUserId || loading) return;
@@ -90,9 +105,93 @@ export function MemberProfile({
     }
   }
 
+  async function handleBlock() {
+    if (!sessionUserId || blockReportLoading) return;
+    setBlockReportLoading(true);
+    try {
+      const res = await fetch("/api/members/block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId: member.id }),
+      });
+      if (res.ok) {
+        setMenuOpen(false);
+        window.location.href = "/my-community/friends";
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error ?? "Could not block");
+      }
+    } finally {
+      setBlockReportLoading(false);
+    }
+  }
+
+  async function handleReport() {
+    if (!sessionUserId || blockReportLoading) return;
+    const reason = window.prompt("Why are you reporting this member? (political / hate / nudity / spam / other)");
+    if (!reason?.trim()) return;
+    const normalized = ["political", "hate", "nudity", "spam", "other"].find((r) =>
+      reason.toLowerCase().includes(r)
+    ) || "other";
+    setBlockReportLoading(true);
+    try {
+      const res = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentType: "member",
+          contentId: member.id,
+          reason: normalized,
+          details: reason.trim().slice(0, 500),
+        }),
+      });
+      if (res.ok) {
+        setMenuOpen(false);
+        alert("Report submitted. Thank you.");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error ?? "Could not submit report");
+      }
+    } finally {
+      setBlockReportLoading(false);
+    }
+  }
+
   return (
     <div className="max-w-2xl">
-      <div className="flex flex-col sm:flex-row gap-6 items-start">
+      <div className="flex flex-col sm:flex-row gap-6 items-start relative">
+        {sessionUserId && !isOwnProfile && (
+          <div className="absolute top-0 right-0" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              className="p-2 rounded hover:bg-gray-100 text-gray-600"
+              aria-label="Options"
+            >
+              ⋮
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-1 py-1 bg-white border rounded-lg shadow-lg z-10 min-w-[180px]">
+                <button
+                  type="button"
+                  onClick={handleBlock}
+                  disabled={blockReportLoading}
+                  className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50"
+                >
+                  Block member
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReport}
+                  disabled={blockReportLoading}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Report member
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {member.profilePhotoUrl ? (
           <img
             src={member.profilePhotoUrl}
@@ -151,6 +250,28 @@ export function MemberProfile({
           )}
         </div>
       </div>
+      {(badges.length > 0 || (member.allTimePointsEarned != null && member.allTimePointsEarned > 0)) && (
+        <div className="mt-6 flex flex-wrap gap-4 items-center">
+          {member.allTimePointsEarned != null && member.allTimePointsEarned > 0 && (
+            <p className="text-sm text-gray-600">
+              <span className="font-semibold">Reward points (all time):</span> {member.allTimePointsEarned}
+            </p>
+          )}
+          {badges.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {badges.map((b) => (
+                <span
+                  key={b.id}
+                  className="px-2 py-1 rounded text-xs font-medium border bg-gray-50"
+                  title={b.name}
+                >
+                  {b.name}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {favoriteBusinesses.length > 0 && (
         <div className="mt-8">
           <h2 className="text-xl font-bold mb-4">Favorite Businesses</h2>

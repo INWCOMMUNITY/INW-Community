@@ -44,7 +44,17 @@ export async function GET(req: NextRequest) {
     return !blockedIds.has(otherId);
   });
 
-  return NextResponse.json(filtered);
+  const messageRequests = filtered.filter(
+    (c) => c.status === "pending" && c.requestedByMemberId !== session.user.id
+  );
+  const acceptedList = filtered.filter(
+    (c) => c.status === "accepted" || c.requestedByMemberId === session.user.id
+  );
+
+  return NextResponse.json({
+    conversations: acceptedList,
+    messageRequests,
+  });
 }
 
 const postBodySchema = z.object({
@@ -87,6 +97,16 @@ export async function POST(req: NextRequest) {
 
   const [memberAId, memberBId] = normalizePair(session.user.id, data.addresseeId);
 
+  const areFriends = await prisma.friendRequest.findFirst({
+    where: {
+      status: "accepted",
+      OR: [
+        { requesterId: session.user.id, addresseeId: data.addresseeId },
+        { requesterId: data.addresseeId, addresseeId: session.user.id },
+      ],
+    },
+  });
+
   let conversation = await prisma.directConversation.findUnique({
     where: {
       memberAId_memberBId: { memberAId, memberBId },
@@ -99,8 +119,10 @@ export async function POST(req: NextRequest) {
   });
 
   if (!conversation) {
+    const status = areFriends ? "accepted" : "pending";
+    const requestedByMemberId = areFriends ? null : session.user.id;
     conversation = await prisma.directConversation.create({
-      data: { memberAId, memberBId },
+      data: { memberAId, memberBId, status, requestedByMemberId },
       include: {
         memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
         memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
@@ -136,13 +158,17 @@ export async function POST(req: NextRequest) {
     });
     const otherId =
       conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
+    const isRequest = conversation.status === "pending";
+    const pushTitle = isRequest ? "Message request" : "New message";
     const pushBody =
       contentTrimmed.length > 0
         ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
-        : "New message";
+        : isRequest
+          ? `${message.sender.firstName} sent you a message request`
+          : "New message";
     const { sendPushNotification } = await import("@/lib/send-push-notification");
     sendPushNotification(otherId, {
-      title: "New message",
+      title: pushTitle,
       body: pushBody,
       data: { screen: "messages", conversationId: conversation.id },
     }).catch(() => {});

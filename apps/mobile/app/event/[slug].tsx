@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   Alert,
   useWindowDimensions,
+  Share,
+  Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,6 +19,7 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { fetchEventBySlug, type EventDetail } from "@/lib/events-api";
 import { formatTime12h } from "@/lib/format-time";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -38,11 +41,16 @@ export default function EventDetailScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
+  const { member } = useAuth();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [friends, setFriends] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
+  const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
+  const [inviting, setInviting] = useState(false);
 
   const loadEvent = useCallback(async () => {
     if (!slug) return;
@@ -148,6 +156,64 @@ export default function EventDetailScreen() {
     }
   };
 
+  const eventUrl = event
+    ? `${siteBase}/events/${typeof slug === "string" ? slug : event.slug ?? event.id}`
+    : "";
+  const isCreator = !!event?.memberId && !!member?.id && event.memberId === member.id;
+
+  const handleShareEvent = async () => {
+    if (!event) return;
+    const url = eventUrl || `${siteBase}/events/${event.slug ?? event.id}`;
+    try {
+      await Share.share({
+        message: `${event.title} – ${url}`,
+        url,
+        title: event.title,
+      });
+    } catch {
+      // User cancelled
+    }
+  };
+
+  const openInviteModal = async () => {
+    if (!event || !member?.id) return;
+    setInviteModalOpen(true);
+    setSelectedFriendIds(new Set());
+    try {
+      const data = await apiGet<{ friends: { id: string; firstName: string; lastName: string }[] }>("/api/me/friends");
+      setFriends(Array.isArray(data?.friends) ? data.friends : []);
+    } catch {
+      setFriends([]);
+    }
+  };
+
+  const toggleFriendSelection = (id: string) => {
+    setSelectedFriendIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleInviteFriends = async () => {
+    if (!event || selectedFriendIds.size === 0) return;
+    setInviting(true);
+    try {
+      const res = await apiPost<{ invited?: number }>(`/api/events/${event.id}/invite`, {
+        friendIds: Array.from(selectedFriendIds),
+      });
+      const invited = (res as { invited?: number })?.invited ?? selectedFriendIds.size;
+      setInviteModalOpen(false);
+      Alert.alert("Invited", `Invited ${invited} friend(s) to this event.`);
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      Alert.alert("Error", err?.error ?? "Could not send invites.");
+    } finally {
+      setInviting(false);
+    }
+  };
+
   const dateStr = event
     ? new Date(event.date).toLocaleDateString("en-US", {
         weekday: "short",
@@ -241,6 +307,25 @@ export default function EventDetailScreen() {
           </Pressable>
         </View>
 
+        <View style={styles.shareInviteRow}>
+          <Pressable
+            style={({ pressed }) => [styles.shareInviteBtn, pressed && styles.pressed]}
+            onPress={handleShareEvent}
+          >
+            <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
+            <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Share with friend</Text>
+          </Pressable>
+          {isCreator && (
+            <Pressable
+              style={({ pressed }) => [styles.shareInviteBtn, pressed && styles.pressed]}
+              onPress={openInviteModal}
+            >
+              <Ionicons name="people-outline" size={20} color={theme.colors.primary} />
+              <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Invite friends</Text>
+            </Pressable>
+          )}
+        </View>
+
         <View style={styles.divider} />
 
         <Text style={styles.title}>{event.title}</Text>
@@ -289,6 +374,61 @@ export default function EventDetailScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
+
+      <Modal
+        visible={inviteModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setInviteModalOpen(false)}
+      >
+        <Pressable style={styles.inviteModalOverlay} onPress={() => setInviteModalOpen(false)}>
+          <Pressable style={styles.inviteModalContent} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.inviteModalHeader}>
+              <Text style={styles.inviteModalTitle}>Invite friends</Text>
+              <Pressable onPress={() => setInviteModalOpen(false)} hitSlop={12}>
+                <Ionicons name="close" size={28} color={theme.colors.text} />
+              </Pressable>
+            </View>
+            {friends.length === 0 ? (
+              <Text style={styles.inviteModalEmpty}>No friends to invite. Add friends from Community.</Text>
+            ) : (
+              <ScrollView style={styles.inviteModalList}>
+                {friends.map((f) => (
+                  <Pressable
+                    key={f.id}
+                    style={styles.inviteFriendRow}
+                    onPress={() => toggleFriendSelection(f.id)}
+                  >
+                    <Ionicons
+                      name={selectedFriendIds.has(f.id) ? "checkbox" : "square-outline"}
+                      size={24}
+                      color={theme.colors.primary}
+                    />
+                    <Text style={styles.inviteFriendName}>
+                      {f.firstName} {f.lastName}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+            <Pressable
+              style={[
+                styles.inviteSubmitBtn,
+                { backgroundColor: theme.colors.primary },
+                (selectedFriendIds.size === 0 || inviting) && styles.inviteSubmitDisabled,
+              ]}
+              onPress={handleInviteFriends}
+              disabled={selectedFriendIds.size === 0 || inviting}
+            >
+              {inviting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.inviteSubmitText}>Invite {selectedFriendIds.size} friend(s)</Text>
+              )}
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -368,6 +508,65 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.8,
   },
+  shareInviteRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  shareInviteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  shareInviteBtnText: { fontSize: 14, fontWeight: "600" },
+  inviteModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  inviteModalContent: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 32,
+    maxHeight: "80%",
+  },
+  inviteModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  inviteModalTitle: { fontSize: 18, fontWeight: "700", color: "#222" },
+  inviteModalEmpty: { padding: 24, fontSize: 15, color: "#666", textAlign: "center" },
+  inviteModalList: { maxHeight: 280, padding: 8 },
+  inviteFriendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  inviteFriendName: { fontSize: 16, color: "#333", flex: 1 },
+  inviteSubmitBtn: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inviteSubmitDisabled: { opacity: 0.6 },
+  inviteSubmitText: { fontSize: 16, fontWeight: "600", color: "#fff" },
   divider: {
     height: 2,
     backgroundColor: theme.colors.primary,

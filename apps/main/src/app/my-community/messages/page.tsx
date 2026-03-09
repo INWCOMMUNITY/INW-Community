@@ -93,7 +93,7 @@ export default function MyCommunityMessagesPage() {
   useEffect(() => {
     Promise.all([
       fetch("/api/resale-conversations").then((r) => r.json()).then((d) => (Array.isArray(d) ? d : [])),
-      fetch("/api/direct-conversations").then((r) => r.json()).then((d) => (Array.isArray(d) ? d : [])),
+      fetch("/api/direct-conversations").then((r) => r.json()).then((d) => (Array.isArray(d) ? d : (d?.conversations ?? []))),
       fetch("/api/me/friends").then((r) => r.json()).then((d) => d.friends ?? []),
     ])
       .then(([resale, direct, fr]) => {

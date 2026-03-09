@@ -4,7 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  contentType: z.enum(["post", "comment", "direct_message", "group_message", "resale_message", "event"]),
+  contentType: z.enum(["post", "comment", "direct_message", "group_message", "resale_message", "event", "member"]),
   contentId: z.string().min(1),
   reason: z.enum(["political", "hate", "nudity", "csam", "spam", "other"]),
   details: z.string().max(2000).optional(),

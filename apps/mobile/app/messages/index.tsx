@@ -12,7 +12,7 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPatch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -22,6 +22,7 @@ type Tab = "direct" | "resale" | "groups";
 
 interface DirectConversation {
   id: string;
+  status?: string;
   memberA: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   memberB: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   messages: { content: string; createdAt: string; senderId: string }[];
@@ -75,23 +76,27 @@ export default function MessagesInboxScreen() {
         : "direct";
   const [tab, setTab] = useState<Tab>(initialTab);
   const [direct, setDirect] = useState<DirectConversation[]>([]);
+  const [messageRequests, setMessageRequests] = useState<DirectConversation[]>([]);
   const [resale, setResale] = useState<ResaleConversation[]>([]);
   const [groups, setGroups] = useState<GroupConversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [acceptDeclineLoading, setAcceptDeclineLoading] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [d, r, g] = await Promise.all([
-        apiGet<DirectConversation[]>("/api/direct-conversations"),
+      const [directData, r, g] = await Promise.all([
+        apiGet<{ conversations?: DirectConversation[]; messageRequests?: DirectConversation[] }>("/api/direct-conversations"),
         apiGet<ResaleConversation[]>("/api/resale-conversations"),
         apiGet<GroupConversation[]>("/api/group-conversations"),
       ]);
-      setDirect(Array.isArray(d) ? d : []);
+      setDirect(Array.isArray(directData?.conversations) ? directData.conversations : []);
+      setMessageRequests(Array.isArray(directData?.messageRequests) ? directData.messageRequests : []);
       setResale(Array.isArray(r) ? r : []);
       setGroups(Array.isArray(g) ? g : []);
     } catch (err) {
       setDirect([]);
+      setMessageRequests([]);
       setResale([]);
       setGroups([]);
     } finally {
@@ -111,6 +116,30 @@ export default function MessagesInboxScreen() {
 
   const otherMember = (c: DirectConversation, myId: string) => {
     return c.memberA.id === myId ? c.memberB : c.memberA;
+  };
+
+  const handleAcceptRequest = async (conversationId: string) => {
+    setAcceptDeclineLoading(conversationId);
+    try {
+      await apiPatch(`/api/direct-conversations/${conversationId}`, { action: "accept" });
+      await load();
+    } catch {
+      // keep list as is
+    } finally {
+      setAcceptDeclineLoading(null);
+    }
+  };
+
+  const handleDeclineRequest = async (conversationId: string) => {
+    setAcceptDeclineLoading(conversationId);
+    try {
+      await apiPatch(`/api/direct-conversations/${conversationId}`, { action: "decline" });
+      await load();
+    } catch {
+      // keep list as is
+    } finally {
+      setAcceptDeclineLoading(null);
+    }
   };
 
   const list: (DirectConversation | ResaleConversation | GroupConversation)[] =
@@ -192,6 +221,61 @@ export default function MessagesInboxScreen() {
           keyExtractor={(item) => item.id}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
+          }
+          ListHeaderComponent={
+            tab === "direct" && messageRequests.length > 0 ? (
+              <View style={styles.requestsSection}>
+                <Text style={styles.requestsSectionTitle}>Message requests</Text>
+                {messageRequests.map((c) => {
+                  const other = otherMember(c, myId);
+                  const name = `${other.firstName} ${other.lastName}`.trim() || "Someone";
+                  const photoUrl = resolvePhotoUrl(other.profilePhotoUrl ?? undefined);
+                  const isLoading = acceptDeclineLoading === c.id;
+                  return (
+                    <View key={c.id} style={styles.requestRow}>
+                      <Pressable
+                        style={({ pressed }) => [styles.requestRowMain, pressed && styles.rowPressed]}
+                        onPress={() => router.push(`/messages/${c.id}`)}
+                      >
+                        {photoUrl ? (
+                          <Image source={{ uri: photoUrl }} style={styles.avatar} />
+                        ) : (
+                          <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                            <Text style={styles.avatarInitials}>{name[0] ?? "?"}</Text>
+                          </View>
+                        )}
+                        <View style={styles.rowContent}>
+                          <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
+                          <Text style={styles.rowPreview} numberOfLines={1}>
+                            {c.messages?.[0]?.content ?? "Message request"}
+                          </Text>
+                        </View>
+                      </Pressable>
+                      <View style={styles.requestActions}>
+                        <Pressable
+                          style={[styles.acceptBtn, isLoading && styles.btnDisabled]}
+                          onPress={() => handleAcceptRequest(c.id)}
+                          disabled={!!isLoading}
+                        >
+                          {isLoading ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={styles.acceptBtnText}>Accept</Text>
+                          )}
+                        </Pressable>
+                        <Pressable
+                          style={[styles.declineBtn, isLoading && styles.btnDisabled]}
+                          onPress={() => handleDeclineRequest(c.id)}
+                          disabled={!!isLoading}
+                        >
+                          <Text style={styles.declineBtnText}>Decline</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null
           }
           renderItem={({ item }) => {
             if (tab === "groups") {
@@ -363,4 +447,15 @@ const styles = StyleSheet.create({
   rowName: { fontSize: 16, fontWeight: "600", color: theme.colors.heading },
   rowPreview: { fontSize: 14, color: theme.colors.placeholder, marginTop: 2 },
   rowTime: { fontSize: 12, color: theme.colors.placeholder, marginLeft: 8 },
+  requestsSection: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "#eee" },
+  requestsSectionTitle: { fontSize: 13, fontWeight: "700", color: theme.colors.primary, marginBottom: 8 },
+  requestRow: { marginBottom: 12 },
+  requestRowMain: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
+  requestActions: { flexDirection: "row", gap: 8, marginTop: 4, marginLeft: 60 },
+  acceptBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, backgroundColor: theme.colors.primary, minWidth: 80, alignItems: "center" },
+  acceptBtnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
+  declineBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#ccc", minWidth: 80, alignItems: "center" },
+  declineBtnText: { fontSize: 14, fontWeight: "600", color: "#666" },
+  btnDisabled: { opacity: 0.6 },
+  avatarInitials: { fontSize: 18, fontWeight: "700", color: theme.colors.placeholder },
 });

@@ -36,10 +36,18 @@ export async function GET(req: NextRequest) {
       accountId: member.stripeConnectAccountId,
       chargesEnabled,
     });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
+    if (accountGone) {
+      await prisma.member.update({
+        where: { id: userId },
+        data: { stripeConnectAccountId: null },
+      }).catch(() => {});
+    }
     return NextResponse.json({
       onboarded: false,
-      accountId: member.stripeConnectAccountId,
+      accountId: null,
       chargesEnabled: false,
     });
   }

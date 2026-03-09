@@ -68,7 +68,6 @@ function MemberCard({
   router: ReturnType<typeof useRouter>;
 }) {
   const [loading, setLoading] = useState(false);
-  const base = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
 
   const handleAction = async () => {
     if (status === "friends" || status === "pending_outgoing") return;
@@ -88,11 +87,7 @@ function MemberCard({
   return (
     <Pressable
       style={({ pressed }) => [styles.friendCard, pressed && styles.buttonPressed]}
-      onPress={() =>
-        (router.push as (href: string) => void)(
-          `/web?url=${encodeURIComponent(`${base}/members/${member.id}`)}&title=Profile`
-        )
-      }
+      onPress={() => (router.push as (href: string) => void)(`/members/${member.id}`)}
     >
       {member.profilePhotoUrl ? (
         <Image source={{ uri: member.profilePhotoUrl }} style={styles.avatar} />
@@ -331,14 +326,7 @@ export default function MyFriendsScreen() {
                 <Pressable
                   key={f.id}
                   style={({ pressed }) => [styles.friendCard, pressed && styles.buttonPressed]}
-                  onPress={() => {
-                    const base =
-                      process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") ||
-                      "https://www.inwcommunity.com";
-                    (router.push as (href: string) => void)(
-                      `/web?url=${encodeURIComponent(`${base}/members/${f.id}`)}&title=Profile`
-                    );
-                  }}
+                  onPress={() => (router.push as (href: string) => void)(`/members/${f.id}`)}
                 >
                   {f.profilePhotoUrl ? (
                     <Image source={{ uri: f.profilePhotoUrl }} style={styles.avatar} />

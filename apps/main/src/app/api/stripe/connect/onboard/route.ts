@@ -58,6 +58,23 @@ export async function POST(req: NextRequest) {
   let accountId = member.stripeConnectAccountId;
 
   try {
+    if (accountId) {
+      try {
+        await stripe.accounts.retrieve(accountId);
+      } catch (retrieveErr) {
+        const msg = retrieveErr instanceof Error ? retrieveErr.message : String(retrieveErr);
+        if (/no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg)) {
+          await prisma.member.update({
+            where: { id: userId },
+            data: { stripeConnectAccountId: null },
+          });
+          accountId = null;
+        } else {
+          throw retrieveErr;
+        }
+      }
+    }
+
     if (!accountId) {
       const account = await stripe.accounts.create({
         type: "express",

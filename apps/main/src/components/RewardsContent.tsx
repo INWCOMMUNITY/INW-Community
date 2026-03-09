@@ -53,6 +53,7 @@ export function RewardsContent() {
   const [savedRewardIds, setSavedRewardIds] = useState<Set<string>>(new Set());
   const [redeeming, setRedeeming] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [selectedRewardForModal, setSelectedRewardForModal] = useState<Reward | null>(null);
 
   useEffect(() => {
     fetch("/api/rewards/top5")
@@ -419,13 +420,19 @@ export function RewardsContent() {
               return (
                 <div key={r.id} className="border-2 border-[var(--color-primary)] rounded-lg p-4 transition relative">
                   <div className="relative">
-                    {r.imageUrl ? (
-                      <img src={r.imageUrl} alt={r.title} className="w-full h-32 object-cover rounded mb-3" />
-                    ) : (
-                      <div className="w-full h-32 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm mb-3">
-                        No image
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRewardForModal(r)}
+                      className="w-full text-left block rounded mb-3 overflow-hidden focus:ring-2 focus:ring-offset-1 focus:ring-[var(--color-primary)]"
+                    >
+                      {r.imageUrl ? (
+                        <img src={r.imageUrl} alt={r.title} className="w-full h-32 object-cover" />
+                      ) : (
+                        <div className="w-full h-32 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm">
+                          No image
+                        </div>
+                      )}
+                    </button>
                     {session?.user && (
                       <button
                         type="button"
@@ -470,6 +477,84 @@ export function RewardsContent() {
           </div>
         )}
       </section>
+
+      {/* Reward detail modal: photo click opens centered popup with details, save, share */}
+      {selectedRewardForModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setSelectedRewardForModal(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Reward details"
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h3 className="text-lg font-bold truncate flex-1 pr-2">{selectedRewardForModal.title}</h3>
+              <button
+                type="button"
+                onClick={() => setSelectedRewardForModal(null)}
+                className="p-2 rounded hover:bg-gray-100 text-gray-600"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <div className="aspect-square bg-gray-100">
+                {selectedRewardForModal.imageUrl ? (
+                  <img
+                    src={selectedRewardForModal.imageUrl}
+                    alt={selectedRewardForModal.title}
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-400">No image</div>
+                )}
+              </div>
+              <div className="p-4">
+                <Link
+                  href={`/support-local/${selectedRewardForModal.business.slug}`}
+                  className="text-sm font-medium hover:underline"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  {selectedRewardForModal.business.name}
+                </Link>
+                {selectedRewardForModal.description && (
+                  <p className="text-sm text-gray-600 mt-2">{selectedRewardForModal.description}</p>
+                )}
+                <p className="text-sm font-medium mt-2">
+                  {selectedRewardForModal.pointsRequired} points ·{" "}
+                  {selectedRewardForModal.redemptionLimit - selectedRewardForModal.timesRedeemed} left
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-4 border-t border-gray-200">
+              {session?.user && (
+                <button
+                  type="button"
+                  onClick={() => toggleSaved(selectedRewardForModal.id, savedRewardIds.has(selectedRewardForModal.id))}
+                  className="inline-flex items-center gap-1.5 p-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+                  title={savedRewardIds.has(selectedRewardForModal.id) ? "Remove from saved" : "Save reward"}
+                >
+                  <span className={savedRewardIds.has(selectedRewardForModal.id) ? "text-red-500" : "text-gray-400"} style={{ fontSize: "1.25rem" }}>
+                    {savedRewardIds.has(selectedRewardForModal.id) ? "♥" : "♡"}
+                  </span>
+                  <span className="text-sm">{savedRewardIds.has(selectedRewardForModal.id) ? "Saved" : "Save"}</span>
+                </button>
+              )}
+              <ShareButton
+                type="reward"
+                id={selectedRewardForModal.id}
+                title={selectedRewardForModal.title}
+                className="flex-1 inline-flex items-center justify-center gap-2 p-2.5 rounded border border-gray-300 bg-white hover:bg-gray-50"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

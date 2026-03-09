@@ -216,3 +216,53 @@ export async function POST(
 
   return NextResponse.json(botReply ? { ...message, botReply } : message);
 }
+
+const patchBodySchema = z.object({
+  action: z.enum(["accept", "decline"]),
+});
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSessionForApi(req);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  let body: z.infer<typeof patchBodySchema>;
+  try {
+    body = patchBodySchema.parse(await req.json());
+  } catch (e) {
+    const msg = e instanceof z.ZodError ? e.errors[0]?.message : "Invalid input";
+    return NextResponse.json({ error: String(msg) }, { status: 400 });
+  }
+
+  const conversation = await prisma.directConversation.findUnique({
+    where: { id },
+    select: { id: true, memberAId: true, memberBId: true, status: true, requestedByMemberId: true },
+  });
+  if (!conversation) {
+    return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  if (conversation.status !== "pending" || conversation.requestedByMemberId === session.user.id) {
+    return NextResponse.json({ error: "Only the recipient can accept or decline this request" }, { status: 403 });
+  }
+  const isRecipient =
+    conversation.memberAId === session.user.id || conversation.memberBId === session.user.id;
+  if (!isRecipient) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (body.action === "accept") {
+    await prisma.directConversation.update({
+      where: { id },
+      data: { status: "accepted", requestedByMemberId: null },
+    });
+    return NextResponse.json({ ok: true, status: "accepted" });
+  }
+
+  await prisma.directConversation.delete({ where: { id } });
+  return NextResponse.json({ ok: true, status: "declined" });
+}

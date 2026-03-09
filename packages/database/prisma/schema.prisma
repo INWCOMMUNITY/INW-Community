@@ -901,13 +901,15 @@ model ResaleMessage {
   @@map("resale_message")
 }
 
-// Direct messaging between members (friends)
+// Direct messaging between members; non-friends create "pending" (message request).
 model DirectConversation {
-  id        String   @id @default(cuid())
-  memberAId String   @map("member_a_id")
-  memberBId String   @map("member_b_id")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                  String   @id @default(cuid())
+  memberAId            String   @map("member_a_id")
+  memberBId            String   @map("member_b_id")
+  status               String   @default("accepted") // accepted | pending (message request)
+  requestedByMemberId  String?  @map("requested_by_member_id") // who sent the first message (for pending)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   memberA Member @relation("DirectConversationMemberA", fields: [memberAId], references: [id], onDelete: Cascade)
   memberB Member @relation("DirectConversationMemberB", fields: [memberBId], references: [id], onDelete: Cascade)
@@ -916,6 +918,7 @@ model DirectConversation {
   @@unique([memberAId, memberBId])
   @@index([memberAId])
   @@index([memberBId])
+  @@index([status])
   @@map("direct_conversation")
 }
 

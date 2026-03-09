@@ -5,7 +5,7 @@ import { requireBlobStorage } from "@/lib/upload";
 import path from "path";
 import fs from "fs/promises";
 
-const MAX_SIZE = 40 * 1024 * 1024; // 40MB
+const MAX_SIZE = 80 * 1024 * 1024; // 80MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 export async function POST(req: NextRequest) {
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: "File too large (max 40MB)" }, { status: 400 });
+    return NextResponse.json({ error: "File too large (max 80MB)" }, { status: 400 });
   }
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: "Invalid file type. Use JPEG, PNG, WebP, or GIF." }, { status: 400 });

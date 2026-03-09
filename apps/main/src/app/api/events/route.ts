@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
       flagReason = "prohibited_category";
     }
 
+    // All events are saved unless explicitly deleted (admin delete or flagged content removed).
     const event = await prisma.event.create({
       data: {
         memberId: session.user.id,

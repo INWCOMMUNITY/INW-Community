@@ -236,7 +236,7 @@ export function EventForm({
             className="sr-only"
           />
         </label>
-        <p className="text-xs text-gray-500 mt-1">Upload from your device or camera. Max 40MB each. JPEG, PNG, WebP, GIF.</p>
+        <p className="text-xs text-gray-500 mt-1">Upload from your device or camera. Max 80MB each. JPEG, PNG, WebP, GIF.</p>
         {photos.length > 0 && (
           <ul className="space-y-2 mt-3">
             {photos.map((url, i) => (

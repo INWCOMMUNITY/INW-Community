@@ -21,6 +21,7 @@ export interface EventItem {
 export interface EventDetail extends EventItem {
   description: string | null;
   photos: string[];
+  memberId?: string;
 }
 
 const memoryCache = new Map<

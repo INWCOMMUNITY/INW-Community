@@ -13,6 +13,7 @@ import {
   TextInput,
   FlatList,
   Modal,
+  Share,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,6 +23,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { theme as defaultTheme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
+import { buildShareUrl } from "@/lib/share-utils";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -95,6 +97,7 @@ export default function RewardsScreen() {
   const [showPrizes, setShowPrizes] = useState(true);
   const [savedRewardIds, setSavedRewardIds] = useState<Set<string>>(new Set());
   const [prizePopupPrize, setPrizePopupPrize] = useState<Top5Prize | null>(null);
+  const [selectedRewardForModal, setSelectedRewardForModal] = useState<Reward | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -516,7 +519,10 @@ export default function RewardsScreen() {
                       const isSaved = savedRewardIds.has(r.id);
                       return (
                         <View style={[styles.rewardCardGrid, { borderColor: theme.colors.primary }]}>
-                          <View style={styles.rewardCardImageWrap}>
+                          <Pressable
+                            style={styles.rewardCardImageWrap}
+                            onPress={() => setSelectedRewardForModal(r)}
+                          >
                             {r.imageUrl ? (
                               <Image
                                 source={{ uri: resolveUrl(r.imageUrl) }}
@@ -545,7 +551,7 @@ export default function RewardsScreen() {
                               />
                               <Text style={styles.rewardCardSaveLabel}>{isSaved ? "Saved" : "Save"}</Text>
                             </View>
-                          </View>
+                          </Pressable>
                           <Text style={styles.rewardTitleGrid} numberOfLines={2}>{r.title ?? ""}</Text>
                           {r.business && (
                             <Pressable onPress={() => openBusiness(r.business!.slug)}>
@@ -617,6 +623,119 @@ export default function RewardsScreen() {
 
         </ScrollView>
       )}
+
+      {/* Reward detail modal: photo click opens centered popup with details, save, share */}
+      <Modal
+        visible={!!selectedRewardForModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSelectedRewardForModal(null)}
+      >
+        <Pressable
+          style={styles.rewardModalOverlay}
+          onPress={() => setSelectedRewardForModal(null)}
+        >
+          <Pressable style={styles.rewardModalContent} onPress={(e) => e.stopPropagation()}>
+            {selectedRewardForModal && (
+              <>
+                <View style={styles.rewardModalHeader}>
+                  <Text style={styles.rewardModalTitle} numberOfLines={1}>
+                    {selectedRewardForModal.title}
+                  </Text>
+                  <Pressable
+                    onPress={() => setSelectedRewardForModal(null)}
+                    style={styles.rewardModalCloseBtn}
+                    hitSlop={12}
+                  >
+                    <Ionicons name="close" size={28} color={theme.colors.text} />
+                  </Pressable>
+                </View>
+                <ScrollView style={styles.rewardModalScroll} showsVerticalScrollIndicator={false}>
+                  <View style={styles.rewardModalImageWrap}>
+                    {selectedRewardForModal.imageUrl ? (
+                      <Image
+                        source={{ uri: resolveUrl(selectedRewardForModal.imageUrl) }}
+                        style={styles.rewardModalImage}
+                        resizeMode="contain"
+                      />
+                    ) : (
+                      <View style={styles.rewardModalImagePlaceholder}>
+                        <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
+                        <Text style={styles.rewardModalPlaceholderText}>No image</Text>
+                      </View>
+                    )}
+                  </View>
+                  {selectedRewardForModal.business && (
+                    <Pressable
+                      onPress={() => {
+                        setSelectedRewardForModal(null);
+                        openBusiness(selectedRewardForModal.business!.slug);
+                      }}
+                      style={({ pressed }) => [styles.rewardModalBusiness, pressed && { opacity: 0.8 }]}
+                    >
+                      <Text style={[styles.rewardModalBusinessText, { color: theme.colors.primary }]}>
+                        {selectedRewardForModal.business.name}
+                      </Text>
+                      <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
+                    </Pressable>
+                  )}
+                  {selectedRewardForModal.description ? (
+                    <Text style={styles.rewardModalDescription}>
+                      {selectedRewardForModal.description}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.rewardModalMeta}>
+                    {selectedRewardForModal.pointsRequired} pts ·{" "}
+                    {selectedRewardForModal.redemptionLimit - selectedRewardForModal.timesRedeemed} left
+                  </Text>
+                </ScrollView>
+                <View style={styles.rewardModalActions}>
+                  <View style={styles.rewardModalSaveWrap}>
+                    <HeartSaveButton
+                      type="reward"
+                      referenceId={selectedRewardForModal.id}
+                      initialSaved={savedRewardIds.has(selectedRewardForModal.id)}
+                      onRequireAuth={() => {
+                        setSelectedRewardForModal(null);
+                        router.push("/(tabs)/my-community");
+                      }}
+                      onSavedChange={(s) =>
+                        setSavedRewardIds((prev) => {
+                          const next = new Set(prev);
+                          if (s) next.add(selectedRewardForModal.id);
+                          else next.delete(selectedRewardForModal.id);
+                          return next;
+                        })
+                      }
+                    />
+                    <Text style={styles.rewardModalSaveLabel}>
+                      {savedRewardIds.has(selectedRewardForModal.id) ? "Saved" : "Save"}
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={[styles.rewardModalShareBtn, { backgroundColor: theme.colors.primary }]}
+                    onPress={async () => {
+                      const url = buildShareUrl({ type: "reward", id: selectedRewardForModal.id });
+                      try {
+                        await Share.share({
+                          message: `${selectedRewardForModal.title} – ${url}`,
+                          url,
+                          title: selectedRewardForModal.title,
+                        });
+                      } catch {
+                        // User cancelled or share not available
+                      }
+                    }}
+                  >
+                    <Ionicons name="share-outline" size={22} color="#fff" />
+                    <Text style={styles.rewardModalShareLabel}>Share</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -822,6 +941,82 @@ const styles = StyleSheet.create({
   prizeModalBusiness: { fontSize: 14, marginBottom: 16, textDecorationLine: "underline" },
   prizeModalClose: { paddingVertical: 10, paddingHorizontal: 24, borderRadius: 8, backgroundColor: "#eee" },
   prizeModalCloseText: { fontSize: 16, fontWeight: "600", color: "#333" },
+  rewardModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  rewardModalContent: {
+    width: "100%",
+    maxWidth: 400,
+    maxHeight: "85%",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  rewardModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  rewardModalTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: "#222" },
+  rewardModalCloseBtn: { padding: 4 },
+  rewardModalScroll: { maxHeight: 400 },
+  rewardModalImageWrap: { width: "100%", aspectRatio: 1, backgroundColor: "#f5f5f5" },
+  rewardModalImage: { width: "100%", height: "100%", borderRadius: 0 },
+  rewardModalImagePlaceholder: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rewardModalPlaceholderText: { fontSize: 14, color: "#666", marginTop: 8 },
+  rewardModalBusiness: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  rewardModalBusinessText: { fontSize: 14, fontWeight: "600" },
+  rewardModalDescription: {
+    fontSize: 14,
+    color: "#444",
+    lineHeight: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  rewardModalMeta: {
+    fontSize: 14,
+    color: "#666",
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  rewardModalActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+  },
+  rewardModalSaveWrap: { alignItems: "center" },
+  rewardModalSaveLabel: { fontSize: 12, color: "#666", marginTop: 4 },
+  rewardModalShareBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  rewardModalShareLabel: { fontSize: 16, fontWeight: "600", color: "#fff" },
   sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
   myRewardsLink: { flexDirection: "row", alignItems: "center", paddingVertical: 4, paddingHorizontal: 4 },
   myRewardsLinkText: { fontSize: 15, fontWeight: "600" },

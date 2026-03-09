@@ -9,7 +9,7 @@ import {
   TextInput,
   ActivityIndicator,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
@@ -32,7 +32,11 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
 
 export default function NewConversationScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ addresseeId?: string }>();
+  const addresseeId = typeof params.addresseeId === "string" ? params.addresseeId : undefined;
+
   const [friends, setFriends] = useState<Friend[]>([]);
+  const [preselectedMember, setPreselectedMember] = useState<Friend | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [initialMessage, setInitialMessage] = useState("");
@@ -40,14 +44,19 @@ export default function NewConversationScreen() {
 
   const load = useCallback(async () => {
     try {
-      const data = await apiGet<{ friends: Friend[] }>("/api/me/friends");
-      setFriends(data.friends ?? []);
+      const [friendsData, memberData] = await Promise.all([
+        apiGet<{ friends: Friend[] }>("/api/me/friends"),
+        addresseeId ? apiGet<Friend>(`/api/members/${addresseeId}`).catch(() => null) : Promise.resolve(null),
+      ]);
+      setFriends(friendsData?.friends ?? []);
+      setPreselectedMember(memberData ?? null);
     } catch {
       setFriends([]);
+      setPreselectedMember(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [addresseeId]);
 
   useEffect(() => {
     load();
@@ -59,6 +68,7 @@ export default function NewConversationScreen() {
           `${f.firstName} ${f.lastName}`.toLowerCase().includes(search.toLowerCase().trim())
       )
     : friends;
+  const showPreselected = preselectedMember && !friends.some((f) => f.id === preselectedMember.id);
 
   const startConversation = async (friend: Friend) => {
     if (creating) return;
@@ -108,7 +118,7 @@ export default function NewConversationScreen() {
         <View style={styles.center}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
-      ) : filtered.length === 0 ? (
+      ) : filtered.length === 0 && !showPreselected ? (
         <View style={styles.center}>
           <Text style={styles.emptyText}>
             {search.trim() ? "No friends match your search" : "Add friends to start messaging"}
@@ -116,8 +126,15 @@ export default function NewConversationScreen() {
         </View>
       ) : (
         <FlatList
-          data={filtered}
+          data={showPreselected && preselectedMember ? [preselectedMember, ...filtered] : filtered}
           keyExtractor={(item) => item.id}
+          ListHeaderComponent={
+            showPreselected && preselectedMember ? (
+              <View style={styles.preselectedLabel}>
+                <Text style={styles.preselectedLabelText}>From profile</Text>
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => {
             const name = `${item.firstName} ${item.lastName}`.trim() || "Unknown";
             const photoUrl = resolvePhotoUrl(item.profilePhotoUrl ?? undefined);
@@ -204,4 +221,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   rowName: { flex: 1, fontSize: 16, fontWeight: "500", color: theme.colors.heading },
+  preselectedLabel: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  preselectedLabelText: { fontSize: 12, color: "#666", fontWeight: "600" },
 });

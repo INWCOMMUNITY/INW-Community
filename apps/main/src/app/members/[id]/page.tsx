@@ -25,66 +25,21 @@ export default async function MemberPage({
       bio: true,
       city: true,
       privacyLevel: true,
+      allTimePointsEarned: true,
+      memberBadges: {
+        include: { badge: { select: { id: true, name: true, slug: true } } },
+      },
     },
   });
 
   if (!member) notFound();
 
-  if (member.privacyLevel === "completely_private") {
-    return (
-      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-        <div className="max-w-[var(--max-width)] mx-auto text-center">
-          <h1 className="text-2xl font-bold mb-4">This profile is private</h1>
-          <p className="text-gray-600">This member has set their profile to completely private.</p>
-        </div>
-      </section>
-    );
-  }
-
-  if (member.privacyLevel === "friends_only") {
-    if (!session?.user?.id) {
-      return (
-        <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-          <div className="max-w-[var(--max-width)] mx-auto text-center">
-            <h1 className="text-2xl font-bold mb-4">Friends only</h1>
-            <p className="text-gray-600 mb-4">This profile is visible only to friends. Sign in and send a friend request to view.</p>
-            <Link href={`/login?callbackUrl=/members/${id}`} className="btn">Sign in</Link>
-          </div>
-        </section>
-      );
-    }
-    if (session.user.id === member.id) {
-      // Viewing own profile - show it
-    } else {
-      const friendship = await prisma.friendRequest.findFirst({
-        where: {
-          OR: [
-            { requesterId: session.user.id, addresseeId: member.id },
-            { requesterId: member.id, addresseeId: session.user.id },
-          ],
-          status: "accepted",
-        },
-      });
-      if (!friendship) {
-        return (
-          <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-            <div className="max-w-[var(--max-width)] mx-auto text-center">
-              <h1 className="text-2xl font-bold mb-4">Friends only</h1>
-              <p className="text-gray-600 mb-4">This profile is visible only to friends. Send a friend request to view.</p>
-            </div>
-          </section>
-        );
-      }
-    }
-  }
-
-  const blogs = member.privacyLevel === "public" || (session?.user?.id === member.id)
-    ? await prisma.blog.findMany({
-        where: { memberId: member.id, status: "approved" },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      })
-    : [];
+  // All profiles are public; privacyLevel is kept for future use (e.g. photos section friends-only).
+  const blogs = await prisma.blog.findMany({
+    where: { memberId: member.id, status: "approved" },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
 
   const favoriteBusinesses = await prisma.savedItem.findMany({
     where: { memberId: member.id, type: "business" },
@@ -130,7 +85,16 @@ export default async function MemberPage({
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto">
         <MemberProfile
-          member={member}
+          member={{
+            id: member.id,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            profilePhotoUrl: member.profilePhotoUrl,
+            bio: member.bio,
+            city: member.city,
+            allTimePointsEarned: member.allTimePointsEarned ?? 0,
+          }}
+          badges={member.memberBadges?.map((mb) => mb.badge) ?? []}
           blogs={blogs}
           favoriteBusinesses={favoriteBusinesses}
           sessionUserId={session?.user?.id ?? null}

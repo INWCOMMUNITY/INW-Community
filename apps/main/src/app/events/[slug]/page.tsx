@@ -5,6 +5,7 @@ import Link from "next/link";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { BusinessPhotoGallery } from "@/components/BusinessPhotoGallery";
 import { InviteFriendsToEvent } from "@/components/InviteFriendsToEvent";
+import { EventShareButton } from "@/components/EventShareButton";
 import { authOptions } from "@/lib/auth";
 import { formatTime12h } from "@/lib/format-time";
 
@@ -72,6 +73,7 @@ export default async function EventDetailPage({
           </div>
         )}
         <HeartSaveButton type="event" referenceId={event.id} initialSaved={!!saved} />
+        <EventShareButton eventUrl={`/events/${event.slug}`} eventTitle={event.title} className="ml-2" />
         {session?.user?.id && event.memberId === session.user.id && (
           <InviteFriendsToEvent eventId={event.id} />
         )}
