@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 
 const EASYPOST_LOGIN_URL = "https://www.easypost.com/login";
+const EASYPOST_BILLING_URL = "https://www.easypost.com/account/billing";
 const EASYPOST_API_KEYS_URL = "https://www.easypost.com/account/api-keys";
 
 export default function SetUpEasyPostPage() {
@@ -69,7 +70,22 @@ export default function SetUpEasyPostPage() {
       </div>
 
       <div className="border rounded-lg p-6 mb-8 bg-gray-50 border-gray-200 w-full max-md:flex max-md:flex-col max-md:items-center max-md:text-center">
-        <h2 className="font-semibold text-lg mb-4">Step 2: Get your API key</h2>
+        <h2 className="font-semibold text-lg mb-4">Step 2: Set up payment options</h2>
+        <p className="mb-4 text-gray-700">
+          Add a payment method (card or bank account) in your EasyPost account so you can pay for labels. Labels are charged to your EasyPost account.
+        </p>
+        <a
+          href={EASYPOST_BILLING_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn inline-block"
+        >
+          Open Easy Post Billing →
+        </a>
+      </div>
+
+      <div className="border rounded-lg p-6 mb-8 bg-gray-50 border-gray-200 w-full max-md:flex max-md:flex-col max-md:items-center max-md:text-center">
+        <h2 className="font-semibold text-lg mb-4">Step 3: Get your API key</h2>
         <ol className="list-decimal list-inside space-y-2 text-gray-700 mb-4 max-md:text-left">
           <li>After logging in, go to your account settings.</li>
           <li>
@@ -91,7 +107,7 @@ export default function SetUpEasyPostPage() {
       </div>
 
       <div className="border rounded-lg p-6 mb-8 bg-white border-gray-200 w-full max-md:flex max-md:flex-col max-md:items-center max-md:text-center">
-        <h2 className="font-semibold text-lg mb-4">Step 3: Paste your API key here</h2>
+        <h2 className="font-semibold text-lg mb-4">Step 4: Paste your API key here</h2>
         <p className="text-gray-600 mb-4">
           Paste your EasyPost API key in the box below. It will be stored securely and used only to
           get rates and purchase labels on your behalf. We never charge your card directly—EasyPost

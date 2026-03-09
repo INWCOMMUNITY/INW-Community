@@ -16,6 +16,7 @@ import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
 
 const EASYPOST_LOGIN = "https://www.easypost.com/users/sign_in";
+const EASYPOST_BILLING = "https://www.easypost.com/account/billing";
 const EASYPOST_API_KEYS = "https://www.easypost.com/account/api-keys";
 
 export default function ShippingSetupScreen() {
@@ -57,13 +58,26 @@ export default function ShippingSetupScreen() {
         Connect your EasyPost account for shipping labels. You pay for labels with your own card.
       </Text>
 
-      <Text style={styles.step}>Step 1–2: Get your API key</Text>
+      <Text style={styles.step}>Step 1: Log in to EasyPost</Text>
       <Pressable
         style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
         onPress={() => openUrl(EASYPOST_LOGIN)}
       >
         <Text style={styles.linkText}>Log in to EasyPost</Text>
       </Pressable>
+
+      <Text style={styles.step}>Step 2: Set up payment options</Text>
+      <Text style={styles.stepHint}>
+        Add a payment method (card or bank) in EasyPost so you can pay for labels. Labels are charged to your EasyPost account.
+      </Text>
+      <Pressable
+        style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
+        onPress={() => openUrl(EASYPOST_BILLING)}
+      >
+        <Text style={styles.linkText}>Open EasyPost Billing</Text>
+      </Pressable>
+
+      <Text style={styles.step}>Step 3: Get your API key</Text>
       <Pressable
         style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
         onPress={() => openUrl(EASYPOST_API_KEYS)}
@@ -71,7 +85,7 @@ export default function ShippingSetupScreen() {
         <Text style={styles.linkText}>Open API Keys page</Text>
       </Pressable>
 
-      <Text style={styles.step}>Step 3: Paste your API key</Text>
+      <Text style={styles.step}>Step 4: Paste your API key</Text>
       <TextInput
         style={styles.input}
         placeholder="Paste EasyPost API key"
@@ -111,6 +125,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: theme.colors.heading },
   hint: { fontSize: 14, color: "#666", marginBottom: 24 },
   step: { fontSize: 16, fontWeight: "600", marginBottom: 8, color: "#333" },
+  stepHint: { fontSize: 14, color: "#666", marginBottom: 12 },
   linkBtn: {
     marginBottom: 12,
     paddingVertical: 10,

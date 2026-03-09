@@ -20,6 +20,7 @@ const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 interface OrderItemType {
   id: string;
   quantity: number;
+  fulfillmentType?: string | null;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
 }
 
@@ -57,7 +58,14 @@ export default function SellerHubPickupsScreen() {
 
   const load = useCallback(() => {
     apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1")
-      .then((data) => setOrders(Array.isArray(data) ? data : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        // Only orders that have at least one item with pickup fulfillment
+        const pickupOnly = list.filter((o) =>
+          o.items?.some((i) => (i.fulfillmentType ?? "").toLowerCase() === "pickup")
+        );
+        setOrders(pickupOnly);
+      })
       .catch(() => setOrders([]))
       .finally(() => {
         setLoading(false);
@@ -93,11 +101,7 @@ export default function SellerHubPickupsScreen() {
           return (
             <Pressable
               style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
-              onPress={() =>
-                router.push(
-                  `/web?url=${encodeURIComponent(`${siteBase}/seller-hub/pickups`)}&title=${encodeURIComponent("My Pickups")}` as never
-                )
-              }
+              onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
             >
               <View style={styles.cardRow}>
                 <Text style={styles.orderId}>#{item.id.slice(0, 8)}</Text>

@@ -44,5 +44,14 @@ BEGIN
   END IF;
 END $$;
 
--- Add reward to SavedItemType enum (PostgreSQL)
-ALTER TYPE "SavedItemType" ADD VALUE 'reward';
+-- Add reward to SavedItemType enum (PostgreSQL) if not already present
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_enum e
+    JOIN pg_type t ON e.enumtypid = t.oid
+    WHERE t.typname = 'SavedItemType' AND e.enumlabel = 'reward'
+  ) THEN
+    ALTER TYPE "SavedItemType" ADD VALUE 'reward';
+  END IF;
+END $$;

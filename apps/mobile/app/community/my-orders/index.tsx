@@ -101,7 +101,7 @@ export default function MyOrdersScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>My Orders</Text>
-      <Text style={styles.hint}>Orders you’ve purchased. Open in browser to track, request refund, or cancel.</Text>
+      <Text style={styles.hint}>Tap an order to view details, tracking, and status.</Text>
 
       {error && (
         <View style={styles.errorBanner}>
@@ -131,11 +131,7 @@ export default function MyOrdersScreen() {
             return (
               <Pressable
                 style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
-                onPress={() =>
-                  (router.push as (href: string) => void)(
-                    `/web?url=${encodeURIComponent(`${siteBase}/my-community/orders`)}&title=${encodeURIComponent("My Orders")}`
-                  )
-                }
+                onPress={() => (router.push as (href: string) => void)(`/community/my-orders/${item.id}`)}
               >
                 <View style={styles.cardRow}>
                   {photoUrl ? (

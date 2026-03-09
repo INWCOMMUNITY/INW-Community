@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 
 export const dynamic = "force-dynamic";
 
@@ -49,11 +50,31 @@ export async function POST(
       where: { id: order.id },
       data: { inventoryRestoredAt: new Date() },
     });
+    const storeItemsRelist = await tx.storeItem.findMany({
+      where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
+    });
+    const storeItemMapRelist = new Map(storeItemsRelist.map((s) => [s.id, s]));
     for (const oi of order.items) {
-      await tx.storeItem.update({
-        where: { id: oi.storeItemId },
-        data: { quantity: { increment: oi.quantity } },
-      });
+      const storeItem = storeItemMapRelist.get(oi.storeItemId);
+      if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
+        const res = incrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
+        if (res) {
+          await tx.storeItem.update({
+            where: { id: oi.storeItemId },
+            data: { variants: res.variants as object, quantity: { increment: res.quantityDelta } },
+          });
+        } else {
+          await tx.storeItem.update({
+            where: { id: oi.storeItemId },
+            data: { quantity: { increment: oi.quantity } },
+          });
+        }
+      } else {
+        await tx.storeItem.update({
+          where: { id: oi.storeItemId },
+          data: { quantity: { increment: oi.quantity } },
+        });
+      }
     }
   });
 

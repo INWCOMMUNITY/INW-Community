@@ -11,6 +11,8 @@ import {
   Switch,
   Alert,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
@@ -47,7 +49,26 @@ interface PoliciesResponse {
   offerLocalPickup?: boolean;
 }
 
-type Variant = { name: string; options: string[] };
+type VariantOption = { value: string; quantity: number };
+type Variant = { name: string; options: VariantOption[] };
+
+function normalizeVariants(raw: unknown): Variant[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw.map((v: { name?: string; options?: unknown[] }) => {
+    const name = typeof v?.name === "string" ? v.name : "";
+    const opts = Array.isArray(v?.options) ? v.options : [];
+    const options: VariantOption[] = opts.map((o: unknown) => {
+      if (typeof o === "object" && o != null && "value" in o && "quantity" in o) {
+        return {
+          value: String((o as VariantOption).value),
+          quantity: Math.max(0, Number((o as VariantOption).quantity) || 0),
+        };
+      }
+      return { value: String(o ?? ""), quantity: 1 };
+    });
+    return { name, options };
+  });
+}
 
 const PLACEHOLDER_COLOR = "#888888";
 
@@ -109,13 +130,17 @@ export default function ListItemScreen() {
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
 
+  const hasVariantsWithOptions = variants.some(
+    (v) => v.name.trim() && v.options.length > 0
+  );
   const hasContent =
     !!title.trim() ||
     !!description.trim() ||
     photos.length > 0 ||
     !!category.trim() ||
     !!priceCents ||
-    (quantity !== "1" && !!quantity) ||
+    (!hasVariantsWithOptions && quantity !== "1" && !!quantity) ||
+    (hasVariantsWithOptions && variants.some((v) => v.options.some((o) => o.quantity > 0))) ||
     variants.some((v) => v.name.trim() || v.options.length > 0) ||
     !!shippingCostDollars ||
     !!shippingPolicy.trim() ||
@@ -196,7 +221,7 @@ export default function ListItemScreen() {
         inStorePickupAvailable: boolean;
         pickupTerms: string | null;
         businessId: string | null;
-        variants: Variant[];
+        variants: unknown;
         listingType?: "new" | "resale";
         useSellerProfileShipping?: boolean;
         useSellerProfileLocalDelivery?: boolean;
@@ -227,7 +252,7 @@ export default function ListItemScreen() {
           setInStorePickupAvailable(item.inStorePickupAvailable ?? false);
           setPickupTerms(item.pickupTerms ?? "");
           setBusinessId(item.businessId ?? null);
-          setVariants(Array.isArray(item.variants) ? item.variants : []);
+          setVariants(normalizeVariants(item.variants));
           if (item.listingType === "resale" || item.listingType === "new") setListingType(item.listingType);
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
@@ -261,7 +286,7 @@ export default function ListItemScreen() {
           setPickupTerms(draft.pickupTerms ?? "");
           setUseSellerProfilePickup(draft.useSellerProfilePickup ?? true);
           setBusinessId(draft.businessId);
-          setVariants(draft.variants);
+          setVariants(normalizeVariants(draft.variants));
         }
         setLoadedDraft(true);
       });
@@ -407,7 +432,19 @@ export default function ListItemScreen() {
     if (!value.trim()) return;
     setVariants((prev) => {
       const next = [...prev];
-      next[vi] = { ...next[vi], options: [...next[vi].options, value.trim()] };
+      next[vi] = {
+        ...next[vi],
+        options: [...next[vi].options, { value: value.trim(), quantity: 1 }],
+      };
+      return next;
+    });
+  };
+
+  const setVariantOptionQuantity = (vi: number, oi: number, qty: number) => {
+    setVariants((prev) => {
+      const next = [...prev];
+      next[vi] = { ...next[vi], options: [...next[vi].options] };
+      next[vi].options[oi] = { ...next[vi].options[oi], quantity: Math.max(0, qty) };
       return next;
     });
   };
@@ -429,7 +466,7 @@ export default function ListItemScreen() {
 
   const handleSubmit = async () => {
     const price = Math.round(parseFloat(priceCents) * 100);
-    const qty = parseInt(quantity, 10);
+    const qty = hasVariantsWithOptions ? 0 : parseInt(quantity, 10);
     const shipCost =
       shippingFree || !shippingCostDollars.trim()
         ? 0
@@ -446,9 +483,19 @@ export default function ListItemScreen() {
       setError("Price must be at least $0.01");
       return;
     }
-    if (!qty || qty < 1) {
+    if (!hasVariantsWithOptions && (!qty || qty < 1)) {
       setError("Quantity must be at least 1");
       return;
+    }
+    if (hasVariantsWithOptions) {
+      const totalOptionQty = variants.reduce(
+        (sum, v) => sum + v.options.reduce((s, o) => s + (o.quantity || 0), 0),
+        0
+      );
+      if (totalOptionQty < 1) {
+        setError("Add at least one option with quantity 1 or more.");
+        return;
+      }
     }
     if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
       setError("You must offer at least one form of delivery (shipping, local delivery, or pickup).");
@@ -481,10 +528,25 @@ export default function ListItemScreen() {
       return;
     }
 
-    const variantPayload =
-      variants.filter((v) => v.name.trim() && v.options.length > 0).length > 0
-        ? variants.filter((v) => v.name.trim() && v.options.length > 0)
-        : null;
+    const variantPayload = hasVariantsWithOptions
+      ? variants
+          .filter((v) => v.name.trim() && v.options.length > 0)
+          .map((v) => ({
+            name: v.name.trim(),
+            options: v.options
+              .filter((o) => o.value.trim())
+              .map((o) => ({ value: o.value.trim(), quantity: Math.max(0, o.quantity || 0) })),
+          }))
+          .filter((v) => v.options.length > 0)
+      : null;
+
+    const payloadQuantity =
+      variantPayload != null
+        ? variants.reduce(
+            (sum, v) => sum + v.options.reduce((s, o) => s + Math.max(0, o.quantity || 0), 0),
+            0
+          )
+        : qty;
 
     setSubmitting(true);
     setError(null);
@@ -495,7 +557,7 @@ export default function ListItemScreen() {
       photos,
       category: category.trim() || null,
       priceCents: price,
-      quantity: qty,
+      quantity: payloadQuantity,
       listingType: editId ? ("new" as const) : listingType,
       shippingDisabled,
       localDeliveryAvailable,
@@ -575,7 +637,17 @@ export default function ListItemScreen() {
         </View>
       </View>
     </Modal>
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <KeyboardAvoidingView
+      style={styles.keyboardAvoid}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+    >
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+    >
       <View style={styles.typeRow}>
         <Text style={styles.label}>Listing type</Text>
         <View style={styles.typeBtns}>
@@ -670,15 +742,19 @@ export default function ListItemScreen() {
         keyboardType="decimal-pad"
       />
 
-      <Text style={styles.label}>Quantity *</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="1"
-        placeholderTextColor={placeholderColor}
-        value={quantity}
-        onChangeText={setQuantity}
-        keyboardType="number-pad"
-      />
+      {!hasVariantsWithOptions && (
+        <>
+          <Text style={styles.label}>Quantity *</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="1"
+            placeholderTextColor={placeholderColor}
+            value={quantity}
+            onChangeText={setQuantity}
+            keyboardType="number-pad"
+          />
+        </>
+      )}
 
       <Text style={styles.label}>Category</Text>
       <TextInput
@@ -1009,10 +1085,22 @@ export default function ListItemScreen() {
                 <Text style={styles.removeVariantText}>Remove</Text>
               </Pressable>
             </View>
+            <Text style={styles.hint}>Option value and quantity (e.g. Small: 3, Medium: 5)</Text>
             <View style={styles.variantOptions}>
               {v.options.map((opt, oi) => (
                 <View key={oi} style={styles.optionChip}>
-                  <Text style={styles.optionChipText}>{opt}</Text>
+                  <Text style={styles.optionChipText}>{opt.value}</Text>
+                  <TextInput
+                    style={styles.optionQtyInput}
+                    placeholder="0"
+                    placeholderTextColor={placeholderColor}
+                    value={String(opt.quantity || "")}
+                    onChangeText={(t) => {
+                      const n = parseInt(t.replace(/\D/g, ""), 10);
+                      setVariantOptionQuantity(vi, oi, Number.isNaN(n) ? 0 : n);
+                    }}
+                    keyboardType="number-pad"
+                  />
                   <Pressable
                     onPress={() => removeVariantOption(vi, oi)}
                     hitSlop={8}
@@ -1101,6 +1189,7 @@ export default function ListItemScreen() {
         )}
       </Pressable>
     </ScrollView>
+    </KeyboardAvoidingView>
     </View>
   );
 }
@@ -1145,6 +1234,7 @@ function AddOptionInput({
 
 const styles = StyleSheet.create({
   screenWrapper: { flex: 1, backgroundColor: "#fff" },
+  keyboardAvoid: { flex: 1 },
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 20, paddingBottom: 40 },
   successModalOverlay: {
@@ -1363,6 +1453,17 @@ const styles = StyleSheet.create({
     padding: 8,
     fontSize: 14,
     width: 120,
+    color: defaultTheme.colors.text,
+  },
+  optionQtyInput: {
+    width: 44,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    fontSize: 14,
+    textAlign: "center",
     color: defaultTheme.colors.text,
   },
   addOptionBtn: {

@@ -259,7 +259,7 @@ export function FriendsContent() {
       </section>
 
       <section>
-        <h2 className="text-lg font-semibold mb-3">My friends</h2>
+        <h2 className="text-lg font-semibold mb-3">My Friends</h2>
         {friends.length === 0 ? (
           <p className="text-gray-500 text-sm">No friends yet. Search for members above to add friends.</p>
         ) : (

@@ -147,28 +147,30 @@ export default function MyFriendsScreen() {
   const [browseLoading, setBrowseLoading] = useState(false);
 
   const load = useCallback(async () => {
-    try {
-      const [friendsRes, suggestedRes, requestsRes] = await Promise.all([
-        apiGet<{ friends: Friend[] }>("/api/me/friends"),
-        apiGet<{ suggested: SuggestedFriend[] }>("/api/me/suggested-friends"),
-        apiGet<FriendData>("/api/friend-requests"),
-      ]);
-      setFriends(friendsRes?.friends ?? []);
-      setSuggested(suggestedRes?.suggested ?? []);
-      setFriendData(requestsRes ?? null);
-      setBrowseLoading(true);
-      apiGet<{ members: Friend[] }>("/api/members?limit=50")
-        .then((d) => setBrowseMembers(d?.members ?? []))
-        .catch(() => setBrowseMembers([]))
-        .finally(() => setBrowseLoading(false));
-    } catch {
-      setFriends([]);
-      setSuggested([]);
-      setFriendData(null);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    setBrowseLoading(true);
+    apiGet<{ members: Friend[] }>("/api/members?limit=50")
+      .then((d) => setBrowseMembers(d?.members ?? []))
+      .catch(() => setBrowseMembers([]))
+      .finally(() => setBrowseLoading(false));
+
+    const [friendsSettled, suggestedSettled, requestsSettled] = await Promise.allSettled([
+      apiGet<{ friends: Friend[] }>("/api/me/friends"),
+      apiGet<{ suggested: SuggestedFriend[] }>("/api/me/suggested-friends"),
+      apiGet<FriendData>("/api/friend-requests"),
+    ]);
+
+    setFriends(
+      friendsSettled.status === "fulfilled" ? friendsSettled.value?.friends ?? [] : []
+    );
+    setSuggested(
+      suggestedSettled.status === "fulfilled" ? suggestedSettled.value?.suggested ?? [] : []
+    );
+    setFriendData(
+      requestsSettled.status === "fulfilled" ? requestsSettled.value ?? null : null
+    );
+
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
   useFocusEffect(

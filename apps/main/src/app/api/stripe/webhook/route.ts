@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
+import { decrementOptionQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -115,14 +116,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const orderIdsRaw = session.metadata?.orderIds;
-    const orderIdsList: string[] =
-      orderIdsRaw && typeof orderIdsRaw === "string" && orderIdsRaw.trim()
-        ? orderIdsRaw.split(",").map((id) => id.trim()).filter(Boolean)
-        : [];
-    const singleOrderId = session.metadata?.orderId;
-
+    const meta = session.metadata ?? {};
+    const orderIdsRaw = meta.orderIds && typeof meta.orderIds === "string" ? meta.orderIds : null;
+    const chunks: string[] = orderIdsRaw?.trim() ? [orderIdsRaw.trim()] : [];
+    for (let i = 0; ; i++) {
+      const key = `orderIds_${i}`;
+      const val = meta[key];
+      if (val && typeof val === "string" && val.trim()) chunks.push(val.trim());
+      else break;
+    }
+    const orderIdsList: string[] = chunks.length > 0
+      ? chunks.flatMap((s) => s.split(",").map((id) => id.trim()).filter(Boolean))
+      : [];
+    const singleOrderId = meta.orderId && typeof meta.orderId === "string" ? meta.orderId.trim() : null;
     const toProcess: string[] = orderIdsList.length > 0 ? orderIdsList : singleOrderId ? [singleOrderId] : [];
+
+    if (session.mode === "payment" && toProcess.length === 0) {
+      console.warn("[webhook] checkout.session.completed: no order IDs in metadata", {
+        mode: session.mode,
+        metadataKeys: Object.keys(meta),
+        metadataOrderIds: meta.orderIds != null ? String(meta.orderIds).slice(0, 200) : undefined,
+      });
+    }
 
     if (session.mode === "payment" && toProcess.length > 0) {
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : null;
@@ -153,11 +168,31 @@ export async function POST(req: NextRequest) {
           },
         });
 
+        const storeItemsForOrder = await prisma.storeItem.findMany({
+          where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
+        });
+        const storeItemMap = new Map(storeItemsForOrder.map((s) => [s.id, s]));
         for (const oi of order.items) {
-          await prisma.storeItem.update({
-            where: { id: oi.storeItemId },
-            data: { quantity: { decrement: oi.quantity } },
-          });
+          const storeItem = storeItemMap.get(oi.storeItemId);
+          if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
+            const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
+            if (res) {
+              await prisma.storeItem.update({
+                where: { id: oi.storeItemId },
+                data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
+              });
+            } else {
+              await prisma.storeItem.update({
+                where: { id: oi.storeItemId },
+                data: { quantity: { decrement: oi.quantity } },
+              });
+            }
+          } else {
+            await prisma.storeItem.update({
+              where: { id: oi.storeItemId },
+              data: { quantity: { decrement: oi.quantity } },
+            });
+          }
           const updated = await prisma.storeItem.findUnique({
             where: { id: oi.storeItemId },
             select: { quantity: true },
@@ -287,6 +322,10 @@ export async function POST(req: NextRequest) {
           },
         });
 
+        const storeItemsForNewOrder = await prisma.storeItem.findMany({
+          where: { id: { in: orderItems.map((oi) => oi.storeItemId) } },
+        });
+        const storeItemMapNew = new Map(storeItemsForNewOrder.map((s) => [s.id, s]));
         for (const oi of orderItems) {
           await prisma.orderItem.create({
             data: {
@@ -298,10 +337,26 @@ export async function POST(req: NextRequest) {
               fulfillmentType: oi.fulfillmentType ?? null,
             },
           });
-          await prisma.storeItem.update({
-            where: { id: oi.storeItemId },
-            data: { quantity: { decrement: oi.quantity } },
-          });
+          const storeItem = storeItemMapNew.get(oi.storeItemId);
+          if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
+            const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
+            if (res) {
+              await prisma.storeItem.update({
+                where: { id: oi.storeItemId },
+                data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
+              });
+            } else {
+              await prisma.storeItem.update({
+                where: { id: oi.storeItemId },
+                data: { quantity: { decrement: oi.quantity } },
+              });
+            }
+          } else {
+            await prisma.storeItem.update({
+              where: { id: oi.storeItemId },
+              data: { quantity: { decrement: oi.quantity } },
+            });
+          }
           const updated = await prisma.storeItem.findUnique({
             where: { id: oi.storeItemId },
             select: { quantity: true },
@@ -381,18 +436,23 @@ export async function POST(req: NextRequest) {
   if (event.type === "payment_intent.succeeded") {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     const isConnectEvent = Boolean((event as { account?: string }).account);
+    const piMeta = paymentIntent.metadata ?? {};
 
     const orderIdsList: string[] = (() => {
-      const orderId = paymentIntent.metadata?.orderId;
-      if (orderId && typeof orderId === "string" && orderId.trim()) {
-        return [orderId.trim()];
-      }
-      const orderIdsRaw = paymentIntent.metadata?.orderIds;
-      if (orderIdsRaw && typeof orderIdsRaw === "string" && orderIdsRaw.trim()) {
+      const orderId = piMeta.orderId && typeof piMeta.orderId === "string" ? piMeta.orderId.trim() : null;
+      if (orderId) return [orderId];
+      const orderIdsRaw = piMeta.orderIds && typeof piMeta.orderIds === "string" ? piMeta.orderIds.trim() : null;
+      if (orderIdsRaw) {
         return orderIdsRaw.split(",").map((id) => id.trim()).filter(Boolean);
       }
       return [];
     })();
+
+    if (orderIdsList.length === 0 && Object.keys(piMeta).length > 0) {
+      console.warn("[webhook] payment_intent.succeeded: no order ID(s) in metadata", {
+        metadataKeys: Object.keys(piMeta),
+      });
+    }
 
     for (const orderId of orderIdsList) {
       const order = await prisma.storeOrder.findFirst({
@@ -417,11 +477,31 @@ export async function POST(req: NextRequest) {
         },
       });
 
+      const storeItemsPaymentIntent = await prisma.storeItem.findMany({
+        where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
+      });
+      const storeItemMapPI = new Map(storeItemsPaymentIntent.map((s) => [s.id, s]));
       for (const oi of order.items) {
-        await prisma.storeItem.update({
-          where: { id: oi.storeItemId },
-          data: { quantity: { decrement: oi.quantity } },
-        });
+        const storeItem = storeItemMapPI.get(oi.storeItemId);
+        if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
+          const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
+          if (res) {
+            await prisma.storeItem.update({
+              where: { id: oi.storeItemId },
+              data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
+            });
+          } else {
+            await prisma.storeItem.update({
+              where: { id: oi.storeItemId },
+              data: { quantity: { decrement: oi.quantity } },
+            });
+          }
+        } else {
+          await prisma.storeItem.update({
+            where: { id: oi.storeItemId },
+            data: { quantity: { decrement: oi.quantity } },
+          });
+        }
         const updated = await prisma.storeItem.findUnique({
           where: { id: oi.storeItemId },
           select: { quantity: true },

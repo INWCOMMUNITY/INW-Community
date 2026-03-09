@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiPatch, apiDelete, getToken } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiDelete, getToken, API_BASE } from "@/lib/api";
 import {
   LocalDeliveryModal,
   type LocalDeliveryDetails,
@@ -98,6 +98,52 @@ export default function CartScreen() {
     state: "",
     zip: "",
   });
+  const [addressSearchQuery, setAddressSearchQuery] = useState("");
+  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; placeId: string }[]>([]);
+  const [addressSuggestionsLoading, setAddressSuggestionsLoading] = useState(false);
+  const addressSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchAddressDetails = useCallback(async (placeId: string) => {
+    try {
+      const data = await apiGet<{ street?: string; city?: string; state?: string; zip?: string }>(
+        `${API_BASE}/api/address-details?placeId=${encodeURIComponent(placeId)}`
+      );
+      setShippingAddress((prev) => ({
+        ...prev,
+        street: data.street ?? prev.street,
+        city: data.city ?? prev.city,
+        state: data.state ?? prev.state,
+        zip: data.zip ?? prev.zip,
+      }));
+    } catch {
+      // keep current fields on error
+    }
+  }, []);
+
+  useEffect(() => {
+    const q = addressSearchQuery.trim();
+    if (q.length < 3) {
+      setAddressSuggestions([]);
+      return;
+    }
+    if (addressSearchDebounceRef.current) clearTimeout(addressSearchDebounceRef.current);
+    addressSearchDebounceRef.current = setTimeout(async () => {
+      setAddressSuggestionsLoading(true);
+      try {
+        const data = await apiGet<{ suggestions: { description: string; placeId: string }[] }>(
+          `${API_BASE}/api/address-autocomplete?input=${encodeURIComponent(q)}`
+        );
+        setAddressSuggestions(data.suggestions ?? []);
+      } catch {
+        setAddressSuggestions([]);
+      } finally {
+        setAddressSuggestionsLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (addressSearchDebounceRef.current) clearTimeout(addressSearchDebounceRef.current);
+    };
+  }, [addressSearchQuery]);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -449,6 +495,44 @@ export default function CartScreen() {
               {hasShippedItem && (
                 <View style={styles.formSection}>
                   <Text style={styles.formTitle}>Shipping address</Text>
+                  <Text style={styles.addressSearchHint}>Search to autofill for accurate labels</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Search address (street, city, or ZIP)"
+                    placeholderTextColor={theme.colors.placeholder}
+                    value={addressSearchQuery}
+                    onChangeText={setAddressSearchQuery}
+                    autoCorrect={false}
+                  />
+                  {addressSuggestionsLoading && (
+                    <View style={styles.suggestionsLoading}>
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                    </View>
+                  )}
+                  {addressSuggestions.length > 0 && (
+                    <View style={styles.suggestionsList}>
+                      {addressSuggestions.slice(0, 5).map((s, idx) => (
+                        <Pressable
+                          key={s.placeId}
+                          style={({ pressed }) => [
+                            styles.suggestionItem,
+                            idx === Math.min(4, addressSuggestions.length - 1) && styles.suggestionItemLast,
+                            pressed && { backgroundColor: theme.colors.creamAlt },
+                          ]}
+                          onPress={() => {
+                            fetchAddressDetails(s.placeId);
+                            setAddressSearchQuery("");
+                            setAddressSuggestions([]);
+                          }}
+                        >
+                          <Ionicons name="location-outline" size={18} color={theme.colors.primary} />
+                          <Text style={styles.suggestionText} numberOfLines={2}>
+                            {s.description}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
                   <TextInput
                     style={styles.input}
                     placeholder="Street address"
@@ -756,7 +840,39 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: theme.colors.heading,
-    marginBottom: 12,
+  },
+  addressSearchHint: {
+    fontSize: 12,
+    color: theme.colors.labelMuted ?? "#666",
+    marginBottom: 6,
+  },
+  suggestionsLoading: {
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  suggestionsList: {
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.cream ?? "#eee",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  suggestionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.cream ?? "#eee",
+  },
+  suggestionItemLast: {
+    borderBottomWidth: 0,
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: 14,
+    color: theme.colors.text,
   },
   input: {
     borderWidth: 2,

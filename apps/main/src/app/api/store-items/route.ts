@@ -3,6 +3,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
+import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { z } from "zod";
 
 function slugify(s: string): string {
@@ -16,14 +17,17 @@ function uniqueSlug(base: string): string {
   return `${base}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-type VariantEntry = { name?: string; options?: string[] };
+type VariantEntry = { name?: string; options?: string[] | { value: string; quantity: number }[] };
 function getSizesFromVariants(variants: unknown): string[] {
   if (!variants || !Array.isArray(variants)) return [];
   const sizes: string[] = [];
   for (const v of variants as VariantEntry[]) {
     const name = (v?.name ?? "").trim().toLowerCase();
-    if (name === "size" && Array.isArray(v?.options)) {
-      for (const opt of v.options) if (opt != null && String(opt).trim()) sizes.push(String(opt).trim());
+    if (name !== "size" || !Array.isArray(v?.options)) continue;
+    for (const opt of v.options) {
+      if (opt == null) continue;
+      const val = typeof opt === "object" && "value" in opt ? (opt as { value: string }).value : opt;
+      if (String(val).trim()) sizes.push(String(val).trim());
     }
   }
   return sizes;
@@ -83,8 +87,17 @@ export async function GET(req: NextRequest) {
       slugListingType === "resale"
         ? { slug, status: "active" as const, listingType: "resale" as const }
         : { slug, status: "active" as const, quantity: { gt: 0 } as const };
+    const reservedForSlug = await prisma.orderItem.findMany({
+      where: { order: { status: "pending" } },
+      select: { storeItemId: true },
+      distinct: ["storeItemId"],
+    });
+    const reservedIds = reservedForSlug.map((r) => r.storeItemId);
     const item = await prisma.storeItem.findFirst({
-      where: slugWhere,
+      where: {
+        ...slugWhere,
+        ...(reservedIds.length > 0 ? { id: { notIn: reservedIds } } : {}),
+      },
       include: {
         member: {
           select: {
@@ -202,6 +215,14 @@ export async function GET(req: NextRequest) {
   const shippingOnly = searchParams.get("shippingOnly");
 
   try {
+    // Items in a pending order are treated as sold (reserved) and hidden from the storefront.
+    const pendingOrderItemIds = await prisma.orderItem.findMany({
+      where: { order: { status: "pending" } },
+      select: { storeItemId: true },
+      distinct: ["storeItemId"],
+    });
+    const reservedItemIds = pendingOrderItemIds.map((r) => r.storeItemId);
+
     // Exclude Test category in DB. Trial/test-resale slugs excluded in-memory below (Neon adapter does not support mode in nested slug filter).
     let items = await prisma.storeItem.findMany({
       where: {
@@ -212,6 +233,7 @@ export async function GET(req: NextRequest) {
         ...(category ? { category } : {}),
         ...(memberId ? { memberId } : {}),
         ...(excludeId ? { id: { not: excludeId } } : {}),
+        ...(reservedItemIds.length > 0 ? { id: { notIn: reservedItemIds } } : {}),
         ...(localDelivery === "1" ? { localDeliveryAvailable: true } : {}),
         ...(shippingOnly === "1"
           ? { shippingDisabled: false, localDeliveryAvailable: false, inStorePickupAvailable: false }
@@ -423,10 +445,25 @@ export async function POST(req: NextRequest) {
   try {
     const slug = uniqueSlug(slugify(data.title));
     const priceCents = Number(data.priceCents);
-    const quantity = Number(data.quantity);
-    if (!Number.isInteger(priceCents) || priceCents < 1 || !Number.isInteger(quantity) || quantity < 1) {
+    const useOptionQuantities = hasOptionQuantities(data.variants);
+    const quantity = useOptionQuantities
+      ? sumOptionQuantities(data.variants)
+      : Number(data.quantity);
+    if (!Number.isInteger(priceCents) || priceCents < 1) {
       return NextResponse.json(
-        { error: "Price and quantity must be at least 1." },
+        { error: "Price must be at least 1 cent." },
+        { status: 400 }
+      );
+    }
+    if (!useOptionQuantities && (!Number.isInteger(quantity) || quantity < 1)) {
+      return NextResponse.json(
+        { error: "Quantity must be at least 1." },
+        { status: 400 }
+      );
+    }
+    if (useOptionQuantities && quantity < 1) {
+      return NextResponse.json(
+        { error: "Add at least one option with quantity 1 or more." },
         { status: 400 }
       );
     }

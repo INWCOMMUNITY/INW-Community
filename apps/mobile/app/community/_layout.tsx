@@ -15,6 +15,8 @@ export default function CommunityLayout() {
       <Stack.Screen name="posts-photos" options={{ title: "Posts and Photos" }} />
       <Stack.Screen name="groups" options={{ title: "Community Groups" }} />
       <Stack.Screen name="my-orders" options={{ title: "My Orders" }} />
+      <Stack.Screen name="my-orders/[id]" options={{ title: "Order Details" }} />
+      <Stack.Screen name="my-friends" options={{ title: "My Friends" }} />
       <Stack.Screen name="friend-requests" options={{ title: "Friend Requests" }} />
     </Stack>
   );

@@ -17,9 +17,13 @@ export async function GET(
     where: { id },
     include: {
       buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
+      seller: {
+        select: { id: true, firstName: true, lastName: true },
+        include: { businesses: { take: 1, select: { name: true, slug: true } } },
+      },
       items: {
         include: {
-          storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true } },
+          storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true, listingType: true } },
         },
       },
       shipment: true,
@@ -28,7 +32,7 @@ export async function GET(
   if (!order) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (order.sellerId !== userId) {
+  if (order.sellerId !== userId && order.buyerId !== userId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -71,6 +75,19 @@ export async function PATCH(
     const validStatuses = ["paid", "shipped", "delivered", "refunded", "canceled"];
     if (!validStatuses.includes(body.status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+    }
+    // Only allow shipping/delivery transitions from the correct prior status
+    if (body.status === "shipped" && existing.status !== "paid") {
+      return NextResponse.json(
+        { error: "Order must be paid before it can be marked shipped." },
+        { status: 400 }
+      );
+    }
+    if (body.status === "delivered" && existing.status !== "shipped") {
+      return NextResponse.json(
+        { error: "Order must be shipped before it can be marked delivered." },
+        { status: 400 }
+      );
     }
     update.status = body.status;
   }

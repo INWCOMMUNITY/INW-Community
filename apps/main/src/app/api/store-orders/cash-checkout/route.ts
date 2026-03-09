@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardPoints } from "@/lib/award-points";
+import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
@@ -78,7 +79,8 @@ export async function POST(req: NextRequest) {
   const bySeller = new Map<string, typeof items>();
   for (const item of items) {
     const storeItem = itemMap.get(item.storeItemId);
-    if (!storeItem || item.quantity < 1 || item.quantity > storeItem.quantity) {
+    const available = storeItem ? getAvailableQuantity(storeItem, item.variant) : 0;
+    if (!storeItem || item.quantity < 1 || item.quantity > available) {
       return NextResponse.json({ error: `Invalid quantity for ${storeItem?.title ?? "item"}` }, { status: 400 });
     }
     if (storeItem.member?.acceptCashForPickupDelivery === false) {
@@ -163,10 +165,26 @@ export async function POST(req: NextRequest) {
           fulfillmentType: oi.fulfillmentType ?? null,
         },
       });
-      await prisma.storeItem.update({
-        where: { id: oi.storeItemId },
-        data: { quantity: { decrement: oi.quantity } },
-      });
+      const storeItem = itemMap.get(oi.storeItemId)!;
+      if (hasOptionQuantities(storeItem.variants) && oi.variant) {
+        const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
+        if (res) {
+          await prisma.storeItem.update({
+            where: { id: oi.storeItemId },
+            data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
+          });
+        } else {
+          await prisma.storeItem.update({
+            where: { id: oi.storeItemId },
+            data: { quantity: { decrement: oi.quantity } },
+          });
+        }
+      } else {
+        await prisma.storeItem.update({
+          where: { id: oi.storeItemId },
+          data: { quantity: { decrement: oi.quantity } },
+        });
+      }
       const updated = await prisma.storeItem.findUnique({
         where: { id: oi.storeItemId },
         select: { quantity: true },

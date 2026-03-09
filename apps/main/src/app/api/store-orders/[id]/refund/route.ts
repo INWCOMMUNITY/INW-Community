@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -62,11 +63,31 @@ export async function POST(
           where: { id: order.id },
           data: { status: "refunded" },
         });
+        const storeItemsRefund = await tx.storeItem.findMany({
+          where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
+        });
+        const storeItemMapRefund = new Map(storeItemsRefund.map((s) => [s.id, s]));
         for (const oi of order.items) {
-          await tx.storeItem.update({
-            where: { id: oi.storeItemId },
-            data: { quantity: { increment: oi.quantity } },
-          });
+          const storeItem = storeItemMapRefund.get(oi.storeItemId);
+          if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
+            const res = incrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
+            if (res) {
+              await tx.storeItem.update({
+                where: { id: oi.storeItemId },
+                data: { variants: res.variants as object, quantity: { increment: res.quantityDelta } },
+              });
+            } else {
+              await tx.storeItem.update({
+                where: { id: oi.storeItemId },
+                data: { quantity: { increment: oi.quantity } },
+              });
+            }
+          } else {
+            await tx.storeItem.update({
+              where: { id: oi.storeItemId },
+              data: { quantity: { increment: oi.quantity } },
+            });
+          }
         }
       });
       return NextResponse.json({ ok: true });
@@ -129,11 +150,31 @@ export async function POST(
           description: `Refund: Order #${order.id.slice(-6)} - $${(totalCents / 100).toFixed(2)}`,
         },
       });
+      const storeItemsRefundStripe = await tx.storeItem.findMany({
+        where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
+      });
+      const storeItemMapRefundStripe = new Map(storeItemsRefundStripe.map((s) => [s.id, s]));
       for (const oi of order.items) {
-        await tx.storeItem.update({
-          where: { id: oi.storeItemId },
-          data: { quantity: { increment: oi.quantity } },
-        });
+        const storeItem = storeItemMapRefundStripe.get(oi.storeItemId);
+        if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
+          const res = incrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
+          if (res) {
+            await tx.storeItem.update({
+              where: { id: oi.storeItemId },
+              data: { variants: res.variants as object, quantity: { increment: res.quantityDelta } },
+            });
+          } else {
+            await tx.storeItem.update({
+              where: { id: oi.storeItemId },
+              data: { quantity: { increment: oi.quantity } },
+            });
+          }
+        } else {
+          await tx.storeItem.update({
+            where: { id: oi.storeItemId },
+            data: { quantity: { increment: oi.quantity } },
+          });
+        }
       }
     });
 

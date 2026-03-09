@@ -28,7 +28,7 @@ interface StoreOrder {
   totalCents: number;
   createdAt: string;
   buyer?: { firstName: string; lastName: string };
-  items?: { quantity: number; storeItem?: { title: string; photos?: string[] } }[];
+  items?: { quantity: number; storeItem?: { title: string; slug: string; photos?: string[] } }[];
 }
 
 function formatPrice(cents: number): string {
@@ -79,22 +79,35 @@ export default function OrdersScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />
         }
         contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <Pressable
-            style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
-            onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
-          >
-            <View style={styles.cardRow}>
-              <Text style={styles.orderId}>#{item.id.slice(0, 8)}</Text>
-              <Text style={styles.status}>{item.status}</Text>
-            </View>
-            <Text style={styles.buyer}>
-              {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
-            </Text>
-            <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
-            <Text style={styles.total}>{formatPrice(item.totalCents)}</Text>
-          </Pressable>
-        )}
+        renderItem={({ item }) => {
+          const firstItem = item.items?.[0]?.storeItem;
+          const photoUrl = firstItem?.photos?.[0] ? resolvePhotoUrl(firstItem.photos[0]) : undefined;
+          return (
+            <Pressable
+              style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
+              onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
+            >
+              <View style={styles.cardInner}>
+                {photoUrl ? (
+                  <Image source={{ uri: photoUrl }} style={styles.cardThumb} />
+                ) : (
+                  <View style={[styles.cardThumb, styles.cardThumbPlaceholder]} />
+                )}
+                <View style={styles.cardBody}>
+                  <View style={styles.cardRow}>
+                    <Text style={styles.orderId}>#{item.id.slice(0, 8)}</Text>
+                    <Text style={styles.status}>{item.status}</Text>
+                  </View>
+                  <Text style={styles.buyer}>
+                    {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
+                  </Text>
+                  <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
+                  <Text style={styles.total}>{formatPrice(item.totalCents)}</Text>
+                </View>
+              </View>
+            </Pressable>
+          );
+        }}
       />
     </View>
   );
@@ -110,10 +123,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
   },
-  cardRow: { flexDirection: "row", alignItems: "center" },
-  cardThumb: { width: 48, height: 48, borderRadius: 8, marginRight: 12 },
+  cardInner: { flexDirection: "row", alignItems: "flex-start" },
+  cardThumb: { width: 56, height: 56, borderRadius: 8, marginRight: 12 },
   cardThumbPlaceholder: { backgroundColor: "#ddd" },
-  cardBody: { flex: 1 },
+  cardBody: { flex: 1, minWidth: 0 },
+  cardRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   cardRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   orderId: { fontSize: 14, fontWeight: "600", color: "#333" },
   status: { fontSize: 12, color: "#666", textTransform: "capitalize" },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
+import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -170,8 +171,16 @@ export async function PATCH(
   if (data.photos !== undefined) update.photos = data.photos;
   if (data.category !== undefined) update.category = data.category?.trim() || null;
   if (data.priceCents !== undefined) update.priceCents = data.priceCents;
-  if (data.variants !== undefined) update.variants = data.variants;
-  if (data.quantity !== undefined) update.quantity = data.quantity;
+  if (data.variants !== undefined) {
+    update.variants = data.variants;
+    if (hasOptionQuantities(data.variants)) {
+      update.quantity = sumOptionQuantities(data.variants);
+    }
+  }
+  if (data.quantity !== undefined) {
+    const variantsForQuantity = data.variants !== undefined ? data.variants : existing.variants;
+    if (!hasOptionQuantities(variantsForQuantity)) update.quantity = data.quantity;
+  }
   if (data.status !== undefined) update.status = data.status;
   if (data.shippingCostCents !== undefined) update.shippingCostCents = data.shippingCostCents;
   if (data.shippingPolicy !== undefined) update.shippingPolicy = data.shippingPolicy?.trim() || null;

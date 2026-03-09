@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getAvailableQuantity } from "@/lib/store-item-variants";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
@@ -97,7 +98,8 @@ export async function POST(req: NextRequest) {
   const bySeller = new Map<string, typeof items>();
   for (const item of items) {
     const storeItem = itemMap.get(item.storeItemId);
-    if (!storeItem || item.quantity < 1 || item.quantity > storeItem.quantity) {
+    const available = storeItem ? getAvailableQuantity(storeItem, item.variant) : 0;
+    if (!storeItem || item.quantity < 1 || item.quantity > available) {
       return NextResponse.json({ error: `Invalid quantity for ${storeItem?.title ?? "item"}` }, { status: 400 });
     }
     const sellerId = storeItem.memberId;

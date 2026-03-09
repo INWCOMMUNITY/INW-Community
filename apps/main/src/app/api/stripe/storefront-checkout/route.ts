@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
+import { getAvailableQuantity } from "@/lib/store-item-variants";
 
 const DEFAULT_BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 const PLATFORM_FEE_PERCENT = 0.05; // 5%
@@ -105,7 +106,8 @@ export async function POST(req: NextRequest) {
   const bySeller = new Map<string, typeof items>();
   for (const item of items) {
     const storeItem = itemMap.get(item.storeItemId);
-    if (!storeItem || item.quantity < 1 || item.quantity > storeItem.quantity) {
+    const available = storeItem ? getAvailableQuantity(storeItem, item.variant) : 0;
+    if (!storeItem || item.quantity < 1 || item.quantity > available) {
       return NextResponse.json({ error: `Invalid quantity for ${storeItem?.title ?? "item"}` }, { status: 400 });
     }
     const sellerId = storeItem.memberId;
@@ -230,6 +232,27 @@ export async function POST(req: NextRequest) {
 
   try {
     const branding = getStripeCheckoutBranding();
+    const orderIdsStr = orderIds.join(",");
+    const METADATA_VALUE_MAX = 500;
+    const metadata: Record<string, string> = {};
+    if (orderIdsStr.length <= METADATA_VALUE_MAX) {
+      metadata.orderIds = orderIdsStr;
+    } else {
+      const parts = orderIdsStr.split(",");
+      let chunk = "";
+      let idx = 0;
+      for (const part of parts) {
+        const next = chunk ? `${chunk},${part}` : part;
+        if (next.length > METADATA_VALUE_MAX && chunk) {
+          metadata[`orderIds_${idx}`] = chunk;
+          idx += 1;
+          chunk = part;
+        } else {
+          chunk = next;
+        }
+      }
+      if (chunk) metadata[`orderIds_${idx}`] = chunk;
+    }
     const createParams = {
       mode: "payment" as const,
       line_items: lineItems,
@@ -237,7 +260,7 @@ export async function POST(req: NextRequest) {
       success_url: successUrl,
       cancel_url: `${baseUrl}/storefront?canceled=1`,
       automatic_tax: { enabled: true },
-      metadata: { orderIds: orderIds.join(",") },
+      metadata,
       ...(branding && { branding_settings: branding }),
     };
     const checkoutSession = await stripe.checkout.sessions.create(

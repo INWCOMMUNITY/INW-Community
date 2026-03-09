@@ -4,6 +4,7 @@ import { prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 
 const CANCEL_REASONS = [
   "Changed my mind",
@@ -137,11 +138,31 @@ export async function POST(
           description: `Buyer canceled: Order #${order.id.slice(-6)} - $${(totalCents / 100).toFixed(2)}`,
         },
       });
+      const storeItemsCancel = await tx.storeItem.findMany({
+        where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
+      });
+      const storeItemMapCancel = new Map(storeItemsCancel.map((s) => [s.id, s]));
       for (const oi of order.items) {
-        await tx.storeItem.update({
-          where: { id: oi.storeItemId },
-          data: { quantity: { increment: oi.quantity } },
-        });
+        const storeItem = storeItemMapCancel.get(oi.storeItemId);
+        if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
+          const res = incrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
+          if (res) {
+            await tx.storeItem.update({
+              where: { id: oi.storeItemId },
+              data: { variants: res.variants as object, quantity: { increment: res.quantityDelta } },
+            });
+          } else {
+            await tx.storeItem.update({
+              where: { id: oi.storeItemId },
+              data: { quantity: { increment: oi.quantity } },
+            });
+          }
+        } else {
+          await tx.storeItem.update({
+            where: { id: oi.storeItemId },
+            data: { quantity: { increment: oi.quantity } },
+          });
+        }
       }
     });
 

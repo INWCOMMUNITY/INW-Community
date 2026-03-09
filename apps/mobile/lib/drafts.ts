@@ -29,7 +29,7 @@ export interface StoreItemDraft {
   pickupTerms?: string;
   useSellerProfilePickup?: boolean;
   businessId: string | null;
-  variants: { name: string; options: string[] }[];
+  variants: { name: string; options: { value: string; quantity: number }[] }[];
   savedAt: string;
 }
 

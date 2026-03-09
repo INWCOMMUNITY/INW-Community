@@ -125,6 +125,7 @@ export default function ProductScreen() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSavedNote, setShowSavedNote] = useState(false);
+  const [showMessageSentToast, setShowMessageSentToast] = useState(false);
 
   const { member } = useAuth();
 
@@ -170,6 +171,12 @@ export default function ProductScreen() {
     return () => clearTimeout(timer);
   }, [showSavedNote]);
 
+  useEffect(() => {
+    if (!showMessageSentToast) return;
+    const timer = setTimeout(() => setShowMessageSentToast(false), 1000);
+    return () => clearTimeout(timer);
+  }, [showMessageSentToast]);
+
   const handleSaveToggle = async () => {
     if (!member || !item) return;
     const token = await getToken();
@@ -214,13 +221,13 @@ export default function ProductScreen() {
     }
     setSendingMessage(true);
     try {
-      const res = await apiPost<{ conversationId: string }>(
+      await apiPost<{ conversationId: string }>(
         "/api/resale-messages",
         { storeItemId: item.id, content: messageSellerText.trim() }
       );
       setMessageSellerModalOpen(false);
       setMessageSellerText("");
-      router.push(`/messages/resale/${(res as { conversationId: string }).conversationId}`);
+      setShowMessageSentToast(true);
     } catch (e) {
       const err = e as { error?: string; status?: number };
       if (err.status === 401) {
@@ -891,6 +898,13 @@ export default function ProductScreen() {
               </Pressable>
             </Pressable>
           </Modal>
+          <Modal visible={showMessageSentToast} transparent animationType="fade">
+            <View style={styles.toastWrap} pointerEvents="none">
+              <View style={styles.toastBox}>
+                <Text style={styles.toastText}>Message Sent!</Text>
+              </View>
+            </View>
+          </Modal>
         </>
       )}
     </View>
@@ -945,6 +959,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     marginHorizontal: 24,
+  },
+  toastWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  toastBox: {
+    backgroundColor: "rgba(0,0,0,0.75)",
+    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  toastText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
   },
   savedNoteText: {
     fontSize: 14,

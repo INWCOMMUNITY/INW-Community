@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -13,10 +14,18 @@ import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
 
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
+const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+function resolvePhotoUrl(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
 interface OrderItem {
   id: string;
   quantity: number;
-  storeItem?: { id: string; title: string; slug: string; photos: string[] };
+  storeItem?: { id: string; title: string; slug: string; photos: string[]; listingType?: string };
 }
 
 interface StoreOrder {
@@ -92,7 +101,11 @@ export default function OrderDetailScreen() {
   const buyerAddress = order.shippingAddress
     ? formatShippingAddress(order.shippingAddress) || "—"
     : "—";
-  const firstItem = order.items?.[0]?.storeItem;
+
+  const openListing = (slug: string, listingType?: string) => {
+    const q = listingType === "resale" ? "?listingType=resale" : "";
+    router.push(`/product/${slug}${q}` as never);
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -101,15 +114,30 @@ export default function OrderDetailScreen() {
         <Text style={styles.value}>{formatDate(order.createdAt)}</Text>
       </View>
 
-      {firstItem && (
+      {(order.items?.length ?? 0) > 0 && (
         <View style={styles.section}>
-          <Text style={styles.label}>View Sold Item Listing</Text>
-          <Pressable
-            style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
-            onPress={() => router.push(`/product/${firstItem.slug}` as never)}
-          >
-            <Text style={styles.linkBtnText}>{firstItem.title}</Text>
-          </Pressable>
+          <Text style={styles.label}>Items in this order</Text>
+          {(order.items ?? []).map((oi) => {
+            const si = oi.storeItem;
+            const photoUrl = si?.photos?.[0] ? resolvePhotoUrl(si.photos[0]) : undefined;
+            return (
+              <Pressable
+                key={oi.id}
+                style={({ pressed }) => [styles.itemRow, pressed && { opacity: 0.8 }]}
+                onPress={() => si && openListing(si.slug, si.listingType ?? undefined)}
+              >
+                {photoUrl ? (
+                  <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
+                ) : (
+                  <View style={[styles.itemThumb, styles.itemThumbPlaceholder]} />
+                )}
+                <View style={styles.itemBody}>
+                  <Text style={styles.itemTitle}>{si?.title ?? "Item"} × {oi.quantity}</Text>
+                  <Text style={styles.linkBtnText}>View in-app listing</Text>
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
       )}
 
@@ -163,10 +191,23 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   linkBtnText: {
-    fontSize: 16,
+    fontSize: 14,
     color: theme.colors.primary,
     fontWeight: "500",
+    marginTop: 2,
   },
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingRight: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#eee",
+  },
+  itemThumb: { width: 48, height: 48, borderRadius: 8, marginRight: 12 },
+  itemThumbPlaceholder: { backgroundColor: "#ddd" },
+  itemBody: { flex: 1, minWidth: 0 },
+  itemTitle: { fontSize: 16, color: "#333" },
   errorText: { fontSize: 16, color: "#666", textAlign: "center", marginBottom: 16 },
   backBtn: {
     paddingVertical: 12,
