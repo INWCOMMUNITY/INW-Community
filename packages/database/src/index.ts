@@ -41,7 +41,8 @@ const prismaClient = (() => {
     client = new PrismaClient(options as any);
   }
 
-  if (!isDev && Array.isArray(baseLog) && baseLog[0]?.emit === "event") {
+  const firstLog = baseLog[0];
+  if (!isDev && Array.isArray(baseLog) && typeof firstLog === "object" && firstLog !== null && "emit" in firstLog && firstLog.emit === "event") {
     (client as any).$on("error", (e: unknown) => {
       let msg = "Prisma error (no details)";
       if (e != null && typeof e === "object" && "message" in e) {
