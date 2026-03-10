@@ -247,7 +247,10 @@ export function RewardsContent() {
                   </span>
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {m ? (
-                      <>
+                      <Link
+                        href={`/members/${m.id}`}
+                        className="flex items-center gap-2 min-w-0 flex-1 hover:opacity-90"
+                      >
                         {m.profilePhotoUrl ? (
                           <img src={m.profilePhotoUrl} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
                         ) : (
@@ -256,7 +259,7 @@ export function RewardsContent() {
                           </div>
                         )}
                         <span className="font-medium truncate text-gray-900">{m.firstName} {m.lastName}</span>
-                      </>
+                      </Link>
                     ) : (
                       <>
                         <div className="w-7 h-7 rounded-full bg-gray-100 shrink-0" />
@@ -380,9 +383,9 @@ export function RewardsContent() {
             ) : (
               leaderboard.map((m) => (
                 <li key={m.id} className="flex items-center gap-2">
-                  <span className="font-medium">
+                  <Link href={`/members/${m.id}`} className="font-medium hover:underline" style={{ color: "var(--color-primary)" }}>
                     {m.firstName} {m.lastName}
-                  </span>
+                  </Link>
                   <span className="text-gray-600">— {m.points} points</span>
                 </li>
               ))

@@ -23,7 +23,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiUploadFile, getToken } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -41,6 +41,8 @@ interface SharedBusiness {
 
 interface DirectConversation {
   id: string;
+  status?: string;
+  requestedByMemberId?: string | null;
   memberA: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   memberB: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   messages: Array<{
@@ -132,22 +134,27 @@ export default function DirectConversationScreen() {
   const { member } = useAuth();
   const [conv, setConv] = useState<DirectConversation | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoViewerUri, setPhotoViewerUri] = useState<string | null>(null);
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [acceptDeclineLoading, setAcceptDeclineLoading] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const lastTapRef = useRef<{ messageId: string; time: number } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
+    setLoadError(null);
     try {
       const data = await apiGet<DirectConversation>(`/api/direct-conversations/${id}`);
       setConv(data);
-    } catch {
+    } catch (e) {
       setConv(null);
+      const err = e as { error?: string };
+      setLoadError(err.error ?? "Could not load conversation");
     } finally {
       setLoading(false);
     }
@@ -238,6 +245,34 @@ export default function DirectConversationScreen() {
       setSavingPhoto(false);
     }
   };
+
+  const isMessageRequest = conv?.status === "pending" && conv?.requestedByMemberId !== member?.id;
+
+  const handleAcceptRequest = useCallback(async () => {
+    if (!id || acceptDeclineLoading) return;
+    setAcceptDeclineLoading(true);
+    try {
+      await apiPatch(`/api/direct-conversations/${id}`, { action: "accept" });
+      load();
+    } catch (e) {
+      Alert.alert("Error", (e as { error?: string }).error ?? "Could not accept request.");
+    } finally {
+      setAcceptDeclineLoading(false);
+    }
+  }, [id, acceptDeclineLoading, load]);
+
+  const handleDeclineRequest = useCallback(async () => {
+    if (!id || acceptDeclineLoading) return;
+    setAcceptDeclineLoading(true);
+    try {
+      await apiPatch(`/api/direct-conversations/${id}`, { action: "decline" });
+      router.back();
+    } catch (e) {
+      Alert.alert("Error", (e as { error?: string }).error ?? "Could not decline.");
+    } finally {
+      setAcceptDeclineLoading(false);
+    }
+  }, [id, acceptDeclineLoading, router]);
 
   const otherMember = conv && member?.id
     ? (conv.memberA.id === member.id ? conv.memberB : conv.memberA)
@@ -404,14 +439,16 @@ export default function DirectConversationScreen() {
         (prev ? { ...prev, messages: [...prev.messages, ...newMessages] } : null) as DirectConversation | null
       );
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-    } catch {
+    } catch (e) {
       setMessage(text);
+      const err = e as { error?: string };
+      Alert.alert("Message not sent", err.error ?? "Please try again.");
     } finally {
       setSending(false);
     }
   };
 
-  if (loading || !conv) {
+  if (loading && !conv) {
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
@@ -422,6 +459,25 @@ export default function DirectConversationScreen() {
         </View>
         <View style={styles.center}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      </View>
+    );
+  }
+
+  if (!conv) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </Pressable>
+          <Text style={styles.headerTitle}>Chat</Text>
+        </View>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{loadError ?? "Conversation not found"}</Text>
+          <Pressable style={styles.retryBtn} onPress={() => { setLoading(true); load(); }}>
+            <Text style={styles.retryBtnText}>Retry</Text>
+          </Pressable>
         </View>
       </View>
     );
@@ -451,6 +507,32 @@ export default function DirectConversationScreen() {
           <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
         </Pressable>
       </View>
+
+      {isMessageRequest && (
+        <View style={styles.requestBanner}>
+          <Text style={styles.requestBannerText}>Message request — accept to continue the conversation</Text>
+          <View style={styles.requestBannerActions}>
+            <Pressable
+              style={[styles.requestAcceptBtn, acceptDeclineLoading && styles.requestBtnDisabled]}
+              onPress={handleAcceptRequest}
+              disabled={acceptDeclineLoading}
+            >
+              {acceptDeclineLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.requestAcceptBtnText}>Accept</Text>
+              )}
+            </Pressable>
+            <Pressable
+              style={[styles.requestDeclineBtn, acceptDeclineLoading && styles.requestBtnDisabled]}
+              onPress={handleDeclineRequest}
+              disabled={acceptDeclineLoading}
+            >
+              <Text style={styles.requestDeclineBtnText}>Decline</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       {menuOpen && (
         <Modal visible transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
@@ -616,6 +698,38 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
   menuItemText: { fontSize: 16, color: theme.colors.heading },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  errorText: { fontSize: 16, color: "#666", textAlign: "center", marginBottom: 16 },
+  retryBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+  },
+  retryBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  requestBanner: {
+    backgroundColor: theme.colors.cream ?? "#f5f5f5",
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  requestBannerText: { fontSize: 14, color: "#333", marginBottom: 10 },
+  requestBannerActions: { flexDirection: "row", gap: 12 },
+  requestAcceptBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+  },
+  requestAcceptBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  requestDeclineBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#999",
+  },
+  requestDeclineBtnText: { fontSize: 15, color: "#666", fontWeight: "600" },
+  requestBtnDisabled: { opacity: 0.7 },
   messageList: { padding: 16, paddingBottom: 8 },
   bubbleWrap: { marginBottom: 12, alignItems: "flex-start" },
   bubbleWrapMe: { alignItems: "flex-end" },

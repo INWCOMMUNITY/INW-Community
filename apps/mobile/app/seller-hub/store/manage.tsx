@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -6,12 +6,35 @@ import {
   ScrollView,
   Pressable,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
+import { apiGet } from "@/lib/api";
+
+function AlertBadge() {
+  return (
+    <View style={styles.alertBadge}>
+      <Text style={styles.alertBadgeText}>!</Text>
+    </View>
+  );
+}
 
 export default function ManageStoreScreen() {
   const router = useRouter();
+  const [pendingShip, setPendingShip] = useState(0);
+  const [pendingReturns, setPendingReturns] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      apiGet<{ pendingShip?: number; pendingReturns?: number }>("/api/seller-hub/pending-actions")
+        .then((data) => {
+          setPendingShip(Number(data.pendingShip) || 0);
+          setPendingReturns(Number(data.pendingReturns) || 0);
+        })
+        .catch(() => {});
+    }, [])
+  );
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -34,6 +57,11 @@ export default function ManageStoreScreen() {
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
         onPress={() => (router.push as (href: string) => void)("/seller-hub/store/sold")}
       >
+        {pendingShip > 0 && (
+          <View style={styles.cardAlertBadge}>
+            <AlertBadge />
+          </View>
+        )}
         <Ionicons name="checkmark-done" size={28} color={theme.colors.primary} />
         <View style={styles.cardText}>
           <Text style={styles.cardTitle}>Sold Items</Text>
@@ -58,6 +86,11 @@ export default function ManageStoreScreen() {
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
         onPress={() => (router.push as (href: string) => void)("/seller-hub/store/returns")}
       >
+        {pendingReturns > 0 && (
+          <View style={styles.cardAlertBadge}>
+            <AlertBadge />
+          </View>
+        )}
         <Ionicons name="return-down-back" size={28} color={theme.colors.primary} />
         <View style={styles.cardText}>
           <Text style={styles.cardTitle}>Refund Requests</Text>
@@ -83,6 +116,25 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: theme.colors.primary,
     backgroundColor: "#fff",
+    position: "relative",
+  },
+  cardAlertBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+  },
+  alertBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: theme.colors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertBadgeText: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#fff",
   },
   cardPressed: { opacity: 0.8 },
   cardText: { flex: 1, marginLeft: 12 },

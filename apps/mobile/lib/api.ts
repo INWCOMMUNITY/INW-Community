@@ -9,6 +9,17 @@ import { getToken, setToken, clearToken } from "./storage";
 
 export { getToken, setToken, clearToken };
 
+/** Called whenever the API layer clears the token (e.g. after 401 with invalid refresh). AuthContext can set this to sync member state. */
+let onTokenCleared: (() => void) | null = null;
+export function setOnTokenCleared(fn: (() => void) | null): void {
+  onTokenCleared = fn;
+}
+
+async function clearTokenAndNotify(): Promise<void> {
+  await clearToken();
+  onTokenCleared?.();
+}
+
 /** Track app open for admin analytics (fire-and-forget, no auth required) */
 export function trackAppOpen(): void {
   const source = Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "web";
@@ -86,9 +97,12 @@ async function fetchWithTimeout(
   }
 }
 
-async function tryRefresh(): Promise<boolean> {
+/** Result of attempting token refresh: new token issued, server said invalid, or network/transient failure. */
+type RefreshResult = "refreshed" | "invalid" | "network_error";
+
+async function tryRefresh(): Promise<RefreshResult> {
   const token = await getToken();
-  if (!token) return false;
+  if (!token) return "invalid";
   try {
     const url = `${API_BASE}/api/auth/refresh`;
     const headers: Record<string, string> = {
@@ -101,12 +115,13 @@ async function tryRefresh(): Promise<boolean> {
     const data = (await res.json().catch(() => ({}))) as { token?: string };
     if (res.ok && data.token) {
       await setToken(data.token);
-      return true;
+      return "refreshed";
     }
+    if (res.status === 401) return "invalid";
+    return "network_error";
   } catch {
-    // Ignore
+    return "network_error";
   }
-  return false;
 }
 
 async function fetchWithAuth(
@@ -170,12 +185,15 @@ async function fetchWithAuth(
   if (res.status === 401 && token) {
     const isRefreshRoute = path.includes("/api/auth/refresh");
     if (!isRefreshRoute) {
-      const refreshed = await tryRefresh();
-      if (refreshed) {
+      const refreshResult = await tryRefresh();
+      if (refreshResult === "refreshed") {
         return fetchWithAuth(path, options);
       }
+      if (refreshResult === "network_error") {
+        return res;
+      }
     }
-    await clearToken();
+    await clearTokenAndNotify();
   }
   return res;
 }
@@ -218,13 +236,25 @@ function sanitizeError(error: string): string {
   return error;
 }
 
+/** Parse response body as JSON; avoid "Unexpected end of input" when body is empty. */
+async function parseJsonResponse<T = unknown>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) {
+    if (!res.ok) throw { error: parseError(res, {}), status: res.status };
+    return {} as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch (e) {
+    const msg = (e instanceof SyntaxError && e.message) ? e.message : String(e);
+    throw { error: sanitizeError(msg), status: res.status };
+  }
+}
+
 export async function apiGet<T = unknown>(path: string): Promise<T> {
   const res = await fetchWithAuth(path);
   ensureJsonResponse(res);
-  const data = await res.json().catch((e) => {
-    const msg = e?.message ?? String(e);
-    throw { error: sanitizeError(msg), status: res.status };
-  });
+  const data = await parseJsonResponse<T>(res);
   if (!res.ok) {
     throw { error: parseError(res, data), status: res.status };
   }
@@ -240,10 +270,7 @@ export async function apiPost<T = unknown>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   ensureJsonResponse(res);
-  const data = await res.json().catch((e) => {
-    const msg = e?.message ?? String(e);
-    throw { error: sanitizeError(msg), status: res.status };
-  });
+  const data = await parseJsonResponse<T>(res);
   if (!res.ok) {
     throw { error: parseError(res, data), status: res.status };
   }
@@ -259,12 +286,9 @@ export async function apiPatch<T = unknown>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   ensureJsonResponse(res);
-  const data = await res.json().catch((e) => {
-    const msg = e?.message ?? String(e);
-    throw { error: sanitizeError(msg), status: res.status };
-  });
+  const data = await parseJsonResponse<T>(res);
   if (!res.ok) {
-    throw { error: sanitizeError((data as { error?: string }).error ?? "Request failed"), status: res.status };
+    throw { error: parseError(res, data), status: res.status };
   }
   return data as T;
 }
@@ -272,12 +296,9 @@ export async function apiPatch<T = unknown>(
 export async function apiDelete<T = unknown>(path: string): Promise<T> {
   const res = await fetchWithAuth(path, { method: "DELETE" });
   ensureJsonResponse(res);
-  const data = await res.json().catch((e) => {
-    const msg = e?.message ?? String(e);
-    throw { error: sanitizeError(msg), status: res.status };
-  });
+  const data = await parseJsonResponse<T>(res);
   if (!res.ok) {
-    throw { error: sanitizeError((data as { error?: string }).error ?? "Request failed"), status: res.status };
+    throw { error: parseError(res, data), status: res.status };
   }
   return data as T;
 }
@@ -299,12 +320,12 @@ export async function apiUploadFile(
   let token = await getToken();
   let res = await doUpload(token);
   if (res.status === 401 && token) {
-    const refreshed = await tryRefresh();
-    if (refreshed) {
+    const refreshResult = await tryRefresh();
+    if (refreshResult === "refreshed") {
       token = await getToken();
       res = await doUpload(token);
     }
-    if (res.status === 401) await clearToken();
+    if (res.status === 401 && refreshResult !== "network_error") await clearTokenAndNotify();
   }
   ensureJsonResponse(res);
   const data = await res.json().catch(() => ({}));

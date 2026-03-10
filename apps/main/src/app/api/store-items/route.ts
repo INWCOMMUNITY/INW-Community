@@ -197,13 +197,12 @@ export async function GET(req: NextRequest) {
       status?: string | { not: string };
     } = { memberId: userId };
     if (listingTypeFilter) where.listingType = listingTypeFilter;
-    // My Items: exclude sold (they appear only in Sold Items). Sold Items: sold=1 returns only sold_out.
+    // My Items: include all statuses (active, inactive, sold_out) so seller sees everything with a "not live" note. Sold Items: sold=1 returns only sold_out.
     const soldOnly = searchParams.get("sold") === "1";
     if (soldOnly) {
       where.status = "sold_out";
-    } else {
-      where.status = { not: "sold_out" };
     }
+    // When !soldOnly we do not filter by status — return active, inactive, and sold_out so seller can see sold items with a banner.
     const items = await prisma.storeItem.findMany({
       where,
       include: { business: { select: { id: true, name: true, slug: true } } },

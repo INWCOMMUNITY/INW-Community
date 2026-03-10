@@ -56,6 +56,8 @@ function SellerHubContent() {
   const openSellerMenu = useOpenSellerMenu();
   const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
   const [loadingDelivery, setLoadingDelivery] = useState(true);
+  const [pendingShip, setPendingShip] = useState(0);
+  const [pendingReturns, setPendingReturns] = useState(0);
 
   const hasSeller = member?.subscriptions?.some((s) => s.plan === "seller") ?? false;
 
@@ -71,8 +73,12 @@ function SellerHubContent() {
           })
           .catch(() => setHasLocalDelivery(false))
           .finally(() => setLoadingDelivery(false));
-      } else {
-        setLoadingDelivery(false);
+        apiGet<{ pendingShip?: number; pendingReturns?: number }>("/api/seller-hub/pending-actions")
+          .then((data) => {
+            setPendingShip(Number(data.pendingShip) || 0);
+            setPendingReturns(Number(data.pendingReturns) || 0);
+          })
+          .catch(() => {});
       }
     }, [hasSeller])
   );
@@ -151,23 +157,32 @@ function SellerHubContent() {
         </RNView>
 
         <RNView style={styles.sellerHubGrid}>
-          {gridActions.map((action) => (
-            <Pressable
-              key={action.label}
-              style={({ pressed }) => [
-                styles.sellerHubGridButton,
-                pressed && styles.buttonPressed,
-              ]}
-              onPress={
-                action.onPress
-                  ? action.onPress
-                  : () => action.href && (router.push as (href: string) => void)(action.href)
-              }
-            >
-              <Ionicons name={action.icon} size={28} color={theme.colors.primary} />
-              <ThemedText style={styles.sellerHubGridLabel}>{action.label}</ThemedText>
-            </Pressable>
-          ))}
+          {gridActions.map((action) => {
+            const needsAction =
+              (action.label === "My Orders" || action.label === "Ship Orders") && pendingShip > 0;
+            return (
+              <Pressable
+                key={action.label}
+                style={({ pressed }) => [
+                  styles.sellerHubGridButton,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={
+                  action.onPress
+                    ? action.onPress
+                    : () => action.href && (router.push as (href: string) => void)(action.href)
+                }
+              >
+                {needsAction && (
+                  <RNView style={styles.hubAlertBadge}>
+                    <Text style={styles.hubAlertBadgeText}>!</Text>
+                  </RNView>
+                )}
+                <Ionicons name={action.icon} size={28} color={theme.colors.primary} />
+                <ThemedText style={styles.sellerHubGridLabel}>{action.label}</ThemedText>
+              </Pressable>
+            );
+          })}
         </RNView>
 
         {hasLocalDelivery && (
@@ -1511,6 +1526,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+    position: "relative",
+  },
+  hubAlertBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: theme.colors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hubAlertBadgeText: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#fff",
   },
   sellerHubGridLabel: {
     fontSize: 14,

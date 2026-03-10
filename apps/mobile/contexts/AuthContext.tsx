@@ -8,7 +8,7 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import { getToken, clearToken } from "@/lib/api";
+import { getToken, clearToken, setOnTokenCleared } from "@/lib/api";
 import { apiGet } from "@/lib/api";
 import type { SubscriptionPlan } from "@/lib/auth";
 
@@ -79,6 +79,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    setOnTokenCleared(() => setMember(null));
+    return () => setOnTokenCleared(null);
   }, []);
 
   const handleSignOut = useCallback(async () => {

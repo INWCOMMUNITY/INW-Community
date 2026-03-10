@@ -38,7 +38,7 @@ const PLANS = [
   },
   {
     id: "sponsor",
-    name: "Sponsor (Local Business)",
+    name: "Local Business",
     price: "$25/mo",
     priceYearly: "$250/yr",
     icon: "storefront" as const,
@@ -61,9 +61,9 @@ const PLANS = [
     priceYearly: "$400/yr",
     icon: "cart" as const,
     description:
-      "Sell products on the NWC Storefront. Includes a full online store, shipping management, and all Sponsor benefits.",
+      "Sell products on the NWC Storefront. Includes a full online store, shipping management, and all Local Business benefits.",
     features: [
-      "Everything in Sponsor",
+      "Everything in Local Business",
       "Online storefront with listings",
       "Shipping & fulfillment tools",
       "Seller Hub management",
@@ -79,21 +79,6 @@ export default function SubscribeScreen() {
   const insets = useSafeAreaInsets();
   const { member, loading: authLoading } = useAuth();
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getToken().then((token) => {
-      if (!cancelled && !token) {
-        router.replace({
-          pathname: "/signin",
-          params: { plan: "subscribe", returnTo: "/subscribe" },
-        } as never);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
 
   const startCheckout = async (planId: string, interval: "monthly" | "yearly" = "monthly") => {
     setCheckoutLoading(planId);
@@ -211,13 +196,27 @@ export default function SubscribeScreen() {
                       pressed && { opacity: 0.8 },
                       checkoutLoading === plan.id && styles.subscribeBtnDisabled,
                     ]}
-                    onPress={() => startCheckout(plan.id)}
+                    onPress={() => {
+                      if (plan.id === "subscribe") {
+                        startCheckout(plan.id);
+                      } else if (plan.id === "sponsor") {
+                        router.push(
+                          (member ? "/signup-business?start=business" : "/signup-business") as import("expo-router").Href
+                        );
+                      } else if (plan.id === "seller") {
+                        router.push(
+                          (member ? "/signup-seller?start=business" : "/signup-seller") as import("expo-router").Href
+                        );
+                      }
+                    }}
                     disabled={checkoutLoading !== null}
                   >
                     {checkoutLoading === plan.id ? (
                       <ActivityIndicator size="small" color="#fff" />
                     ) : (
-                      <Text style={styles.subscribeBtnText}>Subscribe</Text>
+                      <Text style={styles.subscribeBtnText}>
+                        {plan.id === "subscribe" ? "Subscribe" : "Get started"}
+                      </Text>
                     )}
                   </Pressable>
                 </>

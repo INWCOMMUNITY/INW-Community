@@ -36,6 +36,11 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // For buyer: do not expose stripePaymentIntentId; add isCashOrder for UI (cancel vs request refund).
+  if (order.buyerId === userId) {
+    const { stripePaymentIntentId, ...rest } = order;
+    return NextResponse.json({ ...rest, isCashOrder: !stripePaymentIntentId });
+  }
   return NextResponse.json(order);
 }
 

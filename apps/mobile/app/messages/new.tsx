@@ -8,6 +8,7 @@ import {
   Image,
   TextInput,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -79,9 +80,15 @@ export default function NewConversationScreen() {
         content: initialMessage.trim() || undefined,
       });
       setCreating(null);
-      router.replace(`/messages/${conv.id}`);
-    } catch {
+      if (conv?.id) {
+        router.replace(`/messages/${conv.id}`);
+      } else {
+        Alert.alert("Error", "Could not start conversation. Please try again.");
+      }
+    } catch (e) {
       setCreating(null);
+      const err = e as { error?: string };
+      Alert.alert("Couldn't start conversation", err.error ?? "Please try again.");
     }
   };
 

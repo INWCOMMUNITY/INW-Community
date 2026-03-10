@@ -14,9 +14,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-
 interface Business {
   id: string;
   name: string;
@@ -79,11 +76,7 @@ export default function ProfileBusinessesScreen() {
             <Pressable
               key={b.id}
               style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-              onPress={() =>
-                router.push(
-                  `/web?url=${encodeURIComponent(`${siteBase}/support-local/${b.slug}`)}&title=${encodeURIComponent(b.name)}`
-                )
-              }
+              onPress={() => (router.push as (href: string) => void)(`/business/${b.slug}`)}
             >
               {b.logoUrl ? (
                 <Image source={{ uri: b.logoUrl }} style={styles.logo} />

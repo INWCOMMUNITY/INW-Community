@@ -11,7 +11,6 @@ import {
   Linking,
   Dimensions,
   TextInput,
-  FlatList,
   Modal,
   Share,
 } from "react-native";
@@ -396,8 +395,8 @@ export default function RewardsScreen() {
               <ScrollView style={styles.leaderboardList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
                   const m = top10Leaderboard[num - 1];
-                  return (
-                    <View key={m?.id ?? `empty-${num}`} style={styles.leaderRow}>
+                  const row = (
+                    <>
                       <Text style={styles.leaderRank}>{num}</Text>
                       {m ? (
                         <>
@@ -422,7 +421,17 @@ export default function RewardsScreen() {
                           <Text style={styles.leaderPoints}>—</Text>
                         </>
                       )}
-                    </View>
+                    </>
+                  );
+                  return (
+                    <Pressable
+                      key={m?.id ?? `empty-${num}`}
+                      style={({ pressed }) => [styles.leaderRow, pressed && styles.buttonPressed]}
+                      onPress={m ? () => (router.push as (href: string) => void)(`/members/${m.id}`) : undefined}
+                      disabled={!m}
+                    >
+                      {row}
+                    </Pressable>
                   );
                 })}
               </ScrollView>
@@ -505,117 +514,120 @@ export default function RewardsScreen() {
                     )
                   : rewards
                 ).filter((r): r is Reward => !!r && typeof r.id === "string");
+                const rows: Reward[][] = [];
+                for (let i = 0; i < filtered.length; i += 2) {
+                  rows.push(filtered.slice(i, i + 2));
+                }
                 return (
-                  <FlatList
-                    data={filtered}
-                    keyExtractor={(r) => r.id}
-                    numColumns={2}
-                    scrollEnabled={false}
-                    columnWrapperStyle={styles.rewardRow}
-                    renderItem={({ item: r }) => {
-                      const canRedeem = signedIn && points !== null && points >= r.pointsRequired;
-                      const remaining = r.redemptionLimit - r.timesRedeemed;
-                      const expanded = expandedRewardId === r.id;
-                      const isSaved = savedRewardIds.has(r.id);
-                      return (
-                        <View style={[styles.rewardCardGrid, { borderColor: theme.colors.primary }]}>
-                          <Pressable
-                            style={styles.rewardCardImageWrap}
-                            onPress={() => setSelectedRewardForModal(r)}
-                          >
-                            {r.imageUrl ? (
-                              <Image
-                                source={{ uri: resolveUrl(r.imageUrl) }}
-                                style={styles.rewardImage1x1}
-                                resizeMode="cover"
-                              />
-                            ) : (
-                              <View style={styles.rewardImage1x1Placeholder}>
-                                <Text style={styles.rewardPlaceholderText}>No image</Text>
-                              </View>
-                            )}
-                            <View style={styles.rewardCardHeart}>
-                              <HeartSaveButton
-                                type="reward"
-                                referenceId={r.id}
-                                initialSaved={isSaved}
-                                onRequireAuth={() => router.push("/(tabs)/my-community")}
-                                onSavedChange={(s) =>
-                                  setSavedRewardIds((prev) => {
-                                    const next = new Set(prev);
-                                    if (s) next.add(r.id);
-                                    else next.delete(r.id);
-                                    return next;
-                                  })
-                                }
-                              />
-                              <Text style={styles.rewardCardSaveLabel}>{isSaved ? "Saved" : "Save"}</Text>
-                            </View>
-                          </Pressable>
-                          <Text style={styles.rewardTitleGrid} numberOfLines={2}>{r.title ?? ""}</Text>
-                          {r.business && (
-                            <Pressable onPress={() => openBusiness(r.business!.slug)}>
-                              <Text style={[styles.rewardBusinessGrid, { color: theme.colors.primary }]} numberOfLines={1}>
-                                {r.business.name}
-                              </Text>
-                            </Pressable>
-                          )}
-                          {r.description ? (
-                            <>
+                  <View style={styles.rewardGridWrap}>
+                    {rows.map((row, rowIndex) => (
+                      <View key={`row-${rowIndex}`} style={styles.rewardRow}>
+                        {row.map((r) => {
+                          const canRedeem = signedIn && points !== null && points >= r.pointsRequired;
+                          const remaining = r.redemptionLimit - r.timesRedeemed;
+                          const expanded = expandedRewardId === r.id;
+                          const isSaved = savedRewardIds.has(r.id);
+                          return (
+                            <View key={r.id} style={[styles.rewardCardGrid, { borderColor: theme.colors.primary }]}>
                               <Pressable
-                                style={styles.rewardDescToggle}
-                                onPress={() => setExpandedRewardId((id) => (id === r.id ? null : r.id))}
+                                style={styles.rewardCardImageWrap}
+                                onPress={() => setSelectedRewardForModal(r)}
                               >
-                                <Text
-                                  style={styles.rewardDescText}
-                                  numberOfLines={expanded ? undefined : 2}
-                                  ellipsizeMode={expanded ? undefined : "tail"}
-                                >
-                                  {r.description}
-                                </Text>
-                                <Ionicons
-                                  name={expanded ? "chevron-up" : "chevron-down"}
-                                  size={18}
-                                  color={theme.colors.primary}
-                                />
+                                {r.imageUrl ? (
+                                  <Image
+                                    source={{ uri: resolveUrl(r.imageUrl) }}
+                                    style={styles.rewardImage1x1}
+                                    resizeMode="cover"
+                                  />
+                                ) : (
+                                  <View style={styles.rewardImage1x1Placeholder}>
+                                    <Text style={styles.rewardPlaceholderText}>No image</Text>
+                                  </View>
+                                )}
+                                <View style={styles.rewardCardHeart}>
+                                  <HeartSaveButton
+                                    type="reward"
+                                    referenceId={r.id}
+                                    initialSaved={isSaved}
+                                    onRequireAuth={() => router.push("/(tabs)/my-community")}
+                                    onSavedChange={(s) =>
+                                      setSavedRewardIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (s) next.add(r.id);
+                                        else next.delete(r.id);
+                                        return next;
+                                      })
+                                    }
+                                  />
+                                  <Text style={styles.rewardCardSaveLabel}>{isSaved ? "Saved" : "Save"}</Text>
+                                </View>
                               </Pressable>
-                            </>
-                          ) : null}
-                          <Text style={styles.rewardMetaGrid}>
-                            {r.pointsRequired} pts · {remaining} left
-                          </Text>
-                          {signedIn ? (
-                            <Pressable
-                              style={[
-                                styles.redeemBtnGrid,
-                                { backgroundColor: theme.colors.primary },
-                                (!canRedeem || redeeming === r.id) && styles.redeemBtnDisabled,
-                              ]}
-                              onPress={() => handleRedeem(r.id)}
-                              disabled={!canRedeem || redeeming === r.id}
-                            >
-                              {redeeming === r.id ? (
-                                <ActivityIndicator size="small" color="#fff" />
-                              ) : canRedeem ? (
-                                <Text style={styles.redeemBtnText}>Redeem</Text>
+                              <Text style={styles.rewardTitleGrid} numberOfLines={2}>{r.title ?? ""}</Text>
+                              {r.business ? (
+                                <Pressable onPress={() => openBusiness(r.business!.slug)}>
+                                  <Text style={[styles.rewardBusinessGrid, { color: theme.colors.primary }]} numberOfLines={1}>
+                                    {r.business.name}
+                                  </Text>
+                                </Pressable>
+                              ) : null}
+                              {r.description ? (
+                                <>
+                                  <Pressable
+                                    style={styles.rewardDescToggle}
+                                    onPress={() => setExpandedRewardId((id) => (id === r.id ? null : r.id))}
+                                  >
+                                    <Text
+                                      style={styles.rewardDescText}
+                                      numberOfLines={expanded ? undefined : 2}
+                                      ellipsizeMode={expanded ? undefined : "tail"}
+                                    >
+                                      {r.description}
+                                    </Text>
+                                    <Ionicons
+                                      name={expanded ? "chevron-up" : "chevron-down"}
+                                      size={18}
+                                      color={theme.colors.primary}
+                                    />
+                                  </Pressable>
+                                </>
+                              ) : null}
+                              <Text style={styles.rewardMetaGrid}>
+                                {r.pointsRequired} pts · {remaining} left
+                              </Text>
+                              {signedIn ? (
+                                <Pressable
+                                  style={[
+                                    styles.redeemBtnGrid,
+                                    { backgroundColor: theme.colors.primary },
+                                    (!canRedeem || redeeming === r.id) && styles.redeemBtnDisabled,
+                                  ]}
+                                  onPress={() => handleRedeem(r.id)}
+                                  disabled={!canRedeem || redeeming === r.id}
+                                >
+                                  {redeeming === r.id ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                  ) : canRedeem ? (
+                                    <Text style={styles.redeemBtnText}>Redeem</Text>
+                                  ) : (
+                                    <Text style={styles.redeemBtnText}>
+                                      Need {r.pointsRequired - (points ?? 0)} more
+                                    </Text>
+                                  )}
+                                </Pressable>
                               ) : (
-                                <Text style={styles.redeemBtnText}>
-                                  Need {r.pointsRequired - (points ?? 0)} more
-                                </Text>
+                                <Pressable
+                                  style={[styles.redeemBtnGrid, { backgroundColor: theme.colors.primary }]}
+                                  onPress={() => router.push("/(tabs)/my-community")}
+                                >
+                                  <Text style={styles.redeemBtnText}>Sign in to Redeem</Text>
+                                </Pressable>
                               )}
-                            </Pressable>
-                          ) : (
-                            <Pressable
-                              style={[styles.redeemBtnGrid, { backgroundColor: theme.colors.primary }]}
-                              onPress={() => router.push("/(tabs)/my-community")}
-                            >
-                              <Text style={styles.redeemBtnText}>Sign in to Redeem</Text>
-                            </Pressable>
-                          )}
-                        </View>
-                      );
-                    }}
-                  />
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </View>
                 );
               })()
             )}
@@ -669,7 +681,7 @@ export default function RewardsScreen() {
                     <Pressable
                       onPress={() => {
                         setSelectedRewardForModal(null);
-                        openBusiness(selectedRewardForModal.business!.slug);
+                        openBusiness(selectedRewardForModal.business.slug);
                       }}
                       style={({ pressed }) => [styles.rewardModalBusiness, pressed && { opacity: 0.8 }]}
                     >
@@ -903,6 +915,7 @@ const styles = StyleSheet.create({
   prizeDetailsBtn: { padding: 4 },
   prizeEmpty: { fontSize: 14, color: "#999", flex: 1 },
   leaderboardList: { maxHeight: 320, marginTop: 12 },
+  buttonPressed: { opacity: 0.8 },
   leaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1028,7 +1041,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
   },
-  rewardRow: { gap: CARD_GAP, marginBottom: CARD_GAP },
+  rewardGridWrap: { marginBottom: 16 },
+  rewardRow: { flexDirection: "row", gap: CARD_GAP, marginBottom: CARD_GAP },
   rewardCardGrid: {
     width: CARD_WIDTH,
     padding: 10,

@@ -255,8 +255,8 @@ export default function HomeScreen() {
           <ScrollView style={styles.leaderboardList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
               const m = leaderboard[rank - 1];
-              return (
-                <View key={m?.id ?? `empty-${rank}`} style={styles.leaderRow}>
+              const row = (
+                <>
                   <Text style={styles.leaderRank}>{rank}</Text>
                   {m ? (
                     <>
@@ -284,7 +284,17 @@ export default function HomeScreen() {
                       <Text style={styles.leaderPoints}>—</Text>
                     </>
                   )}
-                </View>
+                </>
+              );
+              return (
+                <Pressable
+                  key={m?.id ?? `empty-${rank}`}
+                  style={({ pressed }) => [styles.leaderRow, pressed && styles.buttonPressed]}
+                  onPress={m ? () => (router.push as (href: string) => void)(`/members/${m.id}`) : undefined}
+                  disabled={!m}
+                >
+                  {row}
+                </Pressable>
               );
             })}
           </ScrollView>

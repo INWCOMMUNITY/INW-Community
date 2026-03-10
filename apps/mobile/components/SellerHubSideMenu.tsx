@@ -102,9 +102,9 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
 
   const storefrontItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items" },
-    { href: "/seller-hub/store/sold", label: "Sold Items" },
+    { href: "/seller-hub/store/sold", label: "Sold Items", alert: pendingShip > 0 },
     { href: "/seller-hub/store/drafts", label: "Drafts" },
-    { href: "/seller-hub/orders", label: "My Orders" },
+    { href: "/seller-hub/orders", label: "My Orders", alert: pendingShip > 0 },
     { href: "/seller-hub/store/payouts", label: "My Funds", alert: payoutReady },
   ];
 

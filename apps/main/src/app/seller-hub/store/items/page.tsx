@@ -125,29 +125,45 @@ export default function MyItemsPage() {
         <p className="text-gray-500 text-sm max-md:text-center">No items yet. Add your first item to start selling.</p>
       ) : (
         <div className="grid gap-3 w-full">
-          {items.map((item) => (
-            <div
-              key={item.id}
-              className="border rounded-lg p-3 flex items-center gap-3 hover:bg-gray-50 w-full min-w-0"
-            >
-              {item.photos[0] ? (
-                <img src={item.photos[0]} alt="" className="w-12 h-12 object-cover rounded shrink-0" />
-              ) : (
-                <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs shrink-0">
-                  No photo
+          {items.map((item) => {
+            const notLive = item.status === "sold_out" || item.status === "inactive" || item.quantity <= 0;
+            const statusLabel =
+              item.status === "sold_out" ? "Sold" : item.status === "inactive" ? "Inactive" : item.quantity <= 0 ? "Out of stock" : "Active";
+            return (
+              <div
+                key={item.id}
+                className="border rounded-lg overflow-hidden flex flex-col hover:bg-gray-50 w-full min-w-0"
+              >
+                {notLive && (
+                  <div className="bg-amber-50 border-b border-amber-200 px-3 py-2">
+                    <p className="text-xs font-semibold text-amber-800">
+                      {item.status === "sold_out"
+                        ? "This item is sold, and is not live on the storefront."
+                        : "This item is not live on the storefront."}
+                    </p>
+                  </div>
+                )}
+                <div className="p-3 flex items-center gap-3">
+                  {item.photos[0] ? (
+                    <img src={item.photos[0]} alt="" className="w-12 h-12 object-cover rounded shrink-0" />
+                  ) : (
+                    <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs shrink-0">
+                      No photo
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <h3 className="font-medium truncate">{item.title}</h3>
+                    <p className="text-xs text-gray-600">
+                      ${(item.priceCents / 100).toFixed(2)} · {item.quantity} in stock · {statusLabel}
+                    </p>
+                  </div>
+                  <Link href={`/seller-hub/store/${item.id}`} className="btn text-sm">
+                    Edit
+                  </Link>
                 </div>
-              )}
-              <div className="flex-1 min-w-0 overflow-hidden">
-                <h3 className="font-medium truncate">{item.title}</h3>
-                <p className="text-xs text-gray-600">
-                  ${(item.priceCents / 100).toFixed(2)} · {item.quantity} in stock · {item.status}
-                </p>
               </div>
-              <Link href={`/seller-hub/store/${item.id}`} className="btn text-sm">
-                Edit
-              </Link>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

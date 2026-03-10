@@ -63,14 +63,35 @@ function fmtShipTo(addr: unknown): string {
 type PDFPage = Awaited<ReturnType<PDFDocument["addPage"]>>;
 type PDFFont = Awaited<ReturnType<PDFDocument["embedFont"]>>;
 
+/** Resolve relative logo URLs (e.g. /uploads/...) to absolute so server-side fetch works. */
+function resolveLogoUrl(logoUrl: string): string {
+  const trimmed = logoUrl.trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+  const base =
+    process.env.NEXTAUTH_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  return `${base.replace(/\/+$/, "")}${trimmed.startsWith("/") ? "" : "/"}${trimmed}`;
+}
+
 async function tryEmbedLogo(doc: PDFDocument, url: string) {
   try {
-    const res = await fetch(url);
+    const absoluteUrl = resolveLogoUrl(url);
+    const res = await fetch(absoluteUrl);
     if (!res.ok) return null;
     const bytes = new Uint8Array(await res.arrayBuffer());
-    const ct = res.headers.get("content-type") ?? "";
-    const img = ct.includes("png") ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
-    return img;
+    const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+    // Detect by magic bytes if content-type is missing or generic
+    const isPng =
+      ct.includes("png") ||
+      (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47);
+    const isJpg =
+      ct.includes("jpeg") ||
+      ct.includes("jpg") ||
+      (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff);
+    if (isPng) return await doc.embedPng(bytes);
+    if (isJpg) return await doc.embedJpg(bytes);
+    return null;
   } catch {
     return null;
   }

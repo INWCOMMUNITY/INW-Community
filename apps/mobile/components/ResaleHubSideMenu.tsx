@@ -26,7 +26,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
 const NAV_HEADER_HEIGHT = 44;
 
-type NavItem = { href: string; label: string; web?: boolean };
+type NavItem = { href: string; label: string; web?: boolean; alert?: boolean };
 
 interface ResaleHubSideMenuProps {
   visible: boolean;
@@ -68,7 +68,7 @@ function Section({
   );
 }
 
-const COMMUNITY_RESALE_ITEMS: NavItem[] = [
+const COMMUNITY_RESALE_BASE: NavItem[] = [
   { href: "/seller-hub/store/new?listingType=resale", label: "List Item", web: false },
   { href: "/seller-hub/store/items?listingType=resale", label: "My Listings", web: false },
   { href: "/seller-hub/store/sold", label: "Sold Items", web: false },
@@ -78,7 +78,7 @@ const COMMUNITY_RESALE_ITEMS: NavItem[] = [
   { href: "/policies", label: "Policy", web: false },
 ];
 
-const DELIVERY_ITEMS: NavItem[] = [
+const DELIVERY_BASE: NavItem[] = [
   { href: "/seller-hub/ship", label: "Ship Items", web: false },
   { href: "/seller-hub/deliveries", label: "Local Deliveries", web: false },
   { href: "/resale-hub/pickups", label: "Local Pickups", web: false },
@@ -89,13 +89,24 @@ export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) 
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const [payoutReady, setPayoutReady] = useState(false);
+  const [pendingShip, setPendingShip] = useState(0);
 
   useEffect(() => {
     if (!visible) return;
-    apiGet<{ payoutReady?: boolean }>("/api/seller-hub/pending-actions")
-      .then((data) => setPayoutReady(Boolean(data.payoutReady)))
+    apiGet<{ payoutReady?: boolean; pendingShip?: number }>("/api/seller-hub/pending-actions")
+      .then((data) => {
+        setPayoutReady(Boolean(data.payoutReady));
+        setPendingShip(Number(data.pendingShip) || 0);
+      })
       .catch(() => {});
   }, [visible]);
+
+  const communityResaleItems: NavItem[] = COMMUNITY_RESALE_BASE.map((item) =>
+    item.label === "Sold Items" ? { ...item, alert: pendingShip > 0 } : item
+  );
+  const deliveryItems: NavItem[] = DELIVERY_BASE.map((item) =>
+    item.label === "Ship Items" ? { ...item, alert: pendingShip > 0 } : item
+  );
 
   const getPaidItems: NavItem[] = [
     {
@@ -140,10 +151,10 @@ export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) 
           >
             <Section
               title="Community Resale"
-              items={COMMUNITY_RESALE_ITEMS}
+              items={communityResaleItems}
               onNavigate={handleNavigate}
             />
-            <Section title="Delivery" items={DELIVERY_ITEMS} onNavigate={handleNavigate} />
+            <Section title="Delivery" items={deliveryItems} onNavigate={handleNavigate} />
             <Section title="Get Paid" items={getPaidItems} onNavigate={handleNavigate} />
           </ScrollView>
         </View>
@@ -216,6 +227,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   navLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
@@ -226,5 +240,18 @@ const styles = StyleSheet.create({
   navLinkText: {
     fontSize: 15,
     color: "#444",
+  },
+  alertBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: theme.colors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#fff",
   },
 });

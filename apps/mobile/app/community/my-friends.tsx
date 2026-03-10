@@ -135,6 +135,7 @@ export default function MyFriendsScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Friend[]>([]);
   const [browseMembers, setBrowseMembers] = useState<Friend[]>([]);
+  const [browseError, setBrowseError] = useState<string | null>(null);
   const [friendData, setFriendData] = useState<FriendData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -143,9 +144,17 @@ export default function MyFriendsScreen() {
 
   const load = useCallback(async () => {
     setBrowseLoading(true);
+    setBrowseError(null);
     apiGet<{ members: Friend[] }>("/api/members?limit=50")
-      .then((d) => setBrowseMembers(d?.members ?? []))
-      .catch(() => setBrowseMembers([]))
+      .then((d) => {
+        setBrowseMembers(d?.members ?? []);
+        setBrowseError(null);
+      })
+      .catch((err) => {
+        setBrowseMembers([]);
+        const msg = (err as { error?: string })?.error ?? "Couldn't load members";
+        setBrowseError(msg);
+      })
       .finally(() => setBrowseLoading(false));
 
     const [friendsSettled, suggestedSettled, requestsSettled] = await Promise.allSettled([
@@ -277,7 +286,12 @@ export default function MyFriendsScreen() {
                 <View style={styles.center}>
                   <ActivityIndicator size="small" color={theme.colors.primary} />
                 </View>
-              ) : browseMembers.length > 0 && (
+              ) : browseError ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Browse members</Text>
+                  <Text style={styles.emptyText}>{browseError}</Text>
+                </View>
+              ) : browseMembers.length > 0 ? (
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>Browse members</Text>
                   {browseMembers.map((m) => (
@@ -293,7 +307,7 @@ export default function MyFriendsScreen() {
                     />
                   ))}
                 </View>
-              )}
+              ) : null}
 
               {suggested.length > 0 && (
                 <View style={styles.section}>

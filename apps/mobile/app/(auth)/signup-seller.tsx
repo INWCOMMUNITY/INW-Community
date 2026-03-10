@@ -13,7 +13,7 @@ import {
   Image,
   Alert,
 } from "react-native";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
@@ -29,9 +29,19 @@ const STEP_ORDER: Step[] = ["account", "business", "contact", "checkout"];
 export default function SignupSellerScreen() {
   const router = useRouter();
   const navigation = useNavigation();
+  const params = useLocalSearchParams<{ start?: string }>();
   const { refreshMember, member, signOut } = useAuth();
 
   const [step, setStep] = useState<Step>("account");
+  const hasStartedAtBusinessRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (params.start === "business" && member && !hasStartedAtBusinessRef.current) {
+        hasStartedAtBusinessRef.current = true;
+        setStep("business");
+      }
+    }, [params.start, member])
+  );
   useFocusEffect(
     useCallback(() => {
       if (step === "checkout" && member?.subscriptionPlan === "seller") {

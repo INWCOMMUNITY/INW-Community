@@ -55,6 +55,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
 
+  const isNoSuchAccount = (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
+  };
+
   let accountId = member.stripeConnectAccountId;
 
   try {
@@ -62,8 +67,7 @@ export async function POST(req: NextRequest) {
       try {
         await stripe.accounts.retrieve(accountId);
       } catch (retrieveErr) {
-        const msg = retrieveErr instanceof Error ? retrieveErr.message : String(retrieveErr);
-        if (/no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg)) {
+        if (isNoSuchAccount(retrieveErr)) {
           await prisma.member.update({
             where: { id: userId },
             data: { stripeConnectAccountId: null },
@@ -101,16 +105,60 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const accountLink = await stripe.accountLinks.create({
-      account: accountId,
-      refresh_url: `${baseUrl}/seller-hub/store/payouts?refresh=1`,
-      return_url: `${baseUrl}/seller-hub/store/payouts?success=1`,
-      type: "account_onboarding",
-      collection_options: {
-        fields: "currently_due",
-        future_requirements: "omit",
-      },
-    });
+    let accountLink: Stripe.AccountLink;
+    try {
+      accountLink = await stripe.accountLinks.create({
+        account: accountId,
+        refresh_url: `${baseUrl}/seller-hub/store/payouts?refresh=1`,
+        return_url: `${baseUrl}/seller-hub/store/payouts?success=1`,
+        type: "account_onboarding",
+        collection_options: {
+          fields: "currently_due",
+          future_requirements: "omit",
+        },
+      });
+    } catch (linkErr) {
+      if (isNoSuchAccount(linkErr)) {
+        await prisma.member.update({
+          where: { id: userId },
+          data: { stripeConnectAccountId: null },
+        });
+        const account = await stripe.accounts.create({
+          type: "express",
+          country: "US",
+          email: member.email,
+          business_type: "individual",
+          capabilities: {
+            card_payments: { requested: true },
+            transfers: { requested: true },
+          },
+        });
+        accountId = account.id;
+        if (member.firstName?.trim() || member.lastName?.trim()) {
+          await stripe.accounts.createPerson(accountId, {
+            first_name: (member.firstName ?? "").trim() || undefined,
+            last_name: (member.lastName ?? "").trim() || undefined,
+            relationship: { representative: true },
+          });
+        }
+        await prisma.member.update({
+          where: { id: userId },
+          data: { stripeConnectAccountId: accountId },
+        });
+        accountLink = await stripe.accountLinks.create({
+          account: accountId,
+          refresh_url: `${baseUrl}/seller-hub/store/payouts?refresh=1`,
+          return_url: `${baseUrl}/seller-hub/store/payouts?success=1`,
+          type: "account_onboarding",
+          collection_options: {
+            fields: "currently_due",
+            future_requirements: "omit",
+          },
+        });
+      } else {
+        throw linkErr;
+      }
+    }
 
     return NextResponse.json({ url: accountLink.url });
   } catch (e) {

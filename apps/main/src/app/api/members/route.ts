@@ -15,10 +15,11 @@ export async function GET(req: NextRequest) {
   const page = Math.max(0, parseInt(searchParams.get("page") ?? "0", 10));
   const skip = page * limit;
 
-  // All members are public for search; exclude only self and inactive.
+  // Exclude self and blocked relationships. Omit status filter so legacy rows (null status) are included and browse list is never empty; optionally add status: "active" after backfilling DB.
   const baseWhere = {
     id: { not: session.user.id },
-    status: "active",
+    blocksReceived: { none: { blockerId: session.user.id } }, // don't show members I blocked
+    blocksGiven: { none: { blockedId: session.user.id } }, // don't show members who blocked me
   };
 
   const memberSelect = {

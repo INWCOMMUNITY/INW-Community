@@ -39,6 +39,17 @@ function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function isNotLiveOnStorefront(item: StoreItem): boolean {
+  return item.status === "sold_out" || item.status === "inactive" || item.quantity <= 0;
+}
+
+function statusLabel(item: StoreItem): string {
+  if (item.status === "sold_out") return "Sold";
+  if (item.status === "inactive") return "Inactive";
+  if (item.quantity <= 0) return "Out of stock";
+  return "Active";
+}
+
 export default function MyItemsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ listingType?: string }>();
@@ -264,6 +275,15 @@ export default function MyItemsScreen() {
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
             <View style={styles.card}>
+              {isNotLiveOnStorefront(item) && (
+                <View style={styles.notLiveBanner}>
+                  <Text style={styles.notLiveBannerText}>
+                    {item.status === "sold_out"
+                      ? "This item is sold, and is not live on the storefront."
+                      : "This item is not live on the storefront."}
+                  </Text>
+                </View>
+              )}
               <Pressable
                 style={({ pressed }) => [
                   styles.cardMain,
@@ -284,8 +304,7 @@ export default function MyItemsScreen() {
                     {item.title}
                   </Text>
                   <Text style={styles.cardPrice}>
-                    {formatPrice(item.priceCents)} · {item.quantity} in stock ·{" "}
-                    {item.status}
+                    {formatPrice(item.priceCents)} · {item.quantity} in stock · {statusLabel(item)}
                   </Text>
                 </View>
               </Pressable>
@@ -423,6 +442,21 @@ const styles = StyleSheet.create({
   empty: { flex: 1, padding: 16, justifyContent: "flex-start" },
   emptyText: { fontSize: 14, color: "#666" },
   list: { padding: 16, paddingBottom: 40 },
+  notLiveBanner: {
+    backgroundColor: "#fef3c7",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: "#fde68a",
+  },
+  notLiveBannerText: {
+    fontSize: 12,
+    color: "#92400e",
+    fontWeight: "600",
+  },
   card: {
     flexDirection: "row",
     padding: 12,

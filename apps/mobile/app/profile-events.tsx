@@ -13,9 +13,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-
 interface SavedEvent {
   id: string;
   title: string;
@@ -80,11 +77,7 @@ export default function ProfileEventsScreen() {
             <Pressable
               key={e.id}
               style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-              onPress={() =>
-                router.push(
-                  `/web?url=${encodeURIComponent(`${siteBase}/events/${e.slug}`)}&title=${encodeURIComponent(e.title)}`
-                )
-              }
+              onPress={() => (router.push as (href: string) => void)(`/event/${e.slug}`)}
             >
               <View style={styles.cardText}>
                 <Text style={styles.cardTitle}>{e.title}</Text>
