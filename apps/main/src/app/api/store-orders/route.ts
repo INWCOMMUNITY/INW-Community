@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, type Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
 export async function GET(req: NextRequest) {
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
       const buyerToReceive = searchParams.get("to_receive") === "1";
       const buyerDelivered = searchParams.get("delivered") === "1";
       const buyerCanceled = searchParams.get("canceled") === "1";
-      const buyerWhere: { buyerId: string; status?: unknown } = { buyerId: userId };
+      const buyerWhere: Prisma.StoreOrderWhereInput = { buyerId: userId };
       if (buyerToReceive) buyerWhere.status = { in: ["paid", "shipped"] };
       else if (buyerDelivered) buyerWhere.status = "delivered";
       else if (buyerCanceled) buyerWhere.status = { in: ["canceled", "refunded"] };
