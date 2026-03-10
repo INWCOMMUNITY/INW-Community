@@ -71,7 +71,15 @@ export async function GET(req: NextRequest) {
       } else {
         payoutScheduleDescription = "Funds typically available in 2 business days";
       }
-    } catch {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
+      if (accountGone) {
+        await prisma.member.update({
+          where: { id: userId },
+          data: { stripeConnectAccountId: null },
+        }).catch(() => {});
+      }
       hasStripeConnect = false;
     }
   }
@@ -120,7 +128,19 @@ export async function POST(req: NextRequest) {
     });
     const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
     availableCents = usdAvailable?.amount ?? 0;
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
+    if (accountGone) {
+      await prisma.member.update({
+        where: { id: userId },
+        data: { stripeConnectAccountId: null },
+      }).catch(() => {});
+      return NextResponse.json(
+        { error: "Your previous payment account is no longer available. Please complete setup again in Seller Hub → My Funds." },
+        { status: 400 }
+      );
+    }
     return NextResponse.json({ error: "Could not load your Stripe balance" }, { status: 500 });
   }
 
@@ -142,7 +162,18 @@ export async function POST(req: NextRequest) {
     );
     return NextResponse.json({ ok: true, payoutId: payout.id });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Payout failed";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
+    if (accountGone) {
+      await prisma.member.update({
+        where: { id: userId },
+        data: { stripeConnectAccountId: null },
+      }).catch(() => {});
+      return NextResponse.json(
+        { error: "Your previous payment account is no longer available. Please complete setup again in Seller Hub → My Funds." },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ error: msg || "Payout failed" }, { status: 500 });
   }
 }

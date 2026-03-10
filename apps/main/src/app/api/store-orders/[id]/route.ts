@@ -13,35 +13,41 @@ export async function GET(
   }
 
   const { id } = await params;
-  const order = await prisma.storeOrder.findUnique({
-    where: { id },
-    include: {
-      buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
-      seller: {
-        select: { id: true, firstName: true, lastName: true },
-        include: { businesses: { take: 1, select: { name: true, slug: true } } },
-      },
-      items: {
-        include: {
-          storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true, listingType: true } },
+  try {
+    const order = await prisma.storeOrder.findUnique({
+      where: { id },
+      include: {
+        buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
+        seller: {
+          select: { id: true, firstName: true, lastName: true },
+          include: { businesses: { take: 1, select: { name: true, slug: true } } },
         },
+        items: {
+          include: {
+            storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true, listingType: true } },
+          },
+        },
+        shipment: true,
       },
-      shipment: true,
-    },
-  });
-  if (!order) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  if (order.sellerId !== userId && order.buyerId !== userId) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+    });
+    if (!order) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (order.sellerId !== userId && order.buyerId !== userId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-  // For buyer: do not expose stripePaymentIntentId; add isCashOrder for UI (cancel vs request refund).
-  if (order.buyerId === userId) {
-    const { stripePaymentIntentId, ...rest } = order;
-    return NextResponse.json({ ...rest, isCashOrder: !stripePaymentIntentId });
+    // For buyer: do not expose stripePaymentIntentId; add isCashOrder for UI (cancel vs request refund).
+    if (order.buyerId === userId) {
+      const { stripePaymentIntentId, ...rest } = order;
+      return NextResponse.json({ ...rest, isCashOrder: !stripePaymentIntentId });
+    }
+    return NextResponse.json(order);
+  } catch (e) {
+    console.error("[store-orders GET]", e);
+    const msg = e instanceof Error ? e.message : "Failed to load order";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
-  return NextResponse.json(order);
 }
 
 export async function PATCH(

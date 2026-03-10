@@ -11,8 +11,11 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+
+const SOLD_ITEMS_VIEWED_KEY = "sellerHubSoldItemsViewedAt";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -68,6 +71,7 @@ export default function SoldItemsScreen() {
 
   useFocusEffect(useCallback(() => {
     load();
+    AsyncStorage.setItem(SOLD_ITEMS_VIEWED_KEY, Date.now().toString());
   }, [load]));
 
   if (loading && items.length === 0) {

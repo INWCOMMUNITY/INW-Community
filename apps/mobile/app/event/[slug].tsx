@@ -313,7 +313,7 @@ export default function EventDetailScreen() {
             onPress={handleShareEvent}
           >
             <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
-            <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Share with friend</Text>
+            <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Share</Text>
           </Pressable>
           {isCreator && (
             <Pressable
@@ -321,7 +321,7 @@ export default function EventDetailScreen() {
               onPress={openInviteModal}
             >
               <Ionicons name="people-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Invite friends</Text>
+              <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Invite Friends</Text>
             </Pressable>
           )}
         </View>
@@ -384,7 +384,7 @@ export default function EventDetailScreen() {
         <Pressable style={styles.inviteModalOverlay} onPress={() => setInviteModalOpen(false)}>
           <Pressable style={styles.inviteModalContent} onPress={(e) => e.stopPropagation()}>
             <View style={styles.inviteModalHeader}>
-              <Text style={styles.inviteModalTitle}>Invite friends</Text>
+              <Text style={styles.inviteModalTitle}>Invite Friends</Text>
               <Pressable onPress={() => setInviteModalOpen(false)} hitSlop={12}>
                 <Ionicons name="close" size={28} color={theme.colors.text} />
               </Pressable>

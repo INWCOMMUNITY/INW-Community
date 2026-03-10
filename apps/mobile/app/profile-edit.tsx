@@ -11,6 +11,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
@@ -51,6 +52,7 @@ interface ProfileData {
   city: string | null;
   phone: string | null;
   deliveryAddress?: DeliveryAddress | null;
+  privacyLevel?: "public" | "friends_only" | "completely_private";
 }
 
 export default function ProfileEditScreen() {
@@ -72,6 +74,7 @@ export default function ProfileEditScreen() {
   const [shipZip, setShipZip] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [privacyLevel, setPrivacyLevel] = useState<"public" | "friends_only" | "completely_private">("public");
 
   useEffect(() => {
     getToken().then(async (token) => {
@@ -94,6 +97,7 @@ export default function ProfileEditScreen() {
           setShipState(d.deliveryAddress.state ?? "");
           setShipZip(d.deliveryAddress.zip ?? "");
         }
+        if (d.privacyLevel) setPrivacyLevel(d.privacyLevel);
       } catch (e) {
         const err = e as { error?: string; status?: number };
         const msg = err?.error ?? "Failed to load profile.";
@@ -166,6 +170,7 @@ export default function ProfileEditScreen() {
         phone: phone.trim() || null,
         profilePhotoUrl: profilePhotoUrl || null,
         deliveryAddress,
+        privacyLevel,
       });
       router.back();
     } catch (e) {
@@ -247,6 +252,7 @@ export default function ProfileEditScreen() {
                     setCity(d.city ?? "");
                     setPhone(d.phone ?? "");
                     setProfilePhotoUrl(d.profilePhotoUrl ?? null);
+                    if (d.privacyLevel) setPrivacyLevel(d.privacyLevel);
                   } catch (e) {
                     const err = e as { error?: string; status?: number };
                     setError(
@@ -372,6 +378,24 @@ export default function ProfileEditScreen() {
             keyboardType="phone-pad"
           />
         </View>
+
+        <View style={styles.sectionDivider} />
+        <Text style={styles.sectionTitle}>Profile settings</Text>
+        <Text style={styles.fieldNote}>Your name and profile photo are always visible. This setting controls who can see your posts and photos.</Text>
+        <View style={styles.privacyRow}>
+          <Text style={styles.privacyLabel}>Private profile</Text>
+          <Switch
+            value={privacyLevel === "friends_only" || privacyLevel === "completely_private"}
+            onValueChange={(on) => setPrivacyLevel(on ? "friends_only" : "public")}
+            trackColor={{ false: "#ccc", true: theme.colors.primary }}
+            thumbColor="#fff"
+          />
+        </View>
+        <Text style={styles.privacyHint}>
+          {privacyLevel === "friends_only" || privacyLevel === "completely_private"
+            ? "Only friends can see your posts and photos."
+            : "Everyone can see your posts and photos."}
+        </Text>
 
         <View style={styles.field}>
           <Text style={styles.label}>Shipping Address (private)</Text>
@@ -563,6 +587,16 @@ const styles = StyleSheet.create({
     minHeight: 100,
     textAlignVertical: "top",
   },
+  sectionDivider: { height: 1, backgroundColor: "#eee", marginVertical: 20 },
+  sectionTitle: { fontSize: 16, fontWeight: "600", color: theme.colors.heading, marginBottom: 8 },
+  privacyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  privacyLabel: { fontSize: 16, color: "#333" },
+  privacyHint: { fontSize: 12, color: "#666", marginBottom: 16 },
   fieldNote: {
     fontSize: 12,
     color: "#888",

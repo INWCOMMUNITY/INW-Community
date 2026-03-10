@@ -39,15 +39,17 @@ function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// Only items currently on the storefront count as "active" (status active + quantity > 0).
 function isNotLiveOnStorefront(item: StoreItem): boolean {
   return item.status === "sold_out" || item.status === "inactive" || item.quantity <= 0;
 }
 
 function statusLabel(item: StoreItem): string {
   if (item.status === "sold_out") return "Sold";
-  if (item.status === "inactive") return "Inactive";
+  if (item.status === "inactive") return "Ended";
   if (item.quantity <= 0) return "Out of stock";
-  return "Active";
+  // Active only when live on storefront
+  return item.status === "active" && item.quantity > 0 ? "Active" : "Ended";
 }
 
 export default function MyItemsScreen() {

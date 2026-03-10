@@ -15,8 +15,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+
+const SOLD_ITEMS_VIEWED_KEY = "sellerHubSoldItemsViewedAt";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
@@ -86,23 +89,38 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   const [pendingShip, setPendingShip] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
+  const [soldCount, setSoldCount] = useState(0);
+  const [soldItemsViewedAt, setSoldItemsViewedAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
-    apiGet<{
-      pendingShip?: number;
-      pendingReturns?: number;
-      payoutReady?: boolean;
-    }>("/api/seller-hub/pending-actions").then((data) => {
-      setPendingShip(Number(data.pendingShip) || 0);
-      setPendingReturns(Number(data.pendingReturns) || 0);
-      setPayoutReady(Boolean(data.payoutReady));
-    }).catch(() => {});
+    const load = async () => {
+      try {
+        const [data, viewedAt] = await Promise.all([
+          apiGet<{
+            pendingShip?: number;
+            pendingReturns?: number;
+            payoutReady?: boolean;
+            soldCount?: number;
+          }>("/api/seller-hub/pending-actions"),
+          AsyncStorage.getItem(SOLD_ITEMS_VIEWED_KEY),
+        ]);
+        setPendingShip(Number(data.pendingShip) || 0);
+        setPendingReturns(Number(data.pendingReturns) || 0);
+        setPayoutReady(Boolean(data.payoutReady));
+        setSoldCount(Number(data.soldCount) || 0);
+        setSoldItemsViewedAt(viewedAt);
+      } catch {
+        // ignore
+      }
+    };
+    load();
   }, [visible]);
 
+  const soldItemsAlert = soldCount > 0 && !soldItemsViewedAt;
   const storefrontItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items" },
-    { href: "/seller-hub/store/sold", label: "Sold Items", alert: pendingShip > 0 },
+    { href: "/seller-hub/store/sold", label: "Sold Items", alert: soldItemsAlert },
     { href: "/seller-hub/store/drafts", label: "Drafts" },
     { href: "/seller-hub/orders", label: "My Orders", alert: pendingShip > 0 },
     { href: "/seller-hub/store/payouts", label: "My Funds", alert: payoutReady },

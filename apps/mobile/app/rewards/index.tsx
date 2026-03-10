@@ -28,6 +28,7 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.co
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const REWARD_MODAL_SLIDE_WIDTH = Math.min(SCREEN_WIDTH - 40, 400);
 const CARD_PADDING = 16;
 const CARD_GAP = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
@@ -647,7 +648,7 @@ export default function RewardsScreen() {
           style={styles.rewardModalOverlay}
           onPress={() => setSelectedRewardForModal(null)}
         >
-          <Pressable style={styles.rewardModalContent} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.rewardModalContent} onStartShouldSetResponder={() => true}>
             {selectedRewardForModal && (
               <>
                 <View style={styles.rewardModalHeader}>
@@ -662,20 +663,39 @@ export default function RewardsScreen() {
                     <Ionicons name="close" size={28} color={theme.colors.text} />
                   </Pressable>
                 </View>
-                <ScrollView style={styles.rewardModalScroll} showsVerticalScrollIndicator={false}>
-                  <View style={styles.rewardModalImageWrap}>
-                    {selectedRewardForModal.imageUrl ? (
-                      <Image
-                        source={{ uri: resolveUrl(selectedRewardForModal.imageUrl) }}
-                        style={styles.rewardModalImage}
-                        resizeMode="contain"
-                      />
-                    ) : (
-                      <View style={styles.rewardModalImagePlaceholder}>
-                        <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
-                        <Text style={styles.rewardModalPlaceholderText}>No image</Text>
-                      </View>
-                    )}
+                <ScrollView
+                  style={styles.rewardModalScroll}
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                >
+                  <View style={styles.rewardModalImageCarouselWrap}>
+                    <ScrollView
+                      horizontal
+                      pagingEnabled
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.rewardModalImageCarousel}
+                      contentContainerStyle={styles.rewardModalImageCarouselContent}
+                    >
+                      {(selectedRewardForModal.imageUrl ? [selectedRewardForModal.imageUrl] : []).map(
+                        (uri, idx) => (
+                          <View key={idx} style={styles.rewardModalImageSlide}>
+                            <Image
+                              source={{ uri: resolveUrl(uri) }}
+                              style={styles.rewardModalImage}
+                              resizeMode="contain"
+                            />
+                          </View>
+                        )
+                      )}
+                      {!selectedRewardForModal.imageUrl && (
+                        <View style={styles.rewardModalImageSlide}>
+                          <View style={styles.rewardModalImagePlaceholder}>
+                            <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
+                            <Text style={styles.rewardModalPlaceholderText}>No image</Text>
+                          </View>
+                        </View>
+                      )}
+                    </ScrollView>
                   </View>
                   {selectedRewardForModal.business && (
                     <Pressable
@@ -725,7 +745,6 @@ export default function RewardsScreen() {
                     </Text>
                   </View>
                   <Pressable
-                    style={[styles.rewardModalShareBtn, { backgroundColor: theme.colors.primary }]}
                     onPress={async () => {
                       const url = buildShareUrl({ type: "reward", id: selectedRewardForModal.id });
                       try {
@@ -738,14 +757,49 @@ export default function RewardsScreen() {
                         // User cancelled or share not available
                       }
                     }}
+                    style={styles.rewardModalShareIconBtn}
+                    hitSlop={8}
                   >
-                    <Ionicons name="share-outline" size={22} color="#fff" />
-                    <Text style={styles.rewardModalShareLabel}>Share</Text>
+                    <Ionicons name="share-outline" size={22} color={theme.colors.primary} />
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.rewardModalRedeemBtn,
+                      { backgroundColor: theme.colors.primary },
+                      (!(signedIn && points !== null && points >= selectedRewardForModal.pointsRequired) ||
+                        redeeming === selectedRewardForModal.id) && styles.rewardModalRedeemBtnDisabled,
+                    ]}
+                    onPress={() => {
+                      if (!signedIn || points === null) {
+                        setSelectedRewardForModal(null);
+                        router.push("/(tabs)/my-community");
+                        return;
+                      }
+                      handleRedeem(selectedRewardForModal.id);
+                    }}
+                    disabled={
+                      redeeming === selectedRewardForModal.id ||
+                      !(signedIn && points !== null && points >= selectedRewardForModal.pointsRequired)
+                    }
+                  >
+                    {redeeming === selectedRewardForModal.id ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : signedIn && points !== null && points >= selectedRewardForModal.pointsRequired ? (
+                      <Text style={styles.rewardModalRedeemBtnText}>
+                        Redeem {selectedRewardForModal.pointsRequired} pts
+                      </Text>
+                    ) : (
+                      <Text style={styles.rewardModalRedeemBtnText}>
+                        {signedIn && points !== null
+                          ? `Need ${selectedRewardForModal.pointsRequired - points} more pts`
+                          : "Sign in to redeem"}
+                      </Text>
+                    )}
                   </Pressable>
                 </View>
               </>
             )}
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
     </View>
@@ -977,18 +1031,36 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
   },
-  rewardModalTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: "#222" },
+  rewardModalTitle: { flex: 1, fontSize: 22, fontWeight: "700", color: "#222" },
   rewardModalCloseBtn: { padding: 4 },
   rewardModalScroll: { maxHeight: 400 },
-  rewardModalImageWrap: { width: "100%", aspectRatio: 1, backgroundColor: "#f5f5f5" },
-  rewardModalImage: { width: "100%", height: "100%", borderRadius: 0 },
+  rewardModalImageCarouselWrap: {
+    width: "100%",
+    aspectRatio: 1,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rewardModalImageCarousel: { flex: 1, width: "100%" },
+  rewardModalImageCarouselContent: { alignItems: "center" },
+  rewardModalImageSlide: {
+    width: REWARD_MODAL_SLIDE_WIDTH,
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rewardModalImage: {
+    width: "80%",
+    aspectRatio: 1,
+    borderRadius: 0,
+  },
   rewardModalImagePlaceholder: {
     width: "100%",
     height: "100%",
     alignItems: "center",
     justifyContent: "center",
   },
-  rewardModalPlaceholderText: { fontSize: 14, color: "#666", marginTop: 8 },
+  rewardModalPlaceholderText: { fontSize: 17, color: "#666", marginTop: 8 },
   rewardModalBusiness: {
     flexDirection: "row",
     alignItems: "center",
@@ -996,16 +1068,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  rewardModalBusinessText: { fontSize: 14, fontWeight: "600" },
+  rewardModalBusinessText: { fontSize: 17, fontWeight: "600" },
   rewardModalDescription: {
-    fontSize: 14,
+    fontSize: 17,
     color: "#444",
-    lineHeight: 20,
+    lineHeight: 24,
     paddingHorizontal: 16,
     paddingBottom: 12,
   },
   rewardModalMeta: {
-    fontSize: 14,
+    fontSize: 17,
     color: "#666",
     paddingHorizontal: 16,
     paddingBottom: 16,
@@ -1013,23 +1085,28 @@ const styles = StyleSheet.create({
   rewardModalActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
+    gap: 12,
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: "#eee",
   },
   rewardModalSaveWrap: { alignItems: "center" },
-  rewardModalSaveLabel: { fontSize: 12, color: "#666", marginTop: 4 },
-  rewardModalShareBtn: {
+  rewardModalSaveLabel: { fontSize: 14, color: "#666", marginTop: 4 },
+  rewardModalShareIconBtn: {
+    padding: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  rewardModalRedeemBtn: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
     paddingVertical: 12,
     borderRadius: 8,
   },
-  rewardModalShareLabel: { fontSize: 16, fontWeight: "600", color: "#fff" },
+  rewardModalRedeemBtnDisabled: { opacity: 0.6 },
+  rewardModalRedeemBtnText: { fontSize: 16, fontWeight: "600", color: "#fff" },
   sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
   myRewardsLink: { flexDirection: "row", alignItems: "center", paddingVertical: 4, paddingHorizontal: 4 },
   myRewardsLinkText: { fontSize: 15, fontWeight: "600" },
