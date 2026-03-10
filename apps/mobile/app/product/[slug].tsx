@@ -100,6 +100,7 @@ export default function ProductScreen() {
   const listingType = (useLocalSearchParams<{ listingType?: string }>().listingType as "new" | "resale") || "new";
 
   const [item, setItem] = useState<StoreItem | null>(null);
+  const [itemUnavailable, setItemUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [quantity, setQuantity] = useState(1);
@@ -133,12 +134,20 @@ export default function ProductScreen() {
     if (!slug) return;
     setLoading(true);
     setError("");
+    setItemUnavailable(false);
+    let data: (StoreItem & { unavailable?: boolean }) | null = null;
     try {
-      const data = await apiGet<StoreItem>(
+      data = await apiGet<StoreItem & { unavailable?: boolean }>(
         `/api/store-items?slug=${encodeURIComponent(slug)}&listingType=${listingType}`
       );
+    } catch {
+      // not found or error
+    }
+    if (data && typeof data.id === "string") {
       setItem(data);
-      if (data) {
+      if (data.unavailable) {
+        setItemUnavailable(true);
+      } else {
         if (data.shippingDisabled) {
           if (data.localDeliveryAvailable) setFulfillmentType("local_delivery");
           else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
@@ -146,9 +155,29 @@ export default function ProductScreen() {
           setFulfillmentType("ship");
         }
       }
+      setLoading(false);
+      return;
+    }
+    try {
+      const data2 = await apiGet<StoreItem & { unavailable?: boolean }>(
+        `/api/store-items?slug=${encodeURIComponent(slug)}&listingType=${listingType}&includeUnavailable=1`
+      );
+      if (data2 && typeof data2.id === "string" && data2.unavailable) {
+        setItem(data2);
+        setItemUnavailable(true);
+        if (data2.shippingDisabled) {
+          if (data2.localDeliveryAvailable) setFulfillmentType("local_delivery");
+          else if (data2.inStorePickupAvailable) setFulfillmentType("pickup");
+        } else {
+          setFulfillmentType("ship");
+        }
+      } else {
+        setItem(null);
+        setError("Product not found");
+      }
     } catch {
-      setError("Product not found");
       setItem(null);
+      setError("Product not found");
     } finally {
       setLoading(false);
     }
@@ -402,6 +431,11 @@ export default function ProductScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {itemUnavailable && (
+          <View style={styles.soldBanner}>
+            <Text style={styles.soldBannerText}>This item was sold.</Text>
+          </View>
+        )}
         <View style={[styles.galleryWrap, { width }]}>
           {photos.length > 0 ? (
             <ScrollView
@@ -761,22 +795,24 @@ export default function ProductScreen() {
         </View>
       </ScrollView>
 
-      <View style={styles.footer}>
-        <Pressable
-          style={[styles.addBtn, addingToCart && styles.addBtnDisabled]}
-          onPress={addToCart}
-          disabled={addingToCart}
-        >
-          {addingToCart ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="cart" size={20} color="#fff" />
-              <Text style={styles.addBtnText}>Add to Cart</Text>
-            </>
-          )}
-        </Pressable>
-      </View>
+      {!itemUnavailable && (
+        <View style={styles.footer}>
+          <Pressable
+            style={[styles.addBtn, addingToCart && styles.addBtnDisabled]}
+            onPress={addToCart}
+            disabled={addingToCart}
+          >
+            {addingToCart ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="cart" size={20} color="#fff" />
+                <Text style={styles.addBtnText}>Add to Cart</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+      )}
 
       {item && (
         <>
@@ -1337,6 +1373,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.text,
     lineHeight: 20,
+  },
+  soldBanner: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: "#fffbeb",
+    borderWidth: 1,
+    borderColor: "#fde68a",
+  },
+  soldBannerText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#92400e",
   },
   footer: {
     position: "absolute",

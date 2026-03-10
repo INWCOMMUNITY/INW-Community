@@ -127,14 +127,53 @@ export async function GET(req: NextRequest) {
         },
       },
     });
-    if (!item) {
+    const includeUnavailable = searchParams.get("includeUnavailable") === "1";
+    let resolvedItem = item;
+    if (!resolvedItem && includeUnavailable) {
+      const fallbackWhere =
+        slugListingType === "resale"
+          ? { slug, listingType: "resale" as const }
+          : { slug, listingType: "new" as const };
+      resolvedItem = await prisma.storeItem.findFirst({
+        where: fallbackWhere,
+        include: {
+          member: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              sellerShippingPolicy: true,
+              sellerLocalDeliveryPolicy: true,
+              sellerPickupPolicy: true,
+              sellerReturnPolicy: true,
+              acceptCashForPickupDelivery: true,
+            },
+          },
+          business: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              phone: true,
+              email: true,
+              website: true,
+              address: true,
+              logoUrl: true,
+              fullDescription: true,
+            },
+          },
+        },
+      });
+    }
+    if (!resolvedItem) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
+    const isUnavailable = includeUnavailable && !item;
     // Always include seller's business for Store Information (use linked business or member's first)
-    let business = item.business;
-    if (!business && item.memberId) {
+    let business = resolvedItem.business;
+    if (!business && resolvedItem.memberId) {
       const memberBusiness = await prisma.business.findFirst({
-        where: { memberId: item.memberId },
+        where: { memberId: resolvedItem.memberId },
         select: {
           id: true,
           name: true,
@@ -149,7 +188,12 @@ export async function GET(req: NextRequest) {
       });
       business = memberBusiness;
     }
-    return NextResponse.json({ ...item, business, memberId: item.memberId });
+    return NextResponse.json({
+      ...resolvedItem,
+      business,
+      memberId: resolvedItem.memberId,
+      ...(isUnavailable ? { unavailable: true } : {}),
+    });
   }
 
   if (idsParam) {

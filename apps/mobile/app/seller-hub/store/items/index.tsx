@@ -41,11 +41,6 @@ function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-// Only items currently on the storefront count as "active" (status active + quantity > 0).
-function isNotLiveOnStorefront(item: StoreItem): boolean {
-  return item.status === "sold_out" || item.status === "inactive" || item.quantity <= 0;
-}
-
 function statusLabel(item: StoreItem): string {
   if (item.status === "sold_out") return "Sold";
   if (item.status === "inactive") return "Ended";
@@ -232,24 +227,14 @@ export default function MyItemsScreen() {
           </Pressable>
         ))}
       </View>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.hint}>
-            {itemsTab === "active"
-              ? "Live on the storefront. Sold items move to Sold."
-              : itemsTab === "ended"
-                ? "Ended listings (not live)."
-                : "Items you've sold."}
-          </Text>
-          {itemsTab !== "sold" && (
-            <Pressable
-              onPress={() => (router.push as (href: string) => void)("/seller-hub/store/sold")}
-              style={({ pressed }) => [styles.soldLink, pressed && { opacity: 0.8 }]}
-            >
-              <Text style={styles.soldLinkText}>Sold Items</Text>
-            </Pressable>
-          )}
-        </View>
+      <Text style={styles.hint}>
+        {itemsTab === "active"
+          ? "Live on the storefront."
+          : itemsTab === "ended"
+            ? "Ended listings."
+            : "Items you've sold."}
+      </Text>
+      <View style={styles.addBtnWrap}>
         <Pressable
           style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
           onPress={() => router.push("/seller-hub/store/new")}
@@ -304,15 +289,6 @@ export default function MyItemsScreen() {
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
             <View style={styles.card}>
-              {isNotLiveOnStorefront(item) && (
-                <View style={styles.notLiveBanner}>
-                  <Text style={styles.notLiveBannerText}>
-                    {item.status === "sold_out"
-                      ? "This item is sold, and is not live on the storefront."
-                      : "This item is not live on the storefront."}
-                  </Text>
-                </View>
-              )}
               <Pressable
                 style={({ pressed }) => [
                   styles.cardMain,
@@ -458,15 +434,17 @@ const styles = StyleSheet.create({
   },
   tabText: { fontSize: 13, color: "#666" },
   tabTextActive: { fontWeight: "600", color: theme.colors.primary },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 16,
+  hint: {
+    fontSize: 14,
+    color: "#666",
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
-  hint: { fontSize: 14, color: "#666" },
-  soldLink: { marginTop: 4 },
-  soldLinkText: { fontSize: 14, fontWeight: "600", color: theme.colors.primary },
+  addBtnWrap: {
+    alignItems: "center",
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
   addBtn: {
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -515,21 +493,6 @@ const styles = StyleSheet.create({
   empty: { flex: 1, padding: 16, justifyContent: "flex-start" },
   emptyText: { fontSize: 14, color: "#666" },
   list: { padding: 16, paddingBottom: 40 },
-  notLiveBanner: {
-    backgroundColor: "#fef3c7",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: "#fde68a",
-  },
-  notLiveBannerText: {
-    fontSize: 12,
-    color: "#92400e",
-    fontWeight: "600",
-  },
   card: {
     flexDirection: "row",
     padding: 12,

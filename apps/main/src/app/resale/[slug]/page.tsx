@@ -70,6 +70,7 @@ export default function ResaleProductDetailPage() {
   const { data: session, status } = useSession();
   const slug = params.slug as string;
   const [item, setItem] = useState<StoreItem | null>(null);
+  const [itemUnavailable, setItemUnavailable] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const [selectedVariant, setSelectedVariant] = useState<Record<string, string>>({});
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
@@ -145,28 +146,39 @@ export default function ResaleProductDetailPage() {
     setSelectedPhotoIndex(0);
     setSelectedVariant({});
     setError("");
+    setItemUnavailable(false);
     const currentSlug = slug;
     fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&listingType=resale`)
-      .then((r) => {
-        if (!r.ok) {
-          return { _notOk: true };
-        }
-        return r.json();
-      })
+      .then((r) => (r.ok ? r.json() : Promise.resolve(null)))
       .then((data) => {
-        if (data && (data as { _notOk?: boolean })._notOk) {
-          setItem(null);
+        if (data && typeof data.id === "string") {
+          if (currentSlug !== slug) return;
+          setItem(data);
+          if ((data as { unavailable?: boolean }).unavailable) {
+            setItemUnavailable(true);
+          } else {
+            if (!data.shippingDisabled) setFulfillmentType("ship");
+            else if (data.localDeliveryAvailable) setFulfillmentType("local_delivery");
+            else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
+            const q = Math.max(0, Number(data.quantity) || 0);
+            setQuantity((prev) => (q < 1 ? 1 : Math.max(1, Math.min(q, prev))));
+          }
           return;
         }
-        if (currentSlug !== slug) return;
-        setItem(data);
-        if (data && typeof data.id === "string") {
-          if (!data.shippingDisabled) setFulfillmentType("ship");
-          else if (data.localDeliveryAvailable) setFulfillmentType("local_delivery");
-          else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
-          const q = Math.max(0, Number(data.quantity) || 0);
-          setQuantity((prev) => (q < 1 ? 1 : Math.max(1, Math.min(q, prev))));
-        }
+        return fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&listingType=resale&includeUnavailable=1`)
+          .then((r2) => (r2.ok ? r2.json() : null))
+          .then((data2) => {
+            if (currentSlug !== slug) return;
+            if (data2 && typeof data2.id === "string" && (data2 as { unavailable?: boolean }).unavailable) {
+              setItem(data2);
+              setItemUnavailable(true);
+              if (!data2.shippingDisabled) setFulfillmentType("ship");
+              else if (data2.localDeliveryAvailable) setFulfillmentType("local_delivery");
+              else if (data2.inStorePickupAvailable) setFulfillmentType("pickup");
+            } else {
+              setItem(null);
+            }
+          });
       })
       .catch(() => {
         if (currentSlug === slug) setItem(null);
@@ -602,6 +614,11 @@ export default function ResaleProductDetailPage() {
         <Link href={RESALE_BASE} className="text-sm text-gray-600 hover:underline mb-4 inline-block">
           ← Back to Resale
         </Link>
+        {itemUnavailable && (
+          <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
+            <p className="text-amber-800 font-semibold">This item was sold.</p>
+          </div>
+        )}
 
         {/* Photo lightbox - same as storefront */}
         {lightboxOpen && photos.length > 0 && (
@@ -1105,115 +1122,119 @@ export default function ResaleProductDetailPage() {
                 ))}
               </div>
             )}
-            {itemQuantity > 1 && (
-              <div className="mt-6">
-                <label className="block text-sm font-medium mb-1">Quantity *</label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    className="w-10 h-10 border rounded flex items-center justify-center text-lg"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    min={1}
-                    max={itemQuantity}
-                    value={quantity}
-                    onChange={(e) =>
-                      setQuantity(
-                        Math.max(1, Math.min(itemQuantity, parseInt(e.target.value, 10) || 1))
-                      )
-                    }
-                    className="border rounded px-3 py-2 w-20 text-center"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(Math.min(itemQuantity, quantity + 1))}
-                    className="w-10 h-10 border rounded flex items-center justify-center text-lg"
-                  >
-                    +
-                  </button>
-                </div>
-                <p className="text-sm text-gray-500 mt-1">{itemQuantity} in stock</p>
-              </div>
-            )}
-            {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-            {fulfillmentType === "local_delivery" && !canAddToCart && (
-              <p className="text-amber-600 text-sm mt-1">Complete delivery details and agree to terms.</p>
-            )}
-            {fulfillmentType === "pickup" && !canAddToCart && (
-              <p className="text-amber-600 text-sm mt-1">Complete the Pick Up Form.</p>
-            )}
-            {/* Stacked action buttons – same width */}
-            <div className="mt-6 space-y-3 max-w-sm">
-              {status === "loading" ? (
-                <p className="text-gray-500">Loading…</p>
-              ) : session?.user ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleAddToCart}
-                    disabled={addingToCart || itemQuantity < 1 || !allVariantsSelected || !canAddToCart}
-                    className="btn disabled:opacity-50 w-full py-2.5"
-                  >
-                    {addingToCart ? "Adding…" : "Add to Cart"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCheckout}
-                    disabled={checkingOut || itemQuantity < 1 || !allVariantsSelected || !canAddToCart}
-                    className="btn border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 w-full py-2.5"
-                  >
-                    {checkingOut ? "Redirecting…" : "Buy It Now"}
-                  </button>
-                  {showBuyerActions && item.acceptOffers !== false && (
-                    <button
-                      type="button"
-                      onClick={() => setMakeOfferOpen(true)}
-                      className="btn border border-gray-300 bg-white hover:bg-gray-50 w-full py-2.5"
+            {!itemUnavailable && (
+              <>
+                {itemQuantity > 1 && (
+                  <div className="mt-6">
+                    <label className="block text-sm font-medium mb-1">Quantity *</label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                        className="w-10 h-10 border rounded flex items-center justify-center text-lg"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        max={itemQuantity}
+                        value={quantity}
+                        onChange={(e) =>
+                          setQuantity(
+                            Math.max(1, Math.min(itemQuantity, parseInt(e.target.value, 10) || 1))
+                          )
+                        }
+                        className="border rounded px-3 py-2 w-20 text-center"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setQuantity(Math.min(itemQuantity, quantity + 1))}
+                        className="w-10 h-10 border rounded flex items-center justify-center text-lg"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">{itemQuantity} in stock</p>
+                  </div>
+                )}
+                {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+                {fulfillmentType === "local_delivery" && !canAddToCart && (
+                  <p className="text-amber-600 text-sm mt-1">Complete delivery details and agree to terms.</p>
+                )}
+                {fulfillmentType === "pickup" && !canAddToCart && (
+                  <p className="text-amber-600 text-sm mt-1">Complete the Pick Up Form.</p>
+                )}
+                {/* Stacked action buttons – same width */}
+                <div className="mt-6 space-y-3 max-w-sm">
+                  {status === "loading" ? (
+                    <p className="text-gray-500">Loading…</p>
+                  ) : session?.user ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleAddToCart}
+                        disabled={addingToCart || itemQuantity < 1 || !allVariantsSelected || !canAddToCart}
+                        className="btn disabled:opacity-50 w-full py-2.5"
+                      >
+                        {addingToCart ? "Adding…" : "Add to Cart"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCheckout}
+                        disabled={checkingOut || itemQuantity < 1 || !allVariantsSelected || !canAddToCart}
+                        className="btn border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 w-full py-2.5"
+                      >
+                        {checkingOut ? "Redirecting…" : "Buy It Now"}
+                      </button>
+                      {showBuyerActions && item.acceptOffers !== false && (
+                        <button
+                          type="button"
+                          onClick={() => setMakeOfferOpen(true)}
+                          className="btn border border-gray-300 bg-white hover:bg-gray-50 w-full py-2.5"
+                        >
+                          Make an Offer
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <Link
+                      href={`/login?callbackUrl=${encodeURIComponent(`${RESALE_BASE}/${item.slug}`)}`}
+                      className="btn inline-block text-center w-full py-2.5"
                     >
-                      Make an Offer
-                    </button>
+                      Sign in to buy
+                    </Link>
                   )}
-                </>
-              ) : (
-                <Link
-                  href={`/login?callbackUrl=${encodeURIComponent(`${RESALE_BASE}/${item.slug}`)}`}
-                  className="btn inline-block text-center w-full py-2.5"
-                >
-                  Sign in to buy
-                </Link>
-              )}
-            </div>
+                </div>
 
-            {/* Message Seller – mini section in green box */}
-            {showBuyerActions && (
-              <div
-                className="mt-6 rounded-lg border-2 p-4"
-                style={{ borderColor: "var(--color-primary)" }}
-              >
-                <label className="block text-sm font-medium text-gray-700 mb-1">Send Message to Seller</label>
-                <form onSubmit={handleMessageSeller} className="space-y-2">
-                  <textarea
-                    value={messageContent}
-                    onChange={(e) => setMessageContent(e.target.value)}
-                    className="w-full border rounded px-3 py-2 text-sm min-h-[80px]"
-                    rows={3}
-                    placeholder="Ask a question about this item..."
-                  />
-                  {messageError && <p className="text-red-600 text-sm">{messageError}</p>}
-                  <button type="submit" disabled={messageSubmitting} className="btn text-sm py-2">
-                    {messageSubmitting ? "Sending…" : "Send"}
-                  </button>
-                </form>
-              </div>
+                {/* Message Seller – mini section in green box */}
+                {showBuyerActions && (
+                  <div
+                    className="mt-6 rounded-lg border-2 p-4"
+                    style={{ borderColor: "var(--color-primary)" }}
+                  >
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Send Message to Seller</label>
+                    <form onSubmit={handleMessageSeller} className="space-y-2">
+                      <textarea
+                        value={messageContent}
+                        onChange={(e) => setMessageContent(e.target.value)}
+                        className="w-full border rounded px-3 py-2 text-sm min-h-[80px]"
+                        rows={3}
+                        placeholder="Ask a question about this item..."
+                      />
+                      {messageError && <p className="text-red-600 text-sm">{messageError}</p>}
+                      <button type="submit" disabled={messageSubmitting} className="btn text-sm py-2">
+                        {messageSubmitting ? "Sending…" : "Send"}
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                <p className="text-sm text-gray-500 mt-2">
+                  Earn {pointsEarned} Community Points with this purchase
+                </p>
+              </>
             )}
-
-            <p className="text-sm text-gray-500 mt-2">
-              Earn {pointsEarned} Community Points with this purchase
-            </p>
           </div>
           </div>
           <div className="mt-8 pt-8 border-t border-gray-200">

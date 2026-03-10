@@ -28,7 +28,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
 const NAV_HEADER_HEIGHT = 44;
 
-type NavItem = { href: string; label: string; badgeCount?: number };
+type NavItem = { href: string; label: string; badgeCount?: number; badgeExclamation?: boolean };
 
 interface ProfileSideMenuProps {
   visible: boolean;
@@ -38,7 +38,8 @@ interface ProfileSideMenuProps {
 }
 
 function NavLink({ item, onPress }: { item: NavItem; onPress: () => void }) {
-  const showBadge = (item.badgeCount ?? 0) > 0;
+  const showBadge = item.badgeExclamation || (item.badgeCount ?? 0) > 0;
+  const badgeLabel = item.badgeExclamation ? "!" : (item.badgeCount! > 99 ? "99+" : String(item.badgeCount ?? 0));
   return (
     <Pressable
       onPress={onPress}
@@ -46,10 +47,8 @@ function NavLink({ item, onPress }: { item: NavItem; onPress: () => void }) {
     >
       <Text style={styles.navLinkText}>{item.label}</Text>
       {showBadge && (
-        <View style={styles.inboxBadge}>
-          <Text style={styles.inboxBadgeText}>
-            {item.badgeCount! > 99 ? "99+" : item.badgeCount}
-          </Text>
+        <View style={[styles.inboxBadge, item.badgeExclamation && styles.exclamationBadge]}>
+          <Text style={styles.inboxBadgeText}>{badgeLabel}</Text>
         </View>
       )}
     </Pressable>
@@ -102,6 +101,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
   const [inviteLoading, setInviteLoading] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [incomingFriendRequests, setIncomingFriendRequests] = useState(0);
 
   const handleInviteFriends = async () => {
     setInviteLoading(true);
@@ -157,8 +157,11 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
 
   useEffect(() => {
     if (visible) {
-      apiGet<{ unreadMessages?: number }>("/api/me/sidebar-alerts")
-        .then((d) => setUnreadMessages(Number(d?.unreadMessages) || 0))
+      apiGet<{ unreadMessages?: number; incomingFriendRequests?: number }>("/api/me/sidebar-alerts")
+        .then((d) => {
+          setUnreadMessages(Number(d?.unreadMessages) || 0);
+          setIncomingFriendRequests(Number(d?.incomingFriendRequests) || 0);
+        })
         .catch(() => {});
     }
   }, [visible]);
@@ -166,7 +169,11 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
   const communityItems: NavItem[] = [
     { href: "/messages", label: "Inbox", badgeCount: unreadMessages || undefined },
     { href: "/community/my-friends", label: "My Friends" },
-    { href: "/community/friend-requests", label: "Friend Requests" },
+    {
+      href: "/community/friend-requests",
+      label: "Friend Requests",
+      ...(incomingFriendRequests > 0 ? { badgeExclamation: true as const } : {}),
+    },
     { href: "/community/invites", label: "My Invites" },
     { href: "/saved-posts", label: "My Saved Posts" },
     { href: "/community/groups", label: "My Groups" },
@@ -331,6 +338,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 6,
+  },
+  exclamationBadge: {
+    minWidth: 22,
+    paddingHorizontal: 0,
   },
   inboxBadgeText: {
     fontSize: 12,

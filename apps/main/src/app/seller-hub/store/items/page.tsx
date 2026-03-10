@@ -144,10 +144,10 @@ export default function MyItemsPage() {
           </button>
         ))}
       </div>
-      <div className="flex justify-between items-center mb-4 max-md:flex-col max-md:items-center max-md:gap-3 max-md:text-center">
-        <p className="text-gray-600 text-sm">
-          {tab === "active" ? "Live on the storefront." : tab === "ended" ? "Ended listings (not live)." : "Items you've sold."}
-        </p>
+      <p className="text-gray-600 text-sm mb-3 max-md:text-center">
+        {tab === "active" ? "Live on the storefront." : tab === "ended" ? "Ended listings (not live)." : "Items you've sold."}
+      </p>
+      <div className="flex justify-center mb-4">
         <Link href="/seller-hub/store/new" className="btn text-sm">
           List An Item
         </Link>
@@ -157,7 +157,6 @@ export default function MyItemsPage() {
       ) : (
         <div className="grid gap-3 w-full">
           {items.map((item) => {
-            const notLive = item.status === "sold_out" || item.status === "inactive" || item.quantity <= 0;
             const statusLabel =
               item.status === "sold_out" ? "Sold" : item.status === "inactive" ? "Inactive" : item.quantity <= 0 ? "Out of stock" : "Active";
             return (
@@ -165,15 +164,6 @@ export default function MyItemsPage() {
                 key={item.id}
                 className="border rounded-lg overflow-hidden flex flex-col hover:bg-gray-50 w-full min-w-0"
               >
-                {notLive && (
-                  <div className="bg-amber-50 border-b border-amber-200 px-3 py-2">
-                    <p className="text-xs font-semibold text-amber-800">
-                      {item.status === "sold_out"
-                        ? "This item is sold, and is not live on the storefront."
-                        : "This item is not live on the storefront."}
-                    </p>
-                  </div>
-                )}
                 <div className="p-3 flex items-center gap-3">
                   {item.photos[0] ? (
                     <img src={item.photos[0]} alt="" className="w-12 h-12 object-cover rounded shrink-0" />

@@ -63,6 +63,7 @@ export default function ProductDetailPage() {
   const { data: session, status } = useSession();
   const slug = params.slug as string;
   const [item, setItem] = useState<StoreItem | null>(null);
+  const [itemUnavailable, setItemUnavailable] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const [selectedVariant, setSelectedVariant] = useState<Record<string, string>>({});
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
@@ -129,24 +130,30 @@ export default function ProductDetailPage() {
     setSelectedPhotoIndex(0);
     setSelectedVariant({});
     setError("");
+    setItemUnavailable(false);
     fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&listingType=new`)
-      .then((r) => {
-        if (!r.ok) {
-          return { _notOk: true };
-        }
-        return r.json();
-      })
+      .then((r) => (r.ok ? r.json() : Promise.resolve(null)))
       .then((data) => {
-        if (data && (data as { _notOk?: boolean })._notOk) {
-          setItem(null);
-          return;
-        }
-        setItem(data);
         if (data && typeof data.id === "string") {
+          setItem(data);
           if (!data.shippingDisabled) setFulfillmentType("ship");
           else if (data.localDeliveryAvailable) setFulfillmentType("local_delivery");
           else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
+          return;
         }
+        return fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&listingType=new&includeUnavailable=1`)
+          .then((r2) => (r2.ok ? r2.json() : null))
+          .then((data2) => {
+            if (data2 && typeof data2.id === "string" && (data2 as { unavailable?: boolean }).unavailable) {
+              setItem(data2);
+              setItemUnavailable(true);
+              if (!data2.shippingDisabled) setFulfillmentType("ship");
+              else if (data2.localDeliveryAvailable) setFulfillmentType("local_delivery");
+              else if (data2.inStorePickupAvailable) setFulfillmentType("pickup");
+            } else {
+              setItem(null);
+            }
+          });
       })
       .catch(() => setItem(null))
       .finally(() => setLoading(false));
@@ -470,6 +477,11 @@ export default function ProductDetailPage() {
         <Link href="/storefront" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
           ← Back to storefront
         </Link>
+        {itemUnavailable && (
+          <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
+            <p className="text-amber-800 font-semibold">This item was sold.</p>
+          </div>
+        )}
 
         {/* Photo lightbox: click through and zoom */}
         {lightboxOpen && item.photos.length > 0 && (
@@ -827,81 +839,85 @@ export default function ProductDetailPage() {
                 ))}
               </div>
             )}
-            {item.quantity > 1 && (
-              <div className="mt-6">
-                <label className="block text-sm font-medium mb-1">Quantity *</label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    className="w-10 h-10 border rounded flex items-center justify-center text-lg"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    min={1}
-                    max={item.quantity}
-                    value={quantity}
-                    onChange={(e) =>
-                      setQuantity(
-                        Math.max(1, Math.min(item.quantity, parseInt(e.target.value, 10) || 1))
-                      )
-                    }
-                    className="border rounded px-3 py-2 w-20 text-center"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(Math.min(item.quantity, quantity + 1))}
-                    className="w-10 h-10 border rounded flex items-center justify-center text-lg"
-                  >
-                    +
-                  </button>
+            {!itemUnavailable && (
+              <>
+                {item.quantity > 1 && (
+                  <div className="mt-6">
+                    <label className="block text-sm font-medium mb-1">Quantity *</label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                        className="w-10 h-10 border rounded flex items-center justify-center text-lg"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        max={item.quantity}
+                        value={quantity}
+                        onChange={(e) =>
+                          setQuantity(
+                            Math.max(1, Math.min(item.quantity, parseInt(e.target.value, 10) || 1))
+                          )
+                        }
+                        className="border rounded px-3 py-2 w-20 text-center"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setQuantity(Math.min(item.quantity, quantity + 1))}
+                        className="w-10 h-10 border rounded flex items-center justify-center text-lg"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">{item.quantity} in stock</p>
+                  </div>
+                )}
+                {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+                {fulfillmentType === "local_delivery" && !canAddToCart && (
+                  <p className="text-amber-600 text-sm mt-1">Complete delivery details and agree to terms.</p>
+                )}
+                {fulfillmentType === "pickup" && !canAddToCart && (
+                  <p className="text-amber-600 text-sm mt-1">Complete the Pick Up Form.</p>
+                )}
+                <div className="flex items-center gap-3 mt-6 flex-wrap">
+                  {status === "loading" ? (
+                    <p className="text-gray-500">Loading…</p>
+                  ) : session?.user ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleAddToCart}
+                        disabled={addingToCart || item.quantity < 1 || !allVariantsSelected || !canAddToCart}
+                        className="btn disabled:opacity-50"
+                      >
+                        {addingToCart ? "Adding…" : "Add to Cart"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCheckout}
+                        disabled={checkingOut || item.quantity < 1 || !allVariantsSelected || !canAddToCart}
+                        className="btn border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        {checkingOut ? "Redirecting…" : "Buy It Now"}
+                      </button>
+                    </>
+                  ) : (
+                    <Link
+                      href={`/login?callbackUrl=${encodeURIComponent(`/storefront/${item.slug}`)}`}
+                      className="btn inline-block text-center"
+                    >
+                      Sign in to buy
+                    </Link>
+                  )}
                 </div>
-                <p className="text-sm text-gray-500 mt-1">{item.quantity} in stock</p>
-              </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  Earn {Math.floor((item.priceCents * quantity) / 200)} Community Points with this purchase
+                </p>
+              </>
             )}
-            {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-            {fulfillmentType === "local_delivery" && !canAddToCart && (
-              <p className="text-amber-600 text-sm mt-1">Complete delivery details and agree to terms.</p>
-            )}
-            {fulfillmentType === "pickup" && !canAddToCart && (
-              <p className="text-amber-600 text-sm mt-1">Complete the Pick Up Form.</p>
-            )}
-            <div className="flex items-center gap-3 mt-6 flex-wrap">
-              {status === "loading" ? (
-                <p className="text-gray-500">Loading…</p>
-              ) : session?.user ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleAddToCart}
-                    disabled={addingToCart || item.quantity < 1 || !allVariantsSelected || !canAddToCart}
-                    className="btn disabled:opacity-50"
-                  >
-                    {addingToCart ? "Adding…" : "Add to Cart"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCheckout}
-                    disabled={checkingOut || item.quantity < 1 || !allVariantsSelected || !canAddToCart}
-                    className="btn border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    {checkingOut ? "Redirecting…" : "Buy It Now"}
-                  </button>
-                </>
-              ) : (
-                <Link
-                  href={`/login?callbackUrl=${encodeURIComponent(`/storefront/${item.slug}`)}`}
-                  className="btn inline-block text-center"
-                >
-                  Sign in to buy
-                </Link>
-              )}
-            </div>
-            <p className="text-sm text-gray-500 mt-2">
-              Earn {Math.floor((item.priceCents * quantity) / 200)} Community Points with this purchase
-            </p>
           </div>
           </div>
           {item.description && (
