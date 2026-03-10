@@ -42,6 +42,7 @@ interface CartItem {
   localDeliveryDetails?: LocalDeliveryDetails | null;
   pickupDetails?: PickupDetails & { termsAcceptedAt?: string } | null;
   storeItem: CartItemStoreItem;
+  unavailableReason?: string;
 }
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
@@ -205,7 +206,9 @@ export default function CartPage() {
       shippingAddress.city.trim() &&
       shippingAddress.state.trim() &&
       shippingAddress.zip.trim());
+  const hasUnavailableItems = items.some((i) => i.unavailableReason);
   const canCheckout =
+    !hasUnavailableItems &&
     (!hasLocalDelivery || (hasLocalDelivery && localDeliveryDetailsForCheckout)) &&
     allPickupDetailsFilled &&
     allPickupTermsAgreed &&
@@ -479,6 +482,16 @@ export default function CartPage() {
                   className="object-contain w-20 h-20 sm:w-28 sm:h-28 md:w-40 md:h-40"
                 />
               </div>
+              {hasUnavailableItems && (
+                <div
+                  className="rounded-lg border p-4 mb-4"
+                  style={{ borderColor: "var(--color-primary)", backgroundColor: "var(--color-section-alt)" }}
+                >
+                  <p className="text-sm font-medium" style={{ color: "var(--color-heading)" }}>
+                    Some items can&apos;t be purchased right now. Remove them or fix the issue to checkout.
+                  </p>
+                </div>
+              )}
               <h2
                 className="text-xl font-semibold mb-4"
                 style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
@@ -513,6 +526,11 @@ export default function CartPage() {
                             backgroundColor: "var(--color-background)",
                           }}
                         >
+                          {item.unavailableReason && (
+                            <p className="text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
+                              {item.unavailableReason}
+                            </p>
+                          )}
                           <div className="flex gap-3">
                             {item.storeItem.photos[0] ? (
                               <img
@@ -921,6 +939,11 @@ export default function CartPage() {
                 {hasLocalDelivery && !localDeliveryDetailsForCheckout && (
                   <p className="text-sm mb-2" style={{ color: "var(--color-primary)" }}>
                     Complete delivery details for local delivery items before checkout.
+                  </p>
+                )}
+                {hasUnavailableItems && (
+                  <p className="text-sm mb-2" style={{ color: "var(--color-primary)" }}>
+                    Remove unavailable items or fix issues above to checkout.
                   </p>
                 )}
 

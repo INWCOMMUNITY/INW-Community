@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { isBlocked } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
@@ -38,12 +39,7 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const otherId = conversation.buyerId === session.user.id ? conversation.sellerId : conversation.buyerId;
-  const blocked = await prisma.memberBlock.findUnique({
-    where: {
-      blockerId_blockedId: { blockerId: session.user.id, blockedId: otherId },
-    },
-  });
-  if (blocked) {
+  if (await isBlocked(session.user.id, otherId)) {
     return NextResponse.json({ error: "Conversation not available" }, { status: 404 });
   }
 

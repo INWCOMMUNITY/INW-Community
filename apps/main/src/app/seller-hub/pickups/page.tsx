@@ -23,7 +23,7 @@ function paymentTag(order: OrderWithPickup) {
   return order.stripePaymentIntentId ? "Paid: Online NWC" : "Awaiting Payment: Cash";
 }
 
-export default function ResaleHubPickupsPage() {
+export default function MyPickupsPage() {
   const [orders, setOrders] = useState<OrderWithPickup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -74,9 +74,6 @@ export default function ResaleHubPickupsPage() {
       <div>
         <h1 className="text-2xl font-bold mb-4">My Pickups</h1>
         <p className="text-gray-500">Loading…</p>
-        <Link href="/resale-hub" className="text-[var(--color-link)] hover:underline mt-4 inline-block">
-          Back to Resale Hub
-        </Link>
       </div>
     );
   }
@@ -95,12 +92,7 @@ export default function ResaleHubPickupsPage() {
       )}
 
       {orders.length === 0 ? (
-        <>
-          <p className="text-gray-600">You have no orders with pickup.</p>
-          <Link href="/resale-hub" className="text-[var(--color-link)] hover:underline mt-4 inline-block">
-            Back to Resale Hub
-          </Link>
-        </>
+        <p className="text-gray-600">You have no orders with pickup.</p>
       ) : (
         <>
           {pending.length > 0 && (
@@ -218,10 +210,6 @@ export default function ResaleHubPickupsPage() {
               )}
             </section>
           )}
-
-          <Link href="/resale-hub" className="text-[var(--color-link)] hover:underline mt-6 inline-block">
-            Back to Resale Hub
-          </Link>
         </>
       )}
     </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getBlockedMemberIds } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [conversations, blocks] = await Promise.all([
+  const [conversations, blockedIds] = await Promise.all([
     prisma.directConversation.findMany({
       where: {
         OR: [
@@ -33,12 +34,8 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { updatedAt: "desc" },
     }),
-    prisma.memberBlock.findMany({
-      where: { blockerId: session.user.id },
-      select: { blockedId: true },
-    }),
+    getBlockedMemberIds(session.user.id),
   ]);
-  const blockedIds = new Set(blocks.map((b) => b.blockedId));
   const filtered = conversations.filter((c) => {
     const otherId = c.memberAId === session.user.id ? c.memberBId : c.memberAId;
     return !blockedIds.has(otherId);

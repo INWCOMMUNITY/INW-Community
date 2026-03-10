@@ -30,6 +30,8 @@ interface StoreItem {
   photos: string[];
   listingType: string | null;
   createdAt?: string;
+  soldOrderId?: string;
+  soldAt?: string;
 }
 
 function formatPrice(cents: number): string {
@@ -39,6 +41,19 @@ function formatPrice(cents: number): string {
 function resolveUrl(path: string | undefined): string | undefined {
   if (!path) return undefined;
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+function formatSoldDate(iso: string | undefined): string {
+  if (!iso) return "Sold";
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return "Sold";
+  }
 }
 
 export default function SoldItemsScreen() {
@@ -114,7 +129,11 @@ export default function SoldItemsScreen() {
           renderItem={({ item }) => (
             <Pressable
               style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
-              onPress={() => router.push(`/product/${item.slug}` as never)}
+              onPress={() =>
+                item.soldOrderId
+                  ? router.push(`/seller-hub/orders/${item.soldOrderId}` as never)
+                  : router.push(`/product/${item.slug}` as never)
+              }
             >
               {item.photos?.[0] ? (
                 <Image
@@ -129,8 +148,12 @@ export default function SoldItemsScreen() {
                   {item.title}
                 </Text>
                 <Text style={styles.cardMeta}>
-                  {formatPrice(item.priceCents)} · Sold
+                  {formatPrice(item.priceCents)}
+                  {item.soldAt ? ` · Sold on ${formatSoldDate(item.soldAt)}` : " · Sold"}
                 </Text>
+                {item.soldOrderId ? (
+                  <Text style={styles.viewOrderLink}>View order</Text>
+                ) : null}
               </View>
             </Pressable>
           )}
@@ -188,4 +211,5 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, marginLeft: 12, justifyContent: "center" },
   cardTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
   cardMeta: { fontSize: 12, color: "#666", marginTop: 4 },
+  viewOrderLink: { fontSize: 12, color: theme.colors.primary, marginTop: 2, fontWeight: "600" },
 });

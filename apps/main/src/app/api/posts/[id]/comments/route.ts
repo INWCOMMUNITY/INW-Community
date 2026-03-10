@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getBlockedMemberIds } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
@@ -38,11 +39,7 @@ export async function GET(
   });
 
   if (session?.user?.id) {
-    const blocks = await prisma.memberBlock.findMany({
-      where: { blockerId: session.user.id },
-      select: { blockedId: true },
-    });
-    const blockedIds = new Set(blocks.map((b) => b.blockedId));
+    const blockedIds = await getBlockedMemberIds(session.user.id);
     comments = comments.filter((c) => !blockedIds.has(c.memberId));
   }
 

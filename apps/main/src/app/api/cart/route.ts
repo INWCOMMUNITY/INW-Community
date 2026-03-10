@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -70,6 +71,7 @@ export async function GET(req: NextRequest) {
               acceptCashForPickupDelivery: true,
               sellerLocalDeliveryPolicy: true,
               sellerPickupPolicy: true,
+              stripeConnectAccountId: true,
             },
           },
         },
@@ -77,16 +79,31 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  const cart = items.map((i) => ({
-    id: i.id,
-    storeItemId: i.storeItemId,
-    quantity: i.quantity,
-    variant: i.variant,
-    fulfillmentType: i.fulfillmentType,
-    localDeliveryDetails: i.localDeliveryDetails,
-    pickupDetails: i.pickupDetails,
-    storeItem: i.storeItem,
-  }));
+  const cart = items.map((i) => {
+    const storeItem = i.storeItem as typeof i.storeItem & { member?: { stripeConnectAccountId?: string | null } };
+    const available = getAvailableQuantity(storeItem, i.variant ?? undefined);
+    const sellerHasConnect = !!storeItem.member?.stripeConnectAccountId?.trim();
+    let unavailableReason: string | undefined;
+    if (!sellerHasConnect) {
+      unavailableReason = "Seller payment setup not complete. This item cannot be purchased yet.";
+    } else if (i.quantity > available) {
+      unavailableReason =
+        available <= 0
+          ? "This item is no longer available."
+          : `Only ${available} available. Reduce quantity or remove.`;
+    }
+    return {
+      id: i.id,
+      storeItemId: i.storeItemId,
+      quantity: i.quantity,
+      variant: i.variant,
+      fulfillmentType: i.fulfillmentType,
+      localDeliveryDetails: i.localDeliveryDetails,
+      pickupDetails: i.pickupDetails,
+      storeItem: i.storeItem,
+      ...(unavailableReason && { unavailableReason }),
+    };
+  });
 
   return NextResponse.json(cart);
 }
@@ -106,9 +123,23 @@ export async function POST(req: NextRequest) {
 
   const storeItem = await prisma.storeItem.findUnique({
     where: { id: body.storeItemId, status: "active" },
+    include: { member: { select: { stripeConnectAccountId: true } } },
   });
   if (!storeItem || storeItem.quantity < 1) {
     return NextResponse.json({ error: "Item not available" }, { status: 400 });
+  }
+  if (!storeItem.member?.stripeConnectAccountId?.trim()) {
+    return NextResponse.json(
+      { error: "Seller has not completed payment setup. This item cannot be added to cart yet." },
+      { status: 400 }
+    );
+  }
+  const available = getAvailableQuantity(storeItem, body.variant);
+  if (body.quantity > available) {
+    return NextResponse.json(
+      { error: available <= 0 ? "Item is no longer available." : `Only ${available} available.` },
+      { status: 400 }
+    );
   }
 
   const fulfillmentType = body.fulfillmentType ?? "ship";

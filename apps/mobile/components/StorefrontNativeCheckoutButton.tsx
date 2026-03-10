@@ -88,7 +88,18 @@ export function StorefrontNativeCheckoutButton({
         });
 
         if (initErr) {
-          onError(initErr.message);
+          const msg = initErr.message ?? "";
+          const isStaleIntent = /No such payment_intent|payment_intent.*does not exist/i.test(msg);
+          if (isStaleIntent) {
+            onError("Payment session expired. Please try checkout again.");
+            Alert.alert(
+              "Session expired",
+              "The previous payment session is no longer valid. Tap Checkout again to start a new one.",
+              [{ text: "OK" }]
+            );
+          } else {
+            onError(msg);
+          }
           return;
         }
 
@@ -96,8 +107,19 @@ export function StorefrontNativeCheckoutButton({
 
         if (presentErr) {
           if (presentErr.code !== "Canceled") {
-            onError(presentErr.message ?? "Payment failed");
-            Alert.alert("Payment failed", presentErr.message ?? "Payment could not be completed.");
+            const msg = presentErr.message ?? "Payment failed";
+            const isStaleIntent = /No such payment_intent|payment_intent.*does not exist/i.test(msg);
+            if (isStaleIntent) {
+              onError("Payment session expired. Please try checkout again.");
+              Alert.alert(
+                "Session expired",
+                "The payment session expired. Tap Checkout again to start a new one.",
+                [{ text: "OK" }]
+              );
+            } else {
+              onError(msg);
+              Alert.alert("Payment failed", msg);
+            }
           }
           return;
         }

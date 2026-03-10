@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getBlockedMemberIds } from "@/lib/member-block";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -129,7 +130,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ posts: feedItems, nextCursor });
   }
 
-  const [followed, followBusinesses, friendships, myGroups, followedTags, blockedRows] = await Promise.all([
+  const [followed, followBusinesses, friendships, myGroups, followedTags, blockedIdSet] = await Promise.all([
     prisma.follow.findMany({
       where: { followerId: session.user.id },
       select: { followingId: true },
@@ -155,12 +156,9 @@ export async function GET(req: NextRequest) {
       where: { memberId: session.user.id },
       select: { tagId: true },
     }),
-    prisma.memberBlock.findMany({
-      where: { blockerId: session.user.id },
-      select: { blockedId: true },
-    }),
+    getBlockedMemberIds(session.user.id),
   ]);
-  const blockedIds = blockedRows.map((r) => r.blockedId);
+  const blockedIds = Array.from(blockedIdSet);
 
   const followingIds = followed.map((f) => f.followingId);
   const followBusinessAuthorIds = followBusinesses

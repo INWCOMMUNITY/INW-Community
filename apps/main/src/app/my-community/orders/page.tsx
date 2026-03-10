@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { getOrderStatusLabel } from "@/lib/order-status";
 
 interface OrderItem {
   id: string;
@@ -20,6 +21,7 @@ interface Shipment {
 
 interface StoreOrder {
   id: string;
+  orderNumber?: string;
   totalCents: number;
   shippingCostCents: number;
   status: string;
@@ -37,6 +39,13 @@ interface StoreOrder {
   shipment: Shipment | null;
 }
 
+const BUYER_ORDER_TABS = [
+  { key: "to_receive", label: "To receive", param: "buyer=1&to_receive=1" },
+  { key: "delivered", label: "Delivered", param: "buyer=1&delivered=1" },
+  { key: "canceled", label: "Canceled", param: "buyer=1&canceled=1" },
+  { key: "all", label: "All", param: "buyer=1" },
+] as const;
+
 function getTrackingUrl(carrier: string, trackingNumber: string): string {
   if (carrier === "USPS") return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${trackingNumber}`;
   if (carrier === "UPS") return `https://www.ups.com/track?tracknum=${trackingNumber}`;
@@ -45,6 +54,7 @@ function getTrackingUrl(carrier: string, trackingNumber: string): string {
 }
 
 export default function MyOrdersPage() {
+  const [tab, setTab] = useState<(typeof BUYER_ORDER_TABS)[number]["key"]>("to_receive");
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -70,7 +80,9 @@ export default function MyOrdersPage() {
 
   useEffect(() => {
     setFetchError(null);
-    fetch("/api/store-orders?buyer=1")
+    setLoading(true);
+    const param = BUYER_ORDER_TABS.find((t) => t.key === tab)?.param ?? "buyer=1";
+    fetch(`/api/store-orders?${param}`)
       .then(async (r) => {
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -85,7 +97,7 @@ export default function MyOrdersPage() {
         setOrders([]);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [tab]);
 
   async function requestRefund(orderId: string) {
     if (!refundReason) {
@@ -181,9 +193,26 @@ export default function MyOrdersPage() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-4">My Orders</h1>
-      <p className="text-gray-600 mb-6">
+      <p className="text-gray-600 mb-4">
         View your purchases, track shipments, and request refunds.
       </p>
+
+      <div className="flex gap-2 mb-6 border-b border-gray-200">
+        {BUYER_ORDER_TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+              tab === t.key
+                ? "border-[var(--color-primary)] text-[var(--color-primary)]"
+                : "border-transparent text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       {fetchError && (
         <div className="border rounded-lg p-6 bg-red-50 mb-8">
@@ -197,7 +226,15 @@ export default function MyOrdersPage() {
       )}
 
       {orders.length === 0 && !fetchError ? (
-        <p className="text-gray-500">No orders yet.</p>
+        <p className="text-gray-500">
+          {tab === "to_receive"
+            ? "No orders to receive."
+            : tab === "delivered"
+              ? "No delivered orders."
+              : tab === "canceled"
+                ? "No canceled or refunded orders."
+                : "No orders yet."}
+        </p>
       ) : (
         <div className="space-y-6">
           {orders.map((order) => {
@@ -278,7 +315,7 @@ export default function MyOrdersPage() {
                 </div>
                 <div className="flex justify-between items-start mb-4 pr-10">
                   <div>
-                    <p className="font-semibold">Order #{order.id.slice(-8).toUpperCase()}</p>
+                    <p className="font-semibold">Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}</p>
                     <p className="text-sm opacity-80">{sellerName}</p>
                     <p className="text-sm opacity-70 mt-1">
                       {new Date(order.createdAt).toLocaleString()}
@@ -290,7 +327,16 @@ export default function MyOrdersPage() {
                       className="inline-block px-2 py-0.5 rounded text-sm mt-1"
                       style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
                     >
-                      {order.status}
+                      {getOrderStatusLabel(order.status)}
+                    </span>
+                    <span
+                      className="block mt-1 inline-block px-2 py-0.5 rounded text-xs font-medium"
+                      style={{
+                        backgroundColor: order.isCashOrder ? "#fef3c7" : "var(--color-section-alt)",
+                        color: order.isCashOrder ? "#92400e" : "var(--color-primary)",
+                      }}
+                    >
+                      {order.isCashOrder ? "Awaiting Payment: Cash" : "Paid: Online NWC"}
                     </span>
                   </div>
                 </div>

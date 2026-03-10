@@ -129,7 +129,7 @@ export default function ProductDetailPage() {
     setSelectedPhotoIndex(0);
     setSelectedVariant({});
     setError("");
-    fetch(`/api/store-items?slug=${encodeURIComponent(slug)}`)
+    fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&listingType=new`)
       .then((r) => {
         if (!r.ok) {
           return { _notOk: true };

@@ -86,6 +86,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Cancel any existing pending orders for this buyer so we don't accumulate duplicates
+  // when they tap Checkout multiple times (e.g. retry after cancel or session expired)
+  await prisma.storeOrder.updateMany({
+    where: { buyerId: session.user.id, status: "pending" },
+    data: { status: "canceled" },
+  });
+
   const storeItems = await prisma.storeItem.findMany({
     where: { id: { in: items.map((i) => i.storeItemId) }, status: "active" },
   });
@@ -105,6 +112,22 @@ export async function POST(req: NextRequest) {
     const sellerId = storeItem.memberId;
     if (!bySeller.has(sellerId)) bySeller.set(sellerId, []);
     bySeller.get(sellerId)!.push(item);
+  }
+
+  // Validate all sellers have Stripe Connect before creating any orders (avoid orphan pending orders)
+  const sellerIdsForConnect = [...bySeller.keys()];
+  const membersForConnect = await prisma.member.findMany({
+    where: { id: { in: sellerIdsForConnect } },
+    select: { id: true, stripeConnectAccountId: true },
+  });
+  const connectMap = new Map(membersForConnect.map((m) => [m.id, m.stripeConnectAccountId]));
+  for (const sid of sellerIdsForConnect) {
+    if (!connectMap.get(sid)?.trim()) {
+      return NextResponse.json(
+        { error: "Seller payment account is not set up. Items from that seller cannot be purchased until they complete payment setup." },
+        { status: 400 }
+      );
+    }
   }
 
   const sellerOrderPairs: { sellerId: string; orderId: string; totalCents: number }[] = [];
@@ -201,16 +224,10 @@ export async function POST(req: NextRequest) {
   }
 
   const orderIds = sellerOrderPairs.map((p) => p.orderId);
-  const sellerIds = [...new Set(sellerOrderPairs.map((p) => p.sellerId))];
-  const members = await prisma.member.findMany({
-    where: { id: { in: sellerIds } },
-    select: { id: true, stripeConnectAccountId: true },
-  });
-  const sellerConnectMap = new Map(members.map((m) => [m.id, m.stripeConnectAccountId]));
 
   const payments: { clientSecret: string; orderIds: string[] }[] = [];
   for (const pair of sellerOrderPairs) {
-    const connectAccountId = sellerConnectMap.get(pair.sellerId);
+    const connectAccountId = connectMap.get(pair.sellerId);
     if (!connectAccountId?.trim()) {
       return NextResponse.json(
         { error: `Seller payment account is not set up. Please try again or contact support.` },

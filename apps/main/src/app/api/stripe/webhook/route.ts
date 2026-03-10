@@ -5,6 +5,13 @@ import { awardPoints } from "@/lib/award-points";
 import { decrementOptionQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 
+/**
+ * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
+ * must be safe when run multiple times for the same event (e.g. check order.status === "paid"
+ * and stripePaymentIntentId before updating, skip if already processed). Do not assume
+ * one-to-one event-to-order updates.
+ */
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
 });
@@ -501,7 +508,7 @@ export async function POST(req: NextRequest) {
       });
       if (!order) continue;
 
-      // Idempotency: do not process the same payment twice
+      // Idempotency: do not process the same payment twice (Stripe may redeliver payment_intent.succeeded)
       if (order.status === "paid" && order.stripePaymentIntentId === paymentIntent.id) continue;
 
       // Only process pending orders (avoid race / duplicate events)

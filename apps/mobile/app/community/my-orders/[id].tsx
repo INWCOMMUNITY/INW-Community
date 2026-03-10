@@ -19,6 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
+import { getOrderStatusLabel } from "@/lib/order-status";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -224,7 +225,14 @@ export default function MyOrderDetailScreen() {
 
       <View style={styles.section}>
         <Text style={styles.label}>Status</Text>
-        <Text style={[styles.value, styles.statusCapitalize]}>{order.status}</Text>
+        <Text style={[styles.value, styles.statusCapitalize]}>{getOrderStatusLabel(order.status)}</Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.label}>Payment</Text>
+        <Text style={[styles.value, order.isCashOrder && { color: "#92400e" }]}>
+          {order.isCashOrder ? "Awaiting Payment: Cash" : "Paid: Online NWC"}
+        </Text>
       </View>
 
       <View style={styles.section}>

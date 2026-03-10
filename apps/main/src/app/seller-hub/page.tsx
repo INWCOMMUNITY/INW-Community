@@ -109,6 +109,15 @@ export default async function SellerHubPage() {
                 </p>
               </Link>
             )}
+            <Link
+              href="/seller-hub/pickups"
+              className="w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)]"
+            >
+              <h2 className="text-xl font-bold mb-2">My Pickups</h2>
+              <p className="text-sm text-gray-600">
+                View in-store pickup orders. Mark as picked up when the buyer collects.
+              </p>
+            </Link>
           </div>
           <div className="mt-12 pt-8 border-t border-gray-200">
             <Link href="/sponsor-hub" className="text-primary-600 hover:underline font-medium inline-block px-4 py-2 rounded transition hover:bg-[var(--color-section-alt)]">

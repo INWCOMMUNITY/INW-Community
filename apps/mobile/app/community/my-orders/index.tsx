@@ -14,6 +14,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+import { getOrderStatusLabel } from "@/lib/order-status";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -25,8 +26,18 @@ interface OrderItem {
   storeItem: { id: string; title: string; slug: string; photos: string[] };
 }
 
+type OrderTab = "to_receive" | "delivered" | "canceled" | "all";
+
+const ORDER_TABS: { key: OrderTab; label: string; param: string }[] = [
+  { key: "to_receive", label: "To receive", param: "buyer=1&to_receive=1" },
+  { key: "delivered", label: "Delivered", param: "buyer=1&delivered=1" },
+  { key: "canceled", label: "Canceled", param: "buyer=1&canceled=1" },
+  { key: "all", label: "All", param: "buyer=1" },
+];
+
 interface StoreOrder {
   id: string;
+  orderNumber?: string;
   totalCents: number;
   status: string;
   createdAt: string;
@@ -62,6 +73,7 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
 
 export default function MyOrdersScreen() {
   const router = useRouter();
+  const [tab, setTab] = useState<OrderTab>("to_receive");
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,7 +81,8 @@ export default function MyOrdersScreen() {
 
   const load = useCallback(() => {
     setError(null);
-    apiGet<StoreOrder[] | { error: string }>("/api/store-orders?buyer=1")
+    const param = ORDER_TABS.find((t) => t.key === tab)?.param ?? "buyer=1";
+    apiGet<StoreOrder[] | { error: string }>(`/api/store-orders?${param}`)
       .then((data) => {
         if (Array.isArray(data)) {
           setOrders(data);
@@ -86,9 +99,13 @@ export default function MyOrdersScreen() {
         setLoading(false);
         setRefreshing(false);
       });
-  }, []);
+  }, [tab]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  React.useEffect(() => {
+    load();
+  }, [tab]);
 
   if (loading && orders.length === 0) {
     return (
@@ -103,6 +120,18 @@ export default function MyOrdersScreen() {
       <Text style={styles.title}>My Orders</Text>
       <Text style={styles.hint}>Tap an order to view details, tracking, and status.</Text>
 
+      <View style={styles.tabRow}>
+        {ORDER_TABS.map((t) => (
+          <Pressable
+            key={t.key}
+            style={[styles.tab, tab === t.key && styles.tabActive]}
+            onPress={() => setTab(t.key)}
+          >
+            <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
       {error && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{error}</Text>
@@ -111,7 +140,15 @@ export default function MyOrdersScreen() {
 
       {orders.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>No orders yet.</Text>
+          <Text style={styles.emptyText}>
+            {tab === "to_receive"
+              ? "No orders to receive."
+              : tab === "delivered"
+                ? "No delivered orders."
+                : tab === "canceled"
+                  ? "No canceled or refunded orders."
+                  : "No orders yet."}
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -142,12 +179,17 @@ export default function MyOrdersScreen() {
                     </View>
                   )}
                   <View style={styles.cardBody}>
-                    <Text style={styles.orderId}>#{item.id.slice(-8).toUpperCase()}</Text>
+                    <Text style={styles.orderId}>#{item.orderNumber ?? item.id.slice(-8).toUpperCase()}</Text>
                     <Text style={styles.sellerName}>{sellerName}</Text>
                     <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
                     <Text style={styles.total}>{formatPrice(item.totalCents)}</Text>
                     <View style={styles.statusBadge}>
-                      <Text style={styles.statusText}>{item.status}</Text>
+                      <Text style={styles.statusText}>{getOrderStatusLabel(item.status)}</Text>
+                    </View>
+                    <View style={[styles.paymentTag, item.isCashOrder && styles.paymentTagCashBg]}>
+                      <Text style={[styles.paymentTagText, item.isCashOrder && styles.paymentTagCash]}>
+                        {item.isCashOrder ? "Awaiting Payment: Cash" : "Paid: Online NWC"}
+                      </Text>
                     </View>
                   </View>
                   <Ionicons name="chevron-forward" size={22} color="#999" />
@@ -175,9 +217,19 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: 13,
     color: "#666",
-    marginBottom: 16,
+    marginBottom: 8,
     paddingHorizontal: 16,
   },
+  tabRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    marginBottom: 12,
+  },
+  tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
+  tabActive: { borderBottomWidth: 2, borderBottomColor: theme.colors.primary },
+  tabText: { fontSize: 13, color: "#666" },
+  tabTextActive: { fontWeight: "600", color: theme.colors.primary },
   errorBanner: { backgroundColor: "#fee", padding: 12, marginHorizontal: 16, marginBottom: 16, borderRadius: 8 },
   errorText: { color: "#c62828", fontSize: 14 },
   empty: { padding: 32, alignItems: "center" },
@@ -207,4 +259,8 @@ const styles = StyleSheet.create({
   total: { fontSize: 16, fontWeight: "600", color: theme.colors.primary, marginTop: 4 },
   statusBadge: { marginTop: 4, alignSelf: "flex-start" },
   statusText: { fontSize: 12, color: "#666", textTransform: "capitalize" },
+  paymentTag: { marginTop: 4, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)" },
+  paymentTagCashBg: { backgroundColor: "#fef3c7" },
+  paymentTagText: { fontSize: 11, color: theme.colors.primary, fontWeight: "600" },
+  paymentTagCash: { color: "#92400e" },
 });

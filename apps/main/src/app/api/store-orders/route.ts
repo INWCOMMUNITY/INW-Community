@@ -15,10 +15,20 @@ export async function GET(req: NextRequest) {
     const buyer = searchParams.get("buyer");
     const needsShipment = searchParams.get("needsShipment") === "1";
     const canceled = searchParams.get("canceled") === "1";
+    const shipped = searchParams.get("shipped") === "1";
 
     if (buyer === "1") {
+      const buyerToReceive = searchParams.get("to_receive") === "1";
+      const buyerDelivered = searchParams.get("delivered") === "1";
+      const buyerCanceled = searchParams.get("canceled") === "1";
+      const buyerWhere: { buyerId: string; status?: unknown } = { buyerId: userId };
+      if (buyerToReceive) buyerWhere.status = { in: ["paid", "shipped"] };
+      else if (buyerDelivered) buyerWhere.status = "delivered";
+      else if (buyerCanceled) buyerWhere.status = { in: ["canceled", "refunded"] };
+      else buyerWhere.status = { not: "pending" };
+
       const orders = await prisma.storeOrder.findMany({
-        where: { buyerId: userId },
+        where: buyerWhere,
         include: {
           seller: {
             include: {
@@ -50,7 +60,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         ordersWithShipment.map((o) => {
           const { stripePaymentIntentId, ...rest } = o;
-          return { ...rest, isCashOrder: !stripePaymentIntentId };
+          return {
+            ...rest,
+            isCashOrder: !stripePaymentIntentId,
+            orderNumber: o.id.slice(-8).toUpperCase(),
+          };
         })
       );
     }
@@ -66,12 +80,15 @@ export async function GET(req: NextRequest) {
       if (!sellerOrSubscribe) {
         return NextResponse.json({ error: "Seller or Subscribe plan required" }, { status: 403 });
       }
-      const where: { sellerId: string; status?: string } = { sellerId: userId };
+      const where: { sellerId: string; status?: string | { in: string[] } } = { sellerId: userId };
       if (needsShipment) {
         where.status = "paid";
       }
       if (canceled) {
         where.status = "canceled";
+      }
+      if (shipped) {
+        where.status = { in: ["shipped", "delivered"] };
       }
       const orders = await prisma.storeOrder.findMany({
         where,
@@ -89,7 +106,9 @@ export async function GET(req: NextRequest) {
       const filtered = needsShipment
         ? orders.filter((o) => o.status === "paid" && !o.shipment && !o.shippedWithOrderId)
         : orders;
-      return NextResponse.json(filtered);
+      return NextResponse.json(
+        filtered.map((o) => ({ ...o, orderNumber: o.id.slice(-8).toUpperCase() }))
+      );
     }
 
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });

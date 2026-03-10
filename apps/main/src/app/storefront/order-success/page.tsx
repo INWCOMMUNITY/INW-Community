@@ -70,8 +70,11 @@ function OrderSuccessContent() {
               ? "Your payment was successful. You were charged only for items paid by card. Pay in cash for the rest when you pick up or receive delivery. Sellers will contact you to arrange details."
               : "Your payment was successful. Community Points have been added to your account. Sellers will ship your order soon."}
         </p>
-        <div className="flex gap-4 justify-center">
+        <div className="flex flex-wrap gap-4 justify-center">
           <Link href="/storefront" className="btn">Continue Shopping</Link>
+          <Link href="/my-community/orders" className="btn border border-gray-300 bg-white hover:bg-gray-50">
+            View my orders
+          </Link>
           <Link href="/my-community" className="btn border border-gray-300 bg-white hover:bg-gray-50">
             My Community
           </Link>

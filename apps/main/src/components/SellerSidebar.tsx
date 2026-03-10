@@ -45,6 +45,7 @@ export function SellerSidebar({ mobile }: { mobile?: boolean } = {}) {
     { href: "/seller-hub/store/items", label: "My Items" },
     { href: "/seller-hub/orders", label: "My Orders" },
     ...(showDeliveries ? [{ href: "/seller-hub/deliveries", label: "My Deliveries" }] : []),
+    { href: "/seller-hub/pickups", label: "My Pickups" },
     { href: "/seller-hub/store/payouts", label: "My Funds", alert: payoutReady },
   ];
 

@@ -13,8 +13,10 @@ interface LocalDeliveryDetails {
 
 interface OrderWithDelivery {
   id: string;
+  orderNumber?: string;
   createdAt: string;
   totalCents: number;
+  stripePaymentIntentId?: string | null;
   localDeliveryDetails: LocalDeliveryDetails | null;
   deliveryConfirmedAt: string | null;
   items: { storeItem: { title: string }; quantity: number }[];
@@ -101,6 +103,7 @@ export default function MyDeliveriesPage() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="text-left py-2 px-3 text-sm font-medium">Order / Date</th>
+                      <th className="text-left py-2 px-3 text-sm font-medium">Payment</th>
                       <th className="text-left py-2 px-3 text-sm font-medium">Name</th>
                       <th className="text-left py-2 px-3 text-sm font-medium">Address</th>
                       <th className="text-left py-2 px-3 text-sm font-medium">Phone</th>
@@ -119,10 +122,21 @@ export default function MyDeliveriesPage() {
                       return (
                         <tr key={o.id} className="border-t border-gray-200">
                           <td className="py-2 px-3 text-sm">
-                            <span className="font-mono text-gray-600">{o.id.slice(-8)}</span>
+                            <span className="font-mono text-gray-600">#{o.orderNumber ?? o.id.slice(-8)}</span>
                             <br />
                             <span className="text-gray-500">
                               {new Date(o.createdAt).toLocaleDateString()}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-sm">
+                            <span
+                              className="inline-block px-2 py-0.5 rounded text-xs font-medium"
+                              style={{
+                                backgroundColor: o.stripePaymentIntentId ? "var(--color-section-alt)" : "#fef3c7",
+                                color: o.stripePaymentIntentId ? "var(--color-primary)" : "#92400e",
+                              }}
+                            >
+                              {o.stripePaymentIntentId ? "Paid: Online NWC" : "Awaiting Payment: Cash"}
                             </span>
                           </td>
                           <td className="py-2 px-3 text-sm">
@@ -188,7 +202,7 @@ export default function MyDeliveriesPage() {
                         return (
                           <tr key={o.id} className="border-t border-gray-200">
                             <td className="py-2 px-3 text-sm">
-                              <span className="font-mono text-gray-600">{o.id.slice(-8)}</span>
+                              <span className="font-mono text-gray-600">#{o.orderNumber ?? o.id.slice(-8)}</span>
                               <br />
                               <span className="text-gray-500">
                                 {new Date(o.createdAt).toLocaleDateString()}

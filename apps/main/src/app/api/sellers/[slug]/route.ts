@@ -15,10 +15,12 @@ export async function GET(
 ) {
   try {
     const { slug } = await params;
+    // Only show seller store when they have Stripe Connect (payment/redirect can function).
     const business = await prisma.business.findFirst({
       where: {
         ...(isCuid(slug) ? { id: slug } : { slug }),
         nameApprovalStatus: "approved",
+        member: { stripeConnectAccountId: { not: null } },
       },
       include: {
         member: {

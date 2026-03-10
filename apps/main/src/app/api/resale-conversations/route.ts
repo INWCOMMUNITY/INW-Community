@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getBlockedMemberIds } from "@/lib/member-block";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -8,7 +9,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [conversations, blocks] = await Promise.all([
+  const [conversations, blockedIds] = await Promise.all([
     prisma.resaleConversation.findMany({
       where: {
         OR: [{ buyerId: session.user.id }, { sellerId: session.user.id }],
@@ -25,12 +26,8 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { updatedAt: "desc" },
     }),
-    prisma.memberBlock.findMany({
-      where: { blockerId: session.user.id },
-      select: { blockedId: true },
-    }),
+    getBlockedMemberIds(session.user.id),
   ]);
-  const blockedIds = new Set(blocks.map((b) => b.blockedId));
   const filtered = conversations.filter((c) => {
     const otherId = c.buyerId === session.user.id ? c.sellerId : c.buyerId;
     return !blockedIds.has(otherId);

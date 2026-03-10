@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -28,6 +28,8 @@ interface StoreItem {
   quantity: number;
   status: string;
   photos: string[];
+  soldOrderId?: string;
+  soldAt?: string;
 }
 
 interface ConnectStatus {
@@ -64,9 +66,12 @@ export default function MyItemsScreen() {
   const [actingId, setActingId] = useState<string | null>(null);
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
 
-  const itemsUrl = listingType
-    ? "/api/store-items?mine=1&listingType=resale"
-    : "/api/store-items?mine=1";
+  type ItemsTab = "active" | "ended" | "sold";
+  const [itemsTab, setItemsTab] = useState<ItemsTab>("active");
+
+  const itemsUrl =
+    (listingType ? "/api/store-items?mine=1&listingType=resale" : "/api/store-items?mine=1") +
+    (itemsTab === "active" ? "&filter=active" : itemsTab === "ended" ? "&filter=ended" : "&filter=sold");
 
   const load = useCallback(() => {
     setFetchError(null);
@@ -118,6 +123,10 @@ export default function MyItemsScreen() {
   useFocusEffect(useCallback(() => {
     load();
   }, [load]));
+
+  useEffect(() => {
+    load();
+  }, [itemsTab]);
 
   const handleOnboard = async () => {
     try {
@@ -210,17 +219,36 @@ export default function MyItemsScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.pageTitle}>My Items</Text>
+      <View style={styles.tabRow}>
+        {(["active", "ended", "sold"] as const).map((t) => (
+          <Pressable
+            key={t}
+            style={[styles.tab, itemsTab === t && styles.tabActive]}
+            onPress={() => setItemsTab(t)}
+          >
+            <Text style={[styles.tabText, itemsTab === t && styles.tabTextActive]}>
+              {t === "active" ? "Active" : t === "ended" ? "Ended" : "Sold"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
       <View style={styles.header}>
         <View>
           <Text style={styles.hint}>
-            Manage your storefront listings. Sold items move to Sold Items and no longer appear here.
+            {itemsTab === "active"
+              ? "Live on the storefront. Sold items move to Sold."
+              : itemsTab === "ended"
+                ? "Ended listings (not live)."
+                : "Items you've sold."}
           </Text>
-          <Pressable
-            onPress={() => (router.push as (href: string) => void)("/seller-hub/store/sold")}
-            style={({ pressed }) => [styles.soldLink, pressed && { opacity: 0.8 }]}
-          >
-            <Text style={styles.soldLinkText}>Sold Items</Text>
-          </Pressable>
+          {itemsTab !== "sold" && (
+            <Pressable
+              onPress={() => (router.push as (href: string) => void)("/seller-hub/store/sold")}
+              style={({ pressed }) => [styles.soldLink, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={styles.soldLinkText}>Sold Items</Text>
+            </Pressable>
+          )}
         </View>
         <Pressable
           style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
@@ -236,12 +264,11 @@ export default function MyItemsScreen() {
         </View>
       )}
 
-      {connectStatus && !connectStatus.chargesEnabled && (
+      {(!connectStatus?.onboarded || !connectStatus?.chargesEnabled) && (
         <View style={styles.connectBanner}>
           <Text style={styles.connectBannerTitle}>Complete payment setup</Text>
           <Text style={styles.connectBannerText}>
-            To list items and receive payments, you need to complete Stripe
-            Connect onboarding.
+            Items are only listed on the store once payment setup is complete. Complete Stripe Connect onboarding to list items and receive payments.
           </Text>
           <Pressable
             style={({ pressed }) => [
@@ -291,7 +318,13 @@ export default function MyItemsScreen() {
                   styles.cardMain,
                   pressed && { opacity: 0.9 },
                 ]}
-                onPress={() => router.push(`/product/${item.slug}` as any)}
+                onPress={() => {
+                  if (itemsTab === "sold" && item.soldOrderId) {
+                    (router.push as (href: string) => void)(`/seller-hub/orders/${item.soldOrderId}`);
+                  } else {
+                    router.push(`/product/${item.slug}` as any);
+                  }
+                }}
               >
                 {item.photos?.[0] ? (
                   <Image
@@ -306,8 +339,14 @@ export default function MyItemsScreen() {
                     {item.title}
                   </Text>
                   <Text style={styles.cardPrice}>
-                    {formatPrice(item.priceCents)} · {item.quantity} in stock · {statusLabel(item)}
+                    {formatPrice(item.priceCents)}
+                    {itemsTab === "sold" && item.soldAt
+                      ? ` · Sold on ${new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
+                      : ` · ${item.quantity} in stock · ${statusLabel(item)}`}
                   </Text>
+                  {itemsTab === "sold" && item.soldOrderId && (
+                    <Text style={styles.viewOrderLink}>View order</Text>
+                  )}
                 </View>
               </Pressable>
               <Pressable
@@ -333,6 +372,18 @@ export default function MyItemsScreen() {
       >
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuItemId(null)}>
           <View style={styles.menuPanel} onStartShouldSetResponder={() => true}>
+            {itemsTab === "sold" && items.find((i) => i.id === menuItemId)?.soldOrderId && (
+              <Pressable
+                style={styles.menuOption}
+                onPress={() => {
+                  const orderId = items.find((i) => i.id === menuItemId)?.soldOrderId;
+                  setMenuItemId(null);
+                  if (orderId) (router.push as (href: string) => void)(`/seller-hub/orders/${orderId}`);
+                }}
+              >
+                <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View order</Text>
+              </Pressable>
+            )}
             <Pressable
               style={styles.menuOption}
               onPress={() => {
@@ -344,17 +395,19 @@ export default function MyItemsScreen() {
             >
               <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>Edit</Text>
             </Pressable>
-            <Pressable
-              style={styles.menuOption}
-              onPress={() => {
-                if (menuItemId) {
-                  setMenuItemId(null);
-                  markAsSold(menuItemId);
-                }
-              }}
-            >
-              <Text style={styles.menuOptionTextGreen}>Mark sold</Text>
-            </Pressable>
+            {itemsTab !== "sold" && (
+              <Pressable
+                style={styles.menuOption}
+                onPress={() => {
+                  if (menuItemId) {
+                    setMenuItemId(null);
+                    markAsSold(menuItemId);
+                  }
+                }}
+              >
+                <Text style={styles.menuOptionTextGreen}>Mark sold</Text>
+              </Pressable>
+            )}
             <Pressable
               style={styles.menuOption}
               onPress={() => menuItemId && deleteItem(menuItemId)}
@@ -387,6 +440,24 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 8,
   },
+  tabRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  tabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: theme.colors.primary,
+  },
+  tabText: { fontSize: 13, color: "#666" },
+  tabTextActive: { fontWeight: "600", color: theme.colors.primary },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -473,6 +544,7 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, marginLeft: 12, justifyContent: "center" },
   cardTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
   cardPrice: { fontSize: 12, color: "#666", marginTop: 4 },
+  viewOrderLink: { fontSize: 12, color: theme.colors.primary, marginTop: 2, fontWeight: "600" },
   menuBtn: {
     padding: 8,
     marginLeft: 4,

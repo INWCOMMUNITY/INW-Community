@@ -19,8 +19,9 @@ export async function GET(
       include: {
         buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
         seller: {
-          select: { id: true, firstName: true, lastName: true },
-          include: { businesses: { take: 1, select: { name: true, slug: true } } },
+          include: {
+            businesses: { take: 1, select: { name: true, slug: true } },
+          },
         },
         items: {
           include: {
@@ -40,9 +41,16 @@ export async function GET(
     // For buyer: do not expose stripePaymentIntentId; add isCashOrder for UI (cancel vs request refund).
     if (order.buyerId === userId) {
       const { stripePaymentIntentId, ...rest } = order;
-      return NextResponse.json({ ...rest, isCashOrder: !stripePaymentIntentId });
+      return NextResponse.json({
+        ...rest,
+        isCashOrder: !stripePaymentIntentId,
+        orderNumber: order.id.slice(-8).toUpperCase(),
+      });
     }
-    return NextResponse.json(order);
+    return NextResponse.json({
+      ...order,
+      orderNumber: order.id.slice(-8).toUpperCase(),
+    });
   } catch (e) {
     console.error("[store-orders GET]", e);
     const msg = e instanceof Error ? e.message : "Failed to load order";

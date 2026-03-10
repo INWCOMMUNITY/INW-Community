@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { PackingSlipPrint } from "@/components/PackingSlipPrint";
 import { formatShippingAddress } from "@/lib/format-address";
+import { getOrderStatusLabel } from "@/lib/order-status";
 
 interface OrderItem {
   id: string;
@@ -14,14 +15,23 @@ interface OrderItem {
 
 interface StoreOrder {
   id: string;
+  orderNumber?: string;
   totalCents: number;
   shippingCostCents: number;
   status: string;
+  stripePaymentIntentId?: string | null;
   shippingAddress: unknown;
   createdAt: string;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
 }
+
+const ORDER_TABS = [
+  { key: "to_ship", label: "To ship", param: "mine=1&needsShipment=1" },
+  { key: "shipped", label: "Shipped", param: "mine=1&shipped=1" },
+  { key: "canceled", label: "Canceled", param: "mine=1&canceled=1" },
+  { key: "all", label: "All", param: "mine=1" },
+] as const;
 
 interface SellerProfile {
   business: { name: string; phone: string | null; address: string | null; logoUrl: string | null } | null;
@@ -29,6 +39,7 @@ interface SellerProfile {
 }
 
 export default function SellerOrdersPage() {
+  const [tab, setTab] = useState<(typeof ORDER_TABS)[number]["key"]>("to_ship");
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,7 +48,9 @@ export default function SellerOrdersPage() {
 
   useEffect(() => {
     setFetchError(null);
-    fetch("/api/store-orders?mine=1")
+    setLoading(true);
+    const param = ORDER_TABS.find((t) => t.key === tab)?.param ?? "mine=1";
+    fetch(`/api/store-orders?${param}`)
       .then(async (r) => {
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -58,7 +71,7 @@ export default function SellerOrdersPage() {
         setOrders([]);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [tab]);
 
   useEffect(() => {
     if (orders.length > 0) {
@@ -133,6 +146,23 @@ export default function SellerOrdersPage() {
           </div>
         </div>
 
+        <div className="flex gap-2 mb-6 border-b border-gray-200">
+          {ORDER_TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+                tab === t.key
+                  ? "border-[var(--color-primary)] text-[var(--color-primary)]"
+                  : "border-transparent text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
         {fetchError && (
           <div className="border rounded-lg p-6 bg-red-50 mb-8">
             <p className="text-red-700">{fetchError}</p>
@@ -145,13 +175,28 @@ export default function SellerOrdersPage() {
         )}
 
         {orders.length === 0 && !fetchError ? (
-          <p className="text-gray-500">No orders yet.</p>
+          <p className="text-gray-500">
+            {tab === "to_ship"
+              ? "No orders to ship."
+              : tab === "shipped"
+                ? "No shipped orders."
+                : tab === "canceled"
+                  ? "No canceled orders."
+                  : "No orders yet."}
+          </p>
         ) : (
           <div className="space-y-6">
             {orders.map((order) => (
-              <div key={order.id} className="border rounded-lg p-6">
+              <Link
+                key={order.id}
+                href={`/seller-hub/orders/${order.id}`}
+                className="block border rounded-lg p-6 hover:bg-gray-50 transition-colors"
+              >
                 <div className="flex justify-between items-start mb-4">
                   <div>
+                    <p className="text-sm text-gray-500">
+                      Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}
+                    </p>
                     <p className="font-semibold">
                       {order.buyer.firstName} {order.buyer.lastName}
                     </p>
@@ -166,7 +211,16 @@ export default function SellerOrdersPage() {
                       className="inline-block px-2 py-0.5 rounded text-sm"
                       style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
                     >
-                      {order.status}
+                      {getOrderStatusLabel(order.status)}
+                    </span>
+                    <span
+                      className="block mt-1 inline-block px-2 py-0.5 rounded text-xs font-medium"
+                      style={{
+                        backgroundColor: order.stripePaymentIntentId ? "var(--color-section-alt)" : "#fef3c7",
+                        color: order.stripePaymentIntentId ? "var(--color-primary)" : "#92400e",
+                      }}
+                    >
+                      {order.stripePaymentIntentId ? "Paid: Online NWC" : "Awaiting Payment: Cash"}
                     </span>
                   </div>
                 </div>
@@ -201,14 +255,18 @@ export default function SellerOrdersPage() {
                 {order.status === "paid" && (
                   <button
                     type="button"
-                    onClick={() => markShipped(order.id)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      markShipped(order.id);
+                    }}
                     disabled={updating === order.id}
                     className="btn mt-4"
                   >
                     {updating === order.id ? "Updating…" : "Mark as shipped"}
                   </button>
                 )}
-              </div>
+              </Link>
             ))}
           </div>
         )}

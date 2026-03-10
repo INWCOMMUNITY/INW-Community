@@ -3,6 +3,14 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
+type ItemsTab = "active" | "ended" | "sold";
+
+const ITEMS_TABS: { key: ItemsTab; label: string }[] = [
+  { key: "active", label: "Active" },
+  { key: "ended", label: "Ended" },
+  { key: "sold", label: "Sold" },
+];
+
 interface StoreItem {
   id: string;
   title: string;
@@ -11,9 +19,12 @@ interface StoreItem {
   quantity: number;
   status: string;
   photos: string[];
+  soldOrderId?: string;
+  soldAt?: string;
 }
 
 export default function MyItemsPage() {
+  const [tab, setTab] = useState<ItemsTab>("active");
   const [items, setItems] = useState<StoreItem[]>([]);
   const [connectStatus, setConnectStatus] = useState<{
     onboarded: boolean;
@@ -24,10 +35,12 @@ export default function MyItemsPage() {
 
   useEffect(() => {
     setFetchError(null);
+    setLoading(true);
     async function load() {
       try {
+        const filterParam = tab === "active" ? "&filter=active" : tab === "ended" ? "&filter=ended" : "&filter=sold";
         const [itemsRes, statusRes] = await Promise.all([
-          fetch("/api/store-items?mine=1"),
+          fetch(`/api/store-items?mine=1${filterParam}`),
           fetch("/api/stripe/connect/status"),
         ]);
         const itemsData = await itemsRes.json().catch(() => ({}));
@@ -71,7 +84,7 @@ export default function MyItemsPage() {
       }
     }
     load();
-  }, []);
+  }, [tab]);
 
   async function handleOnboard() {
     const res = await fetch("/api/stripe/connect/onboard", { method: "POST" });
@@ -104,19 +117,37 @@ export default function MyItemsPage() {
           )}
         </div>
       )}
-      {connectStatus && !connectStatus.chargesEnabled && (
+      {connectStatus && (!connectStatus.onboarded || !connectStatus.chargesEnabled) && (
         <div className="border rounded-lg p-4 bg-amber-50 mb-6 max-md:text-center">
           <h3 className="font-semibold mb-2">Complete payment setup</h3>
           <p className="text-sm text-gray-600 mb-3">
-            To list items and receive payments, you need to complete Stripe Connect onboarding.
+            Items are only listed on the store once payment setup is complete. Complete Stripe Connect onboarding to list items and receive payments.
           </p>
           <button type="button" onClick={handleOnboard} className="btn text-sm">
             Complete payment setup
           </button>
         </div>
       )}
+      <div className="flex gap-2 mb-4 border-b border-gray-200">
+        {ITEMS_TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+              tab === t.key
+                ? "border-[var(--color-primary)] text-[var(--color-primary)]"
+                : "border-transparent text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
       <div className="flex justify-between items-center mb-4 max-md:flex-col max-md:items-center max-md:gap-3 max-md:text-center">
-        <p className="text-gray-600 text-sm">Manage your storefront listings.</p>
+        <p className="text-gray-600 text-sm">
+          {tab === "active" ? "Live on the storefront." : tab === "ended" ? "Ended listings (not live)." : "Items you've sold."}
+        </p>
         <Link href="/seller-hub/store/new" className="btn text-sm">
           List An Item
         </Link>
@@ -154,12 +185,26 @@ export default function MyItemsPage() {
                   <div className="flex-1 min-w-0 overflow-hidden">
                     <h3 className="font-medium truncate">{item.title}</h3>
                     <p className="text-xs text-gray-600">
-                      ${(item.priceCents / 100).toFixed(2)} · {item.quantity} in stock · {statusLabel}
+                      ${(item.priceCents / 100).toFixed(2)}
+                      {tab === "sold" && item.soldAt
+                        ? ` · Sold on ${new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
+                        : ` · ${item.quantity} in stock · ${statusLabel}`}
                     </p>
+                    {tab === "sold" && item.soldOrderId && (
+                      <Link href={`/seller-hub/orders/${item.soldOrderId}`} className="text-xs font-semibold text-[var(--color-primary)] mt-1 inline-block">
+                        View order
+                      </Link>
+                    )}
                   </div>
-                  <Link href={`/seller-hub/store/${item.id}`} className="btn text-sm">
-                    Edit
-                  </Link>
+                  {tab === "sold" && item.soldOrderId ? (
+                    <Link href={`/seller-hub/orders/${item.soldOrderId}`} className="btn text-sm">
+                      View order
+                    </Link>
+                  ) : (
+                    <Link href={`/seller-hub/store/${item.id}`} className="btn text-sm">
+                      Edit
+                    </Link>
+                  )}
                 </div>
               </div>
             );

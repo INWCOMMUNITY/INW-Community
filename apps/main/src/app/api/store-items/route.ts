@@ -56,14 +56,15 @@ export async function GET(req: NextRequest) {
 
     if (list === "meta") {
       try {
+        const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
         const categoryForMeta = { AND: [{ category: { not: null } }, { category: { not: "Test" } }] };
         const [catItems, variantItems] = await Promise.all([
           prisma.storeItem.findMany({
-            where: { status: "active", ...listingWhere, ...categoryForMeta },
+            where: { status: "active", ...listingWhere, ...categoryForMeta, ...sellerCanReceivePayment },
             select: { category: true },
           }),
           prisma.storeItem.findMany({
-            where: { status: "active", variants: { not: Prisma.JsonNull }, ...listingWhere, category: { not: "Test" } },
+            where: { status: "active", variants: { not: Prisma.JsonNull }, ...listingWhere, category: { not: "Test" }, ...sellerCanReceivePayment },
             select: { variants: true },
           }),
         ]);
@@ -85,8 +86,8 @@ export async function GET(req: NextRequest) {
     const slugListingType = searchParams.get("listingType");
     const slugWhere =
       slugListingType === "resale"
-        ? { slug, status: "active" as const, listingType: "resale" as const }
-        : { slug, status: "active" as const, quantity: { gt: 0 } as const };
+        ? { slug, status: "active" as const, listingType: "resale" as const, member: { stripeConnectAccountId: { not: null } } }
+        : { slug, status: "active" as const, quantity: { gt: 0 } as const, member: { stripeConnectAccountId: { not: null } } };
     const reservedForSlug = await prisma.orderItem.findMany({
       where: { order: { status: "pending" } },
       select: { storeItemId: true },
@@ -155,7 +156,7 @@ export async function GET(req: NextRequest) {
     const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
     if (ids.length > 0) {
       const items = await prisma.storeItem.findMany({
-        where: { id: { in: ids }, status: "active" },
+        where: { id: { in: ids }, status: "active", member: { stripeConnectAccountId: { not: null } } },
         include: {
           member: { select: { id: true, firstName: true, lastName: true } },
           business: { select: { id: true, name: true, slug: true } },
@@ -194,20 +195,55 @@ export async function GET(req: NextRequest) {
     const where: {
       memberId: string;
       listingType?: string;
-      status?: string | { not: string };
+      status?: string;
+      quantity?: { gt: number };
     } = { memberId: userId };
     if (listingTypeFilter) where.listingType = listingTypeFilter;
-    // My Items: include all statuses (active, inactive, sold_out) so seller sees everything with a "not live" note. Sold Items: sold=1 returns only sold_out.
+    // My Items tabs: active (live), ended (inactive), sold (sold_out). No filter = all.
     const soldOnly = searchParams.get("sold") === "1";
-    if (soldOnly) {
+    const filter = searchParams.get("filter");
+    if (soldOnly || filter === "sold") {
       where.status = "sold_out";
+    } else if (filter === "active") {
+      where.status = "active";
+      where.quantity = { gt: 0 };
+    } else if (filter === "ended") {
+      where.status = "inactive";
     }
-    // When !soldOnly we do not filter by status — return active, inactive, and sold_out so seller can see sold items with a banner.
     const items = await prisma.storeItem.findMany({
       where,
       include: { business: { select: { id: true, name: true, slug: true } } },
       orderBy: { createdAt: "desc" },
     });
+
+    // For sold items, attach last order id and date so seller can link to order and see "Sold on [date]"
+    if (items.length > 0 && (soldOnly || filter === "sold")) {
+      const itemIds = items.map((i) => i.id);
+      const orderItems = await prisma.orderItem.findMany({
+        where: {
+          storeItemId: { in: itemIds },
+          order: { status: { in: ["paid", "shipped", "delivered"] } },
+        },
+        include: { order: { select: { id: true, updatedAt: true } } },
+        orderBy: { order: { updatedAt: "desc" } },
+      });
+      const lastOrderByItem = new Map<string, { orderId: string; soldAt: string }>();
+      for (const oi of orderItems) {
+        if (!lastOrderByItem.has(oi.storeItemId)) {
+          lastOrderByItem.set(oi.storeItemId, {
+            orderId: oi.order.id,
+            soldAt: oi.order.updatedAt.toISOString(),
+          });
+        }
+      }
+      return NextResponse.json(
+        items.map((i) => {
+          const sold = lastOrderByItem.get(i.id);
+          return sold ? { ...i, soldOrderId: sold.orderId, soldAt: sold.soldAt } : i;
+        })
+      );
+    }
+
     return NextResponse.json(items);
   }
 
@@ -223,12 +259,15 @@ export async function GET(req: NextRequest) {
     });
     const reservedItemIds = pendingOrderItemIds.map((r) => r.storeItemId);
 
+    // Only list items from sellers who have Stripe Connect set up (payment/redirect can function).
+    const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
     // Exclude Test category in DB. Trial/test-resale slugs excluded in-memory below (Neon adapter does not support mode in nested slug filter).
     let items = await prisma.storeItem.findMany({
       where: {
         status: "active",
         quantity: { gt: 0 },
         ...listingWhere,
+        ...sellerCanReceivePayment,
         AND: [{ category: { not: "Test" } }],
         ...(category ? { category } : {}),
         ...(memberId ? { memberId } : {}),
