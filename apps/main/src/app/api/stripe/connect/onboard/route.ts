@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getBaseUrl } from "@/lib/get-base-url";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
 });
 
-const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-
 export async function POST(req: NextRequest) {
-  let baseUrl = BASE_URL;
+  let baseUrl = getBaseUrl();
   try {
     const body = await req.json();
     const returnBase = (body.returnBaseUrl as string)?.trim?.();
@@ -18,7 +17,7 @@ export async function POST(req: NextRequest) {
   } catch {
     // use default
   }
-  baseUrl = baseUrl.trim().replace(/\/$/, "") || BASE_URL;
+  baseUrl = baseUrl.trim().replace(/\/$/, "") || getBaseUrl();
 
   if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY === "sk_test_...") {
     return NextResponse.json(

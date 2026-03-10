@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getBaseUrl } from "@/lib/get-base-url";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
-
-const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Session expired. Please sign in again." },
+      { status: 401 }
+    );
   }
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecretKey?.startsWith("sk_") || stripeSecretKey.includes("...")) {
@@ -38,6 +40,8 @@ export async function POST(req: NextRequest) {
       termsAcceptedAt?: string;
     };
     cashOrderIds?: string[];
+    /** Client can pass current origin so success redirect matches (e.g. window.location.origin or app WebView base). */
+    returnBaseUrl?: string;
   };
   try {
     body = await req.json();
@@ -45,7 +49,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { items, shippingCostCents = 0, shippingAddress, localDeliveryDetails, cashOrderIds } = body;
+  const { items, shippingCostCents = 0, shippingAddress, localDeliveryDetails, cashOrderIds, returnBaseUrl } = body;
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "At least one item required" }, { status: 400 });
   }
@@ -266,6 +270,11 @@ export async function POST(req: NextRequest) {
     successParams.set("cash_order_ids", cashOrderIds.join(","));
   }
 
+  const baseForSuccess =
+    typeof returnBaseUrl === "string" && /^https?:\/\//i.test(returnBaseUrl.trim())
+      ? returnBaseUrl.trim().replace(/\/+$/, "")
+      : getBaseUrl();
+
   return NextResponse.json({
     payments,
     orderIds,
@@ -273,6 +282,6 @@ export async function POST(req: NextRequest) {
       items: summaryItems,
       totalCents: grandTotalCents,
     },
-    successUrl: `${BASE_URL}/storefront/order-success?${successParams.toString()}`,
+    successUrl: `${baseForSuccess}/storefront/order-success?${successParams.toString()}`,
   });
 }

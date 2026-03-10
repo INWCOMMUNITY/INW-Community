@@ -270,10 +270,14 @@ export default function CartPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(makePayload(cashItems)),
+          credentials: "include",
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          setError(getErrorMessage(data.error, "Checkout failed"));
+          const msg = res.status === 401
+            ? "Your session has expired. Please sign in again to complete checkout."
+            : getErrorMessage(data.error, "Checkout failed");
+          setError(msg);
           return;
         }
         if (data.url) {
@@ -288,10 +292,14 @@ export default function CartPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(makePayload(cashItems)),
+          credentials: "include",
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          setError(getErrorMessage(data.error, "Checkout failed"));
+          const msg = res.status === 401
+            ? "Your session has expired. Please sign in again to complete checkout."
+            : getErrorMessage(data.error, "Checkout failed");
+          setError(msg);
           return;
         }
         cashOrderIds = data.orderIds ?? [];
@@ -320,6 +328,7 @@ export default function CartPage() {
       if (cardItems.some((i) => (i.fulfillmentType ?? "ship") === "ship")) {
         stripeBody.shippingAddress = shippingAddress;
       }
+      if (typeof window !== "undefined") stripeBody.returnBaseUrl = window.location.origin;
 
       const useEmbeddedCheckout = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
       if (!useEmbeddedCheckout) {
@@ -333,10 +342,14 @@ export default function CartPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(stripeBody),
+        credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(getErrorMessage(data.error, "Checkout failed"));
+        const msg = res.status === 401
+          ? "Your session has expired. Please sign in again to complete checkout."
+          : getErrorMessage(data.error, "Checkout failed");
+        setError(msg);
         return;
       }
       const payments =
@@ -932,9 +945,20 @@ export default function CartPage() {
                 )}
 
                 {error && (
-                  <p className="text-sm mb-2" style={{ color: "var(--color-primary)" }}>
-                    {error}
-                  </p>
+                  <div className="mb-2">
+                    <p className="text-sm mb-2" style={{ color: "var(--color-primary)" }}>
+                      {error}
+                    </p>
+                    {(error.toLowerCase().includes("session") || error.toLowerCase().includes("sign in")) && (
+                      <Link
+                        href="/login?callbackUrl=/cart"
+                        className="text-sm font-medium underline"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        Sign in to continue
+                      </Link>
+                    )}
+                  </div>
                 )}
                 {hasLocalDelivery && !localDeliveryDetailsForCheckout && (
                   <p className="text-sm mb-2" style={{ color: "var(--color-primary)" }}>

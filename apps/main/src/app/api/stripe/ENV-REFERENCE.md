@@ -10,7 +10,7 @@ Use this as a checklist. **Do not commit real secrets.** Copy the names into you
 # Database (must match root .env if you use one)
 DATABASE_URL="postgresql://..."
 
-# Auth
+# Auth (NEXTAUTH_URL is used for sign-in and post-checkout redirect URLs)
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="generate-with-openssl-rand-base64-32"
 
@@ -64,7 +64,8 @@ Set these in your **production** environment (Vercel Project → Settings → En
 # Database (production DB URL)
 DATABASE_URL="postgresql://..."
 
-# Auth
+# Auth (required for sign-in and redirects)
+# NEXTAUTH_URL must be your canonical site URL. If unset, storefront checkout can redirect users to the wrong place after payment. The app falls back to VERCEL_URL when set, but you should set NEXTAUTH_URL in production.
 NEXTAUTH_URL="https://www.inwcommunity.com"
 NEXTAUTH_SECRET="same-as-or-different-from-local-use-strong-secret"
 

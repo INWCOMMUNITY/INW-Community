@@ -456,7 +456,10 @@ export default function ResaleProductDetailPage() {
       const intentRes = await fetch("/api/stripe/storefront-checkout-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          ...body,
+          returnBaseUrl: typeof window !== "undefined" ? window.location.origin : undefined,
+        }),
       });
       const intentData = await intentRes.json().catch(() => ({}));
       if (!intentRes.ok) {

@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardPoints } from "@/lib/award-points";
+import { getBaseUrl } from "@/lib/get-base-url";
 import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
-
-const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -205,6 +204,6 @@ export async function POST(req: NextRequest) {
   }
 
   const orderIdsParam = orderIds.join(",");
-  const url = `${BASE_URL}/storefront/order-success?cash=1&order_ids=${encodeURIComponent(orderIdsParam)}`;
+  const url = `${getBaseUrl()}/storefront/order-success?cash=1&order_ids=${encodeURIComponent(orderIdsParam)}`;
   return NextResponse.json({ orderIds, url });
 }
