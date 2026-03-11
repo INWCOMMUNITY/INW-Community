@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getBlockedMemberIds } from "@/lib/member-block";
 
 /**
  * GET /api/me/sidebar-alerts
  * Returns counts for sidebar badge indicators (unread messages, pending friend requests).
+ * Unread = message requests (pending from others) + accepted conversations where last message is from the other person.
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -12,12 +14,49 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [unreadMessages, incomingFriendRequests] = await Promise.all([
-    Promise.resolve(0), // unread message count when read tracking is implemented
+  const [conversations, blockedIds, incomingFriendRequests] = await Promise.all([
+    prisma.directConversation.findMany({
+      where: {
+        OR: [
+          { memberAId: session.user.id },
+          { memberBId: session.user.id },
+        ],
+      },
+      select: {
+        status: true,
+        requestedByMemberId: true,
+        memberAId: true,
+        memberBId: true,
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { senderId: true },
+        },
+      },
+    }),
+    getBlockedMemberIds(session.user.id),
     prisma.friendRequest.count({
       where: { addresseeId: session.user.id, status: "pending" },
     }),
   ]);
+
+  const filtered = conversations.filter((c) => {
+    const otherId = c.memberAId === session.user.id ? c.memberBId : c.memberAId;
+    return !blockedIds.has(otherId);
+  });
+
+  const messageRequestsCount = filtered.filter(
+    (c) => c.status === "pending" && c.requestedByMemberId !== session.user.id
+  ).length;
+
+  const acceptedWithUnread = filtered.filter((c) => {
+    const isAccepted = c.status === "accepted" || c.requestedByMemberId === session.user.id;
+    if (!isAccepted) return false;
+    const last = c.messages[0];
+    return last && last.senderId !== session.user.id;
+  }).length;
+
+  const unreadMessages = messageRequestsCount + acceptedWithUnread;
 
   return NextResponse.json({
     unreadMessages,

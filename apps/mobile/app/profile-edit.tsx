@@ -331,6 +331,7 @@ export default function ProfileEditScreen() {
             placeholder="First name"
             placeholderTextColor={theme.colors.placeholder}
             autoCapitalize="words"
+            autoCorrect={true}
           />
         </View>
         <View style={styles.field}>
@@ -342,6 +343,7 @@ export default function ProfileEditScreen() {
             placeholder="Last name"
             placeholderTextColor={theme.colors.placeholder}
             autoCapitalize="words"
+            autoCorrect={true}
           />
         </View>
         <View style={styles.field}>
@@ -354,6 +356,7 @@ export default function ProfileEditScreen() {
             placeholderTextColor={theme.colors.placeholder}
             multiline
             numberOfLines={4}
+            autoCorrect={true}
           />
         </View>
         <View style={styles.field}>
@@ -365,6 +368,7 @@ export default function ProfileEditScreen() {
             placeholder="Your city"
             placeholderTextColor={theme.colors.placeholder}
             autoCapitalize="words"
+            autoCorrect={true}
           />
         </View>
         <View style={styles.field}>
@@ -376,6 +380,7 @@ export default function ProfileEditScreen() {
             placeholder="e.g. 555-123-4567"
             placeholderTextColor={theme.colors.placeholder}
             keyboardType="phone-pad"
+            autoCorrect={true}
           />
         </View>
 
@@ -410,6 +415,7 @@ export default function ProfileEditScreen() {
             placeholderTextColor={theme.colors.placeholder}
             autoCapitalize="words"
             textContentType="streetAddressLine1"
+            autoCorrect={true}
           />
           <View style={[styles.row, styles.addressRow]}>
             <TextInput
@@ -420,6 +426,7 @@ export default function ProfileEditScreen() {
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
               textContentType="addressCity"
+              autoCorrect={true}
             />
             <TextInput
               style={[styles.input, styles.inputQuarter]}
@@ -430,6 +437,7 @@ export default function ProfileEditScreen() {
               autoCapitalize="characters"
               maxLength={2}
               textContentType="addressState"
+              autoCorrect={true}
             />
             <TextInput
               style={[styles.input, styles.inputQuarter]}
@@ -439,6 +447,7 @@ export default function ProfileEditScreen() {
               placeholderTextColor={theme.colors.placeholder}
               keyboardType="number-pad"
               textContentType="postalCode"
+              autoCorrect={true}
             />
           </View>
         </View>

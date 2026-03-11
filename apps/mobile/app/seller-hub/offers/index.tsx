@@ -282,6 +282,7 @@ export default function OffersScreen() {
                 onChangeText={setCounterAmount}
                 keyboardType="decimal-pad"
                 placeholder="0.00"
+                autoCorrect={true}
               />
               <Text style={styles.modalLabel}>Message to buyer (optional)</Text>
               <TextInput
@@ -290,6 +291,7 @@ export default function OffersScreen() {
                 onChangeText={setCounterMessage}
                 placeholder="e.g. That's my best price including shipping"
                 multiline
+                autoCorrect={true}
               />
               <View style={styles.modalActions}>
                 <Pressable

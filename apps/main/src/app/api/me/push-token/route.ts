@@ -29,11 +29,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid Expo push token format" }, { status: 400 });
   }
 
-  await prisma.memberPushToken.upsert({
-    where: { token },
-    create: { memberId: session.user.id, token, deviceId: deviceId ?? null },
-    update: { memberId: session.user.id, deviceId: deviceId ?? undefined },
-  });
+  try {
+    await prisma.memberPushToken.upsert({
+      where: { token },
+      create: { memberId: session.user.id, token, deviceId: deviceId ?? null },
+      update: { memberId: session.user.id, deviceId: deviceId ?? undefined },
+    });
+  } catch (e: unknown) {
+    const code = (e as { code?: string })?.code;
+    if (code === "P2021") {
+      return NextResponse.json(
+        { error: "Push notifications not configured. The member_push_token table is missing in the database." },
+        { status: 503 }
+      );
+    }
+    throw e;
+  }
 
   return NextResponse.json({ ok: true });
 }

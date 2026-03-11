@@ -195,6 +195,7 @@ export function PostEventForm({
           onChangeText={setTitle}
           placeholder="Enter event title"
           placeholderTextColor={theme.colors.placeholder}
+          autoCorrect={true}
         />
       </View>
       <View style={styles.field}>
@@ -377,6 +378,7 @@ export function PostEventForm({
           onChangeText={setLocation}
           placeholder="Event location"
           placeholderTextColor={theme.colors.placeholder}
+          autoCorrect={true}
         />
       </View>
       <View style={styles.field}>
@@ -389,6 +391,7 @@ export function PostEventForm({
           placeholderTextColor={theme.colors.placeholder}
           multiline
           numberOfLines={3}
+          autoCorrect={true}
         />
       </View>
       <View style={styles.field}>

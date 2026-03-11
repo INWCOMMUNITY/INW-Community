@@ -172,6 +172,11 @@ export default function MyOrderDetailScreen() {
     }
   }, [id, cancelReason, cancelOther, cancelNote, load]);
 
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    load().finally(() => setRefreshing(false));
+  }, [load]);
+
   if (loading && !order) {
     return (
       <View style={styles.center}>
@@ -207,11 +212,6 @@ export default function MyOrderDetailScreen() {
     ? `https://www.google.com/search?q=track+${encodeURIComponent(trackingNumber)}`
     : null;
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    load().finally(() => setRefreshing(false));
-  }, [load]);
-
   return (
     <ScrollView
       style={styles.container}
@@ -233,6 +233,9 @@ export default function MyOrderDetailScreen() {
         <Text style={[styles.value, order.isCashOrder && { color: "#92400e" }]}>
           {order.isCashOrder ? "Awaiting Payment: Cash" : "Paid: Online NWC"}
         </Text>
+        {order.isCashOrder && (
+          <Text style={styles.paymentHint}>Pay when you pick up or receive delivery. No payment button needed.</Text>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -379,6 +382,7 @@ export default function MyOrderDetailScreen() {
                 placeholderTextColor="#999"
                 value={refundOther}
                 onChangeText={setRefundOther}
+                autoCorrect={true}
               />
             )}
             <Text style={styles.modalLabel}>Note (optional)</Text>
@@ -390,6 +394,7 @@ export default function MyOrderDetailScreen() {
               onChangeText={setRefundNote}
               multiline
               numberOfLines={2}
+              autoCorrect={true}
             />
             <View style={styles.modalButtons}>
               <Pressable style={styles.modalBtnCancel} onPress={() => !requestingRefund && setRefundModal(false)} disabled={requestingRefund}>
@@ -431,6 +436,7 @@ export default function MyOrderDetailScreen() {
                 placeholderTextColor="#999"
                 value={cancelOther}
                 onChangeText={setCancelOther}
+                autoCorrect={true}
               />
             )}
             <Text style={styles.modalLabel}>Note (optional)</Text>
@@ -442,6 +448,7 @@ export default function MyOrderDetailScreen() {
               onChangeText={setCancelNote}
               multiline
               numberOfLines={2}
+              autoCorrect={true}
             />
             <View style={styles.modalButtons}>
               <Pressable style={styles.modalBtnCancel} onPress={() => !canceling && setCancelConfirm(false)} disabled={canceling}>
@@ -479,6 +486,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   value: { fontSize: 16, color: "#333" },
+  paymentHint: { fontSize: 13, color: "#666", marginTop: 4, fontStyle: "italic" },
   statusCapitalize: { textTransform: "capitalize" },
   itemRow: {
     flexDirection: "row",

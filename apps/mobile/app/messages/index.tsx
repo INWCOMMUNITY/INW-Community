@@ -301,8 +301,11 @@ export default function MessagesInboxScreen() {
                   </View>
                   <View style={styles.rowContent}>
                     <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
-                    <Text style={styles.rowPreview} numberOfLines={1}>
-                      {last?.content ?? "No messages yet"}
+                    <Text
+                      style={[styles.rowPreview, last && last.senderId !== myId && styles.rowPreviewUnread]}
+                      numberOfLines={1}
+                    >
+                      {last?.content ?? "Message request"}
                     </Text>
                   </View>
                   <Text style={styles.rowTime}>{last ? formatTime(last.createdAt) : ""}</Text>
@@ -331,7 +334,10 @@ export default function MessagesInboxScreen() {
                   </View>
                   <View style={styles.rowContent}>
                     <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
-                    <Text style={styles.rowPreview} numberOfLines={1}>
+                    <Text
+                      style={[styles.rowPreview, last && last.senderId !== myId && styles.rowPreviewUnread]}
+                      numberOfLines={1}
+                    >
                       {last?.content ?? "No messages yet"}
                     </Text>
                   </View>
@@ -446,6 +452,7 @@ const styles = StyleSheet.create({
   rowContent: { flex: 1, minWidth: 0 },
   rowName: { fontSize: 16, fontWeight: "600", color: theme.colors.heading },
   rowPreview: { fontSize: 14, color: theme.colors.placeholder, marginTop: 2 },
+  rowPreviewUnread: { fontWeight: "700", color: theme.colors.heading },
   rowTime: { fontSize: 12, color: theme.colors.placeholder, marginLeft: 8 },
   requestsSection: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "#eee" },
   requestsSectionTitle: { fontSize: 13, fontWeight: "700", color: theme.colors.primary, marginBottom: 8 },

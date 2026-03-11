@@ -245,6 +245,7 @@ export default function ResaleConversationScreen() {
           multiline
           maxLength={5000}
           onSubmitEditing={send}
+          autoCorrect={true}
         />
         <Pressable
           style={({ pressed }) => [styles.sendBtn, (!message.trim() || sending) && styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}

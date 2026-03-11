@@ -243,6 +243,7 @@ export default function SignupSellerScreen() {
               autoCapitalize="none"
               keyboardType="email-address"
               placeholderTextColor={theme.colors.placeholder}
+              autoCorrect={true}
             />
             <TextInput
               style={styles.input}
@@ -251,6 +252,7 @@ export default function SignupSellerScreen() {
               onChangeText={setPassword}
               secureTextEntry
               placeholderTextColor={theme.colors.placeholder}
+              autoCorrect={true}
             />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <Text style={styles.termsText}>
@@ -347,6 +349,7 @@ export default function SignupSellerScreen() {
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
               textContentType="givenName"
+              autoCorrect={true}
             />
             <TextInput
               style={styles.input}
@@ -356,6 +359,7 @@ export default function SignupSellerScreen() {
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
               textContentType="familyName"
+              autoCorrect={true}
             />
             <TextInput
               style={styles.input}
@@ -365,6 +369,7 @@ export default function SignupSellerScreen() {
               keyboardType="phone-pad"
               placeholderTextColor={theme.colors.placeholder}
               textContentType="telephoneNumber"
+              autoCorrect={true}
             />
             <Text style={styles.sectionLabel}>Mailing address *</Text>
             <TextInput
@@ -375,6 +380,7 @@ export default function SignupSellerScreen() {
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
               textContentType="streetAddressLine1"
+              autoCorrect={true}
             />
             <View style={styles.row}>
               <TextInput
@@ -385,6 +391,7 @@ export default function SignupSellerScreen() {
                 placeholderTextColor={theme.colors.placeholder}
                 autoCapitalize="words"
                 textContentType="addressCity"
+                autoCorrect={true}
               />
               <TextInput
                 style={[styles.input, styles.inputQuarter]}
@@ -395,6 +402,7 @@ export default function SignupSellerScreen() {
                 autoCapitalize="characters"
                 maxLength={2}
                 textContentType="addressState"
+                autoCorrect={true}
               />
               <TextInput
                 style={[styles.input, styles.inputQuarter]}
@@ -404,6 +412,7 @@ export default function SignupSellerScreen() {
                 keyboardType="number-pad"
                 placeholderTextColor={theme.colors.placeholder}
                 textContentType="postalCode"
+                autoCorrect={true}
               />
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}

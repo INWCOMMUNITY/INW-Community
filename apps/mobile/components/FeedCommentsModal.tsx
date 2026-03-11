@@ -632,6 +632,7 @@ export function FeedCommentsModal({
                 multiline
                 maxLength={2000}
                 editable={!submitting}
+                autoCorrect={true}
               />
               <Pressable
                 onPress={handleSubmit}

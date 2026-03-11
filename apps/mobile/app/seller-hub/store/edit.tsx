@@ -271,6 +271,7 @@ export default function EditSellerProfileScreen() {
             value={name}
             onChangeText={setName}
             placeholder="My Store"
+            autoCorrect={true}
           />
 
           <Text style={labelStyle}>Company Phone</Text>
@@ -280,6 +281,7 @@ export default function EditSellerProfileScreen() {
             onChangeText={setPhone}
             placeholder="(555) 123-4567"
             keyboardType="phone-pad"
+            autoCorrect={true}
           />
 
           <Text style={labelStyle}>Contact Email</Text>
@@ -290,6 +292,7 @@ export default function EditSellerProfileScreen() {
             placeholder="store@example.com"
             keyboardType="email-address"
             autoCapitalize="none"
+            autoCorrect={true}
           />
 
           <Text style={labelStyle}>Store Description</Text>
@@ -300,6 +303,7 @@ export default function EditSellerProfileScreen() {
             placeholder="Describe your store..."
             multiline
             numberOfLines={4}
+            autoCorrect={true}
           />
 
           <Text style={labelStyle}>Website</Text>
@@ -310,6 +314,7 @@ export default function EditSellerProfileScreen() {
             placeholder="https://"
             keyboardType="url"
             autoCapitalize="none"
+            autoCorrect={true}
           />
 
           <Text style={labelStyle}>Storefront Address</Text>
@@ -318,6 +323,7 @@ export default function EditSellerProfileScreen() {
             value={address}
             onChangeText={setAddress}
             placeholder="123 Main St, City, State"
+            autoCorrect={true}
           />
         </View>
 
@@ -332,6 +338,7 @@ export default function EditSellerProfileScreen() {
             placeholderTextColor="#666"
             multiline
             numberOfLines={2}
+            autoCorrect={true}
           />
         </View>
 

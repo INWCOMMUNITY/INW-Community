@@ -9,49 +9,68 @@ function normalizePair(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
 }
 
+/** Detect DB errors from missing direct_conversation columns (status, requested_by_member_id). */
+function isDirectConversationSchemaError(e: unknown): boolean {
+  const code = (e as { code?: string })?.code;
+  const msg = (e as { message?: string })?.message ?? "";
+  return code === "P2021" || (typeof msg === "string" && (msg.includes("status") || msg.includes("requested_by_member_id")));
+}
+
+const MESSAGING_NOT_READY = "Messaging is not fully set up yet. Please try again in a few minutes or contact support.";
+
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [conversations, blockedIds] = await Promise.all([
-    prisma.directConversation.findMany({
-      where: {
-        OR: [
-          { memberAId: session.user.id },
-          { memberBId: session.user.id },
-        ],
-      },
-      include: {
-        memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-        memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-        messages: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { content: true, createdAt: true, senderId: true },
+  try {
+    const [conversations, blockedIds] = await Promise.all([
+      prisma.directConversation.findMany({
+        where: {
+          OR: [
+            { memberAId: session.user.id },
+            { memberBId: session.user.id },
+          ],
         },
-      },
-      orderBy: { updatedAt: "desc" },
-    }),
-    getBlockedMemberIds(session.user.id),
-  ]);
-  const filtered = conversations.filter((c) => {
-    const otherId = c.memberAId === session.user.id ? c.memberBId : c.memberAId;
-    return !blockedIds.has(otherId);
-  });
+        include: {
+          memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+          memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+          messages: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { content: true, createdAt: true, senderId: true },
+          },
+        },
+        orderBy: { updatedAt: "desc" },
+      }),
+      getBlockedMemberIds(session.user.id),
+    ]);
+    const filtered = conversations.filter((c) => {
+      const otherId = c.memberAId === session.user.id ? c.memberBId : c.memberAId;
+      return !blockedIds.has(otherId);
+    });
 
-  const messageRequests = filtered.filter(
-    (c) => c.status === "pending" && c.requestedByMemberId !== session.user.id
-  );
-  const acceptedList = filtered.filter(
-    (c) => c.status === "accepted" || c.requestedByMemberId === session.user.id
-  );
+    const messageRequests = filtered.filter(
+      (c) => c.status === "pending" && c.requestedByMemberId !== session.user.id
+    );
+    const acceptedList = filtered.filter(
+      (c) => c.status === "accepted" || c.requestedByMemberId === session.user.id
+    );
 
-  return NextResponse.json({
-    conversations: acceptedList,
-    messageRequests,
-  });
+    return NextResponse.json({
+      conversations: acceptedList,
+      messageRequests,
+    });
+  } catch (e: unknown) {
+    if (isDirectConversationSchemaError(e)) {
+      return NextResponse.json(
+        { error: MESSAGING_NOT_READY, conversations: [], messageRequests: [] },
+        { status: 503 }
+      );
+    }
+    throw e;
+  }
 }
 
 const postBodySchema = z.object({
@@ -94,38 +113,52 @@ export async function POST(req: NextRequest) {
 
   const [memberAId, memberBId] = normalizePair(session.user.id, data.addresseeId);
 
-  const areFriends = await prisma.friendRequest.findFirst({
-    where: {
-      status: "accepted",
-      OR: [
-        { requesterId: session.user.id, addresseeId: data.addresseeId },
-        { requesterId: data.addresseeId, addresseeId: session.user.id },
-      ],
-    },
-  });
-
-  let conversation = await prisma.directConversation.findUnique({
-    where: {
-      memberAId_memberBId: { memberAId, memberBId },
-    },
+  let conversation: Awaited<ReturnType<typeof prisma.directConversation.findUnique<{
     include: {
-      memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-      memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-      messages: { orderBy: { createdAt: "asc" }, include: { sender: { select: { id: true, firstName: true, lastName: true } } } },
-    },
-  });
+      memberA: { select: { id: true; firstName: true; lastName: true; profilePhotoUrl: true } };
+      memberB: { select: { id: true; firstName: true; lastName: true; profilePhotoUrl: true } };
+      messages: { orderBy: { createdAt: "asc" }; include: { sender: { select: { id: true; firstName: true; lastName: true } } } };
+    };
+  }>>> | null = null;
+  try {
+    const areFriends = await prisma.friendRequest.findFirst({
+      where: {
+        status: "accepted",
+        OR: [
+          { requesterId: session.user.id, addresseeId: data.addresseeId },
+          { requesterId: data.addresseeId, addresseeId: session.user.id },
+        ],
+      },
+    });
 
-  if (!conversation) {
-    const status = areFriends ? "accepted" : "pending";
-    const requestedByMemberId = areFriends ? null : session.user.id;
-    conversation = await prisma.directConversation.create({
-      data: { memberAId, memberBId, status, requestedByMemberId },
+    conversation = await prisma.directConversation.findUnique({
+      where: {
+        memberAId_memberBId: { memberAId, memberBId },
+      },
       include: {
         memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
         memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
         messages: { orderBy: { createdAt: "asc" }, include: { sender: { select: { id: true, firstName: true, lastName: true } } } },
       },
     });
+
+    if (!conversation) {
+      const status = areFriends ? "accepted" : "pending";
+      const requestedByMemberId = areFriends ? null : session.user.id;
+      conversation = await prisma.directConversation.create({
+        data: { memberAId, memberBId, status, requestedByMemberId },
+        include: {
+          memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+          memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+          messages: { orderBy: { createdAt: "asc" }, include: { sender: { select: { id: true, firstName: true, lastName: true } } } },
+        },
+      });
+    }
+  } catch (e: unknown) {
+    if (isDirectConversationSchemaError(e)) {
+      return NextResponse.json({ error: MESSAGING_NOT_READY }, { status: 503 });
+    }
+    throw e;
   }
 
   const hasContent = data.content !== undefined && data.content.trim() !== "";

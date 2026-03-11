@@ -132,6 +132,7 @@ export default function SignupResidentScreen() {
             placeholderTextColor={theme.colors.placeholder}
             autoCapitalize="words"
             textContentType="givenName"
+            autoCorrect={true}
           />
           <TextInput
             style={styles.input}
@@ -141,6 +142,7 @@ export default function SignupResidentScreen() {
             placeholderTextColor={theme.colors.placeholder}
             autoCapitalize="words"
             textContentType="familyName"
+            autoCorrect={true}
           />
           <TextInput
             style={styles.input}
@@ -151,6 +153,7 @@ export default function SignupResidentScreen() {
             keyboardType="email-address"
             placeholderTextColor={theme.colors.placeholder}
             textContentType="emailAddress"
+            autoCorrect={true}
           />
           <TextInput
             style={styles.input}
@@ -160,6 +163,7 @@ export default function SignupResidentScreen() {
             secureTextEntry
             placeholderTextColor={theme.colors.placeholder}
             textContentType="newPassword"
+            autoCorrect={true}
           />
           <TextInput
             style={styles.input}
@@ -169,6 +173,7 @@ export default function SignupResidentScreen() {
             secureTextEntry
             placeholderTextColor={theme.colors.placeholder}
             textContentType="newPassword"
+            autoCorrect={true}
           />
           <View style={styles.ageRow}>
             <Switch
@@ -186,6 +191,7 @@ export default function SignupResidentScreen() {
             onChangeText={setCity}
             placeholderTextColor={theme.colors.placeholder}
             autoCapitalize="words"
+            autoCorrect={true}
           />
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Text style={styles.termsText}>

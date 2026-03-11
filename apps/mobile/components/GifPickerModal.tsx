@@ -142,6 +142,7 @@ export function GifPickerModal({
                   onChangeText={setSearch}
                   onSubmitEditing={handleSearch}
                   returnKeyType="search"
+                  autoCorrect={true}
                 />
                 <Pressable
                   onPress={handleSearch}

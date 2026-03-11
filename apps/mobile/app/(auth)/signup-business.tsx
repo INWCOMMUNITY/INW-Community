@@ -252,6 +252,7 @@ export default function SignupBusinessScreen() {
               autoCapitalize="none"
               keyboardType="email-address"
               placeholderTextColor={theme.colors.placeholder}
+              autoCorrect={true}
             />
             <TextInput
               style={styles.input}
@@ -260,6 +261,7 @@ export default function SignupBusinessScreen() {
               onChangeText={setPassword}
               secureTextEntry
               placeholderTextColor={theme.colors.placeholder}
+              autoCorrect={true}
             />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <Text style={styles.termsText}>
@@ -356,6 +358,7 @@ export default function SignupBusinessScreen() {
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
               textContentType="givenName"
+              autoCorrect={true}
             />
             <TextInput
               style={styles.input}
@@ -365,6 +368,7 @@ export default function SignupBusinessScreen() {
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
               textContentType="familyName"
+              autoCorrect={true}
             />
             <TextInput
               style={styles.input}
@@ -374,6 +378,7 @@ export default function SignupBusinessScreen() {
               keyboardType="phone-pad"
               placeholderTextColor={theme.colors.placeholder}
               textContentType="telephoneNumber"
+              autoCorrect={true}
             />
             <TextInput
               style={styles.input}
@@ -383,6 +388,7 @@ export default function SignupBusinessScreen() {
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
               textContentType="streetAddressLine1"
+              autoCorrect={true}
             />
             <TextInput
               style={styles.input}
@@ -392,6 +398,7 @@ export default function SignupBusinessScreen() {
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="words"
               textContentType="addressCity"
+              autoCorrect={true}
             />
             <View style={styles.row}>
               <TextInput
@@ -403,6 +410,7 @@ export default function SignupBusinessScreen() {
                 autoCapitalize="characters"
                 maxLength={2}
                 textContentType="addressState"
+                autoCorrect={true}
               />
               <TextInput
                 style={[styles.input, styles.halfInput]}
@@ -413,6 +421,7 @@ export default function SignupBusinessScreen() {
                 keyboardType="number-pad"
                 maxLength={10}
                 textContentType="postalCode"
+                autoCorrect={true}
               />
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}

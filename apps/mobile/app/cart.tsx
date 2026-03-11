@@ -505,6 +505,7 @@ export default function CartScreen() {
                     onChangeText={(t) => setShippingAddress((s) => ({ ...s, street: t }))}
                     textContentType="streetAddressLine1"
                     autoComplete="street-address"
+                    autoCorrect={true}
                   />
                   <TextInput
                     style={styles.input}
@@ -514,6 +515,7 @@ export default function CartScreen() {
                     onChangeText={(t) => setShippingAddress((s) => ({ ...s, aptOrSuite: t }))}
                     textContentType="streetAddressLine2"
                     autoComplete="address-line2"
+                    autoCorrect={true}
                   />
                   <View style={styles.row2}>
                     <TextInput
@@ -524,6 +526,7 @@ export default function CartScreen() {
                       onChangeText={(t) => setShippingAddress((s) => ({ ...s, city: t }))}
                       textContentType="addressCity"
                       autoComplete="address-line2"
+                      autoCorrect={true}
                     />
                     <TextInput
                       style={[styles.input, styles.inputHalf]}
@@ -533,6 +536,7 @@ export default function CartScreen() {
                       onChangeText={(t) => setShippingAddress((s) => ({ ...s, state: t }))}
                       textContentType="addressState"
                       autoComplete="address-line1"
+                      autoCorrect={true}
                     />
                   </View>
                   <TextInput
@@ -544,6 +548,7 @@ export default function CartScreen() {
                     keyboardType="numeric"
                     textContentType="postalCode"
                     autoComplete="postal-code"
+                    autoCorrect={true}
                   />
                 </View>
               )}

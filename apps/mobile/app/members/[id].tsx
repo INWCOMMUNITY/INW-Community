@@ -203,7 +203,9 @@ export default function MemberProfileScreen() {
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {profile.firstName} {profile.lastName}
+        </Text>
         {!isOwnProfile && currentMember && (
           <Pressable style={styles.menuBtn} onPress={() => setMenuOpen(true)}>
             <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
@@ -257,9 +259,16 @@ export default function MemberProfileScreen() {
                 onPress={handleAddFriend}
                 disabled={!!actionLoading}
               >
-                <Text style={styles.primaryBtnText}>
-                  {actionLoading === "friend" ? "…" : friendStatus === "pending_incoming" ? "Accept" : "Add friend"}
-                </Text>
+                {actionLoading === "friend" ? (
+                  <Text style={styles.primaryBtnText}>…</Text>
+                ) : (
+                  <>
+                    <Ionicons name="person-add" size={20} color="#fff" style={styles.primaryBtnIcon} />
+                    <Text style={styles.primaryBtnText}>
+                      {friendStatus === "pending_incoming" ? "Accept" : "Add friend"}
+                    </Text>
+                  </>
+                )}
               </Pressable>
             )}
             {friendStatus === "friends" && <Text style={styles.friendsLabel}>Friends</Text>}
@@ -327,7 +336,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#000",
   },
   backBtn: { padding: 8, marginRight: 8 },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: "#fff" },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: "#fff", textAlign: "center" },
   menuBtn: { padding: 8 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 32 },
@@ -352,8 +361,9 @@ const styles = StyleSheet.create({
   badgesRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   badgeChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: "#f0f0f0" },
   badgeText: { fontSize: 12, color: "#555" },
-  actionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 20 },
-  primaryBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
+  actionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 20, justifyContent: "center", alignItems: "center" },
+  primaryBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
+  primaryBtnIcon: { marginRight: 0 },
   primaryBtnText: { fontSize: 15, fontWeight: "600", color: "#fff" },
   secondaryBtn: {
     flexDirection: "row",

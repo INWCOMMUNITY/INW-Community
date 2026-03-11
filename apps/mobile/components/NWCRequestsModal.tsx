@@ -115,6 +115,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
                 placeholder="Your name"
                 placeholderTextColor={theme.colors.placeholder}
                 autoCapitalize="words"
+                autoCorrect={true}
               />
               <Text style={styles.label}>Email</Text>
               <TextInput
@@ -125,6 +126,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
                 placeholderTextColor={theme.colors.placeholder}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={true}
               />
               <Text style={styles.label}>Message</Text>
               <TextInput
@@ -135,6 +137,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
                 placeholderTextColor={theme.colors.placeholder}
                 multiline
                 numberOfLines={4}
+                autoCorrect={true}
               />
               {error ? <Text style={styles.error}>{error}</Text> : null}
               <View style={styles.actions}>

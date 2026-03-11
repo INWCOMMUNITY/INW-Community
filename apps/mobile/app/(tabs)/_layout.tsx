@@ -342,12 +342,12 @@ function TabLayoutInner() {
                           >
                             <Text
                               style={{
-                                fontSize: 11,
-                                fontWeight: "700",
+                                fontSize: 12,
+                                fontWeight: "800",
                                 color: theme.colors.primary,
                               }}
                             >
-                              {unreadMessages > 99 ? "99+" : unreadMessages}
+                              !
                             </Text>
                           </View>
                         )}

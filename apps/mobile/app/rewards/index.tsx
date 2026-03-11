@@ -499,6 +499,7 @@ export default function RewardsScreen() {
               placeholderTextColor="#999"
               value={rewardSearch}
               onChangeText={setRewardSearch}
+              autoCorrect={true}
             />
             {error ? <Text style={styles.errorMsg}>{error}</Text> : null}
             {rewards.length === 0 ? (

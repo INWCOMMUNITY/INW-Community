@@ -462,6 +462,7 @@ export default function ShipScreen() {
                     value={dim.weightOz ? String(dim.weightOz) : ""}
                     onChangeText={(v) => updateDim(key, "weightOz", v)}
                     keyboardType="numeric"
+                    autoCorrect={true}
                   />
                   <TextInput
                     style={[styles.dimInput, { marginHorizontal: 4 }]}
@@ -470,6 +471,7 @@ export default function ShipScreen() {
                     value={dim.lengthIn ? String(dim.lengthIn) : ""}
                     onChangeText={(v) => updateDim(key, "lengthIn", v)}
                     keyboardType="numeric"
+                    autoCorrect={true}
                   />
                   <TextInput
                     style={[styles.dimInput, { marginHorizontal: 4 }]}
@@ -478,6 +480,7 @@ export default function ShipScreen() {
                     value={dim.widthIn ? String(dim.widthIn) : ""}
                     onChangeText={(v) => updateDim(key, "widthIn", v)}
                     keyboardType="numeric"
+                    autoCorrect={true}
                   />
                   <TextInput
                     style={[styles.dimInput, { marginLeft: 4 }]}
@@ -486,6 +489,7 @@ export default function ShipScreen() {
                     value={dim.heightIn ? String(dim.heightIn) : ""}
                     onChangeText={(v) => updateDim(key, "heightIn", v)}
                     keyboardType="numeric"
+                    autoCorrect={true}
                   />
                 </View>
                 <Pressable

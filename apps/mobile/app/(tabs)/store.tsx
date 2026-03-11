@@ -349,6 +349,7 @@ export default function StoreScreen() {
               placeholderTextColor={theme.colors.placeholder}
               value={search}
               onChangeText={setSearch}
+              autoCorrect={true}
             />
             {listingType === "resale" && (
               <Pressable

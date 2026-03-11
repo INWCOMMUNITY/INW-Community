@@ -166,6 +166,7 @@ export function LocalDeliveryModal({
                   placeholder="First name"
                   placeholderTextColor={theme.colors.placeholder}
                   autoCapitalize="words"
+                  autoCorrect={true}
                 />
               </View>
               <View style={styles.fieldHalf}>
@@ -177,6 +178,7 @@ export function LocalDeliveryModal({
                   placeholder="Last name"
                   placeholderTextColor={theme.colors.placeholder}
                   autoCapitalize="words"
+                  autoCorrect={true}
                 />
               </View>
             </View>
@@ -189,6 +191,7 @@ export function LocalDeliveryModal({
                 placeholder="Phone"
                 placeholderTextColor={theme.colors.placeholder}
                 keyboardType="phone-pad"
+                autoCorrect={true}
               />
             </View>
             <View style={styles.field}>
@@ -204,6 +207,7 @@ export function LocalDeliveryModal({
                 }
                 placeholder="Street"
                 placeholderTextColor={theme.colors.placeholder}
+                autoCorrect={true}
               />
               <View style={styles.row}>
                 <TextInput
@@ -217,6 +221,7 @@ export function LocalDeliveryModal({
                   }
                   placeholder="City"
                   placeholderTextColor={theme.colors.placeholder}
+                  autoCorrect={true}
                 />
                 <TextInput
                   style={[styles.input, styles.inputThird]}
@@ -229,6 +234,7 @@ export function LocalDeliveryModal({
                   }
                   placeholder="State"
                   placeholderTextColor={theme.colors.placeholder}
+                  autoCorrect={true}
                 />
                 <TextInput
                   style={[styles.input, styles.inputThird]}
@@ -242,6 +248,7 @@ export function LocalDeliveryModal({
                   placeholder="ZIP"
                   placeholderTextColor={theme.colors.placeholder}
                   keyboardType="numeric"
+                  autoCorrect={true}
                 />
               </View>
             </View>
@@ -255,6 +262,7 @@ export function LocalDeliveryModal({
                 placeholderTextColor={theme.colors.placeholder}
                 multiline
                 numberOfLines={2}
+                autoCorrect={true}
               />
             </View>
             <View style={styles.termsRow}>

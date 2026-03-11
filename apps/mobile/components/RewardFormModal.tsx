@@ -327,6 +327,7 @@ export function RewardFormModal({
                       onChangeText={setTitle}
                       placeholder="e.g. $25 gift card"
                       placeholderTextColor={theme.colors.placeholder}
+                      autoCorrect={true}
                     />
                   </View>
 
@@ -340,6 +341,7 @@ export function RewardFormModal({
                       placeholderTextColor={theme.colors.placeholder}
                       multiline
                       numberOfLines={3}
+                      autoCorrect={true}
                     />
                   </View>
 
@@ -353,6 +355,7 @@ export function RewardFormModal({
                         placeholder="e.g. 500"
                         placeholderTextColor={theme.colors.placeholder}
                         keyboardType="number-pad"
+                        autoCorrect={true}
                       />
                     </View>
                     <View style={[styles.field, styles.half]}>
@@ -364,6 +367,7 @@ export function RewardFormModal({
                         placeholder="e.g. 10"
                         placeholderTextColor={theme.colors.placeholder}
                         keyboardType="number-pad"
+                        autoCorrect={true}
                       />
                     </View>
                   </View>

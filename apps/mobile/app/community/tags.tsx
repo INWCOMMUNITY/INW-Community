@@ -101,6 +101,7 @@ export default function TagsScreen() {
         placeholderTextColor={theme.colors.placeholder}
         value={search}
         onChangeText={setSearch}
+        autoCorrect={true}
       />
 
       {loading ? (

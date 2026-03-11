@@ -886,6 +886,7 @@ export default function ProductScreen() {
                     value={messageSellerText}
                     onChangeText={setMessageSellerText}
                     editable={!sendingMessage}
+                    autoCorrect={true}
                   />
                   <View style={styles.messageSellerModalActions}>
                     <Pressable

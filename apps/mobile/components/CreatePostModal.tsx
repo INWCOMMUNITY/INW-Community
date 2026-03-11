@@ -296,6 +296,7 @@ export function CreatePostModal({
             onChangeText={setContent}
             multiline
             editable={!submitting}
+            autoCorrect={true}
           />
 
           {/* Selected tags display */}
@@ -448,6 +449,7 @@ export function CreatePostModal({
               autoFocus
               returnKeyType="done"
               onSubmitEditing={addCustomTag}
+              autoCorrect={true}
             />
             {tagSearch.trim() ? (
               <Pressable style={styles.addTagBtn} onPress={addCustomTag}>
@@ -512,6 +514,7 @@ export function CreatePostModal({
               placeholderTextColor="#999"
               value={friendSearch}
               onChangeText={setFriendSearch}
+              autoCorrect={true}
             />
           </View>
           {friendLoading ? (

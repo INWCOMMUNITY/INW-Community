@@ -81,6 +81,7 @@ export function SellerForm({ onSubmit, loading, error }: SellerFormProps) {
             onChangeText={setPhone}
             keyboardType="phone-pad"
             placeholderTextColor={theme.colors.placeholder}
+            autoCorrect={true}
           />
           <Text style={styles.sectionLabel}>Shipping address (optional)</Text>
           <TextInput
@@ -89,6 +90,7 @@ export function SellerForm({ onSubmit, loading, error }: SellerFormProps) {
             value={street}
             onChangeText={setStreet}
             placeholderTextColor={theme.colors.placeholder}
+            autoCorrect={true}
           />
           <View style={styles.row}>
             <TextInput
@@ -97,6 +99,7 @@ export function SellerForm({ onSubmit, loading, error }: SellerFormProps) {
               value={city}
               onChangeText={setCity}
               placeholderTextColor={theme.colors.placeholder}
+              autoCorrect={true}
             />
             <TextInput
               style={[styles.input, styles.inputQuarter]}
@@ -105,6 +108,7 @@ export function SellerForm({ onSubmit, loading, error }: SellerFormProps) {
               onChangeText={setState}
               placeholderTextColor={theme.colors.placeholder}
               autoCapitalize="characters"
+              autoCorrect={true}
             />
             <TextInput
               style={[styles.input, styles.inputQuarter]}
@@ -113,6 +117,7 @@ export function SellerForm({ onSubmit, loading, error }: SellerFormProps) {
               onChangeText={setZip}
               keyboardType="number-pad"
               placeholderTextColor={theme.colors.placeholder}
+              autoCorrect={true}
             />
           </View>
           {error ? <Text style={styles.error}>{error}</Text> : null}

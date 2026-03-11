@@ -486,8 +486,8 @@ export default function DirectConversationScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
     >
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
@@ -655,6 +655,9 @@ export default function DirectConversationScreen() {
           multiline
           maxLength={5000}
           onSubmitEditing={send}
+          autoCorrect
+          autoComplete="sentences"
+          textContentType="none"
         />
         <Pressable
           style={({ pressed }) => [styles.sendBtn, (!message.trim() || sending) && styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}
@@ -809,8 +812,9 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    padding: 12,
-    paddingBottom: 24,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
     borderTopWidth: 1,
     borderTopColor: "#eee",
     backgroundColor: "#fff",

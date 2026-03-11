@@ -353,6 +353,7 @@ export function CouponPopup({
                       value={secretKeyInput}
                       onChangeText={(t) => { setSecretKeyInput(t); setRedeemError(null); }}
                       autoCapitalize="none"
+                      autoCorrect={true}
                       editable={!redeeming}
                       onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 300)}
                     />

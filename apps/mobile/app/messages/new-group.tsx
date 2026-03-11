@@ -112,6 +112,7 @@ export default function NewGroupScreen() {
           placeholderTextColor={theme.colors.placeholder}
           value={groupName}
           onChangeText={setGroupName}
+          autoCorrect={true}
         />
         <TextInput
           style={styles.searchInput}
@@ -119,6 +120,7 @@ export default function NewGroupScreen() {
           placeholderTextColor={theme.colors.placeholder}
           value={search}
           onChangeText={setSearch}
+          autoCorrect={true}
         />
       </View>
 

@@ -280,6 +280,7 @@ export function CouponFormModal({
                   onChangeText={setName}
                   placeholder="e.g. 25% off first month"
                   placeholderTextColor={theme.colors.placeholder}
+                  autoCorrect={true}
                 />
               </View>
 
@@ -291,6 +292,7 @@ export function CouponFormModal({
                   onChangeText={setDiscount}
                   placeholder="e.g. 25% off first month"
                   placeholderTextColor={theme.colors.placeholder}
+                  autoCorrect={true}
                 />
               </View>
 
@@ -302,6 +304,7 @@ export function CouponFormModal({
                   onChangeText={setCode}
                   placeholder="e.g. SAVE25"
                   placeholderTextColor={theme.colors.placeholder}
+                  autoCorrect={true}
                 />
               </View>
 
@@ -317,6 +320,7 @@ export function CouponFormModal({
                   placeholder="e.g. PLUMBER2026"
                   placeholderTextColor={theme.colors.placeholder}
                   autoCapitalize="none"
+                  autoCorrect={true}
                 />
               </View>
 
@@ -332,6 +336,7 @@ export function CouponFormModal({
                   keyboardType="number-pad"
                   placeholder="1"
                   placeholderTextColor={theme.colors.placeholder}
+                  autoCorrect={true}
                 />
               </View>
 

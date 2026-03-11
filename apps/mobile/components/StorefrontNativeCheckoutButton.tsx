@@ -129,7 +129,13 @@ export function StorefrontNativeCheckoutButton({
     } catch (e) {
       const err = e as { error?: string; status?: number };
       if (err.status === 401) {
-        Alert.alert("Sign in required", "Please sign in to checkout.", [{ text: "OK" }]);
+        const message = err.error ?? "Your session expired. Please sign in again to checkout.";
+        onError(message);
+        Alert.alert(
+          "Sign in required",
+          message + " After signing in, return to your cart and tap Checkout again.",
+          [{ text: "OK" }]
+        );
       } else {
         onError(err.error ?? "Checkout failed");
       }

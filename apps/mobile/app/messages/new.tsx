@@ -109,6 +109,7 @@ export default function NewConversationScreen() {
           placeholderTextColor={theme.colors.placeholder}
           value={search}
           onChangeText={setSearch}
+          autoCorrect={true}
         />
       </View>
 
@@ -119,6 +120,7 @@ export default function NewConversationScreen() {
         value={initialMessage}
         onChangeText={setInitialMessage}
         multiline
+        autoCorrect={true}
       />
 
       {loading ? (

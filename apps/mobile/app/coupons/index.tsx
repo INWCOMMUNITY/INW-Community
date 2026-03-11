@@ -314,6 +314,7 @@ export default function CouponsScreen() {
                   placeholderTextColor={theme.colors.placeholder}
                   value={search}
                   onChangeText={setSearch}
+                  autoCorrect={true}
                 />
                 <ScrollView
                   horizontal

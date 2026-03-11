@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -188,8 +188,8 @@ export default function MyFriendsScreen() {
     load();
   };
 
-  const searchMembers = useCallback(async () => {
-    const q = searchQuery.trim();
+  const searchMembers = useCallback(async (query: string) => {
+    const q = query.trim();
     if (!q || q.length < 2) {
       setSearchResults([]);
       return;
@@ -205,7 +205,26 @@ export default function MyFriendsScreen() {
     } finally {
       setSearching(false);
     }
-  }, [searchQuery]);
+  }, []);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    debounceRef.current = setTimeout(() => {
+      searchMembers(q);
+      debounceRef.current = null;
+    }, 350);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchQuery, searchMembers]);
 
   const addFriend = useCallback(async (addresseeId: string) => {
     await apiPost("/api/friend-requests", { addresseeId });
@@ -241,17 +260,17 @@ export default function MyFriendsScreen() {
             placeholderTextColor={theme.colors.placeholder}
             value={searchQuery}
             onChangeText={setSearchQuery}
+            autoCorrect={true}
           />
-          <Pressable
-            style={({ pressed }) => [styles.searchBtn, pressed && styles.buttonPressed]}
-            onPress={searchMembers}
-          >
-            {searching ? (
+          {searching ? (
+            <View style={styles.searchBtn}>
               <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name="search" size={22} color="#fff" />
-            )}
-          </Pressable>
+            </View>
+          ) : (
+            <View style={styles.searchIconOnly}>
+              <Ionicons name="search" size={22} color="#999" />
+            </View>
+          )}
         </View>
         <Text style={styles.hint}>Search by name (2+ characters) or browse below.</Text>
       </View>
@@ -397,6 +416,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     justifyContent: "center",
     minWidth: 48,
+  },
+  searchIconOnly: {
+    padding: 12,
+    justifyContent: "center",
+    minWidth: 48,
+    alignItems: "center",
   },
   hint: { fontSize: 12, color: "#666", marginTop: 8 },
   buttonPressed: { opacity: 0.8 },

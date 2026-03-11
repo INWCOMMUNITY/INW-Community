@@ -155,6 +155,7 @@ export function PickupTermsModal({
                   placeholder="First name"
                   placeholderTextColor={theme.colors.placeholder}
                   autoCapitalize="words"
+                  autoCorrect={true}
                 />
               </View>
               <View style={styles.fieldHalf}>
@@ -166,6 +167,7 @@ export function PickupTermsModal({
                   placeholder="Last name"
                   placeholderTextColor={theme.colors.placeholder}
                   autoCapitalize="words"
+                  autoCorrect={true}
                 />
               </View>
             </View>
@@ -178,6 +180,7 @@ export function PickupTermsModal({
                 placeholder="Phone"
                 placeholderTextColor={theme.colors.placeholder}
                 keyboardType="phone-pad"
+                autoCorrect={true}
               />
             </View>
             <View style={styles.field}>
@@ -190,6 +193,7 @@ export function PickupTermsModal({
                 placeholderTextColor={theme.colors.placeholder}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={true}
               />
             </View>
             <View style={styles.field}>
@@ -202,6 +206,7 @@ export function PickupTermsModal({
                 }
                 placeholder="e.g. Weekday mornings, Saturday after 2pm"
                 placeholderTextColor={theme.colors.placeholder}
+                autoCorrect={true}
               />
             </View>
             <View style={styles.field}>
@@ -214,6 +219,7 @@ export function PickupTermsModal({
                 placeholderTextColor={theme.colors.placeholder}
                 multiline
                 numberOfLines={2}
+                autoCorrect={true}
               />
             </View>
             {hasPolicy ? (

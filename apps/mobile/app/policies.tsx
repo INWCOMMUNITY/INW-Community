@@ -153,6 +153,7 @@ export default function PoliciesScreen() {
               multiline
               numberOfLines={4}
               textAlignVertical="top"
+              autoCorrect={true}
             />
           </View>
         ))}

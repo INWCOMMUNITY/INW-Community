@@ -173,6 +173,7 @@ export default function GroupsScreen() {
           placeholderTextColor={theme.colors.placeholder}
           value={searchQuery}
           onChangeText={setSearchQuery}
+          autoCorrect={true}
         />
         <Pressable
           style={({ pressed }) => [styles.createBtn, pressed && styles.buttonPressed]}
@@ -208,6 +209,7 @@ export default function GroupsScreen() {
             placeholderTextColor={theme.colors.placeholder}
             value={createName}
             onChangeText={setCreateName}
+            autoCorrect={true}
           />
           <TextInput
             style={[styles.input, styles.inputMultiline]}
@@ -217,6 +219,7 @@ export default function GroupsScreen() {
             onChangeText={setCreateDescription}
             multiline
             numberOfLines={3}
+            autoCorrect={true}
           />
           <TextInput
             style={styles.input}
@@ -224,6 +227,7 @@ export default function GroupsScreen() {
             placeholderTextColor={theme.colors.placeholder}
             value={createCategory}
             onChangeText={setCreateCategory}
+            autoCorrect={true}
           />
           <TextInput
             style={[styles.input, styles.inputMultiline]}
@@ -233,6 +237,7 @@ export default function GroupsScreen() {
             onChangeText={setCreateRules}
             multiline
             numberOfLines={4}
+            autoCorrect={true}
           />
           <View style={styles.createActions}>
             <Pressable

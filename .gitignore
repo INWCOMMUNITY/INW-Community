@@ -1,4 +1,4 @@
-node_modules
+cenode_modules
 
 # Next.js build output
 .next
@@ -15,3 +15,4 @@ last-vercel-build.log
 .env.local
 .env.production
 .env.development
+node_modules

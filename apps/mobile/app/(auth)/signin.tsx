@@ -195,6 +195,7 @@ export default function SignInScreen() {
           placeholderTextColor={theme.colors.placeholder}
           textContentType="emailAddress"
           autoComplete="email"
+          autoCorrect={true}
         />
         <TextInput
           style={styles.input}
@@ -205,6 +206,7 @@ export default function SignInScreen() {
           placeholderTextColor={theme.colors.placeholder}
           textContentType="password"
           autoComplete="password"
+          autoCorrect={true}
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {errorDetails ? (

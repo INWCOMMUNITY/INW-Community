@@ -85,6 +85,7 @@ export function StoreFilterDrawer({
           placeholderTextColor={theme.colors.placeholder}
           value={search}
           onChangeText={onSearchChange}
+          autoCorrect={true}
         />
 
         <ScrollView

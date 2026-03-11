@@ -258,6 +258,7 @@ export function ShareToChatModal({
                   onChangeText={setShareToFeedText}
                   multiline
                   autoFocus
+                  autoCorrect={true}
                 />
               </ScrollView>
 

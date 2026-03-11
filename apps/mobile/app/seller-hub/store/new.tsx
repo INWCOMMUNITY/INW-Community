@@ -723,6 +723,7 @@ export default function ListItemScreen() {
         value={title}
         onChangeText={setTitle}
         maxLength={200}
+        autoCorrect={true}
       />
 
       <Text style={styles.label}>Description</Text>
@@ -734,6 +735,7 @@ export default function ListItemScreen() {
         onChangeText={setDescription}
         multiline
         numberOfLines={4}
+        autoCorrect={true}
       />
 
       <Text style={styles.label}>Price ($) *</Text>
@@ -744,6 +746,7 @@ export default function ListItemScreen() {
         value={priceCents}
         onChangeText={setPriceCents}
         keyboardType="decimal-pad"
+        autoCorrect={true}
       />
 
       {/* Options: Enable Options checkbox, then either Quantity or option groups */}
@@ -782,6 +785,7 @@ export default function ListItemScreen() {
                         return next;
                       })
                     }
+                    autoCorrect={true}
                   />
                   <Pressable
                     onPress={() =>
@@ -806,6 +810,7 @@ export default function ListItemScreen() {
                           setVariantOptionQuantity(vi, oi, Number.isNaN(n) ? 0 : n);
                         }}
                         keyboardType="number-pad"
+                        autoCorrect={true}
                       />
                       <Pressable
                         onPress={() => removeVariantOption(vi, oi)}
@@ -841,6 +846,7 @@ export default function ListItemScreen() {
               value={quantity}
               onChangeText={setQuantity}
               keyboardType="number-pad"
+              autoCorrect={true}
             />
           </>
         )}
@@ -853,6 +859,7 @@ export default function ListItemScreen() {
         placeholderTextColor={placeholderColor}
         value={category}
         onChangeText={setCategory}
+        autoCorrect={true}
       />
 
       {/* Delivery options - three toggles from policy */}
@@ -891,6 +898,7 @@ export default function ListItemScreen() {
                   }}
                   keyboardType="decimal-pad"
                   editable={!shippingFree}
+                  autoCorrect={true}
                 />
                 <View style={styles.checkboxRow}>
                   <Pressable
@@ -938,6 +946,7 @@ export default function ListItemScreen() {
                     }}
                     editable={!useSellerProfileShipping}
                     multiline
+                    autoCorrect={true}
                     numberOfLines={3}
                   />
                   <Pressable
@@ -998,6 +1007,7 @@ export default function ListItemScreen() {
                   value={localDeliveryFeeDollars}
                   onChangeText={setLocalDeliveryFeeDollars}
                   keyboardType="decimal-pad"
+                  autoCorrect={true}
                 />
                 <Text style={styles.label}>Local delivery terms</Text>
                 <View style={styles.policyRow}>
@@ -1017,6 +1027,7 @@ export default function ListItemScreen() {
                     onChangeText={(v) => {
                       if (!useSellerProfileLocalDelivery) setLocalDeliveryTerms(v);
                     }}
+                    autoCorrect={true}
                     editable={!useSellerProfileLocalDelivery}
                     multiline
                     numberOfLines={3}
@@ -1084,6 +1095,7 @@ export default function ListItemScreen() {
                     }}
                     editable={!useSellerProfilePickup}
                     multiline
+                    autoCorrect={true}
                     numberOfLines={3}
                   />
                   <Pressable
@@ -1235,6 +1247,7 @@ function AddOptionInput({
             setVal("");
           }
         }}
+        autoCorrect={true}
       />
       <Pressable
         style={({ pressed }) => [styles.addOptionBtn, pressed && { opacity: 0.8 }]}
