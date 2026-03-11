@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
@@ -40,9 +40,9 @@ export async function GET(req: NextRequest) {
     },
   } as const;
 
-  async function mapRowsToMembers(
-    rows: Awaited<ReturnType<typeof prisma.member.findMany>>
-  ) {
+  type MemberRow = Prisma.MemberGetPayload<{ select: typeof memberSelect }>;
+
+  async function mapRowsToMembers(rows: MemberRow[]) {
     const businessIds = [...new Set(rows.flatMap((r) => r.savedItems.map((s) => s.referenceId)))];
     const businessMap = new Map(
       businessIds.length > 0
@@ -68,11 +68,15 @@ export async function GET(req: NextRequest) {
     }));
   }
 
-  const searchOr = q.length >= 2
-    ? [{ firstName: { contains: q, mode: "insensitive" } }, { lastName: { contains: q, mode: "insensitive" } }] as const
-    : null;
+  const searchOr =
+    q.length >= 2
+      ? ([
+          { firstName: { contains: q, mode: "insensitive" as const } },
+          { lastName: { contains: q, mode: "insensitive" as const } },
+        ] satisfies Prisma.MemberWhereInput["OR"])
+      : null;
 
-  let rows: Awaited<ReturnType<typeof prisma.member.findMany>>;
+  let rows: MemberRow[];
   try {
     rows = await prisma.member.findMany({
       where: searchOr
@@ -87,7 +91,8 @@ export async function GET(req: NextRequest) {
     const code = (e as { code?: string })?.code;
     if (code === "P2021") {
       rows = await prisma.member.findMany({
-        where: searchOr ? { ...baseWhereNoBlocks, OR: searchOr } : baseWhereNoBlocks,
+        where:
+          searchOr ? { ...baseWhereNoBlocks, OR: searchOr } : baseWhereNoBlocks,
         select: memberSelect,
         take: limit,
         skip,
