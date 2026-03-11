@@ -77,7 +77,8 @@ function formatDate(s: string): string {
 }
 
 export default function MyOrderDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: idParam } = useLocalSearchParams<{ id: string }>();
+  const orderId = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? idParam[0] : undefined;
   const router = useRouter();
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,9 +96,14 @@ export default function MyOrderDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(() => {
-    if (!id) return Promise.resolve();
+    if (!orderId) {
+      setLoading(false);
+      setError("Order not found");
+      setOrder(null);
+      return Promise.resolve();
+    }
     setError(null);
-    return apiGet<StoreOrder | { error: string }>(`/api/store-orders/${id}`)
+    return apiGet<StoreOrder | { error: string }>(`/api/store-orders/${orderId}`)
       .then((data) => {
         if (data && typeof data === "object" && "error" in data) {
           setError((data as { error: string }).error);
@@ -115,12 +121,12 @@ export default function MyOrderDetailScreen() {
         setOrder(null);
       })
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [orderId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const requestRefund = useCallback(async () => {
-    if (!id || !refundReason.trim()) {
+    if (!orderId || !refundReason.trim()) {
       Alert.alert("Select a reason", "Please select a reason for your refund request.");
       return;
     }
@@ -130,7 +136,7 @@ export default function MyOrderDetailScreen() {
     }
     setRequestingRefund(true);
     try {
-      await apiPost(`/api/store-orders/${id}/request-refund`, {
+      await apiPost(`/api/store-orders/${orderId}/request-refund`, {
         reason: refundReason,
         otherReason: refundReason === "Other" ? refundOther : undefined,
         note: refundNote.trim() || undefined,
@@ -147,13 +153,13 @@ export default function MyOrderDetailScreen() {
     } finally {
       setRequestingRefund(false);
     }
-  }, [id, refundReason, refundOther, refundNote, load]);
+  }, [orderId, refundReason, refundOther, refundNote, load]);
 
   const cancelOrder = useCallback(async () => {
-    if (!id) return;
+    if (!orderId) return;
     setCanceling(true);
     try {
-      const res = await apiPost<{ refunded?: boolean }>(`/api/store-orders/${id}/cancel`, {
+      const res = await apiPost<{ refunded?: boolean }>(`/api/store-orders/${orderId}/cancel`, {
         reason: cancelReason || undefined,
         otherReason: cancelReason === "Other" ? cancelOther : undefined,
         note: cancelNote.trim() || undefined,
@@ -170,49 +176,44 @@ export default function MyOrderDetailScreen() {
     } finally {
       setCanceling(false);
     }
-  }, [id, cancelReason, cancelOther, cancelNote, load]);
+  }, [orderId, cancelReason, cancelOther, cancelNote, load]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     load().finally(() => setRefreshing(false));
   }, [load]);
 
-  if (loading && !order) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
-  }
-
-  if (error || !order) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>{error ?? "Order not found"}</Text>
-        <View style={styles.errorButtons}>
-          <Pressable style={styles.backBtn} onPress={() => load()}>
-            <Text style={styles.backBtnText}>Retry</Text>
-          </Pressable>
-          <Pressable style={styles.backBtnOutline} onPress={() => router.back()}>
-            <Text style={styles.backBtnOutlineText}>Back to My Orders</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
-  const sellerName =
-    order.seller?.businesses?.[0]?.name ??
-    (`${order.seller?.firstName ?? ""} ${order.seller?.lastName ?? ""}`.trim() || "Seller");
-  const shippingAddressStr = order.shippingAddress
+  const viewMode: "loading" | "error" | "content" =
+    loading && !order ? "loading" : error || !order ? "error" : "content";
+  const sellerName = order
+    ? (order.seller?.businesses?.[0]?.name ??
+      (`${order.seller?.firstName ?? ""} ${order.seller?.lastName ?? ""}`.trim() || "Seller"))
+    : "";
+  const shippingAddressStr = order && order.shippingAddress
     ? formatShippingAddress(order.shippingAddress)
     : null;
-  const trackingNumber = order.shipment?.trackingNumber?.trim();
+  const trackingNumber = order?.shipment?.trackingNumber?.trim();
   const trackingUrl = trackingNumber
     ? `https://www.google.com/search?q=track+${encodeURIComponent(trackingNumber)}`
     : null;
 
-  return (
+  return viewMode === "loading" ? (
+    <View style={styles.center}>
+      <ActivityIndicator size="large" color={theme.colors.primary} />
+    </View>
+  ) : viewMode === "error" ? (
+    <View style={styles.center}>
+      <Text style={styles.errorText}>{error ?? "Order not found"}</Text>
+      <View style={styles.errorButtons}>
+        <Pressable style={styles.backBtn} onPress={() => load()}>
+          <Text style={styles.backBtnText}>Retry</Text>
+        </Pressable>
+        <Pressable style={styles.backBtnOutline} onPress={() => router.back()}>
+          <Text style={styles.backBtnOutlineText}>Back to My Orders</Text>
+        </View>
+      </View>
+    </View>
+  ) : order ? (
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -252,20 +253,34 @@ export default function MyOrderDetailScreen() {
         <View style={styles.section}>
           <Text style={styles.label}>Items</Text>
           {order.items.map((oi) => {
-            const photoUrl = oi.storeItem?.photos?.[0]
-              ? resolvePhotoUrl(oi.storeItem.photos[0])
-              : undefined;
+            const photos = (oi.storeItem?.photos ?? []).filter(Boolean);
+            const photoUrls = photos.map((p) => resolvePhotoUrl(p)).filter((u): u is string => !!u);
+            const firstPhotoUrl = photoUrls[0];
             return (
               <View key={oi.id} style={styles.itemRow}>
-                {photoUrl ? (
-                  <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
-                ) : (
-                  <View style={[styles.itemThumb, styles.itemThumbPlaceholder]}>
-                    <Text style={styles.itemThumbText}>
-                      {oi.storeItem?.title?.[0] ?? "?"}
-                    </Text>
-                  </View>
-                )}
+                <View style={styles.itemPhotos}>
+                  {firstPhotoUrl ? (
+                    <Image source={{ uri: firstPhotoUrl }} style={styles.itemThumb} />
+                  ) : (
+                    <View style={[styles.itemThumb, styles.itemThumbPlaceholder]}>
+                      <Text style={styles.itemThumbText}>
+                        {oi.storeItem?.title?.[0] ?? "?"}
+                      </Text>
+                    </View>
+                  )}
+                  {photoUrls.length > 1 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.itemPhotosRow}
+                      contentContainerStyle={styles.itemPhotosRowContent}
+                    >
+                      {photoUrls.slice(1).map((uri, idx) => (
+                        <Image key={idx} source={{ uri }} style={styles.itemThumbSmall} />
+                      ))}
+                    </ScrollView>
+                  ) : null}
+                </View>
                 <View style={styles.itemBody}>
                   <Text style={styles.itemTitle}>
                     {oi.storeItem?.title ?? "Item"} × {oi.quantity}
@@ -464,7 +479,7 @@ export default function MyOrderDetailScreen() {
 
       <View style={{ height: 32 }} />
     </ScrollView>
-  );
+  ) : null;
 }
 
 const styles = StyleSheet.create({
@@ -490,14 +505,20 @@ const styles = StyleSheet.create({
   statusCapitalize: { textTransform: "capitalize" },
   itemRow: {
     flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
+    alignItems: "flex-start",
+    marginBottom: 16,
   },
-  itemThumb: { width: 48, height: 48, borderRadius: 8, marginRight: 12 },
+  itemPhotos: { marginRight: 12 },
+  itemThumb: { width: 80, height: 80, borderRadius: 8 },
+  itemThumbSmall: { width: 48, height: 48, borderRadius: 6, marginLeft: 6 },
+  itemPhotosRow: { marginTop: 6, maxHeight: 52 },
+  itemPhotosRowContent: { paddingRight: 8 },
   itemThumbPlaceholder: {
     backgroundColor: theme.colors.cream,
     justifyContent: "center",
     alignItems: "center",
+    width: 80,
+    height: 80,
   },
   itemThumbText: { fontSize: 18, fontWeight: "600", color: theme.colors.primary },
   itemBody: { flex: 1, minWidth: 0 },

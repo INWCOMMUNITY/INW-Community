@@ -112,10 +112,11 @@ export function StorefrontNativeCheckoutButton({
             });
           }
           if (isStaleIntent) {
-            onError("Payment session expired. Please try checkout again.");
+            const detail = msg ? ` (${msg})` : "";
+            onError("Payment session expired. Please try checkout again." + detail);
             Alert.alert(
               "Session expired",
-              "The previous payment session is no longer valid. Tap Checkout again to start a new one.",
+              "The previous payment session is no longer valid. Tap Checkout again to start a new one." + detail,
               [{ text: "OK" }]
             );
           } else {
@@ -139,10 +140,11 @@ export function StorefrontNativeCheckoutButton({
               });
             }
             if (isStaleIntent) {
-              onError("Payment session expired. Please try checkout again.");
+              const detail = msg ? ` (${msg})` : "";
+              onError("Payment session expired. Please try checkout again." + detail);
               Alert.alert(
                 "Session expired",
-                "The payment session expired. Tap Checkout again to start a new one.",
+                "The payment session expired. Tap Checkout again to start a new one." + detail,
                 [{ text: "OK" }]
               );
             } else {

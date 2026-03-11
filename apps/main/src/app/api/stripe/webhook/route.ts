@@ -83,7 +83,9 @@ async function createBusinessFromMetadata(
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.text();
+  // Use blob().then(.text()) so the raw body is preserved (req.text() can be
+  // re-encoded on some platforms and break Stripe signature verification).
+  const body = await (await req.blob()).text();
   const sig = req.headers.get("stripe-signature");
   if (!sig) {
     console.warn("[stripe/webhook] 400: missing stripe-signature header");
@@ -118,7 +120,10 @@ export async function POST(req: NextRequest) {
   }
   if (!event) {
     const msg = lastError instanceof Error ? lastError.message : String(lastError);
-    console.warn("[stripe/webhook] 400: invalid signature", { detail: msg });
+    console.warn("[stripe/webhook] 400: invalid signature", {
+      detail: msg,
+      hint: "Ensure STRIPE_WEBHOOK_SECRET (and STRIPE_CONNECT_WEBHOOK_SECRET if used) match the signing secret for this endpoint in Stripe Dashboard (Developers → Webhooks), and that the request body is not modified by a proxy.",
+    });
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
