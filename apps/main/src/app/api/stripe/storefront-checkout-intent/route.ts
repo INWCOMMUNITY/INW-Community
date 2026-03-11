@@ -8,6 +8,16 @@ import { getAvailableQuantity } from "@/lib/store-item-variants";
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
   if (!session?.user?.id) {
+    // Diagnostic (dev only): confirm whether failure is missing cookie vs NextAuth returning null
+    if (process.env.NODE_ENV === "development") {
+      const hasBearer = req.headers.get("authorization")?.startsWith("Bearer ") ?? false;
+      const nextAuthCookie =
+        req.cookies.get("__Secure-next-auth.session-token") ?? req.cookies.get("next-auth.session-token");
+      console.warn("[storefront-checkout-intent] session null", {
+        hasBearer,
+        hasNextAuthCookie: Boolean(nextAuthCookie),
+      });
+    }
     return NextResponse.json(
       { error: "Session expired. Please sign in again." },
       { status: 401 }
@@ -263,6 +273,26 @@ export async function POST(req: NextRequest) {
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Checkout failed";
+      const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(message);
+      if (accountGone) {
+        await prisma.member
+          .update({
+            where: { id: pair.sellerId },
+            data: { stripeConnectAccountId: null },
+          })
+          .catch(() => {});
+        await prisma.storeOrder.updateMany({
+          where: { id: pair.orderId },
+          data: { status: "canceled" },
+        }).catch(() => {});
+        return NextResponse.json(
+          {
+            error:
+              "One seller's payment account is no longer valid. They need to complete payment setup again in Seller Hub. Please remove their items from the cart or try again after they complete setup.",
+          },
+          { status: 400 }
+        );
+      }
       return NextResponse.json(
         { error: `Payment setup failed for one seller: ${message}` },
         { status: 400 }

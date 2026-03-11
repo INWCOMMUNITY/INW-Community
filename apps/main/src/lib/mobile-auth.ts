@@ -92,10 +92,15 @@ export async function getSessionForApi(
     }
   }
 
-  // 2. Try NextAuth session (web) – pass request so cookies are read from the actual request
+  // 2. Try NextAuth session (web) – pass request so cookies are read from the actual request.
+  // NextAuth reads the session cookie via req.cookies.get("next-auth.session-token") (or __Secure-* in prod),
+  // so we must provide a cookies object with a get() method; a plain object would not work.
   const reqContext = {
     headers: Object.fromEntries(req.headers.entries()),
-    cookies: Object.fromEntries(req.cookies.getAll().map((c) => [c.name, c.value])),
+    cookies: {
+      get: (name: string) => req.cookies.get(name) ?? null,
+      getAll: () => req.cookies.getAll(),
+    },
   };
   const resContext = { getHeader: () => undefined, setCookie: () => {}, setHeader: () => {} };
   // eslint-disable-next-line
