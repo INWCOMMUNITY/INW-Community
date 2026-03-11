@@ -86,11 +86,13 @@ export async function POST(req: NextRequest) {
   const body = await req.text();
   const sig = req.headers.get("stripe-signature");
   if (!sig) {
+    console.warn("[stripe/webhook] 400: missing stripe-signature header");
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
   }
   const platformSecret = process.env.STRIPE_WEBHOOK_SECRET;
   const connectSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
   if (!platformSecret?.trim() && !connectSecret?.trim()) {
+    console.warn("[stripe/webhook] 400: STRIPE_WEBHOOK_SECRET and STRIPE_CONNECT_WEBHOOK_SECRET both missing or empty");
     return NextResponse.json({ error: "Missing webhook secret(s)" }, { status: 400 });
   }
   let event: Stripe.Event;
@@ -115,6 +117,8 @@ export async function POST(req: NextRequest) {
     }
   }
   if (!event) {
+    const msg = lastError instanceof Error ? lastError.message : String(lastError);
+    console.warn("[stripe/webhook] 400: invalid signature", { detail: msg });
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
