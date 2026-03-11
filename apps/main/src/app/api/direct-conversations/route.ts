@@ -114,6 +114,7 @@ export async function POST(req: NextRequest) {
   const [memberAId, memberBId] = normalizePair(session.user.id, data.addresseeId);
 
   let conversation: Awaited<ReturnType<typeof prisma.directConversation.findUnique<{
+    where: { memberAId_memberBId: { memberAId: string; memberBId: string } };
     include: {
       memberA: { select: { id: true; firstName: true; lastName: true; profilePhotoUrl: true } };
       memberB: { select: { id: true; firstName: true; lastName: true; profilePhotoUrl: true } };
