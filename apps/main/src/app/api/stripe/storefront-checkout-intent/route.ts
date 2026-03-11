@@ -90,10 +90,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Cancel any existing pending orders for this buyer so we don't accumulate duplicates
-  // when they tap Checkout multiple times (e.g. retry after cancel or session expired)
+  // Cancel older pending orders for this buyer to avoid duplicates when they tap Checkout
+  // multiple times (e.g. retry after cancel or session expired). Leave orders created in the
+  // last 60s so a double-tap doesn't cancel the first request's orders before the client uses them.
+  const cancelPendingOlderThan = new Date(Date.now() - 60 * 1000);
   await prisma.storeOrder.updateMany({
-    where: { buyerId: session.user.id, status: "pending" },
+    where: {
+      buyerId: session.user.id,
+      status: "pending",
+      createdAt: { lt: cancelPendingOlderThan },
+    },
     data: { status: "canceled" },
   });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -109,13 +109,32 @@ export default function CartScreen() {
     state: "",
     zip: "",
   });
+  const scrollViewRef = useRef<ScrollView>(null);
+
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
     else setLoading(true);
     setError("");
     try {
-      const data = await apiGet<CartItem[]>("/api/cart");
-      setItems(Array.isArray(data) ? data : []);
+      const [cartData, meData] = await Promise.all([
+        apiGet<CartItem[]>("/api/cart"),
+        apiGet<{ deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string } | null }>("/api/me").catch(() => null),
+      ]);
+      setItems(Array.isArray(cartData) ? cartData : []);
+      const addr = meData?.deliveryAddress;
+      if (addr && (addr.street ?? addr.city ?? addr.state ?? addr.zip)) {
+        setShippingAddress((prev) => {
+          const empty = !prev.street?.trim() && !prev.city?.trim() && !prev.state?.trim() && !prev.zip?.trim();
+          if (!empty) return prev;
+          return {
+            street: addr.street ?? "",
+            aptOrSuite: prev.aptOrSuite ?? "",
+            city: addr.city ?? "",
+            state: addr.state ?? "",
+            zip: addr.zip ?? "",
+          };
+        });
+      }
     } catch (e) {
       const err = e as { status?: number };
       if (err.status === 401) {
@@ -133,6 +152,13 @@ export default function CartScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // When "Payment session expired" is shown, scroll to Checkout button so "Tap Checkout again" is visible.
+  useEffect(() => {
+    if (error && error.includes("Payment session expired")) {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [error]);
 
   const removeItem = async (itemId: string) => {
     try {
@@ -370,6 +396,7 @@ export default function CartScreen() {
         </View>
       ) : (
         <ScrollView
+          ref={scrollViewRef}
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           refreshControl={
@@ -413,6 +440,11 @@ export default function CartScreen() {
           {error ? (
             <View style={styles.errorBanner}>
               <Text style={styles.errorText}>{error}</Text>
+              {error.includes("Payment session expired") ? (
+                <Text style={styles.errorHint}>Tap the Checkout button below to start a new payment session.</Text>
+              ) : (error.includes("sign in") || error.includes("Session expired")) ? (
+                <Text style={styles.errorHint}>Sign in above, then return to your cart and tap Checkout.</Text>
+              ) : null}
             </View>
           ) : null}
 
@@ -738,6 +770,12 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#c00",
     fontSize: 14,
+  },
+  errorHint: {
+    color: "#c00",
+    fontSize: 13,
+    marginTop: 6,
+    opacity: 0.9,
   },
   warningBanner: {
     backgroundColor: "#fef3cd",

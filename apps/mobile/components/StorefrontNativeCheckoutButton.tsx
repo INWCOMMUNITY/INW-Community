@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -39,12 +39,23 @@ export function StorefrontNativeCheckoutButton({
 }: StorefrontNativeCheckoutButtonProps) {
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
   const [loading, setLoading] = useState(false);
+  const completedRef = useRef(false);
+
+  const CHECKOUT_TIMEOUT_MS = 60000;
 
   const handlePress = useCallback(async () => {
     if (disabled || loading) return;
     setCheckingOut(true);
     setLoading(true);
     onError("");
+    completedRef.current = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      if (completedRef.current) return;
+      completedRef.current = true;
+      onError("Checkout timed out. Please try again.");
+      setLoading(false);
+      setCheckingOut(false);
+    }, CHECKOUT_TIMEOUT_MS);
 
     try {
       const data = await apiPost<{
@@ -63,6 +74,8 @@ export function StorefrontNativeCheckoutButton({
         return;
       }
 
+      // Each tap fetches fresh PaymentIntents from the API. Retry after "session expired" relies on
+      // re-initing with this new clientSecret; @stripe/stripe-react-native does not expose a reset API.
       for (let i = 0; i < payments.length; i++) {
         const p = payments[i];
         const { error: initErr } = await initPaymentSheet({
@@ -90,6 +103,14 @@ export function StorefrontNativeCheckoutButton({
         if (initErr) {
           const msg = initErr.message ?? "";
           const isStaleIntent = /No such payment_intent|payment_intent.*does not exist/i.test(msg);
+          if (__DEV__) {
+            console.warn("[StorefrontCheckout] initPaymentSheet failed", {
+              step: "init",
+              code: (initErr as { code?: string }).code,
+              message: msg,
+              isStaleIntent,
+            });
+          }
           if (isStaleIntent) {
             onError("Payment session expired. Please try checkout again.");
             Alert.alert(
@@ -109,6 +130,14 @@ export function StorefrontNativeCheckoutButton({
           if (presentErr.code !== "Canceled") {
             const msg = presentErr.message ?? "Payment failed";
             const isStaleIntent = /No such payment_intent|payment_intent.*does not exist/i.test(msg);
+            if (__DEV__) {
+              console.warn("[StorefrontCheckout] presentPaymentSheet failed", {
+                step: "present",
+                code: presentErr.code,
+                message: msg,
+                isStaleIntent,
+              });
+            }
             if (isStaleIntent) {
               onError("Payment session expired. Please try checkout again.");
               Alert.alert(
@@ -140,6 +169,10 @@ export function StorefrontNativeCheckoutButton({
         onError(err.error ?? "Checkout failed");
       }
     } finally {
+      if (timeoutId != null) clearTimeout(timeoutId);
+      completedRef.current = true;
+      // All error paths above return from try; finally always runs so loading/checkout state
+      // is reset and "Tap Checkout again" is tappable.
       setLoading(false);
       setCheckingOut(false);
     }
