@@ -210,7 +210,7 @@ export default function MyOrderDetailScreen() {
         </Pressable>
         <Pressable style={styles.backBtnOutline} onPress={() => router.back()}>
           <Text style={styles.backBtnOutlineText}>Back to My Orders</Text>
-        </View>
+        </Pressable>
       </View>
     </View>
   ) : order ? (
