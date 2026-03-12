@@ -221,6 +221,9 @@ export async function POST(req: NextRequest) {
       }
       throw e;
     }
+    if (!conversation) {
+      return NextResponse.json({ error: MESSAGING_NOT_READY }, { status: 503 });
+    }
     const otherId =
       conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
     const isRequest = conversation.status === "pending";
