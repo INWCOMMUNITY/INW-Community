@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
+import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { z } from "zod";
@@ -223,6 +224,9 @@ export async function PATCH(
     where: { id: itemId },
     data: update as object,
   });
+  if (item.status === "sold_out") {
+    deleteFeedPostsForSoldItem(itemId).catch(() => {});
+  }
   return NextResponse.json(item);
 }
 

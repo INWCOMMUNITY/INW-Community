@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
         where: {
           sellerId: userId,
           refundRequestedAt: { not: null },
+          status: { not: "refunded" },
         },
       }),
       prisma.sellerBalance.findUnique({

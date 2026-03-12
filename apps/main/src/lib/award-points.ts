@@ -50,3 +50,43 @@ export async function awardPoints(memberId: string, amount: number): Promise<voi
       : []),
   ]);
 }
+
+/**
+ * Deduct points from a member (e.g. when an order is refunded or canceled).
+ * Decrements spendable balance, all-time earned, and current season earned; never goes below zero.
+ */
+export async function deductPoints(memberId: string, amount: number): Promise<void> {
+  if (amount <= 0) return;
+  const seasonId = await getCurrentSeasonId();
+  const member = await prisma.member.findUnique({
+    where: { id: memberId },
+    select: { points: true, allTimePointsEarned: true },
+  });
+  if (!member) return;
+  const deductFromPoints = Math.min(amount, member.points);
+  const deductFromAllTime = Math.min(amount, member.allTimePointsEarned);
+  if (deductFromPoints <= 0 && deductFromAllTime <= 0) return;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.member.update({
+      where: { id: memberId },
+      data: {
+        points: { decrement: deductFromPoints },
+        allTimePointsEarned: { decrement: deductFromAllTime },
+      },
+    });
+    if (seasonId && amount > 0) {
+      const existing = await tx.memberSeasonPoints.findUnique({
+        where: { memberId_seasonId: { memberId, seasonId } },
+        select: { pointsEarned: true },
+      });
+      const seasonDeduct = Math.min(amount, existing?.pointsEarned ?? 0);
+      if (seasonDeduct > 0) {
+        await tx.memberSeasonPoints.update({
+          where: { memberId_seasonId: { memberId, seasonId } },
+          data: { pointsEarned: { decrement: seasonDeduct } },
+        });
+      }
+    }
+  });
+}

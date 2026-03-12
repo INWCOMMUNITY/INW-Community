@@ -95,7 +95,21 @@ export default function PostsAndPhotosScreen() {
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : posts.length === 0 ? (
-        <Text style={styles.empty}>Awaiting a collection of the members&apos; photos and posts.</Text>
+        <View style={styles.emptyWrap}>
+          <Text style={styles.empty}>
+            Add photos or create a post. All posts you make appear on this page. It is visible to friends when they see your page.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.emptyCta, pressed && styles.tilePressed]}
+            onPress={() =>
+              router.push(
+                `/web?url=${encodeURIComponent(`${siteBase}/my-community`)}&title=${encodeURIComponent("Community Feed")}` as never
+              )
+            }
+          >
+            <Text style={styles.emptyCtaText}>Create a post</Text>
+          </Pressable>
+        </View>
       ) : (
         <View style={styles.grid}>
           {posts.map((p) => {
@@ -137,7 +151,15 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: "700", color: theme.colors.heading, marginBottom: 8 },
   subtitle: { fontSize: 14, color: "#666", marginBottom: 20 },
   center: { paddingVertical: 48, alignItems: "center" },
-  empty: { fontSize: 15, color: "#888", textAlign: "center", paddingVertical: 32 },
+  emptyWrap: { paddingVertical: 32, paddingHorizontal: 16, alignItems: "center" },
+  empty: { fontSize: 15, color: "#888", textAlign: "center", marginBottom: 20 },
+  emptyCta: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  emptyCtaText: { fontSize: 16, fontWeight: "600", color: "#fff" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   tile: { borderRadius: 8, overflow: "hidden" },
   tilePressed: { opacity: 0.8 },

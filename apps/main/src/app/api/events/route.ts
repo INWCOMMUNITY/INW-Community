@@ -123,7 +123,7 @@ export async function GET(req: NextRequest) {
         status: "approved",
         ...(isCuid(slug) ? { id: slug } : { slug }),
       },
-      include: { business: { select: { name: true, slug: true } } },
+      include: { business: { select: { name: true, slug: true, memberId: true } } },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

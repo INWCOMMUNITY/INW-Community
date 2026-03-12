@@ -60,6 +60,7 @@ interface StoreItem {
     logoUrl?: string | null;
     fullDescription?: string | null;
   };
+  soldAt?: string;
 }
 
 const RESALE_BASE = "/resale";
@@ -616,7 +617,11 @@ export default function ResaleProductDetailPage() {
         </Link>
         {itemUnavailable && (
           <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
-            <p className="text-amber-800 font-semibold">This item was sold.</p>
+            <p className="text-amber-800 font-semibold">
+              {item?.soldAt
+                ? `This item was sold on ${new Date(item.soldAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`
+                : "This item was sold."}
+            </p>
           </div>
         )}
 

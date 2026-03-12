@@ -21,7 +21,7 @@ export default async function EventDetailPage({
   const { slug } = await params;
   const event = await prisma.event.findFirst({
     where: isCuid(slug) ? { id: slug } : { slug },
-    include: { business: { select: { name: true, slug: true } } },
+    include: { business: { select: { name: true, slug: true, memberId: true } } },
   });
   if (!event) notFound();
 
@@ -74,7 +74,9 @@ export default async function EventDetailPage({
         )}
         <HeartSaveButton type="event" referenceId={event.id} initialSaved={!!saved} />
         <EventShareButton eventUrl={`/events/${event.slug}`} eventTitle={event.title} className="ml-2" />
-        {session?.user?.id && event.memberId === session.user.id && (
+        {session?.user?.id &&
+          (event.memberId === session.user.id ||
+            (event.businessId && event.business?.memberId === session.user.id)) && (
           <InviteFriendsToEvent eventId={event.id} />
         )}
       </div>

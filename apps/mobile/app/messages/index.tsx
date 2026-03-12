@@ -23,6 +23,10 @@ type Tab = "direct" | "resale" | "groups";
 interface DirectConversation {
   id: string;
   status?: string;
+  memberAId?: string;
+  memberBId?: string;
+  memberALastReadAt?: string | null;
+  memberBLastReadAt?: string | null;
   memberA: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   memberB: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   messages: { content: string; createdAt: string; senderId: string }[];
@@ -318,6 +322,11 @@ export default function MessagesInboxScreen() {
               const other = otherMember(c, myId);
               const name = (other ? `${other.firstName ?? ""} ${other.lastName ?? ""}`.trim() : "") || "Unknown";
               const photoUrl = resolvePhotoUrl(other?.profilePhotoUrl ?? undefined);
+              const myLastReadAt = c.memberAId === myId ? c.memberALastReadAt : c.memberBLastReadAt;
+              const isUnread =
+                last &&
+                last.senderId !== myId &&
+                (myLastReadAt == null || (last.createdAt && new Date(last.createdAt) > new Date(myLastReadAt)));
               return (
                 <Pressable
                   style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -335,7 +344,7 @@ export default function MessagesInboxScreen() {
                   <View style={styles.rowContent}>
                     <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
                     <Text
-                      style={[styles.rowPreview, last && last.senderId !== myId && styles.rowPreviewUnread]}
+                      style={[styles.rowPreview, isUnread && styles.rowPreviewUnread]}
                       numberOfLines={1}
                     >
                       {last?.content ?? "No messages yet"}

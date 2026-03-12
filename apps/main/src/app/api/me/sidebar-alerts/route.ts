@@ -27,10 +27,12 @@ export async function GET(req: NextRequest) {
         requestedByMemberId: true,
         memberAId: true,
         memberBId: true,
+        memberALastReadAt: true,
+        memberBLastReadAt: true,
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { senderId: true },
+          select: { senderId: true, createdAt: true },
         },
       },
     }),
@@ -53,7 +55,9 @@ export async function GET(req: NextRequest) {
     const isAccepted = c.status === "accepted" || c.requestedByMemberId === session.user.id;
     if (!isAccepted) return false;
     const last = c.messages[0];
-    return last && last.senderId !== session.user.id;
+    if (!last || last.senderId === session.user.id) return false;
+    const myLastReadAt = c.memberAId === session.user.id ? c.memberALastReadAt : c.memberBLastReadAt;
+    return myLastReadAt == null || last.createdAt > myLastReadAt;
   }).length;
 
   const unreadMessages = messageRequestsCount + acceptedWithUnread;

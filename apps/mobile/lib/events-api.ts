@@ -15,13 +15,14 @@ export interface EventItem {
   endTime: string | null;
   location: string | null;
   city: string | null;
-  business: { name: string; slug: string } | null;
+  business: { name: string; slug: string; memberId?: string } | null;
 }
 
 export interface EventDetail extends EventItem {
   description: string | null;
   photos: string[];
-  memberId?: string;
+  memberId?: string | null;
+  businessId?: string | null;
 }
 
 const memoryCache = new Map<

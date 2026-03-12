@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost, apiUploadFile, getToken } from "@/lib/api";
+import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
 import { signOut } from "@/lib/auth";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -68,10 +69,14 @@ export default function ProfileEditScreen() {
   const [city, setCity] = useState("");
   const [phone, setPhone] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
-  const [shipStreet, setShipStreet] = useState("");
-  const [shipCity, setShipCity] = useState("");
-  const [shipState, setShipState] = useState("");
-  const [shipZip, setShipZip] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState<AddressValue>({
+    street: "",
+    aptOrSuite: "",
+    city: "",
+    state: "",
+    zip: "",
+  });
+  const [deliveryAddressFromPlaces, setDeliveryAddressFromPlaces] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [privacyLevel, setPrivacyLevel] = useState<"public" | "friends_only" | "completely_private">("public");
@@ -92,10 +97,13 @@ export default function ProfileEditScreen() {
         setPhone(d.phone ?? "");
         setProfilePhotoUrl(d.profilePhotoUrl ?? null);
         if (d.deliveryAddress) {
-          setShipStreet(d.deliveryAddress.street ?? "");
-          setShipCity(d.deliveryAddress.city ?? "");
-          setShipState(d.deliveryAddress.state ?? "");
-          setShipZip(d.deliveryAddress.zip ?? "");
+          setDeliveryAddress({
+            street: d.deliveryAddress.street ?? "",
+            aptOrSuite: "",
+            city: d.deliveryAddress.city ?? "",
+            state: d.deliveryAddress.state ?? "",
+            zip: d.deliveryAddress.zip ?? "",
+          });
         }
         if (d.privacyLevel) setPrivacyLevel(d.privacyLevel);
       } catch (e) {
@@ -158,10 +166,44 @@ export default function ProfileEditScreen() {
     }
     setSubmitting(true);
     try {
-      const deliveryAddress =
-        shipStreet.trim() || shipCity.trim() || shipState.trim() || shipZip.trim()
-          ? { street: shipStreet.trim(), city: shipCity.trim(), state: shipState.trim(), zip: shipZip.trim() }
-          : null;
+      const hasAddress =
+        deliveryAddress.street?.trim() ||
+        deliveryAddress.city?.trim() ||
+        deliveryAddress.state?.trim() ||
+        deliveryAddress.zip?.trim();
+      let payloadDeliveryAddress: { street: string; city: string; state: string; zip: string } | null = null;
+      if (hasAddress) {
+        if (deliveryAddressFromPlaces) {
+          payloadDeliveryAddress = {
+            street: deliveryAddress.street.trim(),
+            city: deliveryAddress.city.trim(),
+            state: deliveryAddress.state.trim(),
+            zip: deliveryAddress.zip.trim(),
+          };
+        } else {
+          const validateData = await apiPost<{
+            valid?: boolean;
+            formatted?: { street: string; city: string; state: string; zip: string };
+            error?: string;
+          }>("/api/validate-address", {
+            street: deliveryAddress.street,
+            city: deliveryAddress.city,
+            state: deliveryAddress.state,
+            zip: deliveryAddress.zip,
+          });
+          if (!validateData.valid) {
+            setError(validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
+            setSubmitting(false);
+            return;
+          }
+          payloadDeliveryAddress = validateData.formatted ?? {
+            street: deliveryAddress.street.trim(),
+            city: deliveryAddress.city.trim(),
+            state: deliveryAddress.state.trim(),
+            zip: deliveryAddress.zip.trim(),
+          };
+        }
+      }
       await apiPatch("/api/me", {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -169,7 +211,7 @@ export default function ProfileEditScreen() {
         city: city.trim() || null,
         phone: phone.trim() || null,
         profilePhotoUrl: profilePhotoUrl || null,
-        deliveryAddress,
+        deliveryAddress: payloadDeliveryAddress,
         privacyLevel,
       });
       router.back();
@@ -252,6 +294,15 @@ export default function ProfileEditScreen() {
                     setCity(d.city ?? "");
                     setPhone(d.phone ?? "");
                     setProfilePhotoUrl(d.profilePhotoUrl ?? null);
+                    if (d.deliveryAddress) {
+                      setDeliveryAddress({
+                        street: d.deliveryAddress.street ?? "",
+                        aptOrSuite: "",
+                        city: d.deliveryAddress.city ?? "",
+                        state: d.deliveryAddress.state ?? "",
+                        zip: d.deliveryAddress.zip ?? "",
+                      });
+                    }
                     if (d.privacyLevel) setPrivacyLevel(d.privacyLevel);
                   } catch (e) {
                     const err = e as { error?: string; status?: number };
@@ -407,49 +458,15 @@ export default function ProfileEditScreen() {
           <Text style={styles.fieldNote}>
             Used to autofill checkout. This is never shared publicly.
           </Text>
-          <TextInput
-            style={styles.input}
-            value={shipStreet}
-            onChangeText={setShipStreet}
-            placeholder="Street address"
-            placeholderTextColor={theme.colors.placeholder}
-            autoCapitalize="words"
-            textContentType="streetAddressLine1"
-            autoCorrect={true}
+          <AddressSearchInput
+            value={deliveryAddress}
+            onChange={(addr, meta) => {
+              setDeliveryAddress(addr);
+              if (meta?.fromPlaces !== undefined) setDeliveryAddressFromPlaces(meta.fromPlaces);
+            }}
+            placeholder="Search for your address"
+            showManualFallback
           />
-          <View style={[styles.row, styles.addressRow]}>
-            <TextInput
-              style={[styles.input, styles.inputHalf]}
-              value={shipCity}
-              onChangeText={setShipCity}
-              placeholder="City"
-              placeholderTextColor={theme.colors.placeholder}
-              autoCapitalize="words"
-              textContentType="addressCity"
-              autoCorrect={true}
-            />
-            <TextInput
-              style={[styles.input, styles.inputQuarter]}
-              value={shipState}
-              onChangeText={setShipState}
-              placeholder="State"
-              placeholderTextColor={theme.colors.placeholder}
-              autoCapitalize="characters"
-              maxLength={2}
-              textContentType="addressState"
-              autoCorrect={true}
-            />
-            <TextInput
-              style={[styles.input, styles.inputQuarter]}
-              value={shipZip}
-              onChangeText={setShipZip}
-              placeholder="ZIP"
-              placeholderTextColor={theme.colors.placeholder}
-              keyboardType="number-pad"
-              textContentType="postalCode"
-              autoCorrect={true}
-            />
-          </View>
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}

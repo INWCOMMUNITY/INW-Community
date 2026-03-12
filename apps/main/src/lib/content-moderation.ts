@@ -42,6 +42,19 @@ const SLUR_BLOCKLIST = new Set(
   ].map((w) => w.toLowerCase())
 );
 
+/** Read-only lists for admin UI (full list, test word, quiz). */
+export function getRestrictedWordingForAdmin(): {
+  prohibitedCategories: readonly string[];
+  profanity: string[];
+  slurs: string[];
+} {
+  return {
+    prohibitedCategories: PROHIBITED_PRODUCT_CATEGORIES,
+    profanity: Array.from(PROFANITY_BLOCKLIST),
+    slurs: Array.from(SLUR_BLOCKLIST),
+  };
+}
+
 export type ModerationContext =
   | "comment"
   | "product_title"
@@ -92,9 +105,9 @@ function containsBlocklistWord(text: string, blocklist: Set<string>): string | n
   const words = getWords(text);
   for (const word of words) {
     if (blocklist.has(word)) return word;
-    // Check substrings for compound slurs
+    // User's word contains a full blocked term (e.g. compound slurs); do not use blocked.includes(word) so "B", "We", etc. are not falsely blocked
     for (const blocked of blocklist) {
-      if (word.includes(blocked) || blocked.includes(word)) return blocked;
+      if (word.includes(blocked)) return blocked;
     }
   }
   return null;

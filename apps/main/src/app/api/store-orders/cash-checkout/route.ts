@@ -193,6 +193,8 @@ export async function POST(req: NextRequest) {
           where: { id: oi.storeItemId },
           data: { status: "sold_out" },
         });
+        const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
+        deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
       }
     }
     const { sendPushNotification } = await import("@/lib/send-push-notification");

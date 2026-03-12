@@ -19,15 +19,17 @@ export async function POST(
   const { id: eventId } = await params;
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, memberId: true },
+    select: { id: true, memberId: true, businessId: true, business: { select: { memberId: true } } },
   });
 
   if (!event) {
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
 
-  // Inviter must own the event (memberId) or be associated via business
-  if (event.memberId !== session.user.id) {
+  const isOwner =
+    event.memberId === session.user.id ||
+    (event.businessId != null && event.business?.memberId === session.user.id);
+  if (!isOwner) {
     return NextResponse.json({ error: "You can only invite friends to events you created" }, { status: 403 });
   }
 

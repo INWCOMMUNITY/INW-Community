@@ -27,6 +27,7 @@ export default function RequestedReturnsPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [refunding, setRefunding] = useState<string | null>(null);
   const [refundError, setRefundError] = useState<string | null>(null);
+  const [refundSuccess, setRefundSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     setFetchError(null);
@@ -58,13 +59,21 @@ export default function RequestedReturnsPage() {
   async function issueRefund(orderId: string) {
     setRefunding(orderId);
     setRefundError(null);
+    setRefundSuccess(null);
     try {
       const res = await fetch(`/api/store-orders/${orderId}/refund`, {
         method: "POST",
+        credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setOrders((prev) => prev.filter((o) => o.id !== orderId));
+        const feeCents = data.stripeFeeCents;
+        if (typeof feeCents === "number" && feeCents > 0) {
+          setRefundError(null);
+          setRefundSuccess(`Refund issued. Stripe fee retained: $${(feeCents / 100).toFixed(2)}`);
+          setTimeout(() => setRefundSuccess(null), 8000);
+        }
       } else {
         setRefundError(data.message ?? data.error ?? "Refund failed");
       }
@@ -100,6 +109,12 @@ export default function RequestedReturnsPage() {
               Sign in
             </Link>
           )}
+        </div>
+      )}
+
+      {refundSuccess && (
+        <div className="border rounded-lg p-4 bg-green-50 mb-6">
+          <p className="text-green-800">{refundSuccess}</p>
         </div>
       )}
 

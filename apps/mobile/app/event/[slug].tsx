@@ -159,7 +159,10 @@ export default function EventDetailScreen() {
   const eventUrl = event
     ? `${siteBase}/events/${typeof slug === "string" ? slug : event.slug ?? event.id}`
     : "";
-  const isCreator = !!event?.memberId && !!member?.id && event.memberId === member.id;
+  const isCreator =
+    !!member?.id &&
+    (event?.memberId === member.id ||
+      (!!event?.businessId && event?.business?.memberId === member.id));
 
   const handleShareEvent = async () => {
     if (!event) return;

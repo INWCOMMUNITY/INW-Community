@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
+import { deductPoints } from "@/lib/award-points";
 
 const CANCEL_REASONS = [
   "Changed my mind",
@@ -73,6 +74,9 @@ export async function POST(
       where: { id: order.id },
       data: { status: "canceled", cancelReason: cancelReason ?? undefined, cancelNote: note ?? undefined },
     });
+    if (order.pointsAwarded > 0) {
+      await deductPoints(order.buyerId, order.pointsAwarded);
+    }
     return NextResponse.json({ ok: true, refunded: false });
   }
 
@@ -165,6 +169,10 @@ export async function POST(
         }
       }
     });
+
+    if (order.pointsAwarded > 0) {
+      await deductPoints(order.buyerId, order.pointsAwarded);
+    }
 
     return NextResponse.json({ ok: true, refunded: true });
   } catch (e) {

@@ -169,6 +169,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     const isUnavailable = includeUnavailable && !item;
+    let soldAt: string | undefined;
+    if (isUnavailable && resolvedItem.status === "sold_out") {
+      const lastOrderItem = await prisma.orderItem.findFirst({
+        where: {
+          storeItemId: resolvedItem.id,
+          order: { status: { in: ["paid", "shipped", "delivered"] } },
+        },
+        include: { order: { select: { updatedAt: true } } },
+        orderBy: { order: { updatedAt: "desc" } },
+      });
+      if (lastOrderItem) soldAt = lastOrderItem.order.updatedAt.toISOString();
+    }
     // Always include seller's business for Store Information (use linked business or member's first)
     let business = resolvedItem.business;
     if (!business && resolvedItem.memberId) {
@@ -193,6 +205,7 @@ export async function GET(req: NextRequest) {
       business,
       memberId: resolvedItem.memberId,
       ...(isUnavailable ? { unavailable: true } : {}),
+      ...(soldAt ? { soldAt } : {}),
     });
   }
 

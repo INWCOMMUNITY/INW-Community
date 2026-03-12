@@ -62,8 +62,12 @@ export default function ReturnsScreen() {
     setRefunding(orderId);
     setError(null);
     try {
-      await apiPost(`/api/store-orders/${orderId}/refund`, {});
+      const data = await apiPost<{ ok?: boolean; stripeFeeCents?: number | null }>(`/api/store-orders/${orderId}/refund`, {});
       setOrders((prev) => prev.filter((o) => o.id !== orderId));
+      const feeCents = data?.stripeFeeCents;
+      if (typeof feeCents === "number" && feeCents > 0) {
+        Alert.alert("Refund issued", `Stripe fee retained: $${(feeCents / 100).toFixed(2)}`);
+      }
     } catch (e: unknown) {
       const err = e as { error?: string };
       setError(err?.error ?? "Refund failed");

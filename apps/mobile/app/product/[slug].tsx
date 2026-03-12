@@ -79,6 +79,7 @@ interface StoreItem {
     logoUrl?: string | null;
     fullDescription?: string | null;
   };
+  soldAt?: string;
 }
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
@@ -135,9 +136,9 @@ export default function ProductScreen() {
     setLoading(true);
     setError("");
     setItemUnavailable(false);
-    let data: (StoreItem & { unavailable?: boolean }) | null = null;
+    let data: (StoreItem & { unavailable?: boolean; soldAt?: string }) | null = null;
     try {
-      data = await apiGet<StoreItem & { unavailable?: boolean }>(
+      data = await apiGet<StoreItem & { unavailable?: boolean; soldAt?: string }>(
         `/api/store-items?slug=${encodeURIComponent(slug)}&listingType=${listingType}`
       );
     } catch {
@@ -159,7 +160,7 @@ export default function ProductScreen() {
       return;
     }
     try {
-      const data2 = await apiGet<StoreItem & { unavailable?: boolean }>(
+      const data2 = await apiGet<StoreItem & { unavailable?: boolean; soldAt?: string }>(
         `/api/store-items?slug=${encodeURIComponent(slug)}&listingType=${listingType}&includeUnavailable=1`
       );
       if (data2 && typeof data2.id === "string" && data2.unavailable) {
@@ -433,7 +434,11 @@ export default function ProductScreen() {
       >
         {itemUnavailable && (
           <View style={styles.soldBanner}>
-            <Text style={styles.soldBannerText}>This item was sold.</Text>
+            <Text style={styles.soldBannerText}>
+              {item?.soldAt
+                ? `This item was sold on ${new Date(item.soldAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`
+                : "This item was sold."}
+            </Text>
           </View>
         )}
         <View style={[styles.galleryWrap, { width }]}>

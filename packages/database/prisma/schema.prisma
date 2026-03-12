@@ -903,13 +903,15 @@ model ResaleMessage {
 
 // Direct messaging between members; non-friends create "pending" (message request).
 model DirectConversation {
-  id                  String   @id @default(cuid())
-  memberAId            String   @map("member_a_id")
-  memberBId            String   @map("member_b_id")
-  status               String   @default("accepted") // accepted | pending (message request)
-  requestedByMemberId  String?  @map("requested_by_member_id") // who sent the first message (for pending)
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  id                    String    @id @default(cuid())
+  memberAId              String    @map("member_a_id")
+  memberBId              String    @map("member_b_id")
+  status                 String    @default("accepted") // accepted | pending (message request)
+  requestedByMemberId    String?   @map("requested_by_member_id") // who sent the first message (for pending)
+  memberALastReadAt      DateTime? @map("member_a_last_read_at")
+  memberBLastReadAt      DateTime? @map("member_b_last_read_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
 
   memberA Member @relation("DirectConversationMemberA", fields: [memberAId], references: [id], onDelete: Cascade)
   memberB Member @relation("DirectConversationMemberB", fields: [memberBId], references: [id], onDelete: Cascade)

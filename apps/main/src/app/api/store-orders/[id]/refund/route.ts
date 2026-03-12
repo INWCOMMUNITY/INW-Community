@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
+import { deductPoints } from "@/lib/award-points";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -90,7 +91,20 @@ export async function POST(
           }
         }
       });
-      return NextResponse.json({ ok: true });
+      let stripeFeeCents: number | null = null;
+      try {
+        const pi = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId, {
+          expand: ["latest_charge.balance_transaction"],
+        }, { stripeAccount: connectAccountId });
+        const bt = (pi as { latest_charge?: { balance_transaction?: { fee?: number } } }).latest_charge?.balance_transaction;
+        if (typeof bt?.fee === "number") stripeFeeCents = bt.fee;
+      } catch {
+        // fee is optional; omit or leave null
+      }
+      if (order.pointsAwarded > 0) {
+        await deductPoints(order.buyerId, order.pointsAwarded);
+      }
+      return NextResponse.json({ ok: true, stripeFeeCents });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Refund failed";
       return NextResponse.json({ error: msg }, { status: 500 });
@@ -178,7 +192,21 @@ export async function POST(
       }
     });
 
-    return NextResponse.json({ ok: true });
+    if (order.pointsAwarded > 0) {
+      await deductPoints(order.buyerId, order.pointsAwarded);
+    }
+
+    let stripeFeeCents: number | null = null;
+    try {
+      const pi = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId, {
+        expand: ["latest_charge.balance_transaction"],
+      });
+      const bt = (pi as { latest_charge?: { balance_transaction?: { fee?: number } } }).latest_charge?.balance_transaction;
+      if (typeof bt?.fee === "number") stripeFeeCents = bt.fee;
+    } catch {
+      // fee is optional
+    }
+    return NextResponse.json({ ok: true, stripeFeeCents });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Refund failed";
     return NextResponse.json({ error: msg }, { status: 500 });

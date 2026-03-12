@@ -19,6 +19,7 @@ import { FlatList } from "react-native-gesture-handler";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
+import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -163,6 +164,14 @@ export default function DirectConversationScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (id) {
+        apiPatch(`/api/direct-conversations/${id}/read`).catch(() => {});
+      }
+    }, [id])
+  );
 
   const handleLike = async (messageId: string) => {
     if (!id || !member) return;

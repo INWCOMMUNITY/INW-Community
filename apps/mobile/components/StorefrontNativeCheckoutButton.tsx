@@ -67,13 +67,15 @@ export interface StorefrontCheckoutPayload {
   items: { storeItemId: string; quantity: number; variant?: unknown; fulfillmentType?: string }[];
   shippingCostCents: number;
   shippingAddress?: { street: string; aptOrSuite?: string; city: string; state: string; zip: string };
+  /** When true, address was selected from Places; skip server-side validate-address. */
+  shippingAddressVerifiedFromPlaces?: boolean;
   localDeliveryDetails?: unknown;
   cashOrderIds?: string[];
 }
 
 interface StorefrontNativeCheckoutButtonProps {
   payload: StorefrontCheckoutPayload;
-  onSuccess: () => void;
+  onSuccess: (orderIds?: string[]) => void;
   onError: (message: string) => void;
   setCheckingOut: (v: boolean) => void;
   disabled: boolean;
@@ -107,7 +109,8 @@ export function StorefrontNativeCheckoutButton({
         pendingConnectRef.current = false;
         setLoading(false);
         setCheckingOut(false);
-        onSuccess();
+        const allOrderIds = prev ? prev.payments.flatMap((p) => p.orderIds ?? []) : [];
+        onSuccess(allOrderIds);
         return null;
       }
       return { payments: prev.payments, index: prev.index + 1 };
@@ -156,10 +159,38 @@ export function StorefrontNativeCheckoutButton({
     }, CHECKOUT_TIMEOUT_MS);
 
     try {
+      let checkoutPayload: StorefrontCheckoutPayload = payload;
+      const hasShipping = !!(payload.shippingAddress?.street && payload.shippingAddress?.city && payload.shippingAddress?.state && payload.shippingAddress?.zip);
+      if (hasShipping && !payload.shippingAddressVerifiedFromPlaces) {
+        const validateData = await apiPost<{ valid?: boolean; formatted?: { street: string; city: string; state: string; zip: string }; error?: string }>(
+          "/api/validate-address",
+          {
+            street: payload.shippingAddress!.street,
+            city: payload.shippingAddress!.city,
+            state: payload.shippingAddress!.state,
+            zip: payload.shippingAddress!.zip,
+          }
+        );
+        if (!validateData.valid) {
+          onError(validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
+          setLoading(false);
+          setCheckingOut(false);
+          if (timeoutId != null) clearTimeout(timeoutId);
+          return;
+        }
+        checkoutPayload = {
+          ...payload,
+          shippingAddress: {
+            ...validateData.formatted!,
+            aptOrSuite: payload.shippingAddress!.aptOrSuite?.trim() || undefined,
+          },
+        };
+      }
+
       const data = await apiPost<{
         payments?: { clientSecret: string; orderIds: string[]; stripeAccountId?: string }[];
         error?: string;
-      }>("/api/stripe/storefront-checkout-intent", payload);
+      }>("/api/stripe/storefront-checkout-intent", checkoutPayload);
 
       if (data.error) {
         onError(data.error);
@@ -263,7 +294,8 @@ export function StorefrontNativeCheckoutButton({
         }
       }
 
-      onSuccess();
+      const allOrderIds = payments.flatMap((p) => p.orderIds ?? []);
+      onSuccess(allOrderIds);
     } catch (e) {
       const err = e as { error?: string; status?: number };
       if (err.status === 401) {

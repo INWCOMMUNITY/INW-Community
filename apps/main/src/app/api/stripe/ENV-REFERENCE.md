@@ -47,6 +47,10 @@ NEXT_PUBLIC_MAIN_SITE_URL="http://localhost:3000"
 
 # Optional
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
+# Address autocomplete (checkout + profile): use one of these (server-side only; not exposed to client)
+GOOGLE_PLACES_API_KEY=""
+# or GOOGLE_MAPS_API_KEY=""
+# Restrict the key in Google Cloud to Places API (Autocomplete + Place Details) and optionally to your server IP.
 GIPHY_API_KEY=""
 ```
 
@@ -99,6 +103,7 @@ NEXT_PUBLIC_MAIN_SITE_URL="https://www.inwcommunity.com"
 
 # Optional
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
+# Address autocomplete: GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY (server-side; see App section)
 GIPHY_API_KEY=""
 ```
 

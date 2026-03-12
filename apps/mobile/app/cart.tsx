@@ -27,10 +27,12 @@ import {
   PickupTermsModal,
   type PickupDetails,
 } from "@/components/PickupTermsModal";
+import { AddressSearchInput } from "@/components/AddressSearchInput";
 import {
   StorefrontNativeCheckoutButton,
   type StorefrontCheckoutPayload,
 } from "@/components/StorefrontNativeCheckoutButton";
+import { PointsEarnedPopup } from "@/components/PointsEarnedPopup";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -109,6 +111,12 @@ export default function CartScreen() {
     state: "",
     zip: "",
   });
+  const [shippingAddressFromPlaces, setShippingAddressFromPlaces] = useState(false);
+  const [pointsPopup, setPointsPopup] = useState<{
+    pointsAwarded: number;
+    previousTotal: number;
+    newTotal: number;
+  } | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   const load = useCallback(async (refresh = false) => {
@@ -303,6 +311,36 @@ export default function CartScreen() {
     setCheckingOut(true);
     setError("");
     try {
+      let resolvedShippingAddress = shippingAddress;
+      if (hasShippedItem) {
+        if (shippingAddressFromPlaces) {
+          resolvedShippingAddress = {
+            ...shippingAddress,
+            aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
+          };
+        } else {
+          const validateData = await apiPost<{
+            valid?: boolean;
+            formatted?: { street: string; city: string; state: string; zip: string };
+            error?: string;
+          }>("/api/validate-address", {
+            street: shippingAddress.street,
+            city: shippingAddress.city,
+            state: shippingAddress.state,
+            zip: shippingAddress.zip,
+          });
+          if (!validateData.valid) {
+            setError(validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
+            setCheckingOut(false);
+            return;
+          }
+          resolvedShippingAddress = {
+            ...validateData.formatted!,
+            aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
+          };
+        }
+      }
+
       const shippingCostCents = items.reduce((sum, i) => {
         if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
           return sum + i.storeItem.shippingCostCents * i.quantity;
@@ -321,7 +359,7 @@ export default function CartScreen() {
       };
 
       if (hasShippedItem) {
-        payload.shippingAddress = shippingAddress;
+        payload.shippingAddress = resolvedShippingAddress;
       }
       if (hasLocalDelivery && localDeliveryDetails) {
         payload.localDeliveryDetails = localDeliveryDetails;
@@ -529,58 +567,14 @@ export default function CartScreen() {
               {hasShippedItem && (
                 <View style={styles.formSection}>
                   <Text style={styles.formTitle}>Shipping address</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Street address"
-                    placeholderTextColor={theme.colors.placeholder}
-                    value={shippingAddress.street}
-                    onChangeText={(t) => setShippingAddress((s) => ({ ...s, street: t }))}
-                    textContentType="streetAddressLine1"
-                    autoComplete="street-address"
-                    autoCorrect={true}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Apt, suite (optional)"
-                    placeholderTextColor={theme.colors.placeholder}
-                    value={shippingAddress.aptOrSuite}
-                    onChangeText={(t) => setShippingAddress((s) => ({ ...s, aptOrSuite: t }))}
-                    textContentType="streetAddressLine2"
-                    autoComplete="address-line2"
-                    autoCorrect={true}
-                  />
-                  <View style={styles.row2}>
-                    <TextInput
-                      style={[styles.input, styles.inputHalf]}
-                      placeholder="City"
-                      placeholderTextColor={theme.colors.placeholder}
-                      value={shippingAddress.city}
-                      onChangeText={(t) => setShippingAddress((s) => ({ ...s, city: t }))}
-                      textContentType="addressCity"
-                      autoComplete="address-line2"
-                      autoCorrect={true}
-                    />
-                    <TextInput
-                      style={[styles.input, styles.inputHalf]}
-                      placeholder="State"
-                      placeholderTextColor={theme.colors.placeholder}
-                      value={shippingAddress.state}
-                      onChangeText={(t) => setShippingAddress((s) => ({ ...s, state: t }))}
-                      textContentType="addressState"
-                      autoComplete="address-line1"
-                      autoCorrect={true}
-                    />
-                  </View>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="ZIP code"
-                    placeholderTextColor={theme.colors.placeholder}
-                    value={shippingAddress.zip}
-                    onChangeText={(t) => setShippingAddress((s) => ({ ...s, zip: t }))}
-                    keyboardType="numeric"
-                    textContentType="postalCode"
-                    autoComplete="postal-code"
-                    autoCorrect={true}
+                  <AddressSearchInput
+                    value={shippingAddress}
+                    onChange={(addr, meta) => {
+                      setShippingAddress(addr);
+                      if (meta?.fromPlaces !== undefined) setShippingAddressFromPlaces(meta.fromPlaces);
+                    }}
+                    placeholder="Search for your address"
+                    showManualFallback
                   />
                 </View>
               )}
@@ -641,10 +635,34 @@ export default function CartScreen() {
                       return sum;
                     }, 0),
                     ...(hasShippedItem && { shippingAddress }),
+                    ...(hasShippedItem && shippingAddressFromPlaces && { shippingAddressVerifiedFromPlaces: true }),
                     ...(hasLocalDelivery && localDeliveryDetails && { localDeliveryDetails }),
                   }}
-                  onSuccess={() => {
-                    load();
+                  onSuccess={async (orderIds) => {
+                    await load();
+                    if (orderIds && orderIds.length > 0) {
+                      try {
+                        const orderIdsQuery = orderIds.join(",");
+                        const [summaryRes, meRes] = await Promise.all([
+                          apiGet<{ pointsAwarded?: number }>(
+                            `/api/store-orders/success-summary?order_ids=${encodeURIComponent(orderIdsQuery)}`
+                          ),
+                          apiGet<{ points?: number }>("/api/me"),
+                        ]);
+                        const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
+                        const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
+                        if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
+                          setPointsPopup({
+                            pointsAwarded,
+                            previousTotal: newTotal - pointsAwarded,
+                            newTotal,
+                          });
+                          return;
+                        }
+                      } catch {
+                        // ignore; fall through to router.back()
+                      }
+                    }
                     router.back();
                   }}
                   onError={setError}
@@ -720,6 +738,22 @@ export default function CartScreen() {
               : undefined
           }
           onSave={updatePickupDetails}
+        />
+      )}
+      {pointsPopup && (
+        <PointsEarnedPopup
+          visible={true}
+          onClose={() => {
+            setPointsPopup(null);
+            router.back();
+          }}
+          businessName="Your purchase"
+          pointsAwarded={pointsPopup.pointsAwarded}
+          previousTotal={pointsPopup.previousTotal}
+          newTotal={pointsPopup.newTotal}
+          category="store"
+          message="Thanks for supporting local! You earned points on this purchase."
+          buttonText="Awesome!"
         />
       )}
     </View>

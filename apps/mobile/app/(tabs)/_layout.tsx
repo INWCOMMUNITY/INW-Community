@@ -329,25 +329,25 @@ function TabLayoutInner() {
                           <View
                             style={{
                               position: "absolute",
-                              top: -6,
-                              right: -8,
-                              minWidth: 18,
-                              height: 18,
-                              borderRadius: 9,
+                              top: -4,
+                              left: -6,
+                              minWidth: 14,
+                              height: 14,
+                              borderRadius: 7,
                               backgroundColor: "#fff",
                               justifyContent: "center",
                               alignItems: "center",
-                              paddingHorizontal: 4,
+                              paddingHorizontal: 3,
                             }}
                           >
                             <Text
                               style={{
-                                fontSize: 12,
-                                fontWeight: "800",
+                                fontSize: 10,
+                                fontWeight: "700",
                                 color: theme.colors.primary,
                               }}
                             >
-                              !
+                              {unreadMessages > 99 ? "99+" : String(unreadMessages)}
                             </Text>
                           </View>
                         )}

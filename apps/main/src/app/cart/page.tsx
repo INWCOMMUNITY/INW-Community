@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
+import { AddressSearchInput } from "@/components/AddressSearchInput";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
 import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
 
@@ -86,6 +87,7 @@ export default function CartPage() {
   const [localDeliveryModalItemId, setLocalDeliveryModalItemId] = useState<string | null>(null);
   const [pickupTermsModalItemId, setPickupTermsModalItemId] = useState<string | null>(null);
   const [shippingAddress, setShippingAddress] = useState(emptyShippingAddress);
+  const [shippingAddressFromPlaces, setShippingAddressFromPlaces] = useState(false);
 
   function loadCart() {
     refetchCart().then((arr) => {
@@ -314,6 +316,39 @@ export default function CartPage() {
         return;
       }
 
+      const hasShippedCardItem = cardItems.some((i) => (i.fulfillmentType ?? "ship") === "ship");
+      let resolvedShippingAddress = shippingAddress;
+      if (hasShippedCardItem) {
+        if (shippingAddressFromPlaces) {
+          resolvedShippingAddress = {
+            ...shippingAddress,
+            aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
+          };
+        } else {
+          const validateRes = await fetch("/api/validate-address", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              street: shippingAddress.street,
+              city: shippingAddress.city,
+              state: shippingAddress.state,
+              zip: shippingAddress.zip,
+            }),
+            credentials: "include",
+          });
+          const validateData = await validateRes.json().catch(() => ({}));
+          if (!validateData.valid) {
+            setError(validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
+            setCheckingOut(false);
+            return;
+          }
+          resolvedShippingAddress = {
+            ...validateData.formatted,
+            aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
+          };
+        }
+      }
+
       const shippingCostCents = cardItems.reduce((sum, i) => {
         if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
           return sum + i.storeItem.shippingCostCents * i.quantity;
@@ -325,8 +360,8 @@ export default function CartPage() {
         shippingCostCents,
       };
       if (cashOrderIds?.length) stripeBody.cashOrderIds = cashOrderIds;
-      if (cardItems.some((i) => (i.fulfillmentType ?? "ship") === "ship")) {
-        stripeBody.shippingAddress = shippingAddress;
+      if (hasShippedCardItem) {
+        stripeBody.shippingAddress = resolvedShippingAddress;
       }
       if (typeof window !== "undefined") stripeBody.returnBaseUrl = window.location.origin;
 
@@ -871,60 +906,15 @@ export default function CartPage() {
                     <p className="text-xs mb-2" style={{ color: "var(--color-text)" }}>
                       This address is sent to the seller for shipping.
                     </p>
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        placeholder="Street"
-                        value={shippingAddress.street}
-                        onChange={(e) =>
-                          setShippingAddress((s) => ({ ...s, street: e.target.value }))
-                        }
-                        className="w-full border rounded px-3 py-2 text-sm"
-                        style={{ borderColor: "var(--color-primary)" }}
-                      />
-                      <input
-                        type="text"
-                        placeholder="Apartment, suite, etc. (optional)"
-                        value={shippingAddress.aptOrSuite}
-                        onChange={(e) =>
-                          setShippingAddress((s) => ({ ...s, aptOrSuite: e.target.value }))
-                        }
-                        className="w-full border rounded px-3 py-2 text-sm"
-                        style={{ borderColor: "var(--color-primary)" }}
-                      />
-                      <div className="grid grid-cols-3 gap-2">
-                        <input
-                          type="text"
-                          placeholder="City"
-                          value={shippingAddress.city}
-                          onChange={(e) =>
-                            setShippingAddress((s) => ({ ...s, city: e.target.value }))
-                          }
-                          className="border rounded px-3 py-2 text-sm"
-                          style={{ borderColor: "var(--color-primary)" }}
-                        />
-                        <input
-                          type="text"
-                          placeholder="State"
-                          value={shippingAddress.state}
-                          onChange={(e) =>
-                            setShippingAddress((s) => ({ ...s, state: e.target.value }))
-                          }
-                          className="border rounded px-3 py-2 text-sm"
-                          style={{ borderColor: "var(--color-primary)" }}
-                        />
-                        <input
-                          type="text"
-                          placeholder="ZIP"
-                          value={shippingAddress.zip}
-                          onChange={(e) =>
-                            setShippingAddress((s) => ({ ...s, zip: e.target.value }))
-                          }
-                          className="border rounded px-3 py-2 text-sm"
-                          style={{ borderColor: "var(--color-primary)" }}
-                        />
-                      </div>
-                    </div>
+                    <AddressSearchInput
+                      value={shippingAddress}
+                      onChange={(addr, meta) => {
+                        setShippingAddress(addr);
+                        if (meta?.fromPlaces !== undefined) setShippingAddressFromPlaces(meta.fromPlaces);
+                      }}
+                      placeholder="Search for your address"
+                      showManualFallback
+                    />
                   </div>
                 )}
 
