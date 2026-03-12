@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -6,9 +6,62 @@ import {
   StyleSheet,
   Text,
 } from "react-native";
-import { usePaymentSheet } from "@stripe/stripe-react-native";
+import { StripeProvider, usePaymentSheet } from "@stripe/stripe-react-native";
 import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
+
+/** Single Connect payment: init + present inside a StripeProvider with stripeAccountId so the SDK finds the PI. */
+function ConnectSheetRunner({
+  payment,
+  onSuccess,
+  onError,
+}: {
+  payment: { clientSecret: string; orderIds: string[]; stripeAccountId?: string };
+  onSuccess: () => void;
+  onError: (message: string) => void;
+}) {
+  const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
+  const ran = useRef(false);
+  useEffect(() => {
+    if (ran.current) return;
+    ran.current = true;
+    (async () => {
+      const { error: initErr } = await initPaymentSheet({
+        merchantDisplayName: "Northwest Community",
+        paymentIntentClientSecret: payment.clientSecret,
+        returnURL: "mobile://stripe-redirect",
+        applePay: { merchantCountryCode: "US" },
+        googlePay: { merchantCountryCode: "US", testEnv: __DEV__ ?? false },
+        appearance: {
+          colors: {
+            primary: "#505542",
+            background: "#FDEDCC",
+            componentBackground: "#FFFFFF",
+            componentText: "#3E432F",
+            primaryText: "#3E432F",
+            secondaryText: "#505542",
+            icon: "#505542",
+          },
+        },
+      });
+      if (initErr) {
+        onError(initErr.message ?? "Payment session could not be loaded.");
+        return;
+      }
+      const { error: presentErr } = await presentPaymentSheet();
+      if (presentErr) {
+        if (presentErr.code === "Canceled") {
+          onError(""); // User cancelled; caller will reset state
+        } else {
+          onError(presentErr.message ?? "Payment failed");
+        }
+        return;
+      }
+      onSuccess();
+    })();
+  }, [payment.clientSecret, payment.orderIds, initPaymentSheet, presentPaymentSheet, onSuccess, onError]);
+  return null;
+}
 
 export interface StorefrontCheckoutPayload {
   items: { storeItemId: string; quantity: number; variant?: unknown; fulfillmentType?: string }[];
@@ -39,9 +92,47 @@ export function StorefrontNativeCheckoutButton({
 }: StorefrontNativeCheckoutButtonProps) {
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
   const [loading, setLoading] = useState(false);
+  const [connectSheet, setConnectSheet] = useState<{ payments: { clientSecret: string; orderIds: string[]; stripeAccountId?: string }[]; index: number } | null>(null);
   const completedRef = useRef(false);
+  const pendingConnectRef = useRef(false);
+  const stripePk = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
+  const stripeMerchantId = process.env.EXPO_PUBLIC_STRIPE_MERCHANT_IDENTIFIER ?? "merchant.com.northwestcommunity";
 
   const CHECKOUT_TIMEOUT_MS = 60000;
+
+  const onConnectSheetSuccess = useCallback(() => {
+    setConnectSheet((prev) => {
+      if (!prev || prev.index + 1 >= prev.payments.length) {
+        completedRef.current = true;
+        pendingConnectRef.current = false;
+        setLoading(false);
+        setCheckingOut(false);
+        onSuccess();
+        return null;
+      }
+      return { payments: prev.payments, index: prev.index + 1 };
+    });
+  }, [onSuccess, setCheckingOut]);
+
+  const onConnectSheetError = useCallback(
+    (message: string) => {
+      setConnectSheet(null);
+      completedRef.current = true;
+      pendingConnectRef.current = false;
+      setLoading(false);
+      setCheckingOut(false);
+      if (message) {
+        onError(message);
+        const isStale = /No such payment_intent|payment_intent.*does not exist/i.test(message);
+        if (isStale) {
+          Alert.alert("Session expired", "Tap Checkout again to start a new one." + (message ? ` (${message})` : ""), [{ text: "OK" }]);
+        } else {
+          Alert.alert("Payment failed", message);
+        }
+      }
+    },
+    [onError, setCheckingOut]
+  );
 
   const handlePress = useCallback(async () => {
     if (disabled || loading) return;
@@ -66,7 +157,7 @@ export function StorefrontNativeCheckoutButton({
 
     try {
       const data = await apiPost<{
-        payments?: { clientSecret: string; orderIds: string[] }[];
+        payments?: { clientSecret: string; orderIds: string[]; stripeAccountId?: string }[];
         error?: string;
       }>("/api/stripe/storefront-checkout-intent", payload);
 
@@ -81,8 +172,17 @@ export function StorefrontNativeCheckoutButton({
         return;
       }
 
-      // Each tap fetches fresh PaymentIntents from the API. Retry after "session expired" relies on
-      // re-initing with this new clientSecret; @stripe/stripe-react-native does not expose a reset API.
+      // Connect PIs are on the seller's Stripe account. The SDK must use StripeProvider stripeAccountId
+      // or Stripe returns "no such payment_intent". Use nested provider + ConnectSheetRunner.
+      const firstPayment = payments[0];
+      if (firstPayment?.stripeAccountId?.trim()) {
+        clearTimeout(timeoutId);
+        setConnectSheet({ payments, index: 0 });
+        pendingConnectRef.current = true;
+        return;
+      }
+
+      // Fallback when API doesn't return stripeAccountId (e.g. old backend).
       for (let i = 0; i < payments.length; i++) {
         const p = payments[i];
         const { error: initErr } = await initPaymentSheet({
@@ -180,10 +280,10 @@ export function StorefrontNativeCheckoutButton({
     } finally {
       if (timeoutId != null) clearTimeout(timeoutId);
       completedRef.current = true;
-      // All error paths above return from try; finally always runs so loading/checkout state
-      // is reset and "Tap Checkout again" is tappable.
-      setLoading(false);
-      setCheckingOut(false);
+      if (!pendingConnectRef.current) {
+        setLoading(false);
+        setCheckingOut(false);
+      }
     }
   }, [
     payload,
@@ -197,19 +297,36 @@ export function StorefrontNativeCheckoutButton({
   ]);
 
   const isDisabled = disabled || loading;
+  const showConnectSheet = connectSheet != null && connectSheet.payments[connectSheet.index]?.stripeAccountId?.trim();
 
   return (
-    <Pressable
-      style={[styles.button, buttonStyle, isDisabled && (buttonDisabledStyle ?? styles.buttonDisabled)]}
-      onPress={handlePress}
-      disabled={isDisabled}
-    >
-      {loading ? (
-        <ActivityIndicator size="small" color="#fff" />
-      ) : (
-        <Text style={styles.buttonText}>Checkout</Text>
+    <>
+      <Pressable
+        style={[styles.button, buttonStyle, isDisabled && (buttonDisabledStyle ?? styles.buttonDisabled)]}
+        onPress={handlePress}
+        disabled={isDisabled}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>Checkout</Text>
+        )}
+      </Pressable>
+      {showConnectSheet && (
+        <StripeProvider
+          publishableKey={stripePk}
+          stripeAccountId={connectSheet.payments[connectSheet.index].stripeAccountId!}
+          urlScheme="mobile"
+          merchantIdentifier={stripeMerchantId}
+        >
+          <ConnectSheetRunner
+            payment={connectSheet.payments[connectSheet.index]}
+            onSuccess={onConnectSheetSuccess}
+            onError={onConnectSheetError}
+          />
+        </StripeProvider>
       )}
-    </Pressable>
+    </>
   );
 }
 
