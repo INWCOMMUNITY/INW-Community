@@ -83,9 +83,10 @@ async function createBusinessFromMetadata(
 }
 
 export async function POST(req: NextRequest) {
-  // Use blob().then(.text()) so the raw body is preserved (req.text() can be
-  // re-encoded on some platforms and break Stripe signature verification).
-  const body = await (await req.blob()).text();
+  // Pass raw bytes as Buffer so signature verification sees the exact payload
+  // (string/blob.text() can change encoding on some platforms e.g. Vercel).
+  const raw = await req.arrayBuffer();
+  const body = Buffer.from(raw);
   const sig = req.headers.get("stripe-signature");
   if (!sig) {
     console.warn("[stripe/webhook] 400: missing stripe-signature header");

@@ -45,6 +45,13 @@ export function StorefrontNativeCheckoutButton({
 
   const handlePress = useCallback(async () => {
     if (disabled || loading) return;
+    const pk = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
+    if (!pk.trim() || pk.includes("placeholder")) {
+      onError(
+        "Payment is not configured for this build. Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY in EAS project environment variables (or in apps/mobile/.env for local dev), then create a new build."
+      );
+      return;
+    }
     setCheckingOut(true);
     setLoading(true);
     onError("");
