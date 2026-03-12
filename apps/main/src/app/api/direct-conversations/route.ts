@@ -202,6 +202,9 @@ export async function POST(req: NextRequest) {
     } catch (e: unknown) {
       if (isDirectConversationSchemaError(e)) {
         console.warn("[POST direct-conversations] update/refetch after send failed (schema):", (e as Error)?.message);
+        if (!conversation) {
+          return NextResponse.json({ error: MESSAGING_NOT_READY }, { status: 503 });
+        }
         const otherId = conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
         const isRequest = conversation.status === "pending";
         const pushTitle = isRequest ? "Message request" : "New message";
