@@ -357,8 +357,12 @@ export default function CartPage() {
           setCheckingOut(false);
           return;
         }
+        const fmt = validateData.formatted;
         resolvedShippingAddress = {
-          ...validateData.formatted,
+          street: fmt?.street ?? "",
+          city: fmt?.city ?? "",
+          state: fmt?.state ?? "",
+          zip: fmt?.zip ?? "",
           aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
         };
       }
