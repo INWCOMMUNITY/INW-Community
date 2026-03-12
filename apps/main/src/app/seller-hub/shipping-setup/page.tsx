@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+
+type ReturnAddress = { street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string };
 
 const EASYPOST_LOGIN_URL = "https://www.easypost.com/login";
 const EASYPOST_BILLING_URL = "https://www.easypost.com/account/billing";
@@ -12,6 +14,51 @@ export default function SetUpEasyPostPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [returnAddr, setReturnAddr] = useState<ReturnAddress>({ street1: "", street2: "", city: "", state: "", zip: "", company: "" });
+  const [returnAddrSaving, setReturnAddrSaving] = useState(false);
+  const [returnAddrSuccess, setReturnAddrSuccess] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/shipping/return-address", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: ReturnAddress | null) => {
+        if (data && typeof data === "object")
+          setReturnAddr({
+            street1: data.street1 ?? "",
+            street2: data.street2 ?? "",
+            city: data.city ?? "",
+            state: data.state ?? "",
+            zip: data.zip ?? "",
+            company: data.company ?? "",
+          });
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleSaveReturnAddress() {
+    if (!returnAddr.street1?.trim() || !returnAddr.city?.trim() || !returnAddr.state?.trim() || !returnAddr.zip?.trim()) {
+      setError("Street, city, state, and ZIP are required for the return address.");
+      return;
+    }
+    setReturnAddrSaving(true);
+    setError(null);
+    setReturnAddrSuccess(false);
+    try {
+      const res = await fetch("/api/shipping/return-address", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(returnAddr),
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setReturnAddrSuccess(true);
+      else setError((data as { error?: string }).error ?? "Failed to save return address.");
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setReturnAddrSaving(false);
+    }
+  }
 
   async function handleSave() {
     const key = apiKey.trim();
@@ -133,6 +180,76 @@ export default function SetUpEasyPostPage() {
           <Link href="/seller-hub/ship" className="text-gray-600 hover:underline text-sm">
             Cancel and go to Ship Items
           </Link>
+        </div>
+      </div>
+
+      <div className="border rounded-lg p-6 mb-8 bg-gray-50 border-gray-200 w-full max-md:flex max-md:flex-col max-md:items-center max-md:text-center">
+        <h2 className="font-semibold text-lg mb-2">Step 5: Set up return address</h2>
+        <p className="text-gray-600 mb-4 text-sm">
+          Enter the return address you use in your EasyPost account. This is used only for shipping labels and packing slips—not your storefront address.
+        </p>
+        <div className="mb-4 p-4 rounded-lg bg-amber-50 border border-amber-200 text-left max-w-md">
+          <p className="text-amber-900 text-sm font-medium">
+            Copy the <strong>exact same</strong> address from your EasyPost account.
+          </p>
+          <p className="text-amber-800 text-sm mt-1">
+            Use the same spelling, abbreviations, and formatting (e.g. “St” vs “Street”, “CA” vs “California”). If this address doesn’t match EasyPost’s records, label purchase can fail with an address verification error.
+          </p>
+        </div>
+        <div className="grid gap-3 max-w-md">
+          <input
+            type="text"
+            placeholder="Company (optional)"
+            value={returnAddr.company ?? ""}
+            onChange={(e) => setReturnAddr((a) => ({ ...a, company: e.target.value }))}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+          />
+          <input
+            type="text"
+            placeholder="Street address *"
+            value={returnAddr.street1 ?? ""}
+            onChange={(e) => setReturnAddr((a) => ({ ...a, street1: e.target.value }))}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+          />
+          <input
+            type="text"
+            placeholder="Apt, suite, etc. (optional)"
+            value={returnAddr.street2 ?? ""}
+            onChange={(e) => setReturnAddr((a) => ({ ...a, street2: e.target.value }))}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+          />
+          <div className="grid grid-cols-[1fr 1fr 1fr] gap-2">
+            <input
+              type="text"
+              placeholder="City *"
+              value={returnAddr.city ?? ""}
+              onChange={(e) => setReturnAddr((a) => ({ ...a, city: e.target.value }))}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+            />
+            <input
+              type="text"
+              placeholder="State *"
+              value={returnAddr.state ?? ""}
+              onChange={(e) => setReturnAddr((a) => ({ ...a, state: e.target.value }))}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+            />
+            <input
+              type="text"
+              placeholder="ZIP *"
+              value={returnAddr.zip ?? ""}
+              onChange={(e) => setReturnAddr((a) => ({ ...a, zip: e.target.value }))}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveReturnAddress}
+            disabled={returnAddrSaving}
+            className="btn mt-1"
+          >
+            {returnAddrSaving ? "Saving…" : "Save return address"}
+          </button>
+          {returnAddrSuccess && <p className="text-green-700 text-sm">Return address saved.</p>}
         </div>
       </div>
 

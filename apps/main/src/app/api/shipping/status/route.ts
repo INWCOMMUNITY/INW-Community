@@ -20,14 +20,18 @@ export async function GET(req: NextRequest) {
     select: {
       easypostReferralCustomerId: true,
       easypostApiKeyEncrypted: true,
+      easypostReturnAddress: true,
     },
   });
 
   // Connected if we have a stored API key (paste-your-own-key or legacy Referral Customer)
   const connected = Boolean(member?.easypostApiKeyEncrypted);
+  const addr = member?.easypostReturnAddress as { street1?: string; city?: string; state?: string; zip?: string } | null;
+  const hasReturnAddress = Boolean(addr?.street1?.trim() && addr?.city?.trim() && addr?.state?.trim() && addr?.zip?.trim());
 
   return NextResponse.json({
     connected,
+    hasReturnAddress,
     easypostReferralCustomerId: member?.easypostReferralCustomerId ?? null,
   });
 }

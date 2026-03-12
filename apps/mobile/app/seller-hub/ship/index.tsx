@@ -86,9 +86,13 @@ export default function ShipScreen() {
   const [savingPackingSlip, setSavingPackingSlip] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
+  const [hasReturnAddress, setHasReturnAddress] = useState(false);
   const loadStatus = useCallback(() => {
-    apiGet<{ connected?: boolean }>("/api/shipping/status")
-      .then((d) => setConnected(d.connected ?? false))
+    apiGet<{ connected?: boolean; hasReturnAddress?: boolean }>("/api/shipping/status")
+      .then((d) => {
+        setConnected(d.connected ?? false);
+        setHasReturnAddress(d.hasReturnAddress ?? false);
+      })
       .catch(() => setConnected(false));
   }, []);
 
@@ -383,6 +387,21 @@ export default function ShipScreen() {
         Purchase shipping labels. Labels are charged to your connected EasyPost account.
       </Text>
 
+      {connected && !hasReturnAddress && (
+        <View style={styles.returnAddrBanner}>
+          <Text style={styles.returnAddrTitle}>Set your EasyPost return address</Text>
+          <Text style={styles.returnAddrText}>
+            Set your EasyPost return address in shipping setup to get rates and buy labels. Used only on labels and packing slips.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.returnAddrBtn, pressed && { opacity: 0.8 }]}
+            onPress={() => (router.push as (href: string) => void)("/seller-hub/shipping-setup")}
+          >
+            <Text style={styles.btnText}>Go to shipping setup</Text>
+          </Pressable>
+        </View>
+      )}
+
       {canCombineOrders && (
         <Pressable
           style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.8 }]}
@@ -583,6 +602,23 @@ const styles = StyleSheet.create({
   toggle: { marginBottom: 16 },
   toggleText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },
   err: { color: "#c62828", marginBottom: 16, fontSize: 14 },
+  returnAddrBanner: {
+    backgroundColor: "#fffbeb",
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 20,
+  },
+  returnAddrTitle: { fontSize: 16, fontWeight: "600", color: "#92400e", marginBottom: 8 },
+  returnAddrText: { fontSize: 14, color: "#b45309", marginBottom: 12 },
+  returnAddrBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+  },
   card: {
     backgroundColor: "#f9f9f9",
     borderRadius: 8,

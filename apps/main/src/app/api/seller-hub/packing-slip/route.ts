@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     const [member, business] = await Promise.all([
       prisma.member.findUnique({
         where: { id: userId },
-        select: { packingSlipNote: true },
+        select: { packingSlipNote: true, easypostReturnAddress: true },
       }),
       prisma.business.findFirst({
         where: { memberId: userId },
@@ -65,6 +65,22 @@ export async function POST(req: NextRequest) {
       }),
     ]);
 
+    const epReturn = member?.easypostReturnAddress as
+      | { street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string }
+      | null
+      | undefined;
+    const returnAddressFormatted =
+      epReturn?.street1 && epReturn?.city && epReturn?.state && epReturn?.zip
+        ? [
+            epReturn.company ?? business?.name ?? "",
+            epReturn.street1,
+            epReturn.street2,
+            [epReturn.city, epReturn.state, epReturn.zip].filter(Boolean).join(", "),
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : null;
+
     const sellerProfile: PackingSlipSellerProfile = {
       business: business
         ? {
@@ -77,6 +93,7 @@ export async function POST(req: NextRequest) {
             email: business.email,
           }
         : null,
+      returnAddressFormatted,
       packingSlipNote: member?.packingSlipNote ?? null,
     };
 

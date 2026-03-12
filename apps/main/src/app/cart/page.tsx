@@ -319,34 +319,48 @@ export default function CartPage() {
       const hasShippedCardItem = cardItems.some((i) => (i.fulfillmentType ?? "ship") === "ship");
       let resolvedShippingAddress = shippingAddress;
       if (hasShippedCardItem) {
-        if (shippingAddressFromPlaces) {
-          resolvedShippingAddress = {
-            ...shippingAddress,
-            aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
-          };
-        } else {
-          const validateRes = await fetch("/api/validate-address", {
+        let validateRes = await fetch("/api/validate-address", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            street: shippingAddress.street,
+            city: shippingAddress.city,
+            state: shippingAddress.state,
+            zip: shippingAddress.zip,
+            requireCarrierVerification: true,
+          }),
+          credentials: "include",
+        });
+        let validateData = (await validateRes.json().catch(() => ({}))) as {
+          valid?: boolean;
+          formatted?: { street: string; city: string; state: string; zip: string };
+          suggestedFormatted?: { street: string; city: string; state: string; zip: string };
+          error?: string;
+        };
+        if (!validateData.valid && validateData.suggestedFormatted) {
+          validateRes = await fetch("/api/validate-address", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              street: shippingAddress.street,
-              city: shippingAddress.city,
-              state: shippingAddress.state,
-              zip: shippingAddress.zip,
+              street: validateData.suggestedFormatted.street,
+              city: validateData.suggestedFormatted.city,
+              state: validateData.suggestedFormatted.state,
+              zip: validateData.suggestedFormatted.zip,
+              requireCarrierVerification: true,
             }),
             credentials: "include",
           });
-          const validateData = await validateRes.json().catch(() => ({}));
-          if (!validateData.valid) {
-            setError(validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
-            setCheckingOut(false);
-            return;
-          }
-          resolvedShippingAddress = {
-            ...validateData.formatted,
-            aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
-          };
+          validateData = (await validateRes.json().catch(() => ({}))) as typeof validateData;
         }
+        if (!validateData.valid) {
+          setError(validateData.error ?? "This address cannot be used for shipping. Please check street, city, state, and ZIP.");
+          setCheckingOut(false);
+          return;
+        }
+        resolvedShippingAddress = {
+          ...validateData.formatted,
+          aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
+        };
       }
 
       const shippingCostCents = cardItems.reduce((sum, i) => {

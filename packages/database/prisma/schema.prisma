@@ -26,6 +26,7 @@ model Member {
   stripeCustomerId      String? @map("stripe_customer_id") // For fallback payments (labels, etc.)
   easypostReferralCustomerId String? @map("easypost_referral_customer_id") // Seller's EasyPost Referral Customer (own billing)
   easypostApiKeyEncrypted    String? @map("easypost_api_key_encrypted") // Seller's EasyPost production API key, encrypted at rest
+  easypostReturnAddress      Json?   @map("easypost_return_address") // Seller's EasyPost return address; used only for labels and packing slips (not app business address)
   packingSlipNote       String? @map("packing_slip_note") @db.Text
   phone                String?
   deliveryAddress      Json?   @map("delivery_address") // private: { street, city, state, zip }

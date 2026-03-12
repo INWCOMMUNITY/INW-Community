@@ -37,6 +37,8 @@ interface SellerProfile {
     website?: string | null;
     email?: string | null;
   } | null;
+  /** EasyPost return address (labels and packing slips only). */
+  returnAddressFormatted?: string | null;
   packingSlipNote?: string | null;
 }
 
@@ -116,9 +118,10 @@ export function PackingSlipPrint({
         taxCents: (order as { taxCents?: number }).taxCents,
       }));
 
-  const returnAddress = biz
-    ? [biz.name, biz.phone, formatSellerAddress(biz.address, biz.city)].filter(Boolean).join("\n")
-    : "";
+  const returnAddress =
+    sellerProfile.returnAddressFormatted?.trim() ||
+    (biz ? [biz.name, biz.phone, formatSellerAddress(biz.address, biz.city)].filter(Boolean).join("\n") : "") ||
+    "—";
 
   return (
     <div className="print-only packing-slip-container">

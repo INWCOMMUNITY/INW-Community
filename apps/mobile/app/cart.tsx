@@ -313,32 +313,37 @@ export default function CartScreen() {
     try {
       let resolvedShippingAddress = shippingAddress;
       if (hasShippedItem) {
-        if (shippingAddressFromPlaces) {
-          resolvedShippingAddress = {
-            ...shippingAddress,
-            aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
-          };
-        } else {
-          const validateData = await apiPost<{
-            valid?: boolean;
-            formatted?: { street: string; city: string; state: string; zip: string };
-            error?: string;
-          }>("/api/validate-address", {
-            street: shippingAddress.street,
-            city: shippingAddress.city,
-            state: shippingAddress.state,
-            zip: shippingAddress.zip,
+        type ValidateRes = {
+          valid?: boolean;
+          formatted?: { street: string; city: string; state: string; zip: string };
+          suggestedFormatted?: { street: string; city: string; state: string; zip: string };
+          error?: string;
+        };
+        let validateData = await apiPost<ValidateRes>("/api/validate-address", {
+          street: shippingAddress.street,
+          city: shippingAddress.city,
+          state: shippingAddress.state,
+          zip: shippingAddress.zip,
+          requireCarrierVerification: true,
+        });
+        if (!validateData.valid && validateData.suggestedFormatted) {
+          validateData = await apiPost<ValidateRes>("/api/validate-address", {
+            street: validateData.suggestedFormatted.street,
+            city: validateData.suggestedFormatted.city,
+            state: validateData.suggestedFormatted.state,
+            zip: validateData.suggestedFormatted.zip,
+            requireCarrierVerification: true,
           });
-          if (!validateData.valid) {
-            setError(validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
-            setCheckingOut(false);
-            return;
-          }
-          resolvedShippingAddress = {
-            ...validateData.formatted!,
-            aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
-          };
         }
+        if (!validateData.valid) {
+          setError(validateData.error ?? "This address cannot be used for shipping. Please check street, city, state, and ZIP.");
+          setCheckingOut(false);
+          return;
+        }
+        resolvedShippingAddress = {
+          ...validateData.formatted!,
+          aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
+        };
       }
 
       const shippingCostCents = items.reduce((sum, i) => {

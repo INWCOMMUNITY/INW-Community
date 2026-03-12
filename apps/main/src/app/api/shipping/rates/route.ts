@@ -85,26 +85,70 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Order has no shipping address" }, { status: 400 });
   }
 
-  const business = order.seller.businesses?.[0];
+  const returnAddr = (order.seller as { easypostReturnAddress?: { street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string } | null }).easypostReturnAddress;
+  if (!returnAddr?.street1?.trim() || !returnAddr?.city?.trim() || !returnAddr?.state?.trim() || !returnAddr?.zip?.trim()) {
+    return NextResponse.json(
+      {
+        error: "Set your EasyPost return address in Seller Hub (shipping setup) first. It should match the return address in your EasyPost account and is used only for labels and packing slips.",
+        code: "EASYPOST_RETURN_ADDRESS_REQUIRED",
+      },
+      { status: 400 }
+    );
+  }
   const fromAddress = {
-    street1: business?.address ?? "123 Main St",
-    city: business?.city ?? "Spokane",
-    state: "WA",
-    zip: "99201",
-    country: "US",
-    company: business?.name ?? "Seller",
-    phone: business?.phone ?? "",
+    street1: returnAddr.street1.trim(),
+    ...(returnAddr.street2?.trim() ? { street2: returnAddr.street2.trim() } : {}),
+    city: returnAddr.city.trim(),
+    state: returnAddr.state.trim(),
+    zip: returnAddr.zip.trim().replace(/\D/g, "").slice(0, 10),
+    country: "US" as const,
+    company: returnAddr.company?.trim()?.slice(0, 64) ?? "Seller",
+    phone: "",
   };
 
-  const toAddress: { name: string; street1: string; street2?: string; city: string; state: string; zip: string; country: string } = {
+  const toAddressInput = {
     name: `${order.buyer.firstName} ${order.buyer.lastName}`,
-    street1: shippingAddr.street,
-    city: shippingAddr.city,
-    state: shippingAddr.state,
-    zip: shippingAddr.zip,
-    country: "US",
+    street1: shippingAddr.street.trim(),
+    city: shippingAddr.city.trim(),
+    state: shippingAddr.state.trim(),
+    zip: shippingAddr.zip.trim().split("-")[0],
+    country: "US" as const,
+    ...(shippingAddr.aptOrSuite?.trim() ? { street2: shippingAddr.aptOrSuite.trim() } : {}),
   };
-  if (shippingAddr.aptOrSuite?.trim()) toAddress.street2 = shippingAddr.aptOrSuite.trim();
+
+  let toAddress: { name: string; street1: string; street2?: string; city: string; state: string; zip: string; country: string };
+  try {
+    const verified = await client.Address.create({
+      street1: toAddressInput.street1,
+      street2: toAddressInput.street2,
+      city: toAddressInput.city,
+      state: toAddressInput.state,
+      zip: toAddressInput.zip,
+      country: toAddressInput.country,
+      verify_strict: true,
+    });
+    const v = verified as { street1?: string; street2?: string; city?: string; state?: string; zip?: string };
+    toAddress = {
+      name: toAddressInput.name,
+      street1: v.street1 ?? toAddressInput.street1,
+      city: v.city ?? toAddressInput.city,
+      state: v.state ?? toAddressInput.state,
+      zip: (v.zip ?? toAddressInput.zip).toString().split("-")[0],
+      country: "US",
+    };
+    if (v.street2?.trim()) toAddress.street2 = v.street2.trim();
+  } catch (addrErr) {
+    const msg = addrErr instanceof Error ? addrErr.message : "Address verification failed";
+    console.error("[shipping/rates] address verify failed", msg);
+    return NextResponse.json(
+      {
+        error:
+          "The delivery address could not be verified by the carrier. Please ask the buyer to confirm or correct street, city, state, and ZIP (e.g. add apartment number if missing), then try again.",
+        code: "ADDRESS_VERIFY_FAILED",
+      },
+      { status: 400 }
+    );
+  }
 
   function formatRate(
     r: { id: string; carrier: string; service: string; rate: string },

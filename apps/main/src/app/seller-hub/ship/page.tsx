@@ -65,14 +65,16 @@ export default function ShipItemsPage() {
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
   const [combineByBuyer, setCombineByBuyer] = useState(false);
   const [shippingConnected, setShippingConnected] = useState<boolean | null>(null);
+  const [hasReturnAddress, setHasReturnAddress] = useState(false);
   const [hasReferralCustomer, setHasReferralCustomer] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/shipping/status")
       .then((r) => r.json())
-      .then((d: { connected?: boolean; easypostReferralCustomerId?: string | null }) => {
+      .then((d: { connected?: boolean; hasReturnAddress?: boolean; easypostReferralCustomerId?: string | null }) => {
         setShippingConnected(d.connected ?? false);
+        setHasReturnAddress(d.hasReturnAddress ?? false);
         setHasReferralCustomer(Boolean(d.easypostReferralCustomerId));
       })
       .catch(() => setShippingConnected(false));
@@ -337,7 +339,19 @@ export default function ShipItemsPage() {
           </div>
         )}
 
-        {shippingConnected === true && (
+        {shippingConnected === true && !hasReturnAddress && (
+          <div className="border rounded-lg p-6 mb-8 bg-amber-50 border-amber-200">
+            <h2 className="font-semibold text-amber-900 mb-2">Set your EasyPost return address</h2>
+            <p className="text-amber-800 mb-4">
+              Set your EasyPost return address in shipping setup to get rates and buy labels. This address is used only on labels and packing slips.
+            </p>
+            <Link href="/seller-hub/shipping-setup" className="btn inline-block">
+              Go to shipping setup
+            </Link>
+          </div>
+        )}
+
+        {shippingConnected === true && hasReturnAddress && (
           <div className="flex flex-wrap items-center gap-3 mb-6 p-3 rounded-lg bg-green-50 border border-green-200">
             <span className="text-green-800 font-medium">Shipping account connected</span>
             <Link

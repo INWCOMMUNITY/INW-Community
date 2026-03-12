@@ -212,10 +212,17 @@ export async function POST(req: NextRequest) {
     } catch {
       jsonBodySafe = undefined;
     }
-    const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
+    const orderAddr = (primaryOrder as { shippingAddress?: unknown }).shippingAddress;
+    const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"} | orderId=${primaryId} | to_address=${typeof orderAddr === "object" && orderAddr ? JSON.stringify(orderAddr).slice(0, 200) : "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
     console.error(logLine);
+
+    const userMessage =
+      code === "ADDRESS.VERIFY.FAILURE"
+        ? "The carrier rejected the address at purchase time (this can happen even when the address is correct). Make sure your business / ship-from address in Seller Hub matches your EasyPost return address. If both addresses are correct, try Get rates again and purchase immediately, or contact EasyPost support."
+        : msg;
+
     return NextResponse.json(
-      { error: msg, ...(code ? { code } : {}) },
+      { error: userMessage, ...(code ? { code } : {}) },
       { status: 500 }
     );
   }

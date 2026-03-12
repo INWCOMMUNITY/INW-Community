@@ -38,6 +38,8 @@ export interface PackingSlipSellerProfile {
     website?: string | null;
     email?: string | null;
   } | null;
+  /** EasyPost return address (used for return-address box only; not the app business address). */
+  returnAddressFormatted: string | null;
   packingSlipNote?: string | null;
 }
 
@@ -148,9 +150,7 @@ export async function generatePackingSlipPdf(
 
   const biz = sellerProfile.business;
   const bizName = biz?.name ?? "Business";
-  const returnAddress = biz
-    ? [biz.name, biz.phone, fmtAddr(biz.address, biz.city)].filter(Boolean).join("\n")
-    : "";
+  const returnAddress = sellerProfile.returnAddressFormatted?.trim() || "—";
 
   const logo = biz?.logoUrl ? await tryEmbedLogo(doc, biz.logoUrl) : null;
 

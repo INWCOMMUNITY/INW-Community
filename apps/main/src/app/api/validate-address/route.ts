@@ -118,66 +118,117 @@ async function validateWithNominatim(
 
 const EASYPOST_API_BASE = "https://api.easypost.com/v2";
 
-async function validateWithEasyPost(
-  street: string,
+type EasyPostAddressData = {
+  verifications?: { delivery?: { success?: boolean; errors?: unknown[] } };
+  street1?: string;
+  street2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+};
+
+async function easyPostVerifyOnce(
+  street1: string,
   city: string,
   state: string,
   zip: string,
-  logReason: (reason: string, detail?: string) => void
-): Promise<{ valid: boolean; formatted?: { street: string; city: string; state: string; zip: string } }> {
-  const key = process.env.EASYPOST_API_KEY?.trim();
-  if (!key) return { valid: false };
-
+  key: string,
+  street2?: string
+): Promise<{ ok: boolean; data?: EasyPostAddressData }> {
   const basicAuth = Buffer.from(`${key}:`, "utf8").toString("base64");
+  const address: { street1: string; street2?: string; city: string; state: string; zip: string; country: string } = {
+    street1: street1.trim(),
+    city: city.trim(),
+    state: state.trim(),
+    zip: zip.split("-")[0],
+    country: "US",
+  };
+  if (street2?.trim()) address.street2 = street2.trim();
   const res = await fetch(`${EASYPOST_API_BASE}/addresses`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Basic ${basicAuth}`,
     },
-    body: JSON.stringify({
-      address: {
-        street1: street,
-        city,
-        state,
-        zip: zip.split("-")[0],
-        country: "US",
-      },
-      verify: true,
-    }),
+    body: JSON.stringify({ address, verify: true }),
     signal: AbortSignal.timeout(10000),
   });
+  if (!res.ok) return { ok: false };
+  const data = (await res.json()) as EasyPostAddressData;
+  return { ok: true, data };
+}
 
-  if (!res.ok) {
-    const errText = await res.text();
-    logReason("easypost_http_error", `status=${res.status} ${errText.slice(0, 100)}`);
+function toFormatted(data: EasyPostAddressData, fallback: { street: string; city: string; state: string; zip: string }) {
+  const street1 = (data.street1 ?? fallback.street).trim();
+  const street2 = (data.street2 ?? "").trim();
+  const street = street2 ? `${street1}, ${street2}` : street1;
+  return {
+    street,
+    city: data.city ?? fallback.city,
+    state: data.state ? normalizeState(data.state) : fallback.state,
+    zip: (data.zip ?? fallback.zip).toString().split("-")[0],
+  };
+}
+
+async function validateWithEasyPost(
+  street: string,
+  city: string,
+  state: string,
+  zip: string,
+  logReason: (reason: string, detail?: string) => void
+): Promise<{
+  valid: boolean;
+  formatted?: { street: string; city: string; state: string; zip: string };
+  suggestedFormatted?: { street: string; city: string; state: string; zip: string };
+}> {
+  const key = process.env.EASYPOST_API_KEY?.trim();
+  if (!key) return { valid: false };
+
+  const input = { street, city, state, zip: zip.split("-")[0] };
+  const first = await easyPostVerifyOnce(street, city, state, zip, key);
+  if (!first.ok || !first.data) {
+    logReason("easypost_http_error", "first request failed");
     return { valid: false };
   }
 
-  const data = (await res.json()) as {
-    verifications?: { delivery?: { success?: boolean; errors?: unknown[] } };
-    street1?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-  };
+  const data = first.data;
   const delivery = data.verifications?.delivery;
   const success = delivery?.success === true;
 
-  if (!success) {
-    logReason("easypost_verify_failed", delivery?.errors ? JSON.stringify(delivery.errors).slice(0, 150) : undefined);
-    return { valid: false };
+  if (success) {
+    return {
+      valid: true,
+      formatted: toFormatted(data, input),
+    };
   }
 
-  return {
-    valid: true,
-    formatted: {
-      street: data.street1 ?? street,
-      city: data.city ?? city,
-      state: data.state ? normalizeState(data.state) : state,
-      zip: (data.zip ?? zip).toString().split("-")[0],
-    },
-  };
+  logReason("easypost_verify_failed", delivery?.errors ? JSON.stringify(delivery.errors).slice(0, 150) : undefined);
+
+  const hasCorrected =
+    data.street1?.trim() && data.city?.trim() && data.state?.trim() && data.zip?.trim();
+  if (hasCorrected) {
+    const retry = await easyPostVerifyOnce(
+      data.street1!,
+      data.city!,
+      data.state!,
+      data.zip!,
+      key,
+      data.street2
+    );
+    if (retry.ok && retry.data?.verifications?.delivery?.success === true) {
+      logReason("easypost_retry_succeeded", "second attempt with EasyPost-corrected address");
+      return {
+        valid: true,
+        formatted: toFormatted(retry.data, input),
+      };
+    }
+    return {
+      valid: false,
+      suggestedFormatted: toFormatted(data, input),
+    };
+  }
+
+  return { valid: false };
 }
 
 export async function POST(req: NextRequest) {
@@ -204,7 +255,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { street, city, state, zip } = await req.json();
+    const body = await req.json();
+    const { street, city, state, zip, requireCarrierVerification } = body as {
+      street?: string;
+      city?: string;
+      state?: string;
+      zip?: string;
+      requireCarrierVerification?: boolean;
+    };
 
     if (!street || !city || !state || !zip) {
       return NextResponse.json(
@@ -246,16 +304,34 @@ export async function POST(req: NextRequest) {
     const cityTrim = city.trim();
     const zipTrim = zip.trim();
 
+    const forCheckout = requireCarrierVerification === true;
+
+    if (forCheckout && !process.env.EASYPOST_API_KEY?.trim()) {
+      return NextResponse.json(
+        {
+          valid: false,
+          error: "Shipping address verification is temporarily unavailable. Please try again later.",
+        },
+        { status: 503 }
+      );
+    }
+
     let result = await validateWithEasyPost(streetTrim, cityTrim, stateCode, zipTrim, logReason);
-    if (!result.valid) {
+    if (!result.valid && !forCheckout) {
       result = await validateWithNominatim(streetTrim, cityTrim, stateCode, zipTrim, logReason);
     }
 
     if (!result.valid) {
-      return NextResponse.json({
-        valid: false,
-        error: "We couldn't verify this address. Please check the street, city, state, and ZIP code.",
-      }, { status: 400 });
+      return NextResponse.json(
+        {
+          valid: false,
+          error: forCheckout
+            ? "This address cannot be used for shipping labels. Please check street, city, state, and ZIP (e.g. add apartment number if missing)."
+            : "We couldn't verify this address. Please check the street, city, state, and ZIP code.",
+          ...(result.suggestedFormatted ? { suggestedFormatted: result.suggestedFormatted } : {}),
+        },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({

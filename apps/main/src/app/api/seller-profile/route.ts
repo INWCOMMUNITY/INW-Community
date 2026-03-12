@@ -49,10 +49,32 @@ export async function GET(req: NextRequest) {
   const business = await prisma.business.findFirst({
     where: { memberId: userId },
   });
-  const connectStatus = await prisma.member.findUnique({
-    where: { id: userId },
-    select: { stripeConnectAccountId: true },
-  });
+  const [connectStatus, memberShipping] = await Promise.all([
+    prisma.member.findUnique({
+      where: { id: userId },
+      select: { stripeConnectAccountId: true },
+    }),
+    prisma.member.findUnique({
+      where: { id: userId },
+      select: { easypostReturnAddress: true },
+    }),
+  ]);
+  const epReturn = memberShipping?.easypostReturnAddress as
+    | { street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string }
+    | null
+    | undefined;
+  const returnAddressFormatted =
+    epReturn?.street1 && epReturn?.city && epReturn?.state && epReturn?.zip
+      ? [
+          epReturn.company ?? business?.name ?? "",
+          epReturn.street1,
+          epReturn.street2,
+          [epReturn.city, epReturn.state, epReturn.zip].filter(Boolean).join(", "),
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : null;
+
   return NextResponse.json({
     member: member ?? { firstName: "", lastName: "", email: "" },
     sellerLocalDeliveryPolicy,
@@ -79,6 +101,7 @@ export async function GET(req: NextRequest) {
         }
       : null,
     hasStripeConnect: !!connectStatus?.stripeConnectAccountId,
+    returnAddressFormatted,
   });
 }
 
