@@ -5,6 +5,13 @@ import { isBlocked } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
 
+function isDirectConversationColumnError(e: unknown): boolean {
+  const msg = String((e as { message?: string })?.message ?? "");
+  return (e as { code?: string })?.code === "P2021" || /member_a_last_read|member_b_last_read|column.*does not exist/i.test(msg);
+}
+
+const MESSAGING_NOT_READY = "Messaging is not fully set up yet. Please try again in a few minutes or contact support.";
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -15,17 +22,25 @@ export async function GET(
   }
 
   const { id } = await params;
-  const conversation = await prisma.directConversation.findUnique({
-    where: { id },
-    include: {
-      memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-      memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-      messages: {
-        orderBy: { createdAt: "asc" },
-        include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+  let conversation;
+  try {
+    conversation = await prisma.directConversation.findUnique({
+      where: { id },
+      include: {
+        memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+        memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+        messages: {
+          orderBy: { createdAt: "asc" },
+          include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+        },
       },
-    },
-  });
+    });
+  } catch (e) {
+    if (isDirectConversationColumnError(e)) {
+      return NextResponse.json({ error: MESSAGING_NOT_READY }, { status: 503 });
+    }
+    throw e;
+  }
 
   if (!conversation) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
@@ -123,10 +138,18 @@ export async function POST(
   }
 
   const { id } = await params;
-  const conversation = await prisma.directConversation.findUnique({
-    where: { id },
-    select: { id: true, memberAId: true, memberBId: true },
-  });
+  let conversation: { id: string; memberAId: string; memberBId: string } | null;
+  try {
+    conversation = await prisma.directConversation.findUnique({
+      where: { id },
+      select: { id: true, memberAId: true, memberBId: true },
+    });
+  } catch (e) {
+    if (isDirectConversationColumnError(e)) {
+      return NextResponse.json({ error: MESSAGING_NOT_READY }, { status: 503 });
+    }
+    throw e;
+  }
   if (!conversation) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
@@ -171,10 +194,18 @@ export async function POST(
     include: { sender: { select: { id: true, firstName: true, lastName: true } } },
   });
 
-  await prisma.directConversation.update({
-    where: { id },
-    data: { updatedAt: new Date() },
-  });
+  try {
+    await prisma.directConversation.update({
+      where: { id },
+      data: { updatedAt: new Date() },
+    });
+  } catch (e) {
+    if (isDirectConversationColumnError(e)) {
+      console.warn("[POST direct-conversations/[id]] update after send failed (schema):", (e as Error)?.message);
+    } else {
+      throw e;
+    }
+  }
 
   const otherMemberId = conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
   const pushBody =
@@ -204,10 +235,18 @@ export async function POST(
       include: { sender: { select: { id: true, firstName: true, lastName: true } } },
     });
     botReply = reply;
-    await prisma.directConversation.update({
-      where: { id },
-      data: { updatedAt: new Date() },
-    });
+    try {
+      await prisma.directConversation.update({
+        where: { id },
+        data: { updatedAt: new Date() },
+      });
+    } catch (e) {
+      if (isDirectConversationColumnError(e)) {
+        console.warn("[POST direct-conversations/[id]] update after bot reply failed (schema):", (e as Error)?.message);
+      } else {
+        throw e;
+      }
+    }
   }
 
   return NextResponse.json(botReply ? { ...message, botReply } : message);
@@ -235,10 +274,18 @@ export async function PATCH(
     return NextResponse.json({ error: String(msg) }, { status: 400 });
   }
 
-  const conversation = await prisma.directConversation.findUnique({
-    where: { id },
-    select: { id: true, memberAId: true, memberBId: true, status: true, requestedByMemberId: true },
-  });
+  let conversation: { id: string; memberAId: string; memberBId: string; status: string; requestedByMemberId: string | null } | null;
+  try {
+    conversation = await prisma.directConversation.findUnique({
+      where: { id },
+      select: { id: true, memberAId: true, memberBId: true, status: true, requestedByMemberId: true },
+    });
+  } catch (e) {
+    if (isDirectConversationColumnError(e)) {
+      return NextResponse.json({ error: MESSAGING_NOT_READY }, { status: 503 });
+    }
+    throw e;
+  }
   if (!conversation) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
@@ -251,14 +298,20 @@ export async function PATCH(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (body.action === "accept") {
-    await prisma.directConversation.update({
-      where: { id },
-      data: { status: "accepted", requestedByMemberId: null },
-    });
-    return NextResponse.json({ ok: true, status: "accepted" });
+  try {
+    if (body.action === "accept") {
+      await prisma.directConversation.update({
+        where: { id },
+        data: { status: "accepted", requestedByMemberId: null },
+      });
+      return NextResponse.json({ ok: true, status: "accepted" });
+    }
+    await prisma.directConversation.delete({ where: { id } });
+    return NextResponse.json({ ok: true, status: "declined" });
+  } catch (e) {
+    if (isDirectConversationColumnError(e)) {
+      return NextResponse.json({ error: MESSAGING_NOT_READY }, { status: 503 });
+    }
+    throw e;
   }
-
-  await prisma.directConversation.delete({ where: { id } });
-  return NextResponse.json({ ok: true, status: "declined" });
 }

@@ -3,6 +3,15 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getBlockedMemberIds } from "@/lib/member-block";
 
+/** Detect DB errors from missing direct_conversation columns (e.g. member_*_last_read_at not migrated yet). */
+function isDirectConversationColumnError(e: unknown): boolean {
+  const msg = String((e as { message?: string })?.message ?? "");
+  return (
+    (e as { code?: string })?.code === "P2021" ||
+    /column.*does not exist|member_a_last_read|member_b_last_read/i.test(msg)
+  );
+}
+
 /**
  * GET /api/me/sidebar-alerts
  * Returns counts for sidebar badge indicators (unread messages, pending friend requests).
@@ -14,33 +23,48 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [conversations, blockedIds, incomingFriendRequests] = await Promise.all([
-    prisma.directConversation.findMany({
-      where: {
-        OR: [
-          { memberAId: session.user.id },
-          { memberBId: session.user.id },
-        ],
-      },
-      select: {
-        status: true,
-        requestedByMemberId: true,
-        memberAId: true,
-        memberBId: true,
-        memberALastReadAt: true,
-        memberBLastReadAt: true,
-        messages: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { senderId: true, createdAt: true },
+  let conversations: { status: string; requestedByMemberId: string | null; memberAId: string; memberBId: string; memberALastReadAt: Date | null; memberBLastReadAt: Date | null; messages: { senderId: string; createdAt: Date }[] }[] = [];
+  let blockedIds: Set<string> = new Set();
+  let incomingFriendRequests = 0;
+
+  try {
+    const [convs, blocked, friendCount] = await Promise.all([
+      prisma.directConversation.findMany({
+        where: {
+          OR: [
+            { memberAId: session.user.id },
+            { memberBId: session.user.id },
+          ],
         },
-      },
-    }),
-    getBlockedMemberIds(session.user.id),
-    prisma.friendRequest.count({
-      where: { addresseeId: session.user.id, status: "pending" },
-    }),
-  ]);
+        select: {
+          status: true,
+          requestedByMemberId: true,
+          memberAId: true,
+          memberBId: true,
+          memberALastReadAt: true,
+          memberBLastReadAt: true,
+          messages: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { senderId: true, createdAt: true },
+          },
+        },
+      }),
+      getBlockedMemberIds(session.user.id),
+      prisma.friendRequest.count({
+        where: { addresseeId: session.user.id, status: "pending" },
+      }),
+    ]);
+    conversations = convs;
+    blockedIds = blocked;
+    incomingFriendRequests = friendCount;
+  } catch (e) {
+    if (isDirectConversationColumnError(e)) {
+      console.warn("[sidebar-alerts] direct_conversation columns missing (migration not run?), returning zero unread");
+      return NextResponse.json({ unreadMessages: 0, incomingFriendRequests });
+    }
+    throw e;
+  }
 
   const filtered = conversations.filter((c) => {
     const otherId = c.memberAId === session.user.id ? c.memberBId : c.memberAId;

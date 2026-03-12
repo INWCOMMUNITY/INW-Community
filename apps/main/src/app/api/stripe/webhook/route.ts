@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
-import { decrementOptionQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
+import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 
 /**
@@ -529,6 +529,7 @@ export async function POST(req: NextRequest) {
       if (order.status !== "pending") continue;
 
       // Connect events: ensure payment was for this order's seller's Connect account (funds go to seller, not platform)
+      let sellerConnectAccountId: string | null = null;
       if (isConnectEvent && connectAccountId) {
         const seller = await prisma.member.findUnique({
           where: { id: order.sellerId },
@@ -542,6 +543,56 @@ export async function POST(req: NextRequest) {
           });
           continue;
         }
+        sellerConnectAccountId = seller?.stripeConnectAccountId ?? null;
+      }
+
+      // Validate inventory before fulfilling (rare race: another buyer may have taken the last unit)
+      const storeItemsForValidation = await prisma.storeItem.findMany({
+        where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
+      });
+      const storeItemMapValidation = new Map(storeItemsForValidation.map((s) => [s.id, s]));
+      const insufficientItems: { title: string }[] = [];
+      for (const oi of order.items) {
+        const storeItem = storeItemMapValidation.get(oi.storeItemId);
+        const available = storeItem ? getAvailableQuantity(storeItem, oi.variant) : 0;
+        if (available < oi.quantity) {
+          insufficientItems.push({ title: storeItem?.title ?? "Item" });
+        }
+      }
+      if (insufficientItems.length > 0) {
+        const itemTitles = insufficientItems.map((i) => i.title).join(", ");
+        try {
+          const refundOpts = sellerConnectAccountId
+            ? { stripeAccount: sellerConnectAccountId }
+            : {};
+          await stripe.refunds.create(
+            {
+              payment_intent: paymentIntent.id,
+              reason: "requested_by_customer",
+            },
+            refundOpts as { stripeAccount?: string }
+          );
+        } catch (refundErr) {
+          console.error("[webhook] payment_intent.succeeded: refund failed (sold before checkout)", refundErr);
+        }
+        await prisma.storeOrder.update({
+          where: { id: order.id },
+          data: {
+            status: "canceled",
+            cancelReason: "Item sold before checkout was complete",
+            cancelNote: itemTitles,
+          },
+        });
+        const { sendPushNotification } = await import("@/lib/send-push-notification");
+        sendPushNotification(order.buyerId, {
+          title: "Order canceled",
+          body:
+            insufficientItems.length === 1
+              ? `This item sold before checkout was complete: ${insufficientItems[0].title}`
+              : `These items sold before checkout was complete: ${itemTitles}`,
+          data: { screen: "my-orders", orderId: order.id },
+        }).catch(() => {});
+        continue;
       }
 
       const totalCents = order.totalCents;
@@ -564,6 +615,7 @@ export async function POST(req: NextRequest) {
         where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
       });
       const storeItemMapPI = new Map(storeItemsPaymentIntent.map((s) => [s.id, s]));
+      const soldOutStoreItemIds = new Set<string>();
       for (const oi of order.items) {
         const storeItem = storeItemMapPI.get(oi.storeItemId);
         if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
@@ -590,12 +642,49 @@ export async function POST(req: NextRequest) {
           select: { quantity: true },
         });
         if (updated && updated.quantity <= 0) {
+          soldOutStoreItemIds.add(oi.storeItemId);
           await prisma.storeItem.update({
             where: { id: oi.storeItemId },
             data: { status: "sold_out" },
           });
           const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
           deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
+        }
+      }
+
+      // Notify other buyers who had this item in a pending order (they never paid—no refund)
+      if (soldOutStoreItemIds.size > 0) {
+        const otherPendingOrderItems = await prisma.orderItem.findMany({
+          where: {
+            storeItemId: { in: [...soldOutStoreItemIds] },
+            order: { status: "pending", buyerId: { not: order.buyerId } },
+          },
+          include: { order: { select: { id: true, buyerId: true } } },
+        });
+        const ordersToCancel = new Set<string>();
+        const notifiedBuyerItems = new Set<string>();
+        for (const oi of otherPendingOrderItems) {
+          if (!oi.order) continue;
+          ordersToCancel.add(oi.order.id);
+          const key = `${oi.order.buyerId}:${oi.storeItemId}`;
+          if (notifiedBuyerItems.has(key)) continue;
+          notifiedBuyerItems.add(key);
+          const title = storeItemMapPI.get(oi.storeItemId)?.title ?? "Item";
+          const { sendPushNotification } = await import("@/lib/send-push-notification");
+          sendPushNotification(oi.order.buyerId, {
+            title: "Item no longer available",
+            body: `This item sold before checkout was complete: ${title}`,
+            data: { screen: "cart" },
+          }).catch(() => {});
+        }
+        if (ordersToCancel.size > 0) {
+          await prisma.storeOrder.updateMany({
+            where: { id: { in: [...ordersToCancel] } },
+            data: {
+              status: "canceled",
+              cancelReason: "Item sold before checkout was complete",
+            },
+          });
         }
       }
 

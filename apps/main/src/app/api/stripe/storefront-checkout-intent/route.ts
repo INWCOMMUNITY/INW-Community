@@ -123,15 +123,39 @@ export async function POST(req: NextRequest) {
 
   const itemMap = new Map(storeItems.map((s) => [s.id, s]));
   const bySeller = new Map<string, typeof items>();
+  const singleQtyStoreItemIds: string[] = [];
   for (const item of items) {
     const storeItem = itemMap.get(item.storeItemId);
     const available = storeItem ? getAvailableQuantity(storeItem, item.variant) : 0;
     if (!storeItem || item.quantity < 1 || item.quantity > available) {
       return NextResponse.json({ error: `Invalid quantity for ${storeItem?.title ?? "item"}` }, { status: 400 });
     }
+    if (available === 1) {
+      singleQtyStoreItemIds.push(item.storeItemId);
+    }
     const sellerId = storeItem.memberId;
     if (!bySeller.has(sellerId)) bySeller.set(sellerId, []);
     bySeller.get(sellerId)!.push(item);
+  }
+
+  // Reject only if the item is in another customer's pending order (they started checkout).
+  // We do not block when the item is only in someone's cart—carts have no order until checkout is started.
+  if (singleQtyStoreItemIds.length > 0) {
+    const otherPending = await prisma.orderItem.findFirst({
+      where: {
+        storeItemId: { in: singleQtyStoreItemIds },
+        order: { status: "pending", buyerId: { not: session.user.id } },
+      },
+      include: { order: { select: { buyerId: true } } },
+    });
+    if (otherPending) {
+      const storeItem = itemMap.get(otherPending.storeItemId);
+      const title = storeItem?.title ?? "This item";
+      return NextResponse.json(
+        { error: `${title} is currently in another customer's checkout.` },
+        { status: 400 }
+      );
+    }
   }
 
   // Validate all sellers have Stripe Connect before creating any orders (avoid orphan pending orders)

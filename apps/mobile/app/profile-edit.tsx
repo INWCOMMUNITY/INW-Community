@@ -465,7 +465,7 @@ export default function ProfileEditScreen() {
               if (meta?.fromPlaces !== undefined) setDeliveryAddressFromPlaces(meta.fromPlaces);
             }}
             placeholder="Search for your address"
-            showManualFallback
+            showManualFallback={false}
           />
         </View>
 

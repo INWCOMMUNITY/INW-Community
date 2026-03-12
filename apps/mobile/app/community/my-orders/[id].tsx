@@ -40,6 +40,8 @@ interface StoreOrder {
   shippingAddress?: unknown;
   refundRequestedAt?: string | null;
   refundReason?: string | null;
+  cancelReason?: string | null;
+  cancelNote?: string | null;
   isCashOrder?: boolean;
   seller?: {
     firstName: string;
@@ -228,6 +230,14 @@ export default function MyOrderDetailScreen() {
         <Text style={styles.label}>Status</Text>
         <Text style={[styles.value, styles.statusCapitalize]}>{getOrderStatusLabel(order.status)}</Text>
       </View>
+
+      {order.status === "canceled" && (order.cancelReason ?? order.cancelNote) && (
+        <View style={styles.cancelReasonSection}>
+          <Text style={styles.cancelReasonText}>
+            {[order.cancelReason, order.cancelNote].filter(Boolean).join(order.cancelReason && order.cancelNote ? " — " : "")}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.section}>
         <Text style={styles.label}>Payment</Text>
@@ -566,6 +576,13 @@ const styles = StyleSheet.create({
     borderColor: "#fde68a",
   },
   refundBannerText: { flex: 1, fontSize: 14, color: "#92400e" },
+  cancelReasonSection: {
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: theme.colors.creamAlt,
+    borderRadius: 8,
+  },
+  cancelReasonText: { fontSize: 14, color: theme.colors.text },
   actionsSection: { gap: 12, marginTop: 8 },
   actionBtn: {
     paddingVertical: 12,

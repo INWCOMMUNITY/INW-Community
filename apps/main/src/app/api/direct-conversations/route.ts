@@ -9,11 +9,14 @@ function normalizePair(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
 }
 
-/** Detect DB errors from missing direct_conversation columns (status, requested_by_member_id). */
+/** Detect DB errors from missing direct_conversation columns (status, requested_by_member_id, member_*_last_read_at). */
 function isDirectConversationSchemaError(e: unknown): boolean {
   const code = (e as { code?: string })?.code;
-  const msg = (e as { message?: string })?.message ?? "";
-  return code === "P2021" || (typeof msg === "string" && (msg.includes("status") || msg.includes("requested_by_member_id")));
+  const msg = String((e as { message?: string })?.message ?? "");
+  return (
+    code === "P2021" ||
+    /status|requested_by_member_id|member_a_last_read|member_b_last_read|column.*does not exist/i.test(msg)
+  );
 }
 
 const MESSAGING_NOT_READY = "Messaging is not fully set up yet. Please try again in a few minutes or contact support.";
@@ -183,10 +186,38 @@ export async function POST(req: NextRequest) {
       },
       include: { sender: { select: { id: true, firstName: true, lastName: true } } },
     });
-    await prisma.directConversation.update({
-      where: { id: conversation.id },
-      data: { updatedAt: new Date() },
-    });
+    try {
+      await prisma.directConversation.update({
+        where: { id: conversation.id },
+        data: { updatedAt: new Date() },
+      });
+      conversation = await prisma.directConversation.findUnique({
+        where: { id: conversation.id },
+        include: {
+          memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+          memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+          messages: { orderBy: { createdAt: "asc" }, include: { sender: { select: { id: true, firstName: true, lastName: true } } } },
+        },
+      })!;
+    } catch (e: unknown) {
+      if (isDirectConversationSchemaError(e)) {
+        console.warn("[POST direct-conversations] update/refetch after send failed (schema):", (e as Error)?.message);
+        const otherId = conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
+        const isRequest = conversation.status === "pending";
+        const pushTitle = isRequest ? "Message request" : "New message";
+        const pushBody =
+          contentTrimmed.length > 0
+            ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+            : isRequest
+              ? `${message.sender.firstName} sent you a message request`
+              : "New message";
+        const { sendPushNotification } = await import("@/lib/send-push-notification");
+        sendPushNotification(otherId, { title: pushTitle, body: pushBody, data: { screen: "messages", conversationId: conversation.id } }).catch(() => {});
+        const withNewMessage = { ...conversation, messages: [...(conversation.messages ?? []), message] };
+        return NextResponse.json(withNewMessage);
+      }
+      throw e;
+    }
     const otherId =
       conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
     const isRequest = conversation.status === "pending";
@@ -203,14 +234,6 @@ export async function POST(req: NextRequest) {
       body: pushBody,
       data: { screen: "messages", conversationId: conversation.id },
     }).catch(() => {});
-    conversation = await prisma.directConversation.findUnique({
-      where: { id: conversation.id },
-      include: {
-        memberA: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-        memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-        messages: { orderBy: { createdAt: "asc" }, include: { sender: { select: { id: true, firstName: true, lastName: true } } } },
-      },
-    })!;
     return NextResponse.json(conversation);
   }
 

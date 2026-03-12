@@ -41,10 +41,22 @@ export async function PATCH(
       ? { memberALastReadAt: lastMessageAt }
       : { memberBLastReadAt: lastMessageAt };
 
-  await prisma.directConversation.update({
-    where: { id },
-    data: updateData as Prisma.DirectConversationUpdateInput,
-  });
+  try {
+    await prisma.directConversation.update({
+      where: { id },
+      data: updateData as Prisma.DirectConversationUpdateInput,
+    });
+  } catch (e) {
+    const msg = String((e as { message?: string })?.message ?? "");
+    if (
+      (e as { code?: string })?.code === "P2021" ||
+      /column.*does not exist|member_a_last_read|member_b_last_read/i.test(msg)
+    ) {
+      console.warn("[direct-conversations/read] direct_conversation last_read columns missing (migration not run?)");
+      return NextResponse.json({ ok: true });
+    }
+    throw e;
+  }
 
   return NextResponse.json({ ok: true });
 }

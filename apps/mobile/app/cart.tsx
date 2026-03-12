@@ -574,7 +574,7 @@ export default function CartScreen() {
                       if (meta?.fromPlaces !== undefined) setShippingAddressFromPlaces(meta.fromPlaces);
                     }}
                     placeholder="Search for your address"
-                    showManualFallback
+                    showManualFallback={false}
                   />
                 </View>
               )}
@@ -936,6 +936,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: theme.colors.heading,
+    marginBottom: 10,
   },
   input: {
     borderWidth: 2,
