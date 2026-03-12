@@ -205,6 +205,10 @@ export async function POST(req: NextRequest) {
     }).catch(() => {});
   }
 
+  await prisma.cartItem.deleteMany({
+    where: { memberId: session.user.id },
+  });
+
   const orderIdsParam = orderIds.join(",");
   const url = `${getBaseUrl()}/storefront/order-success?cash=1&order_ids=${encodeURIComponent(orderIdsParam)}`;
   return NextResponse.json({ orderIds, url });

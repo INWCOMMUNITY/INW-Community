@@ -6,6 +6,9 @@ import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { z } from "zod";
 
+/** Ensure storefront listing is always fresh so newly listed items appear immediately. */
+export const dynamic = "force-dynamic";
+
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -373,7 +376,11 @@ export async function GET(req: NextRequest) {
     if (size) {
       items = items.filter((item) => itemHasSize(item, size));
     }
-    return NextResponse.json(items);
+    return NextResponse.json(items, {
+      headers: {
+        "Cache-Control": "private, no-store, max-age=0",
+      },
+    });
   } catch (e) {
     console.error("[store-items] Public listing error:", e);
     return NextResponse.json([]);

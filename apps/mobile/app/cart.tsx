@@ -639,6 +639,11 @@ export default function CartScreen() {
                     ...(hasLocalDelivery && localDeliveryDetails && { localDeliveryDetails }),
                   }}
                   onSuccess={async (orderIds) => {
+                    try {
+                      await apiDelete("/api/cart");
+                    } catch {
+                      // ignore; load() will still refresh
+                    }
                     await load();
                     if (orderIds && orderIds.length > 0) {
                       try {

@@ -92,17 +92,20 @@ export async function POST(req: NextRequest) {
     console.warn("[stripe/webhook] 400: missing stripe-signature header");
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
   }
-  const platformSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  const connectSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
-  if (!platformSecret?.trim() && !connectSecret?.trim()) {
+  const platformSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  const connectSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET?.trim();
+  if (!platformSecret && !connectSecret) {
     console.warn("[stripe/webhook] 400: STRIPE_WEBHOOK_SECRET and STRIPE_CONNECT_WEBHOOK_SECRET both missing or empty");
     return NextResponse.json({ error: "Missing webhook secret(s)" }, { status: 400 });
   }
+
+  // Tolerance (seconds) for timestamp in signature to allow for clock skew
+  const toleranceSeconds = 300;
   let event: Stripe.Event;
   let lastError: unknown;
-  if (platformSecret?.trim()) {
+  if (platformSecret) {
     try {
-      event = stripe.webhooks.constructEvent(body, sig, platformSecret);
+      event = stripe.webhooks.constructEvent(body, sig, platformSecret, toleranceSeconds);
     } catch (e) {
       lastError = e;
       event = null as unknown as Stripe.Event;
@@ -111,9 +114,9 @@ export async function POST(req: NextRequest) {
     lastError = new Error("No platform secret");
     event = null as unknown as Stripe.Event;
   }
-  if (!event && connectSecret?.trim()) {
+  if (!event && connectSecret) {
     try {
-      event = stripe.webhooks.constructEvent(body, sig, connectSecret);
+      event = stripe.webhooks.constructEvent(body, sig, connectSecret, toleranceSeconds);
     } catch (e) {
       lastError = e;
       event = null as unknown as Stripe.Event;
@@ -125,7 +128,13 @@ export async function POST(req: NextRequest) {
       detail: msg,
       hint: "Ensure STRIPE_WEBHOOK_SECRET (and STRIPE_CONNECT_WEBHOOK_SECRET if used) match the signing secret for this endpoint in Stripe Dashboard (Developers → Webhooks), and that the request body is not modified by a proxy.",
     });
-    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Invalid signature",
+        hint: "In Stripe Dashboard go to Developers → Webhooks → your endpoint for this URL → Reveal 'Signing secret'. Copy that value (whsec_...) into STRIPE_WEBHOOK_SECRET in your production env. Use Live mode secret for live events, Test mode secret for test events.",
+      },
+      { status: 400 }
+    );
   }
 
   // Connected account disconnected the platform; clear our link and disable their listings
@@ -687,6 +696,11 @@ export async function POST(req: NextRequest) {
           });
         }
       }
+
+      // Remove purchased items from the buyer's cart
+      await prisma.cartItem.deleteMany({
+        where: { memberId: order.buyerId },
+      });
 
       await awardPoints(order.buyerId, pointsAwarded);
 

@@ -189,8 +189,34 @@ export async function POST(req: NextRequest) {
         service,
       },
     });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Failed to purchase label";
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch (e: unknown) {
+    const err = e as Record<string, unknown> & { message?: string };
+    const msg =
+      typeof err?.message === "string"
+        ? err.message
+        : e instanceof Error
+          ? e.message
+          : "Failed to purchase label";
+    const code =
+      typeof err?.code === "string"
+        ? err.code
+        : typeof (err?.json_body as { error?: { code?: string } } | undefined)?.error?.code === "string"
+          ? (err.json_body as { error: { code: string } }).error.code
+          : undefined;
+    let jsonBodySafe: string | undefined;
+    try {
+      jsonBodySafe =
+        err?.json_body != null
+          ? JSON.stringify(err.json_body).slice(0, 500)
+          : undefined;
+    } catch {
+      jsonBodySafe = undefined;
+    }
+    const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
+    console.error(logLine);
+    return NextResponse.json(
+      { error: msg, ...(code ? { code } : {}) },
+      { status: 500 }
+    );
   }
 }
