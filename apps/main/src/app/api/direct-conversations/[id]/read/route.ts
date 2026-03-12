@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { isBlocked } from "@/lib/member-block";
 
@@ -43,7 +43,7 @@ export async function PATCH(
 
   await prisma.directConversation.update({
     where: { id },
-    data: updateData,
+    data: updateData as Prisma.DirectConversationUpdateInput,
   });
 
   return NextResponse.json({ ok: true });

@@ -6,7 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
-import { AddressSearchInput } from "@/components/AddressSearchInput";
+import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
 import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
 
@@ -86,7 +86,7 @@ export default function CartPage() {
   const [paymentMethodByItemId, setPaymentMethodByItemId] = useState<Record<string, "card" | "cash">>({});
   const [localDeliveryModalItemId, setLocalDeliveryModalItemId] = useState<string | null>(null);
   const [pickupTermsModalItemId, setPickupTermsModalItemId] = useState<string | null>(null);
-  const [shippingAddress, setShippingAddress] = useState(emptyShippingAddress);
+  const [shippingAddress, setShippingAddress] = useState<AddressValue>(emptyShippingAddress);
   const [shippingAddressFromPlaces, setShippingAddressFromPlaces] = useState(false);
 
   function loadCart() {
@@ -322,7 +322,7 @@ export default function CartPage() {
         if (shippingAddressFromPlaces) {
           resolvedShippingAddress = {
             ...shippingAddress,
-            aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
+            aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
           };
         } else {
           const validateRes = await fetch("/api/validate-address", {
@@ -344,7 +344,7 @@ export default function CartPage() {
           }
           resolvedShippingAddress = {
             ...validateData.formatted,
-            aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
+            aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
           };
         }
       }

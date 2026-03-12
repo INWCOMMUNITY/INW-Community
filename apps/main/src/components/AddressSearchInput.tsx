@@ -45,6 +45,7 @@ export function AddressSearchInput({
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const hasAddress = !!(value.street?.trim() && value.city?.trim() && value.state?.trim() && value.zip?.trim());
+  const aptOrSuite = value.aptOrSuite;
 
   const fetchSuggestions = useCallback(async (input: string) => {
     if (input.length < 3) {
@@ -117,7 +118,7 @@ export function AddressSearchInput({
         }
         const next: AddressValue = {
           street: data.street ?? "",
-          aptOrSuite: value.aptOrSuite ?? "",
+          aptOrSuite: aptOrSuite ?? "",
           city: data.city ?? "",
           state: data.state ?? "",
           zip: data.zip ?? "",
@@ -130,7 +131,7 @@ export function AddressSearchInput({
         setLoading(false);
       }
     },
-    [onChange, value.aptOrSuite]
+    [onChange, aptOrSuite]
   );
 
   const handleChangeAddress = useCallback(
@@ -143,55 +144,57 @@ export function AddressSearchInput({
 
   const handleClearSelection = useCallback(() => {
     onChange(
-      { street: "", aptOrSuite: value.aptOrSuite ?? "", city: "", state: "", zip: "" },
+      { street: "", aptOrSuite: aptOrSuite ?? "", city: "", state: "", zip: "" },
       { fromPlaces: false }
     );
     setSelectedFromPlaces(false);
     setQuery("");
     setShowDropdown(false);
-  }, [onChange, value.aptOrSuite]);
+  }, [onChange, aptOrSuite]);
 
   if (hasAddress && !showManual && !showDropdown) {
     return (
-      <div className="space-y-2">
-        <div
-          className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: "var(--color-primary)", color: "var(--color-text)" }}
-        >
-          {formatAddressLine(value)}
-          {value.aptOrSuite?.trim() ? `, ${value.aptOrSuite}` : ""}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={handleClearSelection}
-            className="text-sm underline"
-            style={{ color: "var(--color-primary)" }}
+      <>
+        <div className="space-y-2">
+          <div
+            className="rounded border px-3 py-2 text-sm"
+            style={{ borderColor: "var(--color-primary)", color: "var(--color-text)" }}
           >
-            Change address
-          </button>
-          {showManualFallback && (
+            {formatAddressLine(value)}
+            {value.aptOrSuite?.trim() ? `, ${value.aptOrSuite}` : ""}
+          </div>
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setShowManual(true)}
+              onClick={handleClearSelection}
               className="text-sm underline"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--color-primary)" }}
             >
-              Enter manually
+              Change address
             </button>
-          }
+            {showManualFallback && (
+              <button
+                type="button"
+                onClick={() => setShowManual(true)}
+                className="text-sm underline"
+                style={{ color: "var(--color-text)" }}
+              >
+                Enter manually
+              </button>
+            )}
+          </div>
+          {value.aptOrSuite !== undefined && (
+            <input
+              type="text"
+              placeholder="Apartment, suite, etc. (optional)"
+              value={value.aptOrSuite}
+              onChange={(e) => handleChangeAddress({ aptOrSuite: e.target.value })}
+              className="w-full border rounded px-3 py-2 text-sm"
+              style={{ borderColor: "var(--color-primary)" }}
+            />
+          )}
         </div>
-        {value.aptOrSuite !== undefined && (
-          <input
-            type="text"
-            placeholder="Apartment, suite, etc. (optional)"
-            value={value.aptOrSuite}
-            onChange={(e) => handleChangeAddress({ aptOrSuite: e.target.value })}
-            className="w-full border rounded px-3 py-2 text-sm"
-            style={{ borderColor: "var(--color-primary)" }}
-          />
-        )}
-      </div>
+      </>
     );
   }
 
