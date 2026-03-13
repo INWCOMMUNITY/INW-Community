@@ -112,10 +112,14 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const companyVal = returnAddr.company?.trim()?.slice(0, 64) ?? "Seller";
+  // ProviderEndShipper requires at least one of name or company; treat empty string as missing
+  const companyVal = returnAddr.company?.trim();
+  const companyFinal = companyVal ? companyVal.slice(0, 64) : "Seller";
+  const nameVal = returnAddr.name?.trim();
+  const nameFinal = nameVal ? nameVal.slice(0, 64) : companyFinal;
   const fromAddress = {
-    name: returnAddr.name?.trim()?.slice(0, 64) ?? companyVal ?? "Seller",
-    company: companyVal,
+    name: nameFinal,
+    company: companyFinal,
     street1: returnAddr.street1.trim(),
     ...(returnAddr.street2?.trim() ? { street2: returnAddr.street2.trim() } : {}),
     city: returnAddr.city.trim(),
