@@ -104,9 +104,11 @@ async function createSenderAddress(apiKey: string, fromAddress: EasyPostFromAddr
     },
     body: JSON.stringify(body),
   });
-  const data = (await res.json().catch(() => ({}))) as { id?: string } & {
+  const data = (await res.json().catch(() => ({}))) as {
+    id?: string;
     error?: { code?: string; message?: string };
     message?: string;
+    code?: string;
   };
   if (!res.ok) {
     const msg =
