@@ -4,7 +4,6 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import {
   getSellerEasyPostClient,
   getSellerEasyPostApiKey,
-  getOrCreateSenderAddressId,
   createShipmentWithAddresses,
   createShipmentWithAddressesPredefined,
 } from "@/lib/easypost-seller";
@@ -209,16 +208,8 @@ export async function POST(req: NextRequest) {
     };
   }
 
-  let fromAddressId: string;
   try {
-    fromAddressId = await getOrCreateSenderAddressId(apiKey, fromAddress, userId);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Failed to resolve sender address";
-    return NextResponse.json({ error: msg }, { status: 500 });
-  }
-
-  try {
-    const shipment = await createShipmentWithAddresses(apiKey, fromAddressId, toAddress, {
+    const shipment = await createShipmentWithAddresses(apiKey, fromAddress, toAddress, {
       length: lengthIn,
       width: widthIn,
       height: heightIn,
@@ -231,7 +222,7 @@ export async function POST(req: NextRequest) {
       if (!ratesMap.has(key)) ratesMap.set(key, formatRate(r, shipment.id));
     });
 
-    // Always include USPS Flat Rate options (reuse same from_address id)
+    // Always include USPS Flat Rate options (same inline from_address)
     const flatRateParcels: { predefined_package: string; weight: number }[] = [
       { predefined_package: "FlatRateEnvelope", weight: Math.min(weightOz, 70) },
       { predefined_package: "SmallFlatRateBox", weight: Math.min(weightOz, 70) },
@@ -242,7 +233,7 @@ export async function POST(req: NextRequest) {
       try {
         const flatShipment = await createShipmentWithAddressesPredefined(
           apiKey,
-          fromAddressId,
+          fromAddress,
           toAddress,
           parcel.predefined_package,
           parcel.weight

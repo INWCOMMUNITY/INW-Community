@@ -77,87 +77,48 @@ export type CreatedShipment = {
   rates?: Array<{ id: string; carrier: string; service: string; rate: string }>;
 };
 
-/**
- * Create a sender address via POST /addresses so EasyPost stores name and company.
- * Uses verify so EasyPost can correct minor issues; not verify_strict so return address doesn't block.
- */
-async function createSenderAddress(apiKey: string, fromAddress: EasyPostFromAddress): Promise<string> {
-  const auth = Buffer.from(`${apiKey}:`).toString("base64");
-  // ProviderEndShipper (USPS) requires at least one of name or company; never send empty
-  const name = fromAddress.name?.trim() || fromAddress.company?.trim() || "Seller";
-  const company = fromAddress.company?.trim() || fromAddress.name?.trim() || "Seller";
-  const body = {
-    address: {
-      name,
-      company,
-      street1: fromAddress.street1,
-      ...(fromAddress.street2 ? { street2: fromAddress.street2 } : {}),
-      city: fromAddress.city,
-      state: fromAddress.state,
-      zip: fromAddress.zip,
-      country: fromAddress.country,
-      ...(fromAddress.phone !== undefined ? { phone: fromAddress.phone } : {}),
-    },
-    verify: true, // delivery + zip4 checks; at root per EasyPost API
+/** Coerce name and company so ProviderEndShipper (USPS) never sees empty. */
+function normalizeFromAddress(from: EasyPostFromAddress): { name: string; company: string; street1: string; street2?: string; city: string; state: string; zip: string; country: string; phone?: string } {
+  const name = from.name?.trim() || from.company?.trim() || "Seller";
+  const company = from.company?.trim() || from.name?.trim() || "Seller";
+  return {
+    name,
+    company,
+    street1: from.street1,
+    ...(from.street2 ? { street2: from.street2 } : {}),
+    city: from.city,
+    state: from.state,
+    zip: from.zip,
+    country: from.country,
+    ...(from.phone !== undefined ? { phone: from.phone } : {}),
   };
-  const res = await fetch(`${EASYPOST_API}/addresses`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${auth}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
-    id?: string;
-    error?: { code?: string; message?: string };
-    message?: string;
-    code?: string;
-  };
-  if (!res.ok) {
-    const msg =
-      typeof data?.error?.message === "string"
-        ? data.error.message
-        : typeof data?.message === "string"
-          ? data.message
-          : "Failed to create sender address";
-    const err = new Error(msg) as Error & { code?: string; json_body?: unknown };
-    err.code = data?.error?.code ?? data?.code;
-    err.json_body = data;
-    throw err;
-  }
-  if (typeof data?.id !== "string") throw new Error("EasyPost address response missing id");
-  return data.id;
 }
 
 /**
- * Create a fresh EasyPost sender address and return its id. We always create new (no cache) so every
- * shipment uses an address we just created with name/company set; cached addresses have caused
- * ProviderEndShipper "address.name or address.company required" at buy time.
- */
-export async function getOrCreateSenderAddressId(
-  apiKey: string,
-  fromAddress: EasyPostFromAddress,
-  _memberId: string
-): Promise<string> {
-  const fromAddressId = await createSenderAddress(apiKey, fromAddress);
-  console.error("[shipping/rates] created sender address id=", fromAddressId);
-  return fromAddressId;
-}
-
-/**
- * Create a shipment via direct POST. from_address is referenced by id (use getOrCreateSenderAddressId first).
+ * Create a shipment via direct POST. from_address is sent inline with name and company so
+ * ProviderEndShipper (USPS) always has them at buy time.
  */
 export async function createShipmentWithAddresses(
   apiKey: string,
-  fromAddressId: string,
+  fromAddress: EasyPostFromAddress,
   toAddress: EasyPostToAddress,
   parcel: EasyPostParcel
 ): Promise<CreatedShipment> {
   const auth = Buffer.from(`${apiKey}:`).toString("base64");
+  const from = normalizeFromAddress(fromAddress);
   const body = {
     shipment: {
-      from_address: { id: fromAddressId },
+      from_address: {
+        name: from.name,
+        company: from.company,
+        street1: from.street1,
+        ...(from.street2 ? { street2: from.street2 } : {}),
+        city: from.city,
+        state: from.state,
+        zip: from.zip,
+        country: from.country,
+        ...(from.phone !== undefined ? { phone: from.phone } : {}),
+      },
       to_address: {
         name: toAddress.name,
         street1: toAddress.street1,
@@ -205,19 +166,30 @@ export async function createShipmentWithAddresses(
 
 /**
  * Create a shipment with a predefined parcel (e.g. FlatRateEnvelope) via direct POST.
- * from_address is referenced by id (use getOrCreateSenderAddressId first).
+ * from_address is sent inline with name and company for ProviderEndShipper.
  */
 export async function createShipmentWithAddressesPredefined(
   apiKey: string,
-  fromAddressId: string,
+  fromAddress: EasyPostFromAddress,
   toAddress: EasyPostToAddress,
   predefinedPackage: string,
   weightOz: number
 ): Promise<CreatedShipment> {
   const auth = Buffer.from(`${apiKey}:`).toString("base64");
+  const from = normalizeFromAddress(fromAddress);
   const body = {
     shipment: {
-      from_address: { id: fromAddressId },
+      from_address: {
+        name: from.name,
+        company: from.company,
+        street1: from.street1,
+        ...(from.street2 ? { street2: from.street2 } : {}),
+        city: from.city,
+        state: from.state,
+        zip: from.zip,
+        country: from.country,
+        ...(from.phone !== undefined ? { phone: from.phone } : {}),
+      },
       to_address: {
         name: toAddress.name,
         street1: toAddress.street1,
