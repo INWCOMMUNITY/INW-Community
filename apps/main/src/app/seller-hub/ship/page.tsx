@@ -49,6 +49,16 @@ const DEFAULT_LENGTH = 12;
 const DEFAULT_WIDTH = 9;
 const DEFAULT_HEIGHT = 6;
 
+const SHIPPO_ADD_ADDRESS_URL = "https://apps.goshippo.com/";
+
+function getTrackingUrl(carrier: string, trackingNumber: string): string {
+  const c = carrier?.toUpperCase() ?? "";
+  if (c.includes("USPS")) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(trackingNumber)}`;
+  if (c.includes("UPS")) return `https://www.ups.com/track?tracknum=${encodeURIComponent(trackingNumber)}`;
+  if (c.includes("FEDEX")) return `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(trackingNumber)}`;
+  return `https://www.google.com/search?q=track+${encodeURIComponent(trackingNumber)}`;
+}
+
 export default function ShipItemsPage() {
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +72,8 @@ export default function ShipItemsPage() {
   const [selectedRates, setSelectedRates] = useState<Record<string, Rate>>({});
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [lastRatesErrorCode, setLastRatesErrorCode] = useState<string | null>(null);
+  const [labelSuccess, setLabelSuccess] = useState<{ labelUrl: string; trackingNumber?: string | null; carrier?: string } | null>(null);
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
   const [combineByBuyer, setCombineByBuyer] = useState(false);
   const [shippingConnected, setShippingConnected] = useState<boolean | null>(null);
@@ -186,12 +198,15 @@ export default function ShipItemsPage() {
           ...prev,
           [key]: { shipmentId: "", rates: [], loading: false },
         }));
-        if ((data as { code?: string }).code === "SHIPPING_ACCOUNT_REQUIRED") {
+        const code = (data as { code?: string }).code;
+        setLastRatesErrorCode(code ?? null);
+        if (code === "SHIPPING_ACCOUNT_REQUIRED") {
           setShippingConnected(false);
         }
         setPurchaseError(data.error ?? "Failed to get rates");
         return;
       }
+      setLastRatesErrorCode(null);
       setRates((prev) => ({
         ...prev,
         [key]: {
@@ -206,6 +221,7 @@ export default function ShipItemsPage() {
         ...prev,
         [key]: { shipmentId: "", rates: [], loading: false },
       }));
+      setLastRatesErrorCode(null);
       setPurchaseError("Failed to get rates");
     }
   }
@@ -255,6 +271,15 @@ export default function ShipItemsPage() {
         delete next[key];
         return next;
       });
+      setLabelSuccess(
+        data.shipment
+          ? {
+              labelUrl: data.shipment.labelUrl ?? "",
+              trackingNumber: data.shipment.trackingNumber ?? null,
+              carrier: data.shipment.carrier,
+            }
+          : null
+      );
       if (data.shipment?.labelUrl) {
         window.open(data.shipment.labelUrl, "_blank");
       }
@@ -355,9 +380,54 @@ export default function ShipItemsPage() {
           </div>
         )}
 
+        {labelSuccess && (
+          <div className="border rounded-lg p-4 bg-green-50 border-green-200 mb-6 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-green-800 font-medium">Label purchased.</p>
+            <div className="flex flex-wrap items-center gap-3">
+              {labelSuccess.labelUrl && (
+                <a
+                  href={labelSuccess.labelUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-green-700 underline hover:no-underline"
+                >
+                  Open label
+                </a>
+              )}
+              {labelSuccess.trackingNumber && labelSuccess.carrier && (
+                <a
+                  href={getTrackingUrl(labelSuccess.carrier, labelSuccess.trackingNumber)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-green-700 underline hover:no-underline"
+                >
+                  Track shipment
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => setLabelSuccess(null)}
+                className="text-sm text-green-700 underline hover:no-underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
         {purchaseError && (
           <div className="border rounded-lg p-4 bg-red-50 mb-6">
             <p className="text-red-700">{purchaseError}</p>
+            {lastRatesErrorCode === "SHIPPO_RETURN_ADDRESS_REQUIRED" && (
+              <a
+                href={SHIPPO_ADD_ADDRESS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block mt-3 text-sm font-medium text-amber-800 underline hover:no-underline"
+              >
+                Add address in Shippo →
+              </a>
+            )}
           </div>
         )}
 

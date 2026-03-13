@@ -21,6 +21,15 @@ import { apiGet, apiPost, getToken } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
+const SHIPPO_ADD_ADDRESS_URL = "https://apps.goshippo.com/";
+
+function getTrackingUrl(carrier: string, trackingNumber: string): string {
+  const c = carrier?.toUpperCase() ?? "";
+  if (c.includes("USPS")) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(trackingNumber)}`;
+  if (c.includes("UPS")) return `https://www.ups.com/track?tracknum=${encodeURIComponent(trackingNumber)}`;
+  if (c.includes("FEDEX")) return `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(trackingNumber)}`;
+  return `https://www.google.com/search?q=track+${encodeURIComponent(trackingNumber)}`;
+}
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -217,7 +226,7 @@ export default function ShipScreen() {
     if (!rate || !rateData?.shipmentId || !dim) return;
 
     setError(null);
-    const res = await apiPost<{ shipment?: { labelUrl?: string } }>("/api/shipping/label", {
+    const res = await apiPost<{ shipment?: { labelUrl?: string; trackingNumber?: string; carrier?: string } }>("/api/shipping/label", {
       orderIds: group.map((o) => o.id),
       shippoShipmentId: rate.shipmentId ?? rateData.shipmentId,
       rateId: rate.id,
@@ -265,6 +274,9 @@ export default function ShipScreen() {
     try {
       for (const group of groupsToPurchase) {
         await purchaseSingleLabel(group);
+      }
+      if (groupsToPurchase.length > 0) {
+        Alert.alert("Labels purchased", "Labels have been opened in your browser. You can print or save them from there.");
       }
     } catch (e: unknown) {
       const err = e as { error?: string };
@@ -409,7 +421,19 @@ export default function ShipScreen() {
         )}
       </Pressable>
 
-      {error && <Text style={styles.err}>{error}</Text>}
+      {error && (
+        <View style={styles.errBlock}>
+          <Text style={styles.err}>{error}</Text>
+          {error.toLowerCase().includes("return address") && (
+            <Pressable
+              style={({ pressed }) => [styles.shippoLink, pressed && { opacity: 0.8 }]}
+              onPress={() => Linking.openURL(SHIPPO_ADD_ADDRESS_URL).catch(() => {})}
+            >
+              <Text style={styles.shippoLinkText}>Add address in Shippo →</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
 
       {orderGroups.map((group) => {
         const key = groupKey(group);
@@ -582,7 +606,10 @@ const styles = StyleSheet.create({
   packingSlipBtnInner: { flexDirection: "row", alignItems: "center" },
   toggle: { marginBottom: 16 },
   toggleText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },
-  err: { color: "#c62828", marginBottom: 16, fontSize: 14 },
+  err: { color: "#c62828", fontSize: 14 },
+  errBlock: { marginBottom: 16 },
+  shippoLink: { marginTop: 8 },
+  shippoLinkText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },
   card: {
     backgroundColor: "#f9f9f9",
     borderRadius: 8,

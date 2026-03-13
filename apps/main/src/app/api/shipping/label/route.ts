@@ -198,7 +198,12 @@ export async function POST(req: NextRequest) {
       ? (err.json_body as { detail: string }).detail
       : undefined;
     const userMessage = getShippoUserMessage(detail, msg);
-    console.error("[shipping/label] Shippo error", msg, primaryId, rateId, service);
+    const jsonBody = err?.json_body;
+    console.error(
+      "[shipping/label] Shippo error",
+      { msg, detail, primaryId, rateId, service },
+      jsonBody != null ? JSON.stringify(jsonBody).slice(0, 500) : ""
+    );
     return NextResponse.json({ error: userMessage }, { status: 500 });
   }
 }
