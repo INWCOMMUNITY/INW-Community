@@ -229,17 +229,6 @@ export async function POST(req: NextRequest) {
     const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"} | orderId=${primaryId} | easypostShipmentId=${easypostShipmentId ?? "none"} | service=${service ?? "none"} | isFlatRateService=${isFlatRateService} | to_address=${typeof orderAddr === "object" && orderAddr ? JSON.stringify(orderAddr).slice(0, 200) : "none"} | from_address=${typeof fromAddr === "object" && fromAddr ? JSON.stringify(fromAddr).slice(0, 200) : "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
     console.error(logLine);
 
-    // ProviderEndShipper = sender (from_address) missing name/company at buy. Clear cached sender
-    // so next Get rates creates a new sender address with name and company.
-    if (isProviderEndShipper) {
-      await prisma.member
-        .update({
-          where: { id: userId },
-          data: { easypostSenderAddressId: null },
-        })
-        .catch(() => {});
-    }
-
     const userMessage =
       code === "RATE_LIMITED" || code === "RATE_LIMIT_EXCEEDED"
         ? "EasyPost is temporarily limiting requests. Please try again in a few minutes, or contact EasyPost support if this persists."
