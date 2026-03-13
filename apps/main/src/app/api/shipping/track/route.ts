@@ -74,7 +74,6 @@ export async function GET(req: NextRequest) {
       tracking_status?: { status?: string };
       tracking_history?: unknown[];
       status?: string;
-      tracking_history?: unknown[];
     };
     if (!res.ok) {
       const msg = typeof (data as { message?: string }).message === "string"
