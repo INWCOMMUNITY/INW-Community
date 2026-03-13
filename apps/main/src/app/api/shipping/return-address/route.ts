@@ -76,9 +76,23 @@ export async function PUT(req: NextRequest) {
     );
   }
 
+  const nameOrCompany = (address.name ?? "").trim() || (address.company ?? "").trim();
+  if (!nameOrCompany) {
+    return NextResponse.json(
+      {
+        error: "Name or company is required for the return address (required for shipping labels).",
+        code: "NAME_OR_COMPANY_REQUIRED",
+      },
+      { status: 400 }
+    );
+  }
+
   await prisma.member.update({
     where: { id: userId },
-    data: { easypostReturnAddress: address as object },
+    data: {
+      easypostReturnAddress: address as object,
+      easypostSenderAddressId: null, // force new sender address next time rates are fetched
+    },
   });
 
   return NextResponse.json({ ok: true, address });

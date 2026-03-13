@@ -79,14 +79,17 @@ export type CreatedShipment = {
 
 /**
  * Create a sender address via POST /addresses so EasyPost stores name and company.
- * Inline from_address on shipment create can fail ProviderEndShipper at buy; using a stored address by id fixes it.
+ * Uses verify so EasyPost can correct minor issues; not verify_strict so return address doesn't block.
  */
 async function createSenderAddress(apiKey: string, fromAddress: EasyPostFromAddress): Promise<string> {
   const auth = Buffer.from(`${apiKey}:`).toString("base64");
+  // ProviderEndShipper (USPS) requires at least one of name or company; never send empty
+  const name = fromAddress.name?.trim() || fromAddress.company?.trim() || "Seller";
+  const company = fromAddress.company?.trim() || fromAddress.name?.trim() || "Seller";
   const body = {
     address: {
-      name: fromAddress.name,
-      company: fromAddress.company,
+      name,
+      company,
       street1: fromAddress.street1,
       ...(fromAddress.street2 ? { street2: fromAddress.street2 } : {}),
       city: fromAddress.city,
@@ -95,6 +98,7 @@ async function createSenderAddress(apiKey: string, fromAddress: EasyPostFromAddr
       country: fromAddress.country,
       ...(fromAddress.phone !== undefined ? { phone: fromAddress.phone } : {}),
     },
+    verify: true, // delivery + zip4 checks; at root per EasyPost API
   };
   const res = await fetch(`${EASYPOST_API}/addresses`, {
     method: "POST",
@@ -127,17 +131,39 @@ async function createSenderAddress(apiKey: string, fromAddress: EasyPostFromAddr
 }
 
 /**
- * Create a shipment via direct POST. From_address is created as a separate Address first and referenced by id
- * so ProviderEndShipper (name/company) is reliably stored and accepted at buy time.
+ * Return the EasyPost sender address id for the member, creating and caching it if needed.
+ * Reduces API calls and rate-limit risk by reusing the same address until the return address changes.
+ */
+export async function getOrCreateSenderAddressId(
+  apiKey: string,
+  fromAddress: EasyPostFromAddress,
+  memberId: string
+): Promise<string> {
+  const member = await prisma.member.findUnique({
+    where: { id: memberId },
+    select: { easypostSenderAddressId: true },
+  });
+  if (member?.easypostSenderAddressId?.trim()) {
+    return member.easypostSenderAddressId;
+  }
+  const fromAddressId = await createSenderAddress(apiKey, fromAddress);
+  await prisma.member.update({
+    where: { id: memberId },
+    data: { easypostSenderAddressId: fromAddressId },
+  });
+  console.error("[shipping/rates] created and cached sender address id=", fromAddressId);
+  return fromAddressId;
+}
+
+/**
+ * Create a shipment via direct POST. from_address is referenced by id (use getOrCreateSenderAddressId first).
  */
 export async function createShipmentWithAddresses(
   apiKey: string,
-  fromAddress: EasyPostFromAddress,
+  fromAddressId: string,
   toAddress: EasyPostToAddress,
   parcel: EasyPostParcel
 ): Promise<CreatedShipment> {
-  const fromAddressId = await createSenderAddress(apiKey, fromAddress);
-  console.error("[shipping/rates] created sender address id=", fromAddressId);
   const auth = Buffer.from(`${apiKey}:`).toString("base64");
   const body = {
     shipment: {
@@ -189,17 +215,15 @@ export async function createShipmentWithAddresses(
 
 /**
  * Create a shipment with a predefined parcel (e.g. FlatRateEnvelope) via direct POST.
- * From_address created as separate Address and referenced by id for ProviderEndShipper.
+ * from_address is referenced by id (use getOrCreateSenderAddressId first).
  */
 export async function createShipmentWithAddressesPredefined(
   apiKey: string,
-  fromAddress: EasyPostFromAddress,
+  fromAddressId: string,
   toAddress: EasyPostToAddress,
   predefinedPackage: string,
   weightOz: number
 ): Promise<CreatedShipment> {
-  const fromAddressId = await createSenderAddress(apiKey, fromAddress);
-  console.error("[shipping/rates] created sender address id=", fromAddressId);
   const auth = Buffer.from(`${apiKey}:`).toString("base64");
   const body = {
     shipment: {

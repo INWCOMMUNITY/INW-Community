@@ -4,11 +4,25 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import {
   getSellerEasyPostClient,
   getSellerEasyPostApiKey,
+  getOrCreateSenderAddressId,
   createShipmentWithAddresses,
   createShipmentWithAddressesPredefined,
 } from "@/lib/easypost-seller";
+import { getEasyPostUserMessage } from "@/lib/easypost-errors";
 
 export const dynamic = "force-dynamic";
+
+/** Move unit from end of street1 to street2 when street1 > 35 and street2 empty (EasyPost-style). */
+function splitStreet1Street2(street1: string, street2: string): { street1: string; street2: string } {
+  if (street2 || street1.length <= 35) return { street1, street2 };
+  const unitMatch = street1.match(/\s+(Apt\.?|Suite|Ste\.?|Unit|#|Floor|Fl\.?|Bldg\.?|Building)\s*\.?\s*[\dA-Za-z#-]+$/i);
+  if (!unitMatch) return { street1, street2 };
+  const idx = street1.length - unitMatch[0].length;
+  return {
+    street1: street1.slice(0, idx).trim(),
+    street2: unitMatch[0].trim(),
+  };
+}
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -114,11 +128,15 @@ export async function POST(req: NextRequest) {
   const companyFinal = companyVal ? companyVal.slice(0, 64) : "Seller";
   const nameVal = returnAddr.name?.trim();
   const nameFinal = nameVal ? nameVal.slice(0, 64) : companyFinal;
+  const { street1: fromStreet1, street2: fromStreet2 } = splitStreet1Street2(
+    returnAddr.street1.trim(),
+    returnAddr.street2?.trim() ?? ""
+  );
   const fromAddress = {
     name: nameFinal,
     company: companyFinal,
-    street1: returnAddr.street1.trim(),
-    ...(returnAddr.street2?.trim() ? { street2: returnAddr.street2.trim() } : {}),
+    street1: fromStreet1,
+    ...(fromStreet2 ? { street2: fromStreet2 } : {}),
     city: returnAddr.city.trim(),
     state: returnAddr.state.trim(),
     zip: returnAddr.zip.trim().replace(/\D/g, "").slice(0, 10),
@@ -126,14 +144,19 @@ export async function POST(req: NextRequest) {
     phone: "",
   };
 
+  const toStreet2 = shippingAddr.aptOrSuite?.trim() ?? "";
+  const { street1: toStreet1, street2: toStreet2Final } = splitStreet1Street2(
+    shippingAddr.street.trim(),
+    toStreet2
+  );
   const toAddressInput = {
     name: `${order.buyer.firstName} ${order.buyer.lastName}`,
-    street1: shippingAddr.street.trim(),
+    street1: toStreet1,
     city: shippingAddr.city.trim(),
     state: shippingAddr.state.trim(),
     zip: shippingAddr.zip.trim().split("-")[0],
     country: "US" as const,
-    ...(shippingAddr.aptOrSuite?.trim() ? { street2: shippingAddr.aptOrSuite.trim() } : {}),
+    ...(toStreet2Final ? { street2: toStreet2Final } : {}),
   };
 
   let toAddress: { name: string; street1: string; street2?: string; city: string; state: string; zip: string; country: string };
@@ -186,8 +209,16 @@ export async function POST(req: NextRequest) {
     };
   }
 
+  let fromAddressId: string;
   try {
-    const shipment = await createShipmentWithAddresses(apiKey, fromAddress, toAddress, {
+    fromAddressId = await getOrCreateSenderAddressId(apiKey, fromAddress, userId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to resolve sender address";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+
+  try {
+    const shipment = await createShipmentWithAddresses(apiKey, fromAddressId, toAddress, {
       length: lengthIn,
       width: widthIn,
       height: heightIn,
@@ -200,7 +231,7 @@ export async function POST(req: NextRequest) {
       if (!ratesMap.has(key)) ratesMap.set(key, formatRate(r, shipment.id));
     });
 
-    // Always include USPS Flat Rate options (direct fetch so from_address has name/company)
+    // Always include USPS Flat Rate options (reuse same from_address id)
     const flatRateParcels: { predefined_package: string; weight: number }[] = [
       { predefined_package: "FlatRateEnvelope", weight: Math.min(weightOz, 70) },
       { predefined_package: "SmallFlatRateBox", weight: Math.min(weightOz, 70) },
@@ -211,7 +242,7 @@ export async function POST(req: NextRequest) {
       try {
         const flatShipment = await createShipmentWithAddressesPredefined(
           apiKey,
-          fromAddress,
+          fromAddressId,
           toAddress,
           parcel.predefined_package,
           parcel.weight
@@ -229,7 +260,30 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ shipmentId: shipment.id, rates });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Failed to get rates";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const err = e as Record<string, unknown> & { message?: string };
+    const msg =
+      typeof err?.message === "string"
+        ? err.message
+        : e instanceof Error
+          ? e.message
+          : "Failed to get rates";
+    const code =
+      typeof err?.code === "string"
+        ? err.code
+        : typeof (err?.json_body as { error?: { code?: string } } | undefined)?.error?.code === "string"
+          ? (err.json_body as { error: { code: string } }).error.code
+          : undefined;
+    const userMessage =
+      code === "RATE_LIMITED" || code === "RATE_LIMIT_EXCEEDED"
+        ? "EasyPost is temporarily limiting requests. Please try again in a few minutes."
+        : getEasyPostUserMessage(code, msg);
+    const jsonBody = err?.json_body as { error?: { errors?: Array<{ field?: string; message?: string; suggestion?: string }> } } | undefined;
+    const fieldErrors = jsonBody?.error?.errors;
+    const payload: { error: string; code?: string; errors?: Array<{ field?: string; message?: string; suggestion?: string }> } = {
+      error: userMessage,
+      ...(code ? { code } : {}),
+    };
+    if (Array.isArray(fieldErrors) && fieldErrors.length > 0) payload.errors = fieldErrors;
+    return NextResponse.json(payload, { status: 500 });
   }
 }

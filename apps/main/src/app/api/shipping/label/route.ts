@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getSellerEasyPostClient, buyShipmentWithRateId } from "@/lib/easypost-seller";
+import { getEasyPostUserMessage } from "@/lib/easypost-errors";
 import { sendTrackingEmail } from "@/lib/send-tracking-email";
 
 export const dynamic = "force-dynamic";
@@ -228,16 +229,36 @@ export async function POST(req: NextRequest) {
     const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"} | orderId=${primaryId} | easypostShipmentId=${easypostShipmentId ?? "none"} | service=${service ?? "none"} | isFlatRateService=${isFlatRateService} | to_address=${typeof orderAddr === "object" && orderAddr ? JSON.stringify(orderAddr).slice(0, 200) : "none"} | from_address=${typeof fromAddr === "object" && fromAddr ? JSON.stringify(fromAddr).slice(0, 200) : "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
     console.error(logLine);
 
-    const userMessage =
-      code === "ADDRESS.VERIFY.FAILURE"
-        ? "The carrier rejected the address at purchase time (this can happen even when the address is correct). Make sure your business / ship-from address in Seller Hub matches your EasyPost return address. If both addresses are correct, try Get rates again and purchase immediately, or contact EasyPost support."
-        : isProviderEndShipper
-          ? "This label couldn't be purchased. Please tap Get rates again, then purchase the label. (If you had this screen open before an update, the previous rates may no longer work.)"
-          : msg;
+    // ProviderEndShipper = sender (from_address) missing name/company at buy. Clear cached sender
+    // so next Get rates creates a new sender address with name and company.
+    if (isProviderEndShipper) {
+      await prisma.member
+        .update({
+          where: { id: userId },
+          data: { easypostSenderAddressId: null },
+        })
+        .catch(() => {});
+    }
 
-    return NextResponse.json(
-      { error: userMessage, ...(code ? { code } : {}) },
-      { status: 500 }
-    );
+    const userMessage =
+      code === "RATE_LIMITED" || code === "RATE_LIMIT_EXCEEDED"
+        ? "EasyPost is temporarily limiting requests. Please try again in a few minutes, or contact EasyPost support if this persists."
+        : code === "ADDRESS.VERIFY.FAILURE"
+          ? "The carrier rejected the address at purchase time (this can happen even when the address is correct). Make sure your business / ship-from address in Seller Hub matches your EasyPost return address. If both addresses are correct, try Get rates again and purchase immediately, or contact EasyPost support."
+          : isProviderEndShipper
+            ? "This label couldn't be purchased. Please tap Get rates again, then purchase the label. (If you had this screen open before an update, the previous rates may no longer work.)"
+            : getEasyPostUserMessage(code, msg);
+
+    const jsonBody = err?.json_body as { error?: { errors?: Array<{ field?: string; message?: string; suggestion?: string }> } } | undefined;
+    const fieldErrors = jsonBody?.error?.errors;
+    const payload: { error: string; code?: string; errors?: Array<{ field?: string; message?: string; suggestion?: string }> } = {
+      error: userMessage,
+      ...(code ? { code } : {}),
+    };
+    if (Array.isArray(fieldErrors) && fieldErrors.length > 0) {
+      payload.errors = fieldErrors;
+    }
+
+    return NextResponse.json(payload, { status: 500 });
   }
 }
