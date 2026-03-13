@@ -67,7 +67,7 @@ export interface StorefrontCheckoutPayload {
   items: { storeItemId: string; quantity: number; variant?: unknown; fulfillmentType?: string }[];
   shippingCostCents: number;
   shippingAddress?: { street: string; aptOrSuite?: string; city: string; state: string; zip: string };
-  /** When true, address was selected from Places (still verified with EasyPost at checkout). */
+  /** When true, address was selected from Places (still verified with Shippo at checkout). */
   shippingAddressVerifiedFromPlaces?: boolean;
   localDeliveryDetails?: unknown;
   cashOrderIds?: string[];

@@ -60,17 +60,15 @@ For deployment, use Vercel or another host – production builds work there.
 
 ### Shipping is not configured
 
-**Cause:** `EASYPOST_API_KEY` is missing. Shipping labels and rates use EasyPost.
+**Cause:** Sellers connect their own Shippo account to get rates and buy labels. There is no single platform key required for labels.
 
-**Fix:**
-1. Sign up at [easypost.com](https://www.easypost.com).
-2. Go to [Account → API Keys](https://www.easypost.com/account/api-keys).
-3. Copy your **Test** or **Production** API key (starts with `EZAK`).
-4. Add to **`apps/main/.env`**:
+**For sellers:** Go to Seller Hub → Set Up Shippo, then log in at [Shippo](https://apps.goshippo.com/), add a return address and payment method, create an API key at [Shippo API Keys](https://portal.goshippo.com/api-config/api), and paste it on the shipping-setup page. Labels are charged to the seller’s Shippo account.
+
+**Optional (address validation only):** To verify shipping addresses at checkout, set a platform key in **`apps/main/.env`**:
    ```
-   EASYPOST_API_KEY="EZAKxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   SHIPPO_API_KEY="shippo_live_..."   # or shippo_test_... for testing
    ```
-5. Restart the dev server.
+   If this is missing, checkout address verification returns 503 and buyers see “verification temporarily unavailable.” Sellers can still connect Shippo and buy labels without it.
 
 ---
 

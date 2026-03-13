@@ -65,18 +65,11 @@ export default function ShipItemsPage() {
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
   const [combineByBuyer, setCombineByBuyer] = useState(false);
   const [shippingConnected, setShippingConnected] = useState<boolean | null>(null);
-  const [hasReturnAddress, setHasReturnAddress] = useState(false);
-  const [hasReferralCustomer, setHasReferralCustomer] = useState(false);
-  const [portalLoading, setPortalLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/shipping/status")
       .then((r) => r.json())
-      .then((d: { connected?: boolean; hasReturnAddress?: boolean; easypostReferralCustomerId?: string | null }) => {
-        setShippingConnected(d.connected ?? false);
-        setHasReturnAddress(d.hasReturnAddress ?? false);
-        setHasReferralCustomer(Boolean(d.easypostReferralCustomerId));
-      })
+      .then((d: { connected?: boolean }) => setShippingConnected(d.connected ?? false))
       .catch(() => setShippingConnected(false));
   }, []);
 
@@ -232,7 +225,7 @@ export default function ShipItemsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orderIds,
-          easypostShipmentId: rate.shipmentId ?? rateData.shipmentId,
+          shippoShipmentId: rate.shipmentId ?? rateData.shipmentId,
           rateId: rate.id,
           carrier: rate.carrier,
           service: rate.service,
@@ -328,30 +321,18 @@ export default function ShipItemsPage() {
 
         {shippingConnected === false && (
           <div className="border rounded-lg p-6 mb-8 bg-amber-50 border-amber-200">
-            <h2 className="font-semibold text-amber-900 mb-2">Set up Easy Post</h2>
+            <h2 className="font-semibold text-amber-900 mb-2">Set up Shippo</h2>
             <p className="text-amber-800 mb-4">
-              To get rates and buy labels, connect your EasyPost account. You pay for labels with
-              your own card. Labels are printable from this site.
+              To get rates and buy labels, connect your Shippo account. You pay for labels with
+              your Shippo account. Add a return address in Shippo to get rates. Labels are printable from this site.
             </p>
             <Link href="/seller-hub/shipping-setup" className="btn inline-block">
-              Set Up Easy Post
+              Set Up Shippo
             </Link>
           </div>
         )}
 
-        {shippingConnected === true && !hasReturnAddress && (
-          <div className="border rounded-lg p-6 mb-8 bg-amber-50 border-amber-200">
-            <h2 className="font-semibold text-amber-900 mb-2">Set your EasyPost return address</h2>
-            <p className="text-amber-800 mb-4">
-              Set your EasyPost return address in shipping setup to get rates and buy labels. This address is used only on labels and packing slips.
-            </p>
-            <Link href="/seller-hub/shipping-setup" className="btn inline-block">
-              Go to shipping setup
-            </Link>
-          </div>
-        )}
-
-        {shippingConnected === true && hasReturnAddress && (
+        {shippingConnected === true && (
           <div className="flex flex-wrap items-center gap-3 mb-6 p-3 rounded-lg bg-green-50 border border-green-200">
             <span className="text-green-800 font-medium">Shipping account connected</span>
             <Link
@@ -360,35 +341,6 @@ export default function ShipItemsPage() {
             >
               Update API key
             </Link>
-            {hasReferralCustomer && (
-              <button
-                type="button"
-                onClick={async () => {
-                  setPortalLoading(true);
-                  try {
-                    const res = await fetch("/api/shipping/portal", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        returnUrl: typeof window !== "undefined" ? `${window.location.origin}/seller-hub/ship?portal=return` : undefined,
-                        refreshUrl: typeof window !== "undefined" ? `${window.location.origin}/seller-hub/ship?portal=refresh` : undefined,
-                      }),
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (data?.url) window.location.href = data.url;
-                    else setPurchaseError("Could not open payment settings");
-                  } catch {
-                    setPurchaseError("Could not open payment settings");
-                  } finally {
-                    setPortalLoading(false);
-                  }
-                }}
-                disabled={portalLoading}
-                className="text-sm text-green-700 underline hover:no-underline"
-              >
-                {portalLoading ? "Opening…" : "Manage payment method"}
-              </button>
-            )}
           </div>
         )}
 

@@ -6,6 +6,7 @@ import {
   type PackingSlipGroup,
   type PackingSlipSellerProfile,
 } from "@/lib/packing-slip";
+import { getSellerShippoApiKey, getSellerFromAddress } from "@/lib/shippo-seller";
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,10 +47,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No orders found" }, { status: 404 });
     }
 
-    const [member, business] = await Promise.all([
+    const [member, business, apiKey] = await Promise.all([
       prisma.member.findUnique({
         where: { id: userId },
-        select: { packingSlipNote: true, easypostReturnAddress: true },
+        select: { packingSlipNote: true },
       }),
       prisma.business.findFirst({
         where: { memberId: userId },
@@ -63,23 +64,23 @@ export async function POST(req: NextRequest) {
           email: true,
         },
       }),
+      getSellerShippoApiKey(userId),
     ]);
 
-    const epReturn = member?.easypostReturnAddress as
-      | { street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string }
-      | null
-      | undefined;
-    const returnAddressFormatted =
-      epReturn?.street1 && epReturn?.city && epReturn?.state && epReturn?.zip
-        ? [
-            epReturn.company ?? business?.name ?? "",
-            epReturn.street1,
-            epReturn.street2,
-            [epReturn.city, epReturn.state, epReturn.zip].filter(Boolean).join(", "),
-          ]
-            .filter(Boolean)
-            .join("\n")
-        : null;
+    let returnAddressFormatted: string | null = null;
+    if (apiKey) {
+      const fromAddr = await getSellerFromAddress(apiKey);
+      if (fromAddr?.street1 && fromAddr?.city && fromAddr?.state && fromAddr?.zip) {
+        returnAddressFormatted = [
+          fromAddr.company ?? business?.name ?? "",
+          fromAddr.street1,
+          fromAddr.street2,
+          [fromAddr.city, fromAddr.state, fromAddr.zip].filter(Boolean).join(", "),
+        ]
+          .filter(Boolean)
+          .join("\n");
+      }
+    }
 
     const sellerProfile: PackingSlipSellerProfile = {
       business: business

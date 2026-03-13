@@ -37,7 +37,7 @@ interface SellerProfile {
     website?: string | null;
     email?: string | null;
   } | null;
-  /** EasyPost return address (labels and packing slips only). */
+  /** Return/ship-from address (from Shippo when generating packing slip). */
   returnAddressFormatted?: string | null;
   packingSlipNote?: string | null;
 }

@@ -8,8 +8,8 @@ Plain-language review of how the storefront works and what is credited to you (p
 
 - **Who owns the listing?** The **seller**. Each `StoreItem` has `memberId` = the seller. The listing is always credited to that member (the seller), not the platform.
 - **Who can create?** Only a logged-in user with Seller or Subscribe plan. New (storefront) items require Seller plan; resale items require Subscribe or Seller.
-- **Requirements before listing:** Seller must complete **Stripe Connect** (payment account). If the item offers shipping (not “local delivery/pickup only”), the seller must connect **EasyPost** (shipping) in Seller Hub.
-- **Platform’s role:** You host the listing and enforce rules (Stripe/EasyPost required, content checks). You do not “own” or get credited for the product; the seller does.
+- **Requirements before listing:** Seller must complete **Stripe Connect** (payment account). If the item offers shipping (not “local delivery/pickup only”), the seller must connect **Shippo** (shipping) in Seller Hub.
+- **Platform’s role:** You host the listing and enforce rules (Stripe/Shippo required, content checks). You do not “own” or get credited for the product; the seller does.
 
 ---
 
@@ -44,7 +44,7 @@ Plain-language review of how the storefront works and what is credited to you (p
 
 ## 5. Shipping (labels and who pays)
 
-- **Who pays for the shipping label?** The **seller**. Labels are bought with the **seller’s EasyPost account** (they connect it in Seller Hub). The API says: “You pay for labels with your own card.”
+- **Who pays for the shipping label?** The **seller**. Labels are bought with the **seller’s Shippo account** (they connect it in Seller Hub). The API says: “You pay for labels with your own card.”
 - **Who receives the shipping money from the buyer?** The **seller**. Shipping is part of the order total and goes to the seller’s Connect account (website and app use the same Connect flow).
 - **Platform’s role:** You don’t pay for labels and you don’t receive shipping funds; the seller receives everything in their Stripe Connect account.
 
@@ -73,7 +73,7 @@ Plain-language review of how the storefront works and what is credited to you (p
 | Quantity                | Set by seller; updated by system on sale/refund |
 | Mobile card payment     | **Seller** (Stripe Connect) |
 | Website card payment    | **Seller** (Stripe Connect; same as app) |
-| Shipping label purchase | **Seller** (their EasyPost) |
+| Shipping label purchase | **Seller** (their Shippo) |
 | Connect refund          | **Seller** (from their Stripe) |
 | Platform-order refund   | **Platform** (your Stripe + SellerBalance) |
 | Cash orders             | No platform; seller and buyer in person |

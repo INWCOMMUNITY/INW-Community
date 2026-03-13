@@ -29,7 +29,7 @@ export default function BeforeYouStartScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [hasStripeConnect, setHasStripeConnect] = useState(false);
-  const [hasEasyPost, setHasEasyPost] = useState(false);
+  const [hasShippo, setHasShippo] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
 
   const load = useCallback(async () => {
@@ -40,10 +40,10 @@ export default function BeforeYouStartScreen() {
         apiGet<{ connected?: boolean } | { error?: string }>("/api/shipping/status"),
       ]);
       setHasStripeConnect(Boolean((funds as { hasStripeConnect?: boolean }).hasStripeConnect));
-      setHasEasyPost(Boolean((shipping as { connected?: boolean }).connected));
+      setHasShippo(Boolean((shipping as { connected?: boolean }).connected));
     } catch {
       setHasStripeConnect(false);
-      setHasEasyPost(false);
+      setHasShippo(false);
     } finally {
       setLoading(false);
     }
@@ -95,10 +95,10 @@ export default function BeforeYouStartScreen() {
       onPress: hasStripeConnect ? undefined : handleStripeSetup,
     },
     {
-      id: "easypost",
-      label: "Set up EasyPost for shipping",
-      description: "Connect EasyPost to buy shipping labels for orders",
-      completed: hasEasyPost,
+      id: "shippo",
+      label: "Set up Shippo for shipping",
+      description: "Connect Shippo to buy shipping labels for orders",
+      completed: hasShippo,
       href: "/seller-hub/shipping-setup",
     },
   ];

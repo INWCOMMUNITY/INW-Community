@@ -99,7 +99,7 @@ export async function PATCH(
 
     const member = await prisma.member.findUnique({
       where: { id: session.user.id },
-      select: { stripeConnectAccountId: true, easypostApiKeyEncrypted: true },
+      select: { stripeConnectAccountId: true, shippoApiKeyEncrypted: true },
     });
     if (!member?.stripeConnectAccountId?.trim()) {
       return NextResponse.json(
@@ -127,9 +127,9 @@ export async function PATCH(
       );
     }
 
-    if (!shippingDisabled && !member?.easypostApiKeyEncrypted) {
+    if (!shippingDisabled && !member?.shippoApiKeyEncrypted) {
       return NextResponse.json(
-        { error: "You must set up Easy Ship (shipping) before offering shipping on listings. Connect your shipping account in Seller Hub." },
+        { error: "You must set up shipping (Shippo) before offering shipping on listings. Connect your Shippo account in Seller Hub." },
         { status: 403 }
       );
     }

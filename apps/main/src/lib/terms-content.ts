@@ -290,13 +290,13 @@ NWC is not responsible for delays or failures caused by events outside reasonabl
 ● Power or internet outages
 ● Governmental restrictions
 ● Economic disruptions
-NWC is not responsible for interruptions caused by third-party service providers, including Stripe, Vercel, EasyPost, or other hosting or payment partners.
+NWC is not responsible for interruptions caused by third-party service providers, including Stripe, Vercel, Shippo, or other hosting or payment partners.
 
 19. NO PROFESSIONAL ADVICE
 Information provided on NWC, including blogs, posts, or community discussions, is for general informational purposes only and should not be considered professional advice (including legal, medical, financial, or business advice). Users should consult appropriate professionals before relying on any information from the platform.
 
 20. THIRD-PARTY SERVICES & POLICIES
-NWC uses third-party services including Stripe (payments and subscriptions), EasyPost (shipping), and Vercel (hosting). NWC assumes no ownership of, and is not responsible for, the terms of service, privacy policies, or other policies of these third-party providers. By using NWC, you acknowledge that your use of these services is subject to each provider's respective policies. You agree to read and review those policies at your own discretion. NWC is not liable for any claims, issues, or disputes arising from your agreement with or use of third-party services.
+NWC uses third-party services including Stripe (payments and subscriptions), Shippo (shipping), and Vercel (hosting). NWC assumes no ownership of, and is not responsible for, the terms of service, privacy policies, or other policies of these third-party providers. By using NWC, you acknowledge that your use of these services is subject to each provider's respective policies. You agree to read and review those policies at your own discretion. NWC is not liable for any claims, issues, or disputes arising from your agreement with or use of third-party services.
 
 21. CONTACT INFORMATION
 For questions, cancellations, concerns, or reports:

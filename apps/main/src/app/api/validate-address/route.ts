@@ -27,150 +27,28 @@ function normalizeState(s: string): string {
   return entry ? entry[0] : upper;
 }
 
-/** Normalize for comparison: lowercase, collapse spaces, take first 5 digits of zip. */
-function normalizeForMatch(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
-function zip5(z: string): string {
-  return z.trim().replace(/\D/g, "").slice(0, 5);
-}
+const SHIPPO_API = "https://api.goshippo.com";
 
-async function validateWithNominatim(
-  street: string,
-  city: string,
-  state: string,
-  zip: string,
-  logReason: (reason: string, detail?: string) => void
-): Promise<{ valid: boolean; formatted?: { street: string; city: string; state: string; zip: string } }> {
-  const params = new URLSearchParams({
-    street,
-    city,
-    state,
-    postalcode: zip.split("-")[0],
-    country: "usa",
-    format: "json",
-    addressdetails: "1",
-    limit: "1",
-    countrycodes: "us",
-  });
-  const url = `https://nominatim.openstreetmap.org/search?${params}`;
-
-  const res = await fetch(url, {
-    headers: { "User-Agent": "NorthwestCommunityApp/1.0 (contact@northwestcommunity.app)" },
-    signal: AbortSignal.timeout(8000),
-  });
-
-  if (!res.ok) {
-    logReason("nominatim_http_error", `status=${res.status}`);
-    return { valid: false };
-  }
-
-  const results = await res.json();
-  if (!Array.isArray(results) || results.length === 0) {
-    logReason("nominatim_no_results");
-    return { valid: false };
-  }
-
-  const match = results[0];
-  const addr = match.address ?? {};
-  const addrKeys = Object.keys(addr).join(",");
-
-  const hasStreetLevel = !!(addr.road || addr.house_number);
-  const matchedCity = addr.city || addr.town || addr.village || addr.hamlet || city;
-  const matchedState = addr.state || state;
-  const matchedZip = (addr.postcode || zip).toString().split("-")[0];
-
-  if (hasStreetLevel) {
-    const roadParts = [addr.house_number, addr.road].filter(Boolean).join(" ");
-    return {
-      valid: true,
-      formatted: {
-        street: roadParts || street,
-        city: matchedCity,
-        state: normalizeState(matchedState),
-        zip: matchedZip,
-      },
-    };
-  }
-
-  const zipMatch = zip5(matchedZip) === zip5(zip);
-  const cityNorm = normalizeForMatch(matchedCity);
-  const userCityNorm = normalizeForMatch(city);
-  const cityMatch = cityNorm === userCityNorm || cityNorm.includes(userCityNorm) || userCityNorm.includes(cityNorm);
-  const stateMatch = normalizeState(matchedState) === normalizeState(state);
-
-  if (zipMatch && (cityMatch || stateMatch)) {
-    logReason("nominatim_accepted_city_state_zip_only");
-    return {
-      valid: true,
-      formatted: {
-        street,
-        city: matchedCity,
-        state: normalizeState(matchedState),
-        zip: matchedZip,
-      },
-    };
-  }
-
-  logReason("nominatim_no_road_house_number_mismatch", `addrKeys=${addrKeys}`);
-  return { valid: false };
-}
-
-const EASYPOST_API_BASE = "https://api.easypost.com/v2";
-
-type EasyPostAddressData = {
-  verifications?: { delivery?: { success?: boolean; errors?: unknown[] } };
-  street1?: string;
-  street2?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
+type ShippoValidateResponse = {
+  original_address?: { address_line_1?: string; address_line_2?: string; city_locality?: string; state_province?: string; postal_code?: string };
+  recommended_address?: { address_line_1?: string; address_line_2?: string; city_locality?: string; state_province?: string; postal_code?: string } | null;
+  analysis?: { validation_result?: { is_valid?: boolean }; address_type?: string };
 };
 
-async function easyPostVerifyOnce(
-  street1: string,
-  city: string,
-  state: string,
-  zip: string,
-  key: string,
-  street2?: string
-): Promise<{ ok: boolean; data?: EasyPostAddressData }> {
-  const basicAuth = Buffer.from(`${key}:`, "utf8").toString("base64");
-  const address: { street1: string; street2?: string; city: string; state: string; zip: string; country: string } = {
-    street1: street1.trim(),
-    city: city.trim(),
-    state: state.trim(),
-    zip: zip.split("-")[0],
-    country: "US",
-  };
-  if (street2?.trim()) address.street2 = street2.trim();
-  const res = await fetch(`${EASYPOST_API_BASE}/addresses`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${basicAuth}`,
-    },
-    body: JSON.stringify({ address, verify: true }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) return { ok: false };
-  const data = (await res.json()) as EasyPostAddressData;
-  return { ok: true, data };
-}
-
-function toFormatted(data: EasyPostAddressData, fallback: { street: string; city: string; state: string; zip: string }) {
-  const street1 = (data.street1 ?? fallback.street).trim();
-  const street2 = (data.street2 ?? "").trim();
+function mapShippoAddressToFormatted(addr: ShippoValidateResponse["recommended_address"] | ShippoValidateResponse["original_address"], fallback: { street: string; city: string; state: string; zip: string }): { street: string; city: string; state: string; zip: string } {
+  if (!addr) return fallback;
+  const street1 = (addr.address_line_1 ?? fallback.street).trim();
+  const street2 = (addr.address_line_2 ?? "").trim();
   const street = street2 ? `${street1}, ${street2}` : street1;
   return {
     street,
-    city: data.city ?? fallback.city,
-    state: data.state ? normalizeState(data.state) : fallback.state,
-    zip: (data.zip ?? fallback.zip).toString().split("-")[0],
+    city: (addr.city_locality ?? fallback.city).trim(),
+    state: addr.state_province ? normalizeState(addr.state_province) : fallback.state,
+    zip: (addr.postal_code ?? fallback.zip).toString().trim().replace(/\D/g, "").slice(0, 5),
   };
 }
 
-async function validateWithEasyPost(
+async function validateWithShippo(
   street: string,
   city: string,
   state: string,
@@ -181,50 +59,57 @@ async function validateWithEasyPost(
   formatted?: { street: string; city: string; state: string; zip: string };
   suggestedFormatted?: { street: string; city: string; state: string; zip: string };
 }> {
-  const key = process.env.EASYPOST_API_KEY?.trim();
-  if (!key) return { valid: false };
-
-  const input = { street, city, state, zip: zip.split("-")[0] };
-  const first = await easyPostVerifyOnce(street, city, state, zip, key);
-  if (!first.ok || !first.data) {
-    logReason("easypost_http_error", "first request failed");
+  const key = process.env.SHIPPO_API_KEY?.trim();
+  if (!key) {
+    logReason("shippo_no_key");
     return { valid: false };
   }
 
-  const data = first.data;
-  const delivery = data.verifications?.delivery;
-  const success = delivery?.success === true;
+  const input = { street: street.trim(), city: city.trim(), state: state.trim(), zip: zip.trim().split("-")[0] };
+  const params = new URLSearchParams({
+    address_line_1: input.street,
+    city_locality: input.city,
+    state_province: input.state,
+    postal_code: input.zip,
+    country_code: "US",
+  });
+  if (input.street.length > 100) params.set("address_line_1", input.street.slice(0, 100));
 
-  if (success) {
-    return {
-      valid: true,
-      formatted: toFormatted(data, input),
-    };
+  const res = await fetch(`${SHIPPO_API}/v2/addresses/validate?${params}`, {
+    headers: {
+      Authorization: `ShippoToken ${key}`,
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    logReason("shippo_http_error", `status=${res.status} ${text.slice(0, 100)}`);
+    return { valid: false };
   }
 
-  logReason("easypost_verify_failed", delivery?.errors ? JSON.stringify(delivery.errors).slice(0, 150) : undefined);
+  const data = (await res.json().catch(() => null)) as ShippoValidateResponse | null;
+  if (!data) {
+    logReason("shippo_no_body");
+    return { valid: false };
+  }
 
-  const hasCorrected =
-    data.street1?.trim() && data.city?.trim() && data.state?.trim() && data.zip?.trim();
-  if (hasCorrected) {
-    const retry = await easyPostVerifyOnce(
-      data.street1!,
-      data.city!,
-      data.state!,
-      data.zip!,
-      key,
-      data.street2
-    );
-    if (retry.ok && retry.data?.verifications?.delivery?.success === true) {
-      logReason("easypost_retry_succeeded", "second attempt with EasyPost-corrected address");
-      return {
-        valid: true,
-        formatted: toFormatted(retry.data, input),
-      };
-    }
+  const isValid = data.analysis?.validation_result?.is_valid === true;
+  const recommended = data.recommended_address && typeof data.recommended_address === "object"
+    ? data.recommended_address
+    : null;
+
+  if (isValid) {
+    const formatted = recommended
+      ? mapShippoAddressToFormatted(recommended, input)
+      : mapShippoAddressToFormatted(data.original_address, input);
+    return { valid: true, formatted };
+  }
+
+  if (recommended?.address_line_1?.trim() && recommended?.city_locality?.trim() && recommended?.state_province?.trim() && recommended?.postal_code?.trim()) {
     return {
       valid: false,
-      suggestedFormatted: toFormatted(data, input),
+      suggestedFormatted: mapShippoAddressToFormatted(recommended, input),
     };
   }
 
@@ -289,7 +174,8 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    if (!/^\d{5}(-\d{4})?$/.test(zip.trim())) {
+    const zipTrim = zip.trim().replace(/\D/g, "");
+    if (zipTrim.length < 5) {
       return NextResponse.json({
         valid: false,
         error: "Please enter a valid 5-digit ZIP code.",
@@ -302,11 +188,10 @@ export async function POST(req: NextRequest) {
 
     const streetTrim = street.trim();
     const cityTrim = city.trim();
-    const zipTrim = zip.trim();
 
     const forCheckout = requireCarrierVerification === true;
 
-    if (forCheckout && !process.env.EASYPOST_API_KEY?.trim()) {
+    if (forCheckout && !process.env.SHIPPO_API_KEY?.trim()) {
       return NextResponse.json(
         {
           valid: false,
@@ -316,10 +201,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let result = await validateWithEasyPost(streetTrim, cityTrim, stateCode, zipTrim, logReason);
-    if (!result.valid && !forCheckout) {
-      result = await validateWithNominatim(streetTrim, cityTrim, stateCode, zipTrim, logReason);
-    }
+    const result = await validateWithShippo(streetTrim, cityTrim, stateCode, zip.trim(), logReason);
 
     if (!result.valid) {
       return NextResponse.json(

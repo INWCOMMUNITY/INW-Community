@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getSellerEasyPostClient, buyShipmentWithRateId } from "@/lib/easypost-seller";
-import { getEasyPostUserMessage } from "@/lib/easypost-errors";
+import { getSellerShippoApiKey, buyLabel } from "@/lib/shippo-seller";
+import { getShippoUserMessage } from "@/lib/shippo-errors";
 import { sendTrackingEmail } from "@/lib/send-tracking-email";
 
 export const dynamic = "force-dynamic";
@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
   }
 
-  const client = await getSellerEasyPostClient(userId);
-  if (!client) {
+  const apiKey = await getSellerShippoApiKey(userId);
+  if (!apiKey) {
     return NextResponse.json(
       {
         error: "Connect your shipping account to purchase labels. You pay for labels with your own card.",
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   let body: {
     orderId?: string;
     orderIds?: string[];
-    easypostShipmentId: string;
+    shippoShipmentId?: string;
     rateId: string;
     carrier: string;
     service: string;
@@ -54,7 +54,6 @@ export async function POST(req: NextRequest) {
   const {
     orderId,
     orderIds,
-    easypostShipmentId,
     rateId,
     carrier,
     service,
@@ -68,7 +67,6 @@ export async function POST(req: NextRequest) {
   const ids = orderIds && orderIds.length > 0 ? orderIds : orderId ? [orderId] : [];
   if (
     ids.length === 0 ||
-    !easypostShipmentId ||
     !rateId ||
     !carrier ||
     !service ||
@@ -107,12 +105,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Use direct POST with body { rate: { id } }; SDK buy() can send malformed body and trigger BAD_REQUEST
-    const boughtShipment = await buyShipmentWithRateId(userId, easypostShipmentId, rateId);
+    const transaction = await buyLabel(apiKey, rateId);
 
-    const postageLabel = boughtShipment.postage_label as { label_url?: string } | undefined;
-    const labelUrl = postageLabel?.label_url ?? null;
-    const trackingNumber = boughtShipment.tracking_code ?? null;
+    const labelUrl = transaction.label_url ?? null;
+    const trackingNumber = transaction.tracking_number ?? null;
 
     const shipment = await prisma.$transaction(async (tx) => {
       const s = await tx.shipment.create({
@@ -129,7 +125,7 @@ export async function POST(req: NextRequest) {
           lengthIn,
           widthIn,
           heightIn,
-          easypostShipmentId: boughtShipment.id,
+          shippoTransactionId: transaction.object_id ?? null,
         },
       });
       const shipData = {
@@ -198,56 +194,11 @@ export async function POST(req: NextRequest) {
         : e instanceof Error
           ? e.message
           : "Failed to purchase label";
-    const code =
-      typeof err?.code === "string"
-        ? err.code
-        : typeof (err?.json_body as { error?: { code?: string } } | undefined)?.error?.code === "string"
-          ? (err.json_body as { error: { code: string } }).error.code
-          : undefined;
-    let jsonBodySafe: string | undefined;
-    try {
-      jsonBodySafe =
-        err?.json_body != null
-          ? JSON.stringify(err.json_body).slice(0, 500)
-          : undefined;
-    } catch {
-      jsonBodySafe = undefined;
-    }
-    const orderAddr = (primaryOrder as { shippingAddress?: unknown }).shippingAddress;
-    let fromAddr: unknown = null;
-    try {
-      const member = await prisma.member.findUnique({ where: { id: userId } });
-      fromAddr = (member as { easypostReturnAddress?: unknown } | null)?.easypostReturnAddress ?? null;
-    } catch {
-      // ignore when logging from_address
-    }
-    const jsonBodyStr = typeof jsonBodySafe === "string" ? jsonBodySafe : err?.json_body != null ? JSON.stringify(err.json_body) : "";
-    const isProviderEndShipper = jsonBodyStr.includes("ProviderEndShipper");
-    const isFlatRateService =
-      typeof service === "string" &&
-      (service.includes("Flat Rate") || service.includes("FlatRate") || /FlatRate(Envelope|Box)/i.test(service));
-    const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"} | orderId=${primaryId} | easypostShipmentId=${easypostShipmentId ?? "none"} | service=${service ?? "none"} | isFlatRateService=${isFlatRateService} | to_address=${typeof orderAddr === "object" && orderAddr ? JSON.stringify(orderAddr).slice(0, 200) : "none"} | from_address=${typeof fromAddr === "object" && fromAddr ? JSON.stringify(fromAddr).slice(0, 200) : "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
-    console.error(logLine);
-
-    const userMessage =
-      code === "RATE_LIMITED" || code === "RATE_LIMIT_EXCEEDED"
-        ? "EasyPost is temporarily limiting requests. Please try again in a few minutes, or contact EasyPost support if this persists."
-        : code === "ADDRESS.VERIFY.FAILURE"
-          ? "The carrier rejected the address at purchase time (this can happen even when the address is correct). Make sure your business / ship-from address in Seller Hub matches your EasyPost return address. If both addresses are correct, try Get rates again and purchase immediately, or contact EasyPost support."
-          : isProviderEndShipper
-            ? "This label couldn't be purchased. Please tap Get rates again, then purchase the label. (If you had this screen open before an update, the previous rates may no longer work.)"
-            : getEasyPostUserMessage(code, msg);
-
-    const jsonBody = err?.json_body as { error?: { errors?: Array<{ field?: string; message?: string; suggestion?: string }> } } | undefined;
-    const fieldErrors = jsonBody?.error?.errors;
-    const payload: { error: string; code?: string; errors?: Array<{ field?: string; message?: string; suggestion?: string }> } = {
-      error: userMessage,
-      ...(code ? { code } : {}),
-    };
-    if (Array.isArray(fieldErrors) && fieldErrors.length > 0) {
-      payload.errors = fieldErrors;
-    }
-
-    return NextResponse.json(payload, { status: 500 });
+    const detail = typeof (err?.json_body as { detail?: string })?.detail === "string"
+      ? (err.json_body as { detail: string }).detail
+      : undefined;
+    const userMessage = getShippoUserMessage(detail, msg);
+    console.error("[shipping/label] Shippo error", msg, primaryId, rateId, service);
+    return NextResponse.json({ error: userMessage }, { status: 500 });
   }
 }

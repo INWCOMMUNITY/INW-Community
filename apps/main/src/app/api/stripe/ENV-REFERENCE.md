@@ -32,8 +32,8 @@ STRIPE_PRICE_SUBSCRIBE_YEARLY="price_..."
 STRIPE_PRICE_SPONSOR_YEARLY="price_..."
 STRIPE_PRICE_SELLER_YEARLY="price_..."
 
-# EasyPost (shipping)
-EASYPOST_API_KEY=""
+# Shippo (platform address validation; seller keys stored in DB)
+SHIPPO_API_KEY=""
 ENCRYPTION_KEY="generate-with-openssl-rand-base64-32"
 
 # Resend (tracking emails)
@@ -92,8 +92,8 @@ STRIPE_PRICE_SUBSCRIBE_YEARLY="price_..."
 STRIPE_PRICE_SPONSOR_YEARLY="price_..."
 STRIPE_PRICE_SELLER_YEARLY="price_..."
 
-# EasyPost / Resend / Admin – use production values
-EASYPOST_API_KEY=""
+# Shippo / Resend / Admin – use production values
+SHIPPO_API_KEY=""
 ENCRYPTION_KEY=""
 RESEND_API_KEY=""
 ADMIN_EMAIL="..."

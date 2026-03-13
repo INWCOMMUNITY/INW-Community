@@ -5,12 +5,12 @@ import { encrypt } from "@/lib/encrypt";
 
 export const dynamic = "force-dynamic";
 
-const EASYPOST_API_BASE = "https://api.easypost.com/v2";
+const SHIPPO_API = "https://api.goshippo.com";
 
 /**
- * POST: Save seller's EasyPost API key (paste-from-their-account flow).
+ * POST: Save seller's Shippo API key (paste-from-their-account flow).
  * Body: { apiKey: string }
- * Validates the key with EasyPost, encrypts and stores it. Labels are paid with the seller's EasyPost account (their card).
+ * Validates the key with Shippo, encrypts and stores it. Labels are paid with the seller's Shippo account (their card).
  */
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -44,22 +44,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Validate key by calling EasyPost. GET /users with no id returns the authenticated user.
-  // EasyPost uses Basic auth: API key as username, empty password.
-  const basicAuth = Buffer.from(`${rawKey}:`, "utf8").toString("base64");
-  const userRes = await fetch(`${EASYPOST_API_BASE}/users`, {
-    headers: { Authorization: `Basic ${basicAuth}` },
+  // Validate key by calling Shippo (e.g. list addresses or shipments).
+  const res = await fetch(`${SHIPPO_API}/v2/addresses?limit=1`, {
+    headers: { Authorization: `ShippoToken ${rawKey}` },
   });
-  if (!userRes.ok) {
-    const errText = await userRes.text();
-    const msg =
-      userRes.status === 401
-        ? "Invalid API key. Check that you copied the full key from EasyPost."
-        : errText && errText.length < 200
-          ? errText
-          : "This API key could not be verified.";
+  if (res.status === 401) {
     return NextResponse.json(
-      { error: msg, code: "INVALID_API_KEY" },
+      { error: "Invalid API key. Check that you copied the full key from Shippo.", code: "INVALID_API_KEY" },
+      { status: 400 }
+    );
+  }
+  if (!res.ok) {
+    const errText = await res.text();
+    return NextResponse.json(
+      { error: errText && errText.length < 200 ? errText : "This API key could not be verified.", code: "INVALID_API_KEY" },
       { status: 400 }
     );
   }
@@ -83,15 +81,11 @@ export async function POST(req: NextRequest) {
 
   await prisma.member.update({
     where: { id: userId },
-    data: {
-      easypostApiKeyEncrypted: encryptedKey,
-      // Own-key flow: no Referral Customer id; leave null so we don't show portal
-      easypostReferralCustomerId: null,
-    },
+    data: { shippoApiKeyEncrypted: encryptedKey },
   });
 
   return NextResponse.json({
     connected: true,
-    message: "EasyPost account connected. You can get rates and buy labels; your card will be charged for labels.",
+    message: "Shippo account connected. You can get rates and buy labels; your card will be charged for labels.",
   });
 }

@@ -69,7 +69,7 @@ When businesses join NWC, we may collect:
 ● Shipping addresses, local delivery details, pickup details (name, phone, address) for orders
 ● Any updates provided to NWC for posting
 
-Sellers who use their own EasyPost account may have their API key stored encrypted at rest; we do not access or share these keys.
+Sellers who use their own Shippo account may have their API key stored encrypted at rest; we do not access or share these keys.
 
 2. HOW WE USE YOUR INFORMATION
 We use the collected information for the following purposes:
@@ -96,7 +96,7 @@ NWC may share information only in the following circumstances:
 We use third-party vendors such as:
 ● Vercel (website hosting and file storage via Vercel Blob)
 ● Stripe (payment processing and subscriptions)
-● EasyPost (shipping labels for marketplace orders)
+● Shippo (shipping labels for marketplace orders)
 ● Resend (transactional email)
 ● Our database hosting provider (PostgreSQL)
 

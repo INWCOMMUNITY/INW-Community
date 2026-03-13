@@ -172,6 +172,7 @@ export default function ProfileEditScreen() {
         deliveryAddress.state?.trim() ||
         deliveryAddress.zip?.trim();
       let payloadDeliveryAddress: { street: string; city: string; state: string; zip: string } | null = null;
+      let addressCorrectedToCarrier = false;
       if (hasAddress) {
         if (deliveryAddressFromPlaces) {
           payloadDeliveryAddress = {
@@ -184,6 +185,7 @@ export default function ProfileEditScreen() {
           const validateData = await apiPost<{
             valid?: boolean;
             formatted?: { street: string; city: string; state: string; zip: string };
+            suggestedFormatted?: { street: string; city: string; state: string; zip: string };
             error?: string;
           }>("/api/validate-address", {
             street: deliveryAddress.street,
@@ -191,17 +193,44 @@ export default function ProfileEditScreen() {
             state: deliveryAddress.state,
             zip: deliveryAddress.zip,
           });
-          if (!validateData.valid) {
+          if (validateData.valid) {
+            payloadDeliveryAddress = validateData.formatted ?? {
+              street: deliveryAddress.street.trim(),
+              city: deliveryAddress.city.trim(),
+              state: deliveryAddress.state.trim(),
+              zip: deliveryAddress.zip.trim(),
+            };
+          } else if (validateData.suggestedFormatted) {
+            const retryData = await apiPost<{
+              valid?: boolean;
+              formatted?: { street: string; city: string; state: string; zip: string };
+              error?: string;
+            }>("/api/validate-address", {
+              street: validateData.suggestedFormatted.street,
+              city: validateData.suggestedFormatted.city,
+              state: validateData.suggestedFormatted.state,
+              zip: validateData.suggestedFormatted.zip,
+            });
+            if (retryData.valid && retryData.formatted) {
+              payloadDeliveryAddress = retryData.formatted;
+              setDeliveryAddress({
+                ...deliveryAddress,
+                street: retryData.formatted.street,
+                city: retryData.formatted.city,
+                state: retryData.formatted.state,
+                zip: retryData.formatted.zip,
+              });
+              addressCorrectedToCarrier = true;
+            } else {
+              setError(retryData.error ?? validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
+              setSubmitting(false);
+              return;
+            }
+          } else {
             setError(validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
             setSubmitting(false);
             return;
           }
-          payloadDeliveryAddress = validateData.formatted ?? {
-            street: deliveryAddress.street.trim(),
-            city: deliveryAddress.city.trim(),
-            state: deliveryAddress.state.trim(),
-            zip: deliveryAddress.zip.trim(),
-          };
         }
       }
       await apiPatch("/api/me", {
@@ -214,6 +243,9 @@ export default function ProfileEditScreen() {
         deliveryAddress: payloadDeliveryAddress,
         privacyLevel,
       });
+      if (addressCorrectedToCarrier) {
+        Alert.alert("Saved", "Address corrected to carrier records.");
+      }
       router.back();
     } catch (e) {
       const err = e as { error?: string | { formErrors?: string[]; fieldErrors?: Record<string, string[]> }; status?: number };

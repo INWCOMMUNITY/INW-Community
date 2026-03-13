@@ -86,13 +86,9 @@ export default function ShipScreen() {
   const [savingPackingSlip, setSavingPackingSlip] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  const [hasReturnAddress, setHasReturnAddress] = useState(false);
   const loadStatus = useCallback(() => {
-    apiGet<{ connected?: boolean; hasReturnAddress?: boolean }>("/api/shipping/status")
-      .then((d) => {
-        setConnected(d.connected ?? false);
-        setHasReturnAddress(d.hasReturnAddress ?? false);
-      })
+    apiGet<{ connected?: boolean }>("/api/shipping/status")
+      .then((d) => setConnected(d.connected ?? false))
       .catch(() => setConnected(false));
   }, []);
 
@@ -223,7 +219,7 @@ export default function ShipScreen() {
     setError(null);
     const res = await apiPost<{ shipment?: { labelUrl?: string } }>("/api/shipping/label", {
       orderIds: group.map((o) => o.id),
-      easypostShipmentId: rate.shipmentId ?? rateData.shipmentId,
+      shippoShipmentId: rate.shipmentId ?? rateData.shipmentId,
       rateId: rate.id,
       carrier: rate.carrier,
       service: rate.service,
@@ -346,7 +342,7 @@ export default function ShipScreen() {
         <View style={styles.content}>
           <Text style={styles.title}>Ship Items</Text>
           <Text style={styles.hint}>
-            Connect your EasyPost account to purchase shipping labels.
+            Connect your Shippo account to purchase shipping labels.
           </Text>
           <Pressable
             style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
@@ -363,7 +359,7 @@ export default function ShipScreen() {
     return (
       <View style={[styles.container, styles.content]}>
         <Text style={styles.title}>Ship Items</Text>
-        <Text style={styles.hint}>No orders need shipping. Labels are charged to your EasyPost account.</Text>
+        <Text style={styles.hint}>No orders need shipping. Labels are charged to your Shippo account.</Text>
         <Text style={styles.empty}>No orders to ship</Text>
       </View>
     );
@@ -384,23 +380,8 @@ export default function ShipScreen() {
     >
       <Text style={styles.title}>Ship Items</Text>
       <Text style={styles.hint}>
-        Purchase shipping labels. Labels are charged to your connected EasyPost account.
+        Purchase shipping labels. Labels are charged to your connected Shippo account. Add a return address in Shippo to get rates.
       </Text>
-
-      {connected && !hasReturnAddress && (
-        <View style={styles.returnAddrBanner}>
-          <Text style={styles.returnAddrTitle}>Set your EasyPost return address</Text>
-          <Text style={styles.returnAddrText}>
-            Set your EasyPost return address in shipping setup to get rates and buy labels. Used only on labels and packing slips.
-          </Text>
-          <Pressable
-            style={({ pressed }) => [styles.returnAddrBtn, pressed && { opacity: 0.8 }]}
-            onPress={() => (router.push as (href: string) => void)("/seller-hub/shipping-setup")}
-          >
-            <Text style={styles.btnText}>Go to shipping setup</Text>
-          </Pressable>
-        </View>
-      )}
 
       {canCombineOrders && (
         <Pressable
@@ -551,10 +532,10 @@ export default function ShipScreen() {
 
       {groupsWithRate.length > 0 && (
         <View style={styles.purchaseSection}>
-          <Text style={styles.easypostNote}>
-            All labels will be purchased from the payment option on file for your EasyPost account.
+          <Text style={styles.note}>
+            All labels will be purchased from the payment option on file for your Shippo account.
           </Text>
-          <Text style={styles.easypostNote}>
+          <Text style={styles.note}>
             Labels open in your browser—use Print or Share to print.
           </Text>
           <Pressable
@@ -602,23 +583,6 @@ const styles = StyleSheet.create({
   toggle: { marginBottom: 16 },
   toggleText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },
   err: { color: "#c62828", marginBottom: 16, fontSize: 14 },
-  returnAddrBanner: {
-    backgroundColor: "#fffbeb",
-    borderWidth: 1,
-    borderColor: "#fcd34d",
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 20,
-  },
-  returnAddrTitle: { fontSize: 16, fontWeight: "600", color: "#92400e", marginBottom: 8 },
-  returnAddrText: { fontSize: 14, color: "#b45309", marginBottom: 12 },
-  returnAddrBtn: {
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignSelf: "flex-start",
-  },
   card: {
     backgroundColor: "#f9f9f9",
     borderRadius: 8,
@@ -664,7 +628,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#eee",
   },
-  easypostNote: {
+  note: {
     fontSize: 12,
     color: "#666",
     marginBottom: 12,

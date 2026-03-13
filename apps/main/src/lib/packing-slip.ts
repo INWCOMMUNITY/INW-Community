@@ -38,7 +38,7 @@ export interface PackingSlipSellerProfile {
     website?: string | null;
     email?: string | null;
   } | null;
-  /** EasyPost return address (used for return-address box only; not the app business address). */
+  /** Return/ship-from address (from Shippo Address Book when generating slip). */
   returnAddressFormatted: string | null;
   packingSlipNote?: string | null;
 }
