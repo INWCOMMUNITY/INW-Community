@@ -220,13 +220,20 @@ export async function POST(req: NextRequest) {
     } catch {
       // ignore when logging from_address
     }
-    const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"} | orderId=${primaryId} | easypostShipmentId=${easypostShipmentId ?? "none"} | to_address=${typeof orderAddr === "object" && orderAddr ? JSON.stringify(orderAddr).slice(0, 200) : "none"} | from_address=${typeof fromAddr === "object" && fromAddr ? JSON.stringify(fromAddr).slice(0, 200) : "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
+    const jsonBodyStr = typeof jsonBodySafe === "string" ? jsonBodySafe : err?.json_body != null ? JSON.stringify(err.json_body) : "";
+    const isProviderEndShipper = jsonBodyStr.includes("ProviderEndShipper");
+    const isFlatRateService =
+      typeof service === "string" &&
+      (service.includes("Flat Rate") || service.includes("FlatRate") || /FlatRate(Envelope|Box)/i.test(service));
+    const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"} | orderId=${primaryId} | easypostShipmentId=${easypostShipmentId ?? "none"} | service=${service ?? "none"} | isFlatRateService=${isFlatRateService} | to_address=${typeof orderAddr === "object" && orderAddr ? JSON.stringify(orderAddr).slice(0, 200) : "none"} | from_address=${typeof fromAddr === "object" && fromAddr ? JSON.stringify(fromAddr).slice(0, 200) : "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
     console.error(logLine);
 
     const userMessage =
       code === "ADDRESS.VERIFY.FAILURE"
         ? "The carrier rejected the address at purchase time (this can happen even when the address is correct). Make sure your business / ship-from address in Seller Hub matches your EasyPost return address. If both addresses are correct, try Get rates again and purchase immediately, or contact EasyPost support."
-        : msg;
+        : isProviderEndShipper
+          ? "This label couldn't be purchased. Please tap Get rates again, then purchase the label. (If you had this screen open before an update, the previous rates may no longer work.)"
+          : msg;
 
     return NextResponse.json(
       { error: userMessage, ...(code ? { code } : {}) },

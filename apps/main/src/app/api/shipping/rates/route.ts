@@ -5,6 +5,7 @@ import {
   getSellerEasyPostClient,
   getSellerEasyPostApiKey,
   createShipmentWithAddresses,
+  createShipmentWithAddressesPredefined,
 } from "@/lib/easypost-seller";
 
 export const dynamic = "force-dynamic";
@@ -203,30 +204,22 @@ export async function POST(req: NextRequest) {
       if (!ratesMap.has(key)) ratesMap.set(key, formatRate(r, shipment.id));
     });
 
-    // Always include USPS Flat Rate options (SDK used for predefined parcel shape)
-    const flatRateParcels = [
-      { predefined_package: "FlatRateEnvelope" as const, weight: Math.min(weightOz, 70) },
-      { predefined_package: "SmallFlatRateBox" as const, weight: Math.min(weightOz, 70) },
-      { predefined_package: "MediumFlatRateBox" as const, weight: Math.min(weightOz, 70) },
-      { predefined_package: "LargeFlatRateBox" as const, weight: Math.min(weightOz, 70) },
+    // Always include USPS Flat Rate options (direct fetch so from_address has name/company)
+    const flatRateParcels: { predefined_package: string; weight: number }[] = [
+      { predefined_package: "FlatRateEnvelope", weight: Math.min(weightOz, 70) },
+      { predefined_package: "SmallFlatRateBox", weight: Math.min(weightOz, 70) },
+      { predefined_package: "MediumFlatRateBox", weight: Math.min(weightOz, 70) },
+      { predefined_package: "LargeFlatRateBox", weight: Math.min(weightOz, 70) },
     ];
     for (const parcel of flatRateParcels) {
       try {
-        const flatShipment = await client.Shipment.create({
-          from_address: {
-            name: fromAddress.name,
-            company: fromAddress.company,
-            street1: fromAddress.street1,
-            ...(fromAddress.street2 ? { street2: fromAddress.street2 } : {}),
-            city: fromAddress.city,
-            state: fromAddress.state,
-            zip: fromAddress.zip,
-            country: fromAddress.country,
-            phone: fromAddress.phone ?? "",
-          },
-          to_address: toAddress,
-          parcel: parcel as { predefined_package: string; weight: number },
-        });
+        const flatShipment = await createShipmentWithAddressesPredefined(
+          apiKey,
+          fromAddress,
+          toAddress,
+          parcel.predefined_package,
+          parcel.weight
+        );
         (flatShipment.rates ?? []).forEach((r: { id: string; carrier: string; service: string; rate: string }) => {
           const key = `${r.carrier}-${r.service}`;
           if (!ratesMap.has(key)) ratesMap.set(key, formatRate(r, flatShipment.id));

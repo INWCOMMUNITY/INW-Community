@@ -147,6 +147,74 @@ export async function createShipmentWithAddresses(
 }
 
 /**
+ * Create a shipment with a predefined parcel (e.g. FlatRateEnvelope) via direct POST.
+ * Same from_address/to_address shape as createShipmentWithAddresses so ProviderEndShipper always has name/company.
+ */
+export async function createShipmentWithAddressesPredefined(
+  apiKey: string,
+  fromAddress: EasyPostFromAddress,
+  toAddress: EasyPostToAddress,
+  predefinedPackage: string,
+  weightOz: number
+): Promise<CreatedShipment> {
+  const auth = Buffer.from(`${apiKey}:`).toString("base64");
+  const body = {
+    shipment: {
+      from_address: {
+        name: fromAddress.name,
+        company: fromAddress.company,
+        street1: fromAddress.street1,
+        ...(fromAddress.street2 ? { street2: fromAddress.street2 } : {}),
+        city: fromAddress.city,
+        state: fromAddress.state,
+        zip: fromAddress.zip,
+        country: fromAddress.country,
+        ...(fromAddress.phone !== undefined ? { phone: fromAddress.phone } : {}),
+      },
+      to_address: {
+        name: toAddress.name,
+        street1: toAddress.street1,
+        ...(toAddress.street2 ? { street2: toAddress.street2 } : {}),
+        city: toAddress.city,
+        state: toAddress.state,
+        zip: toAddress.zip,
+        country: toAddress.country,
+      },
+      parcel: {
+        predefined_package: predefinedPackage,
+        weight: weightOz,
+      },
+    },
+  };
+  const res = await fetch(`${EASYPOST_API}/shipments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${auth}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as CreatedShipment & {
+    error?: { code?: string; message?: string };
+    message?: string;
+    code?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data?.error?.message === "string"
+        ? data.error.message
+        : typeof data?.message === "string"
+          ? data.message
+          : "Failed to create shipment";
+    const err = new Error(msg) as Error & { code?: string; json_body?: unknown };
+    err.code = data?.error?.code ?? data?.code;
+    err.json_body = data;
+    throw err;
+  }
+  return data;
+}
+
+/**
  * Buy a shipment with the given rate ID using a direct POST so the request body
  * matches the API exactly: { rate: { id: "rate_..." } }. The SDK can send a
  * malformed body and trigger BAD_REQUEST.
