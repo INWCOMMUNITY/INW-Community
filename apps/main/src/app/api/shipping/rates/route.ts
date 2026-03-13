@@ -69,11 +69,7 @@ export async function POST(req: NextRequest) {
     },
     include: {
       buyer: { select: { firstName: true, lastName: true, email: true } },
-      seller: {
-        include: {
-          businesses: { take: 1 },
-        },
-      },
+      seller: { select: { easypostReturnAddress: true } },
     },
   });
   if (orders.length === 0) {

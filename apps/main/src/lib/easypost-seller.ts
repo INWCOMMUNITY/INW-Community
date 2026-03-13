@@ -135,6 +135,7 @@ export async function createShipmentWithAddresses(
   parcel: EasyPostParcel
 ): Promise<CreatedShipment> {
   const fromAddressId = await createSenderAddress(apiKey, fromAddress);
+  console.error("[shipping/rates] created sender address id=", fromAddressId);
   const auth = Buffer.from(`${apiKey}:`).toString("base64");
   const body = {
     shipment: {
@@ -196,6 +197,7 @@ export async function createShipmentWithAddressesPredefined(
   weightOz: number
 ): Promise<CreatedShipment> {
   const fromAddressId = await createSenderAddress(apiKey, fromAddress);
+  console.error("[shipping/rates] created sender address id=", fromAddressId);
   const auth = Buffer.from(`${apiKey}:`).toString("base64");
   const body = {
     shipment: {
