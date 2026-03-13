@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getSellerEasyPostClient } from "@/lib/easypost-seller";
+import { getSellerEasyPostClient, buyShipmentWithRateId } from "@/lib/easypost-seller";
 import { sendTrackingEmail } from "@/lib/send-tracking-email";
 
 export const dynamic = "force-dynamic";
@@ -106,17 +106,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Retrieve shipment and pass the selected rate object; EasyPost API expects { rate: { id } } and SDK expects a Rate object
-    const shipmentForBuy = await client.Shipment.retrieve(easypostShipmentId);
-    const rates = shipmentForBuy.rates ?? [];
-    const selectedRate = rates.find((r: { id: string }) => r.id === rateId);
-    if (!selectedRate) {
-      return NextResponse.json(
-        { error: "The selected rate is no longer available. Get rates again and purchase." },
-        { status: 400 }
-      );
-    }
-    const boughtShipment = await client.Shipment.buy(easypostShipmentId, selectedRate as Parameters<typeof client.Shipment.buy>[1]);
+    // Use direct POST with body { rate: { id } }; SDK buy() can send malformed body and trigger BAD_REQUEST
+    const boughtShipment = await buyShipmentWithRateId(userId, easypostShipmentId, rateId);
 
     const postageLabel = boughtShipment.postage_label as { label_url?: string } | undefined;
     const labelUrl = postageLabel?.label_url ?? null;
