@@ -53,6 +53,11 @@ export default function ShippingSetupScreen() {
       setError("Street, city, state, and ZIP are required.");
       return;
     }
+    const nameOrCompany = (returnAddr.name ?? "").trim() || (returnAddr.company ?? "").trim();
+    if (!nameOrCompany) {
+      setError("Name or company is required for shipping labels.");
+      return;
+    }
     setReturnSaving(true);
     setError(null);
     setReturnSuccess(null);
@@ -157,6 +162,7 @@ export default function ShippingSetupScreen() {
       <Text style={styles.stepHint}>
         Enter the return address you use in your EasyPost account. Used only for labels and packing slips.
       </Text>
+      <Text style={styles.stepHint}>Name or company is required for shipping labels (at least one).</Text>
       <View style={styles.exactAddrNote}>
         <Text style={styles.exactAddrTitle}>Copy the exact same address from EasyPost</Text>
         <Text style={styles.exactAddrText}>
@@ -165,14 +171,14 @@ export default function ShippingSetupScreen() {
       </View>
       <TextInput
         style={styles.input}
-        placeholder="Name (optional)"
+        placeholder="Name * (or company below)"
         placeholderTextColor={theme.colors.placeholder}
         value={returnAddr.name ?? ""}
         onChangeText={(t) => setReturnAddr((a) => ({ ...a, name: t }))}
       />
       <TextInput
         style={styles.input}
-        placeholder="Company (optional)"
+        placeholder="Company * (or name above)"
         placeholderTextColor={theme.colors.placeholder}
         value={returnAddr.company ?? ""}
         onChangeText={(t) => setReturnAddr((a) => ({ ...a, company: t }))}

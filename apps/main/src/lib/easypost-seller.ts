@@ -131,8 +131,25 @@ async function createSenderAddress(apiKey: string, fromAddress: EasyPostFromAddr
 }
 
 /**
+ * GET an address by id. Returns true if the address has at least one of name or company (required for ProviderEndShipper).
+ */
+async function senderAddressHasNameOrCompany(apiKey: string, addressId: string): Promise<boolean> {
+  const auth = Buffer.from(`${apiKey}:`).toString("base64");
+  const res = await fetch(`${EASYPOST_API}/addresses/${addressId}`, {
+    method: "GET",
+    headers: { Authorization: `Basic ${auth}` },
+  });
+  if (!res.ok) return false;
+  const data = (await res.json().catch(() => null)) as { name?: string | null; company?: string | null } | null;
+  if (!data) return false;
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  const company = typeof data.company === "string" ? data.company.trim() : "";
+  return name.length > 0 || company.length > 0;
+}
+
+/**
  * Return the EasyPost sender address id for the member, creating and caching it if needed.
- * Reduces API calls and rate-limit risk by reusing the same address until the return address changes.
+ * If a cached id exists, we verify that address has name or company (ProviderEndShipper); if not, we create a new one.
  */
 export async function getOrCreateSenderAddressId(
   apiKey: string,
@@ -143,8 +160,15 @@ export async function getOrCreateSenderAddressId(
     where: { id: memberId },
     select: { easypostSenderAddressId: true },
   });
-  if (member?.easypostSenderAddressId?.trim()) {
-    return member.easypostSenderAddressId;
+  const cachedId = member?.easypostSenderAddressId?.trim();
+  if (cachedId) {
+    const hasNameOrCompany = await senderAddressHasNameOrCompany(apiKey, cachedId);
+    if (hasNameOrCompany) return cachedId;
+    // Cached address was created without name/company (e.g. before fix). Create new and replace cache.
+    await prisma.member.update({
+      where: { id: memberId },
+      data: { easypostSenderAddressId: null },
+    });
   }
   const fromAddressId = await createSenderAddress(apiKey, fromAddress);
   await prisma.member.update({

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
-type ReturnAddress = { street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string };
+type ReturnAddress = { name?: string; street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string };
 
 const EASYPOST_LOGIN_URL = "https://www.easypost.com/login";
 const EASYPOST_BILLING_URL = "https://www.easypost.com/account/billing";
@@ -14,7 +14,7 @@ export default function SetUpEasyPostPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [returnAddr, setReturnAddr] = useState<ReturnAddress>({ street1: "", street2: "", city: "", state: "", zip: "", company: "" });
+  const [returnAddr, setReturnAddr] = useState<ReturnAddress>({ name: "", street1: "", street2: "", city: "", state: "", zip: "", company: "" });
   const [returnAddrSaving, setReturnAddrSaving] = useState(false);
   const [returnAddrSuccess, setReturnAddrSuccess] = useState(false);
 
@@ -24,6 +24,7 @@ export default function SetUpEasyPostPage() {
       .then((data: ReturnAddress | null) => {
         if (data && typeof data === "object")
           setReturnAddr({
+            name: data.name ?? "",
             street1: data.street1 ?? "",
             street2: data.street2 ?? "",
             city: data.city ?? "",
@@ -38,6 +39,11 @@ export default function SetUpEasyPostPage() {
   async function handleSaveReturnAddress() {
     if (!returnAddr.street1?.trim() || !returnAddr.city?.trim() || !returnAddr.state?.trim() || !returnAddr.zip?.trim()) {
       setError("Street, city, state, and ZIP are required for the return address.");
+      return;
+    }
+    const nameOrCompany = (returnAddr.name ?? "").trim() || (returnAddr.company ?? "").trim();
+    if (!nameOrCompany) {
+      setError("Name or company is required for shipping labels (at least one).");
       return;
     }
     setReturnAddrSaving(true);
@@ -188,6 +194,9 @@ export default function SetUpEasyPostPage() {
         <p className="text-gray-600 mb-4 text-sm">
           Enter the return address you use in your EasyPost account. This is used only for shipping labels and packing slips—not your storefront address.
         </p>
+        <p className="text-gray-600 mb-3 text-sm max-w-md">
+          <strong>Name or company is required</strong> for shipping labels (at least one).
+        </p>
         <div className="mb-4 p-4 rounded-lg bg-amber-50 border border-amber-200 text-left max-w-md">
           <p className="text-amber-900 text-sm font-medium">
             Copy the <strong>exact same</strong> address from your EasyPost account.
@@ -199,7 +208,14 @@ export default function SetUpEasyPostPage() {
         <div className="grid gap-3 max-w-md">
           <input
             type="text"
-            placeholder="Company (optional)"
+            placeholder="Name * (or company below)"
+            value={returnAddr.name ?? ""}
+            onChange={(e) => setReturnAddr((a) => ({ ...a, name: e.target.value }))}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+          />
+          <input
+            type="text"
+            placeholder="Company * (or name above)"
             value={returnAddr.company ?? ""}
             onChange={(e) => setReturnAddr((a) => ({ ...a, company: e.target.value }))}
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
