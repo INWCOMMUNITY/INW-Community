@@ -213,7 +213,14 @@ export async function POST(req: NextRequest) {
       jsonBodySafe = undefined;
     }
     const orderAddr = (primaryOrder as { shippingAddress?: unknown }).shippingAddress;
-    const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"} | orderId=${primaryId} | to_address=${typeof orderAddr === "object" && orderAddr ? JSON.stringify(orderAddr).slice(0, 200) : "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
+    let fromAddr: unknown = null;
+    try {
+      const member = await prisma.member.findUnique({ where: { id: userId } });
+      fromAddr = (member as { easypostReturnAddress?: unknown } | null)?.easypostReturnAddress ?? null;
+    } catch {
+      // ignore when logging from_address
+    }
+    const logLine = `[shipping/label] EasyPost error | message=${msg} | code=${code ?? "none"} | orderId=${primaryId} | easypostShipmentId=${easypostShipmentId ?? "none"} | to_address=${typeof orderAddr === "object" && orderAddr ? JSON.stringify(orderAddr).slice(0, 200) : "none"} | from_address=${typeof fromAddr === "object" && fromAddr ? JSON.stringify(fromAddr).slice(0, 200) : "none"}${jsonBodySafe ? ` | json_body=${jsonBodySafe}` : ""}`;
     console.error(logLine);
 
     const userMessage =

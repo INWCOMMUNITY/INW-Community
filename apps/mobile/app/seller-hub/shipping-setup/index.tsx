@@ -16,14 +16,14 @@ const EASYPOST_LOGIN = "https://www.easypost.com/users/sign_in";
 const EASYPOST_BILLING = "https://www.easypost.com/account/billing";
 const EASYPOST_API_KEYS = "https://www.easypost.com/account/api-keys";
 
-type ReturnAddr = { street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string };
+type ReturnAddr = { name?: string; street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string };
 
 export default function ShippingSetupScreen() {
   const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [returnAddr, setReturnAddr] = useState<ReturnAddr>({ street1: "", street2: "", city: "", state: "", zip: "", company: "" });
+  const [returnAddr, setReturnAddr] = useState<ReturnAddr>({ name: "", street1: "", street2: "", city: "", state: "", zip: "", company: "" });
   const [returnSaving, setReturnSaving] = useState(false);
   const [returnSuccess, setReturnSuccess] = useState<string | null>(null);
 
@@ -32,6 +32,7 @@ export default function ShippingSetupScreen() {
       .then((data) => {
         if (data && typeof data === "object")
           setReturnAddr({
+            name: data.name ?? "",
             street1: data.street1 ?? "",
             street2: data.street2 ?? "",
             city: data.city ?? "",
@@ -162,6 +163,13 @@ export default function ShippingSetupScreen() {
           Use the same spelling, abbreviations, and formatting (e.g. St vs Street, CA vs California). If it doesn’t match EasyPost’s records, label purchase can fail.
         </Text>
       </View>
+      <TextInput
+        style={styles.input}
+        placeholder="Name (optional)"
+        placeholderTextColor={theme.colors.placeholder}
+        value={returnAddr.name ?? ""}
+        onChangeText={(t) => setReturnAddr((a) => ({ ...a, name: t }))}
+      />
       <TextInput
         style={styles.input}
         placeholder="Company (optional)"

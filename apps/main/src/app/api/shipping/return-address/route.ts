@@ -4,7 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 
 export const dynamic = "force-dynamic";
 
-const RETURN_ADDRESS_KEYS = ["street1", "street2", "city", "state", "zip", "company"] as const;
+const RETURN_ADDRESS_KEYS = ["name", "street1", "street2", "city", "state", "zip", "company"] as const;
 type ReturnAddressPayload = Partial<Record<(typeof RETURN_ADDRESS_KEYS)[number], string>>;
 
 function normalizeReturnAddress(body: unknown): ReturnAddressPayload | null {
@@ -16,6 +16,7 @@ function normalizeReturnAddress(body: unknown): ReturnAddressPayload | null {
   const zip = typeof o.zip === "string" ? o.zip.trim().replace(/\D/g, "").slice(0, 10) : "";
   if (!street1 || !city || !state || !zip) return null;
   return {
+    name: typeof o.name === "string" ? o.name.trim().slice(0, 64) : undefined,
     street1,
     street2: typeof o.street2 === "string" ? o.street2.trim().slice(0, 64) : undefined,
     city: city.slice(0, 64),

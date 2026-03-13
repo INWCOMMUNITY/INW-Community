@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getSellerEasyPostClient } from "@/lib/easypost-seller";
+import {
+  getSellerEasyPostClient,
+  getSellerEasyPostApiKey,
+  createShipmentWithAddresses,
+} from "@/lib/easypost-seller";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +23,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
   }
 
-  const client = await getSellerEasyPostClient(userId);
-  if (!client) {
+  const [client, apiKey] = await Promise.all([
+    getSellerEasyPostClient(userId),
+    getSellerEasyPostApiKey(userId),
+  ]);
+  if (!client || !apiKey) {
     return NextResponse.json(
       {
         error: "Connect your shipping account to get rates. You pay for labels with your own card.",
@@ -85,7 +92,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Order has no shipping address" }, { status: 400 });
   }
 
-  const returnAddr = (order.seller as { easypostReturnAddress?: { street1?: string; street2?: string; city?: string; state?: string; zip?: string; company?: string } | null }).easypostReturnAddress;
+  const returnAddr = (order.seller as {
+    easypostReturnAddress?: {
+      street1?: string;
+      street2?: string;
+      city?: string;
+      state?: string;
+      zip?: string;
+      company?: string;
+      name?: string;
+    } | null;
+  }).easypostReturnAddress;
   if (!returnAddr?.street1?.trim() || !returnAddr?.city?.trim() || !returnAddr?.state?.trim() || !returnAddr?.zip?.trim()) {
     return NextResponse.json(
       {
@@ -95,14 +112,16 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  const companyVal = returnAddr.company?.trim()?.slice(0, 64) ?? "Seller";
   const fromAddress = {
+    name: returnAddr.name?.trim()?.slice(0, 64) ?? companyVal ?? "Seller",
+    company: companyVal,
     street1: returnAddr.street1.trim(),
     ...(returnAddr.street2?.trim() ? { street2: returnAddr.street2.trim() } : {}),
     city: returnAddr.city.trim(),
     state: returnAddr.state.trim(),
     zip: returnAddr.zip.trim().replace(/\D/g, "").slice(0, 10),
     country: "US" as const,
-    company: returnAddr.company?.trim()?.slice(0, 64) ?? "Seller",
     phone: "",
   };
 
@@ -167,15 +186,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const shipment = await client.Shipment.create({
-      from_address: fromAddress,
-      to_address: toAddress,
-      parcel: {
-        length: lengthIn,
-        width: widthIn,
-        height: heightIn,
-        weight: weightOz, // EasyPost uses ounces for US
-      },
+    const shipment = await createShipmentWithAddresses(apiKey, fromAddress, toAddress, {
+      length: lengthIn,
+      width: widthIn,
+      height: heightIn,
+      weight: weightOz, // EasyPost uses ounces for US
     });
 
     const ratesMap = new Map<string, ReturnType<typeof formatRate>>();
@@ -184,7 +199,7 @@ export async function POST(req: NextRequest) {
       if (!ratesMap.has(key)) ratesMap.set(key, formatRate(r, shipment.id));
     });
 
-    // Always include USPS Flat Rate options
+    // Always include USPS Flat Rate options (SDK used for predefined parcel shape)
     const flatRateParcels = [
       { predefined_package: "FlatRateEnvelope" as const, weight: Math.min(weightOz, 70) },
       { predefined_package: "SmallFlatRateBox" as const, weight: Math.min(weightOz, 70) },
@@ -194,7 +209,17 @@ export async function POST(req: NextRequest) {
     for (const parcel of flatRateParcels) {
       try {
         const flatShipment = await client.Shipment.create({
-          from_address: fromAddress,
+          from_address: {
+            name: fromAddress.name,
+            company: fromAddress.company,
+            street1: fromAddress.street1,
+            ...(fromAddress.street2 ? { street2: fromAddress.street2 } : {}),
+            city: fromAddress.city,
+            state: fromAddress.state,
+            zip: fromAddress.zip,
+            country: fromAddress.country,
+            phone: fromAddress.phone ?? "",
+          },
           to_address: toAddress,
           parcel: parcel as { predefined_package: string; weight: number },
         });
