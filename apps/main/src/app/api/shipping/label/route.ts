@@ -106,8 +106,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // eslint-disable-next-line -- EasyPost SDK types omit optional id
-    const boughtShipment = await client.Shipment.buy(easypostShipmentId, { id: rateId } as any);
+    // Retrieve shipment and pass the selected rate object; EasyPost API expects { rate: { id } } and SDK expects a Rate object
+    const shipmentForBuy = await client.Shipment.retrieve(easypostShipmentId);
+    const rates = shipmentForBuy.rates ?? [];
+    const selectedRate = rates.find((r: { id: string }) => r.id === rateId);
+    if (!selectedRate) {
+      return NextResponse.json(
+        { error: "The selected rate is no longer available. Get rates again and purchase." },
+        { status: 400 }
+      );
+    }
+    const boughtShipment = await client.Shipment.buy(easypostShipmentId, selectedRate as Parameters<typeof client.Shipment.buy>[1]);
 
     const postageLabel = boughtShipment.postage_label as { label_url?: string } | undefined;
     const labelUrl = postageLabel?.label_url ?? null;
