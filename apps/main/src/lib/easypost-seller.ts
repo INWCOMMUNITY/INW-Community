@@ -78,8 +78,55 @@ export type CreatedShipment = {
 };
 
 /**
- * Create a shipment via direct POST so from_address always includes name and company
- * (ProviderEndShipper requires one of them). The SDK can omit these and trigger BAD_REQUEST at buy time.
+ * Create a sender address via POST /addresses so EasyPost stores name and company.
+ * Inline from_address on shipment create can fail ProviderEndShipper at buy; using a stored address by id fixes it.
+ */
+async function createSenderAddress(apiKey: string, fromAddress: EasyPostFromAddress): Promise<string> {
+  const auth = Buffer.from(`${apiKey}:`).toString("base64");
+  const body = {
+    address: {
+      name: fromAddress.name,
+      company: fromAddress.company,
+      street1: fromAddress.street1,
+      ...(fromAddress.street2 ? { street2: fromAddress.street2 } : {}),
+      city: fromAddress.city,
+      state: fromAddress.state,
+      zip: fromAddress.zip,
+      country: fromAddress.country,
+      ...(fromAddress.phone !== undefined ? { phone: fromAddress.phone } : {}),
+    },
+  };
+  const res = await fetch(`${EASYPOST_API}/addresses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${auth}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { id?: string } & {
+    error?: { code?: string; message?: string };
+    message?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data?.error?.message === "string"
+        ? data.error.message
+        : typeof data?.message === "string"
+          ? data.message
+          : "Failed to create sender address";
+    const err = new Error(msg) as Error & { code?: string; json_body?: unknown };
+    err.code = data?.error?.code ?? data?.code;
+    err.json_body = data;
+    throw err;
+  }
+  if (typeof data?.id !== "string") throw new Error("EasyPost address response missing id");
+  return data.id;
+}
+
+/**
+ * Create a shipment via direct POST. From_address is created as a separate Address first and referenced by id
+ * so ProviderEndShipper (name/company) is reliably stored and accepted at buy time.
  */
 export async function createShipmentWithAddresses(
   apiKey: string,
@@ -87,20 +134,11 @@ export async function createShipmentWithAddresses(
   toAddress: EasyPostToAddress,
   parcel: EasyPostParcel
 ): Promise<CreatedShipment> {
+  const fromAddressId = await createSenderAddress(apiKey, fromAddress);
   const auth = Buffer.from(`${apiKey}:`).toString("base64");
   const body = {
     shipment: {
-      from_address: {
-        name: fromAddress.name,
-        company: fromAddress.company,
-        street1: fromAddress.street1,
-        ...(fromAddress.street2 ? { street2: fromAddress.street2 } : {}),
-        city: fromAddress.city,
-        state: fromAddress.state,
-        zip: fromAddress.zip,
-        country: fromAddress.country,
-        ...(fromAddress.phone !== undefined ? { phone: fromAddress.phone } : {}),
-      },
+      from_address: { id: fromAddressId },
       to_address: {
         name: toAddress.name,
         street1: toAddress.street1,
@@ -148,7 +186,7 @@ export async function createShipmentWithAddresses(
 
 /**
  * Create a shipment with a predefined parcel (e.g. FlatRateEnvelope) via direct POST.
- * Same from_address/to_address shape as createShipmentWithAddresses so ProviderEndShipper always has name/company.
+ * From_address created as separate Address and referenced by id for ProviderEndShipper.
  */
 export async function createShipmentWithAddressesPredefined(
   apiKey: string,
@@ -157,20 +195,11 @@ export async function createShipmentWithAddressesPredefined(
   predefinedPackage: string,
   weightOz: number
 ): Promise<CreatedShipment> {
+  const fromAddressId = await createSenderAddress(apiKey, fromAddress);
   const auth = Buffer.from(`${apiKey}:`).toString("base64");
   const body = {
     shipment: {
-      from_address: {
-        name: fromAddress.name,
-        company: fromAddress.company,
-        street1: fromAddress.street1,
-        ...(fromAddress.street2 ? { street2: fromAddress.street2 } : {}),
-        city: fromAddress.city,
-        state: fromAddress.state,
-        zip: fromAddress.zip,
-        country: fromAddress.country,
-        ...(fromAddress.phone !== undefined ? { phone: fromAddress.phone } : {}),
-      },
+      from_address: { id: fromAddressId },
       to_address: {
         name: toAddress.name,
         street1: toAddress.street1,
