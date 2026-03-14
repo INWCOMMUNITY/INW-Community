@@ -1,10 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import Script from "next/script";
 import { PackingSlipPrint } from "@/components/PackingSlipPrint";
 import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
+import {
+  buildOrderDetailsFromOrders,
+  transactionToLabelFromElementsPayload,
+  type ElementsTransactionPayload,
+} from "@/lib/shippo-elements";
+
+const SHIPPO_ORG = "inw-community";
+
+interface ShippoElementsAPI {
+  init: (opts: { token: string; org: string }) => void;
+  labelPurchase: (selector: string, orderDetails: unknown) => void;
+  on: (event: string, callback: (arg: unknown) => void) => void;
+}
+const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
 
 interface OrderItem {
   id: string;
@@ -115,6 +130,12 @@ export function StorefrontOrdersContent(props: {
   const [purchaseLabelLoading, setPurchaseLabelLoading] = useState(false);
   const [purchaseLabelError, setPurchaseLabelError] = useState<string | null>(null);
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
+  const [elementsLoading, setElementsLoading] = useState(false);
+  const [elementsError, setElementsError] = useState<string | null>(null);
+  const elementsListenersRef = useRef(false);
+  const currentElementsOrderIdsRef = useRef<string[]>([]);
+  const currentDimensionsRef = useRef(dimensions);
+  currentDimensionsRef.current = dimensions;
 
   useEffect(() => {
     setFetchError(null);
@@ -276,6 +297,108 @@ export function StorefrontOrdersContent(props: {
     }
   }
 
+  async function openElementsFlow() {
+    const ids = Array.from(selectedOrderIds);
+    if (ids.length === 0) {
+      setElementsError("Select at least one order.");
+      return;
+    }
+    const selectedOrders = orders.filter((o) => ids.includes(o.id));
+    const orderDetailsArray = buildOrderDetailsFromOrders(selectedOrders);
+    if (!orderDetailsArray?.length) {
+      setElementsError("Selected order(s) have no valid shipping address.");
+      return;
+    }
+    setElementsError(null);
+    setElementsLoading(true);
+    try {
+      const tokenRes = await fetch("/api/shipping/elements-token");
+      const tokenData = await tokenRes.json().catch(() => ({}));
+      if (!tokenRes.ok) {
+        const code = (tokenData as { code?: string }).code;
+        if (code === "SHIPPING_ACCOUNT_REQUIRED") {
+          setElementsError("Connect your shipping account in shipping setup first.");
+          return;
+        }
+        setElementsError((tokenData as { error?: string }).error ?? "Could not load Shippo widget.");
+        return;
+      }
+      const token = (tokenData as { token?: string }).token;
+      if (!token) {
+        setElementsError("Could not get widget token.");
+        return;
+      }
+      const shippo = typeof window !== "undefined" ? (window as { shippo?: ShippoElementsAPI }).shippo : null;
+      if (!shippo?.init || !shippo?.labelPurchase) {
+        setElementsError("Shippo widget is still loading. Try again in a moment.");
+        return;
+      }
+      shippo.init({ token, org: SHIPPO_ORG });
+      currentElementsOrderIdsRef.current = ids;
+      if (!elementsListenersRef.current) {
+        elementsListenersRef.current = true;
+        shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
+          const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
+          const orderIds = currentElementsOrderIdsRef.current;
+          if (orderIds.length === 0 || txs.length === 0) return;
+          const dims = currentDimensionsRef.current;
+          const payload = transactionToLabelFromElementsPayload(txs[0], {
+            weightOz: dims.weightOz,
+            lengthIn: dims.lengthIn,
+            widthIn: dims.widthIn,
+            heightIn: dims.heightIn,
+          });
+          try {
+            const res = await fetch("/api/shipping/label-from-elements", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                orderIds,
+                ...payload,
+              }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+              setRates([]);
+              setSelectedOrderIds(new Set());
+              setOrders((prev) =>
+                prev.map((o) => {
+                  if (!orderIds.includes(o.id)) return o;
+                  const ship = (data as { shipment?: { id: string; trackingNumber?: string; carrier?: string; service?: string } }).shipment;
+                  return {
+                    ...o,
+                    status: "shipped",
+                    shipment: ship
+                      ? {
+                          id: ship.id,
+                          carrier: ship.carrier ?? "",
+                          service: ship.service ?? "",
+                          trackingNumber: ship.trackingNumber ?? null,
+                          labelUrl: null,
+                        }
+                      : undefined,
+                  };
+                })
+              );
+            }
+          } catch {
+            // ignore
+          }
+        });
+        shippo.on("ERROR", (err: unknown) => {
+          const msg = err && typeof err === "object" && "detail" in err ? String((err as { detail: string }).detail) : "Something went wrong.";
+          setElementsError(msg);
+        });
+      }
+      const orderDetails = orderDetailsArray.length === 1 ? orderDetailsArray[0] : orderDetailsArray;
+      shippo.labelPurchase("#shippo-elements-container", orderDetails);
+    } catch {
+      setElementsError("Connection failed.");
+    } finally {
+      setElementsLoading(false);
+    }
+  }
+
   const toShipOrders = orders.filter(
     (o) => o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId
   );
@@ -286,6 +409,7 @@ export function StorefrontOrdersContent(props: {
 
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+      <Script src={SHIPPO_EMBEDDABLE_URL} strategy="lazyOnload" />
       <div className="max-w-[var(--max-width)] mx-auto">
         <Link href={props.backHref} className="text-sm text-gray-600 hover:underline mb-4 inline-block">
           {props.backLabel}
@@ -354,8 +478,26 @@ export function StorefrontOrdersContent(props: {
                     {purchaseLabelError}
                   </div>
                 )}
+                {elementsError && (
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm">
+                    {elementsError}
+                    {elementsError.includes("Connect your shipping") && (
+                      <Link href={props.shippingSetupHref} className="ml-2 underline">
+                        Go to shipping setup
+                      </Link>
+                    )}
+                  </div>
+                )}
 
                 <div className="mb-6 flex flex-wrap gap-4 items-center">
+                  <button
+                    type="button"
+                    onClick={openElementsFlow}
+                    disabled={elementsLoading || selectedOrderIds.size === 0}
+                    className="btn text-sm py-2 px-4 disabled:opacity-50"
+                  >
+                    {elementsLoading ? "Opening Shippo…" : "Purchase label with Shippo"}
+                  </button>
                   <button
                     type="button"
                     onClick={selectAllToShip}
@@ -408,12 +550,14 @@ export function StorefrontOrdersContent(props: {
                       type="button"
                       onClick={getRates}
                       disabled={ratesLoading || selectedOrderIds.size === 0}
-                      className="btn text-sm py-2 px-4 disabled:opacity-50"
+                      className="text-sm py-2 px-4 border rounded border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
                     >
-                      {ratesLoading ? "Getting rates…" : "Get rates"}
+                      {ratesLoading ? "Getting rates…" : "Get rates (classic)"}
                     </button>
                   </div>
                 </div>
+
+                <div id="shippo-elements-container" className="min-h-[200px]" aria-hidden="true" />
 
                 {rates.length > 0 && (
                   <div className="mb-6 border rounded-lg p-4 bg-gray-50">
@@ -531,6 +675,13 @@ export function StorefrontOrdersContent(props: {
                             </a>
                           </p>
                         )}
+                        <Link
+                          href={props.ordersBasePath + "/" + order.id}
+                          className="text-sm mt-2 inline-block hover:underline"
+                          style={{ color: "var(--color-link)" }}
+                        >
+                          Purchase another label
+                        </Link>
                       </div>
                       <p className="font-semibold">${(order.totalCents / 100).toFixed(2)}</p>
                     </div>

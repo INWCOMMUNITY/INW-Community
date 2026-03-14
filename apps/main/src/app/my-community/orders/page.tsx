@@ -366,21 +366,22 @@ export default function MyOrdersPage() {
 
                 {order.shipment && (
                   <div className="border-t pt-4 mb-4">
-                    <p className="font-medium mb-2">Shipping</p>
+                    <p className="font-medium mb-2">Shipping (covers items above)</p>
                     <p className="text-sm text-gray-600">
                       {order.shipment.carrier} {order.shipment.service}
                     </p>
                     {order.shipment.trackingNumber && (
                       <p className="text-sm mt-1">
-                        <span className="font-medium">Tracking:</span>{" "}
+                        <span className="font-medium">Tracking:</span> {order.shipment.trackingNumber}
+                        {" — "}
                         <a
                           href={getTrackingUrl(order.shipment.carrier, order.shipment.trackingNumber)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="hover:underline"
+                          className="font-medium hover:underline"
                           style={{ color: "var(--color-link)" }}
                         >
-                          {order.shipment.trackingNumber}
+                          Track package
                         </a>
                       </p>
                     )}
