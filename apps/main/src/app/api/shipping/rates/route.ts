@@ -12,6 +12,9 @@ import { getShippoUserMessage } from "@/lib/shippo-errors";
 export const dynamic = "force-dynamic";
 
 const SHIPPO_ADD_ADDRESS_URL = "https://apps.goshippo.com/";
+const SHIPPO_ADDRESSES_HELP =
+  "Add at least one address to your Shippo Address Book (in Shippo: Settings → Addresses). " +
+  "If you already added a return address there, try reconnecting your API key in shipping setup.";
 
 function splitStreet1Street2(street1: string, street2: string): { street1: string; street2: string } {
   if (street2 || street1.length <= 35) return { street1, street2 };
@@ -49,11 +52,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const fromAddress = await getSellerFromAddress(apiKey);
+  let fromAddress: Awaited<ReturnType<typeof getSellerFromAddress>>;
+  try {
+    fromAddress = await getSellerFromAddress(apiKey);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Shippo API error";
+    const isAuth = /invalid|unauthorized|api key|401/i.test(msg);
+    return NextResponse.json(
+      {
+        error: isAuth
+          ? "Could not load your Shippo account. Check your API key in shipping setup and try again."
+          : `Shippo error: ${msg}`,
+        code: isAuth ? "SHIPPO_AUTH_ERROR" : "SHIPPO_API_ERROR",
+      },
+      { status: isAuth ? 403 : 500 }
+    );
+  }
   if (!fromAddress) {
     return NextResponse.json(
       {
-        error: `Add a return address in your Shippo account to get rates. Go to ${SHIPPO_ADD_ADDRESS_URL} to add an address.`,
+        error: `${SHIPPO_ADDRESSES_HELP} ${SHIPPO_ADD_ADDRESS_URL}`,
         code: "SHIPPO_RETURN_ADDRESS_REQUIRED",
       },
       { status: 400 }

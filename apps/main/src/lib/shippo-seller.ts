@@ -26,17 +26,22 @@ export async function getSellerShippoApiKey(memberId: string): Promise<string | 
   }
 }
 
-/** Shippo v2 Address Book item */
+/** Shippo v2 Address Book item (address may use address_line_1 or address_line1, etc.) */
 export type ShippoV2AddressResult = {
   id: string;
   address?: {
     name?: string;
     organization?: string;
     address_line_1?: string;
+    address_line1?: string;
     address_line_2?: string;
+    address_line2?: string;
     city_locality?: string;
+    city?: string;
     state_province?: string;
+    state?: string;
     postal_code?: string;
+    postcode?: string;
     country_code?: string;
     phone?: string;
     email?: string;
@@ -90,37 +95,57 @@ export type ShippoTransactionResponse = {
   tracking_url_provider?: string | null;
 };
 
+function normalizeAddressField(
+  ...values: (string | number | null | undefined)[]
+): string {
+  const v = values.find((x) => x != null && String(x).trim() !== "");
+  return v != null ? String(v).trim() : "";
+}
+
 function mapV2AddressToShipment(v2: ShippoV2AddressResult["address"], defaultName: string): ShippoShipmentAddress | null {
   const addr = v2;
-  if (!addr?.address_line_1?.trim() || !addr?.city_locality?.trim() || !addr?.state_province?.trim() || !addr?.postal_code?.trim()) return null;
-  const name = (addr.name ?? addr.organization ?? defaultName).trim() || "Seller";
+  const street1 = normalizeAddressField(addr?.address_line_1, addr?.address_line1);
+  const city = normalizeAddressField(addr?.city_locality, addr?.city);
+  const state = normalizeAddressField(addr?.state_province, addr?.state);
+  const zip = normalizeAddressField(addr?.postal_code, addr?.postcode);
+  if (!street1 || !city || !state || !zip) return null;
+  const name = (addr?.name ?? addr?.organization ?? defaultName).trim() || "Seller";
+  const street2 = normalizeAddressField(addr?.address_line_2, addr?.address_line2);
   return {
     name,
-    ...(addr.organization?.trim() ? { company: addr.organization.trim() } : {}),
-    street1: addr.address_line_1.trim().slice(0, 35),
-    ...(addr.address_line_2?.trim() ? { street2: addr.address_line_2.trim().slice(0, 35) } : {}),
-    city: addr.city_locality.trim(),
-    state: addr.state_province.trim(),
-    zip: String(addr.postal_code).trim().replace(/\D/g, "").slice(0, 16),
-    country: (addr.country_code ?? "US").toUpperCase().slice(0, 2),
-    ...(addr.phone?.trim() ? { phone: addr.phone.trim().slice(0, 32) } : {}),
-    ...(addr.email?.trim() ? { email: addr.email.trim().slice(0, 128) } : {}),
+    ...(addr?.organization?.trim() ? { company: addr.organization.trim() } : {}),
+    street1: street1.slice(0, 35),
+    ...(street2 ? { street2: street2.slice(0, 35) } : {}),
+    city,
+    state,
+    zip: zip.replace(/\D/g, "").slice(0, 16),
+    country: (addr?.country_code ?? "US").toUpperCase().slice(0, 2),
+    ...(addr?.phone?.trim() ? { phone: addr.phone.trim().slice(0, 32) } : {}),
+    ...(addr?.email?.trim() ? { email: addr.email.trim().slice(0, 128) } : {}),
   };
 }
 
 /**
- * Fetch the seller's first address from Shippo Address Book (v2). Use as address_from for shipments.
- * Returns null if the account has no addresses (seller must add one in Shippo).
+ * Fetch a valid from-address from Shippo Address Book (v2). Use as address_from for shipments.
+ * Tries up to 20 addresses and returns the first one with required fields (street, city, state, zip).
+ * Returns null if the account has no valid addresses. Throws on API errors (e.g. invalid key).
  */
 export async function getSellerFromAddress(apiKey: string): Promise<ShippoShipmentAddress | null> {
-  const res = await fetch(`${SHIPPO_API}/v2/addresses?limit=1`, {
+  const res = await fetch(`${SHIPPO_API}/v2/addresses?limit=20`, {
     headers: shippoHeaders(apiKey),
   });
-  if (!res.ok) return null;
-  const data = (await res.json().catch(() => null)) as { results?: ShippoV2AddressResult[] } | null;
-  const first = data?.results?.[0];
-  if (!first?.address) return null;
-  return mapV2AddressToShipment(first.address, "Seller");
+  const data = (await res.json().catch(() => null)) as { results?: ShippoV2AddressResult[]; detail?: string } | null;
+  if (!res.ok) {
+    const msg = typeof data?.detail === "string" ? data.detail : res.status === 401 ? "Invalid API key" : "Shippo API error";
+    throw new Error(msg);
+  }
+  const results = data?.results ?? [];
+  for (const item of results) {
+    if (!item?.address) continue;
+    const mapped = mapV2AddressToShipment(item.address, "Seller");
+    if (mapped) return mapped;
+  }
+  return null;
 }
 
 /**

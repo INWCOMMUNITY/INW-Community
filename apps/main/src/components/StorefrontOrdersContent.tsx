@@ -114,7 +114,6 @@ export function StorefrontOrdersContent(props: {
   const [ratesError, setRatesError] = useState<string | null>(null);
   const [purchaseLabelLoading, setPurchaseLabelLoading] = useState(false);
   const [purchaseLabelError, setPurchaseLabelError] = useState<string | null>(null);
-  const [markShippedId, setMarkShippedId] = useState<string | null>(null);
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
 
   useEffect(() => {
@@ -277,24 +276,6 @@ export function StorefrontOrdersContent(props: {
     }
   }
 
-  async function markShipped(orderId: string) {
-    setMarkShippedId(orderId);
-    try {
-      const res = await fetch(`/api/store-orders/${orderId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "shipped" }),
-      });
-      if (res.ok) {
-        setOrders((prev) =>
-          prev.map((o) => (o.id === orderId ? { ...o, status: "shipped" } : o))
-        );
-      }
-    } finally {
-      setMarkShippedId(null);
-    }
-  }
-
   const toShipOrders = orders.filter(
     (o) => o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId
   );
@@ -355,7 +336,7 @@ export function StorefrontOrdersContent(props: {
                   <Link href={props.shippingSetupHref} className="underline" style={{ color: "var(--color-link)" }}>
                     shipping setup
                   </Link>{" "}
-                  to get rates and buy labels. Or mark as shipped if you ship yourself.
+                  to get rates and buy labels.
                 </p>
 
                 {ratesError && (
@@ -501,16 +482,6 @@ export function StorefrontOrdersContent(props: {
                             </p>
                             <p className="font-semibold mt-1">${(order.totalCents / 100).toFixed(2)}</p>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => markShipped(order.id)}
-                            disabled={markShippedId === order.id}
-                            className="btn text-sm py-1.5 px-3 disabled:opacity-50"
-                          >
-                            {markShippedId === order.id ? "Updating…" : "Mark as shipped"}
-                          </button>
                         </div>
                       </div>
                     </li>

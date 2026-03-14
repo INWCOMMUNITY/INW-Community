@@ -48,7 +48,6 @@ export default function SellerOrderDetailPage() {
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -203,16 +202,6 @@ export default function SellerOrderDetailPage() {
                 </p>
               )}
             </div>
-          )}
-          {order.status === "paid" && (
-            <button
-              type="button"
-              onClick={markShipped}
-              disabled={updating}
-              className="btn mt-4"
-            >
-              {updating ? "Updating…" : "Mark as shipped"}
-            </button>
           )}
         </div>
       </div>

@@ -58,7 +58,7 @@ export default function ResaleHubPage() {
               <IonIcon name="receipt-outline" size={28} className="text-[var(--color-primary)] mb-2" />
               <h2 className="text-xl font-bold mb-2">Orders</h2>
               <p className="text-sm text-gray-600">
-                View orders, purchase shipping labels, and mark as shipped.
+                View orders and purchase shipping labels.
               </p>
             </Link>
             <Link
@@ -68,7 +68,7 @@ export default function ResaleHubPage() {
               <IonIcon name="boat-outline" size={28} className="text-[var(--color-primary)] mb-2" />
               <h2 className="text-xl font-bold mb-2">Ship an Item</h2>
               <p className="text-sm text-gray-600">
-                Purchase shipping labels and mark orders as shipped.
+                Purchase shipping labels for your orders.
               </p>
             </Link>
             <Link

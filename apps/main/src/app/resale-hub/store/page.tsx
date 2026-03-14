@@ -27,7 +27,7 @@ export default function ResaleStorefrontPage() {
             <IonIcon name="receipt-outline" size={28} className="text-[var(--color-primary)] mb-2" />
             <h2 className="text-xl font-bold mb-2">Orders</h2>
             <p className="text-sm text-gray-600">
-              View orders, purchase shipping labels, and mark as shipped.
+              View orders and purchase shipping labels.
             </p>
           </Link>
           <Link
