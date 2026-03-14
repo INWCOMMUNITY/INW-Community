@@ -657,7 +657,7 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
                 <p className="text-gray-500">Loading…</p>
               ) : editingBusiness ? (
                 <>
-                  <BusinessForm existing={editingBusiness} onSuccess={handleBusinessSuccess} />
+                  <BusinessForm existing={{ ...editingBusiness, name: editingBusiness.name ?? "" }} onSuccess={handleBusinessSuccess} />
                   <DeleteBusinessButton
                     businessId={editingBusiness.id}
                     businessName={editingBusiness.name ?? "this business"}
