@@ -299,7 +299,6 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         photos,
         category: category.trim() || null,
         priceCents,
-        quantity,
         status: "active",
         listingType: resaleOnly ? "resale" : listingType,
         quantity:
