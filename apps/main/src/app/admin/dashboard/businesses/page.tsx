@@ -30,6 +30,13 @@ export default function AdminBusinessesPage() {
     email: string;
     businesses: { id: string }[];
   }>>([]);
+  const [allMembers, setAllMembers] = useState<Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    _count: { businesses?: number };
+  }>>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -38,12 +45,15 @@ export default function AdminBusinessesPage() {
     return Promise.all([
       fetch("/api/admin/businesses").then((r) => r.json()),
       fetch("/api/admin/sponsors").then((r) => r.json()),
-    ]).then(([bizData, sponsorData]) => {
+      fetch("/api/admin/members").then((r) => r.json()),
+    ]).then(([bizData, sponsorData, membersData]) => {
       setBusinesses(Array.isArray(bizData) ? bizData : []);
       setSponsors(Array.isArray(sponsorData) ? sponsorData : []);
+      setAllMembers(Array.isArray(membersData) ? membersData : []);
     }).catch(() => {
       setBusinesses([]);
       setSponsors([]);
+      setAllMembers([]);
     });
   }
 
@@ -51,15 +61,26 @@ export default function AdminBusinessesPage() {
     refetch().finally(() => setLoading(false));
   }, []);
 
-  const sponsorOptions: SponsorOption[] = sponsors.map((s) => ({
-    memberId: s.memberId,
-    firstName: s.firstName,
-    lastName: s.lastName,
-    email: s.email,
-    businessCount: s.businesses?.length ?? 0,
-  }));
+  const sponsorIds = new Set(sponsors.map((s) => s.memberId));
+  const sponsorOptions: SponsorOption[] = [
+    ...sponsors
+      .map((s) => ({ ...s, businessCount: s.businesses?.length ?? 0, isSubscriber: true }))
+      .filter((s) => s.businessCount < 2)
+      .map(({ memberId, firstName, lastName, email, businessCount }) => ({ memberId, firstName, lastName, email, businessCount })),
+    ...allMembers
+      .filter((m) => !sponsorIds.has(m.id))
+      .map((m) => ({ businessCount: m._count?.businesses ?? 0, ...m }))
+      .filter((m) => m.businessCount < 1)
+      .map((m) => ({
+        memberId: m.id,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        email: m.email,
+        businessCount: m.businessCount,
+      })),
+  ];
 
-  const canAddBusiness = sponsorOptions.some((s) => s.businessCount < 2);
+  const canAddBusiness = sponsorOptions.length > 0;
 
   async function handleDelete(businessId: string) {
     if (!confirm("Delete this business? This cannot be undone.")) return;

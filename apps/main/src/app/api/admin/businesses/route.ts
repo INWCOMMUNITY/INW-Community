@@ -33,7 +33,15 @@ export async function GET(req: NextRequest) {
   const pending = searchParams.get("pending") === "1";
   const businesses = await prisma.business.findMany({
     where: pending ? { nameApprovalStatus: "pending" } : undefined,
-    select: { id: true, name: true, slug: true, memberId: true, nameApprovalStatus: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      memberId: true,
+      nameApprovalStatus: true,
+      adminGrantedAt: true,
+      member: { select: { firstName: true, lastName: true, email: true } },
+    },
     orderBy: { name: "asc" },
   });
   return NextResponse.json(businesses);
@@ -50,14 +58,15 @@ export async function POST(req: NextRequest) {
       logoUrl: body.logoUrl || null,
     });
     const sub = await prisma.subscription.findFirst({
-      where: { memberId: data.memberId, plan: "sponsor", status: "active" },
+      where: { memberId: data.memberId, plan: { in: ["sponsor", "seller"] }, status: "active" },
     });
-    if (!sub) {
-      return NextResponse.json({ error: "Member must have an active sponsor subscription" }, { status: 400 });
-    }
     const count = await prisma.business.count({ where: { memberId: data.memberId } });
-    if (count >= 2) {
-      return NextResponse.json({ error: "Sponsor already has 2 businesses" }, { status: 400 });
+    const grantFreeAccess = !sub;
+    if (sub && count >= 2) {
+      return NextResponse.json({ error: "Member already has 2 businesses" }, { status: 400 });
+    }
+    if (grantFreeAccess && count >= 1) {
+      return NextResponse.json({ error: "Member already has an admin-granted business" }, { status: 400 });
     }
     let slug = slugify(data.name);
     let suffix = 0;
@@ -80,6 +89,7 @@ export async function POST(req: NextRequest) {
         slug,
         photos: data.photos ?? [],
         hoursOfOperation: data.hoursOfOperation ?? undefined,
+        ...(grantFreeAccess && { adminGrantedAt: new Date() }),
       },
     });
     const { awardBusinessSignupBadges } = await import("@/lib/badge-award");

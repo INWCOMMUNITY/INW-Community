@@ -18,9 +18,13 @@ interface Business {
   slug: string;
 }
 
+// Add more seasons when ready (e.g. "Season 2"); backend still uses start/end dates for the selected season.
+const SEASON_OPTIONS = ["Season 1"] as const;
+
 export default function Top5AdminPage() {
   const router = useRouter();
   const [enabled, setEnabled] = useState(false);
+  const [season, setSeason] = useState<string>(SEASON_OPTIONS[0]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [prizes, setPrizes] = useState<Prize[]>(
@@ -37,6 +41,17 @@ export default function Top5AdminPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [uploadingRank, setUploadingRank] = useState<number | null>(null);
+
+  async function uploadPrizePhoto(rank: number, file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch("/api/admin/upload", { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "Upload failed");
+    if (typeof data.url !== "string") throw new Error("No URL returned");
+    return data.url;
+  }
 
   useEffect(() => {
     Promise.all([
@@ -118,24 +133,40 @@ export default function Top5AdminPage() {
           </label>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Start date</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-            />
+            <label className="block text-sm font-medium mb-1">Season</label>
+            <select
+              value={season}
+              onChange={(e) => setSeason(e.target.value)}
+              className="w-full max-w-xs border rounded px-3 py-2"
+            >
+              {SEASON_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">End date</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Season start date</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Season end date</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+              />
+            </div>
           </div>
         </div>
 
@@ -157,14 +188,45 @@ export default function Top5AdminPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Photo URL</label>
-                    <input
-                      type="url"
-                      value={prize.imageUrl ?? ""}
-                      onChange={(e) => updatePrize(prize.rank, "imageUrl", e.target.value || null)}
-                      placeholder="https://..."
-                      className="w-full border rounded px-3 py-2"
-                    />
+                    <label className="block text-sm font-medium mb-1">Photo</label>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {prize.imageUrl && (
+                        <img
+                          src={prize.imageUrl}
+                          alt=""
+                          className="h-16 w-16 object-cover rounded border border-gray-200"
+                        />
+                      )}
+                      <label className="inline-flex items-center gap-2">
+                        <span
+                          className="inline-block px-3 py-2 border rounded text-sm cursor-pointer hover:bg-gray-100 disabled:opacity-50"
+                          style={{ borderColor: "#e5e3df" }}
+                        >
+                          {uploadingRank === prize.rank ? "Uploading…" : prize.imageUrl ? "Change photo" : "Upload photo"}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          disabled={uploadingRank !== null}
+                          onChange={async (e) => {
+                            const f = e.target.files?.[0];
+                            if (!f) return;
+                            setUploadingRank(prize.rank);
+                            setError("");
+                            try {
+                              const url = await uploadPrizePhoto(prize.rank, f);
+                              updatePrize(prize.rank, "imageUrl", url);
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : "Upload failed");
+                            } finally {
+                              setUploadingRank(null);
+                              e.target.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Prize Value</label>

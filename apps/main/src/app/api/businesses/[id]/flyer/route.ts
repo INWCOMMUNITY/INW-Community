@@ -126,11 +126,9 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const sub = await prisma.subscription.findFirst({
-    where: { memberId: session.user.id, plan: { in: ["sponsor", "seller"] }, status: "active" },
-  });
-  if (!sub) {
-    return NextResponse.json({ error: "Sponsor or Seller plan required" }, { status: 403 });
+  const { hasBusinessHubAccess } = await import("@/lib/business-hub-access");
+  if (!(await hasBusinessHubAccess(session.user.id))) {
+    return NextResponse.json({ error: "Business Hub access required" }, { status: 403 });
   }
 
   const { id } = await params;

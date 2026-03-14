@@ -146,17 +146,23 @@ export default function AdminDashboardLayout({
     </nav>
   );
 
+  // Match main site header height so sidebar starts below it (Header is sticky with py-3 sm:py-4)
+  const headerOffset = "4rem";
+
   return (
     <div className="min-h-screen flex">
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex md:flex-col md:w-60 md:fixed md:inset-y-0 bg-white border-r" style={{ borderColor: "#e5e3df" }}>
+      {/* Desktop sidebar: below main site header */}
+      <aside
+        className="hidden md:flex md:flex-col md:w-60 md:fixed md:left-0 md:bottom-0 bg-white border-r"
+        style={{ borderColor: "#e5e3df", top: headerOffset }}
+      >
         <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "#e5e3df" }}>
           <span className="font-bold" style={{ color: "#3E432F" }}>NWC Admin</span>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto min-h-0">
           <SidebarNav />
         </div>
-        <div className="p-4 border-t" style={{ borderColor: "#e5e3df" }}>
+        <div className="p-4 border-t shrink-0" style={{ borderColor: "#e5e3df" }}>
           <Link
             href="/api/auth/signout?callbackUrl=%2F"
             className="block w-full text-sm hover:underline py-2"
@@ -214,7 +220,7 @@ export default function AdminDashboardLayout({
             <a href={`${LIVE_ADMIN_URL}/admin`} className="font-medium underline hover:no-underline">{LIVE_ADMIN_URL}/admin</a>
           </div>
         )}
-        <header className="sticky top-0 z-30 bg-white border-b px-4 py-3 flex items-center justify-between md:justify-end" style={{ borderColor: "#e5e3df" }}>
+        <header className="sticky z-30 bg-white border-b px-4 py-3 flex items-center justify-between md:justify-end" style={{ borderColor: "#e5e3df", top: headerOffset }}>
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}

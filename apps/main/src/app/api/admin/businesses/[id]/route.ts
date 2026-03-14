@@ -34,6 +34,7 @@ export async function GET(
 
 const hoursSchema = z.record(z.string()).nullable().optional();
 const bodySchema = z.object({
+  memberId: z.string().min(1).optional(), // Reassign owner; when set, also set adminGrantedAt so new owner gets free Business Hub access
   nameApprovalStatus: z.enum(["approved", "rejected"]).optional(),
   name: z.string().min(1).optional(),
   shortDescription: z.string().nullable().optional(),
@@ -63,11 +64,9 @@ export async function PATCH(
       email: body.email ?? null,
       logoUrl: body.logoUrl ?? null,
     });
-    await prisma.business.update({
-      where: { id },
-      data: {
-        ...(data.nameApprovalStatus != null && { nameApprovalStatus: data.nameApprovalStatus }),
-        ...(data.name != null && { name: data.name }),
+    const updateData: Record<string, unknown> = {
+      ...(data.nameApprovalStatus != null && { nameApprovalStatus: data.nameApprovalStatus }),
+      ...(data.name != null && { name: data.name }),
         ...(data.shortDescription !== undefined && { shortDescription: data.shortDescription }),
         ...(data.fullDescription !== undefined && { fullDescription: data.fullDescription }),
         ...(data.website !== undefined && { website: data.website }),
@@ -78,10 +77,17 @@ export async function PATCH(
         ...(data.city !== undefined && { city: data.city }),
         ...(data.categories !== undefined && { categories: data.categories }),
         ...(data.photos !== undefined && { photos: data.photos }),
-        ...(data.hoursOfOperation !== undefined && {
-          hoursOfOperation: data.hoursOfOperation === null ? Prisma.JsonNull : data.hoursOfOperation,
-        }),
-      },
+      ...(data.hoursOfOperation !== undefined && {
+        hoursOfOperation: data.hoursOfOperation === null ? Prisma.JsonNull : data.hoursOfOperation,
+      }),
+    };
+    if (data.memberId != null) {
+      updateData.memberId = data.memberId;
+      updateData.adminGrantedAt = new Date();
+    }
+    await prisma.business.update({
+      where: { id },
+      data: updateData as Parameters<typeof prisma.business.update>[0]["data"],
     });
     return NextResponse.json({ ok: true });
   } catch (e) {

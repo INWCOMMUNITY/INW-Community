@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { AdminMemberActions } from "./AdminMemberActions";
 
 interface Member {
@@ -12,13 +11,28 @@ interface Member {
   city: string | null;
   status: string;
   createdAt: string;
-  _count: { subscriptions: number };
+  _count: { subscriptions: number; businesses?: number };
+}
+
+interface BusinessOption {
+  id: string;
+  name: string;
+  slug: string;
+  memberId: string;
+  member?: { firstName: string; lastName: string; email: string };
+  adminGrantedAt: string | null;
 }
 
 export default function AdminMembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [assignForMember, setAssignForMember] = useState<Member | null>(null);
+  const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
+  const [assignBusinessId, setAssignBusinessId] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState("");
+  const [assignLoadingBiz, setAssignLoadingBiz] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/members")
@@ -27,6 +41,46 @@ export default function AdminMembersPage() {
       .catch(() => setMembers([]))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!assignForMember) {
+      setBusinesses([]);
+      setAssignBusinessId("");
+      setAssignError("");
+      return;
+    }
+    setAssignLoadingBiz(true);
+    fetch("/api/admin/businesses")
+      .then((r) => r.json())
+      .then((data) => setBusinesses(Array.isArray(data) ? data : []))
+      .catch(() => setBusinesses([]))
+      .finally(() => {
+        setAssignLoadingBiz(false);
+        setAssignBusinessId("");
+      });
+  }, [assignForMember]);
+
+  async function handleAssignBusiness() {
+    if (!assignForMember || !assignBusinessId) return;
+    setAssignError("");
+    setAssigning(true);
+    try {
+      const res = await fetch(`/api/admin/businesses/${assignBusinessId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId: assignForMember.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAssignError(data.error ?? "Failed to assign");
+        return;
+      }
+      setAssignForMember(null);
+      setAssignBusinessId("");
+    } finally {
+      setAssigning(false);
+    }
+  }
 
   const filtered = members.filter((m) => {
     if (!search.trim()) return true;
@@ -85,7 +139,14 @@ export default function AdminMembersPage() {
                 <td className="px-4 py-2 text-sm text-gray-500">
                   {new Date(m.createdAt).toLocaleDateString()}
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2 flex flex-wrap items-center gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setAssignForMember(m)}
+                    className="text-sm px-2 py-1 rounded border border-gray-300 hover:bg-gray-50"
+                  >
+                    Assign business
+                  </button>
                   <AdminMemberActions memberId={m.id} status={m.status} />
                 </td>
               </tr>
@@ -93,6 +154,62 @@ export default function AdminMembersPage() {
           </tbody>
         </table>
       </div>
+
+      {assignForMember && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={(e) => e.target === e.currentTarget && setAssignForMember(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-md w-full p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold mb-2">Assign business to member</h2>
+            <p className="text-sm text-gray-600 mb-3">
+              {assignForMember.firstName} {assignForMember.lastName} ({assignForMember.email}) will get free Business Hub access.
+            </p>
+            {assignLoadingBiz ? (
+              <p className="text-gray-500 text-sm">Loading businesses…</p>
+            ) : (
+              <>
+                <label className="block text-sm font-medium mb-1">Business</label>
+                <select
+                  value={assignBusinessId}
+                  onChange={(e) => setAssignBusinessId(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm mb-3"
+                >
+                  <option value="">— Select business —</option>
+                  {businesses.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                      {b.member ? ` (current: ${b.member.firstName} ${b.member.lastName})` : ""}
+                    </option>
+                  ))}
+                </select>
+                {assignError && <p className="text-red-600 text-sm mb-2">{assignError}</p>}
+                <div className="flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setAssignForMember(null)}
+                    className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAssignBusiness}
+                    disabled={!assignBusinessId || assigning}
+                    className="px-3 py-1.5 text-sm rounded disabled:opacity-50 text-white"
+                    style={{ backgroundColor: "#505542" }}
+                  >
+                    {assigning ? "Assigning…" : "Assign"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

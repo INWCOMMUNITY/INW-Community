@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
       city: true,
       status: true,
       createdAt: true,
-      _count: { select: { subscriptions: true } },
+      _count: { select: { subscriptions: true, businesses: true } },
     },
   });
   return NextResponse.json(members);

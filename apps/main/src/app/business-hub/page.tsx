@@ -4,6 +4,7 @@ import { getServerSession } from "@/lib/auth";
 import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
 import { BusinessHubFormModals } from "@/components/BusinessHubFormModals";
+import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 
 /** Business Hub header – panorama (lake, dock, trees, sky) from gallery; wide crop so full scene shows; position shaves 12% off top */
 const BUSINESS_HUB_HEADER_IMAGE =
@@ -18,19 +19,22 @@ export default async function BusinessHubPage() {
       redirect("/login?callbackUrl=/business-hub");
     }
     const isAdmin = (session.user as { isAdmin?: boolean }).isAdmin === true;
-    const sub = await prisma.subscription.findFirst({
-      where: {
-        memberId: session.user.id,
-        plan: { in: ["sponsor", "seller"] },
-        status: "active",
-      },
-    });
+    const [sub, hasAccess] = await Promise.all([
+      prisma.subscription.findFirst({
+        where: {
+          memberId: session.user.id,
+          plan: { in: ["sponsor", "seller"] },
+          status: "active",
+        },
+      }),
+      hasBusinessHubAccess(session.user.id),
+    ]);
     const isSeller = sub?.plan === "seller";
     const businesses = await prisma.business.findMany({
       where: { memberId: session.user.id },
       select: { id: true, name: true, slug: true },
     });
-    if (!sub && !isAdmin) {
+    if (!hasAccess && !isAdmin) {
       return (
         <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
           <div className="max-w-[var(--max-width)] mx-auto text-center">

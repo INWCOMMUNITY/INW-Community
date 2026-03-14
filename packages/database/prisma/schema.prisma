@@ -214,6 +214,7 @@ model Business {
   photos           String[] // JSON array of URLs
   coverPhotoUrl    String?  @map("cover_photo_url") // Seller storefront backdrop (Facebook-style cover)
   nameApprovalStatus String @default("approved") @map("name_approval_status") // approved | pending | rejected (profanity in name)
+  adminGrantedAt     DateTime? @map("admin_granted_at") // When set, this business was assigned by admin; owner gets free Business Hub access without a subscription
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
