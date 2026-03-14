@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
     service: string;
     rateCents: number;
     shippoTransactionId?: string | null;
+    shippoOrderId?: string | null;
     weightOz?: number;
     lengthIn?: number;
     widthIn?: number;
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
     service,
     rateCents,
     shippoTransactionId,
+    shippoOrderId,
     weightOz = DEFAULT_WEIGHT_OZ,
     lengthIn = DEFAULT_LENGTH_IN,
     widthIn = DEFAULT_WIDTH_IN,
@@ -107,6 +109,7 @@ export async function POST(req: NextRequest) {
     widthIn,
     heightIn,
     shippoTransactionId: shippoTransactionId?.trim() ?? null,
+    shippoOrderId: shippoOrderId?.trim() ?? null,
   };
   const orderUpdate = {
     status: "shipped" as const,

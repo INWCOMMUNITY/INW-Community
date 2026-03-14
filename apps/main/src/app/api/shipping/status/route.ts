@@ -18,10 +18,10 @@ export async function GET(req: NextRequest) {
 
   const member = await prisma.member.findUnique({
     where: { id: userId },
-    select: { shippoApiKeyEncrypted: true },
+    select: { shippoApiKeyEncrypted: true, shippoOAuthTokenEncrypted: true },
   });
 
-  const connected = Boolean(member?.shippoApiKeyEncrypted);
+  const connected = Boolean(member?.shippoApiKeyEncrypted ?? member?.shippoOAuthTokenEncrypted);
 
   return NextResponse.json({
     connected,

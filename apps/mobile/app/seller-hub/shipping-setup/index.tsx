@@ -37,7 +37,7 @@ export default function ShippingSetupScreen() {
     setSuccess(null);
     try {
       await apiPost<{ connected: boolean }>("/api/shipping/connect", { apiKey: key });
-      setSuccess("Shippo connected. Add a return address in your Shippo account to get rates and buy labels.");
+      setSuccess("Shippo connected. Add at least one address to your Shippo Address Book (you can use your own address) to get rates and buy labels.");
       setApiKey("");
     } catch (e: unknown) {
       const err = e as { error?: string };
@@ -51,7 +51,7 @@ export default function ShippingSetupScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Set Up Shippo</Text>
       <Text style={styles.hint}>
-        Connect your Shippo account for shipping labels. You pay for labels with your own card. Add a return address in Shippo to get rates.
+        Connect your Shippo account for shipping labels. You pay for labels with your own card. Add at least one address to your Shippo Address Book (not just a return address in settings)—it’s part of setup; you can use your own address.
       </Text>
 
       <Text style={styles.step}>Step 1: Log in to Shippo</Text>
@@ -73,9 +73,9 @@ export default function ShippingSetupScreen() {
         <Text style={styles.linkText}>Open Shippo</Text>
       </Pressable>
 
-      <Text style={styles.step}>Step 3: Add a return address</Text>
+      <Text style={styles.step}>Step 3: Add an address to your Address Book</Text>
       <Text style={styles.stepHint}>
-        In Shippo, add at least one address (your return/ship-from address). You need this to get rates and buy labels.
+        In Shippo, add at least one address to your Address Book (Settings → Addresses). This is required to get rates and buy labels—not just a return address in settings. You can use your own address.
       </Text>
       <Pressable
         style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}

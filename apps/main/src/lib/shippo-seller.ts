@@ -26,6 +26,38 @@ export async function getSellerShippoApiKey(memberId: string): Promise<string | 
   }
 }
 
+/**
+ * Returns the decrypted Shippo OAuth Bearer token for the seller, or null if not connected via OAuth.
+ */
+export async function getSellerShippoOAuthToken(memberId: string): Promise<string | null> {
+  const member = await prisma.member.findUnique({
+    where: { id: memberId },
+    select: { shippoOAuthTokenEncrypted: true },
+  });
+  if (!member?.shippoOAuthTokenEncrypted) return null;
+  try {
+    return decrypt(member.shippoOAuthTokenEncrypted);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns a credential for Shippo API: OAuth Bearer token (preferred) or API key.
+ * Use for Elements JWT: pass as Authorization Bearer <token> or ShippoToken <apiKey>.
+ */
+export async function getSellerShippoCredential(memberId: string): Promise<
+  | { type: "oauth"; token: string }
+  | { type: "apiKey"; apiKey: string }
+  | null
+> {
+  const oauth = await getSellerShippoOAuthToken(memberId);
+  if (oauth) return { type: "oauth", token: oauth };
+  const apiKey = await getSellerShippoApiKey(memberId);
+  if (apiKey) return { type: "apiKey", apiKey };
+  return null;
+}
+
 /** Shippo v2 Address Book item (address may use address_line_1 or address_line1, etc.) */
 export type ShippoV2AddressResult = {
   id: string;
@@ -102,6 +134,16 @@ function normalizeAddressField(
   return v != null ? String(v).trim() : "";
 }
 
+/** Returns which required fields are missing from an address (for diagnostics). */
+function getMissingAddressFields(addr: ShippoV2AddressResult["address"]): string[] {
+  const missing: string[] = [];
+  if (!normalizeAddressField(addr?.address_line_1, addr?.address_line1)) missing.push("street");
+  if (!normalizeAddressField(addr?.city_locality, addr?.city)) missing.push("city");
+  if (!normalizeAddressField(addr?.state_province, addr?.state)) missing.push("state");
+  if (!normalizeAddressField(addr?.postal_code, addr?.postcode)) missing.push("ZIP");
+  return missing;
+}
+
 function mapV2AddressToShipment(v2: ShippoV2AddressResult["address"], defaultName: string): ShippoShipmentAddress | null {
   const addr = v2;
   const street1 = normalizeAddressField(addr?.address_line_1, addr?.address_line1);
@@ -125,12 +167,28 @@ function mapV2AddressToShipment(v2: ShippoV2AddressResult["address"], defaultNam
   };
 }
 
+export type GetSellerFromAddressResult = {
+  fromAddress: ShippoShipmentAddress | null;
+  /** When fromAddress is null: how many items Shippo returned (0 = none, >0 = none had required fields). */
+  addressCount: number;
+  /** When addressCount > 0 but fromAddress is null: required fields missing on the first address. */
+  missingFields?: string[];
+};
+
 /**
  * Fetch a valid from-address from Shippo Address Book (v2). Use as address_from for shipments.
  * Tries up to 20 addresses and returns the first one with required fields (street, city, state, zip).
- * Returns null if the account has no valid addresses. Throws on API errors (e.g. invalid key).
+ * Returns null fromAddress if none valid. Throws on API errors (e.g. invalid key).
  */
 export async function getSellerFromAddress(apiKey: string): Promise<ShippoShipmentAddress | null> {
+  const { fromAddress } = await getSellerFromAddressWithDiagnostic(apiKey);
+  return fromAddress;
+}
+
+/**
+ * Same as getSellerFromAddress but returns diagnostic info when no valid address is found.
+ */
+export async function getSellerFromAddressWithDiagnostic(apiKey: string): Promise<GetSellerFromAddressResult> {
   const res = await fetch(`${SHIPPO_API}/v2/addresses?limit=20`, {
     headers: shippoHeaders(apiKey),
   });
@@ -143,9 +201,11 @@ export async function getSellerFromAddress(apiKey: string): Promise<ShippoShipme
   for (const item of results) {
     if (!item?.address) continue;
     const mapped = mapV2AddressToShipment(item.address, "Seller");
-    if (mapped) return mapped;
+    if (mapped) return { fromAddress: mapped, addressCount: results.length };
   }
-  return null;
+  const first = results[0]?.address;
+  const missingFields = first ? getMissingAddressFields(first) : undefined;
+  return { fromAddress: null, addressCount: results.length, missingFields };
 }
 
 /**

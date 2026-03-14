@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
@@ -28,6 +29,14 @@ interface OrderItem {
   storeItem?: { id: string; title: string; slug: string; photos: string[]; listingType?: string };
 }
 
+interface Shipment {
+  id: string;
+  carrier?: string;
+  trackingNumber?: string | null;
+  labelUrl?: string | null;
+  shippoOrderId?: string | null;
+}
+
 interface StoreOrder {
   id: string;
   status: string;
@@ -36,6 +45,7 @@ interface StoreOrder {
   shippingAddress?: unknown;
   buyer?: { firstName: string; lastName: string; email: string };
   items?: OrderItem[];
+  shipment?: Shipment | null;
 }
 
 function formatDate(s: string): string {
@@ -108,6 +118,12 @@ export default function OrderDetailScreen() {
     router.push(`/product/${slug}${q}` as never);
   };
 
+  const orderDetailUrl = `${siteBase}/seller-hub/orders/${order.id}`;
+  const openWebLabels = (title: string) => {
+    const url = `/web?url=${encodeURIComponent(orderDetailUrl)}&title=${encodeURIComponent(title)}`;
+    (router.push as (href: string) => void)(url);
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.section}>
@@ -162,6 +178,32 @@ export default function OrderDetailScreen() {
         <Text style={styles.value}>{buyerEmail}</Text>
       </View>
 
+      {order.status === "paid" && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Shipping labels</Text>
+          <Text style={styles.valueHint}>Purchase or print labels on the website.</Text>
+          <View style={styles.labelBtnRow}>
+            {order.shipment?.shippoOrderId && (
+              <Pressable
+                style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
+                onPress={() => openWebLabels("Print label")}
+              >
+                <Ionicons name="print-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
+                <Text style={styles.labelBtnText}>Print label</Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
+              onPress={() => openWebLabels("Purchase labels")}
+            >
+              <Text style={styles.labelBtnText}>
+                {order.shipment?.shippoOrderId ? "Purchase another label" : "Purchase labels"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
       <View style={{ height: 24 }} />
     </ScrollView>
   );
@@ -186,6 +228,17 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   value: { fontSize: 16, color: "#333" },
+  valueHint: { fontSize: 14, color: "#666", marginBottom: 12 },
+  labelBtnRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  labelBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  labelBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
   linkBtn: {
     paddingVertical: 8,
     paddingRight: 8,

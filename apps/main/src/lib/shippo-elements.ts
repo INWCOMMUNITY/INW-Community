@@ -31,6 +31,7 @@ export interface ShippoElementsOrderDetails {
   address_to: ShippoElementsAddress;
   line_items: ShippoElementsLineItem[];
   order_number?: string;
+  object_id?: string;
 }
 
 function splitStreet1Street2(street: string, aptOrSuite: string): { street1: string; street2: string } {
@@ -62,8 +63,12 @@ export interface OrderForElements {
 
 /**
  * Build Shippo Elements OrderDetails from a single store order.
+ * Pass objectId to re-open an existing Shippo order (e.g. for re-print).
  */
-export function buildOrderDetailsFromOrder(order: OrderForElements): ShippoElementsOrderDetails | null {
+export function buildOrderDetailsFromOrder(
+  order: OrderForElements,
+  objectId?: string | null
+): ShippoElementsOrderDetails | null {
   const addr = order.shippingAddress as { street?: string; aptOrSuite?: string; city?: string; state?: string; zip?: string } | null;
   if (!addr?.street?.trim() || !addr?.city?.trim() || !addr?.state?.trim() || !addr?.zip?.trim()) {
     return null;
@@ -92,6 +97,7 @@ export function buildOrderDetailsFromOrder(order: OrderForElements): ShippoEleme
     },
     line_items,
     order_number: order.orderNumber ?? order.id,
+    ...(objectId?.trim() ? { object_id: objectId.trim() } : {}),
   };
 }
 

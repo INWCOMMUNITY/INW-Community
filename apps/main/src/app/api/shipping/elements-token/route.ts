@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getSellerShippoApiKey } from "@/lib/shippo-seller";
+import { getSellerShippoCredential } from "@/lib/shippo-seller";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,7 @@ const SHIPPO_EMBEDDED_AUTHZ = "https://api.goshippo.com/embedded/authz/";
 
 /**
  * GET: Returns a short-lived JWT for Shippo Shipping Elements.
- * Requires authenticated seller with connected Shippo API key.
+ * Requires authenticated seller with Shippo connected (OAuth or API key).
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -25,8 +25,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
   }
 
-  const apiKey = await getSellerShippoApiKey(userId);
-  if (!apiKey) {
+  const cred = await getSellerShippoCredential(userId);
+  if (!cred) {
     return NextResponse.json(
       {
         error: "Connect your shipping account to use the label widget.",
@@ -36,10 +36,15 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const authHeader =
+    cred.type === "oauth"
+      ? `Bearer ${cred.token}`
+      : `ShippoToken ${cred.apiKey}`;
+
   const res = await fetch(SHIPPO_EMBEDDED_AUTHZ, {
     method: "POST",
     headers: {
-      Authorization: `ShippoToken ${apiKey}`,
+      Authorization: authHeader,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ scope: "embedded:carriers" }),

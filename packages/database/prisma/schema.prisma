@@ -25,6 +25,7 @@ model Member {
   stripeConnectAccountId String? @map("stripe_connect_account_id") // For sellers
   stripeCustomerId      String? @map("stripe_customer_id") // For fallback payments (labels, etc.)
   shippoApiKeyEncrypted String? @map("shippo_api_key_encrypted") // Seller's Shippo API key, encrypted at rest; labels charged to seller's Shippo account
+  shippoOAuthTokenEncrypted String? @map("shippo_oauth_token_encrypted") // Seller's Shippo OAuth Bearer token (from Connect with Shippo), encrypted at rest
   packingSlipNote       String? @map("packing_slip_note") @db.Text
   phone                String?
   deliveryAddress      Json?   @map("delivery_address") // private: { street, city, state, zip }
@@ -825,6 +826,7 @@ model Shipment {
   widthIn         Float    @map("width_in")
   heightIn        Float    @map("height_in")
   shippoTransactionId String? @map("shippo_transaction_id") // Shippo transaction object_id after label purchase
+  shippoOrderId   String?  @map("shippo_order_id") // Shippo order id from ORDER_CREATED; pass as object_id to Elements for re-print
   createdAt       DateTime @default(now()) @map("created_at")
 
   order StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)

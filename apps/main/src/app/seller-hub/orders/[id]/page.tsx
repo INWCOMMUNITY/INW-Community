@@ -15,15 +15,6 @@ import {
 const SHIPPO_ORG = "inw-community";
 const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
 
-interface Rate {
-  id: string;
-  carrier: string;
-  service: string;
-  rateCents: number;
-  totalCents: number;
-  shipmentId: string;
-}
-
 interface OrderItem {
   id: string;
   quantity: number;
@@ -37,6 +28,7 @@ interface Shipment {
   service: string;
   trackingNumber: string | null;
   labelUrl: string | null;
+  shippoOrderId?: string | null;
 }
 
 interface StoreOrder {
@@ -66,17 +58,10 @@ export default function SellerOrderDetailPage() {
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [anotherLabelDimensions, setAnotherLabelDimensions] = useState({ weightOz: 16, lengthIn: 12, widthIn: 12, heightIn: 12 });
-  const [rates, setRates] = useState<Rate[]>([]);
-  const [ratesLoading, setRatesLoading] = useState(false);
-  const [ratesError, setRatesError] = useState<string | null>(null);
-  const [purchaseLabelLoading, setPurchaseLabelLoading] = useState(false);
-  const [purchaseLabelError, setPurchaseLabelError] = useState<string | null>(null);
   const [elementsLoading, setElementsLoading] = useState(false);
   const [elementsError, setElementsError] = useState<string | null>(null);
   const elementsListenersRef = useRef(false);
-  const currentDimensionsRef = useRef(anotherLabelDimensions);
-  currentDimensionsRef.current = anotherLabelDimensions;
+  const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
 
   const refetchOrder = useCallback(() => {
     if (!id) return;
@@ -112,79 +97,17 @@ export default function SellerOrderDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  async function getRatesAnotherLabel() {
+  async function openElementsFlow(options: { forReprint?: boolean } = {}) {
     if (!order) return;
-    setRatesError(null);
-    setRates([]);
-    setRatesLoading(true);
-    try {
-      const res = await fetch("/api/shipping/rates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: order.id,
-          weightOz: anotherLabelDimensions.weightOz,
-          lengthIn: anotherLabelDimensions.lengthIn,
-          widthIn: anotherLabelDimensions.widthIn,
-          heightIn: anotherLabelDimensions.heightIn,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setRatesError((data as { error?: string }).error ?? "Failed to get rates.");
-        return;
-      }
-      setRates((data as { rates?: Rate[] }).rates ?? []);
-    } catch {
-      setRatesError("Connection failed.");
-    } finally {
-      setRatesLoading(false);
-    }
-  }
-
-  async function purchaseAnotherLabel(rate: Rate) {
-    if (!order) return;
-    setPurchaseLabelError(null);
-    setPurchaseLabelLoading(true);
-    try {
-      const res = await fetch("/api/shipping/label", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: order.id,
-          rateId: rate.id,
-          carrier: rate.carrier,
-          service: rate.service,
-          rateCents: rate.rateCents,
-          weightOz: anotherLabelDimensions.weightOz,
-          lengthIn: anotherLabelDimensions.lengthIn,
-          widthIn: anotherLabelDimensions.widthIn,
-          heightIn: anotherLabelDimensions.heightIn,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setPurchaseLabelError((data as { error?: string }).error ?? "Failed to purchase label.");
-        return;
-      }
-      setRates([]);
-      refetchOrder();
-    } catch {
-      setPurchaseLabelError("Connection failed.");
-    } finally {
-      setPurchaseLabelLoading(false);
-    }
-  }
-
-  async function openElementsFlow() {
-    if (!order) return;
-    const orderDetails = buildOrderDetailsFromOrder(order);
+    const objectId = options.forReprint ? order.shipment?.shippoOrderId : undefined;
+    const orderDetails = buildOrderDetailsFromOrder(order, objectId);
     if (!orderDetails) {
       setElementsError("Order has no valid shipping address.");
       return;
     }
     setElementsError(null);
     setElementsLoading(true);
+    shippoOrderIdFromCreatedRef.current = null;
     try {
       const tokenRes = await fetch("/api/shipping/elements-token");
       const tokenData = await tokenRes.json().catch(() => ({}));
@@ -213,21 +136,30 @@ export default function SellerOrderDetailPage() {
       shippo.init({ token, org: SHIPPO_ORG });
       if (!elementsListenersRef.current) {
         elementsListenersRef.current = true;
+        shippo.on("ORDER_CREATED", (params: unknown) => {
+          const p = params as { order_id?: string };
+          if (p?.order_id) shippoOrderIdFromCreatedRef.current = p.order_id;
+        });
         shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
           const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
           if (txs.length === 0 || !order) return;
-          const dims = currentDimensionsRef.current;
           const payload = transactionToLabelFromElementsPayload(txs[0], {
-            weightOz: dims.weightOz,
-            lengthIn: dims.lengthIn,
-            widthIn: dims.widthIn,
-            heightIn: dims.heightIn,
+            weightOz: 16,
+            lengthIn: 12,
+            widthIn: 12,
+            heightIn: 12,
           });
+          const shippoOrderId =
+            shippoOrderIdFromCreatedRef.current ?? order.shipment?.shippoOrderId ?? null;
           try {
             const res = await fetch("/api/shipping/label-from-elements", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ orderId: order.id, ...payload }),
+              body: JSON.stringify({
+                orderId: order.id,
+                ...payload,
+                ...(shippoOrderId ? { shippoOrderId } : {}),
+              }),
             });
             if (res.ok) refetchOrder();
           } catch {
@@ -324,14 +256,15 @@ export default function SellerOrderDetailPage() {
           {order.status === "paid" && !order.shipment && (
             <div className="border-t pt-4 mb-4">
               <p className="font-medium mb-2">Purchase shipping label</p>
+              <p className="text-sm text-gray-600 mb-2">Choose carrier in the widget below, pay with your Shippo account, then print or download the label.</p>
               {elementsError && <p className="text-sm text-amber-700 mb-2">{elementsError}</p>}
               <button
                 type="button"
-                onClick={openElementsFlow}
+                onClick={() => openElementsFlow()}
                 disabled={elementsLoading}
                 className="btn text-sm py-2 px-4 disabled:opacity-50"
               >
-                {elementsLoading ? "Opening Shippo…" : "Purchase label with Shippo"}
+                {elementsLoading ? "Opening…" : "Purchase labels"}
               </button>
               <div id="shippo-elements-container-order" className="min-h-[200px] mt-4" aria-hidden="true" />
             </div>
@@ -379,108 +312,32 @@ export default function SellerOrderDetailPage() {
                 )}
               </div>
               <div className="border-t pt-4">
-                <p className="font-medium mb-2">Purchase another label</p>
+                <p className="font-medium mb-2">Labels</p>
                 {elementsError && <p className="text-sm text-amber-700 mb-2">{elementsError}</p>}
-                <div className="flex flex-wrap gap-4 items-center mb-3">
+                <div className="flex flex-wrap gap-3 mb-3">
+                  {order.shipment?.shippoOrderId && (
+                    <button
+                      type="button"
+                      onClick={() => openElementsFlow({ forReprint: true })}
+                      disabled={elementsLoading}
+                      className="btn text-sm py-2 px-4 disabled:opacity-50"
+                    >
+                      {elementsLoading ? "Opening…" : "Print label"}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={openElementsFlow}
+                    onClick={() => openElementsFlow()}
                     disabled={elementsLoading}
                     className="btn text-sm py-2 px-4 disabled:opacity-50"
                   >
-                    {elementsLoading ? "Opening Shippo…" : "Purchase label with Shippo"}
+                    {elementsLoading ? "Opening…" : "Purchase another label"}
                   </button>
-                  <span className="text-sm text-gray-500">or use classic flow:</span>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">
-                  Get a new label (e.g. replacement). Enter dimensions and get rates.
+                  Print label opens the same label in the widget to download or print again. Purchase another label starts a new label (e.g. replacement).
                 </p>
-                <div className="flex flex-wrap gap-4 items-end mb-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <span>Weight (oz)</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={anotherLabelDimensions.weightOz}
-                      onChange={(e) =>
-                        setAnotherLabelDimensions((d) => ({ ...d, weightOz: Number(e.target.value) || 1 }))
-                      }
-                      className="border rounded px-2 py-1 w-20"
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <span>L×W×H (in)</span>
-                    <input
-                      type="number"
-                      min={1}
-                      step={0.5}
-                      value={anotherLabelDimensions.lengthIn}
-                      onChange={(e) =>
-                        setAnotherLabelDimensions((d) => ({ ...d, lengthIn: Number(e.target.value) || 1 }))
-                      }
-                      className="border rounded px-2 py-1 w-16"
-                    />
-                    <span>×</span>
-                    <input
-                      type="number"
-                      min={1}
-                      step={0.5}
-                      value={anotherLabelDimensions.widthIn}
-                      onChange={(e) =>
-                        setAnotherLabelDimensions((d) => ({ ...d, widthIn: Number(e.target.value) || 1 }))
-                      }
-                      className="border rounded px-2 py-1 w-16"
-                    />
-                    <span>×</span>
-                    <input
-                      type="number"
-                      min={1}
-                      step={0.5}
-                      value={anotherLabelDimensions.heightIn}
-                      onChange={(e) =>
-                        setAnotherLabelDimensions((d) => ({ ...d, heightIn: Number(e.target.value) || 1 }))
-                      }
-                      className="border rounded px-2 py-1 w-16"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={getRatesAnotherLabel}
-                    disabled={ratesLoading}
-                    className="btn text-sm py-2 px-4 disabled:opacity-50"
-                  >
-                    {ratesLoading ? "Getting rates…" : "Get rates (classic)"}
-                  </button>
-                </div>
                 <div id="shippo-elements-container-order" className="min-h-[200px] my-4" aria-hidden="true" />
-                {ratesError && (
-                  <p className="text-sm text-amber-700 mb-2">{ratesError}</p>
-                )}
-                {purchaseLabelError && (
-                  <p className="text-sm text-red-600 mb-2">{purchaseLabelError}</p>
-                )}
-                {rates.length > 0 && (
-                  <div className="space-y-2 mt-2">
-                    <p className="text-sm font-medium">Select a rate:</p>
-                    <ul className="space-y-1">
-                      {rates.map((r) => (
-                        <li key={r.id} className="flex items-center justify-between gap-4 py-2 border-b border-gray-100">
-                          <span className="text-sm">
-                            {r.carrier} {r.service} — ${(r.rateCents / 100).toFixed(2)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => purchaseAnotherLabel(r)}
-                            disabled={purchaseLabelLoading}
-                            className="btn text-sm py-1.5 px-3 disabled:opacity-50"
-                          >
-                            {purchaseLabelLoading ? "Purchasing…" : "Purchase label"}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </div>
             </>
           )}

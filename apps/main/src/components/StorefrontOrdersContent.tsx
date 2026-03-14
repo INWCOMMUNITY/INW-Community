@@ -50,15 +50,6 @@ interface StoreOrder {
   shipment?: Shipment | null;
 }
 
-interface Rate {
-  id: string;
-  carrier: string;
-  service: string;
-  rateCents: number;
-  totalCents: number;
-  shipmentId: string;
-}
-
 interface SellerProfile {
   business: {
     name: string;
@@ -93,18 +84,6 @@ function getTrackingUrl(carrier: string, trackingNumber: string): string {
   return `https://www.google.com/search?q=track+${trackingNumber}`;
 }
 
-function initDimensionsFromOrders(
-  _orders: StoreOrder[],
-  setDimensions: (d: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number }) => void
-) {
-  setDimensions({
-    weightOz: DEFAULT_WEIGHT_OZ,
-    lengthIn: DEFAULT_LENGTH_IN,
-    widthIn: DEFAULT_WIDTH_IN,
-    heightIn: DEFAULT_HEIGHT_IN,
-  });
-}
-
 export function StorefrontOrdersContent(props: {
   backHref: string;
   backLabel: string;
@@ -118,24 +97,13 @@ export function StorefrontOrdersContent(props: {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
-  const [dimensions, setDimensions] = useState({
-    weightOz: DEFAULT_WEIGHT_OZ,
-    lengthIn: DEFAULT_LENGTH_IN,
-    widthIn: DEFAULT_WIDTH_IN,
-    heightIn: DEFAULT_HEIGHT_IN,
-  });
-  const [rates, setRates] = useState<Rate[]>([]);
-  const [ratesLoading, setRatesLoading] = useState(false);
-  const [ratesError, setRatesError] = useState<string | null>(null);
-  const [purchaseLabelLoading, setPurchaseLabelLoading] = useState(false);
-  const [purchaseLabelError, setPurchaseLabelError] = useState<string | null>(null);
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
   const [elementsLoading, setElementsLoading] = useState(false);
   const [elementsError, setElementsError] = useState<string | null>(null);
+  const [shippingConnected, setShippingConnected] = useState<boolean | null>(null);
   const elementsListenersRef = useRef(false);
   const currentElementsOrderIdsRef = useRef<string[]>([]);
-  const currentDimensionsRef = useRef(dimensions);
-  currentDimensionsRef.current = dimensions;
+  const shippoOrderIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     setFetchError(null);
@@ -158,6 +126,30 @@ export function StorefrontOrdersContent(props: {
       })
       .finally(() => setLoading(false));
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "to_ship") {
+      setShippingConnected(null);
+      return;
+    }
+    if (orders.length === 0) return;
+    const toShip = orders.filter(
+      (o) => o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId
+    );
+    if (toShip.length === 0) return;
+    fetch("/api/shipping/status")
+      .then((r) => r.json().catch(() => ({})))
+      .then((data: { connected?: boolean }) => setShippingConnected(!!data.connected))
+      .catch(() => setShippingConnected(false));
+  }, [tab, orders]);
+
+  useEffect(() => {
+    if (tab !== "to_ship" || orders.length === 0) return;
+    const toShip = orders.filter(
+      (o) => o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId
+    );
+    if (toShip.length > 0) setSelectedOrderIds(new Set(toShip.map((o) => o.id)));
+  }, [tab, orders]);
 
   useEffect(() => {
     if (tab !== "to_ship") return;
@@ -196,105 +188,6 @@ export function StorefrontOrdersContent(props: {
   function selectAllToShip() {
     const toShip = orders.filter((o) => o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId);
     setSelectedOrderIds(new Set(toShip.map((o) => o.id)));
-    initDimensionsFromOrders(toShip, setDimensions);
-  }
-
-  async function getRates() {
-    const ids = Array.from(selectedOrderIds);
-    if (ids.length === 0) {
-      setRatesError("Select at least one order.");
-      return;
-    }
-    setRatesError(null);
-    setRatesLoading(true);
-    setRates([]);
-    try {
-      const res = await fetch("/api/shipping/rates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderIds: ids,
-          weightOz: dimensions.weightOz,
-          lengthIn: dimensions.lengthIn,
-          widthIn: dimensions.widthIn,
-          heightIn: dimensions.heightIn,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const code = (data as { code?: string }).code;
-        if (code === "SHIPPING_ACCOUNT_REQUIRED") {
-          setRatesError("Connect your shipping account to get rates.");
-          return;
-        }
-        setRatesError((data as { error?: string }).error ?? "Failed to get rates.");
-        return;
-      }
-      setRates((data as { rates?: Rate[] }).rates ?? []);
-    } catch {
-      setRatesError("Connection failed.");
-    } finally {
-      setRatesLoading(false);
-    }
-  }
-
-  async function purchaseLabel(rate: Rate) {
-    const ids = Array.from(selectedOrderIds);
-    if (ids.length === 0) return;
-    setPurchaseLabelError(null);
-    setPurchaseLabelLoading(true);
-    try {
-      const res = await fetch("/api/shipping/label", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderIds: ids,
-          rateId: rate.id,
-          carrier: rate.carrier,
-          service: rate.service,
-          rateCents: rate.rateCents,
-          weightOz: dimensions.weightOz,
-          lengthIn: dimensions.lengthIn,
-          widthIn: dimensions.widthIn,
-          heightIn: dimensions.heightIn,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const code = (data as { code?: string }).code;
-        if (code === "SHIPPING_ACCOUNT_REQUIRED") {
-          setPurchaseLabelError("Connect your shipping account to purchase labels.");
-          return;
-        }
-        setPurchaseLabelError((data as { error?: string }).error ?? "Failed to purchase label.");
-        return;
-      }
-      setRates([]);
-      setSelectedOrderIds(new Set());
-      setOrders((prev) =>
-        prev.map((o) => {
-          if (!ids.includes(o.id)) return o;
-          const ship = (data as { shipment?: { id: string; trackingNumber?: string; carrier?: string; service?: string } }).shipment;
-          return {
-            ...o,
-            status: "shipped",
-            shipment: ship
-              ? {
-                  id: ship.id,
-                  carrier: ship.carrier ?? "",
-                  service: ship.service ?? "",
-                  trackingNumber: ship.trackingNumber ?? null,
-                  labelUrl: null,
-                }
-              : undefined,
-          };
-        })
-      );
-    } catch {
-      setPurchaseLabelError("Connection failed.");
-    } finally {
-      setPurchaseLabelLoading(false);
-    }
   }
 
   async function openElementsFlow() {
@@ -335,19 +228,24 @@ export function StorefrontOrdersContent(props: {
       }
       shippo.init({ token, org: SHIPPO_ORG });
       currentElementsOrderIdsRef.current = ids;
+      shippoOrderIdsRef.current = [];
       if (!elementsListenersRef.current) {
         elementsListenersRef.current = true;
+        shippo.on("ORDER_CREATED", (params: unknown) => {
+          const p = params as { order_id?: string };
+          if (p?.order_id) shippoOrderIdsRef.current.push(p.order_id);
+        });
         shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
           const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
           const orderIds = currentElementsOrderIdsRef.current;
           if (orderIds.length === 0 || txs.length === 0) return;
-          const dims = currentDimensionsRef.current;
           const payload = transactionToLabelFromElementsPayload(txs[0], {
-            weightOz: dims.weightOz,
-            lengthIn: dims.lengthIn,
-            widthIn: dims.widthIn,
-            heightIn: dims.heightIn,
+            weightOz: DEFAULT_WEIGHT_OZ,
+            lengthIn: DEFAULT_LENGTH_IN,
+            widthIn: DEFAULT_WIDTH_IN,
+            heightIn: DEFAULT_HEIGHT_IN,
           });
+          const shippoOrderId = shippoOrderIdsRef.current[0] ?? null;
           try {
             const res = await fetch("/api/shipping/label-from-elements", {
               method: "POST",
@@ -355,6 +253,7 @@ export function StorefrontOrdersContent(props: {
               body: JSON.stringify({
                 orderIds,
                 ...payload,
+                ...(shippoOrderId ? { shippoOrderId } : {}),
               }),
             });
             const data = await res.json().catch(() => ({}));
@@ -453,31 +352,46 @@ export function StorefrontOrdersContent(props: {
           <>
             {toShipOrders.length === 0 ? (
               <p className="text-gray-500">No orders to ship.</p>
+            ) : shippingConnected === false ? (
+              <>
+                <div className="border-2 rounded-lg p-6 mb-6 border-amber-200 bg-amber-50">
+                  <p className="font-medium text-amber-900 mb-2">Connect your Shippo account to purchase and print labels.</p>
+                  <Link href={props.shippingSetupHref} className="btn inline-block">
+                    Connect shipping
+                  </Link>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">You have {toShipOrders.length} order{toShipOrders.length !== 1 ? "s" : ""} to ship. After connecting, select orders and click <strong>Purchase labels</strong>.</p>
+                <ul className="space-y-4">
+                  {toShipOrders.map((order) => (
+                    <li key={order.id} className="border rounded-lg p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div>
+                            <span className="font-medium">Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}</span>
+                            <p className="text-sm text-gray-600">
+                              {order.buyer.firstName} {order.buyer.lastName} — {new Date(order.createdAt).toLocaleString()}
+                            </p>
+                            <p className="text-sm text-gray-500 mt-1">
+                              {formatShippingAddress(order.shippingAddress) || "—"}
+                            </p>
+                            <p className="font-semibold mt-1">${(order.totalCents / 100).toFixed(2)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
             ) : (
               <>
                 <p className="text-sm text-gray-600 mb-4">
-                  Connect your shipping account at{" "}
+                  Select orders, then click <strong>Purchase labels</strong>. The label tool opens below—choose carrier, pay, and print.{" "}
                   <Link href={props.shippingSetupHref} className="underline" style={{ color: "var(--color-link)" }}>
-                    shipping setup
+                    Connect shipping
                   </Link>{" "}
-                  to get rates and buy labels.
+                  if you haven’t yet.
                 </p>
 
-                {ratesError && (
-                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm">
-                    {ratesError}
-                    {ratesError.includes("Connect your shipping") && (
-                      <Link href={props.shippingSetupHref} className="ml-2 underline">
-                        Go to shipping setup
-                      </Link>
-                    )}
-                  </div>
-                )}
-                {purchaseLabelError && (
-                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                    {purchaseLabelError}
-                  </div>
-                )}
                 {elementsError && (
                   <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm">
                     {elementsError}
@@ -496,7 +410,7 @@ export function StorefrontOrdersContent(props: {
                     disabled={elementsLoading || selectedOrderIds.size === 0}
                     className="btn text-sm py-2 px-4 disabled:opacity-50"
                   >
-                    {elementsLoading ? "Opening Shippo…" : "Purchase label with Shippo"}
+                    {elementsLoading ? "Opening…" : "Purchase labels"}
                   </button>
                   <button
                     type="button"
@@ -505,82 +419,9 @@ export function StorefrontOrdersContent(props: {
                   >
                     Select all to ship
                   </button>
-                  <div className="flex gap-4 items-center flex-wrap">
-                    <label className="flex items-center gap-2 text-sm">
-                      <span>Weight (oz)</span>
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={dimensions.weightOz}
-                        onChange={(e) => setDimensions((d) => ({ ...d, weightOz: Number(e.target.value) || 1 }))}
-                        className="border rounded px-2 py-1 w-20"
-                      />
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <span>L×W×H (in)</span>
-                      <input
-                        type="number"
-                        min={1}
-                        step={0.5}
-                        value={dimensions.lengthIn}
-                        onChange={(e) => setDimensions((d) => ({ ...d, lengthIn: Number(e.target.value) || 1 }))}
-                        className="border rounded px-2 py-1 w-16"
-                      />
-                      <span>×</span>
-                      <input
-                        type="number"
-                        min={1}
-                        step={0.5}
-                        value={dimensions.widthIn}
-                        onChange={(e) => setDimensions((d) => ({ ...d, widthIn: Number(e.target.value) || 1 }))}
-                        className="border rounded px-2 py-1 w-16"
-                      />
-                      <span>×</span>
-                      <input
-                        type="number"
-                        min={1}
-                        step={0.5}
-                        value={dimensions.heightIn}
-                        onChange={(e) => setDimensions((d) => ({ ...d, heightIn: Number(e.target.value) || 1 }))}
-                        className="border rounded px-2 py-1 w-16"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={getRates}
-                      disabled={ratesLoading || selectedOrderIds.size === 0}
-                      className="text-sm py-2 px-4 border rounded border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      {ratesLoading ? "Getting rates…" : "Get rates (classic)"}
-                    </button>
-                  </div>
                 </div>
 
                 <div id="shippo-elements-container" className="min-h-[200px]" aria-hidden="true" />
-
-                {rates.length > 0 && (
-                  <div className="mb-6 border rounded-lg p-4 bg-gray-50">
-                    <p className="font-medium mb-2">Select a rate to purchase label</p>
-                    <ul className="space-y-2">
-                      {rates.map((r) => (
-                        <li key={r.id} className="flex items-center justify-between gap-4">
-                          <span className="text-sm">
-                            {r.carrier} {r.service} — ${(r.rateCents / 100).toFixed(2)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => purchaseLabel(r)}
-                            disabled={purchaseLabelLoading}
-                            className="btn text-sm py-1.5 px-3 disabled:opacity-50"
-                          >
-                            {purchaseLabelLoading ? "Purchasing…" : "Purchase label"}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
 
                 {selectedOrders.length > 0 && sellerProfile && (
                   <div className="mb-6">
