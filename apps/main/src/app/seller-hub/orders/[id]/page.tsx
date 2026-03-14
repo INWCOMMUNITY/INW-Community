@@ -72,23 +72,6 @@ export default function SellerOrderDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  async function markShipped() {
-    if (!order) return;
-    setUpdating(true);
-    try {
-      const res = await fetch(`/api/store-orders/${order.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "shipped" }),
-      });
-      if (res.ok) {
-        setOrder((prev) => (prev ? { ...prev, status: "shipped" } : null));
-      }
-    } finally {
-      setUpdating(false);
-    }
-  }
-
   if (loading) {
     return (
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
