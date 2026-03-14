@@ -78,6 +78,16 @@ function formatDate(s: string): string {
   }
 }
 
+function getTrackingUrl(carrier: string | undefined | null, trackingNumber: string): string {
+  const n = trackingNumber.trim();
+  if (!n) return `https://www.google.com/search?q=track+${encodeURIComponent(trackingNumber)}`;
+  const c = (carrier ?? "").toUpperCase();
+  if (c === "USPS") return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(n)}`;
+  if (c === "UPS") return `https://www.ups.com/track?tracknum=${encodeURIComponent(n)}`;
+  if (c === "FEDEX") return `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(n)}`;
+  return `https://www.google.com/search?q=track+${encodeURIComponent(n)}`;
+}
+
 export default function MyOrderDetailScreen() {
   const { id: idParam } = useLocalSearchParams<{ id: string }>();
   const orderId = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? idParam[0] : undefined;
@@ -196,7 +206,7 @@ export default function MyOrderDetailScreen() {
     : null;
   const trackingNumber = order?.shipment?.trackingNumber?.trim();
   const trackingUrl = trackingNumber
-    ? `https://www.google.com/search?q=track+${encodeURIComponent(trackingNumber)}`
+    ? getTrackingUrl(order?.shipment?.carrier ?? null, trackingNumber)
     : null;
 
   return viewMode === "loading" ? (

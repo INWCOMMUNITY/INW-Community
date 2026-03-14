@@ -342,7 +342,7 @@ export default function CartScreen() {
         }
         resolvedShippingAddress = {
           ...validateData.formatted!,
-          aptOrSuite: shippingAddress.aptOrSuite?.trim() || undefined,
+          aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
         };
       }
 
@@ -575,7 +575,13 @@ export default function CartScreen() {
                   <AddressSearchInput
                     value={shippingAddress}
                     onChange={(addr, meta) => {
-                      setShippingAddress(addr);
+                      setShippingAddress({
+                        street: addr.street ?? "",
+                        aptOrSuite: addr.aptOrSuite ?? "",
+                        city: addr.city ?? "",
+                        state: addr.state ?? "",
+                        zip: addr.zip ?? "",
+                      });
                       if (meta?.fromPlaces !== undefined) setShippingAddressFromPlaces(meta.fromPlaces);
                     }}
                     placeholder="Search for your address"
@@ -643,6 +649,18 @@ export default function CartScreen() {
                     ...(hasShippedItem && shippingAddressFromPlaces && { shippingAddressVerifiedFromPlaces: true }),
                     ...(hasLocalDelivery && localDeliveryDetails && { localDeliveryDetails }),
                   }}
+                  onShippingAddressFormatted={
+                    hasShippedItem
+                      ? (addr) =>
+                          setShippingAddress({
+                            street: addr.street ?? "",
+                            city: addr.city ?? "",
+                            state: addr.state ?? "",
+                            zip: addr.zip ?? "",
+                            aptOrSuite: addr.aptOrSuite ?? "",
+                          })
+                      : undefined
+                  }
                   onSuccess={async (orderIds) => {
                     try {
                       await apiDelete("/api/cart");

@@ -665,7 +665,7 @@ export default function DirectConversationScreen() {
           maxLength={5000}
           onSubmitEditing={send}
           autoCorrect
-          autoComplete="sentences"
+          autoComplete="off"
           textContentType="none"
         />
         <Pressable

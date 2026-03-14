@@ -16,7 +16,7 @@ function ConnectSheetRunner({
   onSuccess,
   onError,
 }: {
-  payment: { clientSecret: string; orderIds: string[]; stripeAccountId?: string };
+  payment: { clientSecret: string; orderIds: string[]; stripeAccountId?: string; amountCents?: number };
   onSuccess: () => void;
   onError: (message: string) => void;
 }) {
@@ -26,12 +26,23 @@ function ConnectSheetRunner({
     if (ran.current) return;
     ran.current = true;
     (async () => {
+      const amountCents = payment.amountCents ?? 0;
+      const applePayConfig: {
+        merchantCountryCode: string;
+        cartItems?: { paymentType: "Immediate"; label: string; amount: string }[];
+      } = { merchantCountryCode: "US" };
+      if (amountCents > 0) {
+        applePayConfig.cartItems = [
+          { paymentType: "Immediate", label: "Northwest Community", amount: (amountCents / 100).toFixed(2) },
+        ];
+      }
       const { error: initErr } = await initPaymentSheet({
         merchantDisplayName: "Northwest Community",
         paymentIntentClientSecret: payment.clientSecret,
         returnURL: "mobile://stripe-redirect",
-        applePay: { merchantCountryCode: "US" },
+        applePay: applePayConfig,
         googlePay: { merchantCountryCode: "US", testEnv: __DEV__ ?? false },
+        paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
         appearance: {
           colors: {
             primary: "#505542",
@@ -81,6 +92,8 @@ interface StorefrontNativeCheckoutButtonProps {
   disabled: boolean;
   buttonStyle?: object;
   buttonDisabledStyle?: object;
+  /** When address is validated and corrected to Shippo format, call with formatted address so parent can update form. */
+  onShippingAddressFormatted?: (address: { street: string; city: string; state: string; zip: string; aptOrSuite?: string }) => void;
 }
 
 export function StorefrontNativeCheckoutButton({
@@ -91,10 +104,11 @@ export function StorefrontNativeCheckoutButton({
   disabled,
   buttonStyle,
   buttonDisabledStyle,
+  onShippingAddressFormatted,
 }: StorefrontNativeCheckoutButtonProps) {
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
   const [loading, setLoading] = useState(false);
-  const [connectSheet, setConnectSheet] = useState<{ payments: { clientSecret: string; orderIds: string[]; stripeAccountId?: string }[]; index: number } | null>(null);
+  const [connectSheet, setConnectSheet] = useState<{ payments: { clientSecret: string; orderIds: string[]; stripeAccountId?: string; amountCents?: number }[]; index: number } | null>(null);
   const completedRef = useRef(false);
   const pendingConnectRef = useRef(false);
   const stripePk = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
@@ -198,10 +212,11 @@ export function StorefrontNativeCheckoutButton({
             aptOrSuite: payload.shippingAddress!.aptOrSuite?.trim() || undefined,
           },
         };
+        onShippingAddressFormatted?.(checkoutPayload.shippingAddress!);
       }
 
       const data = await apiPost<{
-        payments?: { clientSecret: string; orderIds: string[]; stripeAccountId?: string }[];
+        payments?: { clientSecret: string; orderIds: string[]; stripeAccountId?: string; amountCents?: number }[];
         error?: string;
       }>("/api/stripe/storefront-checkout-intent", checkoutPayload);
 
@@ -229,15 +244,26 @@ export function StorefrontNativeCheckoutButton({
       // Fallback when API doesn't return stripeAccountId (e.g. old backend).
       for (let i = 0; i < payments.length; i++) {
         const p = payments[i];
+        const amountCents = p.amountCents ?? 0;
+        const applePayConfig: {
+          merchantCountryCode: string;
+          cartItems?: { paymentType: "Immediate"; label: string; amount: string }[];
+        } = { merchantCountryCode: "US" };
+        if (amountCents > 0) {
+          applePayConfig.cartItems = [
+            { paymentType: "Immediate", label: "Northwest Community", amount: (amountCents / 100).toFixed(2) },
+          ];
+        }
         const { error: initErr } = await initPaymentSheet({
           merchantDisplayName: "Northwest Community",
           paymentIntentClientSecret: p.clientSecret,
           returnURL: "mobile://stripe-redirect",
-          applePay: { merchantCountryCode: "US" },
+          applePay: applePayConfig,
           googlePay: {
             merchantCountryCode: "US",
             testEnv: __DEV__ ?? false,
           },
+          paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
           appearance: {
             colors: {
               primary: "#505542",

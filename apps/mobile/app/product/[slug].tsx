@@ -80,6 +80,9 @@ interface StoreItem {
     fullDescription?: string | null;
   };
   soldAt?: string;
+  acceptOffers?: boolean;
+  minOfferCents?: number | null;
+  memberId?: string;
 }
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
@@ -122,6 +125,11 @@ export default function ProductScreen() {
   const [pickupDetailsSaved, setPickupDetailsSaved] = useState(false);
   const [messageSellerModalOpen, setMessageSellerModalOpen] = useState(false);
   const [messageSellerText, setMessageSellerText] = useState("");
+  const [makeOfferModalOpen, setMakeOfferModalOpen] = useState(false);
+  const [offerAmountDollars, setOfferAmountDollars] = useState("");
+  const [offerMessage, setOfferMessage] = useState("");
+  const [offerSubmitting, setOfferSubmitting] = useState(false);
+  const [offerError, setOfferError] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -270,6 +278,41 @@ export default function ProductScreen() {
       }
     } finally {
       setSendingMessage(false);
+    }
+  };
+
+  const submitMakeOffer = async () => {
+    if (!item) return;
+    const amountCents = Math.round(parseFloat(offerAmountDollars) * 100);
+    if (isNaN(amountCents) || amountCents < 1) {
+      setOfferError("Enter a valid amount");
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      Alert.alert("Sign in required", "Please sign in to make an offer.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
+      ]);
+      return;
+    }
+    setOfferError("");
+    setOfferSubmitting(true);
+    try {
+      await apiPost("/api/resale-offers", {
+        storeItemId: item.id,
+        amountCents,
+        message: offerMessage.trim() || undefined,
+      });
+      setMakeOfferModalOpen(false);
+      setOfferAmountDollars("");
+      setOfferMessage("");
+      Alert.alert("Offer sent", "The seller will review your offer. Check Resale Hub → Offers for updates.");
+    } catch (e) {
+      const err = e as { error?: string };
+      setOfferError(err?.error ?? "Could not submit offer.");
+    } finally {
+      setOfferSubmitting(false);
     }
   };
 
@@ -685,16 +728,35 @@ export default function ProductScreen() {
 
           {listingType === "resale" && member && (
             <View style={styles.section}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.messageSellerBtn,
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={() => setMessageSellerModalOpen(true)}
-              >
-                <Ionicons name="chatbubble-outline" size={18} color="#fff" />
-                <Text style={styles.messageSellerBtnText}>Message Seller</Text>
-              </Pressable>
+              <View style={styles.resaleActionsRow}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.messageSellerBtn,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  onPress={() => setMessageSellerModalOpen(true)}
+                >
+                  <Ionicons name="chatbubble-outline" size={18} color="#fff" />
+                  <Text style={styles.messageSellerBtnText}>Message Seller</Text>
+                </Pressable>
+                {item?.acceptOffers && item.member?.id !== member.id && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.makeOfferBtn,
+                      pressed && { opacity: 0.8 },
+                    ]}
+                    onPress={() => {
+                      setOfferError("");
+                      setOfferAmountDollars("");
+                      setOfferMessage("");
+                      setMakeOfferModalOpen(true);
+                    }}
+                  >
+                    <Ionicons name="pricetag-outline" size={18} color="#fff" />
+                    <Text style={styles.makeOfferBtnText}>Make Offer</Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
           )}
 
@@ -916,6 +978,85 @@ export default function ProductScreen() {
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
                         <Text style={styles.messageSellerSendText}>Send</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </KeyboardAvoidingView>
+            </Pressable>
+          </Modal>
+          <Modal
+            visible={makeOfferModalOpen}
+            transparent
+            animationType="slide"
+            onRequestClose={() => !offerSubmitting && setMakeOfferModalOpen(false)}
+          >
+            <Pressable
+              style={styles.modalBackdrop}
+              onPress={() => !offerSubmitting && setMakeOfferModalOpen(false)}
+            >
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                style={styles.modalContentWrap}
+              >
+                <Pressable
+                  style={styles.messageSellerModal}
+                  onPress={(e) => e.stopPropagation()}
+                >
+                  <Text style={styles.messageSellerModalTitle}>Make an offer</Text>
+                  {item?.minOfferCents != null && item.minOfferCents > 0 && (
+                    <Text style={styles.makeOfferMinHint}>
+                      Minimum: ${(item.minOfferCents / 100).toFixed(2)}
+                    </Text>
+                  )}
+                  <TextInput
+                    style={styles.messageSellerInput}
+                    placeholder="Your offer ($)"
+                    placeholderTextColor="#999"
+                    keyboardType="decimal-pad"
+                    value={offerAmountDollars}
+                    onChangeText={(t) => {
+                      setOfferAmountDollars(t);
+                      setOfferError("");
+                    }}
+                    editable={!offerSubmitting}
+                  />
+                  <TextInput
+                    style={[styles.messageSellerInput, { minHeight: 60 }]}
+                    placeholder="Message (optional)"
+                    placeholderTextColor="#999"
+                    multiline
+                    numberOfLines={2}
+                    value={offerMessage}
+                    onChangeText={setOfferMessage}
+                    editable={!offerSubmitting}
+                  />
+                  {offerError ? (
+                    <Text style={styles.makeOfferError}>{offerError}</Text>
+                  ) : null}
+                  <View style={styles.messageSellerModalActions}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.messageSellerCancelBtn,
+                        pressed && { opacity: 0.8 },
+                      ]}
+                      onPress={() => setMakeOfferModalOpen(false)}
+                      disabled={offerSubmitting}
+                    >
+                      <Text style={styles.messageSellerCancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.messageSellerSendBtn,
+                        offerSubmitting && styles.addBtnDisabled,
+                      ]}
+                      onPress={submitMakeOffer}
+                      disabled={offerSubmitting}
+                    >
+                      {offerSubmitting ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.messageSellerSendText}>Submit offer</Text>
                       )}
                     </Pressable>
                   </View>
@@ -1229,6 +1370,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.text,
   },
+  resaleActionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
   messageSellerBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1242,6 +1388,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#fff",
+  },
+  makeOfferBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: "#92400e",
+  },
+  makeOfferBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  makeOfferMinHint: {
+    fontSize: 12,
+    color: "#666",
+    marginBottom: 8,
+  },
+  makeOfferError: {
+    fontSize: 12,
+    color: "#b91c1c",
+    marginBottom: 8,
   },
   modalBackdrop: {
     flex: 1,

@@ -365,6 +365,7 @@ export default function CartPage() {
           zip: fmt?.zip ?? "",
           aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
         };
+        setShippingAddress(resolvedShippingAddress);
       }
 
       const shippingCostCents = cardItems.reduce((sum, i) => {

@@ -59,6 +59,7 @@ export default function SignupSellerScreen() {
   const [state, setState] = useState("");
   const [zip, setZip] = useState("");
   const [businessData, setBusinessData] = useState<Record<string, unknown> | null>(null);
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -455,10 +456,37 @@ export default function SignupSellerScreen() {
         <Text style={styles.checkoutSubtitle}>
           Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid. You can cancel anytime.
         </Text>
+        <View style={styles.pricingWrap}>
+          <View style={styles.intervalToggle}>
+            <Pressable
+              style={[styles.intervalBtn, billingInterval === "monthly" && styles.intervalBtnActive]}
+              onPress={() => setBillingInterval("monthly")}
+            >
+              <Text style={[styles.intervalBtnText, billingInterval === "monthly" && styles.intervalBtnTextActive]}>Monthly</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.intervalBtn, billingInterval === "yearly" && styles.intervalBtnActive]}
+              onPress={() => setBillingInterval("yearly")}
+            >
+              <Text style={[styles.intervalBtnText, billingInterval === "yearly" && styles.intervalBtnTextActive]}>Yearly</Text>
+            </Pressable>
+          </View>
+          <View style={styles.priceCard}>
+            {billingInterval === "monthly" ? (
+              <Text style={styles.priceText}><Text style={styles.priceAmount}>$30</Text> a month</Text>
+            ) : (
+              <>
+                <Text style={styles.priceText}><Text style={styles.priceAmount}>$325</Text> a year</Text>
+                <Text style={styles.priceSavings}>Save $35 a year</Text>
+              </>
+            )}
+          </View>
+        </View>
         <View style={styles.checkoutBtnWrap}>
         <SubscriptionCheckoutWithFallback
           planId="seller"
           businessData={businessData ?? undefined}
+          interval={billingInterval}
           onSuccess={handleCheckoutSuccess}
           refreshMember={refreshMember}
         />
@@ -518,6 +546,63 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     lineHeight: 26,
     textAlign: "center",
+  },
+  pricingWrap: {
+    alignSelf: "center",
+    width: "80%",
+    marginBottom: 20,
+  },
+  intervalToggle: {
+    flexDirection: "row",
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    overflow: "hidden",
+  },
+  intervalBtn: {
+    paddingVertical: 14,
+    backgroundColor: "#fff",
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  intervalBtnActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  intervalBtnText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  intervalBtnTextActive: {
+    color: "#fff",
+  },
+  priceCard: {
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    borderWidth: 2,
+    borderTopWidth: 0,
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.cream ?? "#faf5ee",
+  },
+  priceText: {
+    fontSize: 19,
+    color: theme.colors.text,
+  },
+  priceAmount: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: theme.colors.heading,
+  },
+  priceSavings: {
+    fontSize: 14,
+    color: theme.colors.primary,
+    fontWeight: "600",
+    marginTop: 3,
   },
   checkoutBtnWrap: {
     alignItems: "center",

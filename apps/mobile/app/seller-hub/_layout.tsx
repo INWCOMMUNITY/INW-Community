@@ -17,7 +17,7 @@ function useHeaderTitle() {
   if (path.includes("orders") || last === "orders") return "Storefront Orders";
   if (path.includes("deliveries") || last === "deliveries") return "My Deliveries";
   if (path.includes("pickups") || String(last) === "pickups") return "My Pickups";
-  if (path.includes("business-hub") || last === "business-hub") return "Business Hub";
+  if (path.includes("business-hub") || String(last) === "business-hub") return "Business Hub";
   return "Seller Hub";
 }
 

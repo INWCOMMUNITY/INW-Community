@@ -8,6 +8,7 @@ import {
   Image,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";

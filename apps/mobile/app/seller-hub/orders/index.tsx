@@ -10,6 +10,7 @@ import {
   Image,
   ScrollView,
   Linking,
+  Alert,
 } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
@@ -92,6 +93,7 @@ function ToShipFlowView({
   const [connected, setConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savingPackingSlip, setSavingPackingSlip] = useState(false);
+  const [combineByBuyer, setCombineByBuyer] = useState(false);
 
   const loadStatus = useCallback(() => {
     apiGet<{ connected?: boolean }>("/api/shipping/status")

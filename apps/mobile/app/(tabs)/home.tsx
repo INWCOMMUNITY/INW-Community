@@ -28,6 +28,8 @@ interface Top10Prize {
   rank: number;
   label: string;
   imageUrl?: string | null;
+  prizeValue?: string | null;
+  description?: string | null;
   business?: { id: string; name: string; slug: string; logoUrl: string | null } | null;
 }
 interface Top10Config {
@@ -75,6 +77,7 @@ export default function HomeScreen() {
   const [top10, setTop10] = useState<Top10Config | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardMember[]>([]);
   const [showPrizes, setShowPrizes] = useState(true);
+  const [selectedPrizeForModal, setSelectedPrizeForModal] = useState<Top10Prize | null>(null);
 
   const loadPoints = useCallback(async () => {
     const token = await getToken();
@@ -222,7 +225,12 @@ export default function HomeScreen() {
               const p = top10?.prizes?.find((x) => x.rank === rank);
               const hasContent = p && (p.label?.trim() || p.imageUrl);
               return (
-                <View key={rank} style={styles.prizeRow}>
+                <Pressable
+                  key={rank}
+                  style={({ pressed }) => [styles.prizeRow, hasContent && pressed && styles.prizeRowPressed]}
+                  onPress={hasContent ? () => setSelectedPrizeForModal(p!) : undefined}
+                  disabled={!hasContent}
+                >
                   <Text style={styles.prizeRank}>#{rank}</Text>
                   {hasContent ? (
                     <>
@@ -247,7 +255,7 @@ export default function HomeScreen() {
                   ) : (
                     <Text style={styles.prizeEmpty}>—</Text>
                   )}
-                </View>
+                </Pressable>
               );
             })}
           </ScrollView>
@@ -415,6 +423,62 @@ export default function HomeScreen() {
         visible={nwcRequestModalVisible}
         onClose={() => setNwcRequestModalVisible(false)}
       />
+
+      {selectedPrizeForModal && (
+        <Modal visible transparent animationType="fade">
+          <Pressable style={styles.prizeModalBackdrop} onPress={() => setSelectedPrizeForModal(null)}>
+            <View style={styles.prizeModalPanel} onStartShouldSetResponder={() => true}>
+              <Text style={styles.prizeModalTitle}>
+                {selectedPrizeForModal.rank === 1
+                  ? "1st"
+                  : selectedPrizeForModal.rank === 2
+                    ? "2nd"
+                    : selectedPrizeForModal.rank === 3
+                      ? "3rd"
+                      : `${selectedPrizeForModal.rank}th`}{" "}
+                Place Prize for {currentSeason?.name ?? "Season"}
+              </Text>
+              {selectedPrizeForModal.imageUrl ? (
+                <Image
+                  source={{ uri: resolveUrl(selectedPrizeForModal.imageUrl) ?? selectedPrizeForModal.imageUrl }}
+                  style={styles.prizeModalImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={[styles.prizeModalImage, styles.prizeImagePlaceholder]}>
+                  <Text style={styles.prizePlaceholderText}>No image</Text>
+                </View>
+              )}
+              {selectedPrizeForModal.prizeValue ? (
+                <Text style={styles.prizeModalValue}>Value: {selectedPrizeForModal.prizeValue}</Text>
+              ) : null}
+              {selectedPrizeForModal.description ? (
+                <Text style={styles.prizeModalDesc}>{selectedPrizeForModal.description}</Text>
+              ) : null}
+              {top10?.endDate ? (
+                <Text style={styles.prizeModalTimeLeft}>
+                  Time left: until {new Date(top10.endDate).toLocaleDateString()}
+                </Text>
+              ) : null}
+              {selectedPrizeForModal.business && (
+                <Pressable
+                  onPress={() => {
+                    setSelectedPrizeForModal(null);
+                    (router.push as (href: string) => void)(`/business/${selectedPrizeForModal.business!.slug}`);
+                  }}
+                >
+                  <Text style={[styles.prizeModalBusiness, { color: theme.colors.primary }]}>
+                    {selectedPrizeForModal.business.name}
+                  </Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.prizeModalClose} onPress={() => setSelectedPrizeForModal(null)}>
+                <Text style={styles.prizeModalCloseText}>Close</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
     </ScrollView>
   );
 }
@@ -520,6 +584,72 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
     gap: 10,
+  },
+  prizeRowPressed: { opacity: 0.8 },
+  prizeModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  prizeModalPanel: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 20,
+    maxWidth: 340,
+    width: "100%",
+  },
+  prizeModalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: theme.colors.heading,
+    marginBottom: 12,
+  },
+  prizeModalImage: {
+    width: "100%",
+    aspectRatio: 16 / 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  prizeImagePlaceholder: {
+    backgroundColor: "#e5e5e5",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  prizePlaceholderText: { fontSize: 14, color: "#999" },
+  prizeModalValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    marginBottom: 8,
+  },
+  prizeModalDesc: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 8,
+  },
+  prizeModalTimeLeft: {
+    fontSize: 12,
+    color: "#888",
+    marginBottom: 8,
+  },
+  prizeModalBusiness: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 16,
+  },
+  prizeModalClose: {
+    alignSelf: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+  },
+  prizeModalCloseText: {
+    color: theme.colors.buttonText ?? "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
   prizeRank: {
     fontSize: 14,

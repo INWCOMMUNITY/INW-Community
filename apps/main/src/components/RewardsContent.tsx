@@ -10,6 +10,7 @@ interface Top5Prize {
   rank: number;
   label: string;
   imageUrl?: string | null;
+  photos?: string[]; // optional multiple images for carousel
   businessId?: string | null;
   prizeValue?: string | null;
   description?: string | null;
@@ -55,9 +56,15 @@ export function RewardsContent() {
   const [redeeming, setRedeeming] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [selectedRewardForModal, setSelectedRewardForModal] = useState<Reward | null>(null);
+  const [selectedPrizeForModal, setSelectedPrizeForModal] = useState<Top5Prize | null>(null);
+  const [modalPhotoIndex, setModalPhotoIndex] = useState(0);
   const [rewardSearch, setRewardSearch] = useState("");
 
-  useLockBodyScroll(!!selectedRewardForModal);
+  useLockBodyScroll(!!selectedRewardForModal || !!selectedPrizeForModal);
+
+  useEffect(() => {
+    setModalPhotoIndex(0);
+  }, [selectedRewardForModal?.id, selectedPrizeForModal?.rank]);
 
   useEffect(() => {
     fetch("/api/rewards/top5")
@@ -274,19 +281,20 @@ export function RewardsContent() {
           </ol>
         </div>
 
-        {/* Table: green header matches left, 1-10 rows aligned exactly with left box */}
+        {/* Table: name, value, business, days left, + See Nth Place reward button */}
         <div
           className="rounded-lg overflow-hidden border-2 shadow-sm flex flex-col order-4"
           style={{ borderColor: "var(--color-primary)" }}
         >
           <div className="overflow-x-auto bg-white">
-            <table className="w-full text-sm min-w-[400px]">
+            <table className="w-full text-sm min-w-[320px]">
               <thead>
                 <tr style={{ backgroundColor: "var(--color-primary)", color: "white" }}>
-                  <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-center">Reward</th>
+                  <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-left">Reward</th>
                   <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-center">Offered By</th>
                   <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-center">Prize Value</th>
-                  <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-center">Days Left</th>
+                  <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-center">Time Left</th>
+                  <th className="px-3 py-3 font-semibold h-[5rem] align-middle text-right">Details</th>
                 </tr>
               </thead>
               <tbody>
@@ -296,21 +304,15 @@ export function RewardsContent() {
                   const daysLeft = top5?.endDate
                     ? Math.max(0, Math.ceil((new Date(top5.endDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
                     : null;
+                  const placeLabel = rank === 1 ? "1st" : rank === 2 ? "2nd" : rank === 3 ? "3rd" : `${rank}th`;
                   return (
                     <tr key={rank} className="border-b border-gray-100">
                       <td className="px-3 py-2.5 align-middle h-[2.75rem] min-h-[2.75rem]">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
                           <span className="font-semibold tabular-nums shrink-0" style={{ color: "var(--color-primary)" }}>
                             #{rank}
                           </span>
-                          {hasContent ? (
-                            <div className="min-w-0 truncate overflow-hidden">
-                              <p className="font-medium truncate">{p!.label?.trim() || "—"}</p>
-                              {p!.description?.trim() && <p className="text-xs text-gray-600 mt-0.5 truncate">{p!.description.trim()}</p>}
-                            </div>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
+                          <span className="font-medium truncate">{hasContent ? (p!.label?.trim() || "—") : "—"}</span>
                         </div>
                       </td>
                       <td className="px-3 py-2.5 align-middle h-[2.75rem] text-center">
@@ -328,7 +330,19 @@ export function RewardsContent() {
                       </td>
                       <td className="px-3 py-2.5 text-gray-700 align-middle h-[2.75rem] text-center">{hasContent && p!.prizeValue ? p!.prizeValue : "—"}</td>
                       <td className="px-3 py-2.5 tabular-nums text-gray-700 align-middle h-[2.75rem] text-center">
-                        {daysLeft !== null ? daysLeft : "—"}
+                        {daysLeft !== null ? `${daysLeft} days` : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 align-middle h-[2.75rem] text-right">
+                        {hasContent && p && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPrizeForModal(p)}
+                            className="text-sm font-medium px-2 py-1 rounded border border-gray-300 hover:bg-gray-50"
+                            style={{ color: "var(--color-primary)", borderColor: "var(--color-primary)" }}
+                          >
+                            See {placeLabel} Place reward
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -339,56 +353,37 @@ export function RewardsContent() {
         </div>
       </section>
 
-      {/* Top 5 Supporters section */}
+      {/* Top 10 Supporters section */}
       {top5?.enabled && (
         <section className="mb-12">
-          <h2 className="text-xl font-bold mb-4">Top 5 Supporters&apos; Rewards</h2>
+          <h2 className="text-xl font-bold mb-4">Top 10 Supporters&apos; Rewards</h2>
           <p className="text-gray-600 mb-4">
-            Whoever collects the most Community Points by the end of the period wins these prizes. Support local to climb the leaderboard!
+            Whoever collects the most Community Points by the end of the season wins these prizes. Support local to climb the leaderboard!
           </p>
-          {top5.startDate && top5.endDate && (
-            <p className="text-sm text-gray-500 mb-4">
-              Period: {new Date(top5.startDate).toLocaleDateString()} – {new Date(top5.endDate).toLocaleDateString()}
-            </p>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+          <p className="text-sm text-gray-500 mb-4">
+            Season 1
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10 gap-4 mb-6">
             {(top5.prizes ?? []).map((prize) => (
-              <div key={prize.rank} className="border rounded-lg p-4 bg-white">
-                <p className="text-xs font-semibold text-gray-500 mb-2">#{prize.rank} Prize</p>
-                {prize.imageUrl ? (
-                  <img src={prize.imageUrl} alt={prize.label} className="w-full h-24 object-cover rounded mb-2" />
-                ) : (
-                  <div className="w-full h-24 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm mb-2">
-                    No image
-                  </div>
-                )}
-                <p className="font-medium">{prize.label || "TBD"}</p>
-                {prize.business && (
-                  <Link
-                    href={`/support-local/${prize.business.slug}`}
-                    className="text-sm text-primary-600 hover:underline"
-                  >
-                    {prize.business.name}
-                  </Link>
-                )}
-              </div>
+              <button
+                key={prize.rank}
+                type="button"
+                onClick={() => setSelectedPrizeForModal(prize)}
+                className="border rounded-lg p-3 bg-white text-left hover:ring-2 hover:ring-offset-1 focus:ring-2 focus:ring-offset-1 focus:outline-none"
+                style={{ borderColor: "var(--color-primary)" }}
+              >
+                <p className="text-xs font-semibold text-gray-500 mb-2">#{prize.rank}</p>
+                <div className="aspect-square w-full rounded overflow-hidden bg-gray-100 mb-2">
+                  {prize.imageUrl ? (
+                    <img src={prize.imageUrl} alt={prize.label ?? ""} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">No image</div>
+                  )}
+                </div>
+                <p className="font-medium text-sm truncate">{prize.label || "TBD"}</p>
+              </button>
             ))}
           </div>
-          <h3 className="text-lg font-semibold mb-3">Current leaderboard</h3>
-          <ol className="list-decimal list-inside space-y-2 border rounded-lg p-4 bg-gray-50">
-            {leaderboard.length === 0 ? (
-              <li className="text-gray-500">No points yet. Start supporting local to earn points!</li>
-            ) : (
-              leaderboard.map((m) => (
-                <li key={m.id} className="flex items-center gap-2">
-                  <Link href={`/members/${m.id}`} className="font-medium hover:underline" style={{ color: "var(--color-primary)" }}>
-                    {m.firstName} {m.lastName}
-                  </Link>
-                  <span className="text-gray-600">— {m.points} points</span>
-                </li>
-              ))
-            )}
-          </ol>
         </section>
       )}
 
@@ -501,6 +496,120 @@ export function RewardsContent() {
         })()}
       </section>
 
+      {/* Prize detail modal: Top 10 reward full details */}
+      {selectedPrizeForModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setSelectedPrizeForModal(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Prize details"
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h3 className="text-lg font-bold truncate flex-1 pr-2">
+                #{selectedPrizeForModal.rank} Prize{selectedPrizeForModal.label ? `: ${selectedPrizeForModal.label}` : ""}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSelectedPrizeForModal(null)}
+                className="p-2 rounded hover:bg-gray-100 text-gray-600"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {(() => {
+                const photos = (selectedPrizeForModal.photos?.length ? selectedPrizeForModal.photos : selectedPrizeForModal.imageUrl ? [selectedPrizeForModal.imageUrl] : []) as string[];
+                const hasMultiple = photos.length > 1;
+                const idx = Math.min(modalPhotoIndex, Math.max(0, photos.length - 1));
+                return (
+                  <div className="relative aspect-square bg-gray-100 shrink-0">
+                    {photos.length > 0 ? (
+                      <>
+                        <div className="absolute inset-0 overflow-hidden">
+                          {photos.map((url, i) => (
+                            <div
+                              key={i}
+                              className="absolute inset-0 transition-transform duration-200 ease-out"
+                              style={{ transform: `translateX(${(i - idx) * 100}%)` }}
+                            >
+                              <img src={url} alt={selectedPrizeForModal.label ?? `Photo ${i + 1}`} className="w-full h-full object-contain" />
+                            </div>
+                          ))}
+                        </div>
+                        {hasMultiple && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setModalPhotoIndex((prev) => (prev <= 0 ? photos.length - 1 : prev - 1)); }}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"
+                              aria-label="Previous photo"
+                            >
+                              ‹
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setModalPhotoIndex((prev) => (prev >= photos.length - 1 ? 0 : prev + 1)); }}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"
+                              aria-label="Next photo"
+                            >
+                              ›
+                            </button>
+                            <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5">
+                              {photos.map((_, i) => (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setModalPhotoIndex(i); }}
+                                  className={`w-2 h-2 rounded-full transition-colors ${i === idx ? "bg-white" : "bg-white/50 hover:bg-white/70"}`}
+                                  aria-label={`Photo ${i + 1}`}
+                                />
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-400">No image</div>
+                    )}
+                  </div>
+                );
+              })()}
+              <div className="p-4">
+                {selectedPrizeForModal.label && (
+                  <p className="font-semibold text-lg">{selectedPrizeForModal.label}</p>
+                )}
+                {selectedPrizeForModal.prizeValue && (
+                  <p className="text-sm text-gray-700 mt-1">Value: {selectedPrizeForModal.prizeValue}</p>
+                )}
+                {selectedPrizeForModal.business && (
+                  <Link
+                    href={`/support-local/${selectedPrizeForModal.business.slug}`}
+                    className="text-sm font-medium hover:underline mt-2 inline-block"
+                    style={{ color: "var(--color-primary)" }}
+                  >
+                    {selectedPrizeForModal.business.name}
+                  </Link>
+                )}
+                {selectedPrizeForModal.description?.trim() && (
+                  <p className="text-sm text-gray-600 mt-3">{selectedPrizeForModal.description.trim()}</p>
+                )}
+                {top5?.endDate && (
+                  <p className="text-sm text-gray-500 mt-3">
+                    Time left in season: {Math.max(0, Math.ceil((new Date(top5.endDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000)))} days
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Reward detail modal: photo click opens centered popup with details, save, share */}
       {selectedRewardForModal && (
         <div
@@ -526,17 +635,63 @@ export function RewardsContent() {
               </button>
             </div>
             <div className="overflow-y-auto flex-1">
-              <div className="aspect-square bg-gray-100">
-                {selectedRewardForModal.imageUrl ? (
-                  <img
-                    src={selectedRewardForModal.imageUrl}
-                    alt={selectedRewardForModal.title}
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400">No image</div>
-                )}
-              </div>
+              {(() => {
+                const photos = selectedRewardForModal.imageUrl ? [selectedRewardForModal.imageUrl] : [];
+                const hasMultiple = photos.length > 1;
+                const idx = Math.min(modalPhotoIndex, Math.max(0, photos.length - 1));
+                return (
+                  <div className="relative aspect-square bg-gray-100 shrink-0">
+                    {photos.length > 0 ? (
+                      <>
+                        <div className="absolute inset-0 overflow-hidden">
+                          {photos.map((url, i) => (
+                            <div
+                              key={i}
+                              className="absolute inset-0 transition-transform duration-200 ease-out"
+                              style={{ transform: `translateX(${(i - idx) * 100}%)` }}
+                            >
+                              <img src={url} alt={selectedRewardForModal.title} className="w-full h-full object-contain" />
+                            </div>
+                          ))}
+                        </div>
+                        {hasMultiple && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setModalPhotoIndex((prev) => (prev <= 0 ? photos.length - 1 : prev - 1)); }}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"
+                              aria-label="Previous photo"
+                            >
+                              ‹
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setModalPhotoIndex((prev) => (prev >= photos.length - 1 ? 0 : prev + 1)); }}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"
+                              aria-label="Next photo"
+                            >
+                              ›
+                            </button>
+                            <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5">
+                              {photos.map((_, i) => (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setModalPhotoIndex(i); }}
+                                  className={`w-2 h-2 rounded-full transition-colors ${i === idx ? "bg-white" : "bg-white/50 hover:bg-white/70"}`}
+                                  aria-label={`Photo ${i + 1}`}
+                                />
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-400">No image</div>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="p-4">
                 <Link
                   href={`/support-local/${selectedRewardForModal.business.slug}`}

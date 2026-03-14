@@ -170,8 +170,8 @@ NWC remains impartial in promotions, except for two acknowledged personal affili
 ● The following subscription plans and prices apply (monthly or yearly, as offered in Stripe):
 ● $10/month (Resident/Subscriber)
 ● $25/month (Business)
-● $40/month (Seller)
-● Yearly subscriptions are available at equivalent annual rates (e.g., $100/year Resident, $250/year Business, $400/year Seller) when configured in Stripe.
+● $30/month (Seller)
+● Yearly subscriptions are available at equivalent annual rates (e.g., $100/year Resident, $250/year Business, $325/year Seller) when configured in Stripe.
 ● Payment information is required at signup. Automatic renewal continues until canceled.
 ● Cancellation: You may cancel at any time via the self-service billing portal (Edit profile → Manage Subscription) or by contacting NWC via phone or email.
 ● Up to 1 month may be refunded for dissatisfaction.

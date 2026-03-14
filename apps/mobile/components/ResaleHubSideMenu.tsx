@@ -71,11 +71,12 @@ function Section({
 const COMMUNITY_RESALE_BASE: NavItem[] = [
   { href: "/seller-hub/store/new?listingType=resale", label: "List Item", web: false },
   { href: "/seller-hub/store/items?listingType=resale", label: "My Listings", web: false },
+  { href: "/seller-hub/orders", label: "Orders", web: false },
   { href: "/seller-hub/store/sold", label: "Sold Items", web: false },
   { href: "/seller-hub/offers", label: "Offers", web: false },
   { href: "/messages?tab=resale", label: "Messages", web: false },
   { href: "/seller-hub/store/cancellations", label: "Cancellations", web: false },
-  { href: "/policies", label: "Policy", web: false },
+  { href: "/policies", label: "Policies", web: false },
 ];
 
 const DELIVERY_BASE: NavItem[] = [

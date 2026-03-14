@@ -269,7 +269,7 @@ export async function POST(req: NextRequest) {
 
   const orderIds = sellerOrderPairs.map((p) => p.orderId);
 
-  const payments: { clientSecret: string; orderIds: string[]; stripeAccountId: string }[] = [];
+  const payments: { clientSecret: string; orderIds: string[]; stripeAccountId: string; amountCents: number }[] = [];
   for (const pair of sellerOrderPairs) {
     const connectAccountId = connectMap.get(pair.sellerId);
     if (!connectAccountId?.trim()) {
@@ -295,6 +295,7 @@ export async function POST(req: NextRequest) {
         clientSecret: paymentIntent.client_secret,
         orderIds: [pair.orderId],
         stripeAccountId: connectAccountId,
+        amountCents: pair.totalCents,
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Checkout failed";

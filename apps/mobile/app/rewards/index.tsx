@@ -357,7 +357,12 @@ export default function RewardsScreen() {
                   const p = prizesList.find((x: Top5Prize) => x.rank === rank);
                   const hasContent = p && (p.label?.trim() || p.imageUrl);
                   return (
-                    <View key={rank} style={styles.prizeRow}>
+                    <Pressable
+                      key={rank}
+                      style={({ pressed }) => [styles.prizeRow, hasContent && pressed && styles.buttonPressed]}
+                      onPress={hasContent ? () => setPrizePopupPrize(p!) : undefined}
+                      disabled={!hasContent}
+                    >
                       <Text style={styles.prizeRank}>#{rank}</Text>
                       {hasContent ? (
                         <>
@@ -378,17 +383,11 @@ export default function RewardsScreen() {
                               {p!.business.name}
                             </Text>
                           )}
-                          <Pressable
-                            style={styles.prizeDetailsBtn}
-                            onPress={() => setPrizePopupPrize(p!)}
-                          >
-                            <Ionicons name="information-circle-outline" size={22} color={theme.colors.primary} />
-                          </Pressable>
                         </>
                       ) : (
                         <Text style={styles.prizeEmpty}>—</Text>
                       )}
-                    </View>
+                    </Pressable>
                   );
                 })}
               </ScrollView>

@@ -28,7 +28,7 @@ You still need to:
 |---------------------|---------------|-------------------|-----------------------------------|
 | Northwest Subscribe | $10/mo        | e.g. $100/year    | Basic subscription                |
 | Northwest Sponsor   | $25/mo        | e.g. $250/year    | Sponsors get a business listing   |
-| Northwest Seller    | $40/mo        | e.g. $400/year    | Sellers get storefront + Connect  |
+| Northwest Seller    | $30/mo        | e.g. $325/year    | Sellers get storefront + Connect  |
 
 3. For each product:
    - Add the product name

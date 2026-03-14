@@ -135,14 +135,19 @@ export default function SoldItemsScreen() {
                   : router.push(`/product/${item.slug}` as never)
               }
             >
-              {item.photos?.[0] ? (
-                <Image
-                  source={{ uri: resolveUrl(item.photos[0]) ?? item.photos[0] }}
-                  style={styles.thumb}
-                />
-              ) : (
-                <View style={[styles.thumb, styles.thumbPlaceholder]} />
-              )}
+              <View style={styles.thumbWrap}>
+                {item.photos?.[0] ? (
+                  <Image
+                    source={{ uri: resolveUrl(item.photos[0]) ?? item.photos[0] }}
+                    style={styles.thumb}
+                  />
+                ) : (
+                  <View style={[styles.thumb, styles.thumbPlaceholder]} />
+                )}
+                <View style={styles.soldBadge}>
+                  <Text style={styles.soldBadgeText}>SOLD</Text>
+                </View>
+              </View>
               <View style={styles.cardBody}>
                 <Text style={styles.cardTitle} numberOfLines={2}>
                   {item.title}
@@ -206,8 +211,18 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     alignItems: "center",
   },
+  thumbWrap: { position: "relative", width: 48, height: 48 },
   thumb: { width: 48, height: 48, borderRadius: 8 },
   thumbPlaceholder: { backgroundColor: "#ddd" },
+  soldBadge: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: 8,
+    backgroundColor: "rgba(220, 38, 38, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  soldBadgeText: { fontSize: 10, fontWeight: "700", color: "#fff", letterSpacing: 0.5 },
   cardBody: { flex: 1, marginLeft: 12, justifyContent: "center" },
   cardTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
   cardMeta: { fontSize: 12, color: "#666", marginTop: 4 },

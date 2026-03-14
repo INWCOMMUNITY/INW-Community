@@ -165,13 +165,20 @@ export default function MyItemsPage() {
                 className="border rounded-lg overflow-hidden flex flex-col hover:bg-gray-50 w-full min-w-0"
               >
                 <div className="p-3 flex items-center gap-3">
-                  {item.photos[0] ? (
-                    <img src={item.photos[0]} alt="" className="w-12 h-12 object-cover rounded shrink-0" />
-                  ) : (
-                    <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs shrink-0">
-                      No photo
-                    </div>
-                  )}
+                  <div className="relative shrink-0">
+                    {item.photos[0] ? (
+                      <img src={item.photos[0]} alt="" className="w-12 h-12 object-cover rounded" />
+                    ) : (
+                      <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs">
+                        No photo
+                      </div>
+                    )}
+                    {tab === "sold" && (
+                      <span className="absolute inset-0 flex items-center justify-center rounded bg-red-600/90 text-white text-[10px] font-bold uppercase tracking-wide">
+                        Sold
+                      </span>
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0 overflow-hidden">
                     <h3 className="font-medium truncate">{item.title}</h3>
                     <p className="text-xs text-gray-600">

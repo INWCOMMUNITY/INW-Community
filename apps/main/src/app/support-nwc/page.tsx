@@ -33,8 +33,8 @@ const PLANS = [
   {
     id: "seller",
     name: "Northwest Community Seller",
-    price: 40,
-    priceYearly: 400,
+    price: 30,
+    priceYearly: 325,
     description:
       "Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid, without NWC taking personal percentages from your sold items.",
     imagePath: "2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg",
