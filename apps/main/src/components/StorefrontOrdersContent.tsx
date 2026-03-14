@@ -21,11 +21,19 @@ interface ShippoElementsAPI {
 }
 const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
 
+function isShippoReady(shippo: ShippoElementsAPI | undefined): shippo is ShippoElementsAPI {
+  return (
+    shippo != null &&
+    typeof shippo.init === "function" &&
+    typeof shippo.labelPurchase === "function"
+  );
+}
+
 /** Wait for Shippo embeddable script to be available (poll up to 8s). */
 function waitForShippo(): Promise<ShippoElementsAPI | null> {
   return new Promise((resolve) => {
     const win = typeof window !== "undefined" ? (window as { shippo?: ShippoElementsAPI }) : null;
-    if (win?.shippo?.init && win.shippo.labelPurchase) {
+    if (win?.shippo != null && isShippoReady(win.shippo)) {
       resolve(win.shippo);
       return;
     }
@@ -33,7 +41,7 @@ function waitForShippo(): Promise<ShippoElementsAPI | null> {
     const maxAttempts = 80; // 8s at 100ms
     const interval = setInterval(() => {
       const w = typeof window !== "undefined" ? (window as { shippo?: ShippoElementsAPI }) : null;
-      if (w?.shippo?.init && w.shippo.labelPurchase) {
+      if (w?.shippo != null && isShippoReady(w.shippo)) {
         clearInterval(interval);
         resolve(w.shippo);
         return;
