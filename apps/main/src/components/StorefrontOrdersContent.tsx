@@ -258,7 +258,6 @@ export function StorefrontOrdersContent(props: {
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
-              setRates([]);
               setSelectedOrderIds(new Set());
               setOrders((prev) =>
                 prev.map((o) => {
