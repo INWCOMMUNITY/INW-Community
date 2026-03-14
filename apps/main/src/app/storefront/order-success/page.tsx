@@ -103,7 +103,7 @@ function OrderSuccessContent() {
               View my orders
             </Link>
             <Link href="/my-community" className="btn border border-gray-300 bg-white hover:bg-gray-50">
-              My Community
+              Inland Northwest Community
             </Link>
           </div>
         </div>

@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
         sellerShippingPolicy: true,
         sellerLocalDeliveryPolicy: true,
         sellerPickupPolicy: true,
+        sellerReturnPolicy: true,
       },
     });
     if (!member) {
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest) {
       sellerShippingPolicy: member.sellerShippingPolicy ?? "",
       sellerLocalDeliveryPolicy: member.sellerLocalDeliveryPolicy ?? "",
       sellerPickupPolicy: member.sellerPickupPolicy ?? "",
+      sellerReturnPolicy: member.sellerReturnPolicy ?? "",
       offerShipping,
       offerLocalDelivery,
       offerLocalPickup,

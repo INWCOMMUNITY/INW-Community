@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { CreatePostForm } from "@/components/CreatePostForm";
@@ -9,6 +10,12 @@ interface CreatePostModalProps {
   onClose: () => void;
   /** Pre-select this group (e.g. when opened from a group page). */
   groupId?: string;
+  /** When set, post is created as a business post (e.g. when opened from Seller Hub). */
+  sharedBusinessId?: string;
+  /** Business name to show when posting as business. */
+  sharedBusinessName?: string;
+  /** When set and no sharedBusinessId, show this message instead of the form (e.g. "Set up your business to post from Seller Hub"). */
+  noBusinessMessage?: string;
   /** Not used when onSuccess is used; kept for form internal use if needed. */
   returnTo?: string;
 }
@@ -18,7 +25,7 @@ const backdropClass =
 const panelClass =
   "relative rounded-xl shadow-xl bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto border-2 border-[var(--color-primary)]";
 
-export function CreatePostModal({ open, onClose, groupId, returnTo }: CreatePostModalProps) {
+export function CreatePostModal({ open, onClose, groupId, sharedBusinessId, sharedBusinessName, noBusinessMessage, returnTo }: CreatePostModalProps) {
   const router = useRouter();
 
   useLockBodyScroll(open);
@@ -53,12 +60,27 @@ export function CreatePostModal({ open, onClose, groupId, returnTo }: CreatePost
           </button>
         </div>
         <div className="p-6">
-          <CreatePostForm
-            initialGroupId={groupId}
-            returnTo={returnTo ?? "/my-community"}
-            onSuccess={handleSuccess}
-            onCancel={onClose}
-          />
+          {noBusinessMessage && !sharedBusinessId ? (
+            <>
+              <p className="text-gray-700 mb-4">{noBusinessMessage}</p>
+              <Link
+                href="/seller-hub/store"
+                className="btn inline-block"
+                onClick={() => onClose()}
+              >
+                Go to Seller Storefront
+              </Link>
+            </>
+          ) : (
+            <CreatePostForm
+              initialGroupId={groupId}
+              initialSharedBusinessId={sharedBusinessId}
+              initialSharedBusinessName={sharedBusinessName}
+              returnTo={returnTo ?? "/my-community/feed"}
+              onSuccess={handleSuccess}
+              onCancel={onClose}
+            />
+          )}
         </div>
       </div>
     </div>

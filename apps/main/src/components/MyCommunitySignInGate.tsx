@@ -12,10 +12,10 @@ export function MyCommunitySignInGate({ callbackUrl = "/my-community" }: { callb
         <span className="py-2 px-4 text-gray-500">Saved</span>
         <span className="py-2 px-4 text-gray-500">Post Event</span>
       </div>
-      <div className="max-w-xl rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/50 p-10 text-center">
+      <div className="max-w-2xl rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/50 p-10 text-center">
         <h2 className="text-xl font-semibold mb-2">Sign in to access your profile and saved items</h2>
         <p className="text-gray-600 mb-6">
-          My Community is free for everyone. Sign in to edit your profile, save events and businesses, and post events.
+          Inland Northwest Community is free for everyone. Sign in to edit your profile, save events and businesses, and post events.
         </p>
         <div className="flex flex-wrap gap-4 justify-center">
           <Link href={`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`} className="btn">

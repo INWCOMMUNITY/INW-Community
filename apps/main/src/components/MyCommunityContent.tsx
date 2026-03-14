@@ -16,7 +16,7 @@ interface MyCommunityContentProps {
 
 export function MyCommunityContent({ member }: MyCommunityContentProps) {
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-4xl">
       {/* Profile Pic - centered at top */}
       <div className="flex justify-center mb-6">
         {member?.profilePhotoUrl ? (

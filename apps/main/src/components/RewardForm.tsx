@@ -111,7 +111,7 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
       if (onSuccess) {
         onSuccess();
       } else {
-        router.push("/sponsor-hub");
+        router.push("/business-hub");
         router.refresh();
       }
     } finally {
@@ -123,7 +123,7 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
     return (
       <div className="border rounded-lg p-6 bg-amber-50">
         <p className="font-medium mb-2">You need at least one business to offer a reward.</p>
-        <a href="/sponsor-hub/business" className="btn inline-block">
+        <a href="/business-hub/business" className="btn inline-block">
           Set up your business first
         </a>
       </div>

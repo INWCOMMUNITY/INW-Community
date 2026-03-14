@@ -25,6 +25,10 @@ interface CreatePostFormProps {
   onSuccess?: () => void;
   /** Initial group to post to (e.g. when opened from a group page). */
   initialGroupId?: string;
+  /** When provided, post is created as a business post (shared_business). Used when opening from Seller Hub. */
+  initialSharedBusinessId?: string;
+  /** When initialSharedBusinessId is set, optional business name to show as "Posting as [name]". */
+  initialSharedBusinessName?: string;
   /** Where to navigate after submit when onSuccess is not provided. */
   returnTo?: string;
 }
@@ -33,6 +37,8 @@ export function CreatePostForm({
   onCancel,
   onSuccess,
   initialGroupId = "",
+  initialSharedBusinessId,
+  initialSharedBusinessName,
   returnTo = "",
 }: CreatePostFormProps) {
   const router = useRouter();
@@ -146,6 +152,9 @@ export function CreatePostForm({
           tags: tags.length ? tags : undefined,
           taggedMemberIds: taggedFriendIds.size ? Array.from(taggedFriendIds) : undefined,
           groupId: groupId || null,
+          ...(initialSharedBusinessId
+            ? { sharedItemType: "business" as const, sharedItemId: initialSharedBusinessId }
+            : {}),
         }),
       });
       const data = await res.json();
@@ -153,7 +162,7 @@ export function CreatePostForm({
         if (onSuccess) {
           onSuccess();
         } else {
-          router.push(returnTo && returnTo.startsWith("/") ? returnTo : "/my-community");
+          router.push(returnTo && returnTo.startsWith("/") ? returnTo : "/my-community/feed");
           router.refresh();
         }
       } else {
@@ -170,7 +179,7 @@ export function CreatePostForm({
     <div>
       {!onCancel && (
         <>
-          <Link href="/my-community" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
+          <Link href="/my-community/feed" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
             ← Back to feed
           </Link>
           <h1 className="text-2xl font-bold mb-6">Create post</h1>
@@ -178,7 +187,12 @@ export function CreatePostForm({
       )}
       <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
         {error && <p className="text-red-600 text-sm">{error}</p>}
-        {groups.length > 0 && (
+        {initialSharedBusinessId && (
+          <p className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+            Posting as <strong>{initialSharedBusinessName ?? "your business"}</strong> (business directory)
+          </p>
+        )}
+        {groups.length > 0 && !initialSharedBusinessId && (
           <div>
             <label htmlFor="group" className="block text-sm font-medium mb-1">Post to</label>
             <select
@@ -361,7 +375,7 @@ export function CreatePostForm({
               Cancel
             </button>
           ) : (
-            <Link href="/my-community" className="btn border">
+            <Link href="/my-community/feed" className="btn border">
               Cancel
             </Link>
           )}

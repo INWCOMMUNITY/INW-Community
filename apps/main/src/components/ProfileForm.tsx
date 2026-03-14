@@ -130,7 +130,7 @@ export function ProfileForm() {
   }
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-4xl">
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Profile Pic - centered at top with upload button */}
         <div className="flex flex-col items-center">
@@ -227,8 +227,13 @@ export function ProfileForm() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Badges</label>
-            <div className="w-full border rounded px-3 py-2 bg-gray-50 text-gray-500 text-sm min-h-[42px] flex items-center">
-              Coming soon
+            <div className="w-full border rounded px-3 py-2 min-h-[42px] flex items-center">
+              <Link
+                href="/my-community/my-badges"
+                className="text-[var(--color-primary)] font-medium hover:underline"
+              >
+                Manage your badges →
+              </Link>
             </div>
           </div>
         </div>
@@ -298,6 +303,18 @@ export function ProfileForm() {
         >
           Log out
         </Link>
+      </div>
+
+      {/* Manage Subscription */}
+      <div className="mt-6 pt-6 border-t border-gray-200">
+        <Link
+          href="/support-nwc"
+          className="text-[var(--color-link)] hover:underline text-sm font-medium"
+          style={{ color: "var(--color-primary)" }}
+        >
+          Manage Subscription
+        </Link>
+        <p className="text-xs text-gray-500 mt-1">View or change your NWC membership and billing.</p>
       </div>
 
       {/* Delete account - only in Edit Profile */}

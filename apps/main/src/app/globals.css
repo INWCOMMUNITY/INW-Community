@@ -169,6 +169,12 @@ textarea:hover {
   border-color: var(--color-secondary);
 }
 
+/* Checkboxes and radios: green (primary) when checked instead of browser blue */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-primary);
+}
+
 /* Info pages (subscriber, sponsor, seller) benefit lists */
 .info-page-benefits {
   list-style: none;

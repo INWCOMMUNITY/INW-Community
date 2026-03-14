@@ -127,7 +127,7 @@ export default function GroupAdminPage() {
         ← Back to My Groups
       </Link>
       <h1 className="text-2xl font-bold mb-6">Manage group: {group.name}</h1>
-      <form onSubmit={handleSave} className="max-w-xl space-y-4">
+      <form onSubmit={handleSave} className="max-w-2xl space-y-4">
         {error && <p className="text-red-600 text-sm">{error}</p>}
         <div>
           <label htmlFor="name" className="block text-sm font-medium mb-1">Name *</label>
@@ -252,7 +252,7 @@ function InviteAdminSection({ groupSlug }: { groupSlug: string }) {
       <p className="text-gray-600 text-sm mb-4">
         Enter a member ID to invite them as a group admin. They must already be a member of the group, or they will be added when they accept.
       </p>
-      <form onSubmit={handleInvite} className="flex gap-2 max-w-md">
+      <form onSubmit={handleInvite} className="flex gap-2 max-w-xl">
         <input
           type="text"
           value={inviteeId}

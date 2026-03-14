@@ -107,7 +107,7 @@ export function ResaleHubSidebar({ mobile }: { mobile?: boolean }) {
                   </svg>
                 </button>
               </div>
-              <Section title="Community Resale" items={RESALE_HUB_ITEMS} onNavigate={() => setOpen(false)} mobile />
+              <Section title="NWC Resale" items={RESALE_HUB_ITEMS} onNavigate={() => setOpen(false)} mobile />
             </div>
           </div>
         )}
@@ -133,7 +133,7 @@ export function ResaleHubSidebar({ mobile }: { mobile?: boolean }) {
         </div>
       </div>
       <div className="flex flex-col">
-        <Section title="Community Resale" items={RESALE_HUB_ITEMS} />
+        <Section title="NWC Resale" items={RESALE_HUB_ITEMS} />
       </div>
     </nav>
   );

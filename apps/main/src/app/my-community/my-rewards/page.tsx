@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { BackToProfileLink } from "@/components/BackToProfileLink";
 
 interface MePoints {
   points?: number;
@@ -83,6 +84,7 @@ export default function MyRewardsPage() {
 
   return (
     <div>
+      <BackToProfileLink />
       <h1 className="text-2xl font-bold mb-6">My Rewards</h1>
 
       {pointsSummary != null && (

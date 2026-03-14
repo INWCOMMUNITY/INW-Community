@@ -22,6 +22,7 @@ import { Text as ThemedText, View } from "@/components/Themed";
 import { theme } from "@/lib/theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfileView } from "@/contexts/ProfileViewContext";
+import { useCreatePost } from "@/contexts/CreatePostContext";
 import { useOpenSellerMenu } from "./_layout";
 import { CouponFormModal } from "@/components/CouponFormModal";
 import { RewardFormModal } from "@/components/RewardFormModal";
@@ -120,8 +121,7 @@ function SellerHubContent() {
   }[] = [
     { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
     { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
-    { label: "My Orders", href: "/seller-hub/orders", icon: "receipt" },
-    { label: "Ship Orders", href: "/seller-hub/ship", icon: "paper-plane" },
+    { label: "My Orders / Ship Items", href: "/seller-hub/orders", icon: "receipt" },
     { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
     { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
     { label: "Policies", href: "/policies", icon: "book-outline" },
@@ -159,7 +159,7 @@ function SellerHubContent() {
         <RNView style={styles.sellerHubGrid}>
           {gridActions.map((action) => {
             const needsAction =
-              (action.label === "My Orders" || action.label === "Ship Orders") && pendingShip > 0;
+              action.label === "My Orders / Ship Items" && pendingShip > 0;
             return (
               <Pressable
                 key={action.label}
@@ -274,9 +274,9 @@ function ResaleHubContent() {
       icon: "wallet",
     },
     {
-      label: "Ship Items",
-      onPress: () => (router.push as (href: string) => void)("/seller-hub/ship"),
-      icon: "boat-outline",
+      label: "My Orders / Ship Items",
+      onPress: () => (router.push as (href: string) => void)("/seller-hub/orders"),
+      icon: "receipt",
     },
     {
       label: "Pick Ups",
@@ -372,6 +372,7 @@ export default function MyCommunityScreen() {
   const router = useRouter();
   const { member, subscriptionPlan, loading, refreshMember } = useAuth();
   const { profileView, hasSeller, hasSubscriber, setProfileView } = useProfileView();
+  const openCreatePostAsBusiness = useCreatePost()?.openCreatePostAsBusiness;
 
   useFocusEffect(
     useCallback(() => {
@@ -605,6 +606,31 @@ export default function MyCommunityScreen() {
         icon: "calendar",
         onPress: () => setEventModalVisible(true),
       },
+      ...(openCreatePostAsBusiness && businesses.length > 0
+        ? [
+            {
+              label: "Create Post",
+              icon: "megaphone" as const,
+              onPress: () => {
+                if (businesses.length === 1) {
+                  openCreatePostAsBusiness({ id: businesses[0].id, name: businesses[0].name });
+                } else {
+                  Alert.alert(
+                    "Create post as",
+                    "Choose which business to post as (Business Post).",
+                    [
+                      ...businesses.map((b) => ({
+                        text: b.name,
+                        onPress: () => openCreatePostAsBusiness({ id: b.id, name: b.name }),
+                      })),
+                      { text: "Cancel", style: "cancel" as const },
+                    ]
+                  );
+                }
+              },
+            },
+          ]
+        : []),
     ];
 
     return (

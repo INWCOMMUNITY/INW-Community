@@ -13,8 +13,8 @@ const BlockEditor = dynamic(() => import("@/components/editor/BlockEditor").then
 const EDITABLE_PAGES = [
   { id: "home", label: "Home" },
   { id: "about", label: "About" },
-  { id: "sponsor-hub", label: "Sponsor Hub" },
-  { id: "my-community", label: "My Community" },
+  { id: "business-hub", label: "Business Hub" },
+  { id: "my-community", label: "Inland Northwest Community" },
   { id: "calendars", label: "Calendars" },
   ];
 

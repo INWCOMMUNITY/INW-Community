@@ -56,18 +56,34 @@ interface FeedPostCardProps {
   };
   onLike: (postId: string) => void;
   onShare?: (postId: string) => void;
+  onCommentAdded?: (postId: string) => void;
 }
 
 function isVideoUrl(url: string) {
   return /\.(mp4|webm|mov)$/i.test(url);
 }
 
-export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
+type CommentItem = {
+  id: string;
+  content: string;
+  createdAt: string;
+  member: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
+  likeCount: number;
+  liked: boolean;
+  parentAuthorName?: string | null;
+};
+
+export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPostCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [showAllPhotos, setShowAllPhotos] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryMedia, setGalleryMedia] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [comments, setComments] = useState<CommentItem[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [submittingComment, setSubmittingComment] = useState(false);
   const content = post.content ?? "";
   const isLong = content.length > TRUNCATE_LENGTH;
   const displayContent = isLong && !expanded ? content.slice(0, TRUNCATE_LENGTH) + "…" : content;
@@ -82,6 +98,39 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
     setGalleryOpen(true);
   }
 
+  useEffect(() => {
+    if (!commentsOpen || !post.id) return;
+    setCommentsLoading(true);
+    fetch(`/api/posts/${post.id}/comments`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => setComments(Array.isArray(data?.comments) ? data.comments : []))
+      .catch(() => setComments([]))
+      .finally(() => setCommentsLoading(false));
+  }, [commentsOpen, post.id]);
+
+  async function submitComment(e: React.FormEvent) {
+    e.preventDefault();
+    const text = commentText.trim();
+    if (!text || submittingComment) return;
+    setSubmittingComment(true);
+    try {
+      const res = await fetch(`/api/posts/${post.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ content: text }),
+      });
+      const data = await res.json();
+      if (data?.id) {
+        setComments((prev) => [...prev, { ...data, likeCount: 0, liked: false }]);
+        setCommentText("");
+        onCommentAdded?.(post.id);
+      }
+    } finally {
+      setSubmittingComment(false);
+    }
+  }
+
   const galleryItem = galleryMedia[galleryIndex];
   const hasPrev = galleryIndex > 0;
   const hasNext = galleryIndex < galleryMedia.length - 1;
@@ -89,33 +138,60 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
   useLockBodyScroll(galleryOpen);
 
   return (
-    <article className="border rounded-lg bg-white shadow-sm overflow-hidden max-w-xl w-full">
+    <article className="border rounded-lg bg-white shadow-sm overflow-hidden max-w-2xl w-full">
       <div className="p-4">
         <div className="flex items-start justify-between gap-3 mb-3">
-          <Link href={`/members/${post.author.id}`} className="flex items-center gap-3 hover:opacity-90 flex-1 min-w-0">
-            {post.author.profilePhotoUrl ? (
-              <Image
-                src={post.author.profilePhotoUrl}
-                alt=""
-                width={48}
-                height={48}
-                className="w-12 h-12 rounded-full object-cover shrink-0"
-                quality={95}
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center text-lg font-medium text-gray-600 shrink-0">
-                {post.author.firstName?.[0]}{post.author.lastName?.[0]}
+          {post.type === "shared_business" && post.sourceBusiness ? (
+            <Link href={`/support-local/${post.sourceBusiness.slug}`} className="flex items-center gap-3 hover:opacity-90 flex-1 min-w-0">
+              {post.sourceBusiness.logoUrl ? (
+                <Image
+                  src={post.sourceBusiness.logoUrl}
+                  alt=""
+                  width={48}
+                  height={48}
+                  className="w-12 h-12 rounded-full object-cover shrink-0"
+                  quality={95}
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center text-lg font-medium text-gray-600 shrink-0">
+                  {post.sourceBusiness.name?.[0] ?? "?"}
+                </div>
+              )}
+              <div className="min-w-0">
+                <span className="font-semibold text-gray-900 block truncate">
+                  {post.sourceBusiness.name}
+                </span>
+                <span className="text-gray-500 text-sm">
+                  {new Date(post.createdAt).toLocaleDateString()}
+                </span>
               </div>
-            )}
-            <div className="min-w-0">
-              <span className="font-semibold text-gray-900 block truncate">
-                {post.author.firstName} {post.author.lastName}
-              </span>
-              <span className="text-gray-500 text-sm">
-                {new Date(post.createdAt).toLocaleDateString()}
-              </span>
-            </div>
-          </Link>
+            </Link>
+          ) : (
+            <Link href={`/members/${post.author.id}`} className="flex items-center gap-3 hover:opacity-90 flex-1 min-w-0">
+              {post.author.profilePhotoUrl ? (
+                <Image
+                  src={post.author.profilePhotoUrl}
+                  alt=""
+                  width={48}
+                  height={48}
+                  className="w-12 h-12 rounded-full object-cover shrink-0"
+                  quality={95}
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center text-lg font-medium text-gray-600 shrink-0">
+                  {post.author.firstName?.[0]}{post.author.lastName?.[0]}
+                </div>
+              )}
+              <div className="min-w-0">
+                <span className="font-semibold text-gray-900 block truncate">
+                  {post.author.firstName} {post.author.lastName}
+                </span>
+                <span className="text-gray-500 text-sm">
+                  {new Date(post.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+            </Link>
+          )}
           <div className="shrink-0 flex gap-1">
             {/* Member badges placeholder - can add logic later */}
           </div>
@@ -443,13 +519,18 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
         <button
           type="button"
           onClick={() => onLike(post.id)}
-          className={`flex-1 py-2 text-sm font-medium ${post.liked ? "text-blue-600" : "text-gray-600 hover:bg-gray-50"}`}
+          className={`flex-1 py-2 text-sm font-medium ${post.liked ? "" : "text-gray-600 hover:bg-gray-50"}`}
+          style={post.liked ? { color: "var(--color-primary)" } : undefined}
         >
           Like {post.likeCount > 0 && `(${post.likeCount})`}
         </button>
-        <span className="flex-1 py-2 text-center text-sm text-gray-600">
+        <button
+          type="button"
+          onClick={() => setCommentsOpen((open) => !open)}
+          className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+        >
           Comment {post.commentCount > 0 && `(${post.commentCount})`}
-        </span>
+        </button>
         {onShare && (
           <button
             type="button"
@@ -460,6 +541,54 @@ export function FeedPostCard({ post, onLike, onShare }: FeedPostCardProps) {
           </button>
         )}
       </div>
+      {commentsOpen && (
+        <div className="border-t bg-gray-50 px-4 py-3 space-y-3">
+          {commentsLoading ? (
+            <p className="text-sm text-gray-500">Loading comments…</p>
+          ) : (
+            <ul className="space-y-2">
+              {comments.map((c) => (
+                <li key={c.id} className="flex gap-2">
+                  {c.member.profilePhotoUrl ? (
+                    <Image src={c.member.profilePhotoUrl} alt="" width={28} height={28} className="w-7 h-7 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-gray-300 shrink-0 flex items-center justify-center text-xs font-medium text-gray-600">
+                      {c.member.firstName?.[0]}{c.member.lastName?.[0]}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm">
+                      <span className="font-semibold text-gray-900">{c.member.firstName} {c.member.lastName}</span>
+                      {" "}
+                      <span className="text-gray-700">{c.content}</span>
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">{new Date(c.createdAt).toLocaleString()}</p>
+                  </div>
+                </li>
+              ))}
+              {comments.length === 0 && <p className="text-sm text-gray-500">No comments yet.</p>}
+            </ul>
+          )}
+          <form onSubmit={submitComment} className="flex gap-2 pt-1">
+            <input
+              type="text"
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              placeholder="Add a comment..."
+              className="flex-1 min-w-0 rounded-full border border-gray-300 px-4 py-2 text-sm"
+              maxLength={2000}
+            />
+            <button
+              type="submit"
+              disabled={submittingComment || !commentText.trim()}
+              className="shrink-0 px-4 py-2 rounded-full text-sm font-medium text-white disabled:opacity-50"
+              style={{ backgroundColor: "var(--color-primary)" }}
+            >
+              {submittingComment ? "…" : "Post"}
+            </button>
+          </form>
+        </div>
+      )}
     </article>
   );
 }

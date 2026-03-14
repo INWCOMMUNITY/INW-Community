@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
+import { sumOptionQuantities } from "@/lib/store-item-variants";
 
 interface Business {
   id: string;
@@ -65,9 +66,28 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
     !existing?.shippingPolicy || existing.shippingPolicy === ""
   );
   const [sellerProfileShippingPolicy, setSellerProfileShippingPolicy] = useState("");
-  const [variants, setVariants] = useState<{ name: string; options: string[] }[]>(() => {
+  type VariantOption = { value: string; quantity: number };
+  const normalizeOptions = (opts: unknown): VariantOption[] => {
+    if (!Array.isArray(opts)) return [];
+    return opts.map((o) => {
+      if (typeof o === "object" && o != null && "value" in o && "quantity" in o) {
+        return { value: String((o as VariantOption).value), quantity: Number((o as VariantOption).quantity) || 0 };
+      }
+      return { value: String(o ?? ""), quantity: 1 };
+    });
+  };
+  const [variants, setVariants] = useState<{ name: string; options: VariantOption[] }[]>(() => {
     const v = existing?.variants;
-    return Array.isArray(v) ? (v as { name: string; options: string[] }[]) : [];
+    if (!Array.isArray(v)) return [];
+    return (v as { name?: string; options?: unknown[] }[]).map((item) => ({
+      name: item?.name ?? "",
+      options: normalizeOptions(item?.options),
+    }));
+  });
+  const [optionsEnabled, setOptionsEnabled] = useState(() => {
+    const v = existing?.variants;
+    if (!Array.isArray(v) || v.length === 0) return false;
+    return (v as { options?: unknown[] }[]).some((item) => Array.isArray(item?.options) && item.options.length > 0);
   });
   const [localDeliveryAvailable, setLocalDeliveryAvailable] = useState(
     existing?.localDeliveryAvailable ?? false
@@ -103,6 +123,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [editSuccess, setEditSuccess] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -243,8 +264,14 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
       setError("Price must be at least $0.01");
       return;
     }
-    if (quantity < 1) {
+    const hasVariantsWithQty =
+      optionsEnabled && variants.some((v) => v.name.trim() && v.options.some((o) => o.quantity > 0));
+    if (!optionsEnabled && quantity < 1) {
       setError("Quantity must be at least 1 to list this item.");
+      return;
+    }
+    if (optionsEnabled && !hasVariantsWithQty) {
+      setError("Add at least one option with quantity greater than 0, or turn off Enable Options and set Quantity.");
       return;
     }
     const effectiveShippingDisabled = !offerShipping || shippingDisabled;
@@ -275,8 +302,12 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         quantity,
         status: "active",
         listingType: resaleOnly ? "resale" : listingType,
+        quantity:
+          optionsEnabled && variants.some((v) => v.name.trim() && v.options.some((o) => o.quantity > 0))
+            ? sumOptionQuantities(variants.filter((v) => v.name.trim() && v.options.length > 0))
+            : quantity,
         variants:
-          variants.filter((v) => v.name.trim() && v.options.length > 0).length > 0
+          optionsEnabled && variants.filter((v) => v.name.trim() && v.options.length > 0).length > 0
             ? variants.filter((v) => v.name.trim() && v.options.length > 0)
             : null,
         shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
@@ -334,12 +365,8 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
           }).catch(() => {});
         }
       }
-      if (resaleOnly) {
-        setShowSuccessModal(true);
-      } else {
-        router.push(successRedirect ?? "/seller-hub/store/items");
-        router.refresh();
-      }
+      setEditSuccess(!!existing);
+      setShowSuccessModal(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -349,15 +376,36 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
 
   function handleSuccessModalClose() {
     setShowSuccessModal(false);
-    router.push(successRedirect ?? "/resale-hub");
+    const redirectTo = successRedirect ?? (resaleOnly ? "/resale-hub" : "/seller-hub/store/items");
+    router.push(redirectTo);
+    router.refresh();
+  }
+  function handleListAnother() {
+    setShowSuccessModal(false);
+    router.push(resaleOnly ? "/resale-hub" : "/seller-hub/store/new");
     router.refresh();
   }
 
   function addVariantOption(vi: number, value: string) {
     if (!value.trim()) return;
     setVariants((prev) => {
-      const next = [...prev];
-      next[vi] = { ...next[vi], options: [...next[vi].options, value.trim()] };
+      const next = prev.map((v) => ({ ...v, options: [...v.options] }));
+      if (!next[vi]) return prev;
+      next[vi] = { ...next[vi], options: [...next[vi].options, { value: value.trim(), quantity: 1 }] };
+      return next;
+    });
+  }
+  function setVariantOptionQuantity(vi: number, oi: number, quantity: number) {
+    setVariants((prev) => {
+      const next = prev.map((v) => ({ ...v, options: v.options.map((o) => ({ ...o })) }));
+      if (next[vi]?.options[oi] != null) next[vi].options[oi].quantity = Math.max(0, quantity);
+      return next;
+    });
+  }
+  function removeVariantOption(vi: number, oi: number) {
+    setVariants((prev) => {
+      const next = prev.map((v) => ({ ...v, options: [...v.options] }));
+      if (next[vi]) next[vi].options = next[vi].options.filter((_, i) => i !== oi);
       return next;
     });
   }
@@ -365,7 +413,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
   return (
     <>
     <form onSubmit={handleSubmit} className="space-y-6 max-w-xl mx-auto text-center">
-      {!resaleOnly && (
+      {!resaleOnly && businesses.length > 1 && (
         <div>
           <label className="block text-sm font-medium mb-1">Business (optional)</label>
           <select
@@ -384,32 +432,36 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
       )}
 
       {!resaleOnly && (
-        <div>
-          <label className="block text-sm font-medium mb-1">Where to list</label>
-          <div className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="listingType"
-                checked={listingType === "new"}
-                onChange={() => setListingType("new")}
-                className="rounded"
-              />
-              <span className="text-sm font-medium">New (NWC Storefront)</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="listingType"
-                checked={listingType === "resale"}
-                onChange={() => setListingType("resale")}
-                className="rounded"
-              />
-              <span className="text-sm font-medium">Resale (Community Resale)</span>
-            </label>
+        <div className="flex flex-col items-center">
+          <label className="block text-sm font-medium mb-2 text-center">Where to list</label>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => setListingType("new")}
+              className="py-2 px-4 rounded-lg border-2 font-semibold text-sm transition-colors"
+              style={
+                listingType === "new"
+                  ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)", color: "white" }
+                  : { backgroundColor: "white", borderColor: "#ccc", color: "#333" }
+              }
+            >
+              New (NWC Storefront)
+            </button>
+            <button
+              type="button"
+              onClick={() => setListingType("resale")}
+              className="py-2 px-4 rounded-lg border-2 font-semibold text-sm transition-colors"
+              style={
+                listingType === "resale"
+                  ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)", color: "white" }
+                  : { backgroundColor: "white", borderColor: "#ccc", color: "#333" }
+              }
+            >
+              Resale (NWC Resale)
+            </button>
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">
-            New items appear on the main storefront; resale items appear on Community Resale.
+          <p className="text-xs text-gray-500 mt-2 text-center max-w-sm">
+            New items appear on the main storefront; resale items appear on NWC Resale.
           </p>
         </div>
       )}
@@ -537,30 +589,126 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         />
       </div>
 
-      {/* 5. Price & Quantity */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">Price (USD) *</label>
-          <input
-            type="number"
-            step="0.01"
-            min="0.01"
-            value={priceDollars}
-            onChange={(e) => setPriceDollars(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-            required
-          />
+      {/* 5. Price */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Price (USD) *</label>
+        <input
+          type="number"
+          step="0.01"
+          min="0.01"
+          value={priceDollars}
+          onChange={(e) => setPriceDollars(e.target.value)}
+          className="w-full border rounded px-3 py-2 max-w-xs"
+          required
+        />
+      </div>
+
+      {/* 6. Options (Enable options + Quantity) — under Price */}
+      <div className="space-y-4 border-t border-gray-200 pt-6 text-left">
+        <h3 className="text-base font-bold text-gray-900 mb-3">Options (Size, Color, etc.)</h3>
+        <div className="flex items-center gap-2.5 mb-4">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={optionsEnabled}
+            onClick={() => setOptionsEnabled((prev) => !prev)}
+            className="w-[22px] h-[22px] rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors"
+            style={
+              optionsEnabled
+                ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)" }
+                : { borderColor: "#ccc" }
+            }
+          >
+            {optionsEnabled && <span className="text-white text-sm font-bold">✓</span>}
+          </button>
+          <span className="text-sm text-gray-900 font-medium">Enable Options</span>
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Quantity in stock</label>
-          <input
-            type="number"
-            min="0"
-            value={quantity}
-            onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)}
-            className="w-full border rounded px-3 py-2"
-          />
-        </div>
+        {!optionsEnabled ? (
+          <>
+            <label className="block text-sm font-medium mb-1">Quantity *</label>
+            <input
+              type="number"
+              min="0"
+              value={quantity}
+              onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)}
+              className="w-full border border-gray-300 rounded px-3 py-2 max-w-xs"
+              placeholder="1"
+            />
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-gray-500 mb-3">
+              Add option groups like Size with values and quantity per option (e.g. Small: 2, Medium: 5).
+            </p>
+            {variants.map((v, vi) => (
+              <div key={vi} className="rounded-lg p-3 mb-3 bg-gray-50 border border-gray-100">
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={v.name}
+                    onChange={(e) =>
+                      setVariants((prev) => {
+                        const next = prev.map((x) => ({ ...x }));
+                        if (next[vi]) next[vi].name = e.target.value;
+                        return next;
+                      })
+                    }
+                    placeholder="Option name (e.g. Size)"
+                    className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setVariants((prev) => prev.filter((_, i) => i !== vi))}
+                    className="text-red-600 text-sm hover:underline shrink-0"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mb-2">Option value and Quantity (e.g. Small: 3, Medium: 5)</p>
+                <div className="flex flex-wrap gap-2 items-center">
+                  {v.options.map((opt, oi) => (
+                    <span
+                      key={oi}
+                      className="inline-flex items-center gap-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
+                    >
+                      <span>{opt.value}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        className="w-12 border border-gray-300 rounded px-1 py-0.5 text-sm text-center"
+                        placeholder="0"
+                        value={opt.quantity === 0 ? "" : opt.quantity}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value.replace(/\D/g, ""), 10);
+                          setVariantOptionQuantity(vi, oi, Number.isNaN(n) ? 0 : n);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeVariantOption(vi, oi)}
+                        className="text-red-500 hover:text-red-700 font-bold leading-none"
+                        aria-label="Remove"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <AddOptionInput
+                    onAdd={(val) => addVariantOption(vi, val)}
+                    placeholder="+ Add (e.g. Small)"
+                  />
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setVariants((prev) => [...prev, { name: "", options: [] }])}
+              className="py-2 px-4 border border-gray-300 rounded-lg bg-white text-gray-800 font-semibold text-sm hover:bg-gray-50"
+            >
+              + Add option group
+            </button>
+          </>
+        )}
       </div>
 
       {resaleOnly && (
@@ -867,96 +1015,42 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         </div>
       )}
 
-      {/* 8. Options */}
-      <div className="space-y-4 border-t pt-6">
-        <h3 className="font-semibold text-gray-800">Options (Size, Color, etc.)</h3>
-        <p className="text-sm text-gray-500">
-          Add option groups like Size - Small + Medium + Large. Use + to add each value.
-        </p>
-        {variants.map((v, vi) => (
-          <div key={vi} className="border rounded p-3 bg-gray-50">
-            <div className="flex gap-2 mb-2">
-              <input
-                type="text"
-                value={v.name}
-                onChange={(e) =>
-                  setVariants((prev) => {
-                    const next = [...prev];
-                    next[vi] = { ...next[vi], name: e.target.value };
-                    return next;
-                  })
-                }
-                placeholder="Option name (e.g. Size)"
-                className="flex-1 border rounded px-2 py-1 text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => setVariants((prev) => prev.filter((_, i) => i !== vi))}
-                className="text-red-600 text-sm hover:underline"
-              >
-                Remove
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2 items-center">
-              {v.options.map((opt, oi) => (
-                <span
-                  key={oi}
-                  className="inline-flex items-center gap-1 bg-white border rounded px-2 py-1 text-sm"
-                >
-                  {opt}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setVariants((prev) => {
-                        const next = [...prev];
-                        next[vi] = {
-                          ...next[vi],
-                          options: next[vi].options.filter((_, i) => i !== oi),
-                        };
-                        return next;
-                      })
-                    }
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-              <AddOptionInput
-                onAdd={(val) => addVariantOption(vi, val)}
-                placeholder="+ Add (e.g. Small)"
-              />
-            </div>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={() => setVariants((prev) => [...prev, { name: "", options: [] }])}
-          className="btn text-sm"
-        >
-          + Add option group
-        </button>
-      </div>
-
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <button type="submit" disabled={submitting} className="btn">
-        {submitting ? "Saving…" : existing ? "Update item" : "Create item"}
+        {submitting
+          ? "Saving…"
+          : existing
+            ? "Update item"
+            : "List Item"}
       </button>
 
     </form>
       {showSuccessModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 overflow-hidden">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 text-center">
-            <p className="text-lg text-gray-800 mb-6">
-              Your item is in review, thanks for selling in this community!
+            <p className="text-lg font-bold text-gray-900 mb-2">
+              {editSuccess ? "Item updated" : "Item listed successfully"}
+            </p>
+            <p className="text-gray-700 mb-6">
+              {editSuccess ? "Your changes have been saved." : "Your listing is now live."}
             </p>
             <button
               type="button"
               onClick={handleSuccessModalClose}
-              className="btn w-full"
+              className="btn w-full mb-3"
             >
-              Return to Resale Hub
+              {editSuccess ? "Back to My Items" : "See Listing"}
             </button>
+            {!editSuccess && (
+              <button
+                type="button"
+                onClick={handleListAnother}
+                className="w-full py-3 px-4 rounded-lg border-2 font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                style={{ borderColor: "var(--color-primary)" }}
+              >
+                List Another Item
+              </button>
+            )}
           </div>
         </div>
       )}

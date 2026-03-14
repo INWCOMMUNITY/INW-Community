@@ -33,7 +33,7 @@ Everything to finish on the site before moving on to the app. Work through **one
 - [ ] Change how payouts work
 - [ ] Member login/logout behavior and member rules
 - [ ] Re-write and implement business policies to match this site
-- [ ] Organize side menu in seller hub and sponsor hub
+- [ ] Organize side menu in seller hub and business hub
 
 ---
 

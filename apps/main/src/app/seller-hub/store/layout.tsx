@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
-import { SellerSidebar } from "@/components/SellerSidebar";
 
 export default async function SellerStoreLayout({
   children,
@@ -20,14 +19,8 @@ export default async function SellerStoreLayout({
     redirect("/seller-hub");
   }
   return (
-    <div className="seller-hub-layout flex gap-8 max-md:gap-0 py-8" style={{ padding: "var(--section-padding)" }}>
-      <aside className="hidden md:block shrink-0 no-print">
-        <SellerSidebar />
-      </aside>
-      <main className="flex-1 min-w-0 w-full md:w-auto">{children}</main>
-      <div className="md:hidden shrink-0 w-0 overflow-visible">
-        <SellerSidebar mobile />
-      </div>
+    <div className="py-8" style={{ padding: "var(--section-padding)" }}>
+      <main className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">{children}</main>
     </div>
   );
 }

@@ -17,7 +17,7 @@ export default async function PostEventPage({
   return (
     <div>
       <Link href="/my-community" prefetch={false} className="text-sm text-gray-600 hover:underline mb-4 inline-block">
-        ← Back to My Community
+        ← Back to Inland Northwest Community
       </Link>
       <h1 className="text-2xl font-bold mb-6">Post Event</h1>
       <p className="text-gray-600 mb-6">

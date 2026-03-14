@@ -33,7 +33,7 @@ export default function MyFavoriteCouponsError({
           href="/my-community"
           className="px-4 py-2 border border-red-600 text-red-600 rounded hover:bg-red-50 text-sm font-medium"
         >
-          Back to My Community
+          Back to Inland Northwest Community
         </Link>
       </div>
     </div>

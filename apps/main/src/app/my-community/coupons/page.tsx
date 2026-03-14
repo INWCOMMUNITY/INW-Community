@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import { UnsaveButton } from "@/components/UnsaveButton";
+import { BackToProfileLink } from "@/components/BackToProfileLink";
 
 export default async function MyFavoriteCouponsPage() {
   const session = await getServerSession(authOptions);
@@ -31,6 +32,7 @@ export default async function MyFavoriteCouponsPage() {
 
   return (
     <>
+      <BackToProfileLink />
       <h1 className="text-2xl font-bold mb-6">My Coupons</h1>
       {validSaved.length === 0 ? (
         <p className="text-gray-600">

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { BackToProfileLink } from "@/components/BackToProfileLink";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 
 interface StoreItem {
@@ -62,6 +63,7 @@ export default function MyWishlistPage() {
   if (status === "unauthenticated") {
     return (
       <div>
+        <BackToProfileLink />
         <h1 className="text-2xl font-bold mb-4">My Wishlist</h1>
         <p className="text-gray-600 mb-4">
           Sign in to save items from the storefront to your wishlist.
@@ -75,6 +77,7 @@ export default function MyWishlistPage() {
 
   return (
     <div>
+      <BackToProfileLink />
       <h1 className="text-2xl font-bold mb-4">My Wishlist</h1>
       {items.length === 0 ? (
         <p className="text-gray-600">

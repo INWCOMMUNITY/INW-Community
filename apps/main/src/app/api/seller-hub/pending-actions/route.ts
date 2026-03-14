@@ -15,13 +15,13 @@ export async function GET(req: NextRequest) {
     const session = await getSessionForApi(req);
     const userId = session?.user?.id;
     if (!userId) {
-      return NextResponse.json({ pendingShip: 0, pendingReturns: 0, payoutReady: false, soldCount: 0 }, { status: 200 });
+      return NextResponse.json({ pendingShip: 0, pendingReturns: 0, payoutReady: false, soldCount: 0, payoutSetupComplete: false }, { status: 200 });
     }
     const sub = await prisma.subscription.findFirst({
       where: { memberId: userId, plan: "seller", status: "active" },
     });
     if (!sub) {
-      return NextResponse.json({ pendingShip: 0, pendingReturns: 0, payoutReady: false, soldCount: 0 }, { status: 200 });
+      return NextResponse.json({ pendingShip: 0, pendingReturns: 0, payoutReady: false, soldCount: 0, payoutSetupComplete: false }, { status: 200 });
     }
     const [pendingShip, pendingReturns, balance, member, soldCount] = await Promise.all([
       prisma.storeOrder.count({
@@ -75,8 +75,14 @@ export async function GET(req: NextRequest) {
     }
     const payoutReady =
       hasStripeConnect && (stripeAvailableCents >= MIN_PAYOUT_CENTS || balanceCents >= MIN_PAYOUT_CENTS);
-    return NextResponse.json({ pendingShip, pendingReturns, payoutReady, soldCount: soldCount ?? 0 });
+    return NextResponse.json({
+      pendingShip,
+      pendingReturns,
+      payoutReady,
+      soldCount: soldCount ?? 0,
+      payoutSetupComplete: hasStripeConnect,
+    });
   } catch {
-    return NextResponse.json({ pendingShip: 0, pendingReturns: 0, payoutReady: false, soldCount: 0 }, { status: 200 });
+    return NextResponse.json({ pendingShip: 0, pendingReturns: 0, payoutReady: false, soldCount: 0, payoutSetupComplete: false }, { status: 200 });
   }
 }

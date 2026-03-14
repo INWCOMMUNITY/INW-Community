@@ -112,7 +112,7 @@ export default function ScanPage() {
             You&apos;ve earned <strong>{points} Community Points</strong> for supporting {businessName}.
           </p>
         )}
-        <Link href="/my-community" className="btn">View My Community</Link>
+        <Link href="/my-community" className="btn">View Inland Northwest Community</Link>
       </div>
     </section>
   );

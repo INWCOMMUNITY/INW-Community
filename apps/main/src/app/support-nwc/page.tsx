@@ -156,7 +156,7 @@ export default function SupportNWCInfoPage() {
           <Link href="/privacy" className="underline" style={{ color: "var(--color-primary)" }}>Privacy Policy</Link>.
           Subscriptions automatically renew. You will be charged each {interval === "monthly" ? "month" : "year"} until you cancel. Cancel anytime via{" "}
           <Link href="/my-community/subscriptions" className="underline" style={{ color: "var(--color-primary)" }}>
-            My Community → Subscriptions
+            Inland Northwest Community → Subscriptions
           </Link>{" "}
           (or from the Manage Subscription link after signing in).
         </p>

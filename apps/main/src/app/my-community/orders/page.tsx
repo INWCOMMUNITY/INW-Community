@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { getOrderStatusLabel } from "@/lib/order-status";
+import { BackToProfileLink } from "@/components/BackToProfileLink";
 
 interface OrderItem {
   id: string;
@@ -192,6 +193,7 @@ export default function MyOrdersPage() {
 
   return (
     <div>
+      <BackToProfileLink />
       <h1 className="text-2xl font-bold mb-4">My Orders</h1>
       <p className="text-gray-600 mb-4">
         View your purchases, track shipments, and request refunds.
@@ -410,7 +412,7 @@ export default function MyOrdersPage() {
             aria-hidden
           />
           <div
-            className="relative rounded-lg p-6 w-full max-w-md border-2 max-h-[90vh] overflow-y-auto"
+            className="relative rounded-lg p-6 w-full max-w-xl border-2 max-h-[90vh] overflow-y-auto"
             style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-primary)" }}
           >
             <h3 className="text-lg font-bold mb-3" style={{ color: "var(--color-heading)" }}>
@@ -501,7 +503,7 @@ export default function MyOrdersPage() {
             aria-hidden
           />
           <div
-            className="relative rounded-lg p-6 w-full max-w-md border-2 max-h-[90vh] overflow-y-auto"
+            className="relative rounded-lg p-6 w-full max-w-xl border-2 max-h-[90vh] overflow-y-auto"
             style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-primary)" }}
           >
             <h3 className="text-lg font-bold mb-3" style={{ color: "var(--color-heading)" }}>

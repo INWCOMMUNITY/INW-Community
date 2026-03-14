@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
-import { ResaleHubHeader } from "@/components/ResaleHubHeader";
+import { ResaleHubTopNav } from "@/components/ResaleHubTopNav";
 
 export const dynamic = "force-dynamic";
 
@@ -24,16 +24,13 @@ export default async function ResaleHubLayout({
     where: { memberId: session.user.id, plan: "seller", status: "active" },
   });
 
-  if (sellerSub && !isAdmin) {
-    redirect("/seller-hub?resale=1");
-  }
-  if (!subscribeSub && !isAdmin) {
+  if (!subscribeSub && !sellerSub && !isAdmin) {
     return (
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] mx-auto text-center">
-          <h1 className="text-2xl font-bold mb-4">Community Resale Hub</h1>
+          <h1 className="text-2xl font-bold mb-4">NWC Resale Hub</h1>
           <p className="mb-6">
-            Subscribe to list items on Community Resale. You can sell pre-loved
+            Subscribe to list items on NWC Resale. You can sell pre-loved
             items and ship or offer local delivery.
           </p>
           <a href="/support-nwc" className="btn">
@@ -46,7 +43,7 @@ export default async function ResaleHubLayout({
 
   return (
     <>
-      <ResaleHubHeader />
+      <ResaleHubTopNav />
       {children}
     </>
   );

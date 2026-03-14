@@ -5,27 +5,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
+import { IonIcon } from "@/components/IonIcon";
 
-type SidebarItem = { href: string; label: string } | { divider: string };
+type SidebarItem = { href: string; label: string; icon: string } | { divider: string };
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { divider: "Social" },
-  { href: "/my-community", label: "Feed" },
-  { href: "/my-community/my-page", label: "My Page" },
-  { href: "/my-community/friends", label: "Friends / Following" },
-  { href: "/my-community/find-members", label: "Find Members" },
-  { href: "/my-community/groups", label: "Groups" },
-  { divider: "My Hub" },
-  { href: "/my-community/businesses", label: "My Businesses" },
-  { href: "/my-community/sellers", label: "My Sellers" },
-  { href: "/my-community/events", label: "My Events" },
-  { href: "/my-community/coupons", label: "My Coupons" },
-  { href: "/my-community/wantlist", label: "My Wishlist" },
-  { href: "/my-community/orders", label: "My Orders" },
+  { href: "/my-community/feed", label: "Feed", icon: "newspaper-outline" },
+  { href: "/my-community/my-page", label: "My Page", icon: "person-outline" },
+  { href: "/my-community/friends", label: "My Friends", icon: "people-outline" },
+  { href: "/my-community/groups", label: "Groups", icon: "people-circle-outline" },
   { divider: "My Rewards" },
-  { href: "/my-community/points", label: "Community Points" },
-  { href: "/my-community/rewards", label: "Rewards" },
-  { href: "/my-community/subscriptions", label: "Subscriptions" },
+  { href: "/my-community/my-rewards", label: "My Rewards", icon: "gift-outline" },
+  { href: "/my-community/rewards", label: "Rewards", icon: "trophy-outline" },
+  { href: "/my-community/subscriptions", label: "Subscriptions", icon: "card-outline" },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -53,7 +46,7 @@ export function MyCommunityFloatingMenu() {
         onClick={() => setOpen(true)}
         className="md:hidden fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-2 border-white"
         style={{ backgroundColor: "var(--color-primary)" }}
-        aria-label="Open My Community menu"
+        aria-label="Open Inland Northwest Community menu"
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
           <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
@@ -67,7 +60,7 @@ export function MyCommunityFloatingMenu() {
           className="md:hidden fixed inset-0 z-[100] flex flex-col justify-end"
           aria-modal="true"
           role="dialog"
-          aria-label="My Community menu"
+          aria-label="Inland Northwest Community menu"
         >
           <button
             type="button"
@@ -93,7 +86,7 @@ export function MyCommunityFloatingMenu() {
             </div>
             <nav className="p-6 text-center">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-                My Community
+                Inland Northwest Community
               </h2>
               <ul className="space-y-1">
                 {SIDEBAR_ITEMS.map((item, i) =>
@@ -109,7 +102,7 @@ export function MyCommunityFloatingMenu() {
                         href={item.href}
                         prefetch={false}
                         onClick={() => setOpen(false)}
-                        className={`block py-2.5 px-4 rounded transition font-medium text-center ${
+                        className={`flex items-center justify-center gap-2 py-2.5 px-4 rounded transition font-medium ${
                           isActive(pathname, item.href)
                             ? "text-white"
                             : "text-gray-800 hover:bg-gray-100"
@@ -120,6 +113,7 @@ export function MyCommunityFloatingMenu() {
                             : undefined
                         }
                       >
+                        <IonIcon name={item.icon} size={20} />
                         {item.label}
                       </Link>
                     </li>
@@ -131,7 +125,7 @@ export function MyCommunityFloatingMenu() {
                       href="/admin"
                       prefetch={false}
                       onClick={() => setOpen(false)}
-                      className={`block py-2.5 px-4 rounded transition font-medium text-center ${
+                      className={`flex items-center justify-center gap-2 py-2.5 px-4 rounded transition font-medium ${
                         pathname.startsWith("/admin")
                           ? "text-white"
                           : "text-gray-800 hover:bg-gray-100"
@@ -142,6 +136,7 @@ export function MyCommunityFloatingMenu() {
                           : undefined
                       }
                     >
+                      <IonIcon name="shield-checkmark-outline" size={20} />
                       Admin
                     </Link>
                   </li>

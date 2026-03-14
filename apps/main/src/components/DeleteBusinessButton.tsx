@@ -7,9 +7,11 @@ interface DeleteBusinessButtonProps {
   businessId: string;
   businessName: string;
   className?: string;
+  /** When provided, called after successful delete instead of navigating */
+  onDeleted?: () => void;
 }
 
-export function DeleteBusinessButton({ businessId, businessName, className }: DeleteBusinessButtonProps) {
+export function DeleteBusinessButton({ businessId, businessName, className, onDeleted }: DeleteBusinessButtonProps) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -22,7 +24,8 @@ export function DeleteBusinessButton({ businessId, businessName, className }: De
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.error ?? "Failed to delete");
       }
-      router.push("/sponsor-hub/business");
+      if (onDeleted) onDeleted();
+      else router.push("/sponsor-hub/business");
       router.refresh();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to delete business");

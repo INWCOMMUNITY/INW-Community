@@ -11,9 +11,9 @@ const ACTIONS: Array<
   | { label: string; web: string; webTitle: string }
 > = [
   { label: "Manage business profile", href: "/sponsor-business" },
-  { label: "Offer coupon", web: `${siteBase}/sponsor-hub/coupon`, webTitle: "Offer a Coupon" },
-  { label: "Post event", web: `${siteBase}/sponsor-hub/event`, webTitle: "Post Event" },
-  { label: "Offer reward", web: `${siteBase}/sponsor-hub/reward`, webTitle: "Offer a Reward" },
+  { label: "Offer coupon", web: `${siteBase}/business-hub/coupon`, webTitle: "Offer a Coupon" },
+  { label: "Post event", web: `${siteBase}/business-hub/event`, webTitle: "Post Event" },
+  { label: "Offer reward", web: `${siteBase}/business-hub/reward`, webTitle: "Offer a Reward" },
 ];
 
 export default function ActionsScreen() {

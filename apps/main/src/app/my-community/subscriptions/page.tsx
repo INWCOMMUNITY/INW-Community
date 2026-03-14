@@ -48,7 +48,7 @@ export default function MySubscriptionsPage() {
 
   if (status === "loading") {
     return (
-      <div className="max-w-md mx-auto px-4 py-8">
+      <div className="max-w-xl mx-auto px-4 py-8">
         <p className="text-gray-600">Loading…</p>
       </div>
     );
@@ -56,7 +56,7 @@ export default function MySubscriptionsPage() {
 
   if (status !== "authenticated") {
     return (
-      <div className="max-w-md mx-auto px-4 py-8">
+      <div className="max-w-xl mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold mb-4">My Subscriptions</h1>
         <p className="text-gray-600 mb-4">Sign in to view and manage your subscriptions.</p>
         <Link href="/login?callbackUrl=/my-community/subscriptions" className="btn">
@@ -67,7 +67,7 @@ export default function MySubscriptionsPage() {
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-8">
+    <div className="max-w-xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-4">My Subscriptions</h1>
       <p className="text-gray-600 mb-4">
         View and manage your subscription. You can update payment methods, view invoices, or cancel your subscription at any time.

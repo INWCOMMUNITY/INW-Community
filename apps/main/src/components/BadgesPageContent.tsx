@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { BadgeCard } from "@/components/BadgeCard";
+import { BackToProfileLink } from "@/components/BackToProfileLink";
 import { getBadgeCategoryLabel } from "@/lib/badge-icons";
 
 const CATEGORY_ORDER = ["member", "business", "seller", "event", "other"];
@@ -95,6 +96,7 @@ export function BadgesPageContent({ allBadges }: BadgesPageContentProps) {
 
   return (
     <div>
+      {view === "my" && <BackToProfileLink />}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
           <h1
@@ -176,7 +178,7 @@ export function BadgesPageContent({ allBadges }: BadgesPageContentProps) {
           className="text-sm font-medium"
           style={{ color: "var(--color-primary)" }}
         >
-          ← Back to My Community
+          ← Back to Inland Northwest Community
         </Link>
       </div>
     </div>

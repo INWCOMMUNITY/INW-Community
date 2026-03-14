@@ -53,7 +53,7 @@ const emptyShippingAddress = { street: "", aptOrSuite: "", city: "", state: "", 
 type ListingCategory = "new" | "resale";
 const CATEGORY_LABELS: Record<ListingCategory, string> = {
   new: "Main Store",
-  resale: "Community Resale",
+  resale: "NWC Resale",
 };
 function getItemProductUrl(item: CartItem): string {
   const base = item.storeItem.listingType === "resale" ? "/resale" : "/storefront";

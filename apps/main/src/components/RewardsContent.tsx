@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { ShareButton } from "@/components/ShareButton";
+import { useLockBodyScroll } from "@/lib/scroll-lock";
 
 interface Top5Prize {
   rank: number;
@@ -54,6 +55,9 @@ export function RewardsContent() {
   const [redeeming, setRedeeming] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [selectedRewardForModal, setSelectedRewardForModal] = useState<Reward | null>(null);
+  const [rewardSearch, setRewardSearch] = useState("");
+
+  useLockBodyScroll(!!selectedRewardForModal);
 
   useEffect(() => {
     fetch("/api/rewards/top5")
@@ -136,6 +140,7 @@ export function RewardsContent() {
           );
         }
       }
+      setSelectedRewardForModal(null);
     } finally {
       setRedeeming(null);
     }
@@ -192,14 +197,7 @@ export function RewardsContent() {
               {currentSeason != null && seasonPointsEarned != null && (
                 <p className="text-sm text-gray-600 mt-1">{currentSeason.name}: {seasonPointsEarned} Points</p>
               )}
-              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                <Link
-                  href="/my-community/points"
-                  className="text-sm font-medium hover:underline underline-offset-2"
-                  style={{ color: "var(--color-primary)" }}
-                >
-                  View Community Points
-                </Link>
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1">
                 <Link
                   href="/my-community/my-rewards"
                   className="text-sm font-medium hover:underline underline-offset-2"
@@ -408,15 +406,36 @@ export function RewardsContent() {
             </Link>
           )}
         </div>
-        <p className="text-gray-600 mb-6">
+        <p className="text-gray-600 mb-4">
           Local businesses offer these rewards. Redeem them with your Community Points.
         </p>
+        <input
+          type="search"
+          placeholder="Search rewards…"
+          value={rewardSearch}
+          onChange={(e) => setRewardSearch(e.target.value)}
+          className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2 mb-6 text-base"
+          style={{ borderColor: "var(--color-primary)" }}
+        />
         {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
         {rewards.length === 0 ? (
           <p className="text-gray-500">No rewards available right now. Check back soon!</p>
-        ) : (
+        ) : (() => {
+          const filtered = (rewardSearch.trim()
+            ? rewards.filter(
+                (r) =>
+                  r?.title?.toLowerCase().includes(rewardSearch.trim().toLowerCase()) ||
+                  r?.description?.toLowerCase().includes(rewardSearch.trim().toLowerCase()) ||
+                  (r?.business?.name?.toLowerCase().includes(rewardSearch.trim().toLowerCase()) ?? false)
+              )
+            : rewards
+          ).filter((r): r is Reward => !!r && typeof r.id === "string");
+          if (filtered.length === 0) {
+            return <p className="text-gray-500">No rewards match your search.</p>;
+          }
+          return (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {rewards.map((r) => {
+            {filtered.map((r) => {
               const canRedeem = session?.user && points !== null && points >= r.pointsRequired;
               const remaining = r.redemptionLimit - r.timesRedeemed;
               const isSaved = savedRewardIds.has(r.id);
@@ -478,7 +497,8 @@ export function RewardsContent() {
               );
             })}
           </div>
-        )}
+          );
+        })()}
       </section>
 
       {/* Reward detail modal: photo click opens centered popup with details, save, share */}
@@ -534,12 +554,12 @@ export function RewardsContent() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3 p-4 border-t border-gray-200">
+            <div className="flex items-center gap-3 p-4 border-t border-gray-200 flex-wrap">
               {session?.user && (
                 <button
                   type="button"
                   onClick={() => toggleSaved(selectedRewardForModal.id, savedRewardIds.has(selectedRewardForModal.id))}
-                  className="inline-flex items-center gap-1.5 p-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+                  className="inline-flex items-center gap-1.5 p-2 rounded border border-gray-300 bg-white hover:bg-gray-50 shrink-0"
                   title={savedRewardIds.has(selectedRewardForModal.id) ? "Remove from saved" : "Save reward"}
                 >
                   <span className={savedRewardIds.has(selectedRewardForModal.id) ? "text-red-500" : "text-gray-400"} style={{ fontSize: "1.25rem" }}>
@@ -552,8 +572,39 @@ export function RewardsContent() {
                 type="reward"
                 id={selectedRewardForModal.id}
                 title={selectedRewardForModal.title}
-                className="flex-1 inline-flex items-center justify-center gap-2 p-2.5 rounded border border-gray-300 bg-white hover:bg-gray-50"
+                className="inline-flex items-center justify-center gap-2 p-2.5 rounded border border-gray-300 bg-white hover:bg-gray-50 shrink-0"
               />
+              {session?.user ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const canRedeem = points !== null && points >= selectedRewardForModal.pointsRequired;
+                    if (!canRedeem) return;
+                    handleRedeem(selectedRewardForModal.id);
+                  }}
+                  disabled={
+                    redeeming === selectedRewardForModal.id ||
+                    !(points !== null && points >= selectedRewardForModal.pointsRequired)
+                  }
+                  className="flex-1 min-w-0 btn disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {redeeming === selectedRewardForModal.id
+                    ? "Redeeming…"
+                    : points !== null && points >= selectedRewardForModal.pointsRequired
+                      ? `Redeem ${selectedRewardForModal.pointsRequired} pts`
+                      : points !== null
+                        ? `Need ${selectedRewardForModal.pointsRequired - points} more pts`
+                        : "Sign in to redeem"}
+                </button>
+              ) : (
+                <Link
+                  href="/login?callbackUrl=/rewards"
+                  className="flex-1 min-w-0 btn text-center inline-block"
+                  onClick={() => setSelectedRewardForModal(null)}
+                >
+                  Sign in to redeem
+                </Link>
+              )}
             </div>
           </div>
         </div>

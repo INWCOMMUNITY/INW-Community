@@ -104,20 +104,20 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
     { href: "/my-badges", label: "My Badges" },
     { href: "/sponsor-business", label: "Set up / Edit Local Business Page" },
     {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/sponsor-hub/coupon`)}&title=${encodeURIComponent("Offer a Coupon")}`,
+      href: `/web?url=${encodeURIComponent(`${siteBase}/business-hub/coupon`)}&title=${encodeURIComponent("Offer a Coupon")}`,
       label: "Offer a Coupon",
     },
     {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/sponsor-hub/reward`)}&title=${encodeURIComponent("Offer a Reward")}`,
+      href: `/web?url=${encodeURIComponent(`${siteBase}/business-hub/reward`)}&title=${encodeURIComponent("Offer a Reward")}`,
       label: "Offer a Reward",
     },
     {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/sponsor-hub/event`)}&title=${encodeURIComponent("Post Event")}`,
+      href: `/web?url=${encodeURIComponent(`${siteBase}/business-hub/event`)}&title=${encodeURIComponent("Post Event")}`,
       label: "Post Event",
     },
     {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/sponsor-hub`)}&title=${encodeURIComponent("Sponsor Hub")}`,
-      label: "Sponsor Hub",
+      href: `/web?url=${encodeURIComponent(`${siteBase}/business-hub`)}&title=${encodeURIComponent("Business Hub")}`,
+      label: "Business Hub",
     },
   ];
 

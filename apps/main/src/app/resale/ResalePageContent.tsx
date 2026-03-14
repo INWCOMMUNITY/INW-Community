@@ -24,7 +24,7 @@ export function ResalePageContent({ canList, isSeller }: { canList: boolean; isS
             className="text-4xl md:text-5xl font-bold mb-4 text-white"
             style={{ fontFamily: "var(--font-heading)" }}
           >
-            Community Resale
+            NWC Resale
           </h1>
           <p className="text-lg max-w-2xl mx-auto text-white/95 leading-relaxed mb-6">
             Buy and sell pre-loved local goods. Give items a second life and support your community.

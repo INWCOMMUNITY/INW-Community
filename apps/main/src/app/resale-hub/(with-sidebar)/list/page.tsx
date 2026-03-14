@@ -45,7 +45,7 @@ function ResaleHubListContent() {
         {existing ? "Edit resale item" : "List a resale item"}
       </h1>
       <p className="text-gray-600 mb-6 max-md:text-center">
-        Your item will appear on Community Resale. Buyers can make offers and
+        Your item will appear on NWC Resale. Buyers can make offers and
         message you. You can offer shipping, local delivery, or pickup.
       </p>
       {loadingEdit ? (

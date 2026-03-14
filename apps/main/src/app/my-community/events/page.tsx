@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import { UnsaveButton } from "@/components/UnsaveButton";
+import { BackToProfileLink } from "@/components/BackToProfileLink";
 import { formatTime12h } from "@/lib/format-time";
 import { CALENDAR_TYPES } from "types";
 
@@ -28,6 +29,7 @@ export default async function MyEventsPage() {
 
   return (
     <>
+      <BackToProfileLink />
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <h1 className="text-2xl font-bold">My Events</h1>
         <Link

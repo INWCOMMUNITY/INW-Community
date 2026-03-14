@@ -143,7 +143,7 @@ The Resident plan ($10/month or yearly equivalent) provides:
 ● List items on the Resale Storefront.
 ● Exclusive hints in NWC scavenger hunts
 ● Support for the NWC mission
-Subscriptions renew automatically until canceled. You may manage or cancel your subscription at any time through the self-service billing portal (link in My Community) or by contacting NWC.
+Subscriptions renew automatically until canceled. You may manage or cancel your subscription at any time through the self-service billing portal (link in Inland Northwest Community) or by contacting NWC.
 
 8.1 Business & Seller Plans - Tax Responsibility
 Sponsors are responsible for their own taxes, reporting, EIN requirements, and legal compliance.
@@ -173,7 +173,7 @@ NWC remains impartial in promotions, except for two acknowledged personal affili
 ● $40/month (Seller)
 ● Yearly subscriptions are available at equivalent annual rates (e.g., $100/year Resident, $250/year Business, $400/year Seller) when configured in Stripe.
 ● Payment information is required at signup. Automatic renewal continues until canceled.
-● Cancellation: You may cancel at any time via the self-service billing portal (My Community → Manage Subscription) or by contacting NWC via phone or email.
+● Cancellation: You may cancel at any time via the self-service billing portal (Edit profile → Manage Subscription) or by contacting NWC via phone or email.
 ● Up to 1 month may be refunded for dissatisfaction.
 ● Upon cancellation, all business information will be removed from NWC unless a Business or Seller requests to cancel at the time of their next payment period. It will be canceled when the service is no longer paid for.
 ● Subscribers are responsible for maintaining up-to-date payment information to avoid unintended service interruptions.

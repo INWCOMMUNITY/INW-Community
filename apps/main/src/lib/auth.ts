@@ -1,4 +1,5 @@
 import CredentialsProvider from "next-auth/providers/credentials";
+import { getServerSession as nextAuthGetServerSession } from "next-auth";
 import { prisma } from "database";
 import bcrypt from "bcryptjs";
 
@@ -67,3 +68,21 @@ export const authOptions = {
   // Required on Vercel so NextAuth uses the request host for callbacks/cookies
   trustHost: true,
 };
+
+/**
+ * Safe wrapper for getServerSession. When the request context or cookies are
+ * null (e.g. in some App Router / edge cases), next-auth can throw
+ * "Cannot read properties of null (reading 'get')". This catches that and
+ * returns null so the app renders instead of crashing.
+ */
+export async function getServerSession(options?: typeof authOptions) {
+  try {
+    return await nextAuthGetServerSession(options ?? authOptions);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("reading 'get')") || msg.includes("null")) {
+      return null;
+    }
+    throw e;
+  }
+}

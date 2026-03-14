@@ -35,7 +35,7 @@ export default function MySellersPage() {
 
   if (status === "unauthenticated") {
     return (
-      <div className="max-w-2xl mx-auto p-6">
+      <div className="max-w-4xl mx-auto p-6">
         <h1 className="text-2xl font-bold mb-4">My Sellers</h1>
         <p className="text-gray-600 mb-4">Sign in to see the sellers you follow.</p>
         <Link href={`/login?callbackUrl=${encodeURIComponent("/my-community/sellers")}`} className="btn">
@@ -47,14 +47,14 @@ export default function MySellersPage() {
 
   if (loading) {
     return (
-      <div className="max-w-2xl mx-auto p-6">
+      <div className="max-w-4xl mx-auto p-6">
         <p className="text-gray-600">Loading...</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
+    <div className="max-w-4xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-6">My Sellers</h1>
       {sellers.length === 0 ? (
         <div className="border-2 rounded-lg p-8 text-center" style={{ borderColor: "var(--color-primary)" }}>

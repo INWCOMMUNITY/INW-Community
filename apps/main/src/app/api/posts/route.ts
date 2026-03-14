@@ -60,8 +60,16 @@ export async function POST(req: NextRequest) {
 
     if (data.sharedItemType && data.sharedItemId) {
       type = `shared_${data.sharedItemType}` as "shared_business" | "shared_coupon" | "shared_reward" | "shared_store_item";
-      if (data.sharedItemType === "business") sourceBusinessId = data.sharedItemId;
-      else if (data.sharedItemType === "coupon") sourceCouponId = data.sharedItemId;
+      if (data.sharedItemType === "business") {
+        const biz = await prisma.business.findUnique({
+          where: { id: data.sharedItemId },
+          select: { memberId: true },
+        });
+        if (!biz || biz.memberId !== session.user.id) {
+          return NextResponse.json({ error: "You can only post as your own business." }, { status: 403 });
+        }
+        sourceBusinessId = data.sharedItemId;
+      } else if (data.sharedItemType === "coupon") sourceCouponId = data.sharedItemId;
       else if (data.sharedItemType === "reward") sourceRewardId = data.sharedItemId;
       else if (data.sharedItemType === "store_item") sourceStoreItemId = data.sharedItemId;
     }

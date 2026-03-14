@@ -114,7 +114,7 @@ export function SellerSidebar({ mobile }: { mobile?: boolean } = {}) {
     { href: "/seller-hub/store", label: "Storefront Info" },
     { href: "/seller-hub/shipping-setup", label: "Set Up Easy Post" },
     { href: "/seller-hub/sponsor-hub", label: "Sponsor Hub" },
-    { href: "/sponsor-hub/business", label: "My Local Business Page" },
+    { href: "/seller-hub/sponsor-hub", label: "My Local Business Page" },
     { href: "/seller-hub/time-away", label: "Time Away" },
   ];
 

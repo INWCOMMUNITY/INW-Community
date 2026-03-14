@@ -32,6 +32,8 @@ interface BusinessFormProps {
   /** When "signup", form calls onDataReady instead of POSTing; used in signup flow */
   mode?: "edit" | "signup";
   onDataReady?: (data: BusinessFormData) => void;
+  /** When provided, called after successful save instead of navigating to /business-hub/business */
+  onSuccess?: () => void;
 }
 
 function parseHours(ho: unknown): HoursRecord {
@@ -44,7 +46,7 @@ function parseHours(ho: unknown): HoursRecord {
   return r;
 }
 
-export function BusinessForm({ existing, mode = "edit", onDataReady }: BusinessFormProps) {
+export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }: BusinessFormProps) {
   const router = useRouter();
   const [name, setName] = useState(existing?.name ?? "");
   const [shortDescription, setShortDescription] = useState(existing?.shortDescription ?? "");
@@ -200,7 +202,8 @@ export function BusinessForm({ existing, mode = "edit", onDataReady }: BusinessF
         setError(getErrorMessage(data.error, "Failed to save."));
         return;
       }
-      router.push("/sponsor-hub/business");
+      if (onSuccess) onSuccess();
+      else router.push("/business-hub/business");
       router.refresh();
     } finally {
       setSubmitting(false);

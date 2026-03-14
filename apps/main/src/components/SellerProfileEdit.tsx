@@ -29,10 +29,6 @@ interface SellerProfileEditProps {
       coverPhotoUrl?: string | null;
       slug: string;
     } | null;
-    sellerLocalDeliveryPolicy?: string | null;
-    sellerPickupPolicy?: string | null;
-    sellerShippingPolicy?: string | null;
-    sellerReturnPolicy?: string | null;
     packingSlipNote?: string | null;
   } | null;
   onSaved: () => void;
@@ -46,10 +42,6 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
   const [fullDescription, setFullDescription] = useState("");
   const [website, setWebsite] = useState("");
   const [address, setAddress] = useState("");
-  const [localDeliveryPolicy, setLocalDeliveryPolicy] = useState("");
-  const [pickupPolicy, setPickupPolicy] = useState("");
-  const [shippingPolicy, setShippingPolicy] = useState("");
-  const [returnPolicy, setReturnPolicy] = useState("");
   const [packingSlipNote, setPackingSlipNote] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
@@ -70,18 +62,7 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
       setCoverPhotoUrl((profile.business as { coverPhotoUrl?: string | null }).coverPhotoUrl ?? "");
     }
     if (profile) {
-      setLocalDeliveryPolicy(
-        (profile as { sellerLocalDeliveryPolicy?: string | null }).sellerLocalDeliveryPolicy ?? ""
-      );
-      setPickupPolicy(
-        (profile as { sellerPickupPolicy?: string | null }).sellerPickupPolicy ?? ""
-      );
-      setShippingPolicy(
-        (profile as { sellerShippingPolicy?: string | null }).sellerShippingPolicy ?? ""
-      );
-      setReturnPolicy(
-        (profile as { sellerReturnPolicy?: string | null }).sellerReturnPolicy ?? ""
-      );
+      setPackingSlipNote(profile.packingSlipNote ?? "");
     }
   }, [profile]);
 
@@ -104,10 +85,6 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
             logoUrl: logoUrl.trim() || null,
             coverPhotoUrl: coverPhotoUrl.trim() || null,
           },
-          sellerLocalDeliveryPolicy: localDeliveryPolicy.trim() || null,
-          sellerPickupPolicy: pickupPolicy.trim() || null,
-          sellerShippingPolicy: shippingPolicy.trim() || null,
-          sellerReturnPolicy: returnPolicy.trim() || null,
           packingSlipNote: packingSlipNote.trim() || null,
         }),
       });
@@ -265,54 +242,6 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className="w-full max-w-full min-w-0 border rounded px-3 py-2 box-border"
-            />
-          </div>
-        </div>
-      </section>
-
-      <section className="border rounded-lg p-6 bg-gray-50 min-w-0 overflow-hidden">
-        <h3 className="font-semibold mb-4">Seller Policy</h3>
-        <div className="grid gap-4 min-w-0">
-          <div className="min-w-0">
-            <label className="block text-sm font-medium mb-1">
-              Local Delivery Policy
-            </label>
-            <textarea
-              value={localDeliveryPolicy}
-              onChange={(e) => setLocalDeliveryPolicy(e.target.value)}
-              rows={3}
-              className="w-full max-w-full min-w-0 border rounded px-3 py-2 box-border"
-              placeholder="Describe your local delivery areas, fees, and how you coordinate delivery..."
-            />
-          </div>
-          <div className="min-w-0">
-            <label className="block text-sm font-medium mb-1">Pickup Policy</label>
-            <textarea
-              value={pickupPolicy}
-              onChange={(e) => setPickupPolicy(e.target.value)}
-              rows={3}
-              className="w-full max-w-full min-w-0 border rounded px-3 py-2 box-border"
-              placeholder="Describe where and when buyers can pick up items (e.g. location, contact method, hours)..."
-            />
-          </div>
-          <div className="min-w-0">
-            <label className="block text-sm font-medium mb-1">Shipping Policy</label>
-            <textarea
-              value={shippingPolicy}
-              onChange={(e) => setShippingPolicy(e.target.value)}
-              rows={3}
-              className="w-full max-w-full min-w-0 border rounded px-3 py-2 box-border"
-              placeholder="e.g. 2-5 business days via USPS. Free over $50."
-            />
-          </div>
-          <div className="min-w-0">
-            <label className="block text-sm font-medium mb-1">Return Policy</label>
-            <textarea
-              value={returnPolicy}
-              onChange={(e) => setReturnPolicy(e.target.value)}
-              rows={3}
-              className="w-full max-w-full min-w-0 border rounded px-3 py-2 box-border"
-              placeholder="Describe your return policy..."
             />
           </div>
           <div className="min-w-0">

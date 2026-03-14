@@ -4,6 +4,7 @@ import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
+import { IonIcon } from "@/components/IonIcon";
 
 const SELLER_HUB_HEADER_IMAGE =
   "2bdd49_f582d22b864044b096a7f124f1b6efda~mv2.jpg/v1/fill/w_1920,h_640,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principle%203_edited.jpg";
@@ -73,8 +74,9 @@ export default async function SellerHubPage() {
           <div className="flex flex-wrap justify-center gap-8">
             <Link
               href="/seller-hub/store"
-              className="w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)]"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
             >
+              <IonIcon name="storefront" size={28} className="text-[var(--color-primary)] mb-2" />
               <h2 className="text-xl font-bold mb-2">Storefront Info</h2>
               <p className="text-sm text-gray-600">
                 View and edit your store information, policies, and payment setup.
@@ -82,27 +84,40 @@ export default async function SellerHubPage() {
             </Link>
             <Link
               href="/seller-hub/store/items"
-              className="w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)]"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
             >
+              <IonIcon name="add-circle" size={28} className="text-[var(--color-primary)] mb-2" />
               <h2 className="text-xl font-bold mb-2">List Items</h2>
               <p className="text-sm text-gray-600">
                 Add products to the NWC Storefront. Set prices, photos, shipping, and receive payments directly.
               </p>
             </Link>
             <Link
-              href="/seller-hub/orders"
-              className="w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)]"
+              href="/seller-hub/store/manage"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
             >
-              <h2 className="text-xl font-bold mb-2">View Orders</h2>
+              <IonIcon name="list" size={28} className="text-[var(--color-primary)] mb-2" />
+              <h2 className="text-xl font-bold mb-2">Manage Store</h2>
               <p className="text-sm text-gray-600">
-                See orders from your storefront. Mark as shipped when you send them.
+                View your listings, sold items, offers, and refund requests.
+              </p>
+            </Link>
+            <Link
+              href="/seller-hub/orders"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+            >
+              <IonIcon name="receipt" size={28} className="text-[var(--color-primary)] mb-2" />
+              <h2 className="text-xl font-bold mb-2">My Orders / Ship Items</h2>
+              <p className="text-sm text-gray-600">
+                View orders, purchase shipping labels, and mark as shipped.
               </p>
             </Link>
             {hasLocalDelivery && (
               <Link
                 href="/seller-hub/deliveries"
-                className="w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)]"
+                className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
               >
+                <IonIcon name="bicycle" size={28} className="text-[var(--color-primary)] mb-2" />
                 <h2 className="text-xl font-bold mb-2">My Deliveries</h2>
                 <p className="text-sm text-gray-600">
                   View and confirm local delivery orders. Mark as delivered when complete.
@@ -111,16 +126,47 @@ export default async function SellerHubPage() {
             )}
             <Link
               href="/seller-hub/pickups"
-              className="w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-lg p-6 transition text-center hover:bg-[var(--color-section-alt)]"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
             >
+              <IonIcon name="hand-left-outline" size={28} className="text-[var(--color-primary)] mb-2" />
               <h2 className="text-xl font-bold mb-2">My Pickups</h2>
               <p className="text-sm text-gray-600">
                 View in-store pickup orders. Mark as picked up when the buyer collects.
               </p>
             </Link>
+            <Link
+              href="/seller-hub/store/payouts"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+            >
+              <IonIcon name="wallet" size={28} className="text-[var(--color-primary)] mb-2" />
+              <h2 className="text-xl font-bold mb-2">Payouts</h2>
+              <p className="text-sm text-gray-600">
+                View your balance and send funds to your bank account.
+              </p>
+            </Link>
+            <Link
+              href="/seller-hub/store"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+            >
+              <IonIcon name="book-outline" size={28} className="text-[var(--color-primary)] mb-2" />
+              <h2 className="text-xl font-bold mb-2">Policies</h2>
+              <p className="text-sm text-gray-600">
+                Set your shipping, delivery, pickup, and refund policies for your listings.
+              </p>
+            </Link>
+            <Link
+              href="/seller-hub/shipping-setup"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+            >
+              <IonIcon name="checkbox" size={28} className="text-[var(--color-primary)] mb-2" />
+              <h2 className="text-xl font-bold mb-2">Before You Start</h2>
+              <p className="text-sm text-gray-600">
+                Connect payment and shipping so you can list items and get paid.
+              </p>
+            </Link>
           </div>
           <div className="mt-12 pt-8 border-t border-gray-200">
-            <Link href="/sponsor-hub" className="text-primary-600 hover:underline font-medium inline-block px-4 py-2 rounded transition hover:bg-[var(--color-section-alt)]">
+            <Link href="/seller-hub/sponsor-hub" className="text-primary-600 hover:underline font-medium inline-block px-4 py-2 rounded transition hover:bg-[var(--color-section-alt)]">
               ← Go to Business Hub (business directory, coupons, events, rewards)
             </Link>
           </div>

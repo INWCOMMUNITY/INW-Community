@@ -42,7 +42,7 @@ function LoginForm() {
       <h1 className="text-2xl font-bold mb-6">Log in</h1>
       {fromSignup && (
         <p className="mb-4 p-3 rounded-lg text-sm" style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}>
-          Account created. Sign in below to continue to My Community.
+          Account created. Sign in below to continue to Inland Northwest Community.
         </p>
       )}
       {callbackUrl.includes("/admin") && (

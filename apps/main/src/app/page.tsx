@@ -4,6 +4,9 @@ import { Section } from "design-tokens";
 import { WIX_IMG, WIX_HERO_GALLERY, WIX_SUBSCRIBE_BACKGROUND, CALENDAR_IMAGES } from "@/lib/wix-media";
 import { getSiteImageUrl } from "@/lib/site-images";
 
+/** Green background used by logo section and Goals section right column (match opacity). */
+const SECTION_GREEN_BG = "rgba(80, 85, 66, 0.8)";
+
 export default async function HomePage() {
   const thanksLandscapeUrl = await getSiteImageUrl("thanks-landscape");
   return (
@@ -45,7 +48,7 @@ export default async function HomePage() {
 
       <section
         className="grid grid-cols-1 md:grid-cols-2 min-w-0 w-full max-w-none items-center border-t-2 border-b-2"
-        style={{ borderColor: "rgba(80, 85, 66, 0.8)" }}
+        style={{ borderColor: SECTION_GREEN_BG }}
       >
         <div className="bg-white py-12 px-6 md:px-8 md:pr-12 text-center">
           <h1 className="text-3xl md:text-4xl font-bold mb-1" style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}>
@@ -70,7 +73,7 @@ export default async function HomePage() {
         </div>
         <div
           className="flex justify-center items-center p-6 md:p-8 md:pl-8 min-h-[280px] md:min-h-[340px] w-full"
-          style={{ backgroundColor: "rgba(80, 85, 66, 0.8)" }}
+          style={{ backgroundColor: SECTION_GREEN_BG }}
         >
           <Image
             src={WIX_IMG("2bdd49_9e1e39816a194b7d9e3557eb8a025cad~mv2.jpg/v1/fill/w_1400,h_1446,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Photo%20Nov%2007%202025%2C%209%2033%2002%20PM.jpg")}
@@ -95,7 +98,7 @@ export default async function HomePage() {
           <p className="mb-6 max-w-xl mx-auto">
             Look no further, here is a shortcut to registering a Sponsor for this company. As well as registering your business information.
           </p>
-          <Link href="/sponsor-hub" className="btn-sponsors">Sponsor Northwest Community</Link>
+          <Link href="/business-hub" className="btn-sponsors">Business Hub</Link>
         </div>
       </section>
 

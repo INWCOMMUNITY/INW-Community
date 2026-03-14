@@ -40,7 +40,7 @@ export function CreateListingModal({ open, onClose }: CreateListingModalProps) {
         </div>
         <div className="flex-1 min-h-0 p-4 overflow-y-auto bg-white flex flex-col items-center">
           <p className="text-gray-600 text-sm mb-4 text-center">
-            Your item will appear on Community Resale. Buyers can make offers and message you.
+            Your item will appear on NWC Resale. Buyers can make offers and message you.
           </p>
           <div className="w-full flex justify-center">
             <StoreItemForm

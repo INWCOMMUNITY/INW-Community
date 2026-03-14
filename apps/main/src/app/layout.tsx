@@ -1,11 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { getServerSession } from "next-auth";
 import { Fahkwang } from "next/font/google";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
-import { authOptions } from "@/lib/auth";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+import { getServerSession } from "@/lib/auth";
+import { ConditionalHeader } from "@/components/ConditionalSiteChrome";
+import { ConditionalFooter } from "@/components/ConditionalSiteChrome";
 import { Providers } from "@/components/Providers";
 import { ThemeLoader } from "@/components/ThemeLoader";
 
@@ -42,15 +41,15 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   return (
     <html lang="en" className={`min-h-full ${fahkwang.variable}`}>
       <body className="min-h-screen flex flex-col" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "var(--font-body)", color: "var(--color-text)", backgroundColor: "var(--color-background)" }}>
         <Providers session={session}>
           <ThemeLoader />
-          <Header />
+          <ConditionalHeader />
           <main className="flex-1 flex flex-col min-w-0">{children}</main>
-          <Footer />
+          <ConditionalFooter />
           <SpeedInsights />
         </Providers>
       </body>

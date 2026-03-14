@@ -51,12 +51,15 @@ interface CreatePostModalProps {
   visible: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  /** When set, post is created as a Business Post (posting as this business). Used when opening from Business Hub. */
+  initialBusinessForPost?: { id: string; name: string } | null;
 }
 
 export function CreatePostModal({
   visible,
   onClose,
   onSuccess,
+  initialBusinessForPost,
 }: CreatePostModalProps) {
   const insets = useSafeAreaInsets();
   const [content, setContent] = useState("");
@@ -84,6 +87,13 @@ export function CreatePostModal({
   const [businessPickerOpen, setBusinessPickerOpen] = useState(false);
   const [myBusinesses, setMyBusinesses] = useState<BusinessItem[]>([]);
   const [businessLoading, setBusinessLoading] = useState(false);
+
+  // When opened as "Business Post" from Business Hub, pre-set the business
+  useEffect(() => {
+    if (visible && initialBusinessForPost) {
+      setSelectedBusiness({ id: initialBusinessForPost.id, name: initialBusinessForPost.name, slug: "" });
+    }
+  }, [visible, initialBusinessForPost?.id]);
 
   useEffect(() => {
     if (!tagPickerOpen) return;

@@ -18,10 +18,6 @@ interface SellerProfile {
     slug: string;
   } | null;
   hasStripeConnect: boolean;
-  sellerLocalDeliveryPolicy?: string | null;
-  sellerPickupPolicy?: string | null;
-  sellerShippingPolicy?: string | null;
-  sellerReturnPolicy?: string | null;
 }
 
 export default function SellerProfilePage() {
@@ -64,7 +60,7 @@ export default function SellerProfilePage() {
     <div className="w-full max-md:flex max-md:flex-col max-md:items-center max-md:overflow-x-hidden">
       <div className="w-full max-w-[var(--max-width)] max-md:mx-auto max-md:px-4 min-w-0">
         <h1 className="text-2xl font-bold mb-6 max-md:text-center">Northwest Community Seller Page</h1>
-        <div className="max-md:flex max-md:justify-center max-md:mb-6">
+        <div className="max-md:flex max-md:justify-center max-md:mb-8">
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -74,7 +70,7 @@ export default function SellerProfilePage() {
           </button>
         </div>
 
-        <div className="space-y-6 min-w-0">
+        <div className="space-y-6 min-w-0 mt-8">
           <section className="border rounded-lg p-6 bg-gray-50 min-w-0 overflow-hidden">
           <h2 className="text-lg font-semibold mb-4">Store Information</h2>
           <div className="grid gap-4 min-w-0">
@@ -123,40 +119,6 @@ export default function SellerProfilePage() {
                 </Link>
               </div>
             )}
-          </div>
-        </section>
-
-        <section className="border rounded-lg p-6 bg-gray-50 min-w-0 overflow-hidden">
-          <h2 className="text-lg font-semibold mb-4">Seller Policy</h2>
-          <div className="space-y-4 min-w-0">
-            <div className="min-w-0">
-              <h3 className="font-medium text-sm mb-1">Local Delivery Policy</h3>
-              <p className="text-sm text-gray-600 whitespace-pre-wrap break-words">
-                {(profile as SellerProfile & { sellerLocalDeliveryPolicy?: string | null })
-                  ?.sellerLocalDeliveryPolicy ?? "Not set."}
-              </p>
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-medium text-sm mb-1">Pickup Policy</h3>
-              <p className="text-sm text-gray-600 whitespace-pre-wrap break-words">
-                {(profile as SellerProfile & { sellerPickupPolicy?: string | null })
-                  ?.sellerPickupPolicy ?? "Not set."}
-              </p>
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-medium text-sm mb-1">Shipping Policy</h3>
-              <p className="text-sm text-gray-600 whitespace-pre-wrap break-words">
-                {(profile as SellerProfile & { sellerShippingPolicy?: string | null })
-                  ?.sellerShippingPolicy ?? "Not set."}
-              </p>
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-medium text-sm mb-1">Return Policy</h3>
-              <p className="text-sm text-gray-600 whitespace-pre-wrap break-words">
-                {(profile as SellerProfile & { sellerReturnPolicy?: string | null })
-                  ?.sellerReturnPolicy ?? "Not set."}
-              </p>
-            </div>
           </div>
         </section>
         </div>

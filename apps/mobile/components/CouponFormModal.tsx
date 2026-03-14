@@ -254,6 +254,11 @@ export function CouponFormModal({
             </View>
           ) : (
             <>
+              <View style={styles.disclosure}>
+                <Text style={styles.disclosureText}>
+                  Coupons are currently not enabled for our online storefront, a feature that will be implemented soon. These coupons are for physical in-person shopping.
+                </Text>
+              </View>
               <View style={styles.field}>
                 <Text style={styles.label}>Business *</Text>
                 <Pressable
@@ -504,6 +509,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: theme.colors.buttonText,
+  },
+  disclosure: {
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#d4a84b",
+    backgroundColor: "#fffbeb",
+  },
+  disclosureText: {
+    fontSize: 13,
+    color: "#92400e",
+    lineHeight: 19,
   },
   field: { marginBottom: 16 },
   label: {

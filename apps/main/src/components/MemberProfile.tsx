@@ -158,7 +158,7 @@ export function MemberProfile({
   }
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-4xl">
       <div className="flex flex-col sm:flex-row gap-6 items-start relative">
         {sessionUserId && !isOwnProfile && (
           <div className="absolute top-0 right-0" ref={menuRef}>

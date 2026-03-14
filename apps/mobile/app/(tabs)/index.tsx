@@ -346,8 +346,12 @@ export default function CommunityScreen() {
 
       <CreatePostModal
         visible={createPostVisible}
-        onClose={() => setCreatePostVisible(false)}
+        onClose={() => {
+          setCreatePostVisible(false);
+          createPostCtx?.setInitialBusinessForPost(null);
+        }}
         onSuccess={onRefresh}
+        initialBusinessForPost={createPostCtx?.initialBusinessForPost ?? undefined}
       />
 
       {shareToChatPost && (

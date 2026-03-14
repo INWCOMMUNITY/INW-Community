@@ -1,9 +1,5 @@
-import { CommunityPointsContent } from "./CommunityPointsContent";
+import { redirect } from "next/navigation";
 
 export default function CommunityPointsPage() {
-  return (
-    <div>
-      <CommunityPointsContent />
-    </div>
-  );
+  redirect("/my-community/my-rewards");
 }
