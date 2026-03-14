@@ -17,10 +17,18 @@ const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
 
 type ShippoWidget = { init: (o: { token: string; org: string }) => void; labelPurchase: (s: string, d: unknown) => void; on: (ev: string, cb: (arg: unknown) => void) => void };
 
+function isShippoReady(shippo: ShippoWidget | undefined): shippo is ShippoWidget {
+  return (
+    shippo != null &&
+    typeof shippo.init === "function" &&
+    typeof shippo.labelPurchase === "function"
+  );
+}
+
 function waitForShippo(): Promise<ShippoWidget | null> {
   return new Promise((resolve) => {
     const win = typeof window !== "undefined" ? (window as { shippo?: ShippoWidget }) : null;
-    if (win?.shippo?.init && win.shippo.labelPurchase) {
+    if (win?.shippo != null && isShippoReady(win.shippo)) {
       resolve(win.shippo);
       return;
     }
@@ -28,7 +36,7 @@ function waitForShippo(): Promise<ShippoWidget | null> {
     const maxAttempts = 80;
     const interval = setInterval(() => {
       const w = typeof window !== "undefined" ? (window as { shippo?: ShippoWidget }) : null;
-      if (w?.shippo?.init && w.shippo.labelPurchase) {
+      if (w?.shippo != null && isShippoReady(w.shippo)) {
         clearInterval(interval);
         resolve(w.shippo);
         return;
