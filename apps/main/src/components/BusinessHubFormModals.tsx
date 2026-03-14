@@ -11,6 +11,7 @@ import { BusinessForm } from "@/components/BusinessForm";
 import { DeleteBusinessButton } from "@/components/DeleteBusinessButton";
 import { CreatePostModal } from "@/components/CreatePostModal";
 import { IonIcon } from "@/components/IonIcon";
+import type { Business } from "database";
 
 interface BusinessOption {
   id: string;
@@ -658,11 +659,38 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
               ) : editingBusiness ? (
                 <>
                   <BusinessForm
-                    existing={{
-                      ...editingBusiness,
-                      name: editingBusiness.name ?? "",
-                      hoursOfOperation: editingBusiness.hoursOfOperation ?? null,
-                    }}
+                    existing={
+                      {
+                        ...editingBusiness,
+                        name: editingBusiness.name ?? "",
+                        shortDescription: editingBusiness.shortDescription ?? null,
+                        fullDescription: editingBusiness.fullDescription ?? null,
+                        website: editingBusiness.website ?? null,
+                        phone: editingBusiness.phone ?? null,
+                        email: editingBusiness.email ?? null,
+                        logoUrl: editingBusiness.logoUrl ?? null,
+                        coverPhotoUrl: editingBusiness.coverPhotoUrl ?? null,
+                        address: editingBusiness.address ?? null,
+                        city: editingBusiness.city ?? "",
+                        hoursOfOperation: editingBusiness.hoursOfOperation ?? null,
+                      } as Pick<
+                        Business,
+                        | "id"
+                        | "name"
+                        | "shortDescription"
+                        | "fullDescription"
+                        | "website"
+                        | "phone"
+                        | "email"
+                        | "logoUrl"
+                        | "coverPhotoUrl"
+                        | "address"
+                        | "city"
+                        | "categories"
+                        | "photos"
+                        | "hoursOfOperation"
+                      >
+                    }
                     onSuccess={handleBusinessSuccess}
                   />
                   <DeleteBusinessButton
