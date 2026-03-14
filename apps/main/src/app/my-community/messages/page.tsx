@@ -737,7 +737,7 @@ export default function MyCommunityMessagesPage() {
                   {groupConversations.map((c) => {
                     const last = c.messages?.[0];
                     const members = c.members ?? [];
-                    const name = c.name ?? members.map((m) => m.member?.firstName).filter(Boolean).join(", ") || "Group";
+                    const name = c.name ?? (members.map((m) => m.member?.firstName).filter(Boolean).join(", ") || "Group");
                     const firstPhoto = members[0]?.member?.profilePhotoUrl;
                     return (
                       <li key={c.id} className="border-b border-gray-200 last:border-0">
