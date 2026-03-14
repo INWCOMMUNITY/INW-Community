@@ -8,6 +8,7 @@ import { useSession } from "next-auth/react";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { ShareButton } from "@/components/ShareButton";
 import { useCart } from "@/contexts/CartContext";
+import { STORE_CATEGORIES, getSubcategoriesForCategory } from "@/lib/store-categories";
 
 function AddToCartButton({
   itemId,
@@ -94,6 +95,7 @@ interface StoreItem {
   description: string | null;
   photos: string[];
   category: string | null;
+  subcategory: string | null;
   priceCents: number;
   quantity: number;
   variants?: { name: string; options: string[] }[];
@@ -240,9 +242,9 @@ export function StorefrontGallery({
   const { data: session } = useSession();
   const { setOpen: setCartOpen } = useCart();
   const [items, setItems] = useState<StoreItem[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
   const [sizes, setSizes] = useState<string[]>([]);
   const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
   const [size, setSize] = useState("");
   const [searchInternal, setSearchInternal] = useState("");
   const search = searchProp ?? searchInternal;
@@ -282,7 +284,6 @@ export function StorefrontGallery({
     fetch(`/api/store-items?${params}`)
       .then((r) => r.json())
       .then((d) => {
-        if (Array.isArray(d?.categories)) setCategories(d.categories);
         if (Array.isArray(d?.sizes)) setSizes(d.sizes);
       })
       .catch(() => {});
@@ -292,17 +293,18 @@ export function StorefrontGallery({
     try {
       sessionStorage.setItem(
         storageKey,
-        JSON.stringify({ category, size, search, deliveryFilter })
+        JSON.stringify({ category, subcategory, size, search, deliveryFilter })
       );
     } catch {
       /* ignore */
     }
-  }, [storageKey, category, size, search, deliveryFilter]);
+  }, [storageKey, category, subcategory, size, search, deliveryFilter]);
 
   useEffect(() => {
     setFetchError(null);
     const params = new URLSearchParams({ listingType });
     if (category) params.set("category", category);
+    if (subcategory) params.set("subcategory", subcategory);
     if (size) params.set("size", size);
     if (search) params.set("search", search);
     if (deliveryFilter === "local") params.set("localDelivery", "1");
@@ -319,18 +321,29 @@ export function StorefrontGallery({
         setFetchError(err instanceof Error ? err.message : "Failed to load items.");
         setItems([]);
       });
-  }, [listingType, category, size, search, deliveryFilter]);
+  }, [listingType, category, subcategory, size, search, deliveryFilter]);
 
   const browsePanel = (
     <div className="rounded-lg border-2 bg-white shadow-sm overflow-hidden p-4" style={{ borderColor: "var(--color-primary)" }}>
       <h2 className="text-sm font-bold text-gray-900 mb-3">Browse by</h2>
       <div className="h-px bg-gray-200 my-3" aria-hidden />
       <nav className="flex flex-col gap-0.5">
-        <button type="button" onClick={() => { setCategory(""); setBrowseOpen(false); }} className={`text-left py-1.5 text-sm ${category === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All Products</button>
-        {categories.map((c) => (
-          <button key={c} type="button" onClick={() => { setCategory(c); setBrowseOpen(false); }} className={`text-left py-1.5 text-sm ${category === c ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{c}</button>
+        <button type="button" onClick={() => { setCategory(""); setSubcategory(""); setBrowseOpen(false); }} className={`text-left py-1.5 text-sm ${category === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All Products</button>
+        {STORE_CATEGORIES.map((c) => (
+          <button key={c.label} type="button" onClick={() => { setCategory(c.label); setSubcategory(""); setBrowseOpen(false); }} className={`text-left py-1.5 text-sm ${category === c.label ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{c.label}</button>
         ))}
       </nav>
+      {category && getSubcategoriesForCategory(category).length > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-200">
+          <p className="text-xs font-medium text-gray-600 mb-2">Subcategory</p>
+          <nav className="flex flex-col gap-0.5">
+            <button type="button" onClick={() => setSubcategory("")} className={`text-left py-1.5 text-sm ${subcategory === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All</button>
+            {getSubcategoriesForCategory(category).map((s) => (
+              <button key={s} type="button" onClick={() => setSubcategory(s)} className={`text-left py-1.5 text-sm pl-2 ${subcategory === s ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{s}</button>
+            ))}
+          </nav>
+        </div>
+      )}
     </div>
   );
 
@@ -380,11 +393,22 @@ export function StorefrontGallery({
         <h2 className="text-sm font-bold text-gray-900 mb-3">Browse by</h2>
         <div className="h-px bg-gray-200 my-3" aria-hidden />
         <nav className="flex flex-col gap-0.5">
-          <button type="button" onClick={() => setCategory("")} className={`text-left py-1.5 text-sm ${category === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All Products</button>
-          {categories.map((c) => (
-            <button key={c} type="button" onClick={() => setCategory(c)} className={`text-left py-1.5 text-sm ${category === c ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{c}</button>
+          <button type="button" onClick={() => { setCategory(""); setSubcategory(""); }} className={`text-left py-1.5 text-sm ${category === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All Products</button>
+          {STORE_CATEGORIES.map((c) => (
+            <button key={c.label} type="button" onClick={() => { setCategory(c.label); setSubcategory(""); }} className={`text-left py-1.5 text-sm ${category === c.label ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{c.label}</button>
           ))}
         </nav>
+        {category && getSubcategoriesForCategory(category).length > 0 && (
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            <p className="text-xs font-medium text-gray-600 mb-2">Subcategory</p>
+            <nav className="flex flex-col gap-0.5">
+              <button type="button" onClick={() => setSubcategory("")} className={`text-left py-1.5 text-sm ${subcategory === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All</button>
+              {getSubcategoriesForCategory(category).map((s) => (
+                <button key={s} type="button" onClick={() => setSubcategory(s)} className={`text-left py-1.5 text-sm pl-2 ${subcategory === s ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{s}</button>
+              ))}
+            </nav>
+          </div>
+        )}
       </div>
       <div>
         <h2 className="text-sm font-bold text-gray-900 mb-3">Filter by</h2>

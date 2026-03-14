@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { getErrorMessage } from "@/lib/api-error";
+import { CityPicker } from "@/components/CityPicker";
 import { CALENDAR_TYPES, type CalendarType } from "types";
 
 const VALID_CALENDAR_VALUES = new Set<string>(CALENDAR_TYPES.map((c) => c.value));
@@ -29,6 +30,7 @@ export function EventForm({
   const [time, setTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [location, setLocation] = useState("");
+  const [city, setCity] = useState("");
   const [description, setDescription] = useState("");
   const [calendarType, setCalendarType] = useState<CalendarType>(() =>
     initialCalendarType && VALID_CALENDAR_VALUES.has(initialCalendarType)
@@ -93,6 +95,7 @@ export function EventForm({
           time: time || null,
           endTime: endTime || null,
           location: location || null,
+          city: city || null,
           description: description || null,
           calendarType: effectiveCalendarType,
           photos,
@@ -204,7 +207,16 @@ export function EventForm({
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">Location</label>
+        <label className="block text-sm font-medium mb-1">City</label>
+        <CityPicker
+          value={city}
+          onChange={setCity}
+          placeholder="Search or select city"
+          className="w-full border rounded px-3 py-2"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Location (address or venue)</label>
         <input
           type="text"
           value={location}

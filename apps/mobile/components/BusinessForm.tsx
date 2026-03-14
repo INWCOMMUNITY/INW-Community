@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { theme } from "@/lib/theme";
+import { PREBUILT_CITIES } from "@/lib/prebuilt-cities";
 import { apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -88,7 +89,10 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
   const [email, setEmail] = useState(existing?.email ?? "");
   const [logoUrl, setLogoUrl] = useState(existing?.logoUrl ?? "");
   const [address, setAddress] = useState(existing?.address ?? "");
-  const [city, setCity] = useState(existing?.city ?? "");
+  const existingCity = existing?.city ?? "";
+  const isPrebuiltCity = existingCity && PREBUILT_CITIES.includes(existingCity as (typeof PREBUILT_CITIES)[number]);
+  const [city, setCity] = useState(isPrebuiltCity ? existingCity : (existingCity ? "Other" : ""));
+  const [customCity, setCustomCity] = useState(!isPrebuiltCity ? existingCity : "");
   const [categories, setCategories] = useState<string[]>(() => {
     const cats = existing?.categories ?? [];
     if (cats.length === 0) return [""];
@@ -202,6 +206,11 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       setError("At least one category is required.");
       return;
     }
+    const effectiveCity = city === "Other" ? customCity.trim() : city.trim();
+    if (!effectiveCity) {
+      setError("City is required.");
+      return;
+    }
     if (!onDraftSubmit && !existing && !logoUrl.trim()) {
       setError("Logo is required.");
       return;
@@ -218,7 +227,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         email: email.trim() || null,
         logoUrl: logoUrl.trim() || null,
         address: address.trim() || null,
-        city: city.trim() || null,
+        city: (city === "Other" ? customCity.trim() : city.trim()) || null,
         categories: cats,
         photos,
         hoursOfOperation: (() => {
@@ -380,13 +389,42 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>City *</Text>
-          <TextInput
-            style={styles.input}
-            value={city}
-            onChangeText={setCity}
-            placeholder="e.g. Coeur d'Alene"
-            placeholderTextColor={theme.colors.placeholder}
-          />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.pickerScroll}
+            contentContainerStyle={styles.pickerRow}
+          >
+            {[...PREBUILT_CITIES, "Other"].map((c) => (
+              <Pressable
+                key={c}
+                style={[
+                  styles.pickerOption,
+                  city === c && styles.pickerOptionSelected,
+                ]}
+                onPress={() => setCity(c)}
+              >
+                <Text
+                  style={[
+                    styles.pickerOptionText,
+                    city === c && styles.pickerOptionTextSelected,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {c}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          {city === "Other" && (
+            <TextInput
+              style={[styles.input, { marginTop: 8 }]}
+              value={customCity}
+              onChangeText={setCustomCity}
+              placeholder="Enter your city"
+              placeholderTextColor={theme.colors.placeholder}
+            />
+          )}
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Business categories (up to 2) *</Text>
@@ -568,6 +606,18 @@ const styles = StyleSheet.create({
   },
   removePhotoText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   error: { color: "#c00", fontSize: 14, marginBottom: 12 },
+  pickerScroll: { marginHorizontal: -4 },
+  pickerRow: { flexDirection: "row", gap: 8, paddingHorizontal: 4, flexWrap: "wrap" },
+  pickerOption: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  pickerOptionSelected: { backgroundColor: theme.colors.primary },
+  pickerOptionText: { fontSize: 13, color: theme.colors.heading },
+  pickerOptionTextSelected: { color: theme.colors.buttonText },
   submitBtn: {
     backgroundColor: theme.colors.primary,
     paddingVertical: 16,

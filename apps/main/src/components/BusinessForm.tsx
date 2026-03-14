@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
+import { CityPicker } from "@/components/CityPicker";
 import type { Business } from "database";
 
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
@@ -349,13 +350,12 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
       </div>
       <div>
         <label className="block text-sm font-medium mb-1">City *</label>
-        <input
-          type="text"
+        <CityPicker
           value={city}
-          onChange={(e) => setCity(e.target.value)}
+          onChange={setCity}
           required
+          placeholder="Search or select city (e.g. Coeur d'Alene)"
           className="w-full border rounded px-3 py-2"
-          placeholder="e.g. Coeur d'Alene"
         />
       </div>
       <div>

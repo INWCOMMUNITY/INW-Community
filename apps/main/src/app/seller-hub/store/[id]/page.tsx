@@ -53,6 +53,7 @@ export default async function EditStoreItemPage({
             description: item.description,
             photos: item.photos,
             category: item.category,
+            subcategory: item.subcategory,
             priceCents: item.priceCents,
             variants: item.variants,
             quantity: item.quantity,

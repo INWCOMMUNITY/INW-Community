@@ -13,6 +13,7 @@ const bodySchema = z.object({
   description: z.string().nullable().optional(),
   photos: z.array(z.string()).optional(),
   category: z.string().nullable().optional(),
+  subcategory: z.string().nullable().optional(),
   priceCents: z.number().int().min(1).optional(),
   variants: z.unknown().nullable().optional(),
   quantity: z.number().int().min(1, "Quantity must be at least 1 to list.").optional(),
@@ -195,6 +196,7 @@ export async function PATCH(
   if (data.description !== undefined) update.description = data.description?.trim() || null;
   if (data.photos !== undefined) update.photos = data.photos;
   if (data.category !== undefined) update.category = data.category?.trim() || null;
+  if (data.subcategory !== undefined) update.subcategory = data.subcategory?.trim() || null;
   if (data.priceCents !== undefined) update.priceCents = data.priceCents;
   if (data.variants !== undefined) {
     update.variants = data.variants;

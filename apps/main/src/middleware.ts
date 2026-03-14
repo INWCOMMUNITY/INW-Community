@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Allow admin app (localhost:3001) to call main app APIs
-const ADMIN_ORIGINS = [
-  "http://localhost:3001",
-  "http://127.0.0.1:3001",
-];
+// Allow admin app to call main app /api/admin (CORS). Production admin URL from env.
+function getAdminOrigins(): string[] {
+  const base = ["http://localhost:3001", "http://127.0.0.1:3001"];
+  const env = process.env.ADMIN_APP_ORIGIN?.trim();
+  if (!env) return base;
+  return [...base, ...env.split(",").map((o) => o.trim()).filter(Boolean)];
+}
 
 // Rate limit store for login attempts (best-effort in serverless)
 const loginAttempts = new Map<string, number[]>();
@@ -30,9 +32,10 @@ function checkLoginRateLimit(ip: string): boolean {
 }
 
 function corsHeaders(req: NextRequest) {
+  const origins = getAdminOrigins();
   const origin = req.headers.get("origin");
   const allowOrigin =
-    origin && ADMIN_ORIGINS.includes(origin) ? origin : ADMIN_ORIGINS[0];
+    origin && origins.includes(origin) ? origin : origins[0];
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",

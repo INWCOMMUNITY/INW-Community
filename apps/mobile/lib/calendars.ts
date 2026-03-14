@@ -1,20 +1,9 @@
+import { PREBUILT_CITIES } from "./prebuilt-cities";
+
 /** Cities in Eastern Washington and Northern Idaho (NWC region). "All cities" for filter only. */
 export const EVENT_CITIES = [
   "All cities",
-  "Spokane",
-  "Spokane Valley",
-  "Coeur d'Alene",
-  "Post Falls",
-  "Liberty Lake",
-  "Cheney",
-  "Hayden",
-  "Rathdrum",
-  "Moscow",
-  "Pullman",
-  "Sandpoint",
-  "Kellogg",
-  "Lewiston",
-  "Clarkston",
+  ...PREBUILT_CITIES,
   "Other",
 ] as const;
 

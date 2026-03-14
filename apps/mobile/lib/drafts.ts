@@ -13,6 +13,7 @@ export interface StoreItemDraft {
   description: string;
   photos: string[];
   category: string;
+  subcategory?: string;
   priceCents: string;
   quantity: string;
   listingType: "new" | "resale";

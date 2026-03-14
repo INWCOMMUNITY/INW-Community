@@ -35,6 +35,11 @@ interface Business {
   slug: string;
 }
 
+interface StoreCategoryOption {
+  label: string;
+  subcategories: string[];
+}
+
 interface Meta {
   categories: string[];
   sizes: string[];
@@ -89,6 +94,7 @@ export default function ListItemScreen() {
     });
   }, [navigation, editId]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [storeCategories, setStoreCategories] = useState<StoreCategoryOption[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [sellerProfileShippingPolicy, setSellerProfileShippingPolicy] = useState("");
   const [sellerProfileLocalDeliveryPolicy, setSellerProfileLocalDeliveryPolicy] = useState("");
@@ -105,6 +111,8 @@ export default function ListItemScreen() {
   const [description, setDescription] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
+  const [useCustomCategory, setUseCustomCategory] = useState(false);
   const [priceCents, setPriceCents] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [listingType, setListingType] = useState<"new" | "resale">(listingTypeParam);
@@ -155,6 +163,7 @@ export default function ListItemScreen() {
       description,
       photos,
       category,
+      subcategory,
       priceCents,
       quantity,
       listingType,
@@ -180,6 +189,7 @@ export default function ListItemScreen() {
     description,
     photos,
     category,
+    subcategory,
     priceCents,
     quantity,
     listingType,
@@ -210,6 +220,7 @@ export default function ListItemScreen() {
         description: string | null;
         photos: string[];
         category: string | null;
+        subcategory: string | null;
         priceCents: number;
         quantity: number;
         shippingDisabled: boolean;
@@ -232,6 +243,7 @@ export default function ListItemScreen() {
           setDescription(item.description ?? "");
           setPhotos(item.photos ?? []);
           setCategory(item.category ?? "");
+          setSubcategory(item.subcategory ?? "");
           setPriceCents(item.priceCents != null ? (item.priceCents / 100).toFixed(2) : "");
           setQuantity(String(item.quantity ?? 1));
           setShippingDisabled(item.shippingDisabled ?? false);
@@ -272,6 +284,7 @@ export default function ListItemScreen() {
           setDescription(draft.description);
           setPhotos(draft.photos);
           setCategory(draft.category);
+          setSubcategory(draft.subcategory ?? "");
           setPriceCents(draft.priceCents);
           setQuantity(draft.quantity);
           setListingType(draft.listingType);
@@ -298,6 +311,12 @@ export default function ListItemScreen() {
       setLoadedDraft(true);
     }
   }, [draftId, editId, loadedDraft]);
+
+  useEffect(() => {
+    if (editId && category && storeCategories.length > 0 && !storeCategories.some((c) => c.label === category)) {
+      setUseCustomCategory(true);
+    }
+  }, [editId, category, storeCategories]);
 
   const shouldPreventRemove = hasContent && !submitting && !isExitingRef.current;
   usePreventRemove(shouldPreventRemove, ({ data }) => {
@@ -329,6 +348,9 @@ export default function ListItemScreen() {
         }
       })
       .catch(() => setBusinesses([]));
+    apiGet<{ categories: StoreCategoryOption[] }>("/api/store-categories")
+      .then((data) => setStoreCategories(data.categories ?? []))
+      .catch(() => setStoreCategories([]));
     apiGet<Meta>("/api/store-items?list=meta")
       .then((data) => setCategories((data as Meta).categories ?? []))
       .catch(() => setCategories([]));
@@ -560,6 +582,7 @@ export default function ListItemScreen() {
       description: description.trim() || null,
       photos,
       category: category.trim() || null,
+      subcategory: subcategory.trim() || null,
       priceCents: price,
       quantity: payloadQuantity,
       listingType: editId ? ("new" as const) : listingType,
@@ -853,14 +876,90 @@ export default function ListItemScreen() {
       </View>
 
       <Text style={styles.label}>Category</Text>
-      <TextInput
-        style={styles.input}
-        placeholder={categories.length ? `e.g. ${categories[0]}` : "Category"}
-        placeholderTextColor={placeholderColor}
-        value={category}
-        onChangeText={setCategory}
-        autoCorrect={true}
-      />
+      {useCustomCategory ? (
+        <>
+          <TextInput
+            style={styles.input}
+            placeholder="Your category"
+            placeholderTextColor={placeholderColor}
+            value={category}
+            onChangeText={setCategory}
+            autoCorrect={true}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Subcategory (optional)"
+            placeholderTextColor={placeholderColor}
+            value={subcategory}
+            onChangeText={setSubcategory}
+            autoCorrect={true}
+          />
+          <Pressable onPress={() => { setUseCustomCategory(false); setCategory(""); setSubcategory(""); }}>
+            <Text style={[styles.hint, { color: theme.colors.primary }]}>Choose from list</Text>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          {storeCategories.length > 0 && (
+            <>
+              <Text style={styles.hint}>Category</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                  {storeCategories.map((c) => (
+                    <Pressable
+                      key={c.label}
+                      style={[
+                        styles.typeBtn,
+                        category === c.label && styles.typeBtnActive,
+                      ]}
+                      onPress={() => { setCategory(c.label); setSubcategory(""); }}
+                    >
+                      <Text style={category === c.label ? styles.typeBtnTextActive : styles.typeBtnText} numberOfLines={1}>
+                        {c.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+              {category && storeCategories.find((c) => c.label === category)?.subcategories?.length ? (
+                <>
+                  <Text style={styles.hint}>Subcategory (optional)</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                      {storeCategories.find((c) => c.label === category)!.subcategories.map((s) => (
+                        <Pressable
+                          key={s}
+                          style={[styles.typeBtn, subcategory === s && styles.typeBtnActive]}
+                          onPress={() => setSubcategory(subcategory === s ? "" : s)}
+                        >
+                          <Text style={subcategory === s ? styles.typeBtnTextActive : styles.typeBtnText} numberOfLines={1}>
+                            {s}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </>
+              ) : null}
+            </>
+          )}
+          {storeCategories.length === 0 && (
+            <TextInput
+              style={styles.input}
+              placeholder="Category"
+              placeholderTextColor={placeholderColor}
+              value={category}
+              onChangeText={setCategory}
+              autoCorrect={true}
+            />
+          )}
+          {storeCategories.length > 0 && (
+            <Pressable onPress={() => setUseCustomCategory(true)}>
+              <Text style={[styles.hint, { color: theme.colors.primary }]}>Can&apos;t find your category? Add your own</Text>
+            </Pressable>
+          )}
+        </>
+      )}
 
       {/* Delivery options - three toggles from policy */}
       {policiesLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (

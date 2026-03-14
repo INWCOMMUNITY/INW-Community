@@ -15,6 +15,33 @@ import {
 const SHIPPO_ORG = "inw-community";
 const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
 
+type ShippoWidget = { init: (o: { token: string; org: string }) => void; labelPurchase: (s: string, d: unknown) => void; on: (ev: string, cb: (arg: unknown) => void) => void };
+
+function waitForShippo(): Promise<ShippoWidget | null> {
+  return new Promise((resolve) => {
+    const win = typeof window !== "undefined" ? (window as { shippo?: ShippoWidget }) : null;
+    if (win?.shippo?.init && win.shippo.labelPurchase) {
+      resolve(win.shippo);
+      return;
+    }
+    let attempts = 0;
+    const maxAttempts = 80;
+    const interval = setInterval(() => {
+      const w = typeof window !== "undefined" ? (window as { shippo?: ShippoWidget }) : null;
+      if (w?.shippo?.init && w.shippo.labelPurchase) {
+        clearInterval(interval);
+        resolve(w.shippo);
+        return;
+      }
+      attempts++;
+      if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        resolve(null);
+      }
+    }, 100);
+  });
+}
+
 interface OrderItem {
   id: string;
   quantity: number;
@@ -125,13 +152,16 @@ export default function SellerOrderDetailPage() {
         setElementsError("Could not get widget token.");
         return;
       }
-      const shippo =
+      let shippo =
         typeof window !== "undefined"
-          ? (window as { shippo?: { init: (o: { token: string; org: string }) => void; labelPurchase: (s: string, d: unknown) => void; on: (ev: string, cb: (arg: unknown) => void) => void } }).shippo
+          ? (window as { shippo?: ShippoWidget }).shippo
           : null;
       if (!shippo?.init || !shippo?.labelPurchase) {
-        setElementsError("Shippo widget is still loading. Try again in a moment.");
-        return;
+        shippo = await waitForShippo();
+        if (!shippo?.init || !shippo?.labelPurchase) {
+          setElementsError("Shippo widget is still loading. Try again in a moment.");
+          return;
+        }
       }
       shippo.init({ token, org: SHIPPO_ORG });
       if (!elementsListenersRef.current) {
@@ -207,7 +237,7 @@ export default function SellerOrderDetailPage() {
 
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-      <Script src={SHIPPO_EMBEDDABLE_URL} strategy="lazyOnload" />
+      <Script src={SHIPPO_EMBEDDABLE_URL} strategy="afterInteractive" />
       <div className="max-w-[var(--max-width)] mx-auto">
         <Link href="/seller-hub/orders" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
           ← Back to Orders

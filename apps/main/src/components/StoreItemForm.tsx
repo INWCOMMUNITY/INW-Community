@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
+import {
+  STORE_CATEGORIES,
+  getSubcategoriesForCategory,
+  filterStoreCategories,
+} from "@/lib/store-categories";
 
 interface Business {
   id: string;
@@ -20,6 +25,7 @@ interface StoreItemFormProps {
     description: string | null;
     photos: string[];
     category: string | null;
+    subcategory: string | null;
     priceCents: number;
     variants: unknown;
     quantity: number;
@@ -45,7 +51,6 @@ interface StoreItemFormProps {
 export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreItemFormProps) {
   const router = useRouter();
   const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
   const [businessId, setBusinessId] = useState(existing?.businessId ?? "");
   const [listingType, setListingType] = useState<"new" | "resale">(
     resaleOnly ? "resale" : (existing?.listingType ?? "new")
@@ -54,6 +59,12 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
   const [description, setDescription] = useState(existing?.description ?? "");
   const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
   const [category, setCategory] = useState(existing?.category ?? "");
+  const [subcategory, setSubcategory] = useState(existing?.subcategory ?? "");
+  const [categorySearch, setCategorySearch] = useState("");
+  const [useCustomCategory, setUseCustomCategory] = useState(() => {
+    const c = existing?.category ?? "";
+    return !!c && !STORE_CATEGORIES.some((x) => x.label === c);
+  });
   const [priceDollars, setPriceDollars] = useState(
     existing ? (existing.priceCents / 100).toFixed(2) : ""
   );
@@ -179,9 +190,6 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
           setBusinessId(bizData[0].id);
         }
       }
-      if (metaData?.categories) {
-        setCategories(metaData.categories);
-      }
       if (profileData?.sellerShippingPolicy) {
         setSellerProfileShippingPolicy(profileData.sellerShippingPolicy);
         if (!existing?.shippingPolicy && !existing) {
@@ -298,6 +306,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         description: description.trim() || null,
         photos,
         category: category.trim() || null,
+        subcategory: subcategory.trim() || null,
         priceCents,
         status: "active",
         listingType: resaleOnly ? "resale" : listingType,
@@ -564,28 +573,90 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         />
       </div>
 
-      {/* 4. Category */}
-      <div>
+      {/* 4. Category & Subcategory */}
+      <div className="space-y-3">
         <label className="block text-sm font-medium mb-1">Category</label>
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="w-full border rounded px-3 py-2"
-        >
-          <option value="">Select or type below</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          placeholder="Or type category"
-          className="w-full border rounded px-3 py-2 mt-1"
-        />
+        {useCustomCategory ? (
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="Enter your category"
+              className="w-full border rounded px-3 py-2"
+            />
+            <input
+              type="text"
+              value={subcategory}
+              onChange={(e) => setSubcategory(e.target.value)}
+              placeholder="Subcategory (optional)"
+              className="w-full border rounded px-3 py-2"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setUseCustomCategory(false);
+                setCategory("");
+                setSubcategory("");
+              }}
+              className="text-sm underline"
+              style={{ color: "var(--color-primary)" }}
+            >
+              Choose from list instead
+            </button>
+          </div>
+        ) : (
+          <>
+            <input
+              type="text"
+              value={categorySearch}
+              onChange={(e) => setCategorySearch(e.target.value)}
+              placeholder="Search categories..."
+              className="w-full border rounded px-3 py-2 mb-1"
+            />
+            <select
+              value={category}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCategory(v);
+                setSubcategory("");
+              }}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="">Select category</option>
+              {(categorySearch.trim()
+                ? filterStoreCategories(categorySearch)
+                : STORE_CATEGORIES
+              ).map((c) => (
+                <option key={c.label} value={c.label}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            {category && (
+              <select
+                value={subcategory}
+                onChange={(e) => setSubcategory(e.target.value)}
+                className="w-full border rounded px-3 py-2 mt-2"
+              >
+                <option value="">Select subcategory (optional)</option>
+                {getSubcategoriesForCategory(category).map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={() => setUseCustomCategory(true)}
+              className="text-sm underline mt-1 block"
+              style={{ color: "var(--color-primary)" }}
+            >
+              Can&apos;t find your category? Add your own
+            </button>
+          </>
+        )}
       </div>
 
       {/* 5. Price */}

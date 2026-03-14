@@ -749,6 +749,7 @@ model StoreItem {
   description         String?  @db.Text
   photos              String[]
   category            String?
+  subcategory         String?  @map("subcategory")
   priceCents          Int      @map("price_cents")
   variants            Json?    // [{ name: "Size", options: ["S","M","L"] }, ...]
   quantity            Int      @default(0)

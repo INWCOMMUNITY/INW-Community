@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl?.searchParams ?? new URLSearchParams();
     const mine = searchParams.get("mine");
     const category = searchParams.get("category");
+    const subcategory = searchParams.get("subcategory");
     const size = searchParams.get("size")?.trim();
     const search = searchParams.get("search")?.trim();
     const slug = searchParams.get("slug")?.trim() || undefined;
@@ -330,6 +331,7 @@ export async function GET(req: NextRequest) {
         ...sellerCanReceivePayment,
         AND: [{ category: { not: "Test" } }],
         ...(category ? { category } : {}),
+        ...(subcategory ? { subcategory } : {}),
         ...(memberId ? { memberId } : {}),
         ...(excludeId ? { id: { not: excludeId } } : {}),
         ...(reservedItemIds.length > 0 ? { id: { notIn: reservedItemIds } } : {}),
@@ -343,6 +345,7 @@ export async function GET(req: NextRequest) {
                 { title: { contains: search } },
                 { description: { contains: search } },
                 { category: { contains: search } },
+                { subcategory: { contains: search } },
               ],
             }
           : {}),
@@ -401,6 +404,7 @@ const bodySchema = z.object({
   description: z.string().nullable().optional(),
   photos: z.array(z.string()).default([]),
   category: z.string().nullable().optional(),
+  subcategory: z.string().nullable().optional(),
   priceCents: z.coerce.number().int().min(1, "Price must be at least 1 cent"),
   variants: z.unknown().nullable().optional(),
   quantity: z.coerce.number().int().min(1, "Quantity must be at least 1 to list.").default(1),
@@ -578,6 +582,7 @@ export async function POST(req: NextRequest) {
         description: data.description?.trim() || null,
         photos: Array.isArray(data.photos) ? data.photos.map((p) => (p != null ? String(p) : "")).filter(Boolean) : [],
         category: data.category?.trim() || null,
+        subcategory: data.subcategory?.trim() || null,
         priceCents,
         variants: data.variants === null ? Prisma.JsonNull : (data.variants as object),
         quantity,
