@@ -13,6 +13,7 @@ import {
   Share,
   ActivityIndicator,
   Alert,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -75,7 +76,11 @@ function Section({
   );
 }
 
+const SUPPORT_EMAIL = "donivan@pnwcommunity.com";
+
 const LEGAL_ITEMS: NavItem[] = [
+  { href: `mailto:${SUPPORT_EMAIL}`, label: "Email support" },
+  { href: `/web?url=${encodeURIComponent(siteBase + "/support-nwc")}&title=${encodeURIComponent("Support & Contact")}`, label: "Support & Contact" },
   { href: `/web?url=${encodeURIComponent(siteBase + "/terms")}&title=${encodeURIComponent("Terms of Service")}`, label: "Terms of Service" },
   { href: `/web?url=${encodeURIComponent(siteBase + "/privacy")}&title=${encodeURIComponent("Privacy Policy")}`, label: "Privacy Policy" },
 ];
@@ -211,6 +216,11 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     if (href === "action:logout") {
       onClose();
       signOut?.().then(() => router.replace("/(auth)/login" as any));
+      return;
+    }
+    if (href.startsWith("mailto:")) {
+      onClose();
+      Linking.openURL(href).catch(() => {});
       return;
     }
     onClose();

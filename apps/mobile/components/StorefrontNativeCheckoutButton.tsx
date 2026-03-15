@@ -182,37 +182,50 @@ export function StorefrontNativeCheckoutButton({
           suggestedFormatted?: { street: string; city: string; state: string; zip: string };
           error?: string;
         };
-        let validateData = await apiPost<ValidateRes>("/api/validate-address", {
-          street: payload.shippingAddress!.street,
-          city: payload.shippingAddress!.city,
-          state: payload.shippingAddress!.state,
-          zip: payload.shippingAddress!.zip,
-          requireCarrierVerification: true,
-        });
-        if (!validateData.valid && validateData.suggestedFormatted) {
-          validateData = await apiPost<ValidateRes>("/api/validate-address", {
-            street: validateData.suggestedFormatted.street,
-            city: validateData.suggestedFormatted.city,
-            state: validateData.suggestedFormatted.state,
-            zip: validateData.suggestedFormatted.zip,
+        try {
+          let validateData = await apiPost<ValidateRes>("/api/validate-address", {
+            street: payload.shippingAddress!.street,
+            city: payload.shippingAddress!.city,
+            state: payload.shippingAddress!.state,
+            zip: payload.shippingAddress!.zip,
             requireCarrierVerification: true,
           });
+          if (!validateData.valid && validateData.suggestedFormatted) {
+            validateData = await apiPost<ValidateRes>("/api/validate-address", {
+              street: validateData.suggestedFormatted.street,
+              city: validateData.suggestedFormatted.city,
+              state: validateData.suggestedFormatted.state,
+              zip: validateData.suggestedFormatted.zip,
+              requireCarrierVerification: true,
+            });
+          }
+          if (!validateData.valid) {
+            onError(validateData.error ?? "This address cannot be used for shipping. Please check street, city, state, and ZIP.");
+            setLoading(false);
+            setCheckingOut(false);
+            if (timeoutId != null) clearTimeout(timeoutId);
+            return;
+          }
+          checkoutPayload = {
+            ...payload,
+            shippingAddress: {
+              ...validateData.formatted!,
+              aptOrSuite: payload.shippingAddress!.aptOrSuite?.trim() || undefined,
+            },
+          };
+          onShippingAddressFormatted?.(checkoutPayload.shippingAddress!);
+        } catch (validateErr: unknown) {
+          const err = validateErr as { error?: string; status?: number };
+          if (err.status === 503 && (err.error ?? "").toLowerCase().includes("temporarily unavailable")) {
+            checkoutPayload = { ...payload };
+          } else {
+            onError(err.error ?? "Address verification failed. Please try again.");
+            setLoading(false);
+            setCheckingOut(false);
+            if (timeoutId != null) clearTimeout(timeoutId);
+            return;
+          }
         }
-        if (!validateData.valid) {
-          onError(validateData.error ?? "This address cannot be used for shipping. Please check street, city, state, and ZIP.");
-          setLoading(false);
-          setCheckingOut(false);
-          if (timeoutId != null) clearTimeout(timeoutId);
-          return;
-        }
-        checkoutPayload = {
-          ...payload,
-          shippingAddress: {
-            ...validateData.formatted!,
-            aptOrSuite: payload.shippingAddress!.aptOrSuite?.trim() || undefined,
-          },
-        };
-        onShippingAddressFormatted?.(checkoutPayload.shippingAddress!);
       }
 
       const data = await apiPost<{

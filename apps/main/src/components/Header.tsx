@@ -200,12 +200,13 @@ export function Header() {
                       <div className="w-full bg-white border-2 rounded-md shadow-lg" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
                         {(item.children ?? []).map((c) => {
                           const isChildActive = pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href));
+                          const isRewards = c.href === "/rewards";
                           return (
                             <Link
                               key={c.href}
                               href={c.href}
                               prefetch={false}
-                              className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base text-center whitespace-nowrap flex justify-center items-center ${isChildActive ? "text-white hover:opacity-90" : "hover:bg-[var(--color-section-alt)]"}`}
+                              className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base text-center whitespace-nowrap flex justify-center items-center ${isRewards ? "nav-link-rewards" : ""} ${isChildActive ? "text-white hover:opacity-90" : "hover:bg-[var(--color-section-alt)]"}`}
                               style={isChildActive ? { backgroundColor: SEGMENT_COLOR } : { color: "var(--color-primary)" }}
                             >
                               {c.label}

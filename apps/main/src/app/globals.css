@@ -85,6 +85,15 @@ a {
   text-decoration: none;
 }
 
+/* Rewards nav link: tan shiny rim on hover instead of primary blue/green */
+.nav-link-rewards {
+  border: 2px solid transparent;
+}
+.nav-link-rewards:hover {
+  border-color: var(--color-section-alt);
+  box-shadow: 0 0 0 1px rgba(253, 237, 204, 0.9), 0 2px 12px rgba(253, 237, 204, 0.5);
+}
+
 .btn {
   display: inline-block;
   padding: var(--button-padding);
