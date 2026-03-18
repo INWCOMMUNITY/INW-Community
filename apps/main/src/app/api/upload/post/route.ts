@@ -17,16 +17,16 @@ export async function POST(req: NextRequest) {
   }
 
   const formData = await req.formData();
-  const filePart = formData.get("file");
+  const filePart = formData.get("file") as unknown;
   const type = (formData.get("type") as string) || "image"; // image | video
   // Accept File or Blob (React Native / some runtimes send Blob for multipart file parts)
-  const file =
-    filePart instanceof File
-      ? filePart
-      : filePart instanceof Blob
-        ? new File([filePart], "upload.jpg", { type: filePart.type || "image/jpeg" })
-        : null;
-  if (!file || !(file instanceof Blob)) {
+  let file: File | null = null;
+  if (filePart instanceof File) {
+    file = filePart;
+  } else if (filePart instanceof Blob) {
+    file = new File([filePart], "upload.jpg", { type: filePart.type || "image/jpeg" });
+  }
+  if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
