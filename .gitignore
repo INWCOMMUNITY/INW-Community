@@ -12,6 +12,7 @@ last-vercel-build.log
 # Environment variables (secrets, DB URL, API keys)
 .env
 .env.*
+!.env.example
 .env.local
 .env.production
 .env.development
