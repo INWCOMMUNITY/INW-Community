@@ -9,6 +9,15 @@ function getAdminOrigins(): string[] {
   return [...base, ...env.split(",").map((o) => o.trim()).filter(Boolean)];
 }
 
+// Allow mobile app (Expo web, dev client) to call /api/* from different origin (CORS).
+function getMobileOrigins(): string[] {
+  return [
+    "http://localhost:8082",
+    "http://127.0.0.1:8082",
+    "http://192.168.0.127:8082",
+  ];
+}
+
 // Rate limit store for login attempts (best-effort in serverless)
 const loginAttempts = new Map<string, number[]>();
 const LOGIN_WINDOW_MS = 60 * 1000; // 1 minute
@@ -44,6 +53,20 @@ function corsHeaders(req: NextRequest) {
   };
 }
 
+function mobileCorsHeaders(req: NextRequest) {
+  const origins = getMobileOrigins();
+  const origin = req.headers.get("origin");
+  const allowOrigin =
+    origin && origins.includes(origin) ? origin : origins[0];
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Accept, Authorization, x-admin-code",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
 export function middleware(req: NextRequest) {
   // Rate limit login attempts (brute-force protection)
   if (req.method === "POST" && req.nextUrl.pathname === "/api/auth/callback/credentials") {
@@ -56,17 +79,32 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  if (!req.nextUrl.pathname.startsWith("/api/admin")) {
-    return NextResponse.next();
+  // CORS for admin app (/api/admin only)
+  if (req.nextUrl.pathname.startsWith("/api/admin")) {
+    const headers = corsHeaders(req);
+    if (req.method === "OPTIONS") {
+      return new NextResponse(null, { status: 204, headers });
+    }
+    const res = NextResponse.next();
+    Object.entries(headers).forEach(([k, v]) => res.headers.set(k, v));
+    return res;
   }
 
-  const headers = corsHeaders(req);
-
-  if (req.method === "OPTIONS") {
-    return new NextResponse(null, { status: 204, headers });
+  // CORS for mobile app (Expo web / dev client) calling any /api/*
+  const pathname = req.nextUrl.pathname;
+  if (pathname.startsWith("/api/")) {
+    const origin = req.headers.get("origin");
+    const mobileOrigins = getMobileOrigins();
+    if (origin && mobileOrigins.includes(origin)) {
+      const headers = mobileCorsHeaders(req);
+      if (req.method === "OPTIONS") {
+        return new NextResponse(null, { status: 204, headers });
+      }
+      const res = NextResponse.next();
+      Object.entries(headers).forEach(([k, v]) => res.headers.set(k, v));
+      return res;
+    }
   }
 
-  const res = NextResponse.next();
-  Object.entries(headers).forEach(([k, v]) => res.headers.set(k, v));
-  return res;
+  return NextResponse.next();
 }

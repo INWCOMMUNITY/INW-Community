@@ -10,6 +10,9 @@ const openSellerMenuRef: { current: (() => void) | null } = { current: null };
 export function useOpenSellerMenu() {
   return () => openSellerMenuRef.current?.();
 }
+
+/** Set from my-community when Business Hub is shown; header QR icon calls this. */
+export const openBusinessQRRef: { current: (() => void) | null } = { current: null };
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +23,7 @@ import { ResaleHubSideMenu } from "@/components/ResaleHubSideMenu";
 import { ProfileSideMenu } from "@/components/ProfileSideMenu";
 import { AppNavMenu } from "@/components/AppNavMenu";
 import { CommunitySideMenu } from "@/components/CommunitySideMenu";
+import { CreatePostModal } from "@/components/CreatePostModal";
 import { CreatePostProvider, useCreatePost } from "@/contexts/CreatePostContext";
 
 function TabBarIcon(props: {
@@ -258,8 +262,8 @@ function TabLayoutInner() {
   const openSideMenu = (routeName: string) => {
     if (routeName === "my-community") {
       if (profileView === "seller_hub") setSideMenuType("seller");
-      else if (profileView === "business_hub") setSideMenuType("business");
       else if (profileView === "resale_hub") setSideMenuType("resale");
+      else if (profileView === "business_hub") return; // Business Hub uses QR icon, no side menu
       else setSideMenuType("profile");
     } else if (routeName === "index") {
       setSideMenuType("community");
@@ -372,21 +376,37 @@ function TabLayoutInner() {
                 )}
               </Pressable>
             )
-          : () => (
-              <Pressable
-                style={{ marginRight: 16 }}
-                onPress={() => openSideMenu(route.name)}
-              >
-                {({ pressed }) => (
-                  <Ionicons
-                    name="menu"
-                    size={24}
-                    color="#ffffff"
-                    style={{ opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            ),
+          : route.name === "my-community" && profileView === "business_hub"
+            ? () => (
+                <Pressable
+                  style={{ marginRight: 16 }}
+                  onPress={() => openBusinessQRRef.current?.()}
+                >
+                  {({ pressed }) => (
+                    <Ionicons
+                      name="qr-code"
+                      size={24}
+                      color="#ffffff"
+                      style={{ opacity: pressed ? 0.7 : 1 }}
+                    />
+                  )}
+                </Pressable>
+              )
+            : () => (
+                <Pressable
+                  style={{ marginRight: 16 }}
+                  onPress={() => openSideMenu(route.name)}
+                >
+                  {({ pressed }) => (
+                    <Ionicons
+                      name="menu"
+                      size={24}
+                      color="#ffffff"
+                      style={{ opacity: pressed ? 0.5 : 1 }}
+                    />
+                  )}
+                </Pressable>
+              ),
       })}
     >
       <Tabs.Screen
@@ -463,7 +483,29 @@ function TabLayoutInner() {
       visible={sideMenuType === "community"}
       onClose={() => setSideMenuType(null)}
     />
+
+    <CreatePostModalInLayout />
     </>
+  );
+}
+
+function CreatePostModalInLayout() {
+  const createPostCtx = useCreatePost();
+  const createPostVisible = createPostCtx?.createPostVisible ?? false;
+  const setCreatePostVisible = createPostCtx?.setCreatePostVisible ?? (() => {});
+  return (
+    <CreatePostModal
+      visible={createPostVisible}
+      onClose={() => {
+        setCreatePostVisible(false);
+        createPostCtx?.setInitialBusinessForPost(null);
+      }}
+      onSuccess={() => {
+        setCreatePostVisible(false);
+        createPostCtx?.setInitialBusinessForPost(null);
+      }}
+      initialBusinessForPost={createPostCtx?.initialBusinessForPost ?? undefined}
+    />
   );
 }
 

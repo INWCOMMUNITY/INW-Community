@@ -457,7 +457,10 @@ export default function HomeScreen() {
               ) : null}
               {top10?.endDate ? (
                 <Text style={styles.prizeModalTimeLeft}>
-                  Time left: until {new Date(top10.endDate).toLocaleDateString()}
+                  {currentSeason?.name ?? "Season"} Ends: {(() => {
+                    const d = new Date(top10.endDate);
+                    return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+                  })()}
                 </Text>
               ) : null}
               {selectedPrizeForModal.business && (
@@ -543,8 +546,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   top10Section: {
-    width: "100%",
-    maxWidth: 320,
+    width: width - boxEdgeGap * 2,
+    marginHorizontal: -(containerPadding - boxEdgeGap),
+    alignSelf: "center",
     marginBottom: 24,
     borderWidth: 2,
     borderColor: theme.colors.primary,

@@ -22,6 +22,19 @@ export async function PATCH(
     if (data.name !== undefined) update.name = data.name.trim();
     if (data.startDate !== undefined) update.startDate = new Date(data.startDate);
     if (data.endDate !== undefined) update.endDate = new Date(data.endDate);
+    if (update.startDate && update.endDate && update.endDate < update.startDate) {
+      return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 });
+    }
+    if ((update.startDate ?? update.endDate) && !(update.startDate && update.endDate)) {
+      const existing = await prisma.season.findUnique({ where: { id }, select: { startDate: true, endDate: true } });
+      if (existing) {
+        const start = update.startDate ?? existing.startDate;
+        const end = update.endDate ?? existing.endDate;
+        if (end < start) {
+          return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 });
+        }
+      }
+    }
     const season = await prisma.season.update({
       where: { id },
       data: update,

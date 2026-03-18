@@ -12,9 +12,10 @@ export default function CommunityLayout() {
       }}
     >
       <Stack.Screen name="tags" options={{ title: "Tags" }} />
-      <Stack.Screen name="posts-photos" options={{ title: "Posts and Photos" }} />
+      <Stack.Screen name="posts-photos" options={{ title: "Posted Photos" }} />
       <Stack.Screen name="groups" options={{ title: "Community Groups" }} />
-      <Stack.Screen name="my-orders" options={{ title: "My Orders" }} />
+      <Stack.Screen name="group/[slug]" options={{ title: "Group" }} />
+      <Stack.Screen name="my-orders/index" options={{ title: "My Orders" }} />
       <Stack.Screen name="my-orders/[id]" options={{ title: "Order Details" }} />
       <Stack.Screen name="my-friends" options={{ title: "My Friends" }} />
       <Stack.Screen name="friend-requests" options={{ title: "Friend Requests" }} />

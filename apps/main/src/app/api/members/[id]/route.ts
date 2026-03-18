@@ -28,7 +28,7 @@ export async function GET(
       allTimePointsEarned: true,
       privacyLevel: true,
       memberBadges: {
-        select: { badge: { select: { id: true, name: true, slug: true } } },
+        select: { badge: { select: { id: true, name: true, slug: true, description: true } } },
       },
       savedItems: {
         where: { type: "business" },
@@ -69,6 +69,7 @@ export async function GET(
       allTimePointsEarned: member.allTimePointsEarned ?? 0,
       badges: [],
       favoriteBusinesses: [],
+      canSeeFullProfile: false,
     });
   }
 
@@ -89,7 +90,13 @@ export async function GET(
     bio: member.bio,
     city: member.city,
     allTimePointsEarned: member.allTimePointsEarned ?? 0,
-    badges: member.memberBadges.map((mb) => mb.badge),
+    badges: member.memberBadges.map((mb) => ({
+      id: mb.badge.id,
+      name: mb.badge.name,
+      slug: mb.badge.slug,
+      description: mb.badge.description,
+    })),
     favoriteBusinesses,
+    canSeeFullProfile: true,
   });
 }

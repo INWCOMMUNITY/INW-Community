@@ -17,9 +17,16 @@ export async function POST(req: NextRequest) {
   }
 
   const formData = await req.formData();
-  const file = formData.get("file") as File | null;
+  const filePart = formData.get("file");
   const type = (formData.get("type") as string) || "image"; // image | video
-  if (!file || !(file instanceof File)) {
+  // Accept File or Blob (React Native / some runtimes send Blob for multipart file parts)
+  const file =
+    filePart instanceof File
+      ? filePart
+      : filePart instanceof Blob
+        ? new File([filePart], "upload.jpg", { type: filePart.type || "image/jpeg" })
+        : null;
+  if (!file || !(file instanceof Blob)) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
@@ -36,7 +43,8 @@ export async function POST(req: NextRequest) {
     }, { status: 400 });
   }
 
-  const ext = path.extname(file.name) || (isVideo ? ".mp4" : ".jpg");
+  const name = file instanceof File ? file.name : "upload.jpg";
+  const ext = path.extname(name) || (isVideo ? ".mp4" : ".jpg");
   const subdir = isVideo ? "video" : "image";
   const filename = `post/${session.user.id}/${subdir}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 

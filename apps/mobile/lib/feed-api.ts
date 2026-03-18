@@ -78,6 +78,22 @@ export async function fetchFeed(cursor?: string): Promise<FeedResponse> {
   };
 }
 
+/** Fetch feed for a single group (posts directly in that group). Requires membership. */
+export async function fetchGroupFeed(
+  groupSlug: string,
+  cursor?: string
+): Promise<FeedResponse> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const data = await apiGet<FeedResponse>(
+    `/api/groups/${encodeURIComponent(groupSlug)}/feed?${params}`
+  );
+  return {
+    posts: data.posts ?? [],
+    nextCursor: data.nextCursor ?? null,
+  };
+}
+
 export async function toggleLike(postId: string): Promise<{ liked: boolean }> {
   return apiPost<{ liked: boolean }>(`/api/posts/${postId}/like`, {});
 }

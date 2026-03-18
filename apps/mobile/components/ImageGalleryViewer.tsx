@@ -6,11 +6,10 @@ import {
   Pressable,
   StyleSheet,
   Dimensions,
-  FlatList,
   Text,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { GestureDetector, Gesture, GestureHandlerRootView } from "react-native-gesture-handler";
+import { GestureDetector, Gesture, GestureHandlerRootView, FlatList } from "react-native-gesture-handler";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,

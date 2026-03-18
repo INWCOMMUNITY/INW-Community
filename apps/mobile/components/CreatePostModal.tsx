@@ -16,6 +16,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as FileSystem from "expo-file-system";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { getToken, apiUploadFile, apiGet } from "@/lib/api";
@@ -156,10 +158,34 @@ export function CreatePostModal({
         setError("Sign in to upload photos.");
         return;
       }
-      for (const asset of result.assets) {
+      const cacheDir = FileSystem.cacheDirectory;
+      const maxWidth = 1000;
+      for (let i = 0; i < result.assets.length; i++) {
+        const asset = result.assets[i];
+        let uriToUpload = asset.uri;
+        try {
+          const manipulated = await ImageManipulator.manipulateAsync(
+            asset.uri,
+            [{ resize: { width: maxWidth } }],
+            { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+          );
+          uriToUpload = manipulated.uri;
+        } catch {
+          // use original if resize fails
+        }
+        if (cacheDir) {
+          try {
+            const ext = uriToUpload.toLowerCase().endsWith(".png") ? ".png" : ".jpg";
+            const tempUri = `${cacheDir}post-upload-${Date.now()}-${i}${ext}`;
+            await FileSystem.copyAsync({ from: uriToUpload, to: tempUri });
+            uriToUpload = tempUri;
+          } catch {
+            // use current uri if copy fails
+          }
+        }
         const formData = new FormData();
         formData.append("file", {
-          uri: asset.uri,
+          uri: uriToUpload,
           type: asset.mimeType ?? "image/jpeg",
           name: "photo.jpg",
         } as unknown as Blob);

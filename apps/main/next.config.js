@@ -2,16 +2,22 @@ const path = require("path");
 const fs = require("fs");
 const { PrismaPlugin } = require("@prisma/nextjs-monorepo-workaround-plugin");
 
-// Load root .env so DATABASE_URL is always available when running from monorepo root
+// Load root .env so DATABASE_URL is always available when running from monorepo root.
+// In development, always apply root .env so the app uses the same DB as seed/scripts.
 const rootEnv = path.join(__dirname, "..", "..", ".env");
 if (fs.existsSync(rootEnv)) {
   const content = fs.readFileSync(rootEnv, "utf8");
+  const isDev = process.env.NODE_ENV !== "production";
   for (const line of content.split("\n")) {
     const m = line.match(/^([^#=]+)=(.*)$/);
     if (m) {
       const key = m[1].trim();
       const val = m[2].trim().replace(/^["']|["']$/g, "");
-      if (!process.env[key]) process.env[key] = val;
+      if (isDev && key === "DATABASE_URL") {
+        process.env[key] = val;
+      } else if (!process.env[key]) {
+        process.env[key] = val;
+      }
     }
   }
 }

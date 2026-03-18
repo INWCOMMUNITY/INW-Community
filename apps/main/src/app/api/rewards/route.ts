@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getCurrentSeasonId } from "@/lib/award-points";
 import { z } from "zod";
 
 export async function GET(req: NextRequest) {
+  const currentSeasonId = await getCurrentSeasonId();
   const rewards = await prisma.reward.findMany({
-    where: { status: "active" },
+    where: {
+      status: "active",
+      OR: [
+        { seasonId: null },
+        ...(currentSeasonId ? [{ seasonId: currentSeasonId }] : []),
+      ],
+    },
     include: {
       business: { select: { id: true, name: true, slug: true, logoUrl: true } },
     },

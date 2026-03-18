@@ -301,7 +301,7 @@ export default function GroupsScreen() {
           <Pressable
             key={g.id}
             style={({ pressed }) => [styles.groupCard, pressed && styles.buttonPressed]}
-            onPress={() => (router.push as (href: string) => void)(`/web?url=${encodeURIComponent(`${API_BASE}/groups/${g.slug}`)}&title=${encodeURIComponent(g.name)}`)}
+            onPress={() => (router.push as (href: string) => void)(`/community/group/${g.slug}`)}
           >
             {g.coverImageUrl ? (
               <Image source={{ uri: g.coverImageUrl.startsWith("/") ? `${API_BASE}${g.coverImageUrl}` : g.coverImageUrl }} style={styles.cover} />

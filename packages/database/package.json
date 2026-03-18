@@ -16,7 +16,10 @@
     "migrate": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "studio": "prisma studio",
-    "seed": "prisma db seed"
+    "seed": "prisma db seed",
+    "seed:test-profile": "node scripts/seed-test-profile-member.js",
+    "delete:test-profile": "node scripts/delete-test-profile-member.js",
+    "verify:leaderboard": "node scripts/verify-leaderboard.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.9.0",

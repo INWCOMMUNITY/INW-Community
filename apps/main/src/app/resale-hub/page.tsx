@@ -31,116 +31,26 @@ export default function ResaleHubPage() {
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
           <div className="flex flex-wrap justify-center gap-8">
-            <Link
-              href="/resale-hub/list"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="add-circle" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">List an Item</h2>
-              <p className="text-sm text-gray-600">
-                Add a resale listing with photos, price, and delivery options.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/listings"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="list" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">My Listings</h2>
-              <p className="text-sm text-gray-600">
-                Edit, delete, or mark your resale items as sold.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/orders"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="receipt-outline" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">Orders</h2>
-              <p className="text-sm text-gray-600">
-                View orders and purchase shipping labels.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/ship"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="boat-outline" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">Ship an Item</h2>
-              <p className="text-sm text-gray-600">
-                Purchase shipping labels for your orders.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/deliveries"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="car-outline" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">My Deliveries</h2>
-              <p className="text-sm text-gray-600">
-                View and confirm local delivery orders. Mark as delivered when complete.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/pickups"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="hand-left-outline" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">My Pickups</h2>
-              <p className="text-sm text-gray-600">
-                View pickup orders. Mark as picked up when the buyer collects.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/offers"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="pricetag-outline" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">New Offers</h2>
-              <p className="text-sm text-gray-600">
-                Review and accept or decline offers from buyers.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/messages"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="chatbubbles" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">My Messages</h2>
-              <p className="text-sm text-gray-600">
-                Chat with buyers about your listings.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/cancellations"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="close-circle-outline" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">Cancellations</h2>
-              <p className="text-sm text-gray-600">
-                View and manage cancellation and refund requests.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/payouts"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="wallet" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">My Payouts</h2>
-              <p className="text-sm text-gray-600">
-                View your balance and payout setup.
-              </p>
-            </Link>
-            <Link
-              href="/resale-hub/policies"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="book-outline" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">Policies</h2>
-              <p className="text-sm text-gray-600">
-                Set shipping, delivery, and pickup policies for your listings.
-              </p>
-            </Link>
+            {[
+              { href: "/resale-hub/list", label: "List Item", icon: "add-circle" as const, desc: "Add a resale listing with photos, price, and delivery options." },
+              { href: "/resale-hub/orders", label: "Orders / To Ship", icon: "receipt-outline" as const, desc: "View orders and purchase shipping labels." },
+              { href: "/resale-hub/deliveries", label: "Deliveries", icon: "car-outline" as const, desc: "View and confirm local delivery orders. Mark as delivered when complete." },
+              { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" as const, desc: "View pickup orders. Mark as picked up when the buyer collects." },
+              { href: "/resale-hub/offers", label: "Offers", icon: "pricetag-outline" as const, desc: "Review and accept or decline offers from buyers." },
+              { href: "/resale-hub/messages", label: "Messages", icon: "chatbubbles" as const, desc: "Chat with buyers about your listings." },
+              { href: "/resale-hub/payouts", label: "Payouts", icon: "wallet" as const, desc: "View your balance and payout setup." },
+              { href: "/resale-hub/before-you-start", label: "Before You Start", icon: "checkbox-outline" as const, desc: "Set up payments, shipping, and your policies." },
+            ].map((card) => (
+              <Link
+                key={card.href}
+                href={card.href}
+                className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+              >
+                <IonIcon name={card.icon} size={28} className="text-[var(--color-primary)] mb-2" />
+                <h2 className="text-xl font-bold mb-2">{card.label}</h2>
+                <p className="text-sm text-gray-600">{card.desc}</p>
+              </Link>
+            ))}
           </div>
           <div className="mt-12 pt-8 border-t border-gray-200">
             <Link

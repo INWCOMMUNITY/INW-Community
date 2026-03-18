@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Alert, Modal } from "react-native";
+import { useState, useEffect, useCallback } from "react";
+import { Alert, Modal, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from "react-native";
 import {
   StyleSheet,
   View,
@@ -24,9 +24,20 @@ const resolveUri = (u: string) =>
 const { width } = Dimensions.get("window");
 const CARD_PADDING = 16;
 const IMAGE_SIZE = Math.min((width - CARD_PADDING * 2 - 32) / 2, 120);
+const PHOTO_CAROUSEL_HEIGHT = width; // square, full-width
+const DESCRIPTION_WORD_LIMIT = 30;
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").trim();
+}
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function firstNWords(text: string, n: number): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, n).join(" ");
 }
 
 interface FeedPostCardProps {
@@ -48,6 +59,8 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
   const [blogSaving, setBlogSaving] = useState(false);
   const [blogShareOpen, setBlogShareOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const [photoCarouselIndex, setPhotoCarouselIndex] = useState(0);
 
   const blog = post.type === "shared_blog" ? post.sourceBlog : null;
   useEffect(() => {
@@ -102,6 +115,7 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
             <Image
               source={{ uri: resolveUri(post.author.profilePhotoUrl) }}
               style={styles.avatar}
+              resizeMode="cover"
             />
           ) : (
             <View style={styles.avatarPlaceholder}>
@@ -180,7 +194,23 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
       )}
 
       {post.content && post.type?.startsWith("shared_") ? (
-        <Text style={styles.content}>{post.content}</Text>
+        <View style={styles.contentBlock}>
+          <Text style={styles.content}>
+            {wordCount(post.content) <= DESCRIPTION_WORD_LIMIT || descriptionExpanded
+              ? post.content
+              : firstNWords(post.content, DESCRIPTION_WORD_LIMIT)}
+          </Text>
+          {wordCount(post.content) > DESCRIPTION_WORD_LIMIT && (
+            <Pressable
+              onPress={() => setDescriptionExpanded((e) => !e)}
+              style={({ pressed }) => [styles.seeMoreBtn, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.seeMoreText}>
+                {descriptionExpanded ? "See less" : "See full description"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
       ) : null}
 
       {post.type === "shared_blog" && post.sourceBlog && (
@@ -251,6 +281,7 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
               <Image
                 source={{ uri: resolveUri(post.sourceBusiness.logoUrl) }}
                 style={styles.sourceLogo}
+                resizeMode="cover"
               />
             )}
             <View style={styles.sourceContent}>
@@ -306,6 +337,7 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
               <Image
                 source={{ uri: resolveUri(post.sourceStoreItem.photos[0]) }}
                 style={styles.sourceLogo}
+                resizeMode="cover"
               />
             )}
             <View style={styles.sourceContent}>
@@ -329,7 +361,27 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
       ) : null}
 
       {post.content && !post.type?.startsWith("shared_") ? (
-        <Text style={styles.content}>{post.content}</Text>
+        <View style={styles.contentBlock}>
+          <Text style={styles.content}>
+            {(() => {
+              const words = wordCount(post.content!);
+              if (words <= DESCRIPTION_WORD_LIMIT || descriptionExpanded) {
+                return post.content;
+              }
+              return firstNWords(post.content!, DESCRIPTION_WORD_LIMIT);
+            })()}
+          </Text>
+          {post.content && wordCount(post.content) > DESCRIPTION_WORD_LIMIT && (
+            <Pressable
+              onPress={() => setDescriptionExpanded((e) => !e)}
+              style={({ pressed }) => [styles.seeMoreBtn, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.seeMoreText}>
+                {descriptionExpanded ? "See less" : "See full description"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
       ) : null}
 
       {post.tags && post.tags.length > 0 ? (
@@ -342,18 +394,51 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
         </View>
       ) : null}
 
-      {(post.photos?.length ?? 0) + (post.videos?.length ?? 0) > 0 ? (
-        <View style={styles.mediaGrid}>
-          {[...(post.photos ?? []), ...(post.videos ?? [])]
-            .slice(0, 4)
-            .map((url, i) => (
+      {(post.photos?.length ?? 0) > 0 ? (
+        <View style={styles.photoCarouselWrap}>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+              const index = Math.round(e.nativeEvent.contentOffset.x / width);
+              setPhotoCarouselIndex(index);
+            }}
+            style={styles.photoCarousel}
+          >
+            {post.photos!.map((url, i) => (
               <Image
                 key={i}
                 source={{ uri: resolveUri(url) }}
-                style={styles.mediaImage}
+                style={[styles.photoCarouselImage, { width, height: PHOTO_CAROUSEL_HEIGHT }]}
                 resizeMode="cover"
               />
             ))}
+          </ScrollView>
+          {post.photos!.length > 1 ? (
+            <View style={styles.carouselDots}>
+              {post.photos!.map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.carouselDot,
+                    i === photoCarouselIndex && styles.carouselDotActive,
+                  ]}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : (post.videos?.length ?? 0) > 0 ? (
+        <View style={styles.mediaGrid}>
+          {post.videos!.slice(0, 4).map((url, i) => (
+            <Image
+              key={i}
+              source={{ uri: resolveUri(url) }}
+              style={styles.mediaImage}
+              resizeMode="cover"
+            />
+          ))}
         </View>
       ) : null}
 
@@ -509,12 +594,22 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginTop: 8,
   },
+  contentBlock: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
   content: {
     fontSize: 15,
     color: "#333",
-    paddingHorizontal: 12,
-    paddingBottom: 12,
     lineHeight: 22,
+  },
+  seeMoreBtn: {
+    marginTop: 4,
+  },
+  seeMoreText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
   tags: {
     flexDirection: "row",
@@ -527,6 +622,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.primary,
     fontWeight: "500",
+  },
+  photoCarouselWrap: {
+    marginBottom: 12,
+  },
+  photoCarousel: {
+    width,
+  },
+  photoCarouselImage: {
+    backgroundColor: "#eee",
+  },
+  carouselDots: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+  },
+  carouselDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#ccc",
+  },
+  carouselDotActive: {
+    backgroundColor: theme.colors.primary,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
   },
   mediaGrid: {
     flexDirection: "row",

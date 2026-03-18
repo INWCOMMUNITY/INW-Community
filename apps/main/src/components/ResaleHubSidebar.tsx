@@ -13,15 +13,15 @@ const FONT_SCALE = 0.7;
 const SIDEBAR_WIDTH = 200;
 
 const RESALE_HUB_ITEMS: NavItem[] = [
-  { href: "/resale-hub/list", label: "List an Item" },
-  { href: "/resale-hub/listings", label: "My Listings" },
-  { href: "/resale-hub/ship", label: "Ship an Item" },
-  { href: "/resale-hub/deliveries", label: "My Deliveries" },
-  { href: "/resale-hub/pickups", label: "My Pickups" },
-  { href: "/resale-hub/offers", label: "New Offers" },
-  { href: "/resale-hub/messages", label: "My Messages" },
-  { href: "/resale-hub/cancellations", label: "Cancellations" },
-  { href: "/resale-hub/payouts", label: "My Payouts" },
+  { href: "/resale-hub/list", label: "List Item" },
+  { href: "/resale-hub/orders", label: "Orders / To Ship" },
+  { href: "/resale-hub/deliveries", label: "Deliveries" },
+  { href: "/resale-hub/pickups", label: "Pickups" },
+  { href: "/resale-hub/offers", label: "Offers" },
+  { href: "/resale-hub/messages", label: "Messages" },
+  { href: "/seller-hub/time-away", label: "Time Away" },
+  { href: "/resale-hub/payouts", label: "Payouts" },
+  { href: "/resale-hub/before-you-start", label: "Before You Start" },
 ];
 
 function NavLink({ item, onNavigate, mobile }: { item: NavItem; onNavigate?: () => void; mobile?: boolean }) {

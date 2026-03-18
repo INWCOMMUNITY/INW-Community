@@ -16,14 +16,14 @@ import {
 } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Text as ThemedText, View } from "@/components/Themed";
 import { theme } from "@/lib/theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
-import { useOpenSellerMenu } from "./_layout";
+import { useOpenSellerMenu, openBusinessQRRef } from "./_layout";
 import { CouponFormModal } from "@/components/CouponFormModal";
 import { RewardFormModal } from "@/components/RewardFormModal";
 import { PostEventForm } from "@/components/PostEventForm";
@@ -55,8 +55,6 @@ function SellerHubContent() {
   const { member, subscriptionPlan } = useAuth();
   const { setProfileView } = useProfileView();
   const openSellerMenu = useOpenSellerMenu();
-  const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
-  const [loadingDelivery, setLoadingDelivery] = useState(true);
   const [pendingShip, setPendingShip] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
 
@@ -65,15 +63,6 @@ function SellerHubContent() {
   useFocusEffect(
     useCallback(() => {
       if (hasSeller) {
-        apiGet<{ localDeliveryAvailable?: boolean }[] | { error?: string }>(
-          "/api/store-items?mine=1"
-        )
-          .then((data) => {
-            const items = Array.isArray(data) ? data : [];
-            setHasLocalDelivery(items.some((i) => i.localDeliveryAvailable === true));
-          })
-          .catch(() => setHasLocalDelivery(false))
-          .finally(() => setLoadingDelivery(false));
         apiGet<{ pendingShip?: number; pendingReturns?: number }>("/api/seller-hub/pending-actions")
           .then((data) => {
             setPendingShip(Number(data.pendingShip) || 0);
@@ -120,12 +109,13 @@ function SellerHubContent() {
     icon: keyof typeof Ionicons.glyphMap;
   }[] = [
     { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
-    { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
-    { label: "My Orders / Ship Items", href: "/seller-hub/orders", icon: "receipt" },
+    { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
     { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
+    { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
+    { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
+    { label: "Pick Up", href: "/seller-hub/pickups", icon: "hand-left-outline" },
     { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
-    { label: "Policies", href: "/policies", icon: "book-outline" },
-    { label: "Before You Start", href: "/seller-hub/before-you-start", icon: "checkbox" },
+    { label: "Before You Start", href: "/seller-hub/before-you-start", icon: "checkbox-outline" },
   ];
 
   return (
@@ -141,25 +131,15 @@ function SellerHubContent() {
               Manage your storefront and resale listings, ship orders, get paid.
             </Text>
           </RNView>
-          <RNView style={styles.sellerHubPhotoWrap}>
-            {member?.profilePhotoUrl ? (
-              <Image
-                source={{ uri: member.profilePhotoUrl }}
-                style={styles.sellerHubPhoto}
-                resizeMode="cover"
-              />
-            ) : (
-              <RNView style={styles.sellerHubPhotoPlaceholder}>
-                <Ionicons name="briefcase" size={40} color={theme.colors.text} />
-              </RNView>
-            )}
+          <RNView style={styles.sellerHubIconCircle}>
+            <Ionicons name="briefcase" size={40} color={theme.colors.primary} />
           </RNView>
         </RNView>
 
         <RNView style={styles.sellerHubGrid}>
           {gridActions.map((action) => {
             const needsAction =
-              action.label === "My Orders / Ship Items" && pendingShip > 0;
+              action.label === "Orders / To Ship" && pendingShip > 0;
             return (
               <Pressable
                 key={action.label}
@@ -184,18 +164,6 @@ function SellerHubContent() {
             );
           })}
         </RNView>
-
-        {hasLocalDelivery && (
-          <RNView style={styles.sellerHubExtra}>
-            <Pressable
-              style={({ pressed }) => [styles.sellerHubExtraButton, pressed && styles.buttonPressed]}
-              onPress={() => (router.push as (href: string) => void)("/seller-hub/deliveries")}
-            >
-              <Ionicons name="bicycle" size={20} color="#fff" />
-              <Text style={styles.sellerHubExtraText}>My Deliveries</Text>
-            </Pressable>
-          </RNView>
-        )}
 
         <RNView style={styles.sellerHubFooter}>
           <Pressable
@@ -252,47 +220,18 @@ function ResaleHubContent() {
     onPress?: () => void;
     icon: keyof typeof Ionicons.glyphMap;
   }[] = [
+    { label: "List Item", href: "/resale-hub/list", icon: "add-circle" },
+    { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
+    { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
+    { label: "Pickups", href: "/resale-hub/pickups", icon: "hand-left-outline" },
+    { label: "Offers", href: "/resale-hub/offers", icon: "pricetag-outline" },
     {
-      label: "List Items",
-      onPress: () => (router.push as (href: string) => void)("/seller-hub/store/new?listingType=resale"),
-      icon: "add-circle",
-    },
-    {
-      label: "My Listings",
-      onPress: () => (router.push as (href: string) => void)("/seller-hub/store/items?listingType=resale"),
-      icon: "list",
-    },
-    {
-      label: "Resale Conversations",
-      onPress: () =>
-        (router.push as (href: string) => void)("/messages?tab=resale"),
+      label: "Messages",
+      onPress: () => (router.push as (href: string) => void)("/messages?tab=resale"),
       icon: "chatbubbles",
     },
-    {
-      label: "Payouts",
-      onPress: () => (router.push as (href: string) => void)("/seller-hub/store/payouts"),
-      icon: "wallet",
-    },
-    {
-      label: "My Orders / Ship Items",
-      onPress: () => (router.push as (href: string) => void)("/seller-hub/orders"),
-      icon: "receipt",
-    },
-    {
-      label: "Pick Ups",
-      onPress: () => (router.push as (href: string) => void)("/resale-hub/pickups"),
-      icon: "hand-left-outline",
-    },
-    {
-      label: "Deliveries",
-      onPress: () => (router.push as (href: string) => void)("/seller-hub/deliveries"),
-      icon: "car-outline",
-    },
-    {
-      label: "Policies",
-      href: "/policies",
-      icon: "book-outline",
-    },
+    { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
+    { label: "Before You Start", href: "/resale-hub/before-you-start", icon: "checkbox-outline" },
   ];
 
   return (
@@ -308,18 +247,8 @@ function ResaleHubContent() {
               List and Ship pre-loved items in our community, in NWCs Resale Storefront.
             </Text>
           </RNView>
-          <RNView style={styles.sellerHubPhotoWrap}>
-            {member?.profilePhotoUrl ? (
-              <Image
-                source={{ uri: member.profilePhotoUrl }}
-                style={styles.sellerHubPhoto}
-                resizeMode="cover"
-              />
-            ) : (
-              <RNView style={styles.sellerHubPhotoPlaceholder}>
-                <Ionicons name="cash-outline" size={40} color={theme.colors.text} />
-              </RNView>
-            )}
+          <RNView style={styles.sellerHubIconCircle}>
+            <Ionicons name="cash-outline" size={40} color={theme.colors.primary} />
           </RNView>
         </RNView>
 
@@ -370,6 +299,7 @@ function ResaleHubContent() {
 
 export default function MyCommunityScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ open?: string }>();
   const { member, subscriptionPlan, loading, refreshMember } = useAuth();
   const { profileView, hasSeller, hasSubscriber, setProfileView } = useProfileView();
   const openCreatePostAsBusiness = useCreatePost()?.openCreatePostAsBusiness;
@@ -421,6 +351,43 @@ export default function MyCommunityScreen() {
           .catch(() => setBusinesses([]));
       }
     }, [profileView])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (profileView === "business_hub" && params.open) {
+        if (params.open === "coupon") {
+          setCouponModalVisible(true);
+          router.replace("/(tabs)/my-community" as never);
+        } else if (params.open === "reward") {
+          setRewardModalVisible(true);
+          router.replace("/(tabs)/my-community" as never);
+        }
+      }
+    }, [profileView, params.open])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (profileView !== "business_hub") {
+        openBusinessQRRef.current = null;
+        return;
+      }
+      openBusinessQRRef.current = () => {
+        if (businesses.length === 0) {
+          Alert.alert("No businesses", "Add a business first to show your QR code.");
+          return;
+        }
+        if (businesses.length === 1) {
+          setShowQRBusiness(businesses[0]);
+        } else {
+          setQrPickerOpen(true);
+        }
+      };
+      return () => {
+        openBusinessQRRef.current = null;
+      };
+    }, [profileView, businesses])
   );
 
   const openBusinessSetup = () => {
@@ -646,18 +613,8 @@ export default function MyCommunityScreen() {
                 Give residents a reason to support local. Offer Coupons, Rewards, & Post Events
               </Text>
             </RNView>
-            <RNView style={styles.sellerHubPhotoWrap}>
-              {member?.profilePhotoUrl ? (
-                <Image
-                  source={{ uri: member.profilePhotoUrl }}
-                  style={styles.sellerHubPhoto}
-                  resizeMode="cover"
-                />
-              ) : (
-                <RNView style={styles.sellerHubPhotoPlaceholder}>
-                  <Ionicons name="business" size={40} color={theme.colors.text} />
-                </RNView>
-              )}
+            <RNView style={styles.sellerHubIconCircle}>
+              <Ionicons name="business" size={40} color={theme.colors.primary} />
             </RNView>
           </RNView>
 
@@ -965,9 +922,9 @@ export default function MyCommunityScreen() {
 
         <Pressable
           style={({ pressed }) => [styles.postsBox, pressed && { opacity: 0.9 }]}
-          onPress={() => (router.push as (href: string) => void)("/(tabs)/index")}
+          onPress={() => (router.push as (href: string) => void)("/community/posts-photos")}
         >
-          <ThemedText style={styles.postsBoxText}>Posts + Photos</ThemedText>
+          <ThemedText style={styles.postsBoxText}>Posted Photos</ThemedText>
           <Ionicons name="chevron-forward" size={20} color="#000" />
         </Pressable>
 
@@ -1010,6 +967,22 @@ export default function MyCommunityScreen() {
           >
             <Ionicons name="pricetag" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Coupons</ThemedText>
+          </Pressable>
+        </RNView>
+        <RNView style={styles.buttonRow}>
+          <Pressable
+            style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
+            onPress={() => (router.push as (href: string) => void)("/rewards/my-rewards")}
+          >
+            <Ionicons name="gift-outline" size={22} color="#fff" style={styles.tanButtonIcon} />
+            <ThemedText style={styles.tanButtonText}>My Rewards</ThemedText>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
+            onPress={() => router.push("/my-badges")}
+          >
+            <Ionicons name="ribbon-outline" size={22} color="#fff" style={styles.tanButtonIcon} />
+            <ThemedText style={styles.tanButtonText}>My Badges</ThemedText>
           </Pressable>
         </RNView>
         <RNView style={styles.buttonRow}>
@@ -1518,6 +1491,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.text,
     lineHeight: 20,
+  },
+  sellerHubIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sellerHubPhotoWrap: {
     width: 72,

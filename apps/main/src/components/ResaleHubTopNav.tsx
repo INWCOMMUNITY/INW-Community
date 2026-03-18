@@ -26,26 +26,21 @@ function isItemActive(pathname: string, item: NavItem): boolean {
 }
 
 const storefrontChildren: Child[] = [
-  { href: "/resale-hub/store", label: "Resale Storefront", icon: "storefront-outline" },
-  { href: "/resale-hub/listings", label: "My Listings", icon: "cube-outline" },
-  { href: "/resale-hub/orders", label: "Orders", icon: "receipt-outline" },
-  { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" },
+  { href: "/resale-hub/list", label: "List Item", icon: "add-circle-outline" },
+  { href: "/resale-hub/orders", label: "Orders / To Ship", icon: "receipt-outline" },
   { href: "/resale-hub/deliveries", label: "Deliveries", icon: "car-outline" },
+  { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" },
   { href: "/resale-hub/offers", label: "Offers", icon: "pricetag-outline" },
-  { href: "/resale-hub/cancellations", label: "Cancellations", icon: "close-circle-outline" },
-  { href: "/resale-hub/policies", label: "Policies", icon: "book-outline" },
-];
-
-const actionsChildren: Child[] = [
-  { href: "/resale-hub/list", label: "List an Item", icon: "add-circle-outline" },
-  { href: "/resale-hub/ship", label: "Ship an Item", icon: "boat-outline" },
+  { href: "/resale-hub/messages", label: "Messages", icon: "chatbubbles-outline" },
+  { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
+  { href: "/resale-hub/payouts", label: "Payouts", icon: "wallet-outline" },
+  { href: "/resale-hub/before-you-start", label: "Before You Start", icon: "checkbox-outline" },
 ];
 
 const navItems: NavItem[] = [
   { href: "/", label: "NWC Home", icon: "home-outline" },
   { href: "/resale-hub", label: "Resale Hub", icon: "globe-outline" },
   { label: "Storefront", icon: "storefront-outline", children: storefrontChildren },
-  { label: "Actions", icon: "flash-outline", children: actionsChildren },
   { href: "/resale-hub/messages", label: "Messages", icon: "chatbubbles-outline" },
   { href: "/resale-hub/payouts", label: "Get Paid", icon: "wallet-outline" },
 ];

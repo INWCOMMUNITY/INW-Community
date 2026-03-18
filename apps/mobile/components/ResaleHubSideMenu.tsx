@@ -1,9 +1,8 @@
 /**
- * Resale Hub side menu - matches website ResaleHubSidebar structure.
- * Sections: Community Resale (List Item, My Listings, Sold Items, Offers, Messages, Cancellations, Policy);
- * Delivery (Ship Items, Local Deliveries, Local Pickups); Get Paid (Set Up / Payouts).
+ * Resale Hub side menu - same order as website (Resale Storefront, List Item, My Listings,
+ * Orders/To Ship, Deliveries, Pickups, Offers, Messages, Cancellations, Payouts, Before You Start).
+ * Includes Ionicons per item.
  */
-import { useEffect, useState } from "react";
 import {
   Modal,
   View,
@@ -17,16 +16,17 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet } from "@/lib/api";
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
 const NAV_HEADER_HEIGHT = 44;
 
-type NavItem = { href: string; label: string; web?: boolean; alert?: boolean };
+type NavItem = {
+  href: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  web?: boolean;
+};
 
 interface ResaleHubSideMenuProps {
   visible: boolean;
@@ -39,7 +39,13 @@ function NavLink({ item, onPress }: { item: NavItem; onPress: () => void }) {
       onPress={onPress}
       style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
     >
-      <Text style={styles.navLinkText}>{item.label}</Text>
+      <View style={styles.navLinkLeft}>
+        <View style={styles.navLinkIcon}>
+          <Ionicons name={item.icon} size={22} color={theme.colors.primary} />
+        </View>
+        <Text style={styles.navLinkText}>{item.label}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color="#999" />
     </Pressable>
   );
 }
@@ -68,58 +74,31 @@ function Section({
   );
 }
 
-const COMMUNITY_RESALE_BASE: NavItem[] = [
-  { href: "/seller-hub/store/new?listingType=resale", label: "List Item", web: false },
-  { href: "/seller-hub/store/items?listingType=resale", label: "My Listings", web: false },
-  { href: "/seller-hub/orders", label: "Orders", web: false },
-  { href: "/seller-hub/store/sold", label: "Sold Items", web: false },
-  { href: "/seller-hub/offers", label: "Offers", web: false },
-  { href: "/messages?tab=resale", label: "Messages", web: false },
-  { href: "/seller-hub/store/cancellations", label: "Cancellations", web: false },
-  { href: "/policies", label: "Policies", web: false },
-];
-
-const DELIVERY_BASE: NavItem[] = [
-  { href: "/seller-hub/ship", label: "Ship Items", web: false },
-  { href: "/seller-hub/deliveries", label: "Local Deliveries", web: false },
-  { href: "/resale-hub/pickups", label: "Local Pickups", web: false },
+// Website order + Time Away: Resale Storefront, List Item, My Listings, Orders/To Ship, Deliveries, Pickups, Offers, Messages, Time Away, Cancellations, Payouts, Before You Start.
+const RESALE_HUB_SIDE_MENU_ITEMS: NavItem[] = [
+  { href: "/(tabs)/store?listingType=resale", label: "Resale Storefront", icon: "storefront-outline" },
+  { href: "/resale-hub/list", label: "List Item", icon: "add-circle-outline" },
+  { href: "/seller-hub/store/items?listingType=resale", label: "My Listings", icon: "list-outline" },
+  { href: "/seller-hub/orders", label: "Orders / To Ship", icon: "receipt-outline" },
+  { href: "/seller-hub/deliveries", label: "Deliveries", icon: "car-outline" },
+  { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" },
+  { href: "/resale-hub/offers", label: "Offers", icon: "pricetag-outline" },
+  { href: "/messages?tab=resale", label: "Messages", icon: "chatbubbles-outline" },
+  { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
+  { href: "/seller-hub/store/cancellations", label: "Cancellations", icon: "close-circle-outline" },
+  { href: "/seller-hub/store/payouts", label: "Payouts", icon: "wallet-outline" },
+  { href: "/resale-hub/before-you-start", label: "Before You Start", icon: "checkbox-outline" },
 ];
 
 export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
-  const [payoutReady, setPayoutReady] = useState(false);
-  const [pendingShip, setPendingShip] = useState(0);
-
-  useEffect(() => {
-    if (!visible) return;
-    apiGet<{ payoutReady?: boolean; pendingShip?: number }>("/api/seller-hub/pending-actions")
-      .then((data) => {
-        setPayoutReady(Boolean(data.payoutReady));
-        setPendingShip(Number(data.pendingShip) || 0);
-      })
-      .catch(() => {});
-  }, [visible]);
-
-  const communityResaleItems: NavItem[] = COMMUNITY_RESALE_BASE.map((item) =>
-    item.label === "Sold Items" ? { ...item, alert: pendingShip > 0 } : item
-  );
-  const deliveryItems: NavItem[] = DELIVERY_BASE.map((item) =>
-    item.label === "Ship Items" ? { ...item, alert: pendingShip > 0 } : item
-  );
-
-  const getPaidItems: NavItem[] = [
-    {
-      href: "/seller-hub/store/payouts",
-      label: payoutReady ? "Payouts" : "Set Up",
-      web: false,
-    },
-  ];
 
   const handleNavigate = (item: NavItem) => {
     onClose();
     if (item.web) {
+      const siteBase = (process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com").replace(/\/api.*$/, "").replace(/\/$/, "");
       const url = `${siteBase}${item.href}`;
       router.push(
         `/web?url=${encodeURIComponent(url)}&title=${encodeURIComponent(item.label)}` as any
@@ -151,12 +130,10 @@ export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) 
             showsVerticalScrollIndicator={false}
           >
             <Section
-              title="Community Resale"
-              items={communityResaleItems}
+              title="NWC Resale"
+              items={RESALE_HUB_SIDE_MENU_ITEMS}
               onNavigate={handleNavigate}
             />
-            <Section title="Delivery" items={deliveryItems} onNavigate={handleNavigate} />
-            <Section title="Get Paid" items={getPaidItems} onNavigate={handleNavigate} />
           </ScrollView>
         </View>
       </View>
@@ -238,21 +215,21 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     backgroundColor: "#f5f5f5",
   },
-  navLinkText: {
-    fontSize: 15,
-    color: "#444",
+  navLinkLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    minWidth: 0,
   },
-  alertBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: theme.colors.secondary,
+  navLinkIcon: {
+    marginRight: 12,
+    width: 22,
     alignItems: "center",
     justifyContent: "center",
   },
-  alertText: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#fff",
+  navLinkText: {
+    fontSize: 15,
+    color: "#444",
+    flex: 1,
   },
 });

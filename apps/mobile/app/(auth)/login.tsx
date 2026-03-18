@@ -66,10 +66,16 @@ export default function LoginScreen() {
           { top: insets.top + 8 },
           pressed && styles.backArrowPressed,
         ]}
-        onPress={() => router.back()}
+        onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/(tabs)");
+          }
+        }}
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
       >
-        <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
+        <Ionicons name="arrow-back" size={28} color={theme.colors.primary} />
       </Pressable>
       <View style={styles.header}>
         <Image

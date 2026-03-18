@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 
@@ -20,6 +21,7 @@ interface NWCRequestsModalProps {
 }
 
 export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -88,7 +90,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
           <Text style={styles.title}>NWC Requests</Text>
           <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={12}>
             <Text style={styles.closeText}>Close</Text>

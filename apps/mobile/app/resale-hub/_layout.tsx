@@ -25,6 +25,7 @@ export default function ResaleHubLayout() {
         <Stack.Screen name="offers" options={{ title: "New Offers" }} />
         <Stack.Screen name="cancellations" options={{ title: "Cancellations" }} />
         <Stack.Screen name="payouts" options={{ title: "My Payouts" }} />
+        <Stack.Screen name="before-you-start" options={{ title: "Before You Start" }} />
       </Stack>
     </>
   );

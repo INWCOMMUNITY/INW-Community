@@ -680,6 +680,7 @@ model Season {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   memberSeasonPoints MemberSeasonPoints[]
+  rewards            Reward[]
 
   @@map("season")
 }
@@ -723,10 +724,12 @@ model Reward {
   timesRedeemed   Int      @default(0) @map("times_redeemed")
   imageUrl         String?  @map("image_url")
   status           String   @default("active") // active | redeemed_out | inactive
+  seasonId         String?  @map("season_id") // when set, reward only visible during this season
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  season     Season?  @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   redemptions RewardRedemption[]
 }
 

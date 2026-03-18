@@ -14,6 +14,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+import { useCreatePost } from "@/contexts/CreatePostContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -38,6 +39,7 @@ interface FeedPost {
 
 export default function PostsAndPhotosScreen() {
   const router = useRouter();
+  const openCreatePost = useCreatePost()?.openCreatePost ?? (() => {});
   const { width } = useWindowDimensions();
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,14 +68,22 @@ export default function PostsAndPhotosScreen() {
 
   useFocusEffect(useCallback(() => { load(true); }, []));
 
-  const photoUrl = (p: FeedPost) => {
-    if (p.photos?.length) return resolveUrl(p.photos[0]);
-    if (p.sourceBlog?.photos?.length) return resolveUrl(p.sourceBlog.photos[0]);
-    if (p.sourceStoreItem?.photos?.length) return resolveUrl(p.sourceStoreItem.photos[0]);
-    return null;
-  };
+  // Flatten to a list of only photos (one entry per photo; posts without photos are omitted).
+  const photoEntries: { postId: string; url: string }[] = [];
+  for (const p of posts) {
+    const urls: string[] = [
+      ...(p.photos ?? []),
+      ...(p.sourceBlog?.photos ?? []),
+      ...(p.sourceStoreItem?.photos ?? []),
+    ];
+    for (const path of urls) {
+      const url = resolveUrl(path);
+      if (url) photoEntries.push({ postId: p.id, url });
+    }
+  }
 
   const tileSize = (width - 24 * 2 - 12 * 2) / 3;
+  const hasPhotos = photoEntries.length > 0;
 
   return (
     <ScrollView
@@ -87,58 +97,40 @@ export default function PostsAndPhotosScreen() {
         />
       }
     >
-      <Text style={styles.title}>Posts and Photos</Text>
-      <Text style={styles.subtitle}>Posts and photos your profile shares.</Text>
+      <Text style={styles.title}>Posted Photos</Text>
+      <Text style={styles.subtitle}>Photos from your posts.</Text>
 
       {loading && posts.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
-      ) : posts.length === 0 ? (
+      ) : !hasPhotos ? (
         <View style={styles.emptyWrap}>
           <Text style={styles.empty}>
-            Add photos or create a post. All posts you make appear on this page. It is visible to friends when they see your page.
+            No photos yet. Create a post with photos to see them here.
           </Text>
           <Pressable
             style={({ pressed }) => [styles.emptyCta, pressed && styles.tilePressed]}
-            onPress={() =>
-              router.push(
-                `/web?url=${encodeURIComponent(`${siteBase}/my-community`)}&title=${encodeURIComponent("Community Feed")}` as never
-              )
-            }
+            onPress={() => openCreatePost()}
           >
             <Text style={styles.emptyCtaText}>Create a post</Text>
           </Pressable>
         </View>
       ) : (
         <View style={styles.grid}>
-          {posts.map((p) => {
-            const thumb = photoUrl(p);
-            const name = p.author
-              ? `${p.author.firstName} ${p.author.lastName}`
-              : p.sourceBlog?.title ?? p.sourceStoreItem?.title ?? "Post";
-            return (
-              <Pressable
-                key={p.id}
-                style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
-                onPress={() =>
-                  router.push(
-                    `/web?url=${encodeURIComponent(`${siteBase}/my-community`)}&title=${encodeURIComponent("Community Feed")}` as never
-                  )
-                }
-              >
-                {thumb ? (
-                  <Image source={{ uri: thumb }} style={[styles.tileImage, { width: tileSize, height: tileSize }]} resizeMode="cover" />
-                ) : (
-                  <View style={[styles.tilePlaceholder, { width: tileSize, height: tileSize }]}>
-                    <Text style={styles.tilePlaceholderText} numberOfLines={2}>
-                      {p.content?.trim() || name}
-                    </Text>
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
+          {photoEntries.map((entry, index) => (
+            <Pressable
+              key={`${entry.postId}-${index}`}
+              style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
+              onPress={() => (router.push as (href: string) => void)("/(tabs)/index")}
+            >
+              <Image
+                source={{ uri: entry.url }}
+                style={[styles.tileImage, { width: tileSize, height: tileSize }]}
+                resizeMode="cover"
+              />
+            </Pressable>
+          ))}
         </View>
       )}
     </ScrollView>
@@ -164,11 +156,4 @@ const styles = StyleSheet.create({
   tile: { borderRadius: 8, overflow: "hidden" },
   tilePressed: { opacity: 0.8 },
   tileImage: { borderRadius: 8 },
-  tilePlaceholder: {
-    backgroundColor: theme.colors.creamAlt,
-    borderRadius: 8,
-    padding: 8,
-    justifyContent: "center",
-  },
-  tilePlaceholderText: { fontSize: 12, color: "#666" },
 });

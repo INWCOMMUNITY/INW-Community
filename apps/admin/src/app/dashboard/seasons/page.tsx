@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
@@ -118,9 +119,11 @@ export default function SeasonsAdminPage() {
     <div>
       <h1 className="text-2xl font-bold mb-6">Seasons</h1>
       <p className="text-gray-600 mb-6">
-        Seasons define the time windows for point-earning and the leaderboard. The leaderboard shows
-        top earners for the current season (where today falls between start and end date). Create one
-        season per competition period (e.g. Season 1: 3 months).
+        Add a season at any time with any start and end dates (including future dates). The website and app
+        automatically use the season whose start date ≤ today ≤ end date—so when a new season’s start date
+        arrives, it becomes current without any extra steps. You can create seasons ahead of time and assign
+        rewards to them on the <Link href="/dashboard/rewards" className="underline text-[#505542]">Rewards</Link> page
+        so everything is ready when the season goes live.
       </p>
 
       <form onSubmit={handleCreate} className="mb-8 p-4 border rounded-lg bg-gray-50 max-w-xl">

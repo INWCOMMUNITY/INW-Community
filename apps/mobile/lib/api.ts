@@ -72,10 +72,12 @@ export interface ApiError {
 
 async function fetchWithTimeout(
   url: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs?: number
 ): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeout = timeoutMs ?? FETCH_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
     const res = await fetch(url, {
       ...options,
@@ -319,6 +321,9 @@ export async function apiDelete<T = unknown>(path: string): Promise<T> {
   return data as T;
 }
 
+/** Timeout for file uploads (longer than default to allow large images on slow connections). */
+const UPLOAD_TIMEOUT_MS = 120000; // 2 minutes
+
 /** Upload file via FormData. Does not set Content-Type (browser sets multipart boundary). */
 export async function apiUploadFile(
   path: string,
@@ -331,7 +336,7 @@ export async function apiUploadFile(
     if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
     if (API_BASE.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
     if (API_BASE.includes("loca.lt")) headers["Bypass-Tunnel-Reminder"] = "true";
-    return fetchWithTimeout(url, { method: "POST", headers, body: formData });
+    return fetchWithTimeout(url, { method: "POST", headers, body: formData }, UPLOAD_TIMEOUT_MS);
   };
   let token = await getToken();
   let res = await doUpload(token);

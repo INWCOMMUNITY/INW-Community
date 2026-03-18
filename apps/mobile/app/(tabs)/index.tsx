@@ -21,7 +21,6 @@ import {
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { CouponPopup } from "@/components/CouponPopup";
-import { CreatePostModal } from "@/components/CreatePostModal";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { useCreatePost } from "@/contexts/CreatePostContext";
 
@@ -29,10 +28,7 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.co
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 export default function CommunityScreen() {
-  const createPostCtx = useCreatePost();
-  const createPostVisible = createPostCtx?.createPostVisible ?? false;
-  const setCreatePostVisible = createPostCtx?.setCreatePostVisible ?? (() => {});
-  const openCreatePost = createPostCtx?.openCreatePost ?? (() => {});
+  const openCreatePost = useCreatePost()?.openCreatePost ?? (() => {});
   const router = useRouter();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [posts, setPosts] = useState<FeedPost[]>([]);
@@ -343,16 +339,6 @@ export default function CommunityScreen() {
           onClose={() => setCouponPopupId(null)}
         />
       )}
-
-      <CreatePostModal
-        visible={createPostVisible}
-        onClose={() => {
-          setCreatePostVisible(false);
-          createPostCtx?.setInitialBusinessForPost(null);
-        }}
-        onSuccess={onRefresh}
-        initialBusinessForPost={createPostCtx?.initialBusinessForPost ?? undefined}
-      />
 
       {shareToChatPost && (
         <ShareToChatModal

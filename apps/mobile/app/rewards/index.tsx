@@ -28,7 +28,6 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.co
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const REWARD_MODAL_SLIDE_WIDTH = Math.min(SCREEN_WIDTH - 40, 400);
 const CARD_PADDING = 16;
 const CARD_GAP = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
@@ -72,6 +71,42 @@ function resolveUrl(path: string | null | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+/** Renders reward image at its natural aspect ratio so the full photo is visible. */
+function RewardModalImage({
+  uri,
+  setImageSize,
+  imageSize,
+}: {
+  uri: string | undefined;
+  setImageSize: (size: { width: number; height: number } | null) => void;
+  imageSize: { width: number; height: number } | null;
+}) {
+  useEffect(() => {
+    if (!uri) return;
+    Image.getSize(
+      uri,
+      (width, height) => setImageSize({ width, height }),
+      () => {}
+    );
+    return () => setImageSize(null);
+  }, [uri, setImageSize]);
+  const maxWidth = Math.min(SCREEN_WIDTH - 40, 400);
+  const width = imageSize
+    ? Math.min(imageSize.width, maxWidth)
+    : maxWidth;
+  const height = imageSize
+    ? (width / imageSize.width) * imageSize.height
+    : maxWidth;
+  if (!uri) return null;
+  return (
+    <Image
+      source={{ uri }}
+      style={{ width, height, alignSelf: "center" }}
+      resizeMode="contain"
+    />
+  );
+}
+
 export default function RewardsScreen() {
   const theme = useTheme();
   const router = useRouter();
@@ -98,6 +133,7 @@ export default function RewardsScreen() {
   const [savedRewardIds, setSavedRewardIds] = useState<Set<string>>(new Set());
   const [prizePopupPrize, setPrizePopupPrize] = useState<Top5Prize | null>(null);
   const [selectedRewardForModal, setSelectedRewardForModal] = useState<Reward | null>(null);
+  const [rewardModalImageSize, setRewardModalImageSize] = useState<{ width: number; height: number } | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -637,16 +673,22 @@ export default function RewardsScreen() {
         </ScrollView>
       )}
 
-      {/* Reward detail modal: photo click opens centered popup with details, save, share */}
+      {/* Reward detail modal: photo at natural aspect ratio so full photo is visible */}
       <Modal
         visible={!!selectedRewardForModal}
         animationType="slide"
         transparent
-        onRequestClose={() => setSelectedRewardForModal(null)}
+        onRequestClose={() => {
+          setSelectedRewardForModal(null);
+          setRewardModalImageSize(null);
+        }}
       >
         <Pressable
           style={styles.rewardModalOverlay}
-          onPress={() => setSelectedRewardForModal(null)}
+          onPress={() => {
+            setSelectedRewardForModal(null);
+            setRewardModalImageSize(null);
+          }}
         >
           <View style={styles.rewardModalContent} onStartShouldSetResponder={() => true}>
             {selectedRewardForModal && (
@@ -656,7 +698,10 @@ export default function RewardsScreen() {
                     {selectedRewardForModal.title}
                   </Text>
                   <Pressable
-                    onPress={() => setSelectedRewardForModal(null)}
+                    onPress={() => {
+                      setSelectedRewardForModal(null);
+                      setRewardModalImageSize(null);
+                    }}
                     style={styles.rewardModalCloseBtn}
                     hitSlop={12}
                   >
@@ -668,34 +713,19 @@ export default function RewardsScreen() {
                   showsVerticalScrollIndicator={false}
                   nestedScrollEnabled
                 >
-                  <View style={styles.rewardModalImageCarouselWrap}>
-                    <ScrollView
-                      horizontal
-                      pagingEnabled
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.rewardModalImageCarousel}
-                      contentContainerStyle={styles.rewardModalImageCarouselContent}
-                    >
-                      {(selectedRewardForModal.imageUrl ? [selectedRewardForModal.imageUrl] : []).map(
-                        (uri, idx) => (
-                          <View key={idx} style={styles.rewardModalImageSlide}>
-                            <Image
-                              source={{ uri: resolveUrl(uri) }}
-                              style={styles.rewardModalImage}
-                              resizeMode="contain"
-                            />
-                          </View>
-                        )
-                      )}
-                      {!selectedRewardForModal.imageUrl && (
-                        <View style={styles.rewardModalImageSlide}>
-                          <View style={styles.rewardModalImagePlaceholder}>
-                            <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
-                            <Text style={styles.rewardModalPlaceholderText}>No image</Text>
-                          </View>
-                        </View>
-                      )}
-                    </ScrollView>
+                  <View style={styles.rewardModalImageWrap}>
+                    {selectedRewardForModal.imageUrl ? (
+                      <RewardModalImage
+                        uri={resolveUrl(selectedRewardForModal.imageUrl)}
+                        setImageSize={setRewardModalImageSize}
+                        imageSize={rewardModalImageSize}
+                      />
+                    ) : (
+                      <View style={styles.rewardModalImagePlaceholder}>
+                        <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
+                        <Text style={styles.rewardModalPlaceholderText}>No image</Text>
+                      </View>
+                    )}
                   </View>
                   {selectedRewardForModal.business && (
                     <Pressable
@@ -719,6 +749,9 @@ export default function RewardsScreen() {
                   <Text style={styles.rewardModalMeta}>
                     {selectedRewardForModal.pointsRequired} pts ·{" "}
                     {selectedRewardForModal.redemptionLimit - selectedRewardForModal.timesRedeemed} left
+                  </Text>
+                  <Text style={styles.rewardModalSeasonEnd}>
+                    {currentSeason?.name ?? "Season"} Ends: 8/2/2026
                   </Text>
                 </ScrollView>
                 <View style={styles.rewardModalActions}>
@@ -1033,30 +1066,17 @@ const styles = StyleSheet.create({
   },
   rewardModalTitle: { flex: 1, fontSize: 22, fontWeight: "700", color: "#222" },
   rewardModalCloseBtn: { padding: 4 },
-  rewardModalScroll: { maxHeight: 400 },
-  rewardModalImageCarouselWrap: {
+  rewardModalScroll: { maxHeight: 500 },
+  rewardModalImageWrap: {
     width: "100%",
-    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
     backgroundColor: "#f5f5f5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  rewardModalImageCarousel: { flex: 1, width: "100%" },
-  rewardModalImageCarouselContent: { alignItems: "center" },
-  rewardModalImageSlide: {
-    width: REWARD_MODAL_SLIDE_WIDTH,
-    aspectRatio: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  rewardModalImage: {
-    width: "80%",
-    aspectRatio: 1,
-    borderRadius: 0,
   },
   rewardModalImagePlaceholder: {
     width: "100%",
-    height: "100%",
+    minHeight: 200,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1078,6 +1098,12 @@ const styles = StyleSheet.create({
   },
   rewardModalMeta: {
     fontSize: 17,
+    color: "#666",
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  rewardModalSeasonEnd: {
+    fontSize: 15,
     color: "#666",
     paddingHorizontal: 16,
     paddingBottom: 16,

@@ -21,6 +21,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProfileView } from "@/contexts/ProfileViewContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -29,7 +30,13 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
 const NAV_HEADER_HEIGHT = 44;
 
-type NavItem = { href: string; label: string; badgeCount?: number; badgeExclamation?: boolean };
+type NavItem = {
+  href: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  badgeCount?: number;
+  badgeExclamation?: boolean;
+};
 
 interface ProfileSideMenuProps {
   visible: boolean;
@@ -46,12 +53,20 @@ function NavLink({ item, onPress }: { item: NavItem; onPress: () => void }) {
       onPress={onPress}
       style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
     >
-      <Text style={styles.navLinkText}>{item.label}</Text>
-      {showBadge && (
-        <View style={[styles.inboxBadge, item.badgeExclamation && styles.exclamationBadge]}>
-          <Text style={styles.inboxBadgeText}>{badgeLabel}</Text>
+      <View style={styles.navLinkLeft}>
+        <View style={styles.navLinkIcon}>
+          <Ionicons name={item.icon} size={22} color={theme.colors.primary} />
         </View>
-      )}
+        <Text style={styles.navLinkText}>{item.label}</Text>
+      </View>
+      <View style={styles.navLinkRight}>
+        {showBadge && (
+          <View style={[styles.inboxBadge, item.badgeExclamation && styles.exclamationBadge]}>
+            <Text style={styles.inboxBadgeText}>{badgeLabel}</Text>
+          </View>
+        )}
+        <Ionicons name="chevron-forward" size={18} color="#999" />
+      </View>
     </Pressable>
   );
 }
@@ -79,22 +94,15 @@ function Section({
 const SUPPORT_EMAIL = "donivan@pnwcommunity.com";
 
 const LEGAL_ITEMS: NavItem[] = [
-  { href: `mailto:${SUPPORT_EMAIL}`, label: "Email support" },
-  { href: `/web?url=${encodeURIComponent(siteBase + "/support-nwc")}&title=${encodeURIComponent("Support & Contact")}`, label: "Support & Contact" },
-  { href: `/web?url=${encodeURIComponent(siteBase + "/terms")}&title=${encodeURIComponent("Terms of Service")}`, label: "Terms of Service" },
-  { href: `/web?url=${encodeURIComponent(siteBase + "/privacy")}&title=${encodeURIComponent("Privacy Policy")}`, label: "Privacy Policy" },
-];
-
-const RESALE_HUB_ITEMS: NavItem[] = [
-  { href: "/resale-hub/list", label: "List Items" },
-  { href: "/resale-hub/listings", label: "My Listings" },
-  { href: "/messages?tab=resale", label: "Resale Conversations" },
-  { href: "/resale-hub/payouts", label: "Payouts" },
-  { href: "/policies", label: "Policies" },
+  { href: `mailto:${SUPPORT_EMAIL}`, label: "Email support", icon: "mail-outline" },
+  { href: `/web?url=${encodeURIComponent(siteBase + "/support-nwc")}&title=${encodeURIComponent("Support & Contact")}`, label: "Support & Contact", icon: "help-circle-outline" },
+  { href: `/web?url=${encodeURIComponent(siteBase + "/terms")}&title=${encodeURIComponent("Terms of Service")}`, label: "Terms of Service", icon: "document-text-outline" },
+  { href: `/web?url=${encodeURIComponent(siteBase + "/privacy")}&title=${encodeURIComponent("Privacy Policy")}`, label: "Privacy Policy", icon: "shield-checkmark-outline" },
 ];
 
 export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }: ProfileSideMenuProps) {
   const router = useRouter();
+  const { setProfileView } = useProfileView();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const showResaleHub = hasSubscriber || hasSponsor;
@@ -171,37 +179,35 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     }
   }, [visible]);
 
+  // My Friends + Friend Requests combined into one link to my-friends (that screen shows both).
   const communityItems: NavItem[] = [
-    { href: "/messages", label: "Inbox", badgeCount: unreadMessages || undefined },
-    { href: "/community/my-friends", label: "My Friends" },
+    { href: "/messages", label: "Inbox", icon: "mail-unread-outline", badgeCount: unreadMessages || undefined },
     {
-      href: "/community/friend-requests",
-      label: "Friend Requests",
-      ...(incomingFriendRequests > 0 ? { badgeExclamation: true as const } : {}),
+      href: "/community/my-friends",
+      label: "My Friends",
+      icon: "people-outline",
+      ...(incomingFriendRequests > 0 ? { badgeCount: incomingFriendRequests } : {}),
     },
-    { href: "/community/invites", label: "My Invites" },
-    { href: "/saved-posts", label: "My Saved Posts" },
-    { href: "/community/groups", label: "My Groups" },
-    { href: "/profile-events", label: "My Events" },
-    { href: "/my-badges", label: "My Badges" },
-    { href: "invite:friends", label: "Share App" },
+    { href: "/community/invites", label: "My Invites", icon: "calendar-outline" },
+    { href: "/saved-posts", label: "My Saved Posts", icon: "bookmark-outline" },
+    { href: "/community/groups", label: "My Groups", icon: "people-circle-outline" },
+    { href: "invite:friends", label: "Share App", icon: "share-social-outline" },
   ];
 
   const supportLocalItems: NavItem[] = [
-    { href: "/profile-businesses", label: "My Businesses" },
-    { href: "/my-sellers", label: "My Sellers" },
-    { href: "/profile-wishlist", label: "My Wishlist" },
-    { href: "/rewards/my-rewards", label: "My Rewards" },
-    { href: "/community/my-orders", label: "My Orders" },
+    { href: "/profile-businesses", label: "My Businesses", icon: "business-outline" },
+    { href: "/my-sellers", label: "My Sellers", icon: "storefront-outline" },
+    { href: "/profile-wishlist", label: "My Wishlist", icon: "heart-outline" },
+    { href: "/rewards/my-rewards", label: "My Rewards", icon: "gift-outline" },
+    { href: "/community/my-orders", label: "My Orders", icon: "receipt-outline" },
   ];
 
   const profileItems: NavItem[] = [
-    { href: "/profile-edit", label: "Edit Profile" },
     ...(hasActiveSubscription
-      ? [{ href: "action:manage-subscription", label: "Manage Subscription" }]
+      ? [{ href: "action:manage-subscription", label: "Manage Subscription", icon: "card-outline" as const }]
       : []),
-    { href: "/profile-edit", label: "Delete account" },
-    { href: "action:logout", label: "Logout" },
+    { href: "/profile-edit", label: "Delete account", icon: "trash-outline" },
+    { href: "action:logout", label: "Logout", icon: "log-out-outline" },
   ];
 
   const handleNavigate = (href: string) => {
@@ -216,6 +222,12 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     if (href === "action:logout") {
       onClose();
       signOut?.().then(() => router.replace("/(auth)/login" as any));
+      return;
+    }
+    if (href === "action:resale-hub") {
+      onClose();
+      setProfileView("resale_hub");
+      router.push("/(tabs)/my-community" as any);
       return;
     }
     if (href.startsWith("mailto:")) {
@@ -252,7 +264,11 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
             <Section title="Support Local" items={supportLocalItems} onNavigate={handleNavigate} />
             <Section title="Profile" items={profileItems} onNavigate={handleNavigate} />
             {showResaleHub && (
-              <Section title="Resale Hub" items={RESALE_HUB_ITEMS} onNavigate={handleNavigate} />
+              <Section
+                title="Resale Hub"
+                items={[{ href: "action:resale-hub", label: "Resale Hub", icon: "cash-outline" }]}
+                onNavigate={handleNavigate}
+              />
             )}
             <Section title="Legal" items={LEGAL_ITEMS} onNavigate={handleNavigate} />
           </ScrollView>
@@ -336,9 +352,27 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     backgroundColor: "#f5f5f5",
   },
+  navLinkLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    minWidth: 0,
+  },
+  navLinkIcon: {
+    marginRight: 12,
+    width: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   navLinkText: {
     fontSize: 15,
     color: "#444",
+    flex: 1,
+  },
+  navLinkRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   inboxBadge: {
     minWidth: 22,

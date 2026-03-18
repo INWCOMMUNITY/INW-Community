@@ -29,11 +29,16 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const data = createSchema.parse(body);
+    const start = new Date(data.startDate);
+    const end = new Date(data.endDate);
+    if (end < start) {
+      return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 });
+    }
     const season = await prisma.season.create({
       data: {
         name: data.name.trim(),
-        startDate: new Date(data.startDate),
-        endDate: new Date(data.endDate),
+        startDate: start,
+        endDate: end,
       },
     });
     return NextResponse.json({

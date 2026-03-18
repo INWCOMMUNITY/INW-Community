@@ -25,13 +25,14 @@ interface TodoItem {
   completed: boolean;
 }
 
-export default function BeforeYouStartScreen() {
+export default function ResaleHubBeforeYouStartScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [hasStripeConnect, setHasStripeConnect] = useState(false);
   const [hasShippo, setHasShippo] = useState(false);
-  const [hasPolicies, setHasPolicies] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
+
+  const [hasPolicies, setHasPolicies] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -78,7 +79,7 @@ export default function BeforeYouStartScreen() {
         const webUrl =
           `/web?url=${encodeURIComponent(res.url)}&title=Payment setup` +
           `&successPattern=${encodeURIComponent("seller-hub/store")}` +
-          `&successRoute=${encodeURIComponent("/seller-hub/store/payouts")}` +
+          `&successRoute=${encodeURIComponent("/resale-hub/before-you-start")}` +
           "&refreshOnSuccess=1";
         router.push(webUrl as never);
       } else if (res?.error) {
@@ -121,7 +122,7 @@ export default function BeforeYouStartScreen() {
     {
       id: "policies",
       label: "Set your policies",
-      description: "Shipping, delivery, pickup, and refund policies for your storefront and resale listings",
+      description: "Shipping, delivery, pickup, and refund policies for your resale listings",
       completed: hasPolicies,
       href: "/policies",
     },
@@ -131,7 +132,7 @@ export default function BeforeYouStartScreen() {
   const title = allComplete ? "Checklist" : "Before You Start";
   const subtitle = allComplete
     ? "You're all set. You can still open the links below to update or view."
-    : "Complete these steps to start selling and shipping on NWC. Set up payments, shipping, and your policies.";
+    : "Complete these steps to start selling in Resale Hub. Set up payments, shipping, and your policies.";
 
   if (loading) {
     return (
@@ -158,7 +159,7 @@ export default function BeforeYouStartScreen() {
             onPress={() => {
               if (item.completed && (item.id === "stripe" || item.id === "shippo")) return;
               if (item.onPress) item.onPress();
-              else if (item.href) router.push(item.href as any);
+              else if (item.href) router.push(item.href as never);
             }}
             disabled={item.id === "stripe" && stripeLoading}
           >
