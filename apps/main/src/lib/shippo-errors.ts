@@ -4,7 +4,7 @@
 
 const SHIPPO_CODE_MESSAGES: Record<string, string> = {
   UNAUTHORIZED:
-    "Shippo authorization failed. Check that your shipping account API key is correct in Seller Hub.",
+    "Shippo authorization failed. Reconnect your shipping account in Seller Hub → Shipping.",
   FORBIDDEN:
     "Unable to complete this action. Check your Shippo account access.",
   NOT_FOUND:

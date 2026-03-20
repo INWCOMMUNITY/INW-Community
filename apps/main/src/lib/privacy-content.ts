@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "February 16, 2026";
+export const PRIVACY_LAST_UPDATED = "March 20, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -69,7 +69,7 @@ When businesses join NWC, we may collect:
 ● Shipping addresses, local delivery details, pickup details (name, phone, address) for orders
 ● Any updates provided to NWC for posting
 
-Sellers who use their own Shippo account may have their API key stored encrypted at rest; we do not access or share these keys.
+Sellers who connect Shippo may have an OAuth access token (or, for some legacy accounts, an API key) stored encrypted at rest; we use it only to provide shipping features on their behalf and do not share it.
 
 2. HOW WE USE YOUR INFORMATION
 We use the collected information for the following purposes:

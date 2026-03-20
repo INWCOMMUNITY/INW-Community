@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getSellerShippoApiKey } from "@/lib/shippo-seller";
+import { getSellerShippoCredential, shippoJsonHeaders } from "@/lib/shippo-seller";
 
 const SHIPPO_API = "https://api.goshippo.com";
 
@@ -52,8 +52,8 @@ export async function GET(req: NextRequest) {
   const sellerId = shipmentId
     ? (await prisma.shipment.findUnique({ where: { id: shipmentId }, include: { order: { select: { sellerId: true } } } }))?.order?.sellerId
     : session.user.id;
-  const apiKey = sellerId ? await getSellerShippoApiKey(sellerId) : null;
-  if (!apiKey) {
+  const cred = sellerId ? await getSellerShippoCredential(sellerId) : null;
+  if (!cred) {
     return NextResponse.json({ error: "Shipping not configured" }, { status: 503 });
   }
 
@@ -61,10 +61,7 @@ export async function GET(req: NextRequest) {
     const token = carrierToShippoToken(carrier);
     const res = await fetch(`${SHIPPO_API}/tracks`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `ShippoToken ${apiKey}`,
-      },
+      headers: shippoJsonHeaders(cred),
       body: JSON.stringify({
         carrier: token,
         tracking_number: code,

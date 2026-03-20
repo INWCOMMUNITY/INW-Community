@@ -62,7 +62,7 @@ For deployment, use Vercel or another host – production builds work there.
 
 **Cause:** Sellers connect their own Shippo account to get rates and buy labels. There is no single platform key required for labels.
 
-**For sellers:** Go to Seller Hub → Set Up Shippo, then log in at [Shippo](https://apps.goshippo.com/), add a return address and payment method, create an API key at [Shippo API Keys](https://portal.goshippo.com/api-config/api), and paste it on the shipping-setup page. Labels are charged to the seller’s Shippo account.
+**For sellers:** Go to Seller Hub → Shipping and use **Connect with Shippo** (OAuth). Complete billing and address book steps in Shippo when prompted. On mobile, use the same flow from Seller Hub → Set up Shippo (opens an in-app browser). Labels are charged to the seller’s Shippo account.
 
 **Optional (address validation only):** To verify shipping addresses at checkout, set a platform key in **`apps/main/.env`**:
    ```

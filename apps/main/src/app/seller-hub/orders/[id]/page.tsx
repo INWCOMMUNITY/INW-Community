@@ -11,11 +11,19 @@ import {
   transactionToLabelFromElementsPayload,
   type ElementsTransactionPayload,
 } from "@/lib/shippo-elements";
+import {
+  NWC_SHIPPO_ELEMENTS_THEME,
+  type ShippoElementsTheme,
+} from "@/lib/shippo-elements-theme";
 
 const SHIPPO_ORG = "inw-community";
 const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
 
-type ShippoWidget = { init: (o: { token: string; org: string }) => void; labelPurchase: (s: string, d: unknown) => void; on: (ev: string, cb: (arg: unknown) => void) => void };
+type ShippoWidget = {
+  init: (o: { token: string; org: string; theme?: ShippoElementsTheme }) => void;
+  labelPurchase: (s: string, d: unknown) => void;
+  on: (ev: string, cb: (arg: unknown) => void) => void;
+};
 
 function isShippoReady(shippo: ShippoWidget | undefined): shippo is ShippoWidget {
   return (
@@ -171,7 +179,7 @@ export default function SellerOrderDetailPage() {
           return;
         }
       }
-      shippo.init({ token, org: SHIPPO_ORG });
+      shippo.init({ token, org: SHIPPO_ORG, theme: NWC_SHIPPO_ELEMENTS_THEME });
       if (!elementsListenersRef.current) {
         elementsListenersRef.current = true;
         shippo.on("ORDER_CREATED", (params: unknown) => {

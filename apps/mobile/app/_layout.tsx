@@ -25,6 +25,7 @@ import {
 } from '@/contexts/ProfileViewContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { trackAppOpen } from '@/lib/api';
+import * as WebBrowser from 'expo-web-browser';
 import { PushNotificationHandler } from '@/components/PushNotificationHandler';
 import { theme } from '@/lib/theme';
 
@@ -129,6 +130,10 @@ export default function RootLayout() {
       trackAppOpen();
     }
   }, [loaded]);
+
+  useEffect(() => {
+    WebBrowser.maybeCompleteAuthSession();
+  }, []);
 
   if (!loaded) {
     return null;

@@ -115,20 +115,19 @@ End-to-end flow: **list item** → **storefront visibility** → **cart** → **
 
 ### Current behavior
 
-- **Web:** [apps/main/src/app/seller-hub/shipping-setup/page.tsx](apps/main/src/app/seller-hub/shipping-setup/page.tsx) — OAuth or paste API key; [apps/main/src/app/shippo-oauth-redirect/page.tsx](apps/main/src/app/shippo-oauth-redirect/page.tsx) for return.
-- **App:** [apps/mobile/app/seller-hub/shipping-setup/index.tsx](apps/mobile/app/seller-hub/shipping-setup/index.tsx) — steps: (1) Log in to Shippo, (2) Add payment in Shippo, (3) Add address in Address Book, (4) Paste API key and submit (`POST /api/shipping/connect`). No OAuth on app.
+- **Web:** [apps/main/src/app/seller-hub/shipping-setup/page.tsx](apps/main/src/app/seller-hub/shipping-setup/page.tsx) — Shippo OAuth only (`GET /api/shipping/oauth-start`). Callback: [apps/main/src/app/api/shipping/oauth-callback/route.ts](apps/main/src/app/api/shipping/oauth-callback/route.ts). Legacy page: [apps/main/src/app/shippo-oauth-redirect/page.tsx](apps/main/src/app/shippo-oauth-redirect/page.tsx).
+- **App:** [apps/mobile/app/seller-hub/shipping-setup/index.tsx](apps/mobile/app/seller-hub/shipping-setup/index.tsx) — `POST /api/shipping/oauth-link` + `WebBrowser.openAuthSessionAsync`, then deep link back to the app (`inwcommunity://seller-hub/shipping-setup`).
 
 ### Key files
 
 | Role | Path |
 |------|------|
-| API connect / status | [apps/main/src/app/api/shipping/connect/route.ts](apps/main/src/app/api/shipping/connect/route.ts), [apps/main/src/app/api/shipping/status/route.ts](apps/main/src/app/api/shipping/status/route.ts) |
-| OAuth | [apps/main/src/app/api/shipping/oauth-start/route.ts](apps/main/src/app/api/shipping/oauth-start/route.ts), [apps/main/src/app/api/shipping/oauth-callback/route.ts](apps/main/src/app/api/shipping/oauth-callback/route.ts) |
+| OAuth / status | [apps/main/src/app/api/shipping/oauth-start/route.ts](apps/main/src/app/api/shipping/oauth-start/route.ts), [apps/main/src/app/api/shipping/oauth-link/route.ts](apps/main/src/app/api/shipping/oauth-link/route.ts), [apps/main/src/app/api/shipping/oauth-callback/route.ts](apps/main/src/app/api/shipping/oauth-callback/route.ts), [apps/main/src/app/api/shipping/status/route.ts](apps/main/src/app/api/shipping/status/route.ts) |
+| Deprecated | [apps/main/src/app/api/shipping/connect/route.ts](apps/main/src/app/api/shipping/connect/route.ts) returns 410 (API key paste removed) |
 
 ### Audit notes
 
-- Steps should match Shippo requirements (payment method, address book for from-address). Document that app is API-key-only; OAuth is web-only.
-- For “easy to do,” consider a short in-app checklist (e.g. “1. Shippo login, 2. Payment, 3. Address, 4. Paste key”) and link to Shippo help if needed.
+- Shippo requires billing and Address Book for production labels; OAuth flow covers sign-in and permissions.
 
 ---
 

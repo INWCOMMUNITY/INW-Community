@@ -20,7 +20,7 @@ export default function PrivacyPage() {
           </a>
         </div>
         <h1 className="text-3xl font-bold mb-6">NORTHWEST COMMUNITY (NWC) – PRIVACY POLICY</h1>
-        <p className="text-sm text-gray-500 mb-6">Last Updated: February 16, 2026</p>
+        <p className="text-sm text-gray-500 mb-6">Last Updated: March 20, 2026</p>
 
         <div className="whitespace-pre-wrap text-gray-700 leading-relaxed space-y-6">
 {`Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
@@ -91,7 +91,7 @@ When businesses join NWC, we may collect:
 ● Shipping addresses, local delivery details, pickup details (name, phone, address) for orders
 ● Any updates provided to NWC for posting
 
-Sellers who use their own Shippo account may have their API key stored encrypted at rest; we do not access or share these keys.
+Sellers who connect Shippo may have an OAuth access token (or, for some legacy accounts, an API key) stored encrypted at rest; we use it only to provide shipping features on their behalf and do not share it.
 
 2. HOW WE USE YOUR INFORMATION
 We use the collected information for the following purposes:

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getSellerShippoCredential } from "@/lib/shippo-seller";
+import { getSellerShippoCredential, shippoJsonHeaders } from "@/lib/shippo-seller";
+import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,7 @@ const SHIPPO_EMBEDDED_AUTHZ = "https://api.goshippo.com/embedded/authz/";
 
 /**
  * GET: Returns a short-lived JWT for Shippo Shipping Elements.
- * Requires authenticated seller with Shippo connected (OAuth or API key).
+ * Requires authenticated seller with Shippo connected (OAuth).
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -18,11 +18,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const sub = await prisma.subscription.findFirst({
-    where: { memberId: userId, plan: "seller", status: "active" },
-  });
-  if (!sub) {
-    return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
+  const canList = await memberHasStorefrontListingAccess(userId);
+  if (!canList) {
+    return NextResponse.json(
+      { error: "Subscribe or Seller plan required to purchase labels." },
+      { status: 403 }
+    );
   }
 
   const cred = await getSellerShippoCredential(userId);
@@ -36,17 +37,9 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const authHeader =
-    cred.type === "oauth"
-      ? `Bearer ${cred.token}`
-      : `ShippoToken ${cred.apiKey}`;
-
   const res = await fetch(SHIPPO_EMBEDDED_AUTHZ, {
     method: "POST",
-    headers: {
-      Authorization: authHeader,
-      "Content-Type": "application/json",
-    },
+    headers: shippoJsonHeaders(cred),
     body: JSON.stringify({ scope: "embedded:carriers" }),
   });
 
@@ -56,7 +49,7 @@ export async function GET(req: NextRequest) {
       typeof (data as { detail?: string })?.detail === "string"
         ? (data as { detail: string }).detail
         : res.status === 401
-          ? "Invalid Shippo API key"
+          ? "Invalid Shippo credentials"
           : "Failed to get widget token";
     return NextResponse.json({ error: msg }, { status: res.status >= 400 ? res.status : 500 });
   }

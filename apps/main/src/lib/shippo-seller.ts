@@ -3,10 +3,18 @@ import { decrypt } from "@/lib/encrypt";
 
 const SHIPPO_API = "https://api.goshippo.com";
 
-function shippoHeaders(apiKey: string) {
+/** Shippo REST JSON headers (OAuth Bearer or legacy API key). */
+export type SellerShippoCredential =
+  | { type: "oauth"; token: string }
+  | { type: "apiKey"; apiKey: string };
+
+export function shippoJsonHeaders(cred: SellerShippoCredential): Record<string, string> {
+  const authorization =
+    cred.type === "oauth" ? `Bearer ${cred.token}` : `ShippoToken ${cred.apiKey}`;
   return {
     "Content-Type": "application/json",
-    Authorization: `ShippoToken ${apiKey}`,
+    Authorization: authorization,
+    "Shippo-API-Version": "2018-02-08",
   };
 }
 
@@ -46,11 +54,7 @@ export async function getSellerShippoOAuthToken(memberId: string): Promise<strin
  * Returns a credential for Shippo API: OAuth Bearer token (preferred) or API key.
  * Use for Elements JWT: pass as Authorization Bearer <token> or ShippoToken <apiKey>.
  */
-export async function getSellerShippoCredential(memberId: string): Promise<
-  | { type: "oauth"; token: string }
-  | { type: "apiKey"; apiKey: string }
-  | null
-> {
+export async function getSellerShippoCredential(memberId: string): Promise<SellerShippoCredential | null> {
   const oauth = await getSellerShippoOAuthToken(memberId);
   if (oauth) return { type: "oauth", token: oauth };
   const apiKey = await getSellerShippoApiKey(memberId);
@@ -178,23 +182,30 @@ export type GetSellerFromAddressResult = {
 /**
  * Fetch a valid from-address from Shippo Address Book (v2). Use as address_from for shipments.
  * Tries up to 20 addresses and returns the first one with required fields (street, city, state, zip).
- * Returns null fromAddress if none valid. Throws on API errors (e.g. invalid key).
+ * Returns null fromAddress if none valid. Throws on API errors (e.g. invalid credentials).
  */
-export async function getSellerFromAddress(apiKey: string): Promise<ShippoShipmentAddress | null> {
-  const { fromAddress } = await getSellerFromAddressWithDiagnostic(apiKey);
+export async function getSellerFromAddress(cred: SellerShippoCredential): Promise<ShippoShipmentAddress | null> {
+  const { fromAddress } = await getSellerFromAddressWithDiagnostic(cred);
   return fromAddress;
 }
 
 /**
  * Same as getSellerFromAddress but returns diagnostic info when no valid address is found.
  */
-export async function getSellerFromAddressWithDiagnostic(apiKey: string): Promise<GetSellerFromAddressResult> {
+export async function getSellerFromAddressWithDiagnostic(
+  cred: SellerShippoCredential
+): Promise<GetSellerFromAddressResult> {
   const res = await fetch(`${SHIPPO_API}/v2/addresses?limit=20`, {
-    headers: shippoHeaders(apiKey),
+    headers: shippoJsonHeaders(cred),
   });
   const data = (await res.json().catch(() => null)) as { results?: ShippoV2AddressResult[]; detail?: string } | null;
   if (!res.ok) {
-    const msg = typeof data?.detail === "string" ? data.detail : res.status === 401 ? "Invalid API key" : "Shippo API error";
+    const msg =
+      typeof data?.detail === "string"
+        ? data.detail
+        : res.status === 401
+          ? "Invalid Shippo credentials"
+          : "Shippo API error";
     throw new Error(msg);
   }
   const results = data?.results ?? [];
@@ -212,7 +223,7 @@ export async function getSellerFromAddressWithDiagnostic(apiKey: string): Promis
  * Create a shipment and get rates. Uses Shippo v1 API (POST /shipments) with async: false.
  */
 export async function createShipment(
-  apiKey: string,
+  cred: SellerShippoCredential,
   fromAddress: ShippoShipmentAddress,
   toAddress: ShippoShipmentAddress,
   parcel: ShippoParcel
@@ -253,7 +264,7 @@ export async function createShipment(
   };
   const res = await fetch(`${SHIPPO_API}/shipments`, {
     method: "POST",
-    headers: shippoHeaders(apiKey),
+    headers: shippoJsonHeaders(cred),
     body: JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as ShippoShipmentResponse & {
@@ -273,10 +284,10 @@ export async function createShipment(
 /**
  * Purchase a label for the given rate (Shippo transaction). Rate must be less than 7 days old.
  */
-export async function buyLabel(apiKey: string, rateObjectId: string): Promise<ShippoTransactionResponse> {
+export async function buyLabel(cred: SellerShippoCredential, rateObjectId: string): Promise<ShippoTransactionResponse> {
   const res = await fetch(`${SHIPPO_API}/transactions`, {
     method: "POST",
-    headers: shippoHeaders(apiKey),
+    headers: shippoJsonHeaders(cred),
     body: JSON.stringify({ rate: rateObjectId }),
   });
   const data = (await res.json().catch(() => ({}))) as ShippoTransactionResponse & {

@@ -100,7 +100,7 @@ export async function PATCH(
 
     const member = await prisma.member.findUnique({
       where: { id: session.user.id },
-      select: { stripeConnectAccountId: true, shippoApiKeyEncrypted: true },
+      select: { stripeConnectAccountId: true, shippoApiKeyEncrypted: true, shippoOAuthTokenEncrypted: true },
     });
     if (!member?.stripeConnectAccountId?.trim()) {
       return NextResponse.json(
@@ -128,7 +128,8 @@ export async function PATCH(
       );
     }
 
-    if (!shippingDisabled && !member?.shippoApiKeyEncrypted) {
+    const shippoConnected = Boolean(member?.shippoApiKeyEncrypted ?? member?.shippoOAuthTokenEncrypted);
+    if (!shippingDisabled && !shippoConnected) {
       return NextResponse.json(
         { error: "You must set up shipping (Shippo) before offering shipping on listings. Connect your Shippo account in Seller Hub." },
         { status: 403 }

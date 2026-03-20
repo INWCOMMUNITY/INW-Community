@@ -14,42 +14,37 @@ function getBaseUrl(req: NextRequest): string {
 }
 
 /**
- * GET: Start Shippo OAuth (web). Requires authenticated seller.
- * Redirects to Shippo with signed JWT `state` (no cookie).
+ * POST: Returns Shippo authorize URL for mobile (Bearer session). Same checks as GET oauth-start.
+ * Body ignored. Response: { url: string }
  */
-export async function GET(req: NextRequest) {
+export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
   const userId = session?.user?.id;
   if (!userId) {
-    return NextResponse.redirect(new URL("/login?callbackUrl=/seller-hub/shipping-setup", getBaseUrl(req)));
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const canList = await memberHasStorefrontListingAccess(userId);
   if (!canList) {
-    return NextResponse.redirect(new URL("/seller-hub/shipping-setup", getBaseUrl(req)));
+    return NextResponse.json(
+      { error: "Subscribe or Seller plan required to connect shipping." },
+      { status: 403 }
+    );
   }
 
   const clientId = process.env.SHIPPO_OAUTH_CLIENT_ID?.trim();
   if (!clientId) {
-    return NextResponse.redirect(
-      new URL(
-        "/seller-hub/shipping-setup?oauth_error=" +
-          encodeURIComponent("Connect with Shippo is not configured yet. Contact support."),
-        getBaseUrl(req)
-      )
+    return NextResponse.json(
+      { error: "Shippo OAuth is not configured on the server.", code: "OAUTH_NOT_CONFIGURED" },
+      { status: 503 }
     );
   }
 
   let stateJwt: string;
   try {
-    stateJwt = await signShippoOAuthState(userId, false);
+    stateJwt = await signShippoOAuthState(userId, true);
   } catch {
-    return NextResponse.redirect(
-      new URL(
-        "/seller-hub/shipping-setup?oauth_error=" + encodeURIComponent("Could not start OAuth. Try again."),
-        getBaseUrl(req)
-      )
-    );
+    return NextResponse.json({ error: "Could not start OAuth." }, { status: 500 });
   }
 
   const baseUrl = getBaseUrl(req);
@@ -66,5 +61,5 @@ export async function GET(req: NextRequest) {
   );
   authUrl.searchParams.set("redirect_uri", redirectUri);
 
-  return NextResponse.redirect(authUrl.toString());
+  return NextResponse.json({ url: authUrl.toString() });
 }

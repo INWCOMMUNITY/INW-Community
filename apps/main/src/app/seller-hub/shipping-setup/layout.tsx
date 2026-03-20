@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
-import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
+import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
 export default async function ShippingSetupLayout({
   children,
@@ -12,10 +12,8 @@ export default async function ShippingSetupLayout({
   if (!session?.user?.id) {
     redirect("/login?callbackUrl=/seller-hub/shipping-setup");
   }
-  const sub = await prisma.subscription.findFirst({
-    where: { memberId: session.user.id, plan: "seller", status: "active" },
-  });
-  if (!sub) {
+  const ok = await memberHasStorefrontListingAccess(session.user.id);
+  if (!ok) {
     redirect("/seller-hub");
   }
   return (

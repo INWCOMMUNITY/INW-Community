@@ -11,11 +11,15 @@ import {
   transactionToLabelFromElementsPayload,
   type ElementsTransactionPayload,
 } from "@/lib/shippo-elements";
+import {
+  NWC_SHIPPO_ELEMENTS_THEME,
+  type ShippoElementsTheme,
+} from "@/lib/shippo-elements-theme";
 
 const SHIPPO_ORG = "inw-community";
 
 interface ShippoElementsAPI {
-  init: (opts: { token: string; org: string }) => void;
+  init: (opts: { token: string; org: string; theme?: ShippoElementsTheme }) => void;
   labelPurchase: (selector: string, orderDetails: unknown) => void;
   on: (event: string, callback: (arg: unknown) => void) => void;
 }
@@ -263,7 +267,7 @@ export function StorefrontOrdersContent(props: {
           return;
         }
       }
-      shippo.init({ token, org: SHIPPO_ORG });
+      shippo.init({ token, org: SHIPPO_ORG, theme: NWC_SHIPPO_ELEMENTS_THEME });
       currentElementsOrderIdsRef.current = ids;
       shippoOrderIdsRef.current = [];
       if (!elementsListenersRef.current) {

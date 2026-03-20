@@ -1,47 +1,107 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TextInput,
   Pressable,
   ActivityIndicator,
-  Linking,
 } from "react-native";
+import { useLocalSearchParams, useFocusEffect } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
 import { theme } from "@/lib/theme";
-import { apiPost } from "@/lib/api";
+import { apiPost, apiGet, API_BASE } from "@/lib/api";
 
-const SHIPPO_LOGIN = "https://apps.goshippo.com/";
-const SHIPPO_BILLING = "https://apps.goshippo.com/";
-const SHIPPO_API_KEYS = "https://portal.goshippo.com/api-config/api";
+function parseShippoReturnUrl(url: string): { connected: boolean; error: string | null } {
+  try {
+    const parsed = Linking.parse(url);
+    const q = parsed.queryParams ?? {};
+    const connectedRaw = q.connected;
+    const errRaw = q.oauth_error;
+    const connected =
+      connectedRaw === "shippo" ||
+      (Array.isArray(connectedRaw) && connectedRaw[0] === "shippo");
+    const errVal = Array.isArray(errRaw) ? errRaw[0] : errRaw;
+    const error =
+      typeof errVal === "string" && errVal.length > 0
+        ? decodeURIComponent(errVal.replace(/\+/g, " "))
+        : null;
+    return { connected, error };
+  } catch {
+    return { connected: false, error: null };
+  }
+}
 
 export default function ShippingSetupScreen() {
-  const [apiKey, setApiKey] = useState("");
+  const params = useLocalSearchParams<{ connected?: string; oauth_error?: string }>();
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
-  const openUrl = (url: string) => {
-    Linking.openURL(url).catch(() => {});
-  };
-
-  const handleSave = async () => {
-    const key = apiKey.trim();
-    if (!key) {
-      setError("API key is required");
-      return;
+  const refreshStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const shipping = await apiGet<{ connected?: boolean }>("/api/shipping/status");
+      const ok = Boolean(shipping.connected);
+      setConnected(ok);
+    } catch {
+      setConnected(false);
+    } finally {
+      setStatusLoading(false);
     }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshStatus();
+    }, [refreshStatus])
+  );
+
+  React.useEffect(() => {
+    const c = params.connected;
+    const e = params.oauth_error;
+    if (c === "shippo") {
+      setSuccess(true);
+      setError(null);
+      void refreshStatus();
+    }
+    if (typeof e === "string" && e.length > 0) {
+      setError(decodeURIComponent(e.replace(/\+/g, " ")));
+      setSuccess(false);
+    }
+  }, [params.connected, params.oauth_error, refreshStatus]);
+
+  const openShippoOAuth = async () => {
     setLoading(true);
     setError(null);
-    setSuccess(null);
+    setSuccess(false);
     try {
-      await apiPost<{ connected: boolean }>("/api/shipping/connect", { apiKey: key });
-      setSuccess("Shippo connected. Add at least one address to your Shippo Address Book (you can use your own address) to get rates and buy labels.");
-      setApiKey("");
+      const { url } = await apiPost<{ url: string }>("/api/shipping/oauth-link", {});
+      if (!url) {
+        setError("Could not start Shippo connection.");
+        return;
+      }
+      const returnUrl = `${API_BASE}/api/shipping/oauth-callback`;
+      const result = await WebBrowser.openAuthSessionAsync(url, returnUrl);
+      if (result.type === "success" && "url" in result && result.url) {
+        const { connected: ok, error: err } = parseShippoReturnUrl(result.url);
+        if (err) {
+          setError(err);
+          setSuccess(false);
+        } else if (ok) {
+          setSuccess(true);
+          setError(null);
+          await refreshStatus();
+        } else {
+          await refreshStatus();
+        }
+      }
     } catch (e: unknown) {
       const err = e as { error?: string };
-      setError(err?.error ?? "Failed to connect");
+      setError(err?.error ?? "Could not connect to Shippo. Try again.");
     } finally {
       setLoading(false);
     }
@@ -49,79 +109,46 @@ export default function ShippingSetupScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Set Up Shippo</Text>
+      <Text style={styles.title}>Set up Shippo</Text>
       <Text style={styles.hint}>
-        Connect your Shippo account for shipping labels. You pay for labels with your own card. Add at least one address to your Shippo Address Book (not just a return address in settings)—it’s part of setup; you can use your own address.
+        Connect your Shippo account to buy shipping labels for store orders. Labels are charged to your Shippo
+        account. After connecting, add at least one address in Shippo&apos;s Address Book (Settings → Addresses)
+        so rates and labels work.
       </Text>
 
-      <Text style={styles.step}>Step 1: Log in to Shippo</Text>
-      <Pressable
-        style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
-        onPress={() => openUrl(SHIPPO_LOGIN)}
-      >
-        <Text style={styles.linkText}>Log in to Shippo</Text>
-      </Pressable>
+      {statusLoading ? (
+        <ActivityIndicator style={styles.spinner} color={theme.colors.primary} />
+      ) : connected ? (
+        <View style={styles.bannerOk}>
+          <Text style={styles.bannerOkText}>Shippo is connected.</Text>
+          <Text style={styles.bannerHint}>Purchase labels from the website (Seller Hub → Orders).</Text>
+        </View>
+      ) : null}
 
-      <Text style={styles.step}>Step 2: Set up payment</Text>
-      <Text style={styles.stepHint}>
-        Add a payment method in Shippo so you can pay for labels. Labels are charged to your Shippo account.
-      </Text>
-      <Pressable
-        style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
-        onPress={() => openUrl(SHIPPO_BILLING)}
-      >
-        <Text style={styles.linkText}>Open Shippo</Text>
-      </Pressable>
-
-      <Text style={styles.step}>Step 3: Add an address to your Address Book</Text>
-      <Text style={styles.stepHint}>
-        In Shippo, add at least one address to your Address Book (Settings → Addresses). This is required to get rates and buy labels—not just a return address in settings. You can use your own address.
-      </Text>
-      <Pressable
-        style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
-        onPress={() => openUrl(SHIPPO_LOGIN)}
-      >
-        <Text style={styles.linkText}>Open Shippo to add address</Text>
-      </Pressable>
-
-      <Text style={styles.step}>Step 4: Get your API key</Text>
-      <Pressable
-        style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
-        onPress={() => openUrl(SHIPPO_API_KEYS)}
-      >
-        <Text style={styles.linkText}>Open API Keys (Shippo Portal)</Text>
-      </Pressable>
-
-      <Text style={styles.step}>Step 5: Paste your API key</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Paste Shippo API key"
-        placeholderTextColor={theme.colors.placeholder}
-        value={apiKey}
-        onChangeText={setApiKey}
-        secureTextEntry
-        autoCapitalize="none"
-        autoCorrect={false}
-        editable={!loading}
-      />
       <Pressable
         style={({ pressed }) => [
-          styles.saveBtn,
-          pressed && { opacity: 0.8 },
-          loading && styles.saveBtnDisabled,
+          styles.primaryBtn,
+          pressed && { opacity: 0.85 },
+          (loading || connected) && styles.primaryBtnDisabled,
         ]}
-        onPress={handleSave}
+        onPress={openShippoOAuth}
         disabled={loading}
       >
         {loading ? (
           <ActivityIndicator color="#fff" size="small" />
         ) : (
-          <Text style={styles.saveBtnText}>Save & connect</Text>
+          <Text style={styles.primaryBtnText}>
+            {connected ? "Reconnect Shippo" : "Connect with Shippo"}
+          </Text>
         )}
       </Pressable>
 
-      {success && <Text style={styles.success}>{success}</Text>}
-      {error && <Text style={styles.err}>{error}</Text>}
+      {success && !error && (
+        <Text style={styles.success}>
+          You&apos;re set. If you haven&apos;t already, add an address in Shippo&apos;s Address Book.
+        </Text>
+      )}
+      {error ? <Text style={styles.err}>{error}</Text> : null}
     </ScrollView>
   );
 }
@@ -131,34 +158,23 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: theme.colors.heading },
   hint: { fontSize: 14, color: "#666", marginBottom: 24 },
-  step: { fontSize: 16, fontWeight: "600", marginBottom: 8, color: "#333" },
-  stepHint: { fontSize: 14, color: "#666", marginBottom: 12 },
-  linkBtn: {
-    marginBottom: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: theme.colors.creamAlt,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.cream,
-  },
-  linkText: { fontSize: 15, color: theme.colors.primary, fontWeight: "600" },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
+  spinner: { marginVertical: 16 },
+  bannerOk: {
+    backgroundColor: "#e8f5e9",
     borderRadius: 8,
     padding: 12,
-    fontSize: 16,
     marginBottom: 16,
   },
-  saveBtn: {
+  bannerOkText: { fontSize: 15, fontWeight: "600", color: "#2e7d32" },
+  bannerHint: { fontSize: 13, color: "#666", marginTop: 6 },
+  primaryBtn: {
     backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 8,
     alignItems: "center",
   },
-  saveBtnDisabled: { opacity: 0.7 },
-  saveBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  primaryBtnDisabled: { opacity: 0.65 },
+  primaryBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   success: { color: "#2e7d32", marginTop: 16, fontSize: 14 },
   err: { color: "#c62828", marginTop: 16, fontSize: 14 },
 });

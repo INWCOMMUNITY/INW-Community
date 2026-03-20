@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { sendTrackingEmail } from "@/lib/send-tracking-email";
 
 export const dynamic = "force-dynamic";
@@ -21,11 +22,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const sub = await prisma.subscription.findFirst({
-    where: { memberId: userId, plan: "seller", status: "active" },
-  });
-  if (!sub) {
-    return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
+  const canList = await memberHasStorefrontListingAccess(userId);
+  if (!canList) {
+    return NextResponse.json(
+      { error: "Subscribe or Seller plan required to record shipments." },
+      { status: 403 }
+    );
   }
 
   let body: {

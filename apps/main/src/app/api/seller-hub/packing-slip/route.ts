@@ -6,7 +6,8 @@ import {
   type PackingSlipGroup,
   type PackingSlipSellerProfile,
 } from "@/lib/packing-slip";
-import { getSellerShippoApiKey, getSellerFromAddress } from "@/lib/shippo-seller";
+import { getSellerShippoCredential, getSellerFromAddress } from "@/lib/shippo-seller";
+import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,11 +17,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const sub = await prisma.subscription.findFirst({
-      where: { memberId: userId, plan: "seller", status: "active" },
-    });
-    if (!sub) {
-      return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
+    const canList = await memberHasStorefrontListingAccess(userId);
+    if (!canList) {
+      return NextResponse.json(
+        { error: "Subscribe or Seller plan required." },
+        { status: 403 }
+      );
     }
 
     const body = await req.json();
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No orders found" }, { status: 404 });
     }
 
-    const [member, business, apiKey] = await Promise.all([
+    const [member, business, shippoCred] = await Promise.all([
       prisma.member.findUnique({
         where: { id: userId },
         select: { packingSlipNote: true },
@@ -64,12 +66,12 @@ export async function POST(req: NextRequest) {
           email: true,
         },
       }),
-      getSellerShippoApiKey(userId),
+      getSellerShippoCredential(userId),
     ]);
 
     let returnAddressFormatted: string | null = null;
-    if (apiKey) {
-      const fromAddr = await getSellerFromAddress(apiKey);
+    if (shippoCred) {
+      const fromAddr = await getSellerFromAddress(shippoCred);
       if (fromAddr?.street1 && fromAddr?.city && fromAddr?.state && fromAddr?.zip) {
         returnAddressFormatted = [
           fromAddr.company ?? business?.name ?? "",
