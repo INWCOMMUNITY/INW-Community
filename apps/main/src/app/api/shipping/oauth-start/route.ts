@@ -50,6 +50,10 @@ export async function GET(req: NextRequest) {
   authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("scope", "*");
   authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set(
+    "utm_source",
+    process.env.SHIPPO_OAUTH_UTM_SOURCE?.trim() || "northwestcommunity"
+  );
   authUrl.searchParams.set("redirect_uri", redirectUri);
 
   const res = NextResponse.redirect(authUrl.toString());
