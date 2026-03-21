@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { loadStripe } from "@stripe/stripe-js/pure";
@@ -15,7 +15,12 @@ type SummaryItem = {
   lineTotalCents: number;
 };
 
-type PaymentItem = { clientSecret: string; orderIds: string[] };
+type PaymentItem = {
+  clientSecret: string;
+  orderIds: string[];
+  /** Required for Stripe Connect: PaymentIntent is created on this connected account. */
+  stripeAccountId?: string;
+};
 
 type CheckoutData = {
   payments: PaymentItem[];
@@ -127,7 +132,6 @@ export default function CheckoutPage() {
   const router = useRouter();
   const [data, setData] = useState<CheckoutData | null>(null);
   const [paymentIndex, setPaymentIndex] = useState(0);
-  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
 
   useEffect(() => {
     const raw = typeof window !== "undefined" ? window.sessionStorage.getItem(CHECKOUT_STORAGE_KEY) : null;
@@ -150,18 +154,26 @@ export default function CheckoutPage() {
   }, [router]);
 
   useEffect(() => {
-    const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-    if (!key) return;
-    // Use pure import + setLoadParameters to avoid loading crypto/onramp modules that can throw
     if (typeof loadStripe.setLoadParameters === "function") {
       loadStripe.setLoadParameters({ advancedFraudSignals: false });
     }
-    const promise = loadStripe(key);
-    setStripePromise(promise);
+  }, []);
+
+  const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+
+  const stripePromise = useMemo(() => {
+    if (!publishableKey || !data) return null;
+    const payment = data.payments[paymentIndex];
+    if (!payment?.clientSecret) return null;
+    const opts = payment.stripeAccountId?.trim()
+      ? { stripeAccount: payment.stripeAccountId.trim() }
+      : undefined;
+    const promise = loadStripe(publishableKey, opts);
     promise.catch((err) => {
       console.warn("Stripe failed to load:", err);
     });
-  }, []);
+    return promise;
+  }, [publishableKey, data, paymentIndex]);
 
   if (!data) {
     return (
@@ -290,7 +302,7 @@ export default function CheckoutPage() {
             Payment
           </h2>
           <Elements
-            key={current.clientSecret}
+            key={`${current.clientSecret}:${current.stripeAccountId ?? ""}`}
             stripe={stripePromise}
             options={{
               clientSecret: current.clientSecret,
