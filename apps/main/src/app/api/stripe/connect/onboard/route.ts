@@ -2,22 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getBaseUrl } from "@/lib/get-base-url";
+import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
 });
 
 export async function POST(req: NextRequest) {
-  let baseUrl = getBaseUrl();
+  let requestedReturn: string | undefined;
   try {
     const body = await req.json();
-    const returnBase = (body.returnBaseUrl as string)?.trim?.();
-    if (returnBase) baseUrl = returnBase;
+    if (typeof body.returnBaseUrl === "string") requestedReturn = body.returnBaseUrl;
   } catch {
-    // use default
+    // no JSON body
   }
-  baseUrl = baseUrl.trim().replace(/\/$/, "") || getBaseUrl();
+  const baseUrl = resolveAllowedCheckoutBaseUrl(requestedReturn);
 
   if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY === "sk_test_...") {
     return NextResponse.json(

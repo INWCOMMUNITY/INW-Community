@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getBlockedMemberIds } from "@/lib/member-block";
+import { isFeedPostRenderable } from "@/lib/feed-post-visible";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -114,27 +115,25 @@ export async function GET(req: NextRequest) {
     ]);
     const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.postId, l._count.postId]));
     const commentCountMap = Object.fromEntries(commentCounts.map((c) => [c.postId, c._count.postId]));
-    const feedItems = items.map((p) => ({
-      ...p,
-      tags: p.postTags?.map((pt) => pt.tag) ?? [],
-      sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
-      sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
-      sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
-      sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
-      sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
-      sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
-      liked: false,
-      likeCount: likeCountMap[p.id] ?? 0,
-      commentCount: commentCountMap[p.id] ?? 0,
-    }));
+    const feedItems = items
+      .map((p) => ({
+        ...p,
+        tags: p.postTags?.map((pt) => pt.tag) ?? [],
+        sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
+        sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
+        sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
+        sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
+        sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
+        sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
+        liked: false,
+        likeCount: likeCountMap[p.id] ?? 0,
+        commentCount: commentCountMap[p.id] ?? 0,
+      }))
+      .filter(isFeedPostRenderable);
     return NextResponse.json({ posts: feedItems, nextCursor });
   }
 
-  const [followed, followBusinesses, friendships, myGroups, followedTags, blockedIdSet] = await Promise.all([
-    prisma.follow.findMany({
-      where: { followerId: session.user.id },
-      select: { followingId: true },
-    }),
+  const [followBusinesses, friendships, myGroups, followedTags, blockedIdSet] = await Promise.all([
     prisma.followBusiness.findMany({
       where: { memberId: session.user.id },
       select: { business: { select: { memberId: true } } },
@@ -160,7 +159,6 @@ export async function GET(req: NextRequest) {
   ]);
   const blockedIds = Array.from(blockedIdSet);
 
-  const followingIds = followed.map((f) => f.followingId);
   const followBusinessAuthorIds = followBusinesses
     .map((fb) => fb.business?.memberId)
     .filter(Boolean) as string[];
@@ -170,12 +168,7 @@ export async function GET(req: NextRequest) {
     )
   )];
   const groupIds = myGroups.map((g) => g.groupId);
-  const authorIds = new Set([
-    session.user.id,
-    ...followingIds,
-    ...friendIds,
-    ...followBusinessAuthorIds,
-  ]);
+  const authorIds = new Set([session.user.id, ...friendIds, ...followBusinessAuthorIds]);
   const followedTagIds = followedTags.map((f) => f.tagId);
 
   let sharedBlogIdsWithFollowedTags: string[] = [];
@@ -376,20 +369,22 @@ export async function GET(req: NextRequest) {
   const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.postId, l._count.postId]));
   const commentCountMap = Object.fromEntries(commentCounts.map((c) => [c.postId, c._count.postId]));
 
-  const feedItems = items.map((p) => ({
-    ...p,
-    tags: p.postTags?.map((pt) => pt.tag) ?? [],
-    sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
-    sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
-    sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
-    sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
-    sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
-    sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
-    sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
-    liked: likedSet.has(p.id),
-    likeCount: likeCountMap[p.id] ?? 0,
-    commentCount: commentCountMap[p.id] ?? 0,
-  }));
+  const feedItems = items
+    .map((p) => ({
+      ...p,
+      tags: p.postTags?.map((pt) => pt.tag) ?? [],
+      sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
+      sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
+      sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
+      sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
+      sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
+      sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
+      sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
+      liked: likedSet.has(p.id),
+      likeCount: likeCountMap[p.id] ?? 0,
+      commentCount: commentCountMap[p.id] ?? 0,
+    }))
+    .filter(isFeedPostRenderable);
 
   return NextResponse.json({
     posts: feedItems,

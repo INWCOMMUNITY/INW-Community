@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 
-const DEFAULT_BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 const PLATFORM_FEE_PERCENT = 0.05; // 5%
 const PLATFORM_FEE_MIN_CENTS = 50;
 
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { items, shippingCostCents = 0, shippingAddress, localDeliveryDetails, cashOrderIds, returnBaseUrl } = body;
-  const baseUrl = (returnBaseUrl as string)?.trim?.() || DEFAULT_BASE_URL;
+  const baseUrl = resolveAllowedCheckoutBaseUrl(returnBaseUrl);
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "At least one item required" }, { status: 400 });
   }
@@ -102,6 +103,16 @@ export async function POST(req: NextRequest) {
 
   const itemMap = new Map(storeItems.map((s) => [s.id, s]));
 
+  const cartDbItems = await prisma.cartItem.findMany({
+    where: {
+      memberId: session.user.id,
+      storeItemId: { in: items.map((i) => i.storeItemId) },
+    },
+    include: { resaleOffer: true },
+  });
+  const cartByStoreItem = new Map(cartDbItems.map((c) => [c.storeItemId, c]));
+  const resaleOfferIdsMeta = new Set<string>();
+
   // Group cart items by seller; each seller gets a separate order and their share of the payment.
   const bySeller = new Map<string, typeof items>();
   for (const item of items) {
@@ -133,7 +144,13 @@ export async function POST(req: NextRequest) {
 
     for (const item of sellerItems) {
       const storeItem = itemMap.get(item.storeItemId)!;
-      const priceCents = storeItem.priceCents;
+      const cartRow = cartByStoreItem.get(item.storeItemId);
+      const { unitPriceCents: priceCents, resaleOfferId } = resolvedPriceForCartLine(
+        storeItem,
+        cartRow,
+        session.user.id
+      );
+      if (resaleOfferId) resaleOfferIdsMeta.add(resaleOfferId);
       subtotalCents += priceCents * item.quantity;
       const fulfillmentType = item.fulfillmentType ?? "ship";
       if (fulfillmentType === "local_delivery" && storeItem.localDeliveryFeeCents != null && storeItem.localDeliveryFeeCents > 0) {
@@ -156,7 +173,7 @@ export async function POST(req: NextRequest) {
           currency: "usd",
           unit_amount: priceCents,
           product_data: {
-            name: `${storeItem.title} (${fulfillmentLabel})`,
+            name: `${storeItem.title} (${fulfillmentLabel})${resaleOfferId ? " — agreed offer price" : ""}`,
             description: fulfillmentDescription,
             images: storeItem.photos.length > 0 ? [storeItem.photos[0]] : undefined,
           },
@@ -235,6 +252,13 @@ export async function POST(req: NextRequest) {
     const orderIdsStr = orderIds.join(",");
     const METADATA_VALUE_MAX = 500;
     const metadata: Record<string, string> = {};
+    const resaleStr = [...resaleOfferIdsMeta].join(",");
+    if (resaleStr.length > 0 && resaleStr.length <= METADATA_VALUE_MAX) {
+      metadata.resaleOfferIds = resaleStr;
+    } else if (resaleStr.length > METADATA_VALUE_MAX) {
+      metadata.resaleOfferIds = resaleStr.slice(0, METADATA_VALUE_MAX);
+    }
+
     if (orderIdsStr.length <= METADATA_VALUE_MAX) {
       metadata.orderIds = orderIdsStr;
     } else {

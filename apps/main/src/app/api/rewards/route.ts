@@ -31,6 +31,7 @@ const createSchema = z.object({
   redemptionLimit: z.number().int().min(1),
   cashValueCents: z.number().int().min(0).nullable().optional(),
   imageUrl: z.string().url().nullable().optional().or(z.literal("")),
+  needsShipping: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
         redemptionLimit: data.redemptionLimit,
         cashValueCents: data.cashValueCents ?? null,
         imageUrl: data.imageUrl ?? null,
+        needsShipping: data.needsShipping === true,
       },
     });
     return NextResponse.json({ ok: true });

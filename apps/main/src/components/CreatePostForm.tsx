@@ -297,7 +297,8 @@ export function CreatePostForm({
               </button>
             </div>
           ))}
-          <button type="button" onClick={addLink} className="text-sm text-blue-600 hover:underline">
+          <button type="button" onClick={addLink} className="text-sm hover:underline font-medium"
+          style={{ color: "var(--color-primary)" }}>
             + Add link
           </button>
         </div>

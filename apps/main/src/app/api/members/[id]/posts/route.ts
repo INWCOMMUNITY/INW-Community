@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { authOptions } from "@/lib/auth";
 
 /**
  * GET /api/members/[id]/posts?limit=30&cursor=...
@@ -11,7 +13,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: memberId } = await params;
-  const session = await getSessionForApi(req);
+  const session = (await getSessionForApi(req)) ?? (await getServerSession(authOptions));
   const viewerId = session?.user?.id ?? null;
 
   const limit = Math.min(parseInt(new URL(req.url).searchParams.get("limit") ?? "30", 10) || 30, 100);

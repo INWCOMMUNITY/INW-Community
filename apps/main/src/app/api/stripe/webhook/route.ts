@@ -3,6 +3,11 @@ import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
 import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
+import {
+  cancelPendingOrdersForSoldOutItems,
+  cleanupOtherBuyersCartsForStoreItems,
+  validateBatchStoreOrdersInventory,
+} from "@/lib/post-sale-inventory-cleanup";
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 
@@ -209,121 +214,219 @@ export async function POST(req: NextRequest) {
     if (session.mode === "payment" && toProcess.length > 0) {
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : null;
 
+      const ordersToFulfill = [];
       for (const orderId of toProcess) {
         const order = await prisma.storeOrder.findFirst({
           where: { id: orderId, status: "pending" },
           include: { items: true },
         });
-        if (!order) continue;
+        if (order) ordersToFulfill.push(order);
+      }
 
-        const totalCents = order.totalCents;
-        const platformFeeCents = Math.max(50, Math.floor(totalCents * 0.05));
-        const sellerCreditsCents = totalCents - platformFeeCents;
-        let pointsAwarded = Math.round(totalCents / 200);
-        const subscriber = await prisma.subscription.findFirst({
-          where: { memberId: order.buyerId, plan: "subscribe", status: "active" },
+      if (ordersToFulfill.length > 0) {
+        const uniqueStoreIds = [...new Set(ordersToFulfill.flatMap((o) => o.items.map((i) => i.storeItemId)))];
+        const storeItemsForValidation = await prisma.storeItem.findMany({
+          where: { id: { in: uniqueStoreIds } },
         });
-        if (subscriber) pointsAwarded *= 2;
+        const storeItemMapValidation = new Map(storeItemsForValidation.map((s) => [s.id, s]));
 
-        await prisma.storeOrder.update({
-          where: { id: order.id },
-          data: {
-            status: "paid",
-            stripeCheckoutSessionId: session.id,
-            stripePaymentIntentId: paymentIntentId,
-            pointsAwarded,
-          },
-        });
-
-        const storeItemsForOrder = await prisma.storeItem.findMany({
-          where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
-        });
-        const storeItemMap = new Map(storeItemsForOrder.map((s) => [s.id, s]));
-        for (const oi of order.items) {
-          const storeItem = storeItemMap.get(oi.storeItemId);
-          if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
-            const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
-            if (res) {
-              await prisma.storeItem.update({
-                where: { id: oi.storeItemId },
-                data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
-              });
-            } else {
-              await prisma.storeItem.update({
-                where: { id: oi.storeItemId },
-                data: { quantity: { decrement: oi.quantity } },
+        const batchCheck = validateBatchStoreOrdersInventory(ordersToFulfill, storeItemMapValidation);
+        if (!batchCheck.ok) {
+          const itemTitles = [...new Set(batchCheck.titles)].join(", ");
+          try {
+            if (paymentIntentId) {
+              await stripe.refunds.create({
+                payment_intent: paymentIntentId,
+                reason: "requested_by_customer",
               });
             }
-          } else {
-            await prisma.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { quantity: { decrement: oi.quantity } },
-            });
+          } catch (refundErr) {
+            console.error("[webhook] checkout.session.completed: refund failed (inventory)", refundErr);
           }
-          const updated = await prisma.storeItem.findUnique({
-            where: { id: oi.storeItemId },
-            select: { quantity: true },
+          const buyerId = ordersToFulfill[0].buyerId;
+          await prisma.storeOrder.updateMany({
+            where: { id: { in: ordersToFulfill.map((o) => o.id) } },
+            data: {
+              status: "canceled",
+              cancelReason: "Item sold before checkout was complete",
+              cancelNote: itemTitles,
+            },
           });
-          if (updated && updated.quantity <= 0) {
-            await prisma.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { status: "sold_out" },
+          const { sendPushNotification } = await import("@/lib/send-push-notification");
+          sendPushNotification(buyerId, {
+            title: "Order canceled",
+            body:
+              batchCheck.titles.length === 1
+                ? `This item sold before checkout was complete: ${batchCheck.titles[0]}`
+                : `These items sold before checkout was complete: ${itemTitles}`,
+            data: { screen: "my-orders" },
+          }).catch(() => {});
+        } else {
+          const allSoldOutIds = new Set<string>();
+          const allPurchasedIds = new Set<string>();
+          const titleByItemId = new Map<string, string>();
+          const sessionAmountTotal = session.amount_total ?? 0;
+          const sessionTaxCents = session.total_details?.amount_tax ?? 0;
+
+          for (const order of ordersToFulfill) {
+            const totalCents = order.totalCents;
+            const platformFeeCents = Math.max(50, Math.floor(totalCents * 0.05));
+            const sellerCreditsCents = totalCents - platformFeeCents;
+            let pointsAwarded = Math.round(totalCents / 200);
+            const subscriber = await prisma.subscription.findFirst({
+              where: { memberId: order.buyerId, plan: "subscribe", status: "active" },
             });
-            const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
-            deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
+            if (subscriber) pointsAwarded *= 2;
+
+            const orderTaxCents =
+              sessionAmountTotal > 0 && sessionTaxCents > 0
+                ? Math.round((order.totalCents / sessionAmountTotal) * sessionTaxCents)
+                : 0;
+
+            await prisma.storeOrder.update({
+              where: { id: order.id },
+              data: {
+                status: "paid",
+                stripeCheckoutSessionId: session.id,
+                stripePaymentIntentId: paymentIntentId,
+                pointsAwarded,
+                taxCents: orderTaxCents,
+              },
+            });
+
+            const isRewardRedemption = order.orderKind === "reward_redemption";
+            if (!isRewardRedemption) {
+              const storeItemsForOrder = await prisma.storeItem.findMany({
+                where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
+              });
+              const storeItemMap = new Map(storeItemsForOrder.map((s) => [s.id, s]));
+              for (const oi of order.items) {
+                allPurchasedIds.add(oi.storeItemId);
+                const storeItem = storeItemMap.get(oi.storeItemId);
+                if (storeItem) titleByItemId.set(oi.storeItemId, storeItem.title);
+                if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
+                  const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
+                  if (res) {
+                    await prisma.storeItem.update({
+                      where: { id: oi.storeItemId },
+                      data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
+                    });
+                  } else {
+                    await prisma.storeItem.update({
+                      where: { id: oi.storeItemId },
+                      data: { quantity: { decrement: oi.quantity } },
+                    });
+                  }
+                } else {
+                  await prisma.storeItem.update({
+                    where: { id: oi.storeItemId },
+                    data: { quantity: { decrement: oi.quantity } },
+                  });
+                }
+                const updated = await prisma.storeItem.findUnique({
+                  where: { id: oi.storeItemId },
+                  select: { quantity: true },
+                });
+                if (updated && updated.quantity <= 0) {
+                  allSoldOutIds.add(oi.storeItemId);
+                  await prisma.storeItem.update({
+                    where: { id: oi.storeItemId },
+                    data: { status: "sold_out" },
+                  });
+                  const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
+                  deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
+                }
+              }
+            } else {
+              await prisma.rewardRedemption.updateMany({
+                where: { storeOrderId: order.id },
+                data: { fulfillmentStatus: "paid" },
+              });
+            }
+
+            await awardPoints(order.buyerId, pointsAwarded);
+
+            const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
+            awardLocalBusinessProBadge(order.buyerId).catch(() => {});
+
+            await prisma.sellerBalance.upsert({
+              where: { memberId: order.sellerId },
+              create: {
+                memberId: order.sellerId,
+                balanceCents: sellerCreditsCents,
+                totalEarnedCents: sellerCreditsCents,
+              },
+              update: {
+                balanceCents: { increment: sellerCreditsCents },
+                totalEarnedCents: { increment: sellerCreditsCents },
+              },
+            });
+            await prisma.sellerBalanceTransaction.create({
+              data: {
+                memberId: order.sellerId,
+                type: "sale",
+                amountCents: sellerCreditsCents,
+                orderId: order.id,
+                description: `Sale: Order #${order.id.slice(-6)}`,
+              },
+            });
+
+            const storeItemIds = order.items.map((oi) => oi.storeItemId);
+            const storeItems = await prisma.storeItem.findMany({
+              where: { id: { in: storeItemIds } },
+              select: { listingType: true },
+            });
+            const allResale =
+              storeItems.length === storeItemIds.length &&
+              storeItems.every((s) => s.listingType === "resale");
+            if (allResale) {
+              const sellerPoints = Math.round(totalCents / 100);
+              await awardPoints(order.sellerId, sellerPoints);
+            }
+
+            if (order.shippingCostCents > 0) {
+              try {
+                await stripe.payouts.create({
+                  amount: order.shippingCostCents,
+                  currency: "usd",
+                  method: "instant",
+                  metadata: { orderId: order.id, reason: "shipping" },
+                });
+              } catch (payoutErr) {
+                console.error("[webhook] Instant payout for shipping failed:", payoutErr);
+              }
+            }
           }
-        }
 
-        await awardPoints(order.buyerId, pointsAwarded);
-
-        const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
-        awardLocalBusinessProBadge(order.buyerId).catch(() => {});
-
-        await prisma.sellerBalance.upsert({
-          where: { memberId: order.sellerId },
-          create: {
-            memberId: order.sellerId,
-            balanceCents: sellerCreditsCents,
-            totalEarnedCents: sellerCreditsCents,
-          },
-          update: {
-            balanceCents: { increment: sellerCreditsCents },
-            totalEarnedCents: { increment: sellerCreditsCents },
-          },
-        });
-        await prisma.sellerBalanceTransaction.create({
-          data: {
-            memberId: order.sellerId,
-            type: "sale",
-            amountCents: sellerCreditsCents,
-            orderId: order.id,
-            description: `Sale: Order #${order.id.slice(-6)}`,
-          },
-        });
-
-        const storeItemIds = order.items.map((oi) => oi.storeItemId);
-        const storeItems = await prisma.storeItem.findMany({
-          where: { id: { in: storeItemIds } },
-          select: { listingType: true },
-        });
-        const allResale =
-          storeItems.length === storeItemIds.length &&
-          storeItems.every((s) => s.listingType === "resale");
-        if (allResale) {
-          const sellerPoints = Math.round(totalCents / 100);
-          await awardPoints(order.sellerId, sellerPoints);
-        }
-
-        if (order.shippingCostCents > 0) {
-          try {
-            await stripe.payouts.create({
-              amount: order.shippingCostCents,
-              currency: "usd",
-              method: "instant",
-              metadata: { orderId: order.id, reason: "shipping" },
+          const buyerId = ordersToFulfill[0].buyerId;
+          if (allSoldOutIds.size > 0) {
+            await cancelPendingOrdersForSoldOutItems({
+              soldOutStoreItemIds: [...allSoldOutIds],
+              excludeBuyerId: buyerId,
+              titleByItemId,
             });
-          } catch (payoutErr) {
-            console.error("[webhook] Instant payout for shipping failed:", payoutErr);
+          }
+          await cleanupOtherBuyersCartsForStoreItems({
+            winningBuyerId: buyerId,
+            purchasedStoreItemIds: [...allPurchasedIds],
+          });
+          await prisma.cartItem.deleteMany({
+            where: {
+              memberId: buyerId,
+              storeItemId: { in: [...allPurchasedIds] },
+            },
+          });
+
+          const roMeta =
+            meta.resaleOfferIds && typeof meta.resaleOfferIds === "string" ? meta.resaleOfferIds.trim() : "";
+          if (roMeta) {
+            const roi = roMeta.split(",").map((x) => x.trim()).filter(Boolean);
+            if (roi.length > 0) {
+              await prisma.resaleOffer.updateMany({
+                where: { id: { in: roi }, status: "accepted" },
+                data: { status: "completed" },
+              });
+            }
           }
         }
       }
@@ -663,46 +766,39 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Notify other buyers who had this item in a pending order (they never paid—no refund)
       if (soldOutStoreItemIds.size > 0) {
-        const otherPendingOrderItems = await prisma.orderItem.findMany({
-          where: {
-            storeItemId: { in: [...soldOutStoreItemIds] },
-            order: { status: "pending", buyerId: { not: order.buyerId } },
-          },
-          include: { order: { select: { id: true, buyerId: true } } },
-        });
-        const ordersToCancel = new Set<string>();
-        const notifiedBuyerItems = new Set<string>();
-        for (const oi of otherPendingOrderItems) {
-          if (!oi.order) continue;
-          ordersToCancel.add(oi.order.id);
-          const key = `${oi.order.buyerId}:${oi.storeItemId}`;
-          if (notifiedBuyerItems.has(key)) continue;
-          notifiedBuyerItems.add(key);
-          const title = storeItemMapPI.get(oi.storeItemId)?.title ?? "Item";
-          const { sendPushNotification } = await import("@/lib/send-push-notification");
-          sendPushNotification(oi.order.buyerId, {
-            title: "Item no longer available",
-            body: `This item sold before checkout was complete: ${title}`,
-            data: { screen: "cart" },
-          }).catch(() => {});
+        const titleByItemId = new Map<string, string>();
+        for (const id of soldOutStoreItemIds) {
+          titleByItemId.set(id, storeItemMapPI.get(id)?.title ?? "Item");
         }
-        if (ordersToCancel.size > 0) {
-          await prisma.storeOrder.updateMany({
-            where: { id: { in: [...ordersToCancel] } },
-            data: {
-              status: "canceled",
-              cancelReason: "Item sold before checkout was complete",
-            },
+        await cancelPendingOrdersForSoldOutItems({
+          soldOutStoreItemIds: [...soldOutStoreItemIds],
+          excludeBuyerId: order.buyerId,
+          titleByItemId,
+        });
+      }
+
+      const purchasedIds = order.items.map((oi) => oi.storeItemId);
+      await cleanupOtherBuyersCartsForStoreItems({
+        winningBuyerId: order.buyerId,
+        purchasedStoreItemIds: purchasedIds,
+      });
+
+      await prisma.cartItem.deleteMany({
+        where: { memberId: order.buyerId, storeItemId: { in: purchasedIds } },
+      });
+
+      const roiMeta =
+        typeof piMeta.resaleOfferIds === "string" ? piMeta.resaleOfferIds.trim() : "";
+      if (roiMeta) {
+        const roi = roiMeta.split(",").map((x) => x.trim()).filter(Boolean);
+        if (roi.length > 0) {
+          await prisma.resaleOffer.updateMany({
+            where: { id: { in: roi }, status: "accepted" },
+            data: { status: "completed" },
           });
         }
       }
-
-      // Remove purchased items from the buyer's cart
-      await prisma.cartItem.deleteMany({
-        where: { memberId: order.buyerId },
-      });
 
       await awardPoints(order.buyerId, pointsAwarded);
 

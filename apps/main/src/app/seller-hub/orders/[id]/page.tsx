@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import Script from "next/script";
 import { useParams } from "next/navigation";
@@ -15,8 +16,11 @@ import {
   NWC_SHIPPO_ELEMENTS_THEME,
   type ShippoElementsTheme,
 } from "@/lib/shippo-elements-theme";
+import { ShippoElementsModal } from "@/components/ShippoElementsModal";
+import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 
 const SHIPPO_ORG = "inw-community";
+const SHIPPO_CONTAINER_ID = "shippo-elements-container-order";
 const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
 
 type ShippoWidget = {
@@ -72,6 +76,7 @@ interface Shipment {
   trackingNumber: string | null;
   labelUrl: string | null;
   shippoOrderId?: string | null;
+  createdAt?: string;
 }
 
 interface StoreOrder {
@@ -103,6 +108,7 @@ export default function SellerOrderDetailPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [elementsLoading, setElementsLoading] = useState(false);
   const [elementsError, setElementsError] = useState<string | null>(null);
+  const [shippoModalOpen, setShippoModalOpen] = useState(false);
   const elementsListenersRef = useRef(false);
   const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
 
@@ -220,12 +226,21 @@ export default function SellerOrderDetailPage() {
           setElementsError(msg);
         });
       }
-      shippo.labelPurchase("#shippo-elements-container-order", orderDetails);
+      const mount = document.getElementById(SHIPPO_CONTAINER_ID);
+      if (mount) mount.innerHTML = "";
+      flushSync(() => {
+        setShippoModalOpen(true);
+      });
+      shippo.labelPurchase(`#${SHIPPO_CONTAINER_ID}`, orderDetails);
     } catch {
       setElementsError("Connection failed.");
     } finally {
       setElementsLoading(false);
     }
+  }
+
+  function closeShippoModal() {
+    setShippoModalOpen(false);
   }
 
   if (loading) {
@@ -276,21 +291,23 @@ export default function SellerOrderDetailPage() {
             </div>
             <div className="text-right">
               <p className="font-bold">${(order.totalCents / 100).toFixed(2)}</p>
-              <span
-                className="inline-block px-2 py-0.5 rounded text-sm"
-                style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
-              >
-                {getOrderStatusLabel(order.status)}
-              </span>
-              <span
-                className="block mt-1 inline-block px-2 py-0.5 rounded text-xs font-medium"
-                style={{
-                  backgroundColor: order.stripePaymentIntentId ? "var(--color-section-alt)" : "#fef3c7",
-                  color: order.stripePaymentIntentId ? "var(--color-primary)" : "#92400e",
-                }}
-              >
-                {order.stripePaymentIntentId ? "Paid: Online NWC" : "Awaiting Payment: Cash"}
-              </span>
+              <div className="mt-1 flex flex-col items-end gap-1">
+                <span
+                  className="inline-block px-2 py-0.5 rounded text-sm"
+                  style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
+                >
+                  {getOrderStatusLabel(order.status)}
+                </span>
+                <span
+                  className="inline-block px-2 py-0.5 rounded text-sm font-medium"
+                  style={{
+                    backgroundColor: order.stripePaymentIntentId ? "var(--color-section-alt)" : "#fef3c7",
+                    color: order.stripePaymentIntentId ? "var(--color-primary)" : "#92400e",
+                  }}
+                >
+                  {order.stripePaymentIntentId ? "Paid: Online NWC" : "Awaiting Payment: Cash"}
+                </span>
+              </div>
             </div>
           </div>
           {order.shippingAddress != null && typeof order.shippingAddress === "object" && (
@@ -304,7 +321,7 @@ export default function SellerOrderDetailPage() {
           {order.status === "paid" && !order.shipment && (
             <div className="border-t pt-4 mb-4">
               <p className="font-medium mb-2">Purchase shipping label</p>
-              <p className="text-sm text-gray-600 mb-2">Choose carrier in the widget below, pay with your Shippo account, then print or download the label.</p>
+              <p className="text-sm text-gray-600 mb-2">Choose carrier in the popup, pay with your Shippo account, then print or download the label.</p>
               {elementsError && <p className="text-sm text-amber-700 mb-2">{elementsError}</p>}
               <button
                 type="button"
@@ -314,7 +331,6 @@ export default function SellerOrderDetailPage() {
               >
                 {elementsLoading ? "Opening…" : "Purchase labels"}
               </button>
-              <div id="shippo-elements-container-order" className="min-h-[200px] mt-4" aria-hidden="true" />
             </div>
           )}
           <div className="border-t pt-4">
@@ -363,16 +379,28 @@ export default function SellerOrderDetailPage() {
                 <p className="font-medium mb-2">Labels</p>
                 {elementsError && <p className="text-sm text-amber-700 mb-2">{elementsError}</p>}
                 <div className="flex flex-wrap gap-3 mb-3">
-                  {order.shipment?.shippoOrderId && (
+                  {order.shipment?.shippoOrderId &&
+                  isWithinLabelReprintWindow(order.shipment.createdAt) ? (
                     <button
                       type="button"
                       onClick={() => openElementsFlow({ forReprint: true })}
                       disabled={elementsLoading}
                       className="btn text-sm py-2 px-4 disabled:opacity-50"
                     >
-                      {elementsLoading ? "Opening…" : "Print label"}
+                      {elementsLoading ? "Opening…" : "Reprint label"}
                     </button>
-                  )}
+                  ) : null}
+                  {order.shipment?.labelUrl &&
+                  isWithinLabelReprintWindow(order.shipment.createdAt) ? (
+                    <a
+                      href={order.shipment.labelUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn text-sm py-2 px-4 inline-block text-center"
+                    >
+                      Open label PDF
+                    </a>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => openElementsFlow()}
@@ -383,14 +411,20 @@ export default function SellerOrderDetailPage() {
                   </button>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">
-                  Print label opens the same label in the widget to download or print again. Purchase another label starts a new label (e.g. replacement).
+                  Reprint and PDF download are available for 24 hours after you buy a label. Purchase another label starts a new label (e.g. replacement) and updates tracking when you complete purchase.
                 </p>
-                <div id="shippo-elements-container-order" className="min-h-[200px] my-4" aria-hidden="true" />
               </div>
             </>
           )}
         </div>
       </div>
+
+      <ShippoElementsModal
+        open={shippoModalOpen}
+        onClose={closeShippoModal}
+        containerId={SHIPPO_CONTAINER_ID}
+        title="Shippo — label"
+      />
     </section>
   );
 }

@@ -75,7 +75,7 @@ export function Plans() {
             plan.highlight ? "border-[var(--color-primary)]" : "border-[var(--color-primary)]"
           }`}
         >
-          <p className="text-sm font-medium text-blue-600 mb-2">Best Value</p>
+          <p className="text-sm font-medium mb-2" style={{ color: "var(--color-primary)" }}>Best Value</p>
           {"imagePath" in plan && plan.imagePath && (
             <div className="flex justify-center mb-4">
               <img

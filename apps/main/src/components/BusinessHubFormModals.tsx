@@ -329,6 +329,16 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
             Offer items, services, or major discounts to community members who collect the most points.
           </p>
         </button>
+        <Link
+          href="/business-hub/reward-redemptions"
+          className={hubCardClass + " text-left max-md:text-center"}
+        >
+          <IonIcon name="cube-outline" size={28} className="text-[var(--color-primary)] mb-2" />
+          <h2 className="text-xl font-bold mb-2">Reward Redemptions</h2>
+          <p className="text-sm text-gray-600">
+            See who redeemed your rewards, contact info for shipped items, and links to fulfillment orders.
+          </p>
+        </Link>
         <button
           type="button"
           onClick={() => setOpenModal("event")}

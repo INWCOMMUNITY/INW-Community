@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { prisma } from "database";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
@@ -13,14 +14,14 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id || !session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  let baseUrl = process.env.NEXTAUTH_URL ?? "https://inwcommunity.com";
+  let requestedReturn: string | undefined;
   try {
     const body = await req.json();
-    const returnBase = (body.returnBaseUrl as string)?.trim?.();
-    if (returnBase) baseUrl = returnBase;
+    if (typeof body.returnBaseUrl === "string") requestedReturn = body.returnBaseUrl;
   } catch {
     // use default
   }
+  const baseUrl = resolveAllowedCheckoutBaseUrl(requestedReturn);
   try {
     const sub = await prisma.subscription.findFirst({
       where: { memberId: session.user.id, status: "active" },

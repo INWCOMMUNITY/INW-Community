@@ -29,7 +29,6 @@ interface MemberProfileProps {
   sessionUserId: string | null;
   isOwnProfile: boolean;
   isFriend?: boolean;
-  isFollowing?: boolean;
   pendingFriendRequest?: "incoming" | "outgoing" | null;
   editProfileHref?: string;
   friendsHref?: string;
@@ -43,12 +42,10 @@ export function MemberProfile({
   sessionUserId,
   isOwnProfile,
   isFriend = false,
-  isFollowing = false,
   pendingFriendRequest = null,
   editProfileHref = "/my-community/profile",
   friendsHref = "/my-community/friends",
 }: MemberProfileProps) {
-  const [following, setFollowing] = useState(isFollowing);
   const [friendPending, setFriendPending] = useState(pendingFriendRequest);
   const [loading, setLoading] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -63,27 +60,6 @@ export function MemberProfile({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [menuOpen]);
-
-  async function handleFollow() {
-    if (!sessionUserId || loading) return;
-    setLoading("follow");
-    try {
-      const res = await fetch("/api/follow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberId: member.id, action: following ? "unfollow" : "follow" }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFollowing(data.following);
-      } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.error ?? "Failed");
-      }
-    } finally {
-      setLoading(null);
-    }
-  }
 
   async function handleAddFriend() {
     if (!sessionUserId || loading || isFriend || friendPending) return;
@@ -233,14 +209,6 @@ export function MemberProfile({
                   {loading === "friend" ? "Sending…" : "Add friend"}
                 </button>
               )}
-              <button
-                type="button"
-                onClick={handleFollow}
-                disabled={!!loading}
-                className="btn text-sm border"
-              >
-                {loading === "follow" ? "…" : following ? "Following" : "Follow"}
-              </button>
             </div>
           )}
           {isOwnProfile && (

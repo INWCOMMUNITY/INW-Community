@@ -1,22 +1,27 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import Script from "next/script";
 import { PackingSlipPrint } from "@/components/PackingSlipPrint";
+import { ShippoElementsModal } from "@/components/ShippoElementsModal";
 import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
 import {
+  buildOrderDetailsFromOrder,
   buildOrderDetailsFromOrders,
   transactionToLabelFromElementsPayload,
   type ElementsTransactionPayload,
 } from "@/lib/shippo-elements";
+import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 import {
   NWC_SHIPPO_ELEMENTS_THEME,
   type ShippoElementsTheme,
 } from "@/lib/shippo-elements-theme";
 
 const SHIPPO_ORG = "inw-community";
+const SHIPPO_CONTAINER_ID = "shippo-elements-container";
 
 interface ShippoElementsAPI {
   init: (opts: { token: string; org: string; theme?: ShippoElementsTheme }) => void;
@@ -72,11 +77,14 @@ interface Shipment {
   service: string;
   trackingNumber: string | null;
   labelUrl: string | null;
+  shippoOrderId?: string | null;
+  createdAt?: string;
 }
 
 interface StoreOrder {
   id: string;
   orderNumber?: string;
+  orderKind?: string;
   totalCents: number;
   shippingCostCents: number;
   status: string;
@@ -138,7 +146,9 @@ export function StorefrontOrdersContent(props: {
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
   const [elementsLoading, setElementsLoading] = useState(false);
   const [elementsError, setElementsError] = useState<string | null>(null);
+  const [shippoModalOpen, setShippoModalOpen] = useState(false);
   const [shippingConnected, setShippingConnected] = useState<boolean | null>(null);
+  const [shippedMenuOpenId, setShippedMenuOpenId] = useState<string | null>(null);
   const elementsListenersRef = useRef(false);
   const currentElementsOrderIdsRef = useRef<string[]>([]);
   const shippoOrderIdsRef = useRef<string[]>([]);
@@ -228,17 +238,33 @@ export function StorefrontOrdersContent(props: {
     setSelectedOrderIds(new Set(toShip.map((o) => o.id)));
   }
 
-  async function openElementsFlow() {
-    const ids = Array.from(selectedOrderIds);
-    if (ids.length === 0) {
+  async function runShippoLabelFlow(orderIds: string[], forReprint: boolean) {
+    if (orderIds.length === 0) {
       setElementsError("Select at least one order.");
       return;
     }
-    const selectedOrders = orders.filter((o) => ids.includes(o.id));
-    const orderDetailsArray = buildOrderDetailsFromOrders(selectedOrders);
-    if (!orderDetailsArray?.length) {
-      setElementsError("Selected order(s) have no valid shipping address.");
-      return;
+    const selectedOrders = orders.filter((o) => orderIds.includes(o.id));
+    let orderDetails: unknown;
+    if (forReprint && orderIds.length === 1) {
+      const o = selectedOrders[0];
+      const oid = o?.shipment?.shippoOrderId?.trim();
+      if (!oid) {
+        setElementsError("No Shippo order on file to reprint.");
+        return;
+      }
+      const one = buildOrderDetailsFromOrder(o, oid);
+      if (!one) {
+        setElementsError("Order has no valid shipping address.");
+        return;
+      }
+      orderDetails = one;
+    } else {
+      const orderDetailsArray = buildOrderDetailsFromOrders(selectedOrders);
+      if (!orderDetailsArray?.length) {
+        setElementsError("Selected order(s) have no valid shipping address.");
+        return;
+      }
+      orderDetails = orderDetailsArray.length === 1 ? orderDetailsArray[0] : orderDetailsArray;
     }
     setElementsError(null);
     setElementsLoading(true);
@@ -270,7 +296,7 @@ export function StorefrontOrdersContent(props: {
         }
       }
       shippo.init({ token, org: SHIPPO_ORG, theme: NWC_SHIPPO_ELEMENTS_THEME });
-      currentElementsOrderIdsRef.current = ids;
+      currentElementsOrderIdsRef.current = orderIds;
       shippoOrderIdsRef.current = [];
       if (!elementsListenersRef.current) {
         elementsListenersRef.current = true;
@@ -280,8 +306,8 @@ export function StorefrontOrdersContent(props: {
         });
         shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
           const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
-          const orderIds = currentElementsOrderIdsRef.current;
-          if (orderIds.length === 0 || txs.length === 0) return;
+          const labeledOrderIds = currentElementsOrderIdsRef.current;
+          if (labeledOrderIds.length === 0 || txs.length === 0) return;
           const payload = transactionToLabelFromElementsPayload(txs[0], {
             weightOz: DEFAULT_WEIGHT_OZ,
             lengthIn: DEFAULT_LENGTH_IN,
@@ -294,7 +320,7 @@ export function StorefrontOrdersContent(props: {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                orderIds,
+                orderIds: labeledOrderIds,
                 ...payload,
                 ...(shippoOrderId ? { shippoOrderId } : {}),
               }),
@@ -304,7 +330,7 @@ export function StorefrontOrdersContent(props: {
               setSelectedOrderIds(new Set());
               setOrders((prev) =>
                 prev.map((o) => {
-                  if (!orderIds.includes(o.id)) return o;
+                  if (!labeledOrderIds.includes(o.id)) return o;
                   const ship = (data as { shipment?: { id: string; trackingNumber?: string; carrier?: string; service?: string } }).shipment;
                   return {
                     ...o,
@@ -331,13 +357,25 @@ export function StorefrontOrdersContent(props: {
           setElementsError(msg);
         });
       }
-      const orderDetails = orderDetailsArray.length === 1 ? orderDetailsArray[0] : orderDetailsArray;
-      shippo.labelPurchase("#shippo-elements-container", orderDetails);
+      const mount = document.getElementById(SHIPPO_CONTAINER_ID);
+      if (mount) mount.innerHTML = "";
+      flushSync(() => {
+        setShippoModalOpen(true);
+      });
+      shippo.labelPurchase(`#${SHIPPO_CONTAINER_ID}`, orderDetails);
     } catch {
       setElementsError("Connection failed.");
     } finally {
       setElementsLoading(false);
     }
+  }
+
+  async function openElementsFlow() {
+    await runShippoLabelFlow(Array.from(selectedOrderIds), false);
+  }
+
+  function closeShippoModal() {
+    setShippoModalOpen(false);
   }
 
   const toShipOrders = orders.filter(
@@ -409,7 +447,14 @@ export function StorefrontOrdersContent(props: {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div className="flex items-start gap-3 min-w-0">
                           <div>
-                            <span className="font-medium">Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}</span>
+                            <span className="font-medium">
+                              Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}
+                              {order.orderKind === "reward_redemption" ? (
+                                <span className="ml-2 text-xs font-semibold uppercase text-amber-800">
+                                  Reward redemption
+                                </span>
+                              ) : null}
+                            </span>
                             <p className="text-sm text-gray-600">
                               {order.buyer.firstName} {order.buyer.lastName} — {new Date(order.createdAt).toLocaleString()}
                             </p>
@@ -427,7 +472,7 @@ export function StorefrontOrdersContent(props: {
             ) : (
               <>
                 <p className="text-sm text-gray-600 mb-4">
-                  Select orders, then click <strong>Purchase labels</strong>. The label tool opens below—choose carrier, pay, and print.{" "}
+                  Select orders, then click <strong>Purchase labels</strong>. The label tool opens in a large popup—choose carrier, pay, and print.{" "}
                   <Link href={props.shippingSetupHref} className="underline" style={{ color: "var(--color-link)" }}>
                     Connect shipping
                   </Link>{" "}
@@ -463,7 +508,12 @@ export function StorefrontOrdersContent(props: {
                   </button>
                 </div>
 
-                <div id="shippo-elements-container" className="min-h-[200px]" aria-hidden="true" />
+                <ShippoElementsModal
+                  open={shippoModalOpen}
+                  onClose={closeShippoModal}
+                  containerId={SHIPPO_CONTAINER_ID}
+                  title="Purchase shipping label"
+                />
 
                 {selectedOrders.length > 0 && sellerProfile && (
                   <div className="mb-6">
@@ -496,10 +546,13 @@ export function StorefrontOrdersContent(props: {
                           <div>
                             <Link
                               href={props.ordersBasePath + "/" + order.id}
-                              className="font-medium hover:underline"
+                              className="font-medium hover:underline inline-flex flex-wrap items-center gap-x-2 gap-y-0"
                               style={{ color: "var(--color-link)" }}
                             >
-                              Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}
+                              <span>Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}</span>
+                              {order.orderKind === "reward_redemption" ? (
+                                <span className="text-xs font-semibold uppercase text-amber-800">Reward redemption</span>
+                              ) : null}
                             </Link>
                             <p className="text-sm text-gray-600">
                               {order.buyer.firstName} {order.buyer.lastName} — {new Date(order.createdAt).toLocaleString()}
@@ -525,51 +578,123 @@ export function StorefrontOrdersContent(props: {
               </p>
             ) : (
               <ul className="space-y-4">
-                {orders.map((order) => (
-                  <li key={order.id} className="border rounded-lg p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <Link
-                          href={props.ordersBasePath + "/" + order.id}
-                          className="font-medium hover:underline"
-                          style={{ color: "var(--color-link)" }}
-                        >
-                          Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}
-                        </Link>
-                        <p className="text-sm text-gray-600">
-                          {order.buyer.firstName} {order.buyer.lastName} — {new Date(order.createdAt).toLocaleString()}
-                        </p>
-                        <span
-                          className="inline-block mt-1 px-2 py-0.5 rounded text-sm"
-                          style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
-                        >
-                          {getOrderStatusLabel(order.status)}
-                        </span>
-                        {order.shipment?.trackingNumber && (
-                          <p className="text-sm mt-1">
-                            <a
-                              href={getTrackingUrl(order.shipment.carrier, order.shipment.trackingNumber)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="hover:underline"
-                              style={{ color: "var(--color-link)" }}
-                            >
-                              {order.shipment.carrier} {order.shipment.trackingNumber}
-                            </a>
+                {orders.map((order) => {
+                  const canReprint =
+                    tab === "shipped" &&
+                    order.shipment &&
+                    isWithinLabelReprintWindow(order.shipment.createdAt);
+                  return (
+                    <li key={order.id} className="border rounded-lg p-4 relative">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <Link
+                            href={props.ordersBasePath + "/" + order.id}
+                            className="font-medium hover:underline inline-flex flex-wrap items-center gap-x-2 gap-y-0"
+                            style={{ color: "var(--color-link)" }}
+                          >
+                            <span>Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}</span>
+                            {order.orderKind === "reward_redemption" ? (
+                              <span className="text-xs font-semibold uppercase text-amber-800">Reward redemption</span>
+                            ) : null}
+                          </Link>
+                          <p className="text-sm text-gray-600">
+                            {order.buyer.firstName} {order.buyer.lastName} — {new Date(order.createdAt).toLocaleString()}
                           </p>
-                        )}
-                        <Link
-                          href={props.ordersBasePath + "/" + order.id}
-                          className="text-sm mt-2 inline-block hover:underline"
-                          style={{ color: "var(--color-link)" }}
-                        >
-                          Purchase another label
-                        </Link>
+                          <span
+                            className="inline-block mt-1 px-2 py-0.5 rounded text-sm"
+                            style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
+                          >
+                            {getOrderStatusLabel(order.status)}
+                          </span>
+                          {order.shipment?.trackingNumber && (
+                            <p className="text-sm mt-1">
+                              <a
+                                href={getTrackingUrl(order.shipment.carrier, order.shipment.trackingNumber)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:underline"
+                                style={{ color: "var(--color-link)" }}
+                              >
+                                {order.shipment.carrier} {order.shipment.trackingNumber}
+                              </a>
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-start gap-3 shrink-0">
+                          <p className="font-semibold">${(order.totalCents / 100).toFixed(2)}</p>
+                          {tab === "shipped" && order.shipment ? (
+                            <div className="relative">
+                              <button
+                                type="button"
+                                className="w-9 h-9 rounded border border-gray-300 text-lg leading-none text-gray-700 hover:bg-gray-50"
+                                aria-label="Order actions"
+                                onClick={() =>
+                                  setShippedMenuOpenId((id) => (id === order.id ? null : order.id))
+                                }
+                              >
+                                ⋮
+                              </button>
+                              {shippedMenuOpenId === order.id ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="fixed inset-0 z-40 cursor-default"
+                                    aria-label="Close menu"
+                                    onClick={() => setShippedMenuOpenId(null)}
+                                  />
+                                  <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-52 text-sm">
+                                    <Link
+                                      href={props.ordersBasePath + "/" + order.id}
+                                      className="block px-3 py-2 hover:bg-gray-50"
+                                      style={{ color: "var(--color-link)" }}
+                                      onClick={() => setShippedMenuOpenId(null)}
+                                    >
+                                      View order
+                                    </Link>
+                                    {canReprint && order.shipment.shippoOrderId ? (
+                                      <button
+                                        type="button"
+                                        className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-[var(--color-primary)]"
+                                        onClick={() => {
+                                          setShippedMenuOpenId(null);
+                                          void runShippoLabelFlow([order.id], true);
+                                        }}
+                                      >
+                                        Reprint label
+                                      </button>
+                                    ) : null}
+                                    {canReprint && order.shipment.labelUrl ? (
+                                      <a
+                                        href={order.shipment.labelUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block px-3 py-2 hover:bg-gray-50"
+                                        style={{ color: "var(--color-link)" }}
+                                        onClick={() => setShippedMenuOpenId(null)}
+                                      >
+                                        Open label PDF
+                                      </a>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-[var(--color-primary)]"
+                                      onClick={() => {
+                                        setShippedMenuOpenId(null);
+                                        void runShippoLabelFlow([order.id], false);
+                                      }}
+                                    >
+                                      Purchase another label
+                                    </button>
+                                  </div>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
-                      <p className="font-semibold">${(order.totalCents / 100).toFixed(2)}</p>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </>

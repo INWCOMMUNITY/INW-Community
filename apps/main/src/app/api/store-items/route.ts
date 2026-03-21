@@ -314,14 +314,6 @@ export async function GET(req: NextRequest) {
   const subcategoryTrim = subcategoryParam?.trim() || "";
 
   try {
-    // Items in a pending order are treated as sold (reserved) and hidden from the storefront.
-    const pendingOrderItemIds = await prisma.orderItem.findMany({
-      where: { order: { status: "pending" } },
-      select: { storeItemId: true },
-      distinct: ["storeItemId"],
-    });
-    const reservedItemIds = pendingOrderItemIds.map((r) => r.storeItemId);
-
     // Only list items from sellers who have Stripe Connect set up (payment/redirect can function).
     const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
     // Exclude Test category in DB. Trial/test-resale slugs excluded in-memory below (Neon adapter does not support mode in nested slug filter).
@@ -337,7 +329,6 @@ export async function GET(req: NextRequest) {
         ...(categoryTrim && subcategoryTrim ? { subcategory: subcategoryTrim } : {}),
         ...(memberId ? { memberId } : {}),
         ...(excludeId ? { id: { not: excludeId } } : {}),
-        ...(reservedItemIds.length > 0 ? { id: { notIn: reservedItemIds } } : {}),
         ...(localDelivery === "1" ? { localDeliveryAvailable: true } : {}),
         ...(shippingOnly === "1"
           ? { shippingDisabled: false, localDeliveryAvailable: false, inStorePickupAvailable: false }

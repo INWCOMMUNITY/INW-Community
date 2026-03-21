@@ -27,6 +27,7 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [needsShipping, setNeedsShipping] = useState(false);
 
   useEffect(() => {
     fetch("/api/businesses?mine=1")
@@ -101,6 +102,7 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
           pointsRequired: points,
           redemptionLimit: limit,
           imageUrl: imageUrl || null,
+          needsShipping,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -223,9 +225,20 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
         </label>
         <p className="text-xs text-gray-500 mt-1">Max 40MB. JPEG, PNG, WebP, GIF.</p>
       </div>
+      <label className="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={needsShipping}
+          onChange={(e) => setNeedsShipping(e.target.checked)}
+          className="mt-1"
+        />
+        <span className="text-sm text-gray-700">
+          Member pays shipping at checkout (you fulfill via Seller Hub / Shippo like a storefront order).
+        </span>
+      </label>
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <button type="submit" className="btn" disabled={submitting}>
-        {submitting ? "Creating…" : "Create reward"}
+        {submitting ? "Creating…" : "Create Reward"}
       </button>
     </form>
   );

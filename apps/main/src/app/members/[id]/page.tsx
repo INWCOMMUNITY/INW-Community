@@ -4,6 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "database";
 import { MemberProfile } from "@/components/MemberProfile";
+import { MemberPostsGrid } from "@/components/MemberPostsGrid";
+import { resolveMemberMediaUrl } from "@/lib/member-media-url";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +56,6 @@ export default async function MemberPage({
   );
 
   let isFriend = false;
-  let isFollowing = false;
   let pendingFriendRequest: "incoming" | "outgoing" | null = null;
   if (session?.user?.id && session.user.id !== member.id) {
     const friendship = await prisma.friendRequest.findFirst({
@@ -70,15 +71,6 @@ export default async function MemberPage({
       else if (friendship.requesterId === session.user.id) pendingFriendRequest = "outgoing";
       else pendingFriendRequest = "incoming";
     }
-    const follow = await prisma.follow.findUnique({
-      where: {
-        followerId_followingId: {
-          followerId: session.user.id,
-          followingId: member.id,
-        },
-      },
-    });
-    isFollowing = !!follow;
   }
 
   return (
@@ -89,7 +81,7 @@ export default async function MemberPage({
             id: member.id,
             firstName: member.firstName,
             lastName: member.lastName,
-            profilePhotoUrl: member.profilePhotoUrl,
+            profilePhotoUrl: resolveMemberMediaUrl(member.profilePhotoUrl),
             bio: member.bio,
             city: member.city,
             allTimePointsEarned: member.allTimePointsEarned ?? 0,
@@ -100,9 +92,9 @@ export default async function MemberPage({
           sessionUserId={session?.user?.id ?? null}
           isOwnProfile={session?.user?.id === member.id}
           isFriend={isFriend}
-          isFollowing={isFollowing}
           pendingFriendRequest={pendingFriendRequest}
         />
+        <MemberPostsGrid memberId={member.id} />
       </div>
     </section>
   );

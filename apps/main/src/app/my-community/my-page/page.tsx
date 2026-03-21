@@ -54,7 +54,6 @@ export default async function MyPage() {
         sessionUserId={session.user.id}
         isOwnProfile
         isFriend={false}
-        isFollowing={false}
         pendingFriendRequest={null}
         editProfileHref="/my-community/profile"
         friendsHref="/my-community/friends"

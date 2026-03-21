@@ -40,6 +40,7 @@ interface Reward {
   redemptionLimit: number;
   timesRedeemed: number;
   imageUrl: string | null;
+  needsShipping?: boolean;
   business: { id: string; name: string; slug: string; logoUrl: string | null };
 }
 
@@ -132,6 +133,10 @@ export function RewardsContent() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Failed to redeem");
+        return;
+      }
+      if (data.needsShippingCheckout && data.redemptionId) {
+        window.location.href = `/rewards/shipping-checkout?redemptionId=${encodeURIComponent(data.redemptionId)}`;
         return;
       }
       const reward = rewards.find((r) => r.id === rewardId);
@@ -369,7 +374,7 @@ export function RewardsContent() {
                 key={prize.rank}
                 type="button"
                 onClick={() => setSelectedPrizeForModal(prize)}
-                className="border rounded-lg p-3 bg-white text-left hover:ring-2 hover:ring-offset-1 focus:ring-2 focus:ring-offset-1 focus:outline-none"
+                className="border rounded-lg p-3 bg-white text-left transition-shadow hover:shadow-[0_0_0_3px_#FDEDCC] focus:shadow-[0_0_0_3px_#FDEDCC] focus:outline-none"
                 style={{ borderColor: "var(--color-primary)" }}
               >
                 <p className="text-xs font-semibold text-gray-500 mb-2">#{prize.rank}</p>
@@ -443,9 +448,9 @@ export function RewardsContent() {
                       className="w-full text-left block rounded mb-3 overflow-hidden focus:ring-2 focus:ring-offset-1 focus:ring-[var(--color-primary)]"
                     >
                       {r.imageUrl ? (
-                        <img src={r.imageUrl} alt={r.title} className="w-full h-32 object-cover" />
+                        <img src={r.imageUrl} alt={r.title} className="w-full aspect-square object-cover" />
                       ) : (
-                        <div className="w-full h-32 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm">
+                        <div className="w-full aspect-square bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm">
                           No image
                         </div>
                       )}
@@ -469,6 +474,7 @@ export function RewardsContent() {
                   {r.description && <p className="text-sm text-gray-600 mt-2 line-clamp-2">{r.description}</p>}
                   <p className="text-sm font-medium mt-2">
                     {r.pointsRequired} points · {remaining} left
+                    {r.needsShipping ? " · Ships to you" : ""}
                   </p>
                   <div className="flex gap-2 mt-3">
                     {session?.user ? (
@@ -478,13 +484,17 @@ export function RewardsContent() {
                           disabled={!canRedeem || redeeming === r.id}
                           className="btn flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {redeeming === r.id ? "Redeeming…" : canRedeem ? "Redeem" : `Need ${r.pointsRequired - (points ?? 0)} more points`}
+                          {redeeming === r.id
+                            ? "Redeeming…"
+                            : canRedeem
+                              ? "Redeem"
+                              : `Need ${r.pointsRequired - (points ?? 0)} More Points`}
                         </button>
                         <ShareButton type="reward" id={r.id} title={r.title} className="inline-flex p-2 rounded border border-gray-300 bg-white hover:bg-gray-50 shrink-0" />
                       </>
                     ) : (
                       <Link href="/login?callbackUrl=/rewards" className="btn w-full inline-block text-center">
-                        Sign in to Redeem
+                        Sign In to Redeem
                       </Link>
                     )}
                   </div>

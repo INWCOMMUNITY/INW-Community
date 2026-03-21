@@ -369,7 +369,9 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
             {post.sourcePost.tags && post.sourcePost.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mb-2">
                 {post.sourcePost.tags.map((t) => (
-                  <span key={t.id} className="text-xs text-blue-600">#{t.name}</span>
+                  <span key={t.id} className="text-xs" style={{ color: "var(--color-primary)" }}>
+                    #{t.name}
+                  </span>
                 ))}
               </div>
             )}
@@ -405,9 +407,10 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
               <button
                 type="button"
                 onClick={() => setExpanded(true)}
-                className="text-blue-600 hover:underline ml-1"
+                className="hover:underline ml-1 font-medium"
+                style={{ color: "var(--color-primary)" }}
               >
-                See more
+                See More
               </button>
             )}
           </p>
@@ -415,7 +418,9 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
         {post.tags && post.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-3">
             {post.tags.map((t) => (
-              <span key={t.id} className="text-sm text-blue-600">#{t.name}</span>
+              <span key={t.id} className="text-sm" style={{ color: "var(--color-primary)" }}>
+                #{t.name}
+              </span>
             ))}
           </div>
         )}
@@ -451,9 +456,10 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
               <button
                 type="button"
                 onClick={() => setShowAllPhotos(true)}
-                className="text-blue-600 hover:underline text-sm mt-1"
+                className="hover:underline text-sm mt-1 font-medium"
+                style={{ color: "var(--color-primary)" }}
               >
-                See All photos ({allMedia.length})
+                See All Photos ({allMedia.length})
               </button>
             )}
           </div>

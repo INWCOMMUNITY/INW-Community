@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { isFeedPostRenderable } from "@/lib/feed-post-visible";
 
 /**
  * GET /api/me/posts?limit=30&cursor=...
@@ -178,21 +179,22 @@ export async function GET(req: NextRequest) {
     ])
   );
 
-  const feedItems = items.map((p) => ({
-    ...p,
-    type: "post",
-    tags: p.postTags?.map((pt) => pt.tag) ?? [],
-    sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
-    sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
-    sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
-    sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
-    sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
-    sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
-    sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
-    liked: likedSet.has(p.id),
-    likeCount: likeCountMap[p.id] ?? 0,
-    commentCount: commentCountMap[p.id] ?? 0,
-  }));
+  const feedItems = items
+    .map((p) => ({
+      ...p,
+      tags: p.postTags?.map((pt) => pt.tag) ?? [],
+      sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
+      sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
+      sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
+      sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
+      sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
+      sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
+      sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
+      liked: likedSet.has(p.id),
+      likeCount: likeCountMap[p.id] ?? 0,
+      commentCount: commentCountMap[p.id] ?? 0,
+    }))
+    .filter(isFeedPostRenderable);
 
   return NextResponse.json({
     posts: feedItems,

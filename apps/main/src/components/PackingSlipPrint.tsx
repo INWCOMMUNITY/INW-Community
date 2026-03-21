@@ -1,6 +1,7 @@
 "use client";
 
 import { PACKING_SLIP_FOOTER } from "@/lib/packing-slip";
+import { formatShippingAddress } from "@/lib/format-address";
 
 interface OrderItem {
   id: string;
@@ -61,17 +62,13 @@ function formatSellerAddress(addr: string | null, city?: string | null): string 
   return lines.join("\n");
 }
 
-function formatShipToAddress(addr: unknown): string {
-  if (!addr || typeof addr !== "object") return "";
-  const a = addr as Record<string, string>;
-  const parts: string[] = [];
-  if (a.name) parts.push(a.name);
-  if (a.street ?? a.address) parts.push((a.street ?? a.address) as string);
-  if (a.street2) parts.push(a.street2);
-  const cityStateZip = [a.city, a.state, a.zip].filter(Boolean).join(", ");
-  if (cityStateZip) parts.push(cityStateZip);
-  if (a.country && a.country !== "US") parts.push(a.country);
-  return parts.join("\n");
+function shipToBlock(buyer: { firstName: string; lastName: string }, shippingAddress: unknown): string {
+  const name = `${buyer.firstName} ${buyer.lastName}`.trim();
+  const addr =
+    shippingAddress && typeof shippingAddress === "object"
+      ? ({ ...(shippingAddress as object), name } as Record<string, unknown>)
+      : ({ name } as Record<string, unknown>);
+  return formatShippingAddress(addr);
 }
 
 export function PackingSlipPrint({
@@ -124,7 +121,7 @@ export function PackingSlipPrint({
     "—";
 
   return (
-    <div className="print-only packing-slip-container">
+    <div className="print-only packing-slip-container packing-slip-print-root">
       {ordersToPrint.map((group, idx) => (
         <div key={idx} className="packing-slip break-inside-avoid flex flex-col">
           {/* Top header: Logo left aligned with note/website/email boxes on right */}
@@ -168,8 +165,7 @@ export function PackingSlipPrint({
             </div>
             <div>
               <p className="text-xs font-semibold uppercase text-black mb-2">SHIPPING ADDRESS</p>
-              <p className="font-medium text-sm text-black">{group.buyer.firstName} {group.buyer.lastName}</p>
-              <pre className="text-sm whitespace-pre-wrap font-sans mt-2 text-black">{formatShipToAddress(group.orders[0].shippingAddress) || "—"}</pre>
+              <pre className="text-sm whitespace-pre-wrap font-sans text-black">{shipToBlock(group.buyer, group.orders[0].shippingAddress) || "—"}</pre>
             </div>
           </div>
 
@@ -243,6 +239,19 @@ export function PackingSlipPrint({
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          .packing-slip-print-root,
+          .packing-slip-print-root * {
+            visibility: visible !important;
+          }
+          .packing-slip-print-root {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
           }
           .no-print {
             display: none !important;

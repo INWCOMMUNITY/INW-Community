@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
 import { IonIcon } from "@/components/IonIcon";
+import { HubExclamationBadge } from "@/components/HubExclamationBadge";
 
 const SELLER_HUB_HEADER_IMAGE =
   "2bdd49_f582d22b864044b096a7f124f1b6efda~mv2.jpg/v1/fill/w_1920,h_640,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principle%203_edited.jpg";
@@ -33,6 +34,23 @@ export default async function SellerHubPage() {
           })
           .then((r) => !!r)
       : false;
+    const [toShipNewCount, pendingOffersNewCount] = await Promise.all([
+      prisma.storeOrder.count({
+        where: {
+          sellerId: session.user.id,
+          status: "paid",
+          shippedWithOrderId: null,
+          shipment: { is: null },
+          items: { some: { storeItem: { listingType: "new" } } },
+        },
+      }),
+      prisma.resaleOffer.count({
+        where: {
+          status: "pending",
+          storeItem: { memberId: session.user.id, listingType: "new" },
+        },
+      }),
+    ]);
     if (!sub && !isAdmin) {
       return (
         <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
@@ -94,8 +112,9 @@ export default async function SellerHubPage() {
             </Link>
             <Link
               href="/seller-hub/store/manage"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+              className="relative hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
             >
+              <HubExclamationBadge show={pendingOffersNewCount > 0} />
               <IonIcon name="list" size={28} className="text-[var(--color-primary)] mb-2" />
               <h2 className="text-xl font-bold mb-2">Manage Store</h2>
               <p className="text-sm text-gray-600">
@@ -104,8 +123,9 @@ export default async function SellerHubPage() {
             </Link>
             <Link
               href="/seller-hub/orders"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+              className="relative hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
             >
+              <HubExclamationBadge show={toShipNewCount > 0} />
               <IonIcon name="receipt" size={28} className="text-[var(--color-primary)] mb-2" />
               <h2 className="text-xl font-bold mb-2">My Orders / Ship Items</h2>
               <p className="text-sm text-gray-600">

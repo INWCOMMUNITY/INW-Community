@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
+import { getSellerShippoCredential, getSellerFromAddress } from "@/lib/shippo-seller";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +12,9 @@ export async function GET(req: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const sub = await prisma.subscription.findFirst({
-    where: { memberId: userId, plan: "seller", status: "active" },
-  });
-  if (!sub) {
-    return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
+  const canList = await memberHasStorefrontListingAccess(userId);
+  if (!canList) {
+    return NextResponse.json({ error: "Subscribe or Seller plan required" }, { status: 403 });
   }
   const member = await prisma.member.findUnique({
     where: { id: userId },
@@ -53,8 +53,22 @@ export async function GET(req: NextRequest) {
     where: { id: userId },
     select: { stripeConnectAccountId: true },
   });
-  // From-address for packing slips comes from Shippo Address Book (fetched when generating slip)
-  const returnAddressFormatted: string | null = null;
+
+  let returnAddressFormatted: string | null = null;
+  const shippoCred = await getSellerShippoCredential(userId);
+  if (shippoCred) {
+    const fromAddr = await getSellerFromAddress(shippoCred);
+    if (fromAddr?.street1 && fromAddr?.city && fromAddr?.state && fromAddr?.zip) {
+      returnAddressFormatted = [
+        fromAddr.company ?? business?.name ?? "",
+        fromAddr.street1,
+        fromAddr.street2,
+        [fromAddr.city, fromAddr.state, fromAddr.zip].filter(Boolean).join(", "),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+  }
 
   return NextResponse.json({
     member: member ?? { firstName: "", lastName: "", email: "" },
@@ -107,11 +121,9 @@ export async function PATCH(req: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const sub = await prisma.subscription.findFirst({
-    where: { memberId: userId, plan: "seller", status: "active" },
-  });
-  if (!sub) {
-    return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
+  const canList = await memberHasStorefrontListingAccess(userId);
+  if (!canList) {
+    return NextResponse.json({ error: "Subscribe or Seller plan required" }, { status: 403 });
   }
   let body: Record<string, unknown>;
   try {

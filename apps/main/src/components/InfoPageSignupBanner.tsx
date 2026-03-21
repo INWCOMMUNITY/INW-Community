@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
 import { CheckoutButton } from "@/components/CheckoutButton";
@@ -22,6 +25,8 @@ export function InfoPageSignupBanner({
   buttonHref,
   buttonLabel,
 }: InfoPageSignupBannerProps) {
+  const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
+
   return (
     <section
       className="relative w-full min-h-[320px] md:min-h-[400px] flex items-center justify-center overflow-hidden border-t-4"
@@ -41,9 +46,35 @@ export function InfoPageSignupBanner({
           {heading}
         </h2>
         {planId ? (
-          <CheckoutButton planId={planId} className="btn">
-            {buttonLabel}
-          </CheckoutButton>
+          <div className="flex flex-col items-center gap-4 w-full">
+            <div className="flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setInterval("monthly")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  interval === "monthly"
+                    ? "bg-[var(--color-primary)] text-white"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                Monthly
+              </button>
+              <button
+                type="button"
+                onClick={() => setInterval("yearly")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  interval === "yearly"
+                    ? "bg-[var(--color-primary)] text-white"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                Yearly
+              </button>
+            </div>
+            <CheckoutButton planId={planId} interval={interval} className="btn">
+              {buttonLabel}
+            </CheckoutButton>
+          </div>
         ) : (
           <Link href={buttonHref ?? "/support-nwc"} className="btn">
             {buttonLabel}

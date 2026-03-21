@@ -1,11 +1,51 @@
 import Link from "next/link";
+import { prisma } from "database";
+import { getServerSession } from "@/lib/auth";
 import { IonIcon } from "@/components/IonIcon";
 import { WIX_IMG } from "@/lib/wix-media";
+import { HubExclamationBadge } from "@/components/HubExclamationBadge";
 
 const RESALE_HUB_HEADER_IMAGE =
   "2bdd49_f582d22b864044b096a7f124f1b6efda~mv2.jpg/v1/fill/w_1920,h_640,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principle%203_edited.jpg";
 
-export default function ResaleHubPage() {
+export const dynamic = "force-dynamic";
+
+export default async function ResaleHubPage() {
+  const session = await getServerSession();
+  const uid = session?.user?.id;
+  let toShipResaleCount = 0;
+  let pendingOffersResaleCount = 0;
+  if (uid) {
+    [toShipResaleCount, pendingOffersResaleCount] = await Promise.all([
+      prisma.storeOrder.count({
+        where: {
+          sellerId: uid,
+          status: "paid",
+          shippedWithOrderId: null,
+          shipment: { is: null },
+          items: { some: { storeItem: { listingType: "resale" } } },
+        },
+      }),
+      prisma.resaleOffer.count({
+        where: {
+          status: "pending",
+          storeItem: { memberId: uid, listingType: "resale" },
+        },
+      }),
+    ]);
+  }
+
+  const cards = [
+    { href: "/resale-hub/list", label: "List Item", icon: "add-circle" as const, desc: "Add a resale listing with photos, price, and delivery options.", badge: false },
+    { href: "/resale-hub/orders", label: "Orders / To Ship", icon: "receipt-outline" as const, desc: "View orders and purchase shipping labels.", badge: toShipResaleCount > 0 },
+    { href: "/resale-hub/deliveries", label: "Deliveries", icon: "car-outline" as const, desc: "View and confirm local delivery orders. Mark as delivered when complete.", badge: false },
+    { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" as const, desc: "View pickup orders. Mark as picked up when the buyer collects.", badge: false },
+    { href: "/resale-hub/offers", label: "Offers", icon: "pricetag-outline" as const, desc: "Review and accept or decline offers from buyers.", badge: pendingOffersResaleCount > 0 },
+    { href: "/resale-hub/messages", label: "Messages", icon: "chatbubbles" as const, desc: "Chat with buyers about your listings.", badge: false },
+    { href: "/resale-hub/payouts", label: "Payouts", icon: "wallet" as const, desc: "View your balance and payout setup.", badge: false },
+    { href: "/resale-hub/before-you-start", label: "Before You Start", icon: "checkbox-outline" as const, desc: "Set up payments, shipping, and your policies.", badge: false },
+  ];
+
   return (
     <>
       <header
@@ -31,21 +71,13 @@ export default function ResaleHubPage() {
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
           <div className="flex flex-wrap justify-center gap-8">
-            {[
-              { href: "/resale-hub/list", label: "List Item", icon: "add-circle" as const, desc: "Add a resale listing with photos, price, and delivery options." },
-              { href: "/resale-hub/orders", label: "Orders / To Ship", icon: "receipt-outline" as const, desc: "View orders and purchase shipping labels." },
-              { href: "/resale-hub/deliveries", label: "Deliveries", icon: "car-outline" as const, desc: "View and confirm local delivery orders. Mark as delivered when complete." },
-              { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" as const, desc: "View pickup orders. Mark as picked up when the buyer collects." },
-              { href: "/resale-hub/offers", label: "Offers", icon: "pricetag-outline" as const, desc: "Review and accept or decline offers from buyers." },
-              { href: "/resale-hub/messages", label: "Messages", icon: "chatbubbles" as const, desc: "Chat with buyers about your listings." },
-              { href: "/resale-hub/payouts", label: "Payouts", icon: "wallet" as const, desc: "View your balance and payout setup." },
-              { href: "/resale-hub/before-you-start", label: "Before You Start", icon: "checkbox-outline" as const, desc: "Set up payments, shipping, and your policies." },
-            ].map((card) => (
+            {cards.map((card) => (
               <Link
                 key={card.href}
                 href={card.href}
-                className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+                className="relative hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
               >
+                <HubExclamationBadge show={card.badge} />
                 <IonIcon name={card.icon} size={28} className="text-[var(--color-primary)] mb-2" />
                 <h2 className="text-xl font-bold mb-2">{card.label}</h2>
                 <p className="text-sm text-gray-600">{card.desc}</p>

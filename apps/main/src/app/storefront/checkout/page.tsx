@@ -200,7 +200,7 @@ export default function CheckoutPage() {
               target="_blank"
               rel="noopener noreferrer"
               className="underline focus:outline-none focus:ring-2 focus:ring-offset-2 rounded"
-              style={{ color: "var(--color-accent, #2563eb)" }}
+              style={{ color: "var(--color-primary)" }}
             >
               Dashboard → Developers → API keys
             </a>

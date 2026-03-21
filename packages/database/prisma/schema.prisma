@@ -166,10 +166,13 @@ model CartItem {
   fulfillmentType      String?  @map("fulfillment_type") // ship | local_delivery | pickup
   localDeliveryDetails Json?    @map("local_delivery_details")
   pickupDetails        Json?    @map("pickup_details") // { firstName, lastName, phone, note?, termsAcceptedAt }
+  priceOverrideCents   Int?     @map("price_override_cents") // locked offer price
+  resaleOfferId        String?  @unique @map("resale_offer_id")
   createdAt            DateTime @default(now()) @map("created_at")
 
   member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
   storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  resaleOffer ResaleOffer? @relation(fields: [resaleOfferId], references: [id], onDelete: SetNull)
 
   @@index([memberId])
 }
@@ -724,6 +727,7 @@ model Reward {
   redemptionLimit  Int      @map("redemption_limit") // total times redeemable before removed
   timesRedeemed   Int      @default(0) @map("times_redeemed")
   imageUrl         String?  @map("image_url")
+  needsShipping    Boolean  @default(false) @map("needs_shipping") // buyer completes checkout for label
   status           String   @default("active") // active | redeemed_out | inactive
   seasonId         String?  @map("season_id") // when set, reward only visible during this season
   createdAt        DateTime @default(now()) @map("created_at")
@@ -740,6 +744,10 @@ model RewardRedemption {
   rewardId   String   @map("reward_id")
   pointsSpent Int     @map("points_spent")
   createdAt  DateTime @default(now()) @map("created_at")
+  storeOrderId String? @unique @map("store_order_id")
+  fulfillmentStatus String? @map("fulfillment_status") // pending_checkout | paid | shipped | fulfilled | canceled
+  contactPhone String? @map("contact_phone")
+  contactEmail String? @map("contact_email")
 
   member  Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
   reward  Reward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
@@ -791,6 +799,7 @@ model StoreOrder {
   totalCents              Int      @map("total_cents")
   shippingCostCents       Int      @default(0) @map("shipping_cost_cents")
   subtotalCents           Int      @map("subtotal_cents")
+  taxCents                Int      @default(0) @map("tax_cents")
   status                  String   @default("pending") // pending | paid | shipped | delivered | refunded | canceled
   shippingAddress         Json?    @map("shipping_address") // { street, city, state, zip }
   localDeliveryDetails    Json?    @map("local_delivery_details") // { firstName, lastName, phone, deliveryAddress, note, termsAcceptedAt }
@@ -815,6 +824,7 @@ model StoreOrder {
   packageWidthIn   Float?   @map("package_width_in")
   packageHeightIn Float?   @map("package_height_in")
   shippedWithOrderId String? @map("shipped_with_order_id") // When shipped as part of combined shipment
+  orderKind               String   @default("storefront") @map("order_kind") // storefront | reward_redemption
 }
 
 model Shipment {
@@ -860,14 +870,18 @@ model ResaleOffer {
   buyerId          String    @map("buyer_id")
   amountCents      Int       @map("amount_cents")
   message          String?   @db.Text
-  status           String    @default("pending") // pending | accepted | declined | countered
+  status           String    @default("pending") // pending | accepted | declined | countered | expired
   sellerResponse   String?   @map("seller_response") @db.Text
   counterAmountCents Int?   @map("counter_amount_cents") // seller's counter offer
+  finalAmountCents Int?    @map("final_amount_cents") // agreed price when accepted
+  acceptedAt       DateTime? @map("accepted_at")
+  checkoutDeadlineAt DateTime? @map("checkout_deadline_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   respondedAt      DateTime? @map("responded_at")
 
   storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
   buyer     Member    @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  cartItem  CartItem?
 
   @@index([storeItemId])
   @@index([buyerId])

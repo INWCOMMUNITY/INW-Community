@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { z } from "zod";
 
 const patchBodySchema = z.object({
@@ -12,6 +13,70 @@ const patchBodySchema = z.object({
 const buyerResponseSchema = z.object({
   status: z.enum(["accepted", "declined"]),
 });
+
+const OFFER_CHECKOUT_HOURS = 24;
+
+async function placeAcceptedOfferInBuyerCart(
+  offer: {
+    id: string;
+    buyerId: string;
+    storeItemId: string;
+    storeItem: {
+      quantity: number;
+      shippingDisabled: boolean;
+      localDeliveryAvailable: boolean;
+      inStorePickupAvailable: boolean;
+      variants: unknown;
+    };
+  },
+  finalAmountCents: number
+): Promise<void> {
+  const si = offer.storeItem;
+  const avail = getAvailableQuantity(si, undefined);
+  if (avail < 1) {
+    throw new Error("ITEM_UNAVAILABLE");
+  }
+  let fulfillmentType: "ship" | "local_delivery" | "pickup" = "ship";
+  if (si.shippingDisabled) {
+    if (si.localDeliveryAvailable) fulfillmentType = "local_delivery";
+    else if (si.inStorePickupAvailable) fulfillmentType = "pickup";
+  }
+
+  const deadline = new Date(Date.now() + OFFER_CHECKOUT_HOURS * 60 * 60 * 1000);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.resaleOffer.update({
+      where: { id: offer.id },
+      data: {
+        status: "accepted",
+        finalAmountCents: finalAmountCents,
+        acceptedAt: new Date(),
+        checkoutDeadlineAt: deadline,
+        respondedAt: new Date(),
+      },
+    });
+    await tx.cartItem.deleteMany({
+      where: { memberId: offer.buyerId, storeItemId: offer.storeItemId },
+    });
+    await tx.cartItem.create({
+      data: {
+        memberId: offer.buyerId,
+        storeItemId: offer.storeItemId,
+        quantity: 1,
+        priceOverrideCents: finalAmountCents,
+        resaleOfferId: offer.id,
+        fulfillmentType,
+      },
+    });
+  });
+
+  const { sendPushNotification } = await import("@/lib/send-push-notification");
+  await sendPushNotification(offer.buyerId, {
+    title: "Offer accepted",
+    body: `Complete checkout within 24 hours at the agreed price of $${(finalAmountCents / 100).toFixed(2)}.`,
+    data: { screen: "cart" },
+  }).catch(() => {});
+}
 
 export async function PATCH(
   req: NextRequest,
@@ -26,7 +91,18 @@ export async function PATCH(
   const { id } = await params;
   const offer = await prisma.resaleOffer.findUnique({
     where: { id },
-    include: { storeItem: { select: { memberId: true } } },
+    include: {
+      storeItem: {
+        select: {
+          memberId: true,
+          quantity: true,
+          shippingDisabled: true,
+          localDeliveryAvailable: true,
+          inStorePickupAvailable: true,
+          variants: true,
+        },
+      },
+    },
   });
   if (!offer) {
     return NextResponse.json({ error: "Offer not found" }, { status: 404 });
@@ -38,7 +114,6 @@ export async function PATCH(
     return NextResponse.json({ error: "You cannot respond to this offer" }, { status: 403 });
   }
 
-  // Buyer responding to a counter offer
   if (isBuyer && offer.status === "countered") {
     let buyerData: z.infer<typeof buyerResponseSchema>;
     try {
@@ -47,6 +122,30 @@ export async function PATCH(
     } catch (e) {
       const msg = e instanceof z.ZodError ? e.errors[0]?.message : "Invalid input";
       return NextResponse.json({ error: String(msg) }, { status: 400 });
+    }
+    if (buyerData.status === "accepted") {
+      const final = offer.counterAmountCents;
+      if (typeof final !== "number" || final < 1) {
+        return NextResponse.json({ error: "Invalid counter offer amount" }, { status: 400 });
+      }
+      try {
+        await placeAcceptedOfferInBuyerCart(
+          {
+            id: offer.id,
+            buyerId: offer.buyerId,
+            storeItemId: offer.storeItemId,
+            storeItem: offer.storeItem,
+          },
+          final
+        );
+      } catch (err) {
+        if (err instanceof Error && err.message === "ITEM_UNAVAILABLE") {
+          return NextResponse.json({ error: "This item is no longer available." }, { status: 400 });
+        }
+        throw err;
+      }
+      const updated = await prisma.resaleOffer.findUnique({ where: { id } });
+      return NextResponse.json(updated);
     }
     const updated = await prisma.resaleOffer.update({
       where: { id },
@@ -81,6 +180,27 @@ export async function PATCH(
         { status: 400 }
       );
     }
+  }
+
+  if (data.status === "accepted") {
+    try {
+      await placeAcceptedOfferInBuyerCart(
+        {
+          id: offer.id,
+          buyerId: offer.buyerId,
+          storeItemId: offer.storeItemId,
+          storeItem: offer.storeItem,
+        },
+        offer.amountCents
+      );
+    } catch (err) {
+      if (err instanceof Error && err.message === "ITEM_UNAVAILABLE") {
+        return NextResponse.json({ error: "This item is no longer available." }, { status: 400 });
+      }
+      throw err;
+    }
+    const updated = await prisma.resaleOffer.findUnique({ where: { id } });
+    return NextResponse.json(updated);
   }
 
   const updated = await prisma.resaleOffer.update({

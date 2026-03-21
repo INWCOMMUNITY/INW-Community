@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { expireStaleResaleOffers } from "@/lib/expire-stale-resale-offers";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -45,6 +46,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json([]);
   }
 
+  await expireStaleResaleOffers();
+
   const items = await prisma.cartItem.findMany({
     where: { memberId: session.user.id },
     include: {
@@ -76,6 +79,14 @@ export async function GET(req: NextRequest) {
           },
         },
       },
+      resaleOffer: {
+        select: {
+          id: true,
+          status: true,
+          checkoutDeadlineAt: true,
+          finalAmountCents: true,
+        },
+      },
     },
   });
 
@@ -100,6 +111,9 @@ export async function GET(req: NextRequest) {
       fulfillmentType: i.fulfillmentType,
       localDeliveryDetails: i.localDeliveryDetails,
       pickupDetails: i.pickupDetails,
+      priceOverrideCents: i.priceOverrideCents,
+      resaleOfferId: i.resaleOfferId,
+      resaleOffer: i.resaleOffer,
       storeItem: i.storeItem,
       ...(unavailableReason && { unavailableReason }),
     };

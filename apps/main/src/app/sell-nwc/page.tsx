@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CheckoutButton } from "@/components/CheckoutButton";
+import { BillingIntervalCheckout } from "@/components/BillingIntervalCheckout";
 import { InfoPageContact } from "@/components/InfoPageContact";
 import { InfoPageHeader } from "@/components/InfoPageHeader";
 import { InfoPageBenefitSections } from "@/components/InfoPageBenefitSections";
@@ -64,9 +64,9 @@ export default async function SellNWCPage() {
       <InfoPageContact />
       <section className="py-10 px-12 md:px-20 lg:px-24 text-center" style={{ padding: "var(--section-padding)" }}>
         <div className="flex flex-wrap gap-4 justify-center">
-          <CheckoutButton planId="seller" className="btn">
+          <BillingIntervalCheckout planId="seller" className="btn">
             Become a Seller
-          </CheckoutButton>
+          </BillingIntervalCheckout>
           <Link href="/support-nwc" className="btn-sponsors-light inline-block">
             Compare All Plans
           </Link>

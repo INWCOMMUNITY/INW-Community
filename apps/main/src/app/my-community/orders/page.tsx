@@ -325,21 +325,23 @@ export default function MyOrdersPage() {
                   </div>
                   <div className="text-right">
                     <p className="font-bold">${(order.totalCents / 100).toFixed(2)}</p>
-                    <span
-                      className="inline-block px-2 py-0.5 rounded text-sm mt-1"
-                      style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
-                    >
-                      {getOrderStatusLabel(order.status)}
-                    </span>
-                    <span
-                      className="block mt-1 inline-block px-2 py-0.5 rounded text-xs font-medium"
-                      style={{
-                        backgroundColor: order.isCashOrder ? "#fef3c7" : "var(--color-section-alt)",
-                        color: order.isCashOrder ? "#92400e" : "var(--color-primary)",
-                      }}
-                    >
-                      {order.isCashOrder ? "Awaiting Payment: Cash" : "Paid: Online NWC"}
-                    </span>
+                    <div className="mt-1 flex flex-col items-end gap-1">
+                      <span
+                        className="inline-block px-2 py-0.5 rounded text-sm"
+                        style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
+                      >
+                        {getOrderStatusLabel(order.status)}
+                      </span>
+                      <span
+                        className="inline-block px-2 py-0.5 rounded text-sm font-medium"
+                        style={{
+                          backgroundColor: order.isCashOrder ? "#fef3c7" : "var(--color-section-alt)",
+                          color: order.isCashOrder ? "#92400e" : "var(--color-primary)",
+                        }}
+                      >
+                        {order.isCashOrder ? "Awaiting Payment: Cash" : "Paid: Online NWC"}
+                      </span>
+                    </div>
                   </div>
                 </div>
 

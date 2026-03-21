@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getBaseUrl } from "@/lib/get-base-url";
+import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -122,6 +123,17 @@ export async function POST(req: NextRequest) {
   }
 
   const itemMap = new Map(storeItems.map((s) => [s.id, s]));
+
+  const cartDbItems = await prisma.cartItem.findMany({
+    where: {
+      memberId: session.user.id,
+      storeItemId: { in: items.map((i) => i.storeItemId) },
+    },
+    include: { resaleOffer: true },
+  });
+  const cartByStoreItem = new Map(cartDbItems.map((c) => [c.storeItemId, c]));
+  const resaleOfferIdsMeta = new Set<string>();
+
   const bySeller = new Map<string, typeof items>();
   const singleQtyStoreItemIds: string[] = [];
   for (const item of items) {
@@ -193,7 +205,13 @@ export async function POST(req: NextRequest) {
 
     for (const item of sellerItems) {
       const storeItem = itemMap.get(item.storeItemId)!;
-      const priceCents = storeItem.priceCents;
+      const cartRow = cartByStoreItem.get(item.storeItemId);
+      const { unitPriceCents: priceCents, resaleOfferId } = resolvedPriceForCartLine(
+        storeItem,
+        cartRow,
+        session.user.id
+      );
+      if (resaleOfferId) resaleOfferIdsMeta.add(resaleOfferId);
       const lineTotal = priceCents * item.quantity;
       subtotalCents += lineTotal;
       const fulfillmentType = item.fulfillmentType ?? "ship";
@@ -203,7 +221,7 @@ export async function POST(req: NextRequest) {
       const fulfillmentLabel =
         fulfillmentType === "local_delivery" ? "Local delivery" : fulfillmentType === "pickup" ? "Pickup" : "Shipping";
       summaryItems.push({
-        name: `${storeItem.title} (${fulfillmentLabel})`,
+        name: `${storeItem.title} (${fulfillmentLabel})${resaleOfferId ? " — agreed offer" : ""}`,
         quantity: item.quantity,
         unitPriceCents: priceCents,
         lineTotalCents: lineTotal,
@@ -268,6 +286,7 @@ export async function POST(req: NextRequest) {
   }
 
   const orderIds = sellerOrderPairs.map((p) => p.orderId);
+  const resaleOfferIdsStr = [...resaleOfferIdsMeta].join(",");
 
   const payments: { clientSecret: string; orderIds: string[]; stripeAccountId: string; amountCents: number }[] = [];
   for (const pair of sellerOrderPairs) {
@@ -283,7 +302,10 @@ export async function POST(req: NextRequest) {
         {
           amount: pair.totalCents,
           currency: "usd",
-          metadata: { orderId: pair.orderId },
+          metadata: {
+            orderId: pair.orderId,
+            ...(resaleOfferIdsStr ? { resaleOfferIds: resaleOfferIdsStr.slice(0, 450) } : {}),
+          },
           automatic_payment_methods: { enabled: true },
         },
         { stripeAccount: connectAccountId }
@@ -332,10 +354,7 @@ export async function POST(req: NextRequest) {
     successParams.set("cash_order_ids", cashOrderIds.join(","));
   }
 
-  const baseForSuccess =
-    typeof returnBaseUrl === "string" && /^https?:\/\//i.test(returnBaseUrl.trim())
-      ? returnBaseUrl.trim().replace(/\/+$/, "")
-      : getBaseUrl();
+  const baseForSuccess = resolveAllowedCheckoutBaseUrl(returnBaseUrl);
 
   return NextResponse.json({
     payments,

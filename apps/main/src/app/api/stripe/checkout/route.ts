@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 
@@ -105,9 +106,7 @@ export async function POST(req: NextRequest) {
     const planId = body.planId as string;
     const interval = (body.interval as BillingInterval) || "monthly";
     const businessData = body.businessData as Record<string, unknown> | undefined;
-    // Mobile can pass returnBaseUrl so redirect works on device (e.g. http://192.168.1.140:3000)
-    const returnBase = (body.returnBaseUrl as string)?.trim?.();
-    const baseUrl = returnBase || (process.env.NEXTAUTH_URL ?? "");
+    const baseUrl = resolveAllowedCheckoutBaseUrl(body.returnBaseUrl as string | undefined);
     const plans = getPlans();
     const plan = plans[planId];
     const priceId = interval === "yearly" && plan?.priceIdYearly ? plan.priceIdYearly : plan?.priceId;

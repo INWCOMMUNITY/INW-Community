@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { CreateGroupCallout } from "@/components/CreateGroupCallout";
 
 interface Group {
   id: string;
@@ -36,14 +37,12 @@ export default function CommunityGroupsPage() {
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto text-center">
-        <div className="flex flex-wrap items-center justify-center gap-4 mb-8">
-          <h1 className="text-3xl font-bold w-full">Community Groups</h1>
-          {session?.user?.id && (
-            <Link href="/community-groups/new" className="btn">
-              Create group
-            </Link>
-          )}
-        </div>
+        <h1 className="text-3xl font-bold w-full text-center mb-6">Community Groups</h1>
+        {session?.user?.id && (
+          <div className="max-w-xl mx-auto mb-8">
+            <CreateGroupCallout />
+          </div>
+        )}
         <p className="text-gray-600 mb-6 max-w-xl mx-auto">
           Join or create groups to connect with others in your community. Share updates, photos, and more.
         </p>

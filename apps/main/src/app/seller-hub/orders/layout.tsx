@@ -12,8 +12,13 @@ export default async function SellerOrdersLayout({
   if (!session?.user?.id) {
     redirect("/login?callbackUrl=/seller-hub/orders");
   }
+  /** Seller list + labels; sponsors need order detail for reward fulfillments (same sellerId as business owner). */
   const sub = await prisma.subscription.findFirst({
-    where: { memberId: session.user.id, plan: "seller", status: "active" },
+    where: {
+      memberId: session.user.id,
+      plan: { in: ["seller", "sponsor", "subscribe"] },
+      status: "active",
+    },
   });
   if (!sub) {
     redirect("/seller-hub");

@@ -70,15 +70,15 @@ export async function GET(req: NextRequest) {
     }
 
     if (mine === "1") {
-      const sellerOrSubscribe = await prisma.subscription.findFirst({
+      const sellerSponsorOrSubscribe = await prisma.subscription.findFirst({
         where: {
           memberId: userId,
-          plan: { in: ["seller", "subscribe"] },
+          plan: { in: ["seller", "sponsor", "subscribe"] },
           status: "active",
         },
       });
-      if (!sellerOrSubscribe) {
-        return NextResponse.json({ error: "Seller or Subscribe plan required" }, { status: 403 });
+      if (!sellerSponsorOrSubscribe) {
+        return NextResponse.json({ error: "Seller, Sponsor, or Subscribe plan required" }, { status: 403 });
       }
       const where: { sellerId: string; status?: string | { in: string[] } } = { sellerId: userId };
       if (needsShipment) {
