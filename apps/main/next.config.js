@@ -4,6 +4,7 @@ const { PrismaPlugin } = require("@prisma/nextjs-monorepo-workaround-plugin");
 
 // Load root .env so DATABASE_URL is always available when running from monorepo root.
 // In development, always apply root .env so the app uses the same DB as seed/scripts.
+// Stripe/Shippo live vs test is not tied to NODE_ENV — use live keys in root .env to mirror production locally.
 const rootEnv = path.join(__dirname, "..", "..", ".env");
 if (fs.existsSync(rootEnv)) {
   const content = fs.readFileSync(rootEnv, "utf8");

@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl?.searchParams ?? new URLSearchParams();
     const list = searchParams.get("list");
     const search = searchParams.get("search")?.trim();
-    const category = searchParams.get("category")?.trim();
+    const category = searchParams.get("category")?.trim() || "";
     const city = searchParams.get("city")?.trim();
 
     const sellerMemberIds = await prisma.subscription.findMany({
@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
 
     const subcategory = searchParams.get("subcategory")?.trim() || "";
 
+    // Subcategory only narrows within the selected primary (see /api/businesses).
     const businesses = await prisma.business.findMany({
       where: {
         memberId: { in: memberIds },

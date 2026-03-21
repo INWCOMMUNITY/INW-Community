@@ -8,7 +8,6 @@ import { sumOptionQuantities } from "@/lib/store-item-variants";
 import {
   STORE_CATEGORIES,
   getSubcategoriesForCategory,
-  filterStoreCategories,
 } from "@/lib/store-categories";
 
 interface Business {
@@ -60,7 +59,6 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
   const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
   const [category, setCategory] = useState(existing?.category ?? "");
   const [subcategory, setSubcategory] = useState(existing?.subcategory ?? "");
-  const [categorySearch, setCategorySearch] = useState("");
   const [useCustomCategory, setUseCustomCategory] = useState(() => {
     const c = existing?.category ?? "";
     return !!c && !STORE_CATEGORIES.some((x) => x.label === c);
@@ -588,7 +586,12 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
 
       {/* 4. Category & Subcategory */}
       <div className="space-y-3">
-        <label className="block text-sm font-medium mb-1">Category</label>
+        <div>
+          <span className="block text-sm font-medium mb-1">Category</span>
+          <p className="text-xs text-gray-500 mb-2">
+            Choose a main category, then optionally narrow with a subcategory.
+          </p>
+        </div>
         {useCustomCategory ? (
           <div className="space-y-2">
             <input
@@ -620,46 +623,51 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
           </div>
         ) : (
           <>
-            <input
-              type="text"
-              value={categorySearch}
-              onChange={(e) => setCategorySearch(e.target.value)}
-              placeholder="Search categories..."
-              className="w-full border rounded px-3 py-2 mb-1"
-            />
-            <select
-              value={category}
-              onChange={(e) => {
-                const v = e.target.value;
-                setCategory(v);
-                setSubcategory("");
-              }}
-              className="w-full border rounded px-3 py-2"
-            >
-              <option value="">Select category</option>
-              {(categorySearch.trim()
-                ? filterStoreCategories(categorySearch)
-                : STORE_CATEGORIES
-              ).map((c) => (
-                <option key={c.label} value={c.label}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            {category && (
+            <div>
+              <label htmlFor="store-item-category" className="block text-xs font-medium text-gray-700 mb-1">
+                Main category
+              </label>
               <select
-                value={subcategory}
-                onChange={(e) => setSubcategory(e.target.value)}
-                className="w-full border rounded px-3 py-2 mt-2"
+                id="store-item-category"
+                value={category}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCategory(v);
+                  setSubcategory("");
+                }}
+                className="w-full border rounded px-3 py-2 bg-white"
               >
-                <option value="">Select subcategory (optional)</option>
-                {getSubcategoriesForCategory(category).map((s) => (
-                  <option key={s} value={s}>
-                    {s}
+                <option value="">Select a category…</option>
+                {STORE_CATEGORIES.map((c) => (
+                  <option key={c.label} value={c.label}>
+                    {c.label}
                   </option>
                 ))}
               </select>
-            )}
+            </div>
+            {category ? (
+              <div>
+                <label htmlFor="store-item-subcategory" className="block text-xs font-medium text-gray-700 mb-1">
+                  Subcategory (optional)
+                </label>
+                <select
+                  id="store-item-subcategory"
+                  value={subcategory}
+                  onChange={(e) => setSubcategory(e.target.value)}
+                  className="w-full border rounded px-3 py-2 bg-white"
+                >
+                  <option value="">— None —</option>
+                  {getSubcategoriesForCategory(category).map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                  {subcategory && !getSubcategoriesForCategory(category).includes(subcategory) ? (
+                    <option value={subcategory}>{subcategory}</option>
+                  ) : null}
+                </select>
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={() => setUseCustomCategory(true)}

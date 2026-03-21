@@ -665,12 +665,15 @@ export default function ProductDetailPage() {
           className="rounded-lg border-2 p-6 mb-12"
           style={{ borderColor: "#C9A86C" }}
         >
-          <div className="grid md:grid-cols-2 gap-8 min-h-[480px]">
-          <div className="relative">
-            <div className="absolute top-0 right-0 z-10 flex gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+            <h1 className="text-3xl font-bold flex-1 min-w-0 pr-2">{item.title}</h1>
+            <div className="flex gap-2 shrink-0">
               <ShareButton type="store_item" id={item.id} slug={item.slug} listingType="new" title={item.title} className="btn text-sm shrink-0 p-2 rounded border border-gray-300 bg-white hover:bg-gray-50" />
               <HeartSaveButton type="store_item" referenceId={item.id} initialSaved={savedIds.has(item.id)} className="shrink-0" />
             </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-8 min-h-[480px]">
+          <div>
             {mainPhoto ? (
               <button
                 type="button"
@@ -714,7 +717,6 @@ export default function ProductDetailPage() {
             )}
           </div>
           <div>
-            <h1 className="text-3xl font-bold mb-2">{item.title}</h1>
             {item.business && (
               <Link
                 href={`/support-local/${item.business.slug}`}

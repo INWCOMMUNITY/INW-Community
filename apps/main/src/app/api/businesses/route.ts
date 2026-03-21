@@ -116,7 +116,7 @@ export async function GET(req: NextRequest) {
       cities,
     });
   }
-  const category = searchParams.get("category");
+  const category = searchParams.get("category")?.trim() || "";
   const subcategory = searchParams.get("subcategory")?.trim() || "";
   const city = searchParams.get("city");
   const search = searchParams.get("search")?.trim();
@@ -152,6 +152,7 @@ export async function GET(req: NextRequest) {
     orderBy: { name: "asc" },
   });
   let resultRows = businesses;
+  // Subcategory only narrows results within the selected primary; it is never required to get directory matches.
   if (category && subcategory) {
     resultRows = businesses.filter((b) =>
       businessMatchesCategoryAndSub(b.categories, b.subcategoriesByPrimary, category, subcategory)

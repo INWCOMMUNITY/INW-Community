@@ -44,8 +44,8 @@ export async function GET(req: NextRequest) {
   try {
     const searchParams = req.nextUrl?.searchParams ?? new URLSearchParams();
     const mine = searchParams.get("mine");
-    const category = searchParams.get("category");
-    const subcategory = searchParams.get("subcategory");
+    const categoryParam = searchParams.get("category");
+    const subcategoryParam = searchParams.get("subcategory");
     const size = searchParams.get("size")?.trim();
     const search = searchParams.get("search")?.trim();
     const slug = searchParams.get("slug")?.trim() || undefined;
@@ -310,6 +310,8 @@ export async function GET(req: NextRequest) {
 
   const localDelivery = searchParams.get("localDelivery");
   const shippingOnly = searchParams.get("shippingOnly");
+  const categoryTrim = categoryParam?.trim() || "";
+  const subcategoryTrim = subcategoryParam?.trim() || "";
 
   try {
     // Items in a pending order are treated as sold (reserved) and hidden from the storefront.
@@ -330,8 +332,9 @@ export async function GET(req: NextRequest) {
         ...listingWhere,
         ...sellerCanReceivePayment,
         AND: [{ category: { not: "Test" } }],
-        ...(category ? { category } : {}),
-        ...(subcategory ? { subcategory } : {}),
+        // Main category filter alone returns all items in that category; subcategory only narrows further.
+        ...(categoryTrim ? { category: categoryTrim } : {}),
+        ...(categoryTrim && subcategoryTrim ? { subcategory: subcategoryTrim } : {}),
         ...(memberId ? { memberId } : {}),
         ...(excludeId ? { id: { not: excludeId } } : {}),
         ...(reservedItemIds.length > 0 ? { id: { notIn: reservedItemIds } } : {}),

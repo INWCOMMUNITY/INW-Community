@@ -15,8 +15,29 @@ const US_STATES: Record<string, string> = {
   WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming", DC: "District of Columbia",
 };
 
-const rateLimitMap = new Map<string, number>();
-const RATE_LIMIT_MS = 2000;
+/** Sliding window: checkout may POST twice in one flow (validate + retry with suggested address). */
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_PER_WINDOW = 12;
+const rateLimitTimestamps = new Map<string, number[]>();
+
+function isRateLimited(userId: string): boolean {
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW_MS;
+  const list = rateLimitTimestamps.get(userId) ?? [];
+  const recent = list.filter((t) => t > windowStart);
+  if (recent.length >= RATE_LIMIT_MAX_PER_WINDOW) return true;
+  recent.push(now);
+  rateLimitTimestamps.set(userId, recent);
+
+  if (rateLimitTimestamps.size > 10_000) {
+    for (const [id, ts] of rateLimitTimestamps) {
+      const kept = ts.filter((t) => t > windowStart);
+      if (kept.length === 0) rateLimitTimestamps.delete(id);
+      else rateLimitTimestamps.set(id, kept);
+    }
+  }
+  return false;
+}
 
 function normalizeState(s: string): string {
   const upper = s.trim().toUpperCase();
@@ -32,8 +53,24 @@ const SHIPPO_API = "https://api.goshippo.com";
 type ShippoValidateResponse = {
   original_address?: { address_line_1?: string; address_line_2?: string; city_locality?: string; state_province?: string; postal_code?: string };
   recommended_address?: { address_line_1?: string; address_line_2?: string; city_locality?: string; state_province?: string; postal_code?: string } | null;
-  analysis?: { validation_result?: { is_valid?: boolean }; address_type?: string };
+  analysis?: {
+    /** Shippo v2 uses `value`; older docs sometimes showed `is_valid`. */
+    validation_result?: { value?: string; is_valid?: boolean };
+    address_type?: string;
+  };
 };
+
+type ShippoValidationResult = NonNullable<ShippoValidateResponse["analysis"]>["validation_result"];
+
+/** Shippo Address API v2: validation_result uses `value` ("valid" | "partially_valid" | "invalid"), not `is_valid`. */
+function shippoValidationPasses(validationResult: ShippoValidationResult): boolean {
+  const vr = validationResult;
+  if (!vr || typeof vr !== "object") return false;
+  if (typeof vr.value === "string") {
+    return vr.value === "valid" || vr.value === "partially_valid";
+  }
+  return vr.is_valid === true;
+}
 
 function mapShippoAddressToFormatted(addr: ShippoValidateResponse["recommended_address"] | ShippoValidateResponse["original_address"], fallback: { street: string; city: string; state: string; zip: string }): { street: string; city: string; state: string; zip: string } {
   if (!addr) return fallback;
@@ -94,7 +131,7 @@ async function validateWithShippo(
     return { valid: false };
   }
 
-  const isValid = data.analysis?.validation_result?.is_valid === true;
+  const isValid = shippoValidationPasses(data.analysis?.validation_result);
   const recommended = data.recommended_address && typeof data.recommended_address === "object"
     ? data.recommended_address
     : null;
@@ -123,21 +160,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const now = Date.now();
-    const lastRequest = rateLimitMap.get(session.user.id) ?? 0;
-    if (now - lastRequest < RATE_LIMIT_MS) {
+    if (isRateLimited(session.user.id)) {
       return NextResponse.json(
         { valid: false, error: "Please wait a moment before trying again." },
         { status: 429 }
       );
-    }
-    rateLimitMap.set(session.user.id, now);
-
-    if (rateLimitMap.size > 10000) {
-      const cutoff = now - 60_000;
-      for (const [key, ts] of rateLimitMap) {
-        if (ts < cutoff) rateLimitMap.delete(key);
-      }
     }
 
     const body = await req.json();
@@ -192,6 +219,9 @@ export async function POST(req: NextRequest) {
     const forCheckout = requireCarrierVerification === true;
 
     if (forCheckout && !process.env.SHIPPO_API_KEY?.trim()) {
+      console.error(
+        "[validate-address] SHIPPO_API_KEY is not set; checkout requires carrier verification"
+      );
       return NextResponse.json(
         {
           valid: false,
