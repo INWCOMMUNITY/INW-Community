@@ -70,6 +70,8 @@ For deployment, use Vercel or another host – production builds work there.
    ```
    If this is missing, checkout address verification returns 503 and buyers see “verification temporarily unavailable.” Sellers can still connect Shippo and buy labels without it.
 
+**Label widget won’t load (“Shippo could not load…”):** The site must allow Shippo’s CDN and API in **Content-Security-Policy** (`script-src` includes `https://js.goshippo.com`, `connect-src` includes `https://api.goshippo.com`, `frame-src` includes `https://*.goshippo.com`). Ad blockers or strict browser extensions can also block `js.goshippo.com`—try disabling them for your domain.
+
 ---
 
 ### Stripe is not configured / Add STRIPE_SECRET_KEY for storefront payments

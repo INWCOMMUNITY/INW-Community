@@ -285,7 +285,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
     const effectiveShippingDisabled = !offerShipping || shippingDisabled;
     const effectiveLocalDelivery = offerLocalDelivery && localDeliveryAvailable;
     const effectivePickup = offerLocalPickup && inStorePickupAvailable;
-    if (!effectiveShippingDisabled && !effectiveLocalDelivery && !effectivePickup) {
+    if (effectiveShippingDisabled && !effectiveLocalDelivery && !effectivePickup) {
       setError("Enable at least one fulfillment method (shipping, local delivery, or pickup) in Policies.");
       return;
     }

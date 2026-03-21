@@ -41,7 +41,7 @@ function waitForShippo(): Promise<ShippoWidget | null> {
       return;
     }
     let attempts = 0;
-    const maxAttempts = 80;
+    const maxAttempts = 120; // 12s at 100ms
     const interval = setInterval(() => {
       const w = typeof window !== "undefined" ? (window as { shippo?: ShippoWidget }) : null;
       if (w?.shippo != null && isShippoReady(w.shippo)) {
@@ -175,7 +175,9 @@ export default function SellerOrderDetailPage() {
       if (!shippo?.init || !shippo?.labelPurchase) {
         shippo = await waitForShippo();
         if (!shippo?.init || !shippo?.labelPurchase) {
-          setElementsError("Shippo widget is still loading. Try again in a moment.");
+          setElementsError(
+            "Shippo could not load (the script may be blocked). Try a hard refresh, pause ad blockers for this site, or try another browser. If it persists, contact support."
+          );
           return;
         }
       }
