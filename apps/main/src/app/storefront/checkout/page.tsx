@@ -44,23 +44,26 @@ function PaymentForm({
   const elements = useElements();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [elementReady, setElementReady] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!stripe || !elements || !elementReady) return;
+    if (!stripe || !elements) return;
     setError(null);
     setLoading(true);
     try {
-      const { error: submitError } = await stripe.confirmPayment({
+      const { error: submitError } = await elements.submit();
+      if (submitError) {
+        setError(submitError.message ?? "Check your payment details");
+        return;
+      }
+      const { error: confirmError } = await stripe.confirmPayment({
         elements,
         confirmParams: {
           return_url: successUrl,
         },
       });
-      if (submitError) {
-        setError(submitError.message ?? "Payment failed");
-        setLoading(false);
+      if (confirmError) {
+        setError(confirmError.message ?? "Payment failed");
         return;
       }
       onSuccess();
@@ -80,9 +83,9 @@ function PaymentForm({
       )}
       <PaymentElement
         key={clientSecret}
-        onReady={() => setElementReady(true)}
         options={{
-          paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
+          // Card first: wallet methods first can delay or skip onReady on some browsers, leaving Pay disabled.
+          paymentMethodOrder: ["card", "link", "apple_pay", "google_pay"],
         }}
       />
       {error && (
@@ -92,9 +95,8 @@ function PaymentForm({
       )}
       <button
         type="submit"
-        disabled={!stripe || !elements || !elementReady || loading}
+        disabled={!stripe || !elements || loading}
         className="btn w-full disabled:opacity-70 disabled:cursor-not-allowed"
-        style={{ opacity: 1 }}
       >
         {loading ? "Processing…" : "Pay"}
       </button>
