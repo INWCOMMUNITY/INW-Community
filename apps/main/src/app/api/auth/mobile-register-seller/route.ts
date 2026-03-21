@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { z } from "zod";
 
 const hoursSchema = z.record(z.string()).nullable().optional();
@@ -22,6 +23,7 @@ const businessSchema = z.object({
     .array(z.string().min(1))
     .min(1, "At least one category is required")
     .max(2, "Maximum 2 categories"),
+  subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
   photos: z.array(z.string()).optional(),
   hoursOfOperation: hoursSchema,
 });
@@ -88,6 +90,7 @@ export async function POST(req: NextRequest) {
       while (await prisma.business.findUnique({ where: { slug } })) {
         slug = `${slugify(b.name)}-${++suffix}`;
       }
+      const subAligned = normalizeSubcategoriesByPrimary(b.categories ?? [], b.subcategoriesByPrimary);
       const business = await prisma.business.create({
         data: {
           memberId,
@@ -101,6 +104,7 @@ export async function POST(req: NextRequest) {
           address: b.address ?? null,
           city: b.city ?? null,
           categories: b.categories ?? [],
+          subcategoriesByPrimary: subAligned,
           slug,
           photos: b.photos ?? [],
           hoursOfOperation: b.hoursOfOperation ?? undefined,

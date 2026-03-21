@@ -672,6 +672,9 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
                         coverPhotoUrl: editingBusiness.coverPhotoUrl ?? null,
                         address: editingBusiness.address ?? null,
                         city: editingBusiness.city ?? "",
+                        categories: editingBusiness.categories ?? [],
+                        subcategoriesByPrimary: (editingBusiness as Business).subcategoriesByPrimary ?? {},
+                        photos: editingBusiness.photos ?? [],
                         hoursOfOperation: editingBusiness.hoursOfOperation ?? null,
                       } as Pick<
                         Business,
@@ -687,6 +690,7 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
                         | "address"
                         | "city"
                         | "categories"
+                        | "subcategoriesByPrimary"
                         | "photos"
                         | "hoursOfOperation"
                       >

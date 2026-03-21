@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { CityPicker } from "@/components/CityPicker";
+import {
+  getSubcategoriesForBusinessCategory,
+  normalizeSubcategoriesByPrimary,
+  parseSubcategoriesByPrimary,
+} from "@/lib/business-categories";
 import type { Business } from "database";
 
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
@@ -21,6 +26,7 @@ export type BusinessFormData = {
   address: string | null;
   city: string;
   categories: string[];
+  subcategoriesByPrimary?: Record<string, string[]>;
   photos: string[];
   hoursOfOperation?: Record<string, string> | null;
 };
@@ -28,7 +34,7 @@ export type BusinessFormData = {
 interface BusinessFormProps {
   existing?: Pick<
     Business,
-    "id" | "name" | "shortDescription" | "fullDescription" | "website" | "phone" | "email" | "logoUrl" | "coverPhotoUrl" | "address" | "city" | "categories" | "photos" | "hoursOfOperation"
+    "id" | "name" | "shortDescription" | "fullDescription" | "website" | "phone" | "email" | "logoUrl" | "coverPhotoUrl" | "address" | "city" | "categories" | "subcategoriesByPrimary" | "photos" | "hoursOfOperation"
   >;
   /** When "signup", form calls onDataReady instead of POSTing; used in signup flow */
   mode?: "edit" | "signup";
@@ -45,6 +51,35 @@ function parseHours(ho: unknown): HoursRecord {
     if (typeof v === "string") r[d] = v;
   }
   return r;
+}
+
+function SubcategoryCustomRow({
+  onAdd,
+}: {
+  onAdd: (text: string) => void;
+}) {
+  const [val, setVal] = useState("");
+  return (
+    <div className="flex gap-2">
+      <input
+        type="text"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            const t = val.trim();
+            if (t) {
+              onAdd(t);
+              setVal("");
+            }
+          }
+        }}
+        placeholder="Add custom subcategory (Enter)"
+        className="flex-1 border rounded px-2 py-1 text-sm bg-white"
+      />
+    </div>
+  );
 }
 
 export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }: BusinessFormProps) {
@@ -66,6 +101,47 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
     if (cats.length === 1) return [cats[0], ""];
     return cats.slice(0, 2);
   });
+  const [subsPerSlot, setSubsPerSlot] = useState<string[][]>(() => {
+    const map = parseSubcategoriesByPrimary(
+      (existing as { subcategoriesByPrimary?: unknown } | undefined)?.subcategoriesByPrimary
+    );
+    const cats = existing?.categories ?? [];
+    const p0 = (cats[0] ?? "").trim();
+    const p1 = (cats[1] ?? "").trim();
+    return [
+      p0 ? [...(map[p0] ?? [])] : [],
+      p1 ? [...(map[p1] ?? [])] : [],
+    ];
+  });
+  const primaryCommittedRef = useRef<[string, string]>(["", ""]);
+  useEffect(() => {
+    const c = existing?.categories ?? [];
+    primaryCommittedRef.current = [(c[0] ?? "").trim(), (c[1] ?? "").trim()];
+  }, [existing?.id]);
+
+  function toggleSubSlot(slotIdx: number, sub: string) {
+    const t = sub.trim();
+    if (!t) return;
+    setSubsPerSlot((prev) => {
+      const next = prev.map((arr) => [...arr]);
+      const list = next[slotIdx] ?? [];
+      const j = list.indexOf(t);
+      if (j >= 0) next[slotIdx] = list.filter((_, k) => k !== j);
+      else next[slotIdx] = [...list, t];
+      return next;
+    });
+  }
+
+  function addCustomSubSlot(slotIdx: number, raw: string) {
+    const t = raw.trim();
+    if (!t) return;
+    setSubsPerSlot((prev) => {
+      const next = prev.map((arr) => [...arr]);
+      const list = next[slotIdx] ?? [];
+      if (!list.includes(t)) next[slotIdx] = [...list, t];
+      return next;
+    });
+  }
   const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
   const [hours, setHours] = useState<HoursRecord>(() => parseHours(existing?.hoursOfOperation ?? null));
   const [error, setError] = useState("");
@@ -157,6 +233,11 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
     const hoursFiltered = Object.fromEntries(
       Object.entries(hours).filter(([, v]) => typeof v === "string" && v.trim() !== "")
     );
+    const map: Record<string, string[]> = {};
+    cats.forEach((c, i) => {
+      const list = (subsPerSlot[i] ?? []).map((s) => s.trim()).filter(Boolean);
+      if (list.length) map[c] = [...new Set(list)];
+    });
     return {
       name: name.trim(),
       shortDescription: shortDescription?.trim() || null,
@@ -169,6 +250,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
       address: address?.trim() || null,
       city: city.trim(),
       categories: cats,
+      subcategoriesByPrimary: normalizeSubcategoriesByPrimary(cats, map),
       photos,
       hoursOfOperation: Object.keys(hoursFiltered).length ? hoursFiltered : null,
     };
@@ -360,22 +442,93 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
       </div>
       <div>
         <label className="block text-sm font-medium mb-1">Business categories (up to 2) *</label>
-        {[0, 1].map((i) => (
-          <input
-            key={i}
-            type="text"
-            value={categories[i] ?? ""}
-            onChange={(e) => {
-              const next = [...categories];
-              next[i] = e.target.value;
-              if (i === 0 && next.length === 1 && e.target.value) next.push("");
-              setCategories(next.slice(0, 2));
-            }}
-            required={i === 0}
-            placeholder={i === 0 ? "e.g. Retail" : "e.g. Marketing (optional)"}
-            className="w-full border rounded px-3 py-2 mt-1"
-          />
-        ))}
+        <p className="text-xs text-gray-500 mb-2">
+          Primary categories (from our list or custom). Under each primary you can select multiple subcategories or add your own.
+        </p>
+        {[0, 1].map((i) => {
+          const primaryTrim = (categories[i] ?? "").trim();
+          const preset = primaryTrim ? getSubcategoriesForBusinessCategory(primaryTrim) : [];
+          const selected = subsPerSlot[i] ?? [];
+          return (
+            <div key={i} className="mt-3 space-y-2 border rounded p-3 bg-gray-50/50">
+              <input
+                type="text"
+                value={categories[i] ?? ""}
+                onChange={(e) => {
+                  const next = [...categories];
+                  next[i] = e.target.value;
+                  if (i === 0 && next.length === 1 && e.target.value) next.push("");
+                  setCategories(next.slice(0, 2));
+                  if (!e.target.value.trim()) {
+                    setSubsPerSlot((sp) => {
+                      const n = sp.map((a) => [...a]);
+                      n[i] = [];
+                      return n;
+                    });
+                  }
+                }}
+                onBlur={() => {
+                  const t = (categories[i] ?? "").trim();
+                  if (t !== primaryCommittedRef.current[i]) {
+                    primaryCommittedRef.current[i] = t;
+                    setSubsPerSlot((sp) => {
+                      const n = sp.map((a) => [...a]);
+                      n[i] = [];
+                      return n;
+                    });
+                  }
+                }}
+                required={i === 0}
+                placeholder={i === 0 ? "Primary category (e.g. Coffee Shop)" : "Second primary (optional)"}
+                className="w-full border rounded px-3 py-2 bg-white"
+              />
+              {primaryTrim ? (
+                <div className="space-y-2">
+                  {preset.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {preset.map((s) => {
+                        const on = selected.includes(s);
+                        return (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => toggleSubSlot(i, s)}
+                            className={`text-xs px-2 py-1 rounded border transition-colors ${
+                              on ? "bg-[var(--color-primary)] text-white border-[var(--color-primary)]" : "bg-white border-gray-300 hover:bg-gray-100"
+                            }`}
+                          >
+                            {s}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  <SubcategoryCustomRow
+                    key={`${i}-${primaryTrim}`}
+                    onAdd={(text) => addCustomSubSlot(i, text)}
+                  />
+                  {selected.length > 0 ? (
+                    <p className="text-xs text-gray-600">
+                      Selected:{" "}
+                      {selected.map((s) => (
+                        <span key={s} className="inline-flex items-center gap-1 mr-2">
+                          {s}
+                          <button
+                            type="button"
+                            className="text-red-600 hover:underline"
+                            onClick={() => toggleSubSlot(i, s)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
       <div>
         <label className="block text-sm font-medium mb-1">Hours of operation</label>

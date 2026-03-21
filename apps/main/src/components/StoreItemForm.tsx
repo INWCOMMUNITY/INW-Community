@@ -222,18 +222,31 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
     return url;
   }
 
+  function mergeUploadedUrls(prev: string[], urls: string[]) {
+    const next = [...prev];
+    for (const url of urls) {
+      if (!next.includes(url)) next.push(url);
+    }
+    return next;
+  }
+
   async function handlePhotosChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files?.length) return;
+    const fileArray = Array.from(files);
     setUploadingPhotos(true);
     setError("");
+    const urls: string[] = [];
     try {
-      for (let i = 0; i < files.length; i++) {
-        const url = await uploadFile(files[i]);
-        setPhotos((prev) => (prev.includes(url) ? prev : [...prev, url]));
+      for (const file of fileArray) {
+        urls.push(await uploadFile(file));
       }
+      setPhotos((prev) => mergeUploadedUrls(prev, urls));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
+      if (urls.length > 0) {
+        setPhotos((prev) => mergeUploadedUrls(prev, urls));
+      }
     } finally {
       setUploadingPhotos(false);
       e.target.value = "";
@@ -289,7 +302,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
       setError("Enable at least one fulfillment method (shipping, local delivery, or pickup) in Policies.");
       return;
     }
-    if (resaleOnly && !effectiveShippingDisabled && !shippingPolicy.trim()) {
+    if (resaleOnly && !effectiveShippingDisabled && !effectiveShippingPolicy.trim()) {
       setError("Shipping policy is required when you offer shipping. Set it in Policies or use Sync here.");
       return;
     }

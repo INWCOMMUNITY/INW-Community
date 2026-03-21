@@ -4,6 +4,11 @@ import { deduplicateCities } from "@/lib/city-utils";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateText, containsProfanity } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
+import {
+  businessMatchesCategoryAndSub,
+  normalizeSubcategoriesByPrimary,
+  parseSubcategoriesByPrimary,
+} from "@/lib/business-categories";
 import { z } from "zod";
 
 export async function GET(req: NextRequest) {
@@ -40,7 +45,7 @@ export async function GET(req: NextRequest) {
     const slug = searchParams.get("slug")?.trim();
     if (slug) return NextResponse.json({ error: "Business not found" }, { status: 404 });
     const list = searchParams.get("list");
-    if (list === "meta") return NextResponse.json({ categories: [], cities: [] });
+    if (list === "meta") return NextResponse.json({ categories: [], subcategoriesByPrimary: {}, cities: [] });
     return NextResponse.json([]);
   }
 
@@ -68,6 +73,7 @@ export async function GET(req: NextRequest) {
       address: business.address,
       city: business.city,
       categories: business.categories,
+      subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
       hoursOfOperation: business.hoursOfOperation,
       photos: business.photos,
       coupons: business.coupons,
@@ -76,21 +82,42 @@ export async function GET(req: NextRequest) {
 
   const list = searchParams.get("list");
   if (list === "meta") {
-    const [businesses, cityRows] = await Promise.all([
-      prisma.business.findMany({ where: activeSubFilter, select: { categories: true } }),
+    const [businessRows, cityRows] = await Promise.all([
+      prisma.business.findMany({ where: activeSubFilter, select: { categories: true, subcategoriesByPrimary: true } }),
       prisma.business.findMany({
         where: { ...activeSubFilter, city: { not: null } },
         select: { city: true },
       }),
     ]);
-    const catSet = new Set(businesses.flatMap((b) => (b.categories ?? []).filter(Boolean)));
+    const primarySet = new Set<string>();
+    const subByPrimary = new Map<string, Set<string>>();
+    for (const b of businessRows) {
+      const cats = b.categories ?? [];
+      const map = parseSubcategoriesByPrimary(b.subcategoriesByPrimary);
+      for (const c of cats) {
+        const p = c?.trim();
+        if (!p) continue;
+        primarySet.add(p);
+        const list = map[p] ?? [];
+        for (const su of list) {
+          const t = su.trim();
+          if (!t) continue;
+          if (!subByPrimary.has(p)) subByPrimary.set(p, new Set());
+          subByPrimary.get(p)!.add(t);
+        }
+      }
+    }
     const cities = deduplicateCities(cityRows.map((c) => c.city));
     return NextResponse.json({
-      categories: Array.from(catSet).sort(),
+      categories: Array.from(primarySet).sort(),
+      subcategoriesByPrimary: Object.fromEntries(
+        [...subByPrimary.entries()].map(([k, v]) => [k, Array.from(v).sort()])
+      ),
       cities,
     });
   }
   const category = searchParams.get("category");
+  const subcategory = searchParams.get("subcategory")?.trim() || "";
   const city = searchParams.get("city");
   const search = searchParams.get("search")?.trim();
   const businesses = await prisma.business.findMany({
@@ -118,12 +145,19 @@ export async function GET(req: NextRequest) {
       address: true,
       city: true,
       categories: true,
+      subcategoriesByPrimary: true,
       logoUrl: true,
       hoursOfOperation: true,
     },
     orderBy: { name: "asc" },
   });
-  return NextResponse.json(businesses);
+  let resultRows = businesses;
+  if (category && subcategory) {
+    resultRows = businesses.filter((b) =>
+      businessMatchesCategoryAndSub(b.categories, b.subcategoriesByPrimary, category, subcategory)
+    );
+  }
+  return NextResponse.json(resultRows);
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
     if (process.env.NODE_ENV === "development") {
@@ -145,6 +179,7 @@ const bodySchema = z.object({
   address: z.string().nullable().optional().transform((v) => v?.trim() || null),
   city: z.string().min(1, "City is required"),
   categories: z.array(z.string().min(1)).min(1, "At least one category is required").max(2, "Maximum 2 categories"),
+  subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
   photos: z.array(z.string()).optional(),
   hoursOfOperation: hoursSchema,
 });
@@ -178,12 +213,19 @@ export async function POST(req: NextRequest) {
   }
   try {
     const body = await req.json();
-    const data = bodySchema.parse({
+    const parsed = bodySchema.parse({
       ...body,
       website: body.website || null,
       email: body.email || null,
       logoUrl: body.logoUrl || null,
     });
+    const data = {
+      ...parsed,
+      subcategoriesByPrimary: normalizeSubcategoriesByPrimary(
+        parsed.categories,
+        parsed.subcategoriesByPrimary
+      ),
+    };
     const nameCheck = validateText(data.name, "business_name");
     if (!nameCheck.allowed) {
       return NextResponse.json({ error: nameCheck.reason ?? "Invalid business name." }, { status: 400 });
@@ -208,6 +250,7 @@ export async function POST(req: NextRequest) {
         address: data.address ?? null,
         city: data.city ?? null,
         categories: data.categories ?? [],
+        subcategoriesByPrimary: data.subcategoriesByPrimary,
         slug,
         photos: data.photos ?? [],
         hoursOfOperation: data.hoursOfOperation ?? undefined,

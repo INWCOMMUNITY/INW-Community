@@ -464,7 +464,12 @@ export async function POST(req: NextRequest) {
 
   const member = await prisma.member.findUnique({
     where: { id: userId },
-    select: { stripeConnectAccountId: true, shippoApiKeyEncrypted: true, shippoOAuthTokenEncrypted: true },
+    select: {
+      stripeConnectAccountId: true,
+      shippoApiKeyEncrypted: true,
+      shippoOAuthTokenEncrypted: true,
+      sellerShippingPolicy: true,
+    },
   });
 
   if (!member?.stripeConnectAccountId?.trim()) {
@@ -498,7 +503,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!data.shippingDisabled && (!data.shippingPolicy || !String(data.shippingPolicy).trim())) {
+  const effectiveShippingPolicy =
+    (data.shippingPolicy && String(data.shippingPolicy).trim()) ||
+    (member?.sellerShippingPolicy?.trim() ?? "");
+  if (!data.shippingDisabled && !effectiveShippingPolicy) {
     return NextResponse.json(
       { error: "Shipping policy is required when you offer shipping." },
       { status: 400 }

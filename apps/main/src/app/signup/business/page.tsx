@@ -145,6 +145,7 @@ export default function SignupBusinessPage() {
             address: businessData.address,
             city: businessData.city,
             categories: businessData.categories,
+            subcategoriesByPrimary: businessData.subcategoriesByPrimary,
             photos: businessData.photos,
             hoursOfOperation: businessData.hoursOfOperation,
           },

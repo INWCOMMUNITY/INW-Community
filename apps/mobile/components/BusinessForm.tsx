@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -16,6 +16,11 @@ import * as ImagePicker from "expo-image-picker";
 import { theme } from "@/lib/theme";
 import { PREBUILT_CITIES } from "@/lib/prebuilt-cities";
 import { apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
+import {
+  normalizeSubcategoriesByPrimary,
+  parseSubcategoriesByPrimary,
+} from "@/lib/business-categories-align";
+import { getSubcategoriesForBusinessCategory } from "@/lib/business-category-presets";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -48,6 +53,27 @@ function parseHours(ho: unknown): HoursRecord {
   return r;
 }
 
+function SubcategoryCustomField({ onAdd }: { onAdd: (text: string) => void }) {
+  const [val, setVal] = useState("");
+  return (
+    <TextInput
+      style={[styles.input, styles.subCustomInput]}
+      value={val}
+      onChangeText={setVal}
+      onSubmitEditing={() => {
+        const t = val.trim();
+        if (t) {
+          onAdd(t);
+          setVal("");
+        }
+      }}
+      placeholder="Add custom subcategory (Enter)"
+      placeholderTextColor={theme.colors.placeholder}
+      returnKeyType="done"
+    />
+  );
+}
+
 export interface BusinessFormData {
   id?: string;
   name: string;
@@ -60,6 +86,7 @@ export interface BusinessFormData {
   address: string | null;
   city: string | null;
   categories: string[];
+  subcategoriesByPrimary?: Record<string, string[]>;
   photos: string[];
   hoursOfOperation: HoursRecord | null;
 }
@@ -99,6 +126,45 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
     if (cats.length === 1) return [cats[0], ""];
     return cats.slice(0, 2);
   });
+  const [subsPerSlot, setSubsPerSlot] = useState<string[][]>(() => {
+    const map = parseSubcategoriesByPrimary(existing?.subcategoriesByPrimary);
+    const cats = existing?.categories ?? [];
+    const p0 = (cats[0] ?? "").trim();
+    const p1 = (cats[1] ?? "").trim();
+    return [
+      p0 ? [...(map[p0] ?? [])] : [],
+      p1 ? [...(map[p1] ?? [])] : [],
+    ];
+  });
+  const primaryCommittedRef = useRef<[string, string]>(["", ""]);
+  useEffect(() => {
+    const c = existing?.categories ?? [];
+    primaryCommittedRef.current = [(c[0] ?? "").trim(), (c[1] ?? "").trim()];
+  }, [existing?.id]);
+
+  function toggleSubSlot(slotIdx: number, sub: string) {
+    const t = sub.trim();
+    if (!t) return;
+    setSubsPerSlot((prev) => {
+      const next = prev.map((arr) => [...arr]);
+      const list = next[slotIdx] ?? [];
+      const j = list.indexOf(t);
+      if (j >= 0) next[slotIdx] = list.filter((_, k) => k !== j);
+      else next[slotIdx] = [...list, t];
+      return next;
+    });
+  }
+
+  function addCustomSubSlot(slotIdx: number, raw: string) {
+    const t = raw.trim();
+    if (!t) return;
+    setSubsPerSlot((prev) => {
+      const next = prev.map((arr) => [...arr]);
+      const list = next[slotIdx] ?? [];
+      if (!list.includes(t)) next[slotIdx] = [...list, t];
+      return next;
+    });
+  }
   const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
   const [hours, setHours] = useState<HoursRecord>(() =>
     parseHours(existing?.hoursOfOperation ?? null)
@@ -218,6 +284,11 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
     setError("");
     setSubmitting(true);
     try {
+      const map: Record<string, string[]> = {};
+      cats.forEach((c, i) => {
+        const list = (subsPerSlot[i] ?? []).map((s) => s.trim()).filter(Boolean);
+        if (list.length) map[c] = [...new Set(list)];
+      });
       const payload = {
         name: name.trim(),
         shortDescription: shortDescription.trim() || null,
@@ -229,6 +300,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         address: address.trim() || null,
         city: (city === "Other" ? customCity.trim() : city.trim()) || null,
         categories: cats,
+        subcategoriesByPrimary: normalizeSubcategoriesByPrimary(cats, map),
         photos,
         hoursOfOperation: (() => {
           const filtered = Object.fromEntries(
@@ -428,21 +500,88 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Business categories (up to 2) *</Text>
-          {[0, 1].map((i) => (
-            <TextInput
-              key={i}
-              style={[styles.input, i === 1 && { marginTop: 8 }]}
-              value={categories[i] ?? ""}
-              onChangeText={(v) => {
-                const next = [...categories];
-                next[i] = v;
-                if (i === 0 && next.length === 1 && v) next.push("");
-                setCategories(next.slice(0, 2));
-              }}
-              placeholder={i === 0 ? "e.g. Retail" : "e.g. Marketing (optional)"}
-              placeholderTextColor={theme.colors.placeholder}
-            />
-          ))}
+          <Text style={styles.hint}>
+            Primary categories (from our list or custom). Tap multiple subs per primary or add your own.
+          </Text>
+          {[0, 1].map((i) => {
+            const primaryTrim = (categories[i] ?? "").trim();
+            const preset = primaryTrim ? getSubcategoriesForBusinessCategory(primaryTrim) : [];
+            const selected = subsPerSlot[i] ?? [];
+            return (
+              <View
+                key={i}
+                style={[
+                  styles.categorySlot,
+                  i === 1 ? { marginTop: 12 } : undefined,
+                ]}
+              >
+                <TextInput
+                  style={styles.input}
+                  value={categories[i] ?? ""}
+                  onChangeText={(v) => {
+                    const next = [...categories];
+                    next[i] = v;
+                    if (i === 0 && next.length === 1 && v) next.push("");
+                    setCategories(next.slice(0, 2));
+                    if (!v.trim()) {
+                      setSubsPerSlot((sp) => {
+                        const n = sp.map((a) => [...a]);
+                        n[i] = [];
+                        return n;
+                      });
+                    }
+                  }}
+                  onBlur={() => {
+                    const t = (categories[i] ?? "").trim();
+                    if (t !== primaryCommittedRef.current[i]) {
+                      primaryCommittedRef.current[i] = t;
+                      setSubsPerSlot((sp) => {
+                        const n = sp.map((a) => [...a]);
+                        n[i] = [];
+                        return n;
+                      });
+                    }
+                  }}
+                  placeholder={i === 0 ? "Primary category" : "Second primary (optional)"}
+                  placeholderTextColor={theme.colors.placeholder}
+                />
+                {primaryTrim ? (
+                  <View style={{ marginTop: 8 }}>
+                    {preset.length > 0 ? (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={styles.subChipScroll}
+                        contentContainerStyle={styles.subChipRow}
+                      >
+                        {preset.map((s) => {
+                          const on = selected.includes(s);
+                          return (
+                            <Pressable
+                              key={s}
+                              style={[styles.subChip, on && styles.subChipSelected]}
+                              onPress={() => toggleSubSlot(i, s)}
+                            >
+                              <Text style={[styles.subChipText, on && styles.subChipTextSelected]}>{s}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    ) : null}
+                    <SubcategoryCustomField
+                      key={`${i}-${primaryTrim}`}
+                      onAdd={(text) => addCustomSubSlot(i, text)}
+                    />
+                    {selected.length > 0 ? (
+                      <Text style={styles.selectedSubs}>
+                        Selected: {selected.join(", ")}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Hours of operation</Text>
@@ -543,6 +682,28 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   hint: { fontSize: 12, color: "#666", marginBottom: 8 },
+  categorySlot: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 8,
+    padding: 10,
+    backgroundColor: "#fafafa",
+  },
+  subChipScroll: { marginTop: 4 },
+  subChipRow: { flexDirection: "row", gap: 8, paddingVertical: 4 },
+  subChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+  },
+  subChipSelected: { backgroundColor: theme.colors.primary },
+  subChipText: { fontSize: 12, color: theme.colors.heading },
+  subChipTextSelected: { color: theme.colors.buttonText },
+  subCustomInput: { marginTop: 8, backgroundColor: "#fff" },
+  selectedSubs: { fontSize: 12, color: "#444", marginTop: 6 },
   input: {
     borderWidth: 2,
     borderColor: theme.colors.primary,

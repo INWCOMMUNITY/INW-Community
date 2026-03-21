@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -88,6 +89,7 @@ async function createBusinessDraftInDb(
       address,
       city,
       categories,
+      subcategoriesByPrimary: normalizeSubcategoriesByPrimary(categories, data.subcategoriesByPrimary),
       slug,
       photos,
       hoursOfOperation,

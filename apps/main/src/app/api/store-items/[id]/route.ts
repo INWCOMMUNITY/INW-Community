@@ -156,8 +156,17 @@ export async function PATCH(
     );
   }
 
-  const shippingPolicy = data.shippingPolicy !== undefined ? data.shippingPolicy : existing.shippingPolicy;
-  if (!shippingDisabled && (!shippingPolicy || !String(shippingPolicy).trim())) {
+  const shippingPolicyFromItem = data.shippingPolicy !== undefined ? data.shippingPolicy : existing.shippingPolicy;
+  const trimmedFromItem = shippingPolicyFromItem ? String(shippingPolicyFromItem).trim() : "";
+  let effectiveShippingPolicyForValidation = trimmedFromItem;
+  if (!shippingDisabled && !effectiveShippingPolicyForValidation) {
+    const sellerMember = await prisma.member.findUnique({
+      where: { id: ownerId },
+      select: { sellerShippingPolicy: true },
+    });
+    effectiveShippingPolicyForValidation = sellerMember?.sellerShippingPolicy?.trim() ?? "";
+  }
+  if (!shippingDisabled && !effectiveShippingPolicyForValidation) {
     return NextResponse.json(
       { error: "Shipping policy is required when you offer shipping." },
       { status: 400 }

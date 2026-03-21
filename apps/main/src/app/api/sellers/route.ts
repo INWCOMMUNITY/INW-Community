@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { deduplicateCities } from "@/lib/city-utils";
+import { businessMatchesCategoryAndSub, parseSubcategoriesByPrimary } from "@/lib/business-categories";
 
 /**
  * GET /api/sellers
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
     const memberIds = sellerMemberIds.map((s) => s.memberId);
     if (memberIds.length === 0) {
       if (list === "meta") {
-        return NextResponse.json({ categories: [], cities: [] });
+        return NextResponse.json({ categories: [], subcategoriesByPrimary: {}, cities: [] });
       }
       return NextResponse.json([]);
     }
@@ -30,15 +31,36 @@ export async function GET(req: NextRequest) {
     if (list === "meta") {
       const sellerBusinesses = await prisma.business.findMany({
         where: { memberId: { in: memberIds } },
-        select: { categories: true, city: true },
+        select: { categories: true, subcategoriesByPrimary: true, city: true },
       });
-      const catSet = new Set(sellerBusinesses.flatMap((b) => b.categories).filter(Boolean));
+      const primarySet = new Set<string>();
+      const subByPrimary = new Map<string, Set<string>>();
+      for (const b of sellerBusinesses) {
+        const cats = b.categories ?? [];
+        const map = parseSubcategoriesByPrimary(b.subcategoriesByPrimary);
+        for (const c of cats) {
+          const p = c?.trim();
+          if (!p) continue;
+          primarySet.add(p);
+          for (const su of map[p] ?? []) {
+            const t = su.trim();
+            if (!t) continue;
+            if (!subByPrimary.has(p)) subByPrimary.set(p, new Set());
+            subByPrimary.get(p)!.add(t);
+          }
+        }
+      }
       const cities = deduplicateCities(sellerBusinesses.map((c) => c.city));
       return NextResponse.json({
-        categories: Array.from(catSet).sort(),
+        categories: Array.from(primarySet).sort(),
+        subcategoriesByPrimary: Object.fromEntries(
+          [...subByPrimary.entries()].map(([k, v]) => [k, Array.from(v).sort()])
+        ),
         cities,
       });
     }
+
+    const subcategory = searchParams.get("subcategory")?.trim() || "";
 
     const businesses = await prisma.business.findMany({
       where: {
@@ -65,6 +87,7 @@ export async function GET(req: NextRequest) {
         address: true,
         city: true,
         categories: true,
+        subcategoriesByPrimary: true,
         logoUrl: true,
         coverPhotoUrl: true,
         phone: true,
@@ -75,8 +98,15 @@ export async function GET(req: NextRequest) {
       orderBy: { name: "asc" },
     });
 
+    let sellerRows = businesses;
+    if (category && subcategory) {
+      sellerRows = businesses.filter((b) =>
+        businessMatchesCategoryAndSub(b.categories, b.subcategoriesByPrimary, category, subcategory)
+      );
+    }
+
     return NextResponse.json(
-      businesses.map((b) => ({
+      sellerRows.map((b) => ({
         id: b.id,
         name: b.name,
         slug: b.slug,
@@ -84,6 +114,7 @@ export async function GET(req: NextRequest) {
         address: b.address,
         city: b.city,
         categories: b.categories,
+        subcategoriesByPrimary: parseSubcategoriesByPrimary(b.subcategoriesByPrimary),
         logoUrl: b.logoUrl,
         coverPhotoUrl: b.coverPhotoUrl,
         phone: b.phone,

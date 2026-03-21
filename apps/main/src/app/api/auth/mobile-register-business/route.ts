@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { z } from "zod";
 
 const hoursSchema = z.record(z.string()).nullable().optional();
@@ -22,6 +23,7 @@ const bodySchema = z.object({
     .array(z.string().min(1))
     .min(1, "At least one category is required")
     .max(2, "Maximum 2 categories"),
+  subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
   photos: z.array(z.string()).optional(),
   hoursOfOperation: hoursSchema,
 });
@@ -54,12 +56,19 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const data = bodySchema.parse({
+    const parsed = bodySchema.parse({
       ...body,
       website: body.website || null,
       email: body.email || null,
       logoUrl: body.logoUrl || null,
     });
+    const data = {
+      ...parsed,
+      subcategoriesByPrimary: normalizeSubcategoriesByPrimary(
+        parsed.categories,
+        parsed.subcategoriesByPrimary
+      ),
+    };
 
     // Create subscription (no Stripe - checkout bypassed)
     await prisma.subscription.create({
@@ -91,6 +100,7 @@ export async function POST(req: NextRequest) {
         address: data.address ?? null,
         city: data.city ?? null,
         categories: data.categories ?? [],
+        subcategoriesByPrimary: data.subcategoriesByPrimary,
         slug,
         photos: data.photos ?? [],
         hoursOfOperation: data.hoursOfOperation ?? undefined,

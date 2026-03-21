@@ -813,7 +813,7 @@ async function main() {
     }
   }
 
-  // Badges
+  // Badges — category_scan: criteria.categories must match Business.categories primary labels exactly (QR scans). See apps/main/src/lib/badge-category-scan.ts
   const BADGES = [
     { slug: "community_member", name: "Community Member", description: "Earned when you sign up as a resident.", category: "member", order: 0 },
     { slug: "local_business", name: "Local Business Badge", description: "Earned when your business joins Northwest Community.", category: "business", order: 1 },

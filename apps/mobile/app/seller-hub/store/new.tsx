@@ -426,25 +426,42 @@ export default function ListItemScreen() {
     if (result.canceled) return;
     setUploading(true);
     setError(null);
+    const urls: string[] = [];
     try {
       const token = await getToken();
       if (!token) {
         setError("Sign in to upload photos.");
         return;
       }
-      for (const asset of result.assets) {
+      for (let i = 0; i < result.assets.length; i++) {
+        const asset = result.assets[i];
         const formData = new FormData();
         formData.append("file", {
           uri: asset.uri,
           type: asset.mimeType ?? "image/jpeg",
-          name: "photo.jpg",
+          name: `photo-${i}.jpg`,
         } as unknown as Blob);
         const { url } = await apiUploadFile("/api/upload", formData);
-        const fullUrl = toFullUrl(url);
-        setPhotos((p) => (p.includes(fullUrl) ? p : [...p, fullUrl]));
+        urls.push(toFullUrl(url));
       }
+      setPhotos((p) => {
+        const next = [...p];
+        for (const u of urls) {
+          if (!next.includes(u)) next.push(u);
+        }
+        return next;
+      });
     } catch (e) {
       setError((e as { error?: string })?.error ?? "Photo upload failed.");
+      if (urls.length > 0) {
+        setPhotos((p) => {
+          const next = [...p];
+          for (const u of urls) {
+            if (!next.includes(u)) next.push(u);
+          }
+          return next;
+        });
+      }
     } finally {
       setUploading(false);
     }
@@ -528,7 +545,6 @@ export default function ListItemScreen() {
       return;
     }
     if (
-      listingType === "resale" &&
       !shippingDisabled &&
       !(useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy).trim()
     ) {

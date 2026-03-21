@@ -3,6 +3,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateText, containsProfanity } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
+import { normalizeSubcategoriesByPrimary, parseSubcategoriesByPrimary } from "@/lib/business-categories";
 import { z } from "zod";
 
 const hoursSchema = z.record(z.string()).nullable().optional();
@@ -18,6 +19,7 @@ const bodySchema = z.object({
   address: z.string().nullable().optional(),
   city: z.string().nullable().optional(),
   categories: z.array(z.string()).max(2).optional(),
+  subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
   photos: z.array(z.string()).optional(),
   hoursOfOperation: hoursSchema,
 });
@@ -51,6 +53,7 @@ export async function GET(
     address: business.address,
     city: business.city,
     categories: business.categories,
+    subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
     photos: business.photos,
     hoursOfOperation: business.hoursOfOperation,
   });
@@ -73,27 +76,27 @@ export async function PATCH(
   }
   try {
     const body = await req.json();
-    const data = bodySchema.parse({
+    const parsed = bodySchema.parse({
       ...body,
       website: body.website ?? null,
       email: body.email ?? null,
       logoUrl: body.logoUrl ?? null,
     });
     const updateData: Record<string, unknown> = {};
-    if (data.name != null && data.name.trim()) {
-      const nameCheck = validateText(data.name, "business_name");
+    if (parsed.name != null && parsed.name.trim()) {
+      const nameCheck = validateText(parsed.name, "business_name");
       if (!nameCheck.allowed) {
         return NextResponse.json({ error: nameCheck.reason ?? "Invalid business name." }, { status: 400 });
       }
-      updateData.name = data.name;
+      updateData.name = parsed.name;
       updateData.nameApprovalStatus = "approved";
 
-      if (containsProfanity(data.name)) {
+      if (containsProfanity(parsed.name)) {
         await createFlaggedContent({
           contentType: "business",
           contentId: id,
           reason: "profanity",
-          snippet: data.name,
+          snippet: parsed.name,
           authorId: session.user.id,
         });
       }
@@ -102,19 +105,27 @@ export async function PATCH(
       where: { id },
       data: {
         ...updateData,
-        ...(data.shortDescription !== undefined && { shortDescription: data.shortDescription }),
-        ...(data.fullDescription !== undefined && { fullDescription: data.fullDescription }),
-        ...(data.website !== undefined && { website: data.website }),
-        ...(data.phone !== undefined && { phone: data.phone }),
-        ...(data.email !== undefined && { email: data.email }),
-        ...(data.logoUrl !== undefined && { logoUrl: data.logoUrl }),
-        ...(data.coverPhotoUrl !== undefined && { coverPhotoUrl: data.coverPhotoUrl }),
-        ...(data.address !== undefined && { address: data.address }),
-        ...(data.city !== undefined && { city: data.city }),
-        ...(data.categories !== undefined && { categories: data.categories }),
-        ...(data.photos !== undefined && { photos: data.photos }),
-        ...(data.hoursOfOperation !== undefined && {
-          hoursOfOperation: data.hoursOfOperation === null ? Prisma.JsonNull : data.hoursOfOperation,
+        ...(parsed.shortDescription !== undefined && { shortDescription: parsed.shortDescription }),
+        ...(parsed.fullDescription !== undefined && { fullDescription: parsed.fullDescription }),
+        ...(parsed.website !== undefined && { website: parsed.website }),
+        ...(parsed.phone !== undefined && { phone: parsed.phone }),
+        ...(parsed.email !== undefined && { email: parsed.email }),
+        ...(parsed.logoUrl !== undefined && { logoUrl: parsed.logoUrl }),
+        ...(parsed.coverPhotoUrl !== undefined && { coverPhotoUrl: parsed.coverPhotoUrl }),
+        ...(parsed.address !== undefined && { address: parsed.address }),
+        ...(parsed.city !== undefined && { city: parsed.city }),
+        ...(parsed.categories !== undefined && { categories: parsed.categories }),
+        ...((parsed.categories !== undefined || parsed.subcategoriesByPrimary !== undefined) && {
+          subcategoriesByPrimary: normalizeSubcategoriesByPrimary(
+            parsed.categories ?? business.categories,
+            parsed.subcategoriesByPrimary !== undefined
+              ? parsed.subcategoriesByPrimary
+              : business.subcategoriesByPrimary
+          ),
+        }),
+        ...(parsed.photos !== undefined && { photos: parsed.photos }),
+        ...(parsed.hoursOfOperation !== undefined && {
+          hoursOfOperation: parsed.hoursOfOperation === null ? Prisma.JsonNull : parsed.hoursOfOperation,
         }),
       },
     });

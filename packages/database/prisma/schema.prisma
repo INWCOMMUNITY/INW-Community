@@ -208,7 +208,8 @@ model Business {
   logoUrl          String?  @map("logo_url")
   address          String?
   city             String?
-  categories       String[] @default([]) // up to 2 categories
+  categories              String[] @default([]) // up to 2 primary categories (directory + badge matching)
+  subcategoriesByPrimary  Json     @default("{}") @map("subcategories_by_primary") // { "Primary": ["Sub A", "Sub B"], ... }
   hoursOfOperation Json?   @map("hours_of_operation") // { sunday: "CLOSED", monday: "9:30-5:00", ... }
   slug             String   @unique
   photos           String[] // JSON array of URLs

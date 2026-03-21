@@ -62,6 +62,7 @@ interface Seller {
 
 interface BusinessesMeta {
   categories?: string[];
+  subcategoriesByPrimary?: Record<string, string[]>;
   cities?: string[];
 }
 
@@ -75,8 +76,10 @@ export default function SupportLocalScreen() {
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
   const [city, setCity] = useState("");
   const [categories, setCategories] = useState<string[]>([]);
+  const [subcategoriesByPrimary, setSubcategoriesByPrimary] = useState<Record<string, string[]>>({});
   const [cities, setCities] = useState<string[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [sellers, setSellers] = useState<Seller[]>([]);
@@ -95,10 +98,20 @@ export default function SupportLocalScreen() {
       if (viewMode === "directory") {
         const meta = await apiGet<BusinessesMeta>("/api/businesses?list=meta");
         if (Array.isArray(meta.categories)) setCategories(meta.categories);
+        if (meta.subcategoriesByPrimary && typeof meta.subcategoriesByPrimary === "object") {
+          setSubcategoriesByPrimary(meta.subcategoriesByPrimary);
+        } else {
+          setSubcategoriesByPrimary({});
+        }
         if (Array.isArray(meta.cities)) setCities(meta.cities);
       } else {
         const meta = await apiGet<BusinessesMeta>("/api/sellers?list=meta");
         if (Array.isArray(meta.categories)) setCategories(meta.categories);
+        if (meta.subcategoriesByPrimary && typeof meta.subcategoriesByPrimary === "object") {
+          setSubcategoriesByPrimary(meta.subcategoriesByPrimary);
+        } else {
+          setSubcategoriesByPrimary({});
+        }
         if (Array.isArray(meta.cities)) setCities(meta.cities);
       }
       setConnectionError(null);
@@ -116,6 +129,7 @@ export default function SupportLocalScreen() {
         const params = new URLSearchParams();
         if (search.trim()) params.set("search", search.trim());
         if (category) params.set("category", category);
+        if (category && subcategory) params.set("subcategory", subcategory);
         if (city) params.set("city", city);
         if (viewMode === "directory") {
           const data = await apiGet<Business[]>(`/api/businesses?${params}`);
@@ -142,8 +156,12 @@ export default function SupportLocalScreen() {
         setRefreshing(false);
       }
     },
-    [search, category, city, viewMode]
+    [search, category, subcategory, city, viewMode]
   );
+
+  useEffect(() => {
+    setSubcategory("");
+  }, [category]);
 
   useEffect(() => {
     loadMeta();
@@ -522,6 +540,10 @@ export default function SupportLocalScreen() {
     ? categories.filter((c) => c.toLowerCase().includes(searchLower))
     : categories;
   const filteredCities = cities;
+  const subsForPrimary = category ? (subcategoriesByPrimary[category] ?? []) : [];
+  const filteredSubcategories = searchLower
+    ? subsForPrimary.filter((s) => s.toLowerCase().includes(searchLower))
+    : subsForPrimary;
 
   const listData: (Business | Seller)[] = viewMode === "directory" ? businesses : sellers;
   const renderItem = ({ item }: { item: Business | Seller }) =>
@@ -637,30 +659,6 @@ export default function SupportLocalScreen() {
           contentContainerStyle={styles.filtersContent}
         >
           <Pressable
-            style={[styles.filterChip, !category && styles.filterChipActive]}
-            onPress={() => setCategory("")}
-          >
-            <Text style={[styles.filterChipText, !category && styles.filterChipTextActive]}>All</Text>
-          </Pressable>
-          {filteredCategories.map((c) => (
-            <Pressable
-              key={c}
-              style={[styles.filterChip, category === c && styles.filterChipActive]}
-              onPress={() => setCategory(category === c ? "" : c)}
-            >
-              <Text style={[styles.filterChipText, category === c && styles.filterChipTextActive]}>
-                {c}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filters}
-          contentContainerStyle={styles.filtersContent}
-        >
-          <Pressable
             style={[styles.filterChip, !city && styles.filterChipActive]}
             onPress={() => setCity("")}
           >
@@ -680,6 +678,54 @@ export default function SupportLocalScreen() {
             </Pressable>
           ))}
         </ScrollView>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filters}
+          contentContainerStyle={styles.filtersContent}
+        >
+          <Pressable
+            style={[styles.filterChip, !category && styles.filterChipActive]}
+            onPress={() => setCategory("")}
+          >
+            <Text style={[styles.filterChipText, !category && styles.filterChipTextActive]}>All categories</Text>
+          </Pressable>
+          {filteredCategories.map((c) => (
+            <Pressable
+              key={c}
+              style={[styles.filterChip, category === c && styles.filterChipActive]}
+              onPress={() => setCategory(category === c ? "" : c)}
+            >
+              <Text style={[styles.filterChipText, category === c && styles.filterChipTextActive]}>
+                {c}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+        {category ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filters}
+            contentContainerStyle={styles.filtersContent}
+          >
+            <Pressable
+              style={[styles.filterChip, !subcategory && styles.filterChipActive]}
+              onPress={() => setSubcategory("")}
+            >
+              <Text style={[styles.filterChipText, !subcategory && styles.filterChipTextActive]}>All subs</Text>
+            </Pressable>
+            {filteredSubcategories.map((s) => (
+              <Pressable
+                key={s}
+                style={[styles.filterChip, subcategory === s && styles.filterChipActive]}
+                onPress={() => setSubcategory(subcategory === s ? "" : s)}
+              >
+                <Text style={[styles.filterChipText, subcategory === s && styles.filterChipTextActive]}>{s}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : null}
       </View>
       </Animated.View>
 
@@ -720,8 +766,8 @@ export default function SupportLocalScreen() {
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
                 {viewMode === "directory"
-                  ? `No businesses found. ${search || category || city ? "Try different filters." : ""}`
-                  : `No sellers found. ${search || category || city ? "Try different filters." : ""}`}
+                  ? `No businesses found. ${search || category || subcategory || city ? "Try different filters." : ""}`
+                  : `No sellers found. ${search || category || subcategory || city ? "Try different filters." : ""}`}
               </Text>
             </View>
           }

@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
+import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -74,6 +75,7 @@ async function createBusinessDraftInDb(
       address: typeof data.address === "string" && data.address.trim() ? data.address.trim() : null,
       city,
       categories,
+      subcategoriesByPrimary: normalizeSubcategoriesByPrimary(categories, data.subcategoriesByPrimary),
       slug,
       photos: Array.isArray(data.photos) ? (data.photos as string[]).filter(Boolean) : [],
       hoursOfOperation: data.hoursOfOperation && typeof data.hoursOfOperation === "object" ? (data.hoursOfOperation as Record<string, string>) : undefined,

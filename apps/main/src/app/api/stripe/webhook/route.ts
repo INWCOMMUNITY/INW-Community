@@ -4,6 +4,7 @@ import { prisma, Prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
 import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
+import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 
 /**
  * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
@@ -73,6 +74,7 @@ async function createBusinessFromMetadata(
       address,
       city,
       categories,
+      subcategoriesByPrimary: normalizeSubcategoriesByPrimary(categories, data.subcategoriesByPrimary),
       slug,
       photos,
       hoursOfOperation,

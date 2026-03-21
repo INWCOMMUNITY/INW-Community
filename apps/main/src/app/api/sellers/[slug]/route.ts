@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
+import { parseSubcategoriesByPrimary } from "@/lib/business-categories";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -76,6 +77,7 @@ export async function GET(
       address: business.address,
       city: business.city,
       categories: business.categories,
+      subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
       hoursOfOperation: business.hoursOfOperation,
       photos: business.photos,
       member: business.member,
