@@ -9,6 +9,13 @@
  *   4. `packages/database/.env`
  *
  * This avoids migrating localhost while the app uses Neon (a common cause of "column does not exist").
+ *
+ * **Neon pooled URLs** (`…-pooler.…`) break Prisma’s advisory lock during `migrate deploy` (P1002).
+ * This script runs migrate against a **direct** connection, in order:
+ *   1. `DATABASE_URL_UNPOOLED` (Vercel + Neon integration)
+ *   2. `DIRECT_URL`
+ *   3. Derived from pooled `DATABASE_URL` by stripping `-pooler.` from the hostname
+ *   4. Same as `DATABASE_URL` (local Postgres or already-direct Neon URL)
  */
 import { spawn } from "child_process";
 import fs from "fs";
@@ -34,6 +41,48 @@ function readDatabaseUrlFromFile(p) {
     if (val && !val.startsWith("#")) return val;
   }
   return null;
+}
+
+/**
+ * @param {string} databaseUrl
+ * @returns {string | null}
+ */
+function neonDirectFromPooled(databaseUrl) {
+  try {
+    const u = new URL(databaseUrl);
+    if (!u.hostname.includes("-pooler.")) return null;
+    const next = new URL(databaseUrl);
+    next.hostname = u.hostname.replace("-pooler.", ".");
+    return next.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Connection string for `prisma migrate deploy` only (session + advisory locks).
+ * @param {string} appDatabaseUrl
+ */
+function resolveMigrateDatabaseUrl(appDatabaseUrl) {
+  const unpooled = process.env.DATABASE_URL_UNPOOLED?.trim();
+  if (unpooled) {
+    console.log("migrate-deploy: Using DATABASE_URL_UNPOOLED for migrate (direct Neon connection)");
+    return unpooled;
+  }
+  const direct = process.env.DIRECT_URL?.trim();
+  if (direct) {
+    console.log("migrate-deploy: Using DIRECT_URL for migrate");
+    return direct;
+  }
+  const derived = neonDirectFromPooled(appDatabaseUrl);
+  if (derived) {
+    console.log(
+      "migrate-deploy: Using derived direct Neon URL for migrate (stripped -pooler from host)"
+    );
+    return derived;
+  }
+  console.log("migrate-deploy: Using DATABASE_URL for migrate (no pooler strip / unpooled env)");
+  return appDatabaseUrl;
 }
 
 let url = process.env.DATABASE_URL?.trim();
@@ -66,12 +115,19 @@ if (!url) {
 }
 
 const hostMatch = url.match(/@([^/?]+)/);
-console.log("migrate-deploy: Database host:", hostMatch ? hostMatch[1] : "(verify URL)");
+console.log("migrate-deploy: App DATABASE_URL host:", hostMatch ? hostMatch[1] : "(verify URL)");
+
+const migrateUrl = resolveMigrateDatabaseUrl(url);
+const migrateHost = migrateUrl.match(/@([^/?]+)/);
+console.log(
+  "migrate-deploy: Migrate host:",
+  migrateHost ? migrateHost[1] : "(verify URL)"
+);
 
 const dbDir = path.join(rootDir, "packages", "database");
 const child = spawn("pnpm exec prisma migrate deploy", [], {
   cwd: dbDir,
-  env: { ...process.env, DATABASE_URL: url },
+  env: { ...process.env, DATABASE_URL: migrateUrl },
   stdio: "inherit",
   shell: true,
 });
