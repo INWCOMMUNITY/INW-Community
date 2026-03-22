@@ -16,6 +16,7 @@ export default function MySubscriptionsPage() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncHint, setSyncHint] = useState<string | null>(null);
 
   const refreshFromMe = useCallback(async () => {
     const r = await fetch("/api/me", { credentials: "include", cache: "no-store" });
@@ -56,6 +57,7 @@ export default function MySubscriptionsPage() {
   async function handleSyncStripe() {
     setSyncing(true);
     setError(null);
+    setSyncHint(null);
     try {
       const res = await fetch("/api/stripe/sync-subscriptions", {
         method: "POST",
@@ -64,6 +66,12 @@ export default function MySubscriptionsPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.ok === false) {
         setError(typeof data.error === "string" ? data.error : "Sync failed.");
+      } else {
+        if (typeof data.synced === "number" && data.synced > 0) {
+          setSyncHint(`Synced ${data.synced} subscription record(s) from Stripe.`);
+        } else if (typeof data.message === "string") {
+          setSyncHint(data.message);
+        }
       }
       await refreshFromMe();
       if (typeof update === "function") {
@@ -121,6 +129,7 @@ export default function MySubscriptionsPage() {
             {syncing ? "Syncing…" : "Refresh list from Stripe"}
           </button>
           {error && <p className="text-red-600 text-sm">{error}</p>}
+          {syncHint && <p className="text-amber-800 text-sm bg-amber-50 border border-amber-200 rounded p-2">{syncHint}</p>}
         </div>
       ) : (
         <div className="space-y-4">
@@ -136,6 +145,7 @@ export default function MySubscriptionsPage() {
             {syncing ? "Syncing…" : "Refresh subscriptions from Stripe"}
           </button>
           {error && <p className="text-red-600 text-sm">{error}</p>}
+          {syncHint && <p className="text-amber-800 text-sm bg-amber-50 border border-amber-200 rounded p-2">{syncHint}</p>}
         </div>
       )}
       <Link href="/support-nwc" className="btn mt-4 inline-block">

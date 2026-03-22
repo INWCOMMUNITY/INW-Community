@@ -12,6 +12,7 @@ import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconn
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { stripeSubscriptionStatusToDb } from "@/lib/stripe-subscription-db-status";
+import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
 
 /**
  * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
@@ -176,7 +177,7 @@ export async function POST(req: NextRequest) {
       (session.metadata?.memberId && session.metadata.memberId.trim()) ||
       (session.client_reference_id && session.client_reference_id.trim()) ||
       undefined;
-    const planId = session.metadata?.planId as "subscribe" | "sponsor" | "seller" | undefined;
+    let planId = session.metadata?.planId as "subscribe" | "sponsor" | "seller" | undefined;
     let subId = subscriptionIdFromCheckoutSession(session);
     if (!subId && session.mode === "subscription") {
       try {
@@ -188,6 +189,25 @@ export async function POST(req: NextRequest) {
         console.error("[stripe/webhook] checkout.session.completed: retrieve session failed", reErr);
       }
     }
+
+    if (memberId && subId && (!planId || !["subscribe", "sponsor", "seller"].includes(planId))) {
+      try {
+        const stripeSub = await stripe.subscriptions.retrieve(subId);
+        const mp = stripeSub.metadata?.planId?.trim();
+        if (mp === "subscribe" || mp === "sponsor" || mp === "seller") {
+          planId = mp;
+        }
+        if (!planId) {
+          const raw = stripeSub.items.data[0]?.price;
+          const priceId = typeof raw === "string" ? raw : raw?.id ?? null;
+          const p = planFromStripePriceId(priceId);
+          if (p) planId = p;
+        }
+      } catch (subErr) {
+        console.error("[stripe/webhook] checkout.session.completed: retrieve subscription for planId failed", subErr);
+      }
+    }
+
     if ((!memberId || !planId || !subId) && session.mode === "subscription") {
       console.warn("[stripe/webhook] checkout.session.completed: missing memberId, planId, or subscription id", {
         sessionId: session.id,
