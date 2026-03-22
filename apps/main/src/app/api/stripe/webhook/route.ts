@@ -195,6 +195,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  /** Snapshot / v1 events that actually write or update Subscription rows (thin v2.core.* events do not). */
+  const SUBSCRIPTION_RELATED_EVENT_TYPES = new Set([
+    "checkout.session.completed",
+    "invoice.payment_succeeded",
+    "customer.subscription.created",
+    "customer.subscription.updated",
+    "customer.subscription.deleted",
+  ]);
+  if (SUBSCRIPTION_RELATED_EVENT_TYPES.has(event.type)) {
+    console.info("[stripe/webhook] subscription-related event received", {
+      type: event.type,
+      eventId: event.id,
+    });
+  }
+
   // Connected account disconnected the platform; clear our link and disable their listings
   if (event.type === "account.application.deauthorized") {
     const connectAccountId = (event as Stripe.Event & { account?: string }).account;
@@ -294,6 +309,12 @@ export async function POST(req: NextRequest) {
           },
         });
       }
+      console.info("[stripe/webhook] checkout.session.completed: subscription upsert ok", {
+        sessionId: session.id,
+        stripeSubscriptionId: subId,
+        planId,
+        memberId,
+      });
       if (checkoutCustomerId) {
         const m = await prisma.member.findUnique({
           where: { id: memberId },
@@ -1031,6 +1052,11 @@ export async function POST(req: NextRequest) {
                 stripeCustomerId: typeof invoice.customer === "string" ? invoice.customer : null,
                 status: "active",
               },
+            });
+            console.info("[stripe/webhook] invoice.payment_succeeded: subscription row created", {
+              stripeSubscriptionId: subIdStr,
+              planId,
+              memberId,
             });
             const businessDataRaw = sub.metadata?.businessData;
             const businessIdFromSub = sub.metadata?.businessId;
