@@ -17,6 +17,9 @@ export function CheckoutSuccessSessionSync() {
   const { update } = useSession();
   const doneRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const syncTriesRef = useRef(0);
+  const pollCountRef = useRef(0);
+  const MAX_STRIPE_SYNC = 3;
 
   useEffect(() => {
     if (searchParams.get("success") !== "1" || doneRef.current) return;
@@ -28,9 +31,27 @@ export function CheckoutSuccessSessionSync() {
       }
     };
 
+    const tryStripeSync = async () => {
+      if (syncTriesRef.current >= MAX_STRIPE_SYNC) return;
+      syncTriesRef.current += 1;
+      try {
+        await fetch("/api/stripe/sync-subscriptions", {
+          method: "POST",
+          credentials: "include",
+        });
+      } catch {
+        /* ignore */
+      }
+    };
+
     const tick = async () => {
       if (doneRef.current) return;
       try {
+        pollCountRef.current += 1;
+        if (pollCountRef.current === 2 || pollCountRef.current === 10 || pollCountRef.current === 25) {
+          void tryStripeSync();
+        }
+
         const r = await fetch("/api/me", { credentials: "include", cache: "no-store" });
         const me = await r.json();
         const ok =

@@ -1,29 +1,36 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 
+const PAID_ACCESS_STATUSES = new Set(["active", "trialing", "past_due"]);
+
+function subsLookActive(subs: { status: string }[]) {
+  return subs.some((s) => PAID_ACCESS_STATUSES.has(s.status));
+}
+
 export default function MySubscriptionsPage() {
-  const { data: session, status } = useSession();
+  const { data: session, status, update } = useSession();
   const [hasSubscription, setHasSubscription] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const refreshFromMe = useCallback(async () => {
+    const r = await fetch("/api/me", { credentials: "include", cache: "no-store" });
+    const data = await r.json();
+    const subs = data?.subscriptions ?? [];
+    setHasSubscription(subsLookActive(subs));
+  }, []);
 
   useEffect(() => {
     if (status !== "authenticated" || !session?.user) {
       setHasSubscription(false);
       return;
     }
-    fetch("/api/me")
-      .then((r) => r.json())
-      .then((data) => {
-        const subs = data?.subscriptions ?? [];
-        const active = subs.some((s: { status: string }) => s.status === "active");
-        setHasSubscription(active);
-      })
-      .catch(() => setHasSubscription(false));
-  }, [session?.user, status]);
+    refreshFromMe().catch(() => setHasSubscription(false));
+  }, [session?.user, status, refreshFromMe]);
 
   async function handleManage() {
     setLoading(true);
@@ -43,6 +50,29 @@ export default function MySubscriptionsPage() {
       setError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSyncStripe() {
+    setSyncing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stripe/sync-subscriptions", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        setError(typeof data.error === "string" ? data.error : "Sync failed.");
+      }
+      await refreshFromMe();
+      if (typeof update === "function") {
+        await update();
+      }
+    } catch {
+      setError("Could not sync with Stripe. Try again in a moment.");
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -82,10 +112,31 @@ export default function MySubscriptionsPage() {
           >
             {loading ? "Opening…" : "Manage subscriptions"}
           </button>
+          <button
+            type="button"
+            onClick={handleSyncStripe}
+            disabled={syncing}
+            className="btn w-full bg-gray-100 text-gray-900 border border-gray-300 hover:bg-gray-200"
+          >
+            {syncing ? "Syncing…" : "Refresh list from Stripe"}
+          </button>
           {error && <p className="text-red-600 text-sm">{error}</p>}
         </div>
       ) : (
-        <p className="text-gray-600 mb-4">You don&apos;t have an active subscription.</p>
+        <div className="space-y-4">
+          <p className="text-gray-600">
+            No paid plan shows in your account yet. If you already subscribed, pull the latest from Stripe (fixes delayed webhooks). Otherwise choose a plan below.
+          </p>
+          <button
+            type="button"
+            onClick={handleSyncStripe}
+            disabled={syncing}
+            className="btn w-full"
+          >
+            {syncing ? "Syncing…" : "Refresh subscriptions from Stripe"}
+          </button>
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+        </div>
       )}
       <Link href="/support-nwc" className="btn mt-4 inline-block">
         View plans

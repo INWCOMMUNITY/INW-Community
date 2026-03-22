@@ -11,6 +11,7 @@ import {
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
+import { stripeSubscriptionStatusToDb } from "@/lib/stripe-subscription-db-status";
 
 /**
  * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
@@ -38,20 +39,6 @@ function slugify(s: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
-}
-
-/**
- * Map Stripe subscription.status → our Subscription.status.
- * Returns null when we should NOT overwrite DB status (e.g. `incomplete` during checkout),
- * so a later `checkout.session.completed` row stays `active` instead of being clobbered to canceled.
- */
-function stripeSubscriptionStatusToDb(
-  status: Stripe.Subscription.Status
-): "active" | "past_due" | "canceled" | null {
-  if (status === "active" || status === "trialing") return "active";
-  if (status === "past_due") return "past_due";
-  if (status === "canceled" || status === "unpaid" || status === "incomplete_expired") return "canceled";
-  return null;
 }
 
 async function createBusinessFromMetadata(
@@ -185,9 +172,30 @@ export async function POST(req: NextRequest) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    const memberId = session.metadata?.memberId;
+    const memberId =
+      (session.metadata?.memberId && session.metadata.memberId.trim()) ||
+      (session.client_reference_id && session.client_reference_id.trim()) ||
+      undefined;
     const planId = session.metadata?.planId as "subscribe" | "sponsor" | "seller" | undefined;
-    const subId = subscriptionIdFromCheckoutSession(session);
+    let subId = subscriptionIdFromCheckoutSession(session);
+    if (!subId && session.mode === "subscription") {
+      try {
+        const full = await stripe.checkout.sessions.retrieve(session.id, {
+          expand: ["subscription"],
+        });
+        subId = subscriptionIdFromCheckoutSession(full);
+      } catch (reErr) {
+        console.error("[stripe/webhook] checkout.session.completed: retrieve session failed", reErr);
+      }
+    }
+    if ((!memberId || !planId || !subId) && session.mode === "subscription") {
+      console.warn("[stripe/webhook] checkout.session.completed: missing memberId, planId, or subscription id", {
+        sessionId: session.id,
+        hasMemberId: Boolean(memberId),
+        hasPlanId: Boolean(planId),
+        hasSubId: Boolean(subId),
+      });
+    }
 
     if (memberId && planId && subId) {
       const checkoutCustomerId =

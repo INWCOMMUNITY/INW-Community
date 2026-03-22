@@ -160,6 +160,7 @@ export async function POST(req: NextRequest) {
       ...(existingStripeCustomerId
         ? { customer: existingStripeCustomerId }
         : { customer_email: session.user.email }),
+      client_reference_id: session.user.id,
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/my-community?success=1`,
       cancel_url: `${baseUrl}/support-nwc?canceled=1`,
