@@ -6,6 +6,7 @@ import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
 import { IonIcon } from "@/components/IonIcon";
 import { HubExclamationBadge } from "@/components/HubExclamationBadge";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 const SELLER_HUB_HEADER_IMAGE =
   "2bdd49_f582d22b864044b096a7f124f1b6efda~mv2.jpg/v1/fill/w_1920,h_640,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principle%203_edited.jpg";
@@ -20,11 +21,7 @@ export default async function SellerHubPage() {
     }
     const isAdmin = (session.user as { isAdmin?: boolean }).isAdmin === true;
     const sub = await prisma.subscription.findFirst({
-      where: {
-        memberId: session.user.id,
-        plan: "seller",
-        status: "active",
-      },
+      where: prismaWhereMemberSellerPlanAccess(session.user.id),
     });
     const hasLocalDelivery = (sub || isAdmin)
       ? await prisma.storeItem

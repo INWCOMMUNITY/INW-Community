@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
 import { SellerSidebar } from "@/components/SellerSidebar";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 export default async function BusinessHubBusinessLayout({
   children,
@@ -12,7 +13,7 @@ export default async function BusinessHubBusinessLayout({
   const isSeller =
     session?.user?.id &&
     (await prisma.subscription.findFirst({
-      where: { memberId: session.user.id, plan: "seller", status: "active" },
+      where: prismaWhereMemberSellerPlanAccess(session.user.id),
     }));
 
   if (isSeller) {

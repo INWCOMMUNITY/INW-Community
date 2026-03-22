@@ -7,6 +7,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { z } from "zod";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 const hoursSchema = z.record(z.string()).nullable().optional();
 const businessSchema = z.object({
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   // Avoid duplicate subscriptions
   const existingSub = await prisma.subscription.findFirst({
-    where: { memberId, plan: "seller", status: "active" },
+    where: prismaWhereMemberSellerPlanAccess(memberId),
   });
   if (existingSub) {
     return NextResponse.json(

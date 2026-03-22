@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
+import { prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-auth";
 
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
       logoUrl: body.logoUrl || null,
     });
     const sub = await prisma.subscription.findFirst({
-      where: { memberId: data.memberId, plan: { in: ["sponsor", "seller"] }, status: "active" },
+      where: prismaWhereMemberSponsorOrSellerPlanAccess(data.memberId),
     });
     const count = await prisma.business.count({ where: { memberId: data.memberId } });
     const grantFreeAccess = !sub;

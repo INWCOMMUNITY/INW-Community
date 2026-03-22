@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "database";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
 const MIN_PAYOUT_CENTS = 100;
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ pendingShip: 0, pendingReturns: 0, payoutReady: false, soldCount: 0, payoutSetupComplete: false }, { status: 200 });
     }
     const sub = await prisma.subscription.findFirst({
-      where: { memberId: userId, plan: "seller", status: "active" },
+      where: prismaWhereMemberSellerPlanAccess(userId),
     });
     if (!sub) {
       return NextResponse.json({ pendingShip: 0, pendingReturns: 0, payoutReady: false, soldCount: 0, payoutSetupComplete: false }, { status: 200 });

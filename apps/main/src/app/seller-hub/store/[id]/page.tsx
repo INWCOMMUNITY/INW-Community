@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import { StoreItemForm } from "@/components/StoreItemForm";
@@ -15,7 +16,7 @@ export default async function EditStoreItemPage({
     redirect("/login?callbackUrl=/seller-hub/store");
   }
   const sub = await prisma.subscription.findFirst({
-    where: { memberId: session.user.id, plan: "seller", status: "active" },
+    where: prismaWhereMemberSellerPlanAccess(session.user.id),
   });
   if (!sub) {
     return (

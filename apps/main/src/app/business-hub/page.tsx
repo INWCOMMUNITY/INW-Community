@@ -5,6 +5,7 @@ import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
 import { BusinessHubFormModals } from "@/components/BusinessHubFormModals";
 import { hasBusinessHubAccess } from "@/lib/business-hub-access";
+import { prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 /** Business Hub header – panorama (lake, dock, trees, sky) from gallery; wide crop so full scene shows; position shaves 12% off top */
 const BUSINESS_HUB_HEADER_IMAGE =
@@ -21,11 +22,7 @@ export default async function BusinessHubPage() {
     const isAdmin = (session.user as { isAdmin?: boolean }).isAdmin === true;
     const [sub, hasAccess] = await Promise.all([
       prisma.subscription.findFirst({
-        where: {
-          memberId: session.user.id,
-          plan: { in: ["sponsor", "seller"] },
-          status: "active",
-        },
+        where: prismaWhereMemberSponsorOrSellerPlanAccess(session.user.id),
       }),
       hasBusinessHubAccess(session.user.id),
     ]);

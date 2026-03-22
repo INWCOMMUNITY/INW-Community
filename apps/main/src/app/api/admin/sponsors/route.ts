@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
+import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 
 
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const sponsors = await prisma.subscription.findMany({
-    where: { plan: { in: ["sponsor", "seller"] }, status: "active" },
+    where: { plan: { in: ["sponsor", "seller"] }, status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
     include: {
       member: {
         select: {

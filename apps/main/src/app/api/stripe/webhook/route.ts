@@ -40,6 +40,20 @@ function slugify(s: string): string {
     .replace(/^-|-$/g, "");
 }
 
+/**
+ * Map Stripe subscription.status → our Subscription.status.
+ * Returns null when we should NOT overwrite DB status (e.g. `incomplete` during checkout),
+ * so a later `checkout.session.completed` row stays `active` instead of being clobbered to canceled.
+ */
+function stripeSubscriptionStatusToDb(
+  status: Stripe.Subscription.Status
+): "active" | "past_due" | "canceled" | null {
+  if (status === "active" || status === "trialing") return "active";
+  if (status === "past_due") return "past_due";
+  if (status === "canceled" || status === "unpaid" || status === "incomplete_expired") return "canceled";
+  return null;
+}
+
 async function createBusinessFromMetadata(
   memberId: string,
   data: Record<string, unknown>
@@ -955,12 +969,15 @@ export async function POST(req: NextRequest) {
 
   if (event.type === "customer.subscription.created" || event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
     const sub = event.data.object as Stripe.Subscription;
+    const mapped = stripeSubscriptionStatusToDb(sub.status);
+    const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
+    const data: Prisma.SubscriptionUpdateManyMutationInput = {
+      currentPeriodEnd: periodEnd,
+      ...(mapped !== null ? { status: mapped } : {}),
+    };
     await prisma.subscription.updateMany({
       where: { stripeSubscriptionId: sub.id },
-      data: {
-        status: sub.status === "active" ? "active" : sub.status === "trialing" ? "active" : "canceled",
-        currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end * 1000) : null,
-      },
+      data,
     });
   }
   return NextResponse.json({ received: true });

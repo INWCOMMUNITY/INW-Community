@@ -2,6 +2,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { getServerSession as nextAuthGetServerSession } from "next-auth";
 import { prisma } from "database";
 import bcrypt from "bcryptjs";
+import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
 
 export const authOptions = {
   providers: [
@@ -46,7 +47,7 @@ export const authOptions = {
         const memberId = token.id as string | undefined;
         if (memberId) {
           const sub = await prisma.subscription.findFirst({
-            where: { memberId, plan: "subscribe", status: "active" },
+            where: prismaWhereMemberSubscribePlanAccess(memberId),
             select: { id: true },
           });
           (session.user as { isSubscriber?: boolean }).isSubscriber = !!sub;

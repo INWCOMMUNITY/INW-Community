@@ -10,6 +10,10 @@ import {
   parseSubcategoriesByPrimary,
 } from "@/lib/business-categories";
 import { z } from "zod";
+import {
+  NWC_PAID_PLAN_ACCESS_STATUSES,
+  prismaWhereMemberSponsorOrSellerPlanAccess,
+} from "@/lib/nwc-paid-subscription";
 
 export async function GET(req: NextRequest) {
   try {
@@ -22,7 +26,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const sub = await prisma.subscription.findFirst({
-      where: { memberId: session.user.id, plan: { in: ["sponsor", "seller"] }, status: "active" },
+      where: prismaWhereMemberSponsorOrSellerPlanAccess(session.user.id),
     });
     if (!sub) {
       return NextResponse.json({ error: "Business or Seller plan required" }, { status: 403 });
@@ -37,7 +41,7 @@ export async function GET(req: NextRequest) {
 
   // Only show businesses whose owner has an active Business (sponsor) or Seller subscription
   const activeSubs = await prisma.subscription.findMany({
-    where: { plan: { in: ["sponsor", "seller"] }, status: "active" },
+    where: { plan: { in: ["sponsor", "seller"] }, status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
     select: { memberId: true },
   });
   const activeMemberIds = activeSubs.map((s) => s.memberId);
@@ -198,7 +202,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const sub = await prisma.subscription.findFirst({
-    where: { memberId: session.user.id, plan: { in: ["sponsor", "seller"] }, status: "active" },
+    where: prismaWhereMemberSponsorOrSellerPlanAccess(session.user.id),
   });
   if (!sub) {
     return NextResponse.json({ error: "Business or Seller plan required" }, { status: 403 });

@@ -1,4 +1,5 @@
 import { prisma } from "database";
+import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 
 /**
  * One Stripe Customer per member so Billing Portal lists every active subscription together.
@@ -14,7 +15,7 @@ export async function resolveStripeCustomerIdForMember(memberId: string): Promis
   if (fromMember) return fromMember;
 
   const subs = await prisma.subscription.findMany({
-    where: { memberId, status: "active", stripeCustomerId: { not: null } },
+    where: { memberId, status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] }, stripeCustomerId: { not: null } },
     select: { stripeCustomerId: true },
   });
   const ids = subs

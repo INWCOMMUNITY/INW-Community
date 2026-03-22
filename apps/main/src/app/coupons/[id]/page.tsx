@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import Link from "next/link";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { ShareButton } from "@/components/ShareButton";
@@ -23,14 +24,7 @@ export default async function CouponDetailPage({
   const isLoggedIn = Boolean(userId);
   const isOwner = Boolean(userId && coupon.business?.memberId === userId);
   const hasPaidPlan =
-    !!userId &&
-    !!(await prisma.subscription.findFirst({
-      where: {
-        memberId: userId,
-        status: "active",
-        plan: { in: ["subscribe", "sponsor", "seller"] },
-      },
-    }));
+    !!userId && !!(await prisma.subscription.findFirst({ where: prismaWhereActivePaidNwcPlan(userId) }));
   const hasAccess = hasPaidPlan || isOwner;
 
   const saved = userId

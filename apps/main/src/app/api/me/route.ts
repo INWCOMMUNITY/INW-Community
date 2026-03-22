@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getCurrentSeasonId } from "@/lib/award-points";
-import { NWC_PAID_PLAN_SLUGS } from "@/lib/nwc-paid-subscription";
+import { NWC_PAID_PLAN_ACCESS_STATUSES, NWC_PAID_PLAN_SLUGS } from "@/lib/nwc-paid-subscription";
+import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -84,11 +85,11 @@ export async function GET(req: NextRequest) {
   }
   const [sub, subscriptions] = await Promise.all([
     prisma.subscription.findFirst({
-      where: { memberId: session.user.id, plan: "subscribe", status: "active" },
+      where: prismaWhereMemberSubscribePlanAccess(session.user.id),
       select: { id: true },
     }),
     prisma.subscription.findMany({
-      where: { memberId: session.user.id, status: "active" },
+      where: { memberId: session.user.id, status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
       select: { plan: true, status: true },
     }),
   ]);

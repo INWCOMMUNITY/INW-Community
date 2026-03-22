@@ -6,6 +6,7 @@ import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
+import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -50,7 +51,7 @@ async function createBusinessDraftInDb(
   if (!name || !city || categories.length === 0) return undefined;
 
   const activeSub = await prisma.subscription.findFirst({
-    where: { memberId, status: "active", plan: { in: ["sponsor", "seller"] } },
+    where: prismaWhereMemberSponsorOrSellerPlanAccess(memberId),
   });
   if (!activeSub) {
     await prisma.business.deleteMany({ where: { memberId } });
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest) {
       where: {
         memberId: session.user.id,
         plan: planKey,
-        status: { in: ["active", "trialing"] },
+        status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] },
       },
     });
     if (existingSamePlan) {

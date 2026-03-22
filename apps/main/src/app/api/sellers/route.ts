@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { deduplicateCities } from "@/lib/city-utils";
 import { businessMatchesCategoryAndSub, parseSubcategoriesByPrimary } from "@/lib/business-categories";
+import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 
 /**
  * GET /api/sellers
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
     const city = searchParams.get("city")?.trim();
 
     const sellerMemberIds = await prisma.subscription.findMany({
-      where: { plan: "seller", status: "active" },
+      where: { plan: "seller", status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
       select: { memberId: true },
     });
     const memberIds = sellerMemberIds.map((s) => s.memberId);

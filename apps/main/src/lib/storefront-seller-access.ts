@@ -1,4 +1,5 @@
 import { prisma } from "database";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 
 /**
  * Seller Hub shipping/profile/label APIs (Shippo, etc.). Subscribe and Seller list resale or storefront;
@@ -7,11 +8,7 @@ import { prisma } from "database";
  */
 export async function memberHasStorefrontListingAccess(memberId: string): Promise<boolean> {
   const sub = await prisma.subscription.findFirst({
-    where: {
-      memberId,
-      status: "active",
-      plan: { in: ["seller", "subscribe", "sponsor"] },
-    },
+    where: prismaWhereActivePaidNwcPlan(memberId),
   });
   return Boolean(sub);
 }

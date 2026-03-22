@@ -6,6 +6,8 @@ import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { z } from "zod";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -82,10 +84,10 @@ export async function PATCH(
   if (!isAdmin) {
     if (data.listingType !== undefined) {
       const sellerSub = await prisma.subscription.findFirst({
-        where: { memberId: session.user.id, plan: "seller", status: "active" },
+        where: prismaWhereMemberSellerPlanAccess(session.user.id),
       });
       const subscribeSub = await prisma.subscription.findFirst({
-        where: { memberId: session.user.id, plan: "subscribe", status: "active" },
+        where: prismaWhereMemberSubscribePlanAccess(session.user.id),
       });
       if (data.listingType === "new") {
         if (!sellerSub) {

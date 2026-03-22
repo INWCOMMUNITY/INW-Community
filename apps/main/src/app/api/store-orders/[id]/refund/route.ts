@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "database";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 import { deductPoints } from "@/lib/award-points";
@@ -25,7 +26,7 @@ export async function POST(
   }
 
   const sub = await prisma.subscription.findFirst({
-    where: { memberId: userId, plan: "seller", status: "active" },
+    where: prismaWhereMemberSellerPlanAccess(userId),
   });
   if (!sub) {
     return NextResponse.json({ error: "Seller plan required" }, { status: 403 });

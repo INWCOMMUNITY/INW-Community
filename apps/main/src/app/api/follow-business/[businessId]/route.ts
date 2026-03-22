@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 /**
  * POST /api/follow-business/[businessId] - Follow a seller's business
@@ -25,7 +26,7 @@ export async function POST(
   }
 
   const sellerSub = await prisma.subscription.findFirst({
-    where: { memberId: business.memberId, plan: "seller", status: "active" },
+    where: prismaWhereMemberSellerPlanAccess(business.memberId),
   });
   if (!sellerSub) {
     return NextResponse.json({ error: "Not a seller storefront" }, { status: 400 });

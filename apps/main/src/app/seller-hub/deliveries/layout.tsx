@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 export default async function SellerDeliveriesLayout({
   children,
@@ -13,7 +14,7 @@ export default async function SellerDeliveriesLayout({
     redirect("/login?callbackUrl=/seller-hub/deliveries");
   }
   const sub = await prisma.subscription.findFirst({
-    where: { memberId: session.user.id, plan: "seller", status: "active" },
+    where: prismaWhereMemberSellerPlanAccess(session.user.id),
   });
   if (!sub) {
     redirect("/seller-hub");

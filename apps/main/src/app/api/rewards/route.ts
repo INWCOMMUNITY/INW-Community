@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getCurrentSeasonId } from "@/lib/award-points";
 import { z } from "zod";
+import { prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 export async function GET(req: NextRequest) {
   const currentSeasonId = await getCurrentSeasonId();
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const sub = await prisma.subscription.findFirst({
-    where: { memberId: session.user.id, plan: { in: ["sponsor", "seller"] }, status: "active" },
+    where: prismaWhereMemberSponsorOrSellerPlanAccess(session.user.id),
   });
   if (!sub) {
     return NextResponse.json({ error: "Business or Seller plan required" }, { status: 403 });

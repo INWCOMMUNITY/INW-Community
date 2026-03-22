@@ -2,20 +2,37 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import bcrypt from "bcryptjs";
 import { signMobileToken, type SubscriptionPlan } from "@/lib/mobile-auth";
+import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
+import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 
 const PLANS: SubscriptionPlan[] = ["subscribe", "sponsor", "seller"];
 
 async function resolvePlan(memberId: string, requestedPlan?: SubscriptionPlan): Promise<SubscriptionPlan | null> {
   if (requestedPlan) {
+    if (requestedPlan === "subscribe") {
+      const s = await prisma.subscription.findFirst({
+        where: prismaWhereMemberSubscribePlanAccess(memberId),
+        select: { plan: true },
+      });
+      return s ? "subscribe" : null;
+    }
     const s = await prisma.subscription.findFirst({
-      where: { memberId, status: "active", plan: requestedPlan },
+      where: { memberId, plan: requestedPlan, status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
       select: { plan: true },
     });
     return s ? (s.plan as SubscriptionPlan) : null;
   }
   for (const p of PLANS) {
+    if (p === "subscribe") {
+      const s = await prisma.subscription.findFirst({
+        where: prismaWhereMemberSubscribePlanAccess(memberId),
+        select: { plan: true },
+      });
+      if (s) return "subscribe";
+      continue;
+    }
     const s = await prisma.subscription.findFirst({
-      where: { memberId, status: "active", plan: p },
+      where: { memberId, plan: p, status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
       select: { plan: true },
     });
     if (s) return s.plan as SubscriptionPlan;
@@ -61,7 +78,7 @@ export async function POST(req: NextRequest) {
     }
 
     const sub = await prisma.subscription.findFirst({
-      where: { memberId: member.id, plan: "subscribe", status: "active" },
+      where: prismaWhereMemberSubscribePlanAccess(member.id),
       select: { id: true },
     });
 

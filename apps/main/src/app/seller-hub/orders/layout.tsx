@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 
 export default async function SellerOrdersLayout({
   children,
@@ -14,11 +15,7 @@ export default async function SellerOrdersLayout({
   }
   /** Seller list + labels; Business-plan members need order detail for reward fulfillments (same sellerId as business owner). */
   const sub = await prisma.subscription.findFirst({
-    where: {
-      memberId: session.user.id,
-      plan: { in: ["seller", "sponsor", "subscribe"] },
-      status: "active",
-    },
+    where: prismaWhereActivePaidNwcPlan(session.user.id),
   });
   if (!sub) {
     redirect("/seller-hub");

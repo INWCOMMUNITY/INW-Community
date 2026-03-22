@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { parseSubcategoriesByPrimary } from "@/lib/business-categories";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -57,7 +58,7 @@ export async function GET(
     }
 
     const sellerSub = await prisma.subscription.findFirst({
-      where: { memberId: business.memberId, plan: "seller", status: "active" },
+      where: prismaWhereMemberSellerPlanAccess(business.memberId),
     });
     if (!sellerSub) {
       return NextResponse.json({ error: "Seller not found" }, { status: 404 });

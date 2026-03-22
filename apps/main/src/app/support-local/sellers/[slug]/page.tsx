@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ShareButton } from "@/components/ShareButton";
 import { authOptions } from "@/lib/auth";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { FollowBusinessButton } from "./FollowBusinessButton";
 
 function isCuid(s: string): boolean {
@@ -66,7 +67,7 @@ export default async function SellerStorefrontPage({
   if (!business) notFound();
 
   const sellerSub = await prisma.subscription.findFirst({
-    where: { memberId: business.memberId, plan: "seller", status: "active" },
+    where: prismaWhereMemberSellerPlanAccess(business.memberId),
   });
   if (!sellerSub) notFound();
 

@@ -1,4 +1,5 @@
 import { prisma } from "database";
+import { prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 /**
  * Member has Business Hub access if they have an active Business (sponsor) or Seller subscription
@@ -7,11 +8,7 @@ import { prisma } from "database";
 export async function hasBusinessHubAccess(memberId: string): Promise<boolean> {
   const [sub, grantedBusiness] = await Promise.all([
     prisma.subscription.findFirst({
-      where: {
-        memberId,
-        plan: { in: ["sponsor", "seller"] },
-        status: "active",
-      },
+      where: prismaWhereMemberSponsorOrSellerPlanAccess(memberId),
       select: { id: true },
     }),
     prisma.business.findFirst({

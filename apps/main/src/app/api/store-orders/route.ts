@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, type Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 
 export async function GET(req: NextRequest) {
   try {
@@ -71,11 +72,7 @@ export async function GET(req: NextRequest) {
 
     if (mine === "1") {
       const sellerSponsorOrSubscribe = await prisma.subscription.findFirst({
-        where: {
-          memberId: userId,
-          plan: { in: ["seller", "sponsor", "subscribe"] },
-          status: "active",
-        },
+        where: prismaWhereActivePaidNwcPlan(userId),
       });
       if (!sellerSponsorOrSubscribe) {
         return NextResponse.json({ error: "Seller, Business, or Subscribe plan required" }, { status: 403 });

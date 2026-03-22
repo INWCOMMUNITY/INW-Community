@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
 const MAX_ALLOW_SALES_DAYS = 14;
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const sub = await prisma.subscription.findFirst({
-      where: { memberId: userId, plan: "seller", status: "active" },
+      where: prismaWhereMemberSellerPlanAccess(userId),
     });
     if (!sub) {
       return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const sub = await prisma.subscription.findFirst({
-      where: { memberId: userId, plan: "seller", status: "active" },
+      where: prismaWhereMemberSellerPlanAccess(userId),
     });
     if (!sub) {
       return NextResponse.json({ error: "Seller plan required" }, { status: 403 });

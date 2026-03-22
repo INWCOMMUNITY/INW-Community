@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
+import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
 /**
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
   });
 
   const sellerMemberIds = await prisma.subscription.findMany({
-    where: { plan: "seller", status: "active" },
+    where: { plan: "seller", status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
     select: { memberId: true },
   });
   const sellerSet = new Set(sellerMemberIds.map((s) => s.memberId));

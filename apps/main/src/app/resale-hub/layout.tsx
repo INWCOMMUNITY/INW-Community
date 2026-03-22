@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
+import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
 import { ResaleHubTopNav } from "@/components/ResaleHubTopNav";
 
 export const dynamic = "force-dynamic";
@@ -18,11 +19,7 @@ export default async function ResaleHubLayout({
 
   const isAdmin = (session.user as { isAdmin?: boolean }).isAdmin === true;
   const subscribeSub = await prisma.subscription.findFirst({
-    where: {
-      memberId: session.user.id,
-      status: "active",
-      plan: "subscribe",
-    },
+    where: prismaWhereMemberSubscribePlanAccess(session.user.id),
   });
 
   if (!subscribeSub && !isAdmin) {

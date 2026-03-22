@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
+import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -32,11 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   const sub = await prisma.subscription.findFirst({
-    where: {
-      memberId: userId,
-      plan: { in: ["seller", "subscribe"] },
-      status: "active",
-    },
+    where: prismaWhereMemberSellerOrSubscribeAccess(userId),
   });
   if (!sub) {
     return NextResponse.json(

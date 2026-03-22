@@ -3,6 +3,7 @@ import { put } from "@vercel/blob";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireBlobStorage } from "@/lib/upload";
 import { prisma } from "database";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import path from "path";
 import fs from "fs/promises";
 
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
 
   const [sub, member] = await Promise.all([
     prisma.subscription.findFirst({
-      where: { memberId: session.user.id, plan: { in: ["sponsor", "seller", "subscribe"] }, status: "active" },
+      where: prismaWhereActivePaidNwcPlan(session.user.id),
     }),
     prisma.member.findUnique({
       where: { id: session.user.id },

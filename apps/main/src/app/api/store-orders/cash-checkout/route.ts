@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardPoints } from "@/lib/award-points";
 import { getBaseUrl } from "@/lib/get-base-url";
 import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -95,11 +96,7 @@ export async function POST(req: NextRequest) {
 
   const buyerId = session.user.id;
   const paidPlanBuyer = await prisma.subscription.findFirst({
-    where: {
-      memberId: buyerId,
-      status: "active",
-      plan: { in: ["subscribe", "sponsor", "seller"] },
-    },
+    where: prismaWhereActivePaidNwcPlan(buyerId),
   });
   const orderIds: string[] = [];
 

@@ -5,6 +5,8 @@ import { containsProhibitedCategory, validateText } from "@/lib/content-moderati
 import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { z } from "zod";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -237,17 +239,17 @@ export async function GET(req: NextRequest) {
     const listingTypeFilter = listingTypeParam === "resale" ? "resale" : listingTypeParam === "new" ? "new" : null;
     if (listingTypeFilter === "resale") {
       const subscribeSub = await prisma.subscription.findFirst({
-        where: { memberId: userId, plan: "subscribe", status: "active" },
+        where: prismaWhereMemberSubscribePlanAccess(userId),
       });
       const sellerSub = await prisma.subscription.findFirst({
-        where: { memberId: userId, plan: "seller", status: "active" },
+        where: prismaWhereMemberSellerPlanAccess(userId),
       });
       if (!subscribeSub && !sellerSub) {
         return NextResponse.json({ error: "Subscribe or Seller plan required" }, { status: 403 });
       }
     } else {
       const sellerSub = await prisma.subscription.findFirst({
-        where: { memberId: userId, plan: "seller", status: "active" },
+        where: prismaWhereMemberSellerPlanAccess(userId),
       });
       if (!sellerSub) {
         return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
@@ -438,10 +440,10 @@ export async function POST(req: NextRequest) {
 
   const listingType = data.listingType ?? "new";
   const sellerSub = await prisma.subscription.findFirst({
-    where: { memberId: userId, plan: "seller", status: "active" },
+    where: prismaWhereMemberSellerPlanAccess(userId),
   });
   const subscribeSub = await prisma.subscription.findFirst({
-    where: { memberId: userId, plan: "subscribe", status: "active" },
+    where: prismaWhereMemberSubscribePlanAccess(userId),
   });
   const canListResale = Boolean(sellerSub || subscribeSub);
   if (listingType === "new") {
