@@ -176,6 +176,16 @@ export async function POST(req: NextRequest) {
     const subId = subscriptionIdFromCheckoutSession(session);
 
     if (memberId && planId && subId) {
+      const checkoutCustomerId =
+        typeof session.customer === "string"
+          ? session.customer
+          : session.customer &&
+              typeof session.customer === "object" &&
+              !Array.isArray(session.customer) &&
+              "id" in session.customer
+            ? (session.customer as Stripe.Customer).id
+            : null;
+
       const existingSub = await prisma.subscription.findFirst({
         where: { stripeSubscriptionId: subId },
       });
@@ -185,15 +195,28 @@ export async function POST(req: NextRequest) {
             memberId,
             plan: planId,
             stripeSubscriptionId: subId,
-            stripeCustomerId:
-              typeof session.customer === "string"
-                ? session.customer
-                : session.customer && typeof session.customer === "object" && "id" in session.customer
-                  ? (session.customer as Stripe.Customer).id
-                  : null,
+            stripeCustomerId: checkoutCustomerId,
             status: "active",
           },
         });
+      }
+      if (checkoutCustomerId) {
+        const m = await prisma.member.findUnique({
+          where: { id: memberId },
+          select: { stripeCustomerId: true },
+        });
+        if (!m?.stripeCustomerId?.trim()) {
+          await prisma.member.update({
+            where: { id: memberId },
+            data: { stripeCustomerId: checkoutCustomerId },
+          });
+        } else if (m.stripeCustomerId !== checkoutCustomerId) {
+          console.warn("[stripe/webhook] checkout.session.completed: Stripe customer id mismatch for member", {
+            memberId,
+            memberCustomer: m.stripeCustomerId,
+            sessionCustomer: checkoutCustomerId,
+          });
+        }
       }
       const businessDataRaw = session.metadata?.businessData;
       const businessIdFromMeta = session.metadata?.businessId;

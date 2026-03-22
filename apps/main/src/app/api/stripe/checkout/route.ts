@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
+import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -116,6 +117,25 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    const planKey = planId as "subscribe" | "sponsor" | "seller";
+    const existingSamePlan = await prisma.subscription.findFirst({
+      where: {
+        memberId: session.user.id,
+        plan: planKey,
+        status: { in: ["active", "trialing"] },
+      },
+    });
+    if (existingSamePlan) {
+      return NextResponse.json(
+        {
+          error:
+            "You already have an active subscription for this plan. To change billing or cancel, go to Inland Northwest Community → Subscriptions.",
+        },
+        { status: 400 }
+      );
+    }
+
     const metadata: Record<string, string> = {
       memberId: session.user.id,
       planId,
@@ -133,9 +153,12 @@ export async function POST(req: NextRequest) {
         console.error("[stripe/checkout] business draft create:", bErr);
       }
     }
+    const existingStripeCustomerId = await resolveStripeCustomerIdForMember(session.user.id);
     const params: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
-      customer_email: session.user.email,
+      ...(existingStripeCustomerId
+        ? { customer: existingStripeCustomerId }
+        : { customer_email: session.user.email }),
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/my-community?success=1`,
       cancel_url: `${baseUrl}/support-nwc?canceled=1`,

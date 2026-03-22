@@ -70,7 +70,7 @@ export default function MySubscriptionsPage() {
     <div className="max-w-xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-4">My Subscriptions</h1>
       <p className="text-gray-600 mb-4">
-        View and manage your subscription. You can update payment methods, view invoices, or cancel your subscription at any time.
+        Open Stripe&apos;s secure billing portal to see your active subscriptions, update payment methods, view invoices, or cancel. All plans tied to your account appear together.
       </p>
       {hasSubscription ? (
         <div className="space-y-4">
@@ -80,7 +80,7 @@ export default function MySubscriptionsPage() {
             disabled={loading}
             className="btn w-full"
           >
-            {loading ? "Opening…" : "Manage Subscription"}
+            {loading ? "Opening…" : "Manage subscriptions"}
           </button>
           {error && <p className="text-red-600 text-sm">{error}</p>}
         </div>

@@ -305,16 +305,18 @@ export function ProfileForm() {
         </Link>
       </div>
 
-      {/* Manage Subscription */}
+      {/* Billing portal (Stripe) — active subscriptions, payment method, invoices */}
       <div className="mt-6 pt-6 border-t border-gray-200">
         <Link
-          href="/support-nwc"
+          href="/my-community/subscriptions"
           className="text-[var(--color-link)] hover:underline text-sm font-medium"
           style={{ color: "var(--color-primary)" }}
         >
-          Manage Subscription
+          Manage subscriptions
         </Link>
-        <p className="text-xs text-gray-500 mt-1">View or change your NWC membership and billing.</p>
+        <p className="text-xs text-gray-500 mt-1">
+          View your active subscriptions in Stripe&apos;s billing portal, update payment methods, or cancel.
+        </p>
       </div>
 
       {/* Delete account - only in Edit Profile */}

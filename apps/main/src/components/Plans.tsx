@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { WIX_IMG } from "@/lib/wix-media";
 
 const PLANS = [
@@ -38,15 +39,25 @@ const PLANS = [
 ];
 
 export function Plans() {
+  const { status } = useSession();
   const [loading, setLoading] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   async function handleSubscribe(planId: string) {
+    if (status !== "authenticated") {
+      window.location.href = `/login?callbackUrl=${encodeURIComponent(
+        typeof window !== "undefined" ? window.location.pathname : "/support-nwc"
+      )}`;
+      return;
+    }
+    setCheckoutError(null);
     setLoading(planId);
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planId, interval: "monthly" }),
+        credentials: "same-origin",
       });
       const data = await res.json().catch(() => ({}));
       if (data.url) {
@@ -59,14 +70,23 @@ export function Plans() {
         )}`;
         return;
       }
-      setLoading(null);
+      setCheckoutError(
+        typeof data.error === "string" ? data.error : "Could not start checkout. Please try again."
+      );
     } catch {
+      setCheckoutError("Something went wrong. Please try again.");
+    } finally {
       setLoading(null);
     }
   }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      {checkoutError && (
+        <p className="md:col-span-3 text-sm font-medium" style={{ color: "#c62828" }} role="alert">
+          {checkoutError}
+        </p>
+      )}
       {PLANS.map((plan) => (
         <div
           key={plan.id}
@@ -97,7 +117,7 @@ export function Plans() {
           <button
             type="button"
             onClick={() => handleSubscribe(plan.id)}
-            disabled={!!loading}
+            disabled={!!loading || status === "loading"}
             className="btn w-full"
           >
             {loading === plan.id ? "Redirecting…" : "Subscribe"}

@@ -150,7 +150,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
       if (res?.url) {
         onClose();
         const webUrl =
-          `/web?url=${encodeURIComponent(res.url)}&title=Manage subscription` +
+          `/web?url=${encodeURIComponent(res.url)}&title=Manage subscriptions` +
           `&successPattern=${encodeURIComponent("my-community/subscriptions")}` +
           `&successRoute=${encodeURIComponent("/(tabs)/my-community")}` +
           "&refreshOnSuccess=1";
@@ -204,7 +204,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
 
   const profileItems: NavItem[] = [
     ...(hasActiveSubscription
-      ? [{ href: "action:manage-subscription", label: "Manage Subscription", icon: "card-outline" as const }]
+      ? [{ href: "action:manage-subscription", label: "Manage subscriptions", icon: "card-outline" as const }]
       : []),
     { href: "/profile-edit", label: "Delete account", icon: "trash-outline" },
     { href: "action:logout", label: "Logout", icon: "log-out-outline" },

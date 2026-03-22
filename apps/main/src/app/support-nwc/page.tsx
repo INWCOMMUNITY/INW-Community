@@ -186,7 +186,7 @@ export default function SupportNWCInfoPage() {
           <Link href="/my-community/subscriptions" className="underline" style={{ color: "var(--color-primary)" }}>
             Inland Northwest Community → Subscriptions
           </Link>{" "}
-          (or from the Manage Subscription link after signing in).
+          (or from Edit profile → Manage subscriptions after signing in).
         </p>
       </div>
     </section>

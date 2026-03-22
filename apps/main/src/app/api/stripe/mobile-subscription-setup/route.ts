@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
+import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest) {
 
     const member = await prisma.member.findUnique({
       where: { id: session.user.id },
-      select: { email: true, stripeCustomerId: true, firstName: true, lastName: true, deliveryAddress: true },
+      select: { email: true, firstName: true, lastName: true, deliveryAddress: true },
     });
     if (!member) {
       return NextResponse.json({ error: "Member not found" }, { status: 404 });
@@ -154,7 +155,7 @@ export async function POST(req: NextRequest) {
           }
         : undefined;
 
-    let customerId = member.stripeCustomerId;
+    let customerId = await resolveStripeCustomerIdForMember(session.user.id);
 
     if (!customerId) {
       const customer = await stripe.customers.create({
