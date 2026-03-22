@@ -8,7 +8,7 @@ import { useSession } from "next-auth/react";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { ShareButton } from "@/components/ShareButton";
 import { useCart } from "@/contexts/CartContext";
-import { STORE_CATEGORIES, getSubcategoriesForCategory } from "@/lib/store-categories";
+type BrowseCategoryOption = { label: string; subcategories: string[] };
 
 function AddToCartButton({
   itemId,
@@ -243,6 +243,7 @@ export function StorefrontGallery({
   const { setOpen: setCartOpen } = useCart();
   const [items, setItems] = useState<StoreItem[]>([]);
   const [sizes, setSizes] = useState<string[]>([]);
+  const [browseByCategories, setBrowseByCategories] = useState<BrowseCategoryOption[]>([]);
   const [category, setCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
   const [size, setSize] = useState("");
@@ -258,6 +259,11 @@ export function StorefrontGallery({
   const [filterOpen, setFilterOpen] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setCategory("");
+    setSubcategory("");
+  }, [listingType]);
 
   useEffect(() => {
     const local = searchParams.get("localDelivery");
@@ -283,11 +289,38 @@ export function StorefrontGallery({
     const params = new URLSearchParams({ list: "meta", listingType });
     fetch(`/api/store-items?${params}`)
       .then((r) => r.json())
-      .then((d) => {
+      .then((d: { sizes?: string[]; browseByCategories?: BrowseCategoryOption[]; categories?: string[] }) => {
         if (Array.isArray(d?.sizes)) setSizes(d.sizes);
+        if (Array.isArray(d?.browseByCategories) && d.browseByCategories.length > 0) {
+          setBrowseByCategories(d.browseByCategories);
+        } else if (Array.isArray(d?.categories)) {
+          setBrowseByCategories(d.categories.map((label) => ({ label, subcategories: [] })));
+        } else {
+          setBrowseByCategories([]);
+        }
       })
       .catch(() => {});
   }, [listingType]);
+
+  useEffect(() => {
+    if (browseByCategories.length === 0) {
+      if (category) {
+        setCategory("");
+        setSubcategory("");
+      }
+      return;
+    }
+    const labels = new Set(browseByCategories.map((c) => c.label));
+    if (category && !labels.has(category)) {
+      setCategory("");
+      setSubcategory("");
+      return;
+    }
+    if (category && subcategory) {
+      const subs = browseByCategories.find((c) => c.label === category)?.subcategories ?? [];
+      if (!subs.includes(subcategory)) setSubcategory("");
+    }
+  }, [browseByCategories, category, subcategory]);
 
   useEffect(() => {
     try {
@@ -329,16 +362,16 @@ export function StorefrontGallery({
       <div className="h-px bg-gray-200 my-3" aria-hidden />
       <nav className="flex flex-col gap-0.5">
         <button type="button" onClick={() => { setCategory(""); setSubcategory(""); setBrowseOpen(false); }} className={`text-left py-1.5 text-sm ${category === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All Products</button>
-        {STORE_CATEGORIES.map((c) => (
+        {browseByCategories.map((c) => (
           <button key={c.label} type="button" onClick={() => { setCategory(c.label); setSubcategory(""); setBrowseOpen(false); }} className={`text-left py-1.5 text-sm ${category === c.label ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{c.label}</button>
         ))}
       </nav>
-      {category && getSubcategoriesForCategory(category).length > 0 && (
+      {category && (browseByCategories.find((c) => c.label === category)?.subcategories.length ?? 0) > 0 && (
         <div className="mt-3 pt-3 border-t border-gray-200">
           <p className="text-xs font-medium text-gray-600 mb-2">Subcategory</p>
           <nav className="flex flex-col gap-0.5">
             <button type="button" onClick={() => setSubcategory("")} className={`text-left py-1.5 text-sm ${subcategory === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All</button>
-            {getSubcategoriesForCategory(category).map((s) => (
+            {(browseByCategories.find((c) => c.label === category)?.subcategories ?? []).map((s) => (
               <button key={s} type="button" onClick={() => setSubcategory(s)} className={`text-left py-1.5 text-sm pl-2 ${subcategory === s ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{s}</button>
             ))}
           </nav>
@@ -394,16 +427,16 @@ export function StorefrontGallery({
         <div className="h-px bg-gray-200 my-3" aria-hidden />
         <nav className="flex flex-col gap-0.5">
           <button type="button" onClick={() => { setCategory(""); setSubcategory(""); }} className={`text-left py-1.5 text-sm ${category === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All Products</button>
-          {STORE_CATEGORIES.map((c) => (
+          {browseByCategories.map((c) => (
             <button key={c.label} type="button" onClick={() => { setCategory(c.label); setSubcategory(""); }} className={`text-left py-1.5 text-sm ${category === c.label ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{c.label}</button>
           ))}
         </nav>
-        {category && getSubcategoriesForCategory(category).length > 0 && (
+        {category && (browseByCategories.find((c) => c.label === category)?.subcategories.length ?? 0) > 0 && (
           <div className="mt-3 pt-3 border-t border-gray-200">
             <p className="text-xs font-medium text-gray-600 mb-2">Subcategory</p>
             <nav className="flex flex-col gap-0.5">
               <button type="button" onClick={() => setSubcategory("")} className={`text-left py-1.5 text-sm ${subcategory === "" ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>All</button>
-              {getSubcategoriesForCategory(category).map((s) => (
+              {(browseByCategories.find((c) => c.label === category)?.subcategories ?? []).map((s) => (
                 <button key={s} type="button" onClick={() => setSubcategory(s)} className={`text-left py-1.5 text-sm pl-2 ${subcategory === s ? "text-[var(--color-primary)] font-medium underline" : "text-gray-700 hover:text-gray-900"}`}>{s}</button>
               ))}
             </nav>

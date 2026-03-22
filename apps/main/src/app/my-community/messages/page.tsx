@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { IonIcon } from "@/components/IonIcon";
+import { MessageBubbleBody } from "@/components/MessageBubbleBody";
+import { GifPickerModalWeb } from "@/components/GifPickerModalWeb";
+import { messageListPreview } from "@/lib/message-gif-url";
 
 type Tab = "direct" | "groups" | "resale";
 
@@ -120,6 +123,8 @@ export default function MyCommunityMessagesPage() {
   const [newMessageContent, setNewMessageContent] = useState("");
   const [sendingNew, setSendingNew] = useState(false);
   const [acceptDeclineLoading, setAcceptDeclineLoading] = useState<string | null>(null);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [gifInsertTarget, setGifInsertTarget] = useState<"reply" | "newDm">("reply");
 
   const load = useCallback(() => {
     Promise.all([
@@ -528,7 +533,11 @@ export default function MyCommunityMessagesPage() {
                             )}
                             <div className="min-w-0 flex-1">
                               <p className="font-semibold text-[var(--color-heading)] truncate">{name}</p>
-                              <p className="text-sm text-gray-500 truncate mt-0.5">{c.messages?.[0]?.content ?? "Message request"}</p>
+                              <p className="text-sm text-gray-500 truncate mt-0.5">
+                                {c.messages?.[0]?.content != null && c.messages[0].content !== ""
+                                  ? messageListPreview(c.messages[0].content)
+                                  : "Message request"}
+                              </p>
                             </div>
                           </Link>
                           <div className="flex gap-2 mt-1 ml-14">
@@ -569,7 +578,17 @@ export default function MyCommunityMessagesPage() {
                     rows={3}
                     placeholder="Type your message..."
                   />
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGifInsertTarget("newDm");
+                        setGifPickerOpen(true);
+                      }}
+                      className="px-4 py-2 rounded-lg border-2 border-gray-300 font-semibold text-sm text-[var(--color-heading)] hover:bg-gray-50"
+                    >
+                      GIF
+                    </button>
                     <button type="button" onClick={() => { setNewMessageFriend(null); setNewMessageContent(""); }} className="px-4 py-2 rounded-lg border border-gray-300 font-medium text-gray-700 hover:bg-gray-50">
                       Cancel
                     </button>
@@ -639,7 +658,9 @@ export default function MyCommunityMessagesPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold text-[var(--color-heading)] truncate">{name}</p>
-                            <p className="text-sm text-gray-500 truncate mt-0.5">{last?.content ?? "No messages yet"}</p>
+                            <p className="text-sm text-gray-500 truncate mt-0.5">
+                              {last ? messageListPreview(last.content) : "No messages yet"}
+                            </p>
                           </div>
                           {last && <span className="text-xs text-gray-500 shrink-0 ml-2">{formatTime(last.createdAt)}</span>}
                         </Link>
@@ -699,7 +720,7 @@ export default function MyCommunityMessagesPage() {
                         className={`max-w-[80%] px-3 py-2.5 rounded-2xl border-2 border-black ${isMe ? "rounded-br-md" : "rounded-bl-md"}`}
                         style={isMe ? { backgroundColor: "var(--color-primary)", borderColor: "transparent" } : { backgroundColor: "var(--color-section-alt)" }}
                       >
-                        {m.content ? <p className={`text-[15px] whitespace-pre-wrap ${isMe ? "text-white" : "text-[var(--color-heading)]"}`}>{m.content}</p> : null}
+                        {m.content ? <MessageBubbleBody content={m.content} isMe={!!isMe} /> : null}
                         {link && (
                           <div className="mt-2">
                             {m.sharedContentType === "business" && m.sharedBusiness ? (
@@ -742,6 +763,17 @@ export default function MyCommunityMessagesPage() {
                 })}
               </div>
               <div className="p-3 border-t border-gray-200 flex items-end gap-2 shrink-0 bg-white">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGifInsertTarget("reply");
+                    setGifPickerOpen(true);
+                  }}
+                  className="shrink-0 px-3 py-2 rounded-full border-2 text-sm font-semibold text-[var(--color-heading)]"
+                  style={{ borderColor: "var(--color-primary)" }}
+                >
+                  GIF
+                </button>
                 <textarea
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
@@ -794,7 +826,9 @@ export default function MyCommunityMessagesPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold text-[var(--color-heading)] truncate">{name}</p>
-                            <p className="text-sm text-gray-500 truncate mt-0.5">{last?.content ?? "No messages yet"}</p>
+                            <p className="text-sm text-gray-500 truncate mt-0.5">
+                              {last ? messageListPreview(last.content) : "No messages yet"}
+                            </p>
                           </div>
                           {last && <span className="text-xs text-gray-500 shrink-0 ml-2">{formatTime(last.createdAt)}</span>}
                         </Link>
@@ -818,13 +852,24 @@ export default function MyCommunityMessagesPage() {
                   return (
                     <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[80%] px-3 py-2.5 rounded-2xl border-2 border-black ${isMe ? "rounded-br-md" : "rounded-bl-md"}`} style={isMe ? { backgroundColor: "var(--color-primary)", borderColor: "transparent" } : { backgroundColor: "var(--color-section-alt)" }}>
-                        <p className={`text-[15px] whitespace-pre-wrap ${isMe ? "text-white" : "text-[var(--color-heading)]"}`}>{m.content}</p>
+                        <MessageBubbleBody content={m.content} isMe={!!isMe} />
                       </div>
                     </div>
                   );
                 })}
               </div>
               <div className="p-3 border-t border-gray-200 flex items-end gap-2 shrink-0 bg-white">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGifInsertTarget("reply");
+                    setGifPickerOpen(true);
+                  }}
+                  className="shrink-0 px-3 py-2 rounded-full border-2 text-sm font-semibold text-[var(--color-heading)]"
+                  style={{ borderColor: "var(--color-primary)" }}
+                >
+                  GIF
+                </button>
                 <textarea value={reply} onChange={(e) => setReply(e.target.value)} className="flex-1 min-h-[40px] max-h-[120px] rounded-full border-2 px-4 py-2.5 text-base resize-none" style={{ borderColor: "var(--color-primary)" }} rows={1} placeholder="Message..." />
                 <button type="button" onClick={sendGroupReply} disabled={sending || !reply.trim()} className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 text-white" style={{ backgroundColor: "var(--color-primary)" }} aria-label="Send">
                   <IonIcon name="send" size={22} className="text-white" />
@@ -858,7 +903,9 @@ export default function MyCommunityMessagesPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold text-[var(--color-heading)] truncate">{c.storeItem?.title ?? "Item"}</p>
-                            <p className="text-sm text-gray-500 truncate mt-0.5">{last?.content ?? "No messages yet"}</p>
+                            <p className="text-sm text-gray-500 truncate mt-0.5">
+                              {last ? messageListPreview(last.content) : "No messages yet"}
+                            </p>
                           </div>
                           {last && <span className="text-xs text-gray-500 shrink-0 ml-2">{formatTime(last.createdAt)}</span>}
                         </Link>
@@ -886,13 +933,24 @@ export default function MyCommunityMessagesPage() {
                   return (
                     <div key={i} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[80%] px-3 py-2.5 rounded-2xl border-2 border-black ${isMe ? "rounded-br-md" : "rounded-bl-md"}`} style={isMe ? { backgroundColor: "var(--color-primary)", borderColor: "transparent" } : { backgroundColor: "var(--color-section-alt)" }}>
-                        <p className={`text-[15px] whitespace-pre-wrap ${isMe ? "text-white" : "text-[var(--color-heading)]"}`}>{m.content}</p>
+                        <MessageBubbleBody content={m.content} isMe={!!isMe} />
                       </div>
                     </div>
                   );
                 })}
               </div>
               <div className="p-3 border-t border-gray-200 flex items-end gap-2 shrink-0 bg-white">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGifInsertTarget("reply");
+                    setGifPickerOpen(true);
+                  }}
+                  className="shrink-0 px-3 py-2 rounded-full border-2 text-sm font-semibold text-[var(--color-heading)]"
+                  style={{ borderColor: "var(--color-primary)" }}
+                >
+                  GIF
+                </button>
                 <textarea value={reply} onChange={(e) => setReply(e.target.value)} className="flex-1 min-h-[40px] max-h-[120px] rounded-full border-2 px-4 py-2.5 text-base resize-none" style={{ borderColor: "var(--color-primary)" }} rows={1} placeholder="Message..." />
                 <button type="button" onClick={sendResaleReply} disabled={sending || !reply.trim()} className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 text-white" style={{ backgroundColor: "var(--color-primary)" }} aria-label="Send">
                   <IonIcon name="send" size={22} className="text-white" />
@@ -902,6 +960,15 @@ export default function MyCommunityMessagesPage() {
           )}
         </>
       )}
+
+      <GifPickerModalWeb
+        visible={gifPickerOpen}
+        onClose={() => setGifPickerOpen(false)}
+        onSelect={(url) => {
+          if (gifInsertTarget === "newDm") setNewMessageContent(url);
+          else setReply(url);
+        }}
+      />
     </div>
   );
 }

@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { IonIcon } from "@/components/IonIcon";
+import { MessageBubbleBody } from "@/components/MessageBubbleBody";
+import { GifPickerModalWeb } from "@/components/GifPickerModalWeb";
+import { messageListPreview } from "@/lib/message-gif-url";
 
 interface ResaleConversation {
   id: string;
@@ -53,6 +56,7 @@ export default function ResaleHubMessagesPage() {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [messageSentOpen, setMessageSentOpen] = useState(false);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
 
   const loadList = useCallback(() => {
     setLoading(true);
@@ -178,7 +182,7 @@ export default function ResaleHubMessagesPage() {
                           {otherPerson.firstName} {otherPerson.lastName}
                         </p>
                         <p className="text-sm text-gray-500 truncate mt-0.5">
-                          {last?.content ?? "No messages yet"}
+                          {last ? messageListPreview(last.content) : "No messages yet"}
                         </p>
                       </div>
                       {last && (
@@ -243,19 +247,21 @@ export default function ResaleHubMessagesPage() {
                           }
                     }
                   >
-                    <p
-                      className={`text-[15px] whitespace-pre-wrap ${
-                        isMe ? "text-white" : "text-[var(--color-heading)]"
-                      }`}
-                    >
-                      {m.content}
-                    </p>
+                    <MessageBubbleBody content={m.content} isMe={!!isMe} />
                   </div>
                 </div>
               );
             })}
           </div>
           <div className="p-3 border-t border-gray-200 flex items-end gap-2 shrink-0 bg-white">
+            <button
+              type="button"
+              onClick={() => setGifPickerOpen(true)}
+              className="shrink-0 px-3 py-2 rounded-full border-2 text-sm font-semibold text-[var(--color-heading)]"
+              style={{ borderColor: "var(--color-primary)" }}
+            >
+              GIF
+            </button>
             <textarea
               value={reply}
               onChange={(e) => setReply(e.target.value)}
@@ -313,6 +319,12 @@ export default function ResaleHubMessagesPage() {
           </div>
         </div>
       ) : null}
+
+      <GifPickerModalWeb
+        visible={gifPickerOpen}
+        onClose={() => setGifPickerOpen(false)}
+        onSelect={(url) => setReply(url)}
+      />
     </div>
   );
 }

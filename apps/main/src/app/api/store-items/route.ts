@@ -42,6 +42,50 @@ function itemHasSize(item: { variants?: unknown }, size: string): boolean {
   return sizes.some((s) => s.toLowerCase() === size.toLowerCase());
 }
 
+function passesPublicStorefrontSlugFilter(item: { slug: string }): boolean {
+  const s = item.slug.toLowerCase();
+  return !s.includes("trial") && !s.includes("test-resale");
+}
+
+const MAX_ALLOW_SALES_DAYS = 14;
+
+function passesSellerTimeAwayForPurchases(item: {
+  member?: { sellerTimeAway?: { startAt: Date; endAt: Date } | null } | null;
+}): boolean {
+  const now = new Date();
+  const ta = item.member?.sellerTimeAway;
+  if (!ta) return true;
+  const start = new Date(ta.startAt);
+  const end = new Date(ta.endAt);
+  if (now < start || now > end) return true;
+  const allowThrough = new Date(start);
+  allowThrough.setDate(allowThrough.getDate() + MAX_ALLOW_SALES_DAYS);
+  const effectiveAllow = allowThrough <= end ? allowThrough : end;
+  if (now <= effectiveAllow) return true;
+  return false;
+}
+
+type BrowseCategoryRow = { label: string; subcategories: string[] };
+
+function buildBrowseCategoriesFromItems(
+  items: { category: string | null; subcategory: string | null }[]
+): BrowseCategoryRow[] {
+  const byCat = new Map<string, Set<string>>();
+  for (const item of items) {
+    const cat = item.category?.trim();
+    if (!cat) continue;
+    if (!byCat.has(cat)) byCat.set(cat, new Set());
+    const sub = item.subcategory?.trim();
+    if (sub) byCat.get(cat)!.add(sub);
+  }
+  return Array.from(byCat.entries())
+    .map(([label, subs]) => ({
+      label,
+      subcategories: Array.from(subs).sort((a, b) => a.localeCompare(b)),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 export async function GET(req: NextRequest) {
   try {
     const searchParams = req.nextUrl?.searchParams ?? new URLSearchParams();
@@ -63,28 +107,54 @@ export async function GET(req: NextRequest) {
     if (list === "meta") {
       try {
         const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
-        const categoryForMeta = { AND: [{ category: { not: null } }, { category: { not: "Test" } }] };
-        const [catItems, variantItems] = await Promise.all([
+        const [browseItems, variantItems] = await Promise.all([
           prisma.storeItem.findMany({
-            where: { status: "active", ...listingWhere, ...categoryForMeta, ...sellerCanReceivePayment },
-            select: { category: true },
+            where: {
+              status: "active",
+              quantity: { gt: 0 },
+              ...listingWhere,
+              ...sellerCanReceivePayment,
+              AND: [{ category: { not: "Test" } }, { category: { not: null } }],
+            },
+            select: {
+              category: true,
+              subcategory: true,
+              slug: true,
+              member: { select: { sellerTimeAway: true } },
+            },
           }),
           prisma.storeItem.findMany({
-            where: { status: "active", variants: { not: Prisma.JsonNull }, ...listingWhere, category: { not: "Test" }, ...sellerCanReceivePayment },
-            select: { variants: true },
+            where: {
+              status: "active",
+              quantity: { gt: 0 },
+              variants: { not: Prisma.JsonNull },
+              ...listingWhere,
+              category: { not: "Test" },
+              ...sellerCanReceivePayment,
+            },
+            select: { variants: true, slug: true, member: { select: { sellerTimeAway: true } } },
           }),
         ]);
-        const catSet = new Set(catItems.map((i) => i.category).filter(Boolean));
+        const visibleForBrowse = browseItems.filter(
+          (i) => passesPublicStorefrontSlugFilter(i) && passesSellerTimeAwayForPurchases(i)
+        );
+        const browseByCategories = buildBrowseCategoriesFromItems(visibleForBrowse);
+        const categories = browseByCategories.map((c) => c.label);
+
+        const visibleForSizes = variantItems.filter(
+          (i) => passesPublicStorefrontSlugFilter(i) && passesSellerTimeAwayForPurchases(i)
+        );
         const sizeSet = new Set<string>();
-        for (const i of variantItems) {
+        for (const i of visibleForSizes) {
           getSizesFromVariants(i.variants).forEach((s) => sizeSet.add(s));
         }
         return NextResponse.json({
-          categories: Array.from(catSet).sort(),
+          categories,
+          browseByCategories,
           sizes: Array.from(sizeSet).sort(),
         });
       } catch {
-        return NextResponse.json({ categories: [], sizes: [] });
+        return NextResponse.json({ categories: [], browseByCategories: [], sizes: [] });
       }
     }
 
@@ -352,26 +422,9 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { createdAt: "desc" },
     });
-    // Exclude trial/test-resale slugs (case-insensitive) without using Prisma mode in nested filter
     items = items.filter(
-      (item) =>
-        !item.slug.toLowerCase().includes("trial") &&
-        !item.slug.toLowerCase().includes("test-resale")
+      (item) => passesPublicStorefrontSlugFilter(item) && passesSellerTimeAwayForPurchases(item)
     );
-    const now = new Date();
-    const MAX_ALLOW_SALES_DAYS = 14;
-    items = items.filter((item) => {
-      const ta = item.member?.sellerTimeAway;
-      if (!ta) return true;
-      const start = new Date(ta.startAt);
-      const end = new Date(ta.endAt);
-      if (now < start || now > end) return true;
-      const allowThrough = new Date(start);
-      allowThrough.setDate(allowThrough.getDate() + MAX_ALLOW_SALES_DAYS);
-      const effectiveAllow = allowThrough <= end ? allowThrough : end;
-      if (now <= effectiveAllow) return true;
-      return false;
-    });
     if (size) {
       items = items.filter((item) => itemHasSize(item, size));
     }

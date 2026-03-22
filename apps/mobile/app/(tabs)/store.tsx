@@ -30,6 +30,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   StoreFilterDrawer,
   type DeliveryFilter,
+  type BrowseCategoryRow,
 } from "@/components/StoreFilterDrawer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -74,11 +75,17 @@ export default function StoreScreen() {
       setListingType("resale");
     }
   }, [params.listingType]);
+
+  useEffect(() => {
+    setCategory("");
+    setSubcategory("");
+  }, [listingType]);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
   const [size, setSize] = useState("");
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>("");
-  const [categories, setCategories] = useState<string[]>([]);
+  const [browseByCategories, setBrowseByCategories] = useState<BrowseCategoryRow[]>([]);
   const [sizes, setSizes] = useState<string[]>([]);
   const [storeMenuOpen, setStoreMenuOpen] = useState(false);
   const [items, setItems] = useState<StoreItem[]>([]);
@@ -127,6 +134,7 @@ export default function StoreScreen() {
         const params = new URLSearchParams({ listingType });
         if (search.trim()) params.set("search", search.trim());
         if (category) params.set("category", category);
+        if (category && subcategory) params.set("subcategory", subcategory);
         if (size) params.set("size", size);
         if (deliveryFilter === "local") params.set("localDelivery", "1");
         if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
@@ -153,20 +161,48 @@ export default function StoreScreen() {
         setRefreshing(false);
       }
     },
-    [listingType, search, category, size, deliveryFilter]
+    [listingType, search, category, subcategory, size, deliveryFilter]
   );
 
   useEffect(() => {
     const params = new URLSearchParams({ list: "meta", listingType });
-    apiGet<{ categories?: string[]; sizes?: string[] }>(
-      `/api/store-items?${params}`
-    )
+    apiGet<{
+      categories?: string[];
+      browseByCategories?: BrowseCategoryRow[];
+      sizes?: string[];
+    }>(`/api/store-items?${params}`)
       .then((d) => {
-        if (Array.isArray(d?.categories)) setCategories(d.categories);
+        if (Array.isArray(d?.browseByCategories) && d.browseByCategories.length > 0) {
+          setBrowseByCategories(d.browseByCategories);
+        } else if (Array.isArray(d?.categories)) {
+          setBrowseByCategories(d.categories.map((label) => ({ label, subcategories: [] })));
+        } else {
+          setBrowseByCategories([]);
+        }
         if (Array.isArray(d?.sizes)) setSizes(d.sizes);
       })
       .catch(() => {});
   }, [listingType]);
+
+  useEffect(() => {
+    if (browseByCategories.length === 0) {
+      if (category) {
+        setCategory("");
+        setSubcategory("");
+      }
+      return;
+    }
+    const labels = new Set(browseByCategories.map((c) => c.label));
+    if (category && !labels.has(category)) {
+      setCategory("");
+      setSubcategory("");
+      return;
+    }
+    if (category && subcategory) {
+      const subs = browseByCategories.find((c) => c.label === category)?.subcategories ?? [];
+      if (!subs.includes(subcategory)) setSubcategory("");
+    }
+  }, [browseByCategories, category, subcategory]);
 
   useEffect(() => {
     load();
@@ -370,13 +406,19 @@ export default function StoreScreen() {
         onClose={() => setStoreMenuOpen(false)}
         search={search}
         onSearchChange={setSearch}
-        categories={categories}
+        browseByCategories={browseByCategories}
         sizes={sizes}
         category={category}
+        subcategory={subcategory}
         size={size}
         deliveryFilter={deliveryFilter}
         onCategoryChange={(c) => {
           setCategory(c);
+          setSubcategory("");
+          setStoreMenuOpen(false);
+        }}
+        onSubcategoryChange={(s) => {
+          setSubcategory(s);
           setStoreMenuOpen(false);
         }}
         onSizeChange={setSize}

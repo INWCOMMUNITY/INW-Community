@@ -22,17 +22,21 @@ const NAV_HEADER_HEIGHT = 56;
 
 export type DeliveryFilter = "" | "local" | "shipping";
 
+export type BrowseCategoryRow = { label: string; subcategories: string[] };
+
 interface StoreFilterDrawerProps {
   visible: boolean;
   onClose: () => void;
   search: string;
   onSearchChange: (value: string) => void;
-  categories: string[];
+  browseByCategories: BrowseCategoryRow[];
   sizes: string[];
   category: string;
+  subcategory: string;
   size: string;
   deliveryFilter: DeliveryFilter;
   onCategoryChange: (category: string) => void;
+  onSubcategoryChange: (subcategory: string) => void;
   onSizeChange: (size: string) => void;
   onDeliveryFilterChange: (filter: DeliveryFilter) => void;
   listingType: "new" | "resale";
@@ -43,12 +47,14 @@ export function StoreFilterDrawer({
   onClose,
   search,
   onSearchChange,
-  categories,
+  browseByCategories,
   sizes,
   category,
+  subcategory,
   size,
   deliveryFilter,
   onCategoryChange,
+  onSubcategoryChange,
   onSizeChange,
   onDeliveryFilterChange,
   listingType,
@@ -114,26 +120,74 @@ export function StoreFilterDrawer({
                 All Products
               </Text>
             </Pressable>
-            {categories.map((c) => (
+            {browseByCategories.map((row) => (
               <Pressable
-                key={c}
-                onPress={() => onCategoryChange(c)}
+                key={row.label}
+                onPress={() => onCategoryChange(row.label)}
                 style={({ pressed }) => [
                   styles.optionRow,
-                  category === c && styles.optionRowActive,
+                  category === row.label && styles.optionRowActive,
                   pressed && { opacity: 0.8 },
                 ]}
               >
                 <Text
                   style={[
                     styles.optionText,
-                    category === c && styles.optionTextActive,
+                    category === row.label && styles.optionTextActive,
                   ]}
                 >
-                  {c}
+                  {row.label}
                 </Text>
               </Pressable>
             ))}
+            {category &&
+              (browseByCategories.find((r) => r.label === category)?.subcategories.length ?? 0) >
+                0 && (
+                <>
+                  <Text style={[styles.filterLabel, { marginTop: 12 }]}>Subcategory</Text>
+                  <Pressable
+                    onPress={() => onSubcategoryChange("")}
+                    style={({ pressed }) => [
+                      styles.optionRow,
+                      styles.subOptionRow,
+                      subcategory === "" && styles.optionRowActive,
+                      pressed && { opacity: 0.8 },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.optionText,
+                        subcategory === "" && styles.optionTextActive,
+                      ]}
+                    >
+                      All in {category}
+                    </Text>
+                  </Pressable>
+                  {(browseByCategories.find((r) => r.label === category)?.subcategories ?? []).map(
+                    (s) => (
+                      <Pressable
+                        key={s}
+                        onPress={() => onSubcategoryChange(s)}
+                        style={({ pressed }) => [
+                          styles.optionRow,
+                          styles.subOptionRow,
+                          subcategory === s && styles.optionRowActive,
+                          pressed && { opacity: 0.8 },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.optionText,
+                            subcategory === s && styles.optionTextActive,
+                          ]}
+                        >
+                          {s}
+                        </Text>
+                      </Pressable>
+                    )
+                  )}
+                </>
+              )}
           </View>
 
           {/* Filter by */}
@@ -307,6 +361,9 @@ const styles = StyleSheet.create({
   },
   optionRow: {
     paddingVertical: 10,
+  },
+  subOptionRow: {
+    paddingLeft: 10,
   },
   optionRowActive: {},
   optionText: {
