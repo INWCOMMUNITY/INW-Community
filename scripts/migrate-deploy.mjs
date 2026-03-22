@@ -16,6 +16,11 @@
  *   2. `DIRECT_URL`
  *   3. Derived from pooled `DATABASE_URL` by stripping `-pooler.` from the hostname
  *   4. Same as `DATABASE_URL` (local Postgres or already-direct Neon URL)
+ *
+ * **Neon + Vercel:** Even with a direct host, Prisma’s 10s advisory-lock wait often times out (cold
+ * compute, serverless). On `VERCEL=1` with a `.neon.tech` migrate host, this script sets
+ * `PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=true` for the migrate subprocess only. Use
+ * `PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=0` in Vercel env to keep locking (and run one deploy at a time).
  */
 import { spawn } from "child_process";
 import fs from "fs";
@@ -85,6 +90,34 @@ function resolveMigrateDatabaseUrl(appDatabaseUrl) {
   return appDatabaseUrl;
 }
 
+/**
+ * Longer libpq connect timeout helps Neon wake compute during CI.
+ * @param {string} databaseUrl
+ */
+function withLibpqMigrateOptions(databaseUrl) {
+  try {
+    const u = new URL(databaseUrl);
+    if (!u.searchParams.has("connect_timeout")) {
+      u.searchParams.set("connect_timeout", "60");
+    }
+    return u.toString();
+  } catch {
+    return databaseUrl;
+  }
+}
+
+/**
+ * Prisma’s migrate advisory lock often fails on Neon (P1002) within the fixed 10s window.
+ * @param {string} migrateHost hostname only (no port)
+ */
+function shouldDisableAdvisoryLock(migrateHost) {
+  const raw = process.env.PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK?.trim().toLowerCase();
+  if (raw === "0" || raw === "false" || raw === "no") return false;
+  if (raw === "1" || raw === "true" || raw === "yes") return true;
+  if (process.env.VERCEL !== "1") return false;
+  return /\.neon\.tech$/i.test(migrateHost) || migrateHost.includes(".neon.tech");
+}
+
 let url = process.env.DATABASE_URL?.trim();
 if (url) {
   console.log("migrate-deploy: DATABASE_URL from environment");
@@ -117,17 +150,26 @@ if (!url) {
 const hostMatch = url.match(/@([^/?]+)/);
 console.log("migrate-deploy: App DATABASE_URL host:", hostMatch ? hostMatch[1] : "(verify URL)");
 
-const migrateUrl = resolveMigrateDatabaseUrl(url);
-const migrateHost = migrateUrl.match(/@([^/?]+)/);
+const migrateUrl = withLibpqMigrateOptions(resolveMigrateDatabaseUrl(url));
+const migrateHostMatch = migrateUrl.match(/@([^/?]+)/);
+const migrateHostOnly = migrateHostMatch ? migrateHostMatch[1].split(":")[0] : "";
 console.log(
   "migrate-deploy: Migrate host:",
-  migrateHost ? migrateHost[1] : "(verify URL)"
+  migrateHostOnly || "(verify URL)"
 );
+
+const childEnv = { ...process.env, DATABASE_URL: migrateUrl };
+if (shouldDisableAdvisoryLock(migrateHostOnly)) {
+  childEnv.PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK = "true";
+  console.log(
+    "migrate-deploy: PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=true for migrate (Neon on Vercel). Set PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=0 to require advisory locking."
+  );
+}
 
 const dbDir = path.join(rootDir, "packages", "database");
 const child = spawn("pnpm exec prisma migrate deploy", [], {
   cwd: dbDir,
-  env: { ...process.env, DATABASE_URL: migrateUrl },
+  env: childEnv,
   stdio: "inherit",
   shell: true,
 });
