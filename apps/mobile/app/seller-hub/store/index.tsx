@@ -86,7 +86,7 @@ export default function StorefrontInfoScreen() {
         <InfoRow label="Storefront Address" value={biz?.address ?? "—"} />
         {biz?.slug && (
           <View style={styles.row}>
-            <Text style={styles.label}>NWC Sponsor Page Link</Text>
+            <Text style={styles.label}>NWC Business Page Link</Text>
             <Text
               style={styles.link}
               onPress={() => Linking.openURL(`${siteBase}/support-local/${biz.slug}`)}

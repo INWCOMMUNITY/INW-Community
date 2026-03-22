@@ -443,13 +443,17 @@ export async function POST(req: NextRequest) {
   const subscribeSub = await prisma.subscription.findFirst({
     where: { memberId: userId, plan: "subscribe", status: "active" },
   });
+  const canListResale = Boolean(sellerSub || subscribeSub);
   if (listingType === "new") {
     if (!sellerSub) {
       return NextResponse.json({ error: "Seller plan required to list new items on the storefront" }, { status: 403 });
     }
   } else {
-    if (!sellerSub && !subscribeSub) {
-      return NextResponse.json({ error: "Subscribe or Seller plan required to list resale items" }, { status: 403 });
+    if (!canListResale) {
+      return NextResponse.json(
+        { error: "Subscribe or Seller plan required to list resale items on Community Resale" },
+        { status: 403 }
+      );
     }
     if (!sellerSub && listingType !== "resale") {
       return NextResponse.json({ error: "Subscribers can only list resale items" }, { status: 403 });

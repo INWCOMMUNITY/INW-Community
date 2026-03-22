@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useMemo } from "react";
 import { CreatePostButton } from "@/components/CreatePostButton";
 import { IonIcon } from "@/components/IonIcon";
 
@@ -11,7 +12,7 @@ type SidebarItem =
   | { divider: string }
   | { action: "create-post"; label: string; icon: string };
 
-const SIDEBAR_ITEMS: SidebarItem[] = [
+const SIDEBAR_BASE: SidebarItem[] = [
   { divider: "Social" },
   { href: "/my-community/feed", label: "Feed", icon: "newspaper-outline" },
   { href: "/my-community/my-page", label: "My Page", icon: "person-outline" },
@@ -21,9 +22,6 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { action: "create-post", label: "Create Post", icon: "add-circle-outline" },
   { href: "/my-community/tags", label: "Manage Tags", icon: "pricetag-outline" },
   { href: "/my-community/post-event", label: "Add Event", icon: "calendar-outline" },
-  { divider: "NWC Resale" },
-  { href: "/resale-hub", label: "Resale Hub", icon: "storefront-outline" },
-  { href: "/my-community/messages", label: "My Messages", icon: "chatbubbles-outline" },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -43,6 +41,19 @@ export function MyCommunitySidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isAdmin = (session?.user as { isAdmin?: boolean })?.isAdmin;
+  const canResaleHub = (session?.user as { canAccessResaleHub?: boolean })?.canAccessResaleHub === true;
+
+  const sidebarItems = useMemo(() => {
+    const items: SidebarItem[] = [...SIDEBAR_BASE];
+    if (canResaleHub || isAdmin) {
+      items.push(
+        { divider: "NWC Resale" },
+        { href: "/resale-hub", label: "Resale Hub", icon: "storefront-outline" }
+      );
+    }
+    items.push({ href: "/my-community/messages", label: "My Messages", icon: "chatbubbles-outline" });
+    return items;
+  }, [canResaleHub, isAdmin]);
 
   return (
     <nav
@@ -53,7 +64,7 @@ export function MyCommunitySidebar() {
         Inland Northwest Community
       </h2>
       <ul className="space-y-1">
-        {SIDEBAR_ITEMS.map((item, i) =>
+        {sidebarItems.map((item, i) =>
           "divider" in item ? (
             <li
               key={`div-${item.divider}-${i}`}

@@ -183,8 +183,7 @@ function ResaleHubContent() {
   const { member } = useAuth();
   const { setProfileView } = useProfileView();
   const isSubscriber = member?.isSubscriber ?? false;
-  const hasSponsor = member?.subscriptions?.some((s) => s.plan === "sponsor") ?? false;
-  const canAccessResaleHub = isSubscriber || hasSponsor;
+  const canAccessResaleHub = isSubscriber;
 
   if (!canAccessResaleHub) {
     return (
@@ -194,7 +193,7 @@ function ResaleHubContent() {
             Resale Hub
           </Text>
           <Text style={[styles.businessHubButtonDesc, { marginBottom: 16, textAlign: "center" }]}>
-            Resale Hub is available to subscribers and sponsors. Subscribe or become a sponsor to browse and buy from Community Resale.
+            Resale Hub is included with the Resident Subscribe plan ($10/mo). Business and Seller plans use Business Hub and Seller Hub; add Subscribe for the member resale experience and coupon book.
           </Text>
           <Pressable
             style={({ pressed }) => [

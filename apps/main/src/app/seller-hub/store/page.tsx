@@ -110,7 +110,7 @@ export default function SellerProfilePage() {
             )}
             {biz?.slug && (
               <div className="min-w-0">
-                <label className="block text-xs text-gray-500 mb-0.5">NWC Sponsor Page Link</label>
+                <label className="block text-xs text-gray-500 mb-0.5">NWC Business Page Link</label>
                 <Link
                   href={`/support-local/${biz.slug}`}
                   className="text-primary-600 hover:underline text-sm break-all block"

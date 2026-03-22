@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardCouponRedeemBadges, type EarnedBadge } from "@/lib/badge-award";
 import { awardPoints } from "@/lib/award-points";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 
 const POINTS_PER_REDEEM = 10;
 
@@ -36,15 +37,14 @@ export async function POST(
     return NextResponse.json({ error: "Incorrect secret key" }, { status: 403 });
   }
 
-  const sub = await prisma.subscription.findFirst({
-    where: {
-      memberId: userId,
-      plan: { in: ["subscribe", "sponsor", "seller"] },
-      status: "active",
-    },
+  const paid = await prisma.subscription.findFirst({
+    where: prismaWhereActivePaidNwcPlan(userId),
   });
-  if (!sub) {
-    return NextResponse.json({ error: "Active subscription required" }, { status: 403 });
+  if (!paid) {
+    return NextResponse.json(
+      { error: "An active Subscribe, Business, or Seller plan is required to redeem coupons" },
+      { status: 403 }
+    );
   }
 
   if (coupon.business.memberId === userId) {

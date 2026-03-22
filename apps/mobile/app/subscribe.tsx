@@ -38,7 +38,7 @@ const PLANS = [
   },
   {
     id: "sponsor",
-    name: "Local Business",
+    name: "Business",
     price: "$25/mo",
     priceYearly: "$250/yr",
     icon: "storefront" as const,
@@ -61,9 +61,9 @@ const PLANS = [
     priceYearly: "$325/yr",
     icon: "cart" as const,
     description:
-      "Sell products on the NWC Storefront. Includes a full online store, shipping management, and all Local Business benefits.",
+      "Sell products on the NWC Storefront. Includes a full online store, shipping management, and all Business plan benefits.",
     features: [
-      "Everything in Local Business",
+      "Everything in Business",
       "Online storefront with listings",
       "Shipping & fulfillment tools",
       "Seller Hub management",

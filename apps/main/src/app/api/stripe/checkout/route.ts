@@ -141,6 +141,8 @@ export async function POST(req: NextRequest) {
       cancel_url: `${baseUrl}/support-nwc?canceled=1`,
       automatic_tax: { enabled: true },
       metadata,
+      // Session metadata alone is not copied onto the Subscription; invoice/webhook fallbacks need this.
+      subscription_data: { metadata: { ...metadata } },
     };
     const branding = getStripeCheckoutBranding();
     const createParams = { ...params, ...(branding && { branding_settings: branding }) };

@@ -14,7 +14,7 @@ export default function RequestsPage() {
           <div className="flex flex-wrap gap-4">
             <NWCRequestsTrigger />
             <Link href="/support-local" className="btn inline-block">
-              Browse NWC Sponsors
+              Browse local businesses
             </Link>
           </div>
         </div>,

@@ -306,7 +306,7 @@ export default function RewardsScreen() {
         >
           <Text style={styles.rewardsTitle}>NWC Rewards</Text>
           <Text style={styles.rewardsDesc}>
-            Earn community points through supporting locally owned businesses in the Inland Northwest. Shop the Storefront or Scan QR Codes with our Businesses to earn. Subscribers earn 2x the Points.
+            Earn community points through supporting locally owned businesses in the Inland Northwest. Shop the Storefront or scan business QR codes to earn. Members with an active Subscribe, Business, or Seller plan earn 2× the points.
           </Text>
 
           <Pressable
@@ -346,7 +346,7 @@ export default function RewardsScreen() {
           {showIntroBox && (
             <View style={[styles.introBox, { backgroundColor: theme.colors.primary }]}>
               <Text style={styles.introBoxText}>
-                Redeem your Community Points for rewards from local businesses. Support local to earn more points! Subscribers earn 2x points.
+                Redeem your Community Points for rewards from local businesses. Support local to earn more points! Subscribe, Business, and Seller plans earn 2× points on qualifying activity.
               </Text>
 
               <Pressable

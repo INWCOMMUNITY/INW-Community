@@ -122,7 +122,7 @@ export function Header() {
           <div className="flex flex-1 items-center justify-end gap-1.5 shrink-0 min-w-0">
             {status === "loading" ? (
               <span className="text-xs text-gray-500">...</span>
-            ) : session?.user?.isSubscriber ? (
+            ) : session?.user?.canAccessResaleHub ? (
               <Link
                 href="/my-community"
                 prefetch={false}
@@ -258,7 +258,7 @@ export function Header() {
           )}
           {status === "loading" ? (
             <span className="text-sm text-gray-500 w-24">...</span>
-          ) : session?.user?.isSubscriber ? (
+          ) : session?.user?.canAccessResaleHub ? (
             <div className="relative group shrink-0">
               <Link
                 href="/my-community"
@@ -370,10 +370,10 @@ export function Header() {
           onClick={() => setMobileOpen(false)}
         >
           <div
-            className={`relative w-auto min-w-[max-content] max-w-[min(90vw,280px)] mx-auto bg-white border-b-2 border-[var(--color-primary)] shadow-xl rounded-lg shrink-0 transition-[max-height] duration-200 ${!expandedMobileItem ? `overflow-y-auto ${session?.user?.isSubscriber ? "max-h-[85vh]" : "max-h-[70vh]"}` : ""}`}
+            className={`relative w-auto min-w-[max-content] max-w-[min(90vw,280px)] mx-auto bg-white border-b-2 border-[var(--color-primary)] shadow-xl rounded-lg shrink-0 transition-[max-height] duration-200 ${!expandedMobileItem ? `overflow-y-auto ${session?.user?.canAccessResaleHub ? "max-h-[85vh]" : "max-h-[70vh]"}` : ""}`}
             style={{
               animation: "headerSlideDown 0.2s ease-out",
-              ...(expandedMobileItem && session?.user?.isSubscriber
+              ...(expandedMobileItem && session?.user?.canAccessResaleHub
                 ? { paddingBottom: "0.5rem", minHeight: "calc(100vh - 2rem)" }
                 : {}),
             }}
@@ -497,7 +497,7 @@ export function Header() {
                 Messages ({unreadMessages})
               </Link>
             )}
-            {session?.user?.isSubscriber && (
+            {session?.user?.canAccessResaleHub && (
               <Link
                 href="/resale-hub"
                 prefetch={false}

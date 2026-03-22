@@ -320,13 +320,15 @@ export function StorefrontOrdersContent(props: {
           const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
           const labeledOrderIds = currentElementsOrderIdsRef.current;
           if (labeledOrderIds.length === 0 || txs.length === 0) return;
-          const payload = transactionToLabelFromElementsPayload(txs[0], {
+          const firstTx = txs[0] as ElementsTransactionPayload;
+          const payload = transactionToLabelFromElementsPayload(firstTx, {
             weightOz: DEFAULT_WEIGHT_OZ,
             lengthIn: DEFAULT_LENGTH_IN,
             widthIn: DEFAULT_WIDTH_IN,
             heightIn: DEFAULT_HEIGHT_IN,
           });
-          const shippoOrderId = shippoOrderIdsRef.current[0] ?? null;
+          const shippoOrderId =
+            firstTx.order_id?.trim() || shippoOrderIdsRef.current[0]?.trim() || null;
           try {
             const res = await fetch("/api/shipping/label-from-elements", {
               method: "POST",
@@ -446,7 +448,27 @@ export function StorefrontOrdersContent(props: {
 
         {loading ? (
           <p className="text-gray-500">Loading…</p>
-        ) : tab === "to_ship" ? (
+        ) : (
+          <>
+            {elementsError && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm">
+                {elementsError}
+                {elementsError.includes("Connect your shipping") && (
+                  <Link href={props.shippingSetupHref} className="ml-2 underline">
+                    Go to shipping setup
+                  </Link>
+                )}
+              </div>
+            )}
+
+            <ShippoElementsModal
+              open={shippoModalOpen}
+              onClose={closeShippoModal}
+              containerId={SHIPPO_CONTAINER_ID}
+              title="Purchase shipping label"
+            />
+
+            {tab === "to_ship" ? (
           <>
             {toShipOrders.length === 0 ? (
               <p className="text-gray-500">No orders to ship.</p>
@@ -497,17 +519,6 @@ export function StorefrontOrdersContent(props: {
                   if you haven’t yet.
                 </p>
 
-                {elementsError && (
-                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm">
-                    {elementsError}
-                    {elementsError.includes("Connect your shipping") && (
-                      <Link href={props.shippingSetupHref} className="ml-2 underline">
-                        Go to shipping setup
-                      </Link>
-                    )}
-                  </div>
-                )}
-
                 <div className="mb-6 flex flex-wrap gap-4 items-center">
                   <button
                     type="button"
@@ -525,13 +536,6 @@ export function StorefrontOrdersContent(props: {
                     Select all to ship
                   </button>
                 </div>
-
-                <ShippoElementsModal
-                  open={shippoModalOpen}
-                  onClose={closeShippoModal}
-                  containerId={SHIPPO_CONTAINER_ID}
-                  title="Purchase shipping label"
-                />
 
                 {selectedOrders.length > 0 && sellerProfile && (
                   <div className="mb-6">
@@ -714,6 +718,8 @@ export function StorefrontOrdersContent(props: {
                   );
                 })}
               </ul>
+            )}
+          </>
             )}
           </>
         )}

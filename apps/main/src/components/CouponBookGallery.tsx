@@ -110,7 +110,7 @@ export function CouponBookGallery() {
                 <span className="text-gray-400 text-sm">No logo</span>
               )}
             </div>
-            {/* Sponsor coupon details below */}
+            {/* Business-offered coupon details below */}
             <div className="p-4 flex flex-col flex-1 min-w-0">
               {c.business && (
                 <p className="text-sm font-medium text-[var(--color-heading)]">{c.business.name}</p>

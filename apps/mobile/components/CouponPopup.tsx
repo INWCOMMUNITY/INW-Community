@@ -218,20 +218,47 @@ export function CouponPopup({
   }
 
   if (!data.hasAccess) {
+    const signedIn = Boolean(member);
     return (
       <Modal visible transparent animationType="fade" presentationStyle="overFullScreen">
         <Pressable style={styles.backdrop} onPress={onClose}>
           <View style={[styles.panel, styles.gatePanel]}>
-            <Text style={styles.gateTitle}>Sorry, Coupons are only available to Northwest Community Subscribers</Text>
-            <Text style={styles.gateText}>Subscribe to view and save coupons from local businesses.</Text>
+            <Text style={styles.gateTitle}>Sorry, coupons are only available to Northwest Community subscribers</Text>
+            <Text style={styles.gateText}>
+              {signedIn
+                ? "Subscribe to view and save coupons from local businesses."
+                : "Create an account and subscribe to view and save coupons from local businesses."}
+            </Text>
+            {!signedIn ? (
+              <>
+                <Pressable
+                  style={styles.subscribeBtn}
+                  onPress={() => {
+                    onClose();
+                    (router.push as (href: string) => void)("/signup-resident");
+                  }}
+                >
+                  <Text style={styles.subscribeBtnText}>Sign up</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.subscribeBtn, styles.gateBtnOutline]}
+                  onPress={() => {
+                    onClose();
+                    (router.push as (href: string) => void)("/login");
+                  }}
+                >
+                  <Text style={[styles.subscribeBtnText, styles.gateBtnOutlineText]}>Log in</Text>
+                </Pressable>
+              </>
+            ) : null}
             <Pressable
-              style={styles.subscribeBtn}
+              style={[styles.subscribeBtn, !signedIn ? { marginTop: 12 } : undefined]}
               onPress={() => {
                 onClose();
                 (router.push as (href: string) => void)("/subscribe");
               }}
             >
-              <Text style={styles.subscribeBtnText}>Sign up</Text>
+              <Text style={styles.subscribeBtnText}>Subscribe to NWC</Text>
             </Pressable>
             <Pressable onPress={onClose}>
               <Text style={styles.gateClose}>Close</Text>
@@ -502,11 +529,21 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
+    marginTop: 10,
+  },
+  gateBtnOutline: {
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: DARK_GREEN,
+  },
+  gateBtnOutlineText: {
+    color: DARK_GREEN,
   },
   subscribeBtnText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+    textAlign: "center",
   },
   gateClose: {
     marginTop: 16,

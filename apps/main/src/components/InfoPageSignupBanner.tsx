@@ -9,7 +9,7 @@ import { formatSubscriptionPriceForInterval } from "@/lib/subscription-plan-pric
 interface InfoPageSignupBannerProps {
   /** Wix media path for wall-to-wall background (use with GALLERY_CTA_BACKGROUND). */
   backgroundPath: string;
-  /** e.g. "Sign Up For Sponsor NWC" */
+  /** e.g. "Sign Up For Business NWC" */
   heading: string;
   /** When set, the button goes directly to checkout for this plan (subscribe | sponsor | seller). */
   planId?: string;

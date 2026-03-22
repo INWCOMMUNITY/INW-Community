@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "March 20, 2026";
+export const PRIVACY_LAST_UPDATED = "March 21, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -12,7 +12,7 @@ NWC collects information in the following categories:
 You may provide information when you:
 ● Create an account
 ● Subscribe to coupons
-● Become a sponsor or seller
+● Get a Business or Seller subscription
 ● Post a listing
 ● Submit a blog
 ● Post in the community feed, groups, or messaging
@@ -58,7 +58,7 @@ When you use our Northwest Community mobile app, we may also collect or process:
 ● Photos uploaded from your device (stored via our secure file storage)
 ● Push notification tokens (if you enable notifications)
 
-1.4 Information from Sellers & Sponsors
+1.4 Information from sellers & business subscribers
 When businesses join NWC, we may collect:
 ● Business category
 ● NWC has the right and the inclination to decline businesses with a rating below 4 stars. Publicly available ratings or reviews may be considered when verifying business eligibility.
@@ -75,7 +75,7 @@ Sellers who connect Shippo may have an OAuth access token (or, for some legacy a
 We use the collected information for the following purposes:
 ● To operate and maintain our website and mobile app
 ● To process payments and subscriptions
-● To manage seller and sponsor profiles
+● To manage seller and business subscriber profiles
 ● To display user-generated content (blogs, feed posts, comments, listings, events)
 ● To provide customer support
 ● To send service-related notifications (including order tracking)
@@ -117,7 +117,7 @@ We may share information if you explicitly authorize it, such as:
 ● Featuring your blog publicly (if you submit a blog, you automatically authorize NWC to promote it).
 ● Promoting your listing or store
 
-By becoming a seller or sponsor, you automatically authorize NWC to share store information.
+By becoming a seller or Business subscriber, you automatically authorize NWC to share store information.
 
 3.4 Handling Disputes
 ● We may provide only business information (not personal information) if a user of inwcommunity.com claims to have conducted business with your company and initiates a dispute. NWC is not a party to disputes, but may act as a mediator to provide accurate information to help our clients and your company resolve an issue. See Terms of Service 7.4.
@@ -167,7 +167,7 @@ Depending on your location, you have rights to:
 
 You do not have the right to:
 ● Request personal information that is not your own
-● Cancel blogs, posts, events, sponsors, subscribers, or sellers that are not associated with your personal information.
+● Cancel blogs, posts, events, business directory listings, subscribers, or sellers that are not associated with your personal information.
 
 To submit a request, contact us at:
 Email: donivan@inwcommunity.com
@@ -181,8 +181,8 @@ NWC does not knowingly collect information from children under 16.
 If we discover that such data has been collected, we will remove it promptly.
 Parents may contact us to request deletion.
 
-9. BUSINESS SPONSORS & SELLER DATA
-Sponsors and sellers agree that:
+9. BUSINESS SUBSCRIBERS & SELLER DATA
+Business subscribers and sellers agree that:
 ● Their business information may be displayed publicly
 ● Information submitted for marketing or listing purposes may be visible to users
 ● They are solely responsible for the accuracy of their own information

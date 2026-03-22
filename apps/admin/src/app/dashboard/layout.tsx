@@ -14,7 +14,7 @@ const SIDEBAR_SECTIONS = [
     items: [
       { href: "/dashboard/members", label: "Members" },
       { href: "/dashboard/subscriptions", label: "Subscriptions" },
-      { href: "/dashboard/sponsors", label: "Sponsors" },
+      { href: "/dashboard/sponsors", label: "Business subscriptions" },
       { href: "/dashboard/businesses", label: "Businesses" },
       { href: "/dashboard/sellers", label: "Sellers" },
     ],

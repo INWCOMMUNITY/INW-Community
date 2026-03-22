@@ -116,12 +116,12 @@ export async function seedSiteContent(): Promise<{ pageId: string; sections: num
               {
                 id: genId(),
                 type: "button",
-                content: { text: "Northwest Community Sponsors", href: "/support-local" },
+                content: { text: "Northwest Community Businesses", href: "/support-local" },
               },
               {
                 id: genId(),
                 type: "button",
-                content: { text: "NWC Sponsorship Benefits", href: "/support-nwc" },
+                content: { text: "NWC Business plan benefits", href: "/support-nwc" },
               },
             ],
           },
@@ -196,19 +196,19 @@ export async function seedSiteContent(): Promise<{ pageId: string; sections: num
                   src: WIX_IMG(
                     "2bdd49_df19a62a768348509f8d89fc76c9576d~mv2.jpg/v1/fill/w_147,h_57,al_c,q_80,usm_0.66_1.00_0.01,blur_2,enc_avif,quality_auto/2bdd49_df19a62a768348509f8d89fc76c9576d~mv2.jpg"
                   ),
-                  alt: "Sponsor Hub",
+                  alt: "Business Hub",
                 },
               },
               {
                 id: genId(),
                 type: "heading",
-                content: { html: "<h1>Sponsor Hub</h1>", level: "1" },
+                content: { html: "<h1>Business Hub</h1>", level: "1" },
               },
               {
                 id: genId(),
                 type: "paragraph",
                 content: {
-                  html: "<p>Manage your business listing, coupons, events, and rewards. Sponsor Hub is available to members on the Sponsor or Seller plan.</p>",
+                  html: "<p>Manage your business listing, coupons, events, and rewards. Business Hub is available to members on the Business or Seller subscription.</p>",
                 },
               },
             ],
@@ -313,7 +313,7 @@ export async function seedSiteContent(): Promise<{ pageId: string; sections: num
               {
                 id: genId(),
                 type: "button",
-                content: { text: "Become a Sponsor", href: "#plan-sponsor" },
+                content: { text: "Get Business subscription", href: "#plan-sponsor" },
               },
             ],
           },

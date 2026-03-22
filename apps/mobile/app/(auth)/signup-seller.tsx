@@ -454,7 +454,7 @@ export default function SignupSellerScreen() {
         </View>
         <Text style={styles.checkoutTitle}>Subscribe to Northwest Community Seller</Text>
         <Text style={styles.checkoutSubtitle}>
-          Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid. You can cancel anytime.
+          The Seller subscription includes the Business plan plus access to sell on our online storefront. List items personally and get paid. You can cancel anytime.
         </Text>
         <View style={styles.pricingWrap}>
           <View style={styles.intervalToggle}>

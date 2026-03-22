@@ -15,7 +15,7 @@ const PLANS = [
     price: SUBSCRIPTION_PLAN_PRICES.subscribe.monthlyUsd,
     priceYearly: SUBSCRIPTION_PLAN_PRICES.subscribe.yearlyUsd,
     description:
-      "This plan helps support our business and what we do, as well as provides access to our coupons, access to exclusive groups, and gets you exclusive hints in our scavenger hunts!",
+      "Resident plan: Community Resale Hub, exclusive groups, scavenger hunt hints. Subscribe, Business, and Seller plans all include the member coupon book and 2× Community Points on storefront purchases and business QR scans.",
     imagePath: "2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg",
     benefitsHref: "/subscribe-nwc",
     benefitsLabel: "Subscriber Benefits",
@@ -26,7 +26,7 @@ const PLANS = [
     price: SUBSCRIPTION_PLAN_PRICES.sponsor.monthlyUsd,
     priceYearly: SUBSCRIPTION_PLAN_PRICES.sponsor.yearlyUsd,
     description:
-      "Join Northwest Community's Local Business Directory. Offer coupons, post events on our calendar, and gain visibility through the events NWC will put on.",
+      "Join the Local Business Directory, create offers for the coupon book, post events, and gain visibility. Includes the same member coupon book and 2× points on purchases and scans as other paid plans. Resale Hub (personal resale) stays on the Resident Subscribe plan.",
     imagePath: "2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg",
     benefitsHref: "/sponsor-nwc",
     benefitsLabel: "Business Benefits",
@@ -37,7 +37,7 @@ const PLANS = [
     price: SUBSCRIPTION_PLAN_PRICES.seller.monthlyUsd,
     priceYearly: SUBSCRIPTION_PLAN_PRICES.seller.yearlyUsd,
     description:
-      "Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid, without NWC taking personal percentages from your sold items.",
+      "Seller Hub: sell new and resale items on the storefront with Stripe payouts. Includes the member coupon book and 2× points on purchases and scans. Add the Resident Subscribe plan for Community Resale Hub.",
     imagePath: "2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg",
     benefitsHref: "/sell-nwc",
     benefitsLabel: "Seller Benefits",
@@ -62,7 +62,7 @@ export default function SupportNWCInfoPage() {
             quality={100}
           />
           <h1 className="text-2xl md:text-4xl font-bold mb-4" style={{ color: "var(--color-heading)" }}>
-            NWC Services: Subscribe, Sponsor, or Sell!
+            NWC Services: Subscribe, Business, or Sell!
           </h1>
           <p className="text-lg md:text-xl opacity-80 max-w-2xl mx-auto leading-relaxed">
             Northwest Community is a local hub for the Inland Northwest—Spokane, Kootenai County, and beyond. Choose the plan that fits you below. Each subscription supports our mission and comes with real benefits.
@@ -204,10 +204,10 @@ export default function SupportNWCInfoPage() {
               Why Northwest Community?
             </h2>
             <p className="mb-4 opacity-90 text-gray-700">
-              We connect local businesses and people in Eastern Washington and North Idaho. Our goal is to make supporting local easy—whether you&apos;re a shopper, a business owner, or a community member. Subscriptions and sponsorships help us run events, giveaways, and keep this platform free for everyone.
+              We connect local businesses and people in Eastern Washington and North Idaho. Our goal is to make supporting local easy—whether you&apos;re a shopper, a business owner, or a community member. Paid memberships help us run events, giveaways, and keep this platform free for everyone.
             </p>
             <p className="opacity-90 text-gray-700">
-              Have questions? Check out the detailed pages for Subscribe, Sponsor, and Sell above, or reach out. We&apos;re here to help.
+              Have questions? Check out the detailed pages for Subscribe, Business, and Sell above, or reach out. We&apos;re here to help.
             </p>
           </div>
         </div>

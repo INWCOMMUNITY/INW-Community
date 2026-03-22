@@ -151,7 +151,7 @@ export function SubscriptionCheckoutSheet({
           {planId === "subscribe"
             ? "Subscribe"
             : planId === "sponsor"
-              ? "Subscribe as Local Business"
+              ? "Subscribe to Business plan"
               : "Subscribe as Seller"}
         </Text>
       )}

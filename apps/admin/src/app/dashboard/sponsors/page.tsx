@@ -101,7 +101,7 @@ export default function AdminSponsorsPage() {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <h1 className="text-2xl font-bold">Sponsors</h1>
+        <h1 className="text-2xl font-bold">Business subscriptions</h1>
         <div className="flex items-center gap-4">
           <input
             type="search"
@@ -155,7 +155,7 @@ export default function AdminSponsorsPage() {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sponsor</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Member</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Business</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">City</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Categories</th>
@@ -222,7 +222,7 @@ export default function AdminSponsorsPage() {
       </div>
 
       {sponsors.length === 0 && (
-        <p className="mt-4 text-gray-500">No sponsors yet. Members need an active sponsor subscription to appear here.</p>
+        <p className="mt-4 text-gray-500">No Business subscriptions yet. Members need an active Business plan to appear here.</p>
       )}
     </div>
   );

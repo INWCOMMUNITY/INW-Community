@@ -3,8 +3,13 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
+
+const PLANS_HREF = "/support-nwc";
+const SIGNUP_WITH_PLANS = `/signup?next=${encodeURIComponent(PLANS_HREF)}`;
 
 /** Coupon background (excludes photo box and code box) */
 const TAN_BG = "#f8e7c9";
@@ -28,9 +33,15 @@ interface CouponData {
 }
 
 export function CouponPopup({ couponId, onClose, initialSaved, onSavedChange }: CouponPopupProps) {
+  const { status: sessionStatus } = useSession();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [data, setData] = useState<CouponData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const loginCallbackUrl =
+    (pathname ?? "/coupons") + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
 
   useEffect(() => {
     fetch(`/api/coupons/${couponId}`)
@@ -66,8 +77,9 @@ export function CouponPopup({ couponId, onClose, initialSaved, onSavedChange }: 
     );
   }
 
-  // Subscriber gate
+  // Paid plan gate (Subscribe, Business, or Seller)
   if (!data.hasAccess) {
+    const isSignedIn = sessionStatus === "authenticated";
     return (
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50" aria-modal="true" role="dialog" onClick={onClose}>
         <div
@@ -76,15 +88,44 @@ export function CouponPopup({ couponId, onClose, initialSaved, onSavedChange }: 
           onClick={(e) => e.stopPropagation()}
         >
           <p className="text-lg font-semibold mb-2" style={{ color: DARK_GREEN, fontFamily: "var(--font-heading)" }}>
-            Sorry, Coupons are only available to Northwest Community Subscribers
+            Coupons are for Northwest Community members with an active plan
           </p>
           <p className="text-gray-700 text-base mb-6" style={{ fontFamily: "var(--font-body)" }}>
-            Subscribe to view and save coupons from local businesses.
+            {isSignedIn
+              ? "Add a Subscribe, Business, or Seller plan to view and save coupons from local businesses."
+              : "Create an account and choose a plan to view and save coupons from local businesses."}
           </p>
-          <Link href="/support-nwc" className="btn inline-block text-white hover:text-white" style={{ backgroundColor: DARK_GREEN }} onClick={onClose}>
-            Sign up
+          {!isSignedIn ? (
+            <div className="flex flex-col sm:flex-row gap-3 justify-center items-stretch sm:items-center mb-2">
+              <Link
+                href={SIGNUP_WITH_PLANS}
+                className="btn inline-block text-white hover:text-white text-center"
+                style={{ backgroundColor: DARK_GREEN }}
+                onClick={onClose}
+              >
+                Sign up
+              </Link>
+              <Link
+                href={`/login?callbackUrl=${encodeURIComponent(loginCallbackUrl)}`}
+                className="btn inline-block text-center border-2 bg-white"
+                style={{ borderColor: DARK_GREEN, color: DARK_GREEN }}
+                onClick={onClose}
+              >
+                Log in
+              </Link>
+            </div>
+          ) : null}
+          <Link
+            href={PLANS_HREF}
+            className={`btn inline-block text-white hover:text-white ${!isSignedIn ? "mt-2" : ""}`}
+            style={{ backgroundColor: DARK_GREEN }}
+            onClick={onClose}
+          >
+            Subscribe to NWC
           </Link>
-          <button type="button" onClick={onClose} className="block mt-4 text-base underline" style={{ color: DARK_GREEN }}>Close</button>
+          <button type="button" onClick={onClose} className="block mt-4 text-base underline mx-auto" style={{ color: DARK_GREEN }}>
+            Close
+          </button>
         </div>
       </div>
     );

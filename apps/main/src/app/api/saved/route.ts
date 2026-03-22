@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { prisma, type SavedItemType } from "database";
 import { z } from "zod";
 
@@ -16,6 +17,17 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { type, referenceId } = bodySchema.parse(body);
+    if (type === "coupon") {
+      const sub = await prisma.subscription.findFirst({
+        where: prismaWhereActivePaidNwcPlan(session.user.id),
+      });
+      if (!sub) {
+        return NextResponse.json(
+          { error: "An active Subscribe, Business, or Seller plan is required to save coupons" },
+          { status: 403 }
+        );
+      }
+    }
     await prisma.savedItem.upsert({
       where: {
         memberId_type_referenceId: {

@@ -54,9 +54,9 @@ export async function POST(req: NextRequest) {
     const subscriptionPlan = await resolvePlan(member.id, validPlan);
 
     // Resident (subscribe): no subscription required — they're just creating an account.
-    // Sponsor/seller: allow without subscription when completing registration.
+    // Business / seller signup: allow without subscription when completing registration.
     if (validPlan && !subscriptionPlan) {
-      // subscribe = resident signup; sponsor/seller = business/seller signup in progress
+      // subscribe = resident signup; sponsor (Business) / seller = business/seller signup in progress
       // Allow sign-in in all cases; do not require an active subscription for resident.
     }
 

@@ -22,7 +22,7 @@ export default async function SponsorNWCPage() {
       <InfoPageHeader
         title="Local Business Interested in Joining NWC?"
         logoUrl={logoUrl}
-        description="Curious what benefits Northwest Community offers to our Sponsors? This page is here to answer your questions and demonstrate what we do for our sponsors. Read our policy and tag along with what we are doing!"
+        description="Curious what benefits Northwest Community offers with the Business subscription? This page is here to answer your questions and show what we do for local businesses on the platform. Read our policy and tag along with what we are doing!"
         policyHref="/terms"
         policyLabel="NWC Business Policy"
       />
@@ -38,14 +38,14 @@ export default async function SponsorNWCPage() {
             Who Is This For?
           </h2>
           <p className="text-base md:text-xl opacity-90 leading-relaxed">
-            Local business owners, self-employed workers, and anyone who wants to reach customers in the Inland Northwest. If you believe in supporting local and want your business to be part of this community hub, Sponsor NWC is for you.
+            Local business owners, self-employed workers, and anyone who wants to reach customers in the Inland Northwest. If you believe in supporting local and want your business to be part of this community hub, the Business subscription is for you.
           </p>
         </div>
       </section>
 
       <InfoPageSignupBanner
         backgroundPath={GALLERY_CTA_BACKGROUND}
-        heading="Become a Sponsor"
+        heading="Get the Business subscription"
         planId="sponsor"
         buttonLabel="Sign Up Now"
       />
@@ -54,7 +54,7 @@ export default async function SponsorNWCPage() {
       <section className="py-10 px-12 md:px-20 lg:px-24 text-center" style={{ padding: "var(--section-padding)" }}>
         <div className="flex flex-wrap gap-4 justify-center">
           <BillingIntervalCheckout planId="sponsor" className="btn">
-            Become a Sponsor
+            Get Business subscription
           </BillingIntervalCheckout>
           <Link href="/support-nwc" className="btn-sponsors-light inline-block">
             Compare All Plans

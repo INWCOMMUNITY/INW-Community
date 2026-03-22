@@ -82,7 +82,7 @@ export default async function SellerHubPage() {
                 Seller Hub
               </h1>
               <p className="text-black leading-relaxed max-md:text-xs max-md:leading-snug">
-                Welcome to Northwest Communities Seller Hub. Manage your storefront, list items, and fulfill orders. You can also access Sponsor Hub for business directory, coupons, events, and rewards. Thanks for being here!
+                Welcome to Northwest Communities Seller Hub. Manage your storefront, list items, and fulfill orders. You can also use Business Hub for your directory listing, coupons, events, and rewards. Thanks for being here!
               </p>
             </div>
           </div>

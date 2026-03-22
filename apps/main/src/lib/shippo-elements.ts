@@ -85,7 +85,7 @@ export function buildOrderDetailsFromOrder(
   }
   const { street1, street2 } = splitStreet1Street2(addr.street.trim(), addr.aptOrSuite?.trim() ?? "");
   const name = `${order.buyer.firstName} ${order.buyer.lastName}`.trim() || "Recipient";
-  const line_items: ShippoElementsLineItem[] = order.items.map((item) => ({
+  let line_items: ShippoElementsLineItem[] = order.items.map((item) => ({
     title: item.storeItem?.title ?? "Item",
     quantity: item.quantity,
     currency: "USD",
@@ -94,6 +94,19 @@ export function buildOrderDetailsFromOrder(
     weight_unit: "lb",
     country_of_origin: "US",
   }));
+  if (line_items.length === 0) {
+    line_items = [
+      {
+        title: "Order",
+        quantity: 1,
+        currency: "USD",
+        unit_amount: "0.00",
+        unit_weight: "1",
+        weight_unit: "lb",
+        country_of_origin: "US",
+      },
+    ];
+  }
 
   const baseOrderNumber = String(order.orderNumber ?? order.id);
   let order_number: string;
@@ -140,6 +153,8 @@ export function buildOrderDetailsFromOrders(orders: OrderForElements[]): ShippoE
  * Transaction payload from LABEL_PURCHASED_SUCCESS event (one element of the array).
  */
 export interface ElementsTransactionPayload {
+  /** Shippo Order object_id for this label purchase (use for our DB; preferred over ORDER_CREATED timing). */
+  order_id?: string;
   object_id?: string;
   label_url?: string;
   tracking_number?: string;

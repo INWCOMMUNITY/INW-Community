@@ -290,7 +290,7 @@ export default function CouponsScreen() {
                 {showSubscribeBox && (
                   <View style={[styles.subscribeBox, { backgroundColor: theme.colors.primary }]}>
                     <Text style={styles.subscribeBoxText}>
-                      Subscribe to NWC to unlock exclusive coupons and earn 2x Community Points when supporting local businesses.
+                      An active Subscribe, Business, or Seller plan unlocks the coupon book and 2× Community Points on qualifying purchases and scans.
                     </Text>
                     <Pressable
                       style={[styles.subscribeInlineBtn, subscribing && { opacity: 0.6 }]}

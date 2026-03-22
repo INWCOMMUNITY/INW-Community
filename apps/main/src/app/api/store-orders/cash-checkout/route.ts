@@ -94,8 +94,12 @@ export async function POST(req: NextRequest) {
   }
 
   const buyerId = session.user.id;
-  const subscriber = await prisma.subscription.findFirst({
-    where: { memberId: buyerId, plan: "subscribe", status: "active" },
+  const paidPlanBuyer = await prisma.subscription.findFirst({
+    where: {
+      memberId: buyerId,
+      status: "active",
+      plan: { in: ["subscribe", "sponsor", "seller"] },
+    },
   });
   const orderIds: string[] = [];
 
@@ -129,7 +133,7 @@ export async function POST(req: NextRequest) {
 
     const totalCents = subtotalCents + localDeliveryFeeCentsTotal;
     let pointsAwarded = Math.round(totalCents / 200);
-    if (subscriber) pointsAwarded *= 2;
+    if (paidPlanBuyer) pointsAwarded *= 2;
 
     const order = await prisma.storeOrder.create({
       data: {

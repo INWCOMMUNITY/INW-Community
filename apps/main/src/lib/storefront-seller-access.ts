@@ -1,15 +1,16 @@
 import { prisma } from "database";
 
 /**
- * Members with an active **subscribe** or **seller** plan may list on the storefront
- * (resale-only for subscribe; full seller for seller). Same cohort that may need Shippo.
+ * Seller Hub shipping/profile/label APIs (Shippo, etc.). Subscribe and Seller list resale or storefront;
+ * Business-plan members may fulfill business orders and need the same tooling. Personal resale listing is still
+ * subscribe-or-seller only (enforced in store-items POST).
  */
 export async function memberHasStorefrontListingAccess(memberId: string): Promise<boolean> {
   const sub = await prisma.subscription.findFirst({
     where: {
       memberId,
       status: "active",
-      plan: { in: ["seller", "subscribe"] },
+      plan: { in: ["seller", "subscribe", "sponsor"] },
     },
   });
   return Boolean(sub);

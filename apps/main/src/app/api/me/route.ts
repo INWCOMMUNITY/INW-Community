@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getCurrentSeasonId } from "@/lib/award-points";
+import { NWC_PAID_PLAN_SLUGS } from "@/lib/nwc-paid-subscription";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -92,11 +93,14 @@ export async function GET(req: NextRequest) {
     }),
   ]);
   const subscriptionPlan = session.user.subscriptionPlan ?? subscriptions[0]?.plan ?? null;
+  const paidSlugSet = new Set<string>(NWC_PAID_PLAN_SLUGS);
+  const hasPaidSubscription = subscriptions.some((s) => paidSlugSet.has(s.plan));
   return NextResponse.json({
     ...member,
     seasonPointsEarned,
     currentSeason,
     isSubscriber: !!sub,
+    hasPaidSubscription,
     subscriptionPlan,
     subscriptions: subscriptions.map((s) => ({ plan: s.plan, status: s.status })),
   });

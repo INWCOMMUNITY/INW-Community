@@ -128,7 +128,7 @@ export function CouponFormModal({
   const handleSubmit = async () => {
     setError("");
     if (!businessId) {
-      setError("Select a business first. Add a business from Sponsor Hub if needed.");
+      setError("Select a business first. Add a business from Business Hub if needed.");
       return;
     }
     if (!name.trim()) {
@@ -238,7 +238,7 @@ export function CouponFormModal({
               <Text style={styles.emptyTitle}>Add a business first</Text>
               <Text style={styles.emptyText}>
                 You need at least one business to add a coupon. Set up your
-                business from Sponsor Hub.
+                business from Business Hub.
               </Text>
               <Pressable
                 style={({ pressed }) => [

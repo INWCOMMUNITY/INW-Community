@@ -354,7 +354,7 @@ export default function SignupSellerPage() {
             Subscribe to Northwest Community Seller
           </h2>
           <p className="text-lg text-gray-600 mb-6 text-center max-w-lg mx-auto leading-relaxed">
-            Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid. You can cancel anytime.
+            The Seller subscription includes the Business plan plus access to sell on our online storefront. List items personally and get paid. You can cancel anytime.
           </p>
           <div className="flex flex-col items-center gap-4 mb-6">
             <div className="flex flex-col items-center gap-1 mb-2">

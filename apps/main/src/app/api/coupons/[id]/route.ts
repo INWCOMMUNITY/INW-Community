@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { z } from "zod";
 
 /** GET coupon by id. Returns full coupon + business; code only when user has subscriber access. */
@@ -30,21 +31,19 @@ export async function GET(
 
   const session = await getSessionForApi(req);
   const userId = session?.user?.id ?? null;
-  const hasAccess = userId
+  const hasPaidPlan = userId
     ? !!(await prisma.subscription.findFirst({
-        where: {
-          memberId: userId,
-          plan: { in: ["subscribe", "sponsor", "seller"] },
-          status: "active",
-        },
+        where: prismaWhereActivePaidNwcPlan(userId),
       }))
     : false;
 
   const isOwner = userId ? coupon.business?.memberId === userId : false;
+  /** Any paid NWC plan + business owners viewing their own listing */
+  const hasAccess = hasPaidPlan || isOwner;
 
   let usedThisMonth = 0;
   let usedToday = false;
-  if (userId && hasAccess && coupon.secretKey) {
+  if (userId && hasPaidPlan && coupon.secretKey) {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     usedThisMonth = await prisma.couponRedeem.count({

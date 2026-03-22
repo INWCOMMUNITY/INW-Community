@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardScannerBadges, awardCategoryScanBadges, type EarnedBadge } from "@/lib/badge-award";
 import { awardPoints } from "@/lib/award-points";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 
 const DEFAULT_POINTS = 10;
 
@@ -64,10 +65,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const subscriber = await prisma.subscription.findFirst({
-      where: { memberId: session.user.id, plan: "subscribe", status: "active" },
+    const paidPlan = await prisma.subscription.findFirst({
+      where: prismaWhereActivePaidNwcPlan(session.user.id),
     });
-    if (subscriber) {
+    if (paidPlan) {
       pointsToAward *= 2;
     }
 

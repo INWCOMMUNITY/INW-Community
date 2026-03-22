@@ -10,6 +10,7 @@ import {
 } from "@/lib/post-sale-inventory-cleanup";
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
+import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 
 /**
  * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
@@ -21,6 +22,16 @@ import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
 });
+
+function subscriptionIdFromCheckoutSession(session: Stripe.Checkout.Session): string | null {
+  const sub = session.subscription;
+  if (typeof sub === "string" && sub.length > 0) return sub;
+  if (sub && typeof sub === "object" && !Array.isArray(sub) && "id" in sub) {
+    const id = (sub as Stripe.Subscription).id;
+    return typeof id === "string" ? id : null;
+  }
+  return null;
+}
 
 function slugify(s: string): string {
   return s
@@ -162,18 +173,28 @@ export async function POST(req: NextRequest) {
     const session = event.data.object as Stripe.Checkout.Session;
     const memberId = session.metadata?.memberId;
     const planId = session.metadata?.planId as "subscribe" | "sponsor" | "seller" | undefined;
-    const subId = session.subscription as string | null;
+    const subId = subscriptionIdFromCheckoutSession(session);
 
     if (memberId && planId && subId) {
-      await prisma.subscription.create({
-        data: {
-          memberId,
-          plan: planId,
-          stripeSubscriptionId: subId,
-          stripeCustomerId: session.customer as string | null,
-          status: "active",
-        },
+      const existingSub = await prisma.subscription.findFirst({
+        where: { stripeSubscriptionId: subId },
       });
+      if (!existingSub) {
+        await prisma.subscription.create({
+          data: {
+            memberId,
+            plan: planId,
+            stripeSubscriptionId: subId,
+            stripeCustomerId:
+              typeof session.customer === "string"
+                ? session.customer
+                : session.customer && typeof session.customer === "object" && "id" in session.customer
+                  ? (session.customer as Stripe.Customer).id
+                  : null,
+            status: "active",
+          },
+        });
+      }
       const businessDataRaw = session.metadata?.businessData;
       const businessIdFromMeta = session.metadata?.businessId;
       if (planId === "sponsor" && businessDataRaw && typeof businessDataRaw === "string") {
@@ -273,10 +294,10 @@ export async function POST(req: NextRequest) {
             const platformFeeCents = Math.max(50, Math.floor(totalCents * 0.05));
             const sellerCreditsCents = totalCents - platformFeeCents;
             let pointsAwarded = Math.round(totalCents / 200);
-            const subscriber = await prisma.subscription.findFirst({
-              where: { memberId: order.buyerId, plan: "subscribe", status: "active" },
+            const paidBuyer = await prisma.subscription.findFirst({
+              where: prismaWhereActivePaidNwcPlan(order.buyerId),
             });
-            if (subscriber) pointsAwarded *= 2;
+            if (paidBuyer) pointsAwarded *= 2;
 
             const orderTaxCents =
               sessionAmountTotal > 0 && sessionTaxCents > 0
@@ -445,10 +466,10 @@ export async function POST(req: NextRequest) {
           parseInt(session.metadata?.totalCents ?? "0", 10) || subtotalCents + shippingCostCents;
         const platformFeeCents = parseInt(session.metadata?.platformFeeCents ?? "0", 10);
         let pointsAwarded = Math.round(totalCents / 200);
-        const subscriber = await prisma.subscription.findFirst({
-          where: { memberId: buyerId, plan: "subscribe", status: "active" },
+        const paidBuyer = await prisma.subscription.findFirst({
+          where: prismaWhereActivePaidNwcPlan(buyerId),
         });
-        if (subscriber) pointsAwarded *= 2;
+        if (paidBuyer) pointsAwarded *= 2;
         const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : null;
         let shippingAddress: unknown = null;
         try {
@@ -711,10 +732,10 @@ export async function POST(req: NextRequest) {
 
       const totalCents = order.totalCents;
       let pointsAwarded = Math.round(totalCents / 200);
-      const subscriber = await prisma.subscription.findFirst({
-        where: { memberId: order.buyerId, plan: "subscribe", status: "active" },
+      const paidBuyer = await prisma.subscription.findFirst({
+        where: prismaWhereActivePaidNwcPlan(order.buyerId),
       });
-      if (subscriber) pointsAwarded *= 2;
+      if (paidBuyer) pointsAwarded *= 2;
 
       await prisma.storeOrder.update({
         where: { id: order.id },

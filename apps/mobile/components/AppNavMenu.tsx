@@ -1,6 +1,6 @@
 /**
  * Generic app navigation menu - shown when on tabs other than my-community.
- * Links to Profile, Seller Hub (if hasSeller), Business Hub (if hasSponsor).
+ * Links to Profile, Seller Hub (if hasSeller), Business Hub (if hasSponsor), Resale Hub (if hasSubscriber).
  */
 import {
   Modal,
@@ -81,7 +81,7 @@ export function AppNavMenu({ visible, onClose, hasSponsor, hasSeller, hasSubscri
                   <Text style={styles.navLinkText}>Seller Hub</Text>
                 </Pressable>
               )}
-              {(hasSubscriber || hasSponsor) && (
+              {hasSubscriber && (
                 <Pressable
                   onPress={() => handleNav("resale_hub")}
                   style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}

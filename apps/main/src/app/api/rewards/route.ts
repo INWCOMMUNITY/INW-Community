@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     where: { memberId: session.user.id, plan: { in: ["sponsor", "seller"] }, status: "active" },
   });
   if (!sub) {
-    return NextResponse.json({ error: "Sponsor or Seller plan required" }, { status: 403 });
+    return NextResponse.json({ error: "Business or Seller plan required" }, { status: 403 });
   }
   try {
     const body = await req.json();

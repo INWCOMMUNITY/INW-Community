@@ -136,7 +136,7 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
       return;
     }
     if (!existing && !memberId) {
-      setError("Select a sponsor.");
+      setError("Select a member with a Business subscription.");
       return;
     }
     setError("");
@@ -185,14 +185,14 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
     <form onSubmit={handleSubmit} className="space-y-4 max-w-xl max-h-[85vh] overflow-y-auto p-4">
       {!existing && sponsors.length > 0 && (
         <div>
-          <label className="block text-sm font-medium mb-1">Sponsor (member) *</label>
+          <label className="block text-sm font-medium mb-1">Business subscriber (member) *</label>
           <select
             value={memberId}
             onChange={(e) => setMemberId(e.target.value)}
             required
             className="w-full border rounded px-3 py-2"
           >
-            <option value="">Select sponsor…</option>
+            <option value="">Select member…</option>
             {sponsors.filter((s) => s.businessCount < 2).map((s) => (
               <option key={s.memberId} value={s.memberId}>
                 {s.firstName} {s.lastName} ({s.email}) – {s.businessCount}/2 businesses

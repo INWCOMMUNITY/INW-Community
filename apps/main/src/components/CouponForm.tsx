@@ -29,7 +29,7 @@ export function CouponForm({ businesses, onSuccess }: CouponFormProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!businessId) {
-      setError("Select a business first. Add a business from Sponsor Hub if needed.");
+      setError("Select a business first. Add a business from Business Hub if needed.");
       return;
     }
     setError("");
@@ -61,7 +61,7 @@ export function CouponForm({ businesses, onSuccess }: CouponFormProps) {
       <div className="max-w-xl border rounded-lg p-6 bg-gray-50">
         <h3 className="font-semibold mb-2">Add a business first</h3>
         <p className="text-gray-600 text-sm mb-4">
-          You need at least one business to add a coupon. Set up your business from Sponsor Hub.
+          You need at least one business to add a coupon. Set up your business from Business Hub.
         </p>
         <Link href="/sponsor-hub/business" className="btn inline-block">
           Add business

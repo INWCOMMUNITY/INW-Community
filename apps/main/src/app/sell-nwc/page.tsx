@@ -8,7 +8,7 @@ import { InfoPageSignupBanner } from "@/components/InfoPageSignupBanner";
 import { getSiteImageUrl } from "@/lib/site-images";
 
 const SELLER_BENEFITS = [
-  { title: "Everything in Sponsor NWC", description: "You get all Sponsor benefits: directory listing, coupons, event calendars, and visibility at NWC events.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[0]), imageAlt: "Northwest Community" },
+  { title: "Everything in Business NWC", description: "You get all Business subscription benefits: directory listing, coupons, event calendars, and visibility at NWC events.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[0]), imageAlt: "Northwest Community" },
   { title: "Sell on Our Storefront", description: "List your products on the NWC online store. Shoppers can buy from you directly, and you get paid.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[1]), imageAlt: "NWC storefront" },
   { title: "No Percentage Cuts", description: "NWC does not take a percentage of your sales. You keep what you earn from items sold through our platform.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[2]), imageAlt: "Sell local" },
   { title: "Shop Local, Online", description: "Make it easy for people to support local from home. Your products reach customers who want to buy from Inland Northwest businesses.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[3]), imageAlt: "Support local" },
@@ -22,7 +22,7 @@ export default async function SellNWCPage() {
       <InfoPageHeader
         title="Interested in Becoming a Northwest Community Seller?"
         logoUrl={logoUrl}
-        description="Curious about the benefits Northwest Community offers to our Sellers? This page is here to answer your questions and demonstrate what we do for our sellers. Read our policy and sell and ship local goods from the comfort of your home or office. All sellers are also sponsors—see our sponsor benefits page as well."
+        description="Curious about the benefits Northwest Community offers to our Sellers? This page is here to answer your questions and demonstrate what we do for our sellers. Read our policy and sell and ship local goods from the comfort of your home or office. All sellers include the Business subscription—see our Business benefits page as well."
         policyHref="/terms"
         policyLabel="NWC Seller Policy"
       />

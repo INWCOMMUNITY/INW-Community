@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       where: { memberId: session.user.id, plan: { in: ["sponsor", "seller"] }, status: "active" },
     });
     if (!sub) {
-      return NextResponse.json({ error: "Sponsor or Seller plan required" }, { status: 403 });
+      return NextResponse.json({ error: "Business or Seller plan required" }, { status: 403 });
     }
     const businesses = await prisma.business.findMany({
       where: { memberId: session.user.id },
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(businesses);
   }
 
-  // Only show businesses whose owner has an active sponsor or seller subscription
+  // Only show businesses whose owner has an active Business (sponsor) or Seller subscription
   const activeSubs = await prisma.subscription.findMany({
     where: { plan: { in: ["sponsor", "seller"] }, status: "active" },
     select: { memberId: true },
@@ -201,14 +201,14 @@ export async function POST(req: NextRequest) {
     where: { memberId: session.user.id, plan: { in: ["sponsor", "seller"] }, status: "active" },
   });
   if (!sub) {
-    return NextResponse.json({ error: "Sponsor or Seller plan required" }, { status: 403 });
+    return NextResponse.json({ error: "Business or Seller plan required" }, { status: 403 });
   }
   const existingCount = await prisma.business.count({
     where: { memberId: session.user.id },
   });
   if (existingCount >= 2) {
     return NextResponse.json(
-      { error: "Maximum 2 businesses per sponsor. Edit an existing business or delete one to add another." },
+      { error: "Maximum 2 businesses per Business or Seller subscription. Edit an existing business or delete one to add another." },
       { status: 403 }
     );
   }

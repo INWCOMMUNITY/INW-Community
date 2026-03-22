@@ -105,7 +105,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
   const { setProfileView } = useProfileView();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
-  const showResaleHub = hasSubscriber || hasSponsor;
+  const showResaleHub = hasSubscriber;
   const { member, signOut } = useAuth();
 
   const hasActiveSubscription =

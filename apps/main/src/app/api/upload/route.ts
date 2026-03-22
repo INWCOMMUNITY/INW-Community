@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   ]);
   const isSignupFlow = !sub && !!member?.signupIntent && ["business", "seller"].includes(member.signupIntent);
   if (!sub && !isSignupFlow) {
-    return NextResponse.json({ error: "Sponsor, Seller, or Subscribe plan required" }, { status: 403 });
+    return NextResponse.json({ error: "Business, Seller, or Subscribe plan required" }, { status: 403 });
   }
 
   const formData = await req.formData();

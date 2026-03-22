@@ -80,6 +80,6 @@ export const CALENDAR_TYPES: { value: CalendarType; label: string }[] = [
 
 export const PLAN_LABELS: Record<Plan, string> = {
   subscribe: "Subscribe",
-  sponsor: "Sponsor",
+  sponsor: "Business",
   seller: "Seller",
 };

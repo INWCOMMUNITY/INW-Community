@@ -17,7 +17,7 @@ const PLANS = [
   },
   {
     id: "sponsor",
-    name: "Northwest Community Sponsor",
+    name: "Northwest Community Business",
     price: 25,
     interval: "month",
     description:
@@ -31,7 +31,7 @@ const PLANS = [
     price: 40,
     interval: "month",
     description:
-      "Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid, without NWC taking personal percentages from your sold items.",
+      "Includes everything in the Business plan plus the Seller Hub: sell on our online storefront as a local business. List items personally and get paid, without NWC taking personal percentages from your sold items.",
     highlight: true,
     imagePath: "2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg/v1/fill/w_147,h_74,al_c,q_80,usm_0.66_1.00_0.01,blur_2,enc_avif,quality_auto/2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg",
   },

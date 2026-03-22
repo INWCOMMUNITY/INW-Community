@@ -93,10 +93,10 @@ export default async function HomePage() {
       >
         <div className="max-w-[var(--max-width)] mx-auto text-center">
           <h2 className="text-2xl font-bold mb-4" style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}>
-            Are you a Local Business wanting to Sponsor Northwest Community?
+            Are you a local business wanting to join Northwest Community?
           </h2>
           <p className="mb-6 max-w-xl mx-auto">
-            Look no further, here is a shortcut to registering a Sponsor for this company. As well as registering your business information.
+            Here is a shortcut to the Business subscription and registering your business information.
           </p>
           <Link href="/business-hub" className="btn-sponsors">Business Hub</Link>
         </div>
@@ -145,13 +145,13 @@ export default async function HomePage() {
         <div className="max-w-[var(--max-width)] mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
           <div className="text-center md:text-left">
             <h2 className="text-2xl font-bold mb-4" style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}>
-              Northwest Community Sponsors
+              Northwest Community Businesses
             </h2>
             <p className="mb-6">
               This community page is all about incentivizing supporting locally owned businesses in Eastern Washington & North Idaho. In fact this company cannot succeed without the support of these businesses, let us as a community support them back. Go check them out, save them as a favorite business, see the events they put on, or purchase items from the Northwest Community Storefront.
             </p>
             <div className="flex gap-3 flex-wrap justify-center md:justify-start">
-              <Link href="/support-local" className="btn-sponsors text-sm py-1.5 px-3 md:text-base md:py-2 md:px-4">NWC Sponsors</Link>
+              <Link href="/support-local" className="btn-sponsors text-sm py-1.5 px-3 md:text-base md:py-2 md:px-4">Support Local</Link>
               <Link href="/storefront" className="btn-sponsors text-sm py-1.5 px-3 md:text-base md:py-2 md:px-4">NWC Storefront</Link>
               <Link href="/support-nwc" className="btn-sponsors text-sm py-1.5 px-3 md:text-base md:py-2 md:px-4">Support NWC</Link>
             </div>
@@ -190,7 +190,7 @@ export default async function HomePage() {
               <span className="block">Northwest Community</span>
             </h2>
             <p className="mb-8 leading-relaxed" style={{ color: "var(--color-heading)" }}>
-              Support what we are doing, but not without benefits! Northwest Community offers coupons to local businesses to incentivize supporting local. We will also do giveaways and prizes for our subscribers. Check out our coupon book, and stay tuned for giveaways, prizes, competitions to win money through NWC, and other benefits by being a subscriber. If you would like your company to become a sponsor or if you&apos;d like to sell through our storefront, check out those benefits below. This site is free and will remain free, but if you feel like tagging along, we appreciate the support!
+              Support what we are doing, but not without benefits! Northwest Community offers coupons to local businesses to incentivize supporting local. We will also do giveaways and prizes for our subscribers. Check out our coupon book, and stay tuned for giveaways, prizes, competitions to win money through NWC, and other benefits by being a subscriber. If you would like your company to get the Business plan or sell through our storefront, check out those benefits below. This site is free and will remain free, but if you feel like tagging along, we appreciate the support!
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <Link href="/support-nwc" className="btn-sponsors">Subscribe</Link>

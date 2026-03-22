@@ -1,7 +1,7 @@
 import { prisma } from "database";
 
 /**
- * Member has Business Hub access if they have an active sponsor/seller subscription
+ * Member has Business Hub access if they have an active Business (sponsor) or Seller subscription
  * OR they own at least one business with adminGrantedAt set (admin gave them free access).
  */
 export async function hasBusinessHubAccess(memberId: string): Promise<boolean> {

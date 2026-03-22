@@ -40,7 +40,7 @@ export function getCalendarImagePath(type: string): string | undefined {
 /** All calendar types with paths, for iteration (e.g. calendars list). */
 export const CALENDAR_IMAGES = CALENDAR_PATHS;
 
-/** Slideshow images for Sponsor NWC info page (use with WIX_IMG). Higher res + q_90 for quality. */
+/** Slideshow images for Business NWC info page (/sponsor-nwc; use with WIX_IMG). Higher res + q_90 for quality. */
 export const SPONSOR_INFO_SLIDES = [
   "2bdd49_769b811f08604f59b947b70307ca3d4e~mv2.jpeg/v1/fill/w_1200,h_750,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Footer%20Pic.jpeg",
   "2bdd49_9e1e39816a194b7d9e3557eb8a025cad~mv2.jpg/v1/fill/w_1200,h_750,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Photo%20Nov%2007%202025%2C%209%2033%2002%20PM.jpg",
@@ -52,7 +52,7 @@ export const SPONSOR_INFO_SLIDES = [
   "2bdd49_922cf38aad0542ef88e46e2aac2b0497~mv2.jpg/v1/fill/w_1200,h_750,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_922cf38aad0542ef88e46e2aac2b0497~mv2.jpg",
 ] as const;
 
-/** Sponsor NWC page photo slots 1–5 (sponsor-specific gallery). High res + q_90. */
+/** Business NWC page photo slots 1–5 (business-plan gallery). High res + q_90. */
 export const SPONSOR_INFO_BENEFIT_IMAGES = [
   "2bdd49_a0c29bafbe294be8a89f1210e2f0d06c~mv2.jpg/v1/fill/w_900,h_600,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/0024_22.jpg",
   "2bdd49_843ff2da3999401e83c20d6b5e6e52f4~mv2.jpg/v1/fill/w_900,h_600,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/0013_12A.jpg",

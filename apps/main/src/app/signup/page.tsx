@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { safeInternalPath } from "@/lib/safe-internal-path";
 
 interface Tag {
   id: string;
@@ -11,9 +12,12 @@ interface Tag {
   slug: string;
 }
 
+const DEFAULT_AFTER_SIGNUP = "/my-community";
+
 export default function SignupPage() {
   const searchParams = useSearchParams();
   const refCode = searchParams.get("ref") ?? undefined;
+  const afterSignup = safeInternalPath(searchParams.get("next"), DEFAULT_AFTER_SIGNUP);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [retypePassword, setRetypePassword] = useState("");
@@ -80,10 +84,10 @@ export default function SignupPage() {
         redirect: false,
       });
       if (signInRes?.ok) {
-        window.location.href = "/my-community";
+        window.location.href = afterSignup;
         return;
       }
-      window.location.href = "/login?fromSignup=1";
+      window.location.href = `/login?fromSignup=1&callbackUrl=${encodeURIComponent(afterSignup)}`;
     } catch {
       setError("Could not reach the server. Check your connection and that the app is running.");
     } finally {
@@ -229,7 +233,10 @@ export default function SignupPage() {
         </button>
       </form>
       <p className="mt-4 text-center text-sm">
-        Already have an account? <Link href="/login" className="underline">Log in</Link>
+        Already have an account?{" "}
+        <Link href={`/login?callbackUrl=${encodeURIComponent(afterSignup)}`} className="underline">
+          Log in
+        </Link>
       </p>
     </div>
   );

@@ -40,7 +40,7 @@ export default async function BusinessHubPage() {
           <div className="max-w-[var(--max-width)] mx-auto text-center">
             <h1 className="text-[1.4rem] md:text-2xl font-bold mb-4">Business Hub</h1>
             <p className="mb-6">
-              Business Hub is available to members on the Sponsor or Seller plan. Subscribe to unlock business directory listing, coupons, and event posting.
+              Business Hub is available to members with an active Business or Seller subscription. Choose a plan on Support NWC to unlock your business directory listing, coupons, and event posting.
             </p>
             <Link href="/support-nwc" className="btn">View plans</Link>
           </div>

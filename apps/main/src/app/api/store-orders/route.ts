@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
         },
       });
       if (!sellerSponsorOrSubscribe) {
-        return NextResponse.json({ error: "Seller, Sponsor, or Subscribe plan required" }, { status: 403 });
+        return NextResponse.json({ error: "Seller, Business, or Subscribe plan required" }, { status: 403 });
       }
       const where: { sellerId: string; status?: string | { in: string[] } } = { sellerId: userId };
       if (needsShipment) {

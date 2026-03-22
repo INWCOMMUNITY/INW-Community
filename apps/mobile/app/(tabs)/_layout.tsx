@@ -171,7 +171,7 @@ function ProfileSwitcherModal() {
               </Text>
             </Pressable>
           )}
-          {(hasSubscriber || hasSponsor) && (
+          {hasSubscriber && (
             <Pressable
               style={{
                 paddingVertical: 14,

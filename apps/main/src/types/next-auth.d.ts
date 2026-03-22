@@ -8,6 +8,8 @@ declare module "next-auth" {
       name?: string | null;
       image?: string | null;
       isSubscriber?: boolean;
+      /** Active Subscribe (Resident) plan — Resale Hub + coupon book; not Business/Seller alone */
+      canAccessResaleHub?: boolean;
       isAdmin?: boolean;
     };
   }

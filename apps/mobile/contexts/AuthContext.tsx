@@ -22,6 +22,8 @@ export interface Member {
   city?: string | null;
   points?: number;
   isSubscriber?: boolean;
+  /** Subscribe, Business, or Seller — coupons + 2× points on purchases/scans */
+  hasPaidSubscription?: boolean;
   subscriptionPlan?: SubscriptionPlan | null;
   subscriptions?: { plan: string; status: string }[];
   signupIntent?: "resident" | "business" | "seller" | null;

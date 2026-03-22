@@ -126,7 +126,7 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
       return;
     }
     if (!existing && !memberId) {
-      setError("Select a sponsor.");
+      setError("Select a member with a Business subscription.");
       return;
     }
     setError("");

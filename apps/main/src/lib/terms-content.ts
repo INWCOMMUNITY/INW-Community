@@ -1,8 +1,8 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "February 16, 2026";
+export const TERMS_LAST_UPDATED = "March 21, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
-By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, sponsor features, or messaging, you agree to the terms outlined below.
+By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
 Please read these Terms carefully.
 If you do not agree, you may not use our services.
 
@@ -87,7 +87,7 @@ By submitting a blog, you automatically agree to the blog policy.
 Coupons may only be used by active NWC Subscribers.
 Sharing coupons with non-subscribers may result in membership termination.
 
-6.2 Sponsor Compliance
+6.2 Business subscriber compliance
 If a business fails to honor a coupon:
 ● Report it to NWC
 ● NWC will address the issue
@@ -136,37 +136,40 @@ Seller's listing resale items must accurately describe the condition. Make-offer
 For local delivery and pickup orders, the transaction and all related arrangements are entirely between the seller and the consumer. NWC is merely a platform for setting up transactions and has no responsibility for these in-person transactions. Sellers and buyers should arrange delivery and pickup at their own discretion.
 
 8. SUBSCRIPTION PLANS
-8.0 Resident (Subscriber) Plan
-The Resident plan ($10/month or yearly equivalent) provides:
-● Access to NWC coupons
-● Earn 2x Community Points
-● List items on the Resale Storefront.
+8.0 Paid plan benefits (Subscribe, Business, Seller)
+Members with any active paid NWC plan (Resident Subscribe, Business, or Seller) receive:
+● Access to the member coupon book
+● 2× Community Points on qualifying storefront purchases and business QR code scans (see program rules in the app or site).
+
+8.1 Resident (Subscriber) Plan
+The Resident plan ($10/month or yearly equivalent) also provides:
+● List items on the Community Resale Hub (member resale experience)
 ● Exclusive hints in NWC scavenger hunts
 ● Support for the NWC mission
 Subscriptions renew automatically until canceled. You may manage or cancel your subscription at any time through the self-service billing portal (link in Inland Northwest Community) or by contacting NWC.
 
-8.1 Business & Seller Plans - Tax Responsibility
-Sponsors are responsible for their own taxes, reporting, EIN requirements, and legal compliance.
-NWC sponsorship fees may be deductible as marketing expenses.
+8.2 Business & Seller Plans - Tax Responsibility
+Business subscribers are responsible for their own taxes, reporting, EIN requirements, and legal compliance.
+NWC Business plan fees may be deductible as marketing expenses.
 
-8.2 Honest Business Practice
+8.3 Honest Business Practice
 NWC will not work with companies known for:
 ● Illegal activity
 ● Scams
 ● Dishonesty
 ● Poor ethical behavior
 ● Repeated negative customer experiences
-NWC may terminate sponsorship at its discretion.
-NWC reserves the right to request clarification or documentation if concerns arise regarding a sponsor's business practices.
+NWC may terminate a Business subscription at its discretion.
+NWC reserves the right to request clarification or documentation if concerns arise regarding a business subscriber's practices.
 
-8.3 Non-Exclusive Categories
+8.4 Non-Exclusive Categories
 Multiple businesses in the same field may sign up with NWC.
 NWC does not guarantee exclusive industry representation.
 NWC remains impartial in promotions, except for two acknowledged personal affiliations:
 ● Helmszz Deep Ink
 ● DJ's Coins & Collectibles
 
-8.4 Payment, Billing, & Cancellation
+8.5 Payment, Billing, & Cancellation
 ● The following subscription plans and prices apply (monthly or yearly, as offered in Stripe):
 ● $10/month (Resident/Subscriber)
 ● $25/month (Business)
@@ -182,30 +185,30 @@ In compliance with Idaho and federal automatic-renewal rules, NWC provides:
 ● Email notification approximately 2 days before each renewal with renewal terms and cancellation instructions
 ● Access to the self-service billing portal for cancellation and payment method updates
 
-8.5 Locally Owned Business Requirement
-Sponsors must be locally owned within:
+8.6 Locally Owned Business Requirement
+Business subscribers must be locally owned within:
 Coeur d'Alene, Spokane, Post Falls, Hayden, Liberty Lake, Airway Heights, Wallace, Kellogg, Sandpoint, Rathdrum, or surrounding cities in Northern Idaho or Eastern Washington.
 Local chains allowed; national chains are not.
 Independent sellers working under a larger company (e.g., real estate agents) may be listed individually.
 Individuals are responsible for their business eligibility with their employer.
 
-8.6 Advertising Policy
+8.7 Advertising Policy
 NWC promotes local businesses but does not guarantee continuous or individualized advertising.
 Event shoutouts include all businesses and sellers with NWC.
-Sponsors offering coupons or giveaways may receive additional visibility.
+Business subscribers offering coupons or giveaways may receive additional visibility.
 Advertising visibility is not guaranteed, and performance levels may vary. NWC makes no promises regarding increased revenue, customers, or engagement.
 
-8.7 Calendar Policy
+8.8 Calendar Policy
 ● Business subscribers may submit community events.
 ● NWC may deny events that are political or not community-oriented.
 ● Events with incomplete information may not be posted.
 ● Event limits per business may apply to maintain readability.
 
-8.8 Coupon Policy for Sponsors
-Sponsors offering coupons must honor them.
-Failure to do so may result in contact from NWC, removal of the coupon, or termination of sponsorship.
+8.9 Coupon policy for business subscribers
+Business subscribers offering coupons must honor them.
+Failure to do so may result in contact from NWC, removal of the coupon, or termination of the Business subscription.
 
-8.9 Rewards Policy
+8.10 Rewards Policy
 For Businesses and Sellers:
 ● Businesses and sellers offering rewards are responsible for delivering the items or goods and for fulfilling the services offered as rewards.
 ● Failure to deliver rewards or fulfill offered services will result in immediate termination.
@@ -251,11 +254,11 @@ NWC is not responsible for damages caused by user misuse, insecure internet conn
 13. WARRANTY DISCLAIMER
 NWC provides all services "as is" and "as available." We make no guarantees regarding:
 ● Accuracy of content
-● Reliability of sellers or sponsors
+● Reliability of sellers or business subscribers
 ● Continuous website or app availability
 ● Error-free operation
 ● Quality of goods sold
-NWC does not guarantee that listings, blogs, coupons, or sponsor information are accurate, complete, or up-to-date. The only reason this is not guaranteed is if a sponsor or seller fails to communicate the changes, which may result in termination of their membership.
+NWC does not guarantee that listings, blogs, coupons, or business directory information are accurate, complete, or up-to-date. The only reason this is not guaranteed is if a business subscriber or seller fails to communicate the changes, which may result in termination of their membership.
 
 14. INDEMNIFICATION
 You agree to indemnify, defend, and hold harmless NWC and its owners, employees, and partners from any claims arising from:
@@ -264,7 +267,7 @@ You agree to indemnify, defend, and hold harmless NWC and its owners, employees,
 ● Your interactions with buyers, sellers, or businesses
 ● Your misuse of the platform
 ● Violations of these Terms
-Users agree that NWC has no obligation to intervene in disputes between users, businesses, buyers, sellers, or sponsors.
+Users agree that NWC has no obligation to intervene in disputes between users, businesses, buyers, sellers, or business subscribers.
 
 15. TERMINATION
 NWC may suspend or terminate accounts at any time for:

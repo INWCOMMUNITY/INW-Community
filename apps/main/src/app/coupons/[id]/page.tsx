@@ -19,21 +19,25 @@ export default async function CouponDetailPage({
   if (!coupon) notFound();
 
   const session = await getServerSession(authOptions);
-  const hasAccess = session?.user?.id
-    ? await prisma.subscription.findFirst({
-        where: {
-          memberId: session.user.id,
-          plan: { in: ["subscribe", "sponsor", "seller"] },
-          status: "active",
-        },
-      })
-    : null;
+  const userId = session?.user?.id;
+  const isLoggedIn = Boolean(userId);
+  const isOwner = Boolean(userId && coupon.business?.memberId === userId);
+  const hasPaidPlan =
+    !!userId &&
+    !!(await prisma.subscription.findFirst({
+      where: {
+        memberId: userId,
+        status: "active",
+        plan: { in: ["subscribe", "sponsor", "seller"] },
+      },
+    }));
+  const hasAccess = hasPaidPlan || isOwner;
 
-  const saved = session?.user?.id
+  const saved = userId
     ? await prisma.savedItem.findUnique({
         where: {
           memberId_type_referenceId: {
-            memberId: session.user.id,
+            memberId: userId,
             type: "coupon",
             referenceId: coupon.id,
           },
@@ -64,11 +68,28 @@ export default async function CouponDetailPage({
           </>
         ) : (
           <div className="border rounded-lg p-6 bg-amber-50 max-w-md">
-            <p className="font-medium mb-2">Subscribe to view this coupon</p>
+            <p className="font-medium mb-2">Member plan required</p>
             <p className="text-sm text-gray-600 mb-4">
-              Coupon codes are available to Northwest Community subscribers. Subscribe to access the full coupon book.
+              Coupon codes are available with an active Northwest Community Subscribe, Business, or Seller plan.{" "}
+              {!isLoggedIn ? "Create an account and choose a plan, or log in." : "Choose a plan on Support NWC to unlock the coupon book."}
             </p>
-            <Link href="/support-nwc" className="btn">Subscribe to NWC</Link>
+            {!isLoggedIn ? (
+              <div className="flex flex-col sm:flex-row gap-3 mb-3">
+                <Link href="/signup?next=%2Fsupport-nwc" className="btn text-center">
+                  Sign up
+                </Link>
+                <Link
+                  href={`/login?callbackUrl=${encodeURIComponent(`/coupons/${coupon.id}`)}`}
+                  className="btn text-center border-2 border-[var(--color-primary)] bg-white"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  Log in
+                </Link>
+              </div>
+            ) : null}
+            <Link href="/support-nwc" className="btn inline-block">
+              View plans
+            </Link>
           </div>
         )}
         <div className="flex gap-3 mt-4">

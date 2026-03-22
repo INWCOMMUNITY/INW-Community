@@ -119,6 +119,8 @@ export default function SellerOrderDetailPage() {
   const [shippoModalOpen, setShippoModalOpen] = useState(false);
   const elementsListenersRef = useRef(false);
   const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
+  /** Set on each label flow open so LABEL_PURCHASED_SUCCESS (registered once) always saves the right order. */
+  const labelFlowOrderIdRef = useRef<string>("");
 
   const refetchOrder = useCallback(() => {
     if (!id) return;
@@ -155,7 +157,8 @@ export default function SellerOrderDetailPage() {
   }, [id]);
 
   async function openElementsFlow(options: { forReprint?: boolean } = {}) {
-    if (!order) return;
+    if (!order || !id) return;
+    labelFlowOrderIdRef.current = id;
     const objectId = options.forReprint ? order.shipment?.shippoOrderId : undefined;
     const orderDetails = buildOrderDetailsFromOrder(order, objectId, {
       freshShippoOrder: Boolean(order.shipment) && !options.forReprint,
@@ -206,21 +209,24 @@ export default function SellerOrderDetailPage() {
         });
         shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
           const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
-          if (txs.length === 0 || !order) return;
-          const payload = transactionToLabelFromElementsPayload(txs[0], {
+          const saveOrderId = labelFlowOrderIdRef.current;
+          if (txs.length === 0 || !saveOrderId) return;
+          const firstTx = txs[0];
+          const payload = transactionToLabelFromElementsPayload(firstTx, {
             weightOz: 16,
             lengthIn: 12,
             widthIn: 12,
             heightIn: 12,
           });
+          // Never fall back to shipment.shippoOrderId: for "purchase another label" that is the *previous* Shippo order.
           const shippoOrderId =
-            shippoOrderIdFromCreatedRef.current ?? order.shipment?.shippoOrderId ?? null;
+            firstTx.order_id?.trim() || shippoOrderIdFromCreatedRef.current?.trim() || null;
           try {
             const res = await fetch("/api/shipping/label-from-elements", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                orderId: order.id,
+                orderId: saveOrderId,
                 ...payload,
                 ...(shippoOrderId ? { shippoOrderId } : {}),
               }),

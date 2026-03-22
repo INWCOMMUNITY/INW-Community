@@ -50,6 +50,8 @@ export const authOptions = {
             select: { id: true },
           });
           (session.user as { isSubscriber?: boolean }).isSubscriber = !!sub;
+          /** Resale Hub (member marketplace UI) — Subscribe ($10) only; Seller Hub is separate. */
+          (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = !!sub;
         }
         const adminEmail = process.env.ADMIN_EMAIL;
         (session.user as { isAdmin?: boolean }).isAdmin =

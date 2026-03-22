@@ -234,7 +234,7 @@ export function RewardFormModal({
               <Text style={styles.emptyTitle}>Add a business first</Text>
               <Text style={styles.emptyText}>
                 You need at least one business to offer a reward. Set up your
-                business from Sponsor Hub.
+                business from Business Hub.
               </Text>
               <Pressable
                 style={({ pressed }) => [
