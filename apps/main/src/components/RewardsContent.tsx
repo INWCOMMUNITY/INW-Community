@@ -135,7 +135,10 @@ export function RewardsContent() {
         setError(data.error ?? "Failed to redeem");
         return;
       }
-      if (data.needsShippingCheckout && data.redemptionId) {
+      if (
+        (data.needsShippingAddress || data.needsShippingCheckout) &&
+        data.redemptionId
+      ) {
         window.location.href = `/rewards/shipping-checkout?redemptionId=${encodeURIComponent(data.redemptionId)}`;
         return;
       }
@@ -434,23 +437,26 @@ export function RewardsContent() {
             return <p className="text-gray-500">No rewards match your search.</p>;
           }
           return (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="flex flex-wrap justify-center gap-4 sm:gap-5">
             {filtered.map((r) => {
               const canRedeem = session?.user && points !== null && points >= r.pointsRequired;
               const remaining = r.redemptionLimit - r.timesRedeemed;
               const isSaved = savedRewardIds.has(r.id);
               return (
-                <div key={r.id} className="border-2 border-[var(--color-primary)] rounded-lg p-4 transition relative">
+                <div
+                  key={r.id}
+                  className="border-2 border-[var(--color-primary)] rounded-lg p-3 transition relative w-full max-w-[18rem] shrink-0"
+                >
                   <div className="relative">
                     <button
                       type="button"
                       onClick={() => setSelectedRewardForModal(r)}
-                      className="w-full text-left block rounded mb-3 overflow-hidden focus:ring-2 focus:ring-offset-1 focus:ring-[var(--color-primary)]"
+                      className="w-full text-left block rounded mb-2 overflow-hidden focus:ring-2 focus:ring-offset-1 focus:ring-[var(--color-primary)]"
                     >
                       {r.imageUrl ? (
                         <img src={r.imageUrl} alt={r.title} className="w-full aspect-square object-cover" />
                       ) : (
-                        <div className="w-full aspect-square bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm">
+                        <div className="w-full aspect-square bg-gray-100 rounded flex items-center justify-center text-gray-400 text-xs">
                           No image
                         </div>
                       )}
@@ -459,30 +465,30 @@ export function RewardsContent() {
                       <button
                         type="button"
                         onClick={() => toggleSaved(r.id, isSaved)}
-                        className="absolute top-1 right-1 p-1.5 rounded-full bg-white/90 border border-gray-200 hover:bg-white shadow-sm"
+                        className="absolute top-1 right-1 p-1 rounded-full bg-white/90 border border-gray-200 hover:bg-white shadow-sm"
                         aria-label={isSaved ? "Remove from liked" : "Like reward"}
                         title={isSaved ? "Remove from liked" : "Save reward"}
                       >
-                        <span className={isSaved ? "text-red-500" : "text-gray-400"} style={{ fontSize: "1.25rem" }}>{isSaved ? "♥" : "♡"}</span>
+                        <span className={`text-base ${isSaved ? "text-red-500" : "text-gray-400"}`}>{isSaved ? "♥" : "♡"}</span>
                       </button>
                     )}
                   </div>
-                  <h3 className="font-bold text-lg">{r.title}</h3>
-                  <Link href={`/support-local/${r.business.slug}`} className="text-sm text-primary-600 hover:underline">
+                  <h3 className="font-bold text-base leading-snug">{r.title}</h3>
+                  <Link href={`/support-local/${r.business.slug}`} className="text-xs text-primary-600 hover:underline">
                     {r.business.name}
                   </Link>
-                  {r.description && <p className="text-sm text-gray-600 mt-2 line-clamp-2">{r.description}</p>}
-                  <p className="text-sm font-medium mt-2">
+                  {r.description && <p className="text-xs text-gray-600 mt-1.5 line-clamp-2">{r.description}</p>}
+                  <p className="text-xs font-medium mt-1.5">
                     {r.pointsRequired} points · {remaining} left
-                    {r.needsShipping ? " · Ships to you" : ""}
+                    {r.needsShipping ? " · Ships to you — we never charge shipping on rewards" : ""}
                   </p>
-                  <div className="flex gap-2 mt-3">
+                  <div className="flex gap-1.5 mt-2">
                     {session?.user ? (
                       <>
                         <button
                           onClick={() => handleRedeem(r.id)}
                           disabled={!canRedeem || redeeming === r.id}
-                          className="btn flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="btn flex-1 text-xs py-2 px-2 sm:px-3 leading-tight disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {redeeming === r.id
                             ? "Redeeming…"
@@ -490,10 +496,10 @@ export function RewardsContent() {
                               ? "Redeem"
                               : `Need ${r.pointsRequired - (points ?? 0)} More Points`}
                         </button>
-                        <ShareButton type="reward" id={r.id} title={r.title} className="inline-flex p-2 rounded border border-gray-300 bg-white hover:bg-gray-50 shrink-0" />
+                        <ShareButton type="reward" id={r.id} title={r.title} className="inline-flex p-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 shrink-0" />
                       </>
                     ) : (
-                      <Link href="/login?callbackUrl=/rewards" className="btn w-full inline-block text-center">
+                      <Link href="/login?callbackUrl=/rewards" className="btn w-full inline-block text-center text-xs py-2">
                         Sign In to Redeem
                       </Link>
                     )}

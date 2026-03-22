@@ -90,6 +90,10 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
       return "/my-badges";
     case "resale-hub/offers":
       return "/resale-hub/offers";
+    case "resale-hub/messages":
+      return data.conversationId
+        ? `/messages/resale/${data.conversationId}`
+        : "/messages?tab=resale";
     case "resale-hub/list":
       return "/resale-hub/list";
     case "community/my-friends":

@@ -122,6 +122,8 @@ export default function ResaleProductDetailPage() {
   const [messageContent, setMessageContent] = useState("");
   const [messageSubmitting, setMessageSubmitting] = useState(false);
   const [messageError, setMessageError] = useState("");
+  const [messageSentOpen, setMessageSentOpen] = useState(false);
+  const [messageSentConversationId, setMessageSentConversationId] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<"card" | "cash">("card");
 
   useEffect(() => {
@@ -569,10 +571,9 @@ export default function ResaleProductDetailPage() {
       }
       setMessageSellerOpen(false);
       setMessageContent("");
-      const convId = data.conversationId;
-      if (convId) {
-        window.location.href = `/my-community/messages?conversation=${convId}`;
-      }
+      const convId = typeof data.conversationId === "string" ? data.conversationId : null;
+      setMessageSentConversationId(convId);
+      setMessageSentOpen(true);
     } finally {
       setMessageSubmitting(false);
     }
@@ -892,6 +893,48 @@ export default function ResaleProductDetailPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Message sent confirmation */}
+        {messageSentOpen && (
+          <div
+            className="fixed inset-0 z-[101] bg-black/50 flex items-center justify-center p-4"
+            onClick={() => setMessageSentOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-sent-title"
+          >
+            <div
+              className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 id="message-sent-title" className="text-xl font-semibold mb-2">
+                Message Sent!
+              </h2>
+              <p className="text-gray-600 text-sm mb-6">
+                The seller can reply from their Resale Hub messages. You can continue the conversation anytime from{" "}
+                <span className="font-medium text-[var(--color-heading)]">Inland Northwest Community → Messages</span>.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                {messageSentConversationId ? (
+                  <Link
+                    href={`/my-community/messages?conversation=${encodeURIComponent(messageSentConversationId)}`}
+                    className="btn inline-block text-center"
+                    onClick={() => setMessageSentOpen(false)}
+                  >
+                    Open conversation
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setMessageSentOpen(false)}
+                  className={`btn border border-gray-300 bg-white hover:bg-gray-50 ${messageSentConversationId ? "" : "w-full sm:w-auto"}`}
+                >
+                  OK
+                </button>
+              </div>
             </div>
           </div>
         )}

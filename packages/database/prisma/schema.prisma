@@ -896,6 +896,8 @@ model ResaleConversation {
   sellerId    String   @map("seller_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
+  buyerLastReadAt  DateTime? @map("buyer_last_read_at")
+  sellerLastReadAt DateTime? @map("seller_last_read_at")
 
   storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
   buyer     Member    @relation("ResaleConversationBuyer", fields: [buyerId], references: [id], onDelete: Cascade)

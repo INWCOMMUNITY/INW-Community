@@ -233,7 +233,7 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
           className="mt-1"
         />
         <span className="text-sm text-gray-700">
-          Member pays shipping at checkout (you fulfill via Seller Hub / Shippo like a storefront order).
+          Ships to the member. They provide a shipping address when redeeming; you fulfill via Seller Hub / Shippo like a storefront order. Members are never charged shipping for rewards.
         </span>
       </label>
       {error && <p className="text-red-600 text-sm">{error}</p>}

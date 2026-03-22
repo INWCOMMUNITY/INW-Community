@@ -84,7 +84,42 @@ export async function GET(req: NextRequest) {
     return myLastReadAt == null || last.createdAt > myLastReadAt;
   }).length;
 
-  const unreadMessages = messageRequestsCount + acceptedWithUnread;
+  let resaleUnread = 0;
+  try {
+    const resaleConvs = await prisma.resaleConversation.findMany({
+      where: {
+        OR: [{ buyerId: session.user.id }, { sellerId: session.user.id }],
+      },
+      select: {
+        buyerId: true,
+        sellerId: true,
+        buyerLastReadAt: true,
+        sellerLastReadAt: true,
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { senderId: true, createdAt: true },
+        },
+      },
+    });
+    resaleUnread = resaleConvs.filter((c) => {
+      const otherId = c.buyerId === session.user.id ? c.sellerId : c.buyerId;
+      if (blockedIds.has(otherId)) return false;
+      const last = c.messages[0];
+      if (!last || last.senderId === session.user.id) return false;
+      const myRead = c.buyerId === session.user.id ? c.buyerLastReadAt : c.sellerLastReadAt;
+      return myRead == null || last.createdAt > myRead;
+    }).length;
+  } catch (e) {
+    const msg = String((e as { message?: string })?.message ?? "");
+    if ((e as { code?: string })?.code === "P2021" || /buyer_last_read|seller_last_read/i.test(msg)) {
+      console.warn("[sidebar-alerts] resale_conversation last_read columns missing, skipping resale unread");
+    } else {
+      throw e;
+    }
+  }
+
+  const unreadMessages = messageRequestsCount + acceptedWithUnread + resaleUnread;
 
   return NextResponse.json({
     unreadMessages,

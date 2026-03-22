@@ -92,7 +92,7 @@ export function Header() {
       .then((r) => r.json())
       .then((d) => setUnreadMessages(Number(d?.unreadMessages ?? 0)))
       .catch(() => setUnreadMessages(0));
-  }, [session?.user?.id]);
+  }, [session?.user?.id, pathname]);
 
   if (pathname?.startsWith("/seller-hub")) {
     return null;

@@ -97,7 +97,7 @@ export async function POST(
     if (result.needsShipping) {
       return NextResponse.json({
         ok: true,
-        needsShippingCheckout: true,
+        needsShippingAddress: true,
         redemptionId: result.redemptionId,
       });
     }

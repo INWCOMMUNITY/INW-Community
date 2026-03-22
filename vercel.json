@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm --filter main build",
+  "buildCommand": "pnpm db:migrate:deploy && pnpm --filter main build",
   "outputDirectory": "apps/main/.next",
   "installCommand": "pnpm install",
   "framework": "nextjs"

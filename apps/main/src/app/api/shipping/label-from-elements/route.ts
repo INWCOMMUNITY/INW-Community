@@ -73,11 +73,26 @@ export async function POST(req: NextRequest) {
   }
 
   const primaryId = ids[0];
+  // Multi-order combine: all must still be unpaid + unshipped. Single order: allow shipped/delivered
+  // when a shipment already exists so "purchase another label" / reprint save paths work.
+  const statusWhere =
+    ids.length > 1
+      ? { status: "paid" as const }
+      : {
+          OR: [
+            { status: "paid" as const },
+            {
+              status: { in: ["shipped", "delivered"] },
+              shipment: { isNot: null },
+            },
+          ],
+        };
+
   const orders = await prisma.storeOrder.findMany({
     where: {
       id: { in: ids },
       sellerId: userId,
-      status: "paid",
+      ...statusWhere,
     },
     include: { shipment: true, buyer: { select: { email: true } } },
   });
@@ -114,7 +129,10 @@ export async function POST(req: NextRequest) {
     shippoOrderId: shippoOrderId?.trim() ?? null,
   };
   const orderUpdate = {
-    status: "shipped" as const,
+    status:
+      primaryOrder.status === "delivered"
+        ? ("delivered" as const)
+        : ("shipped" as const),
     packageWeightOz: weightOz,
     packageLengthIn: lengthIn,
     packageWidthIn: widthIn,

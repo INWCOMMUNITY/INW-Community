@@ -10,7 +10,7 @@ interface Offer {
   status: string;
   sellerResponse: string | null;
   createdAt: string;
-  storeItem: { id: string; title: string; slug: string; priceCents: number };
+  storeItem: { id: string; title: string; slug: string; priceCents: number; photos: string[] };
   buyer: { id: string; firstName: string; lastName: string };
 }
 
@@ -63,22 +63,41 @@ export default function ResaleHubOffersPage() {
               <ul className="space-y-4">
                 {pending.map((o) => (
                   <li key={o.id} className="border rounded-lg p-4 bg-gray-50">
-                    <div className="flex flex-wrap justify-between gap-2">
-                      <div>
+                    <div className="flex flex-wrap justify-between gap-3">
+                      <div className="flex gap-3 min-w-0 flex-1">
                         <Link
                           href={`/resale/${o.storeItem.slug}`}
-                          className="font-medium text-[var(--color-link)] hover:underline"
+                          className="shrink-0 w-20 h-20 rounded-lg overflow-hidden bg-gray-200 border border-gray-200"
+                          aria-label={`View listing: ${o.storeItem.title}`}
                         >
-                          {o.storeItem.title}
+                          {o.storeItem.photos?.[0] ? (
+                            <img
+                              src={o.storeItem.photos[0]}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-xs text-gray-400 text-center px-1">
+                              No photo
+                            </div>
+                          )}
                         </Link>
-                        <p className="text-sm text-gray-600 mt-1">
-                          ${(o.amountCents / 100).toFixed(2)} from {o.buyer.firstName} {o.buyer.lastName}
-                        </p>
-                        {o.message && (
-                          <p className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">{o.message}</p>
-                        )}
+                        <div className="min-w-0">
+                          <Link
+                            href={`/resale/${o.storeItem.slug}`}
+                            className="font-medium text-[var(--color-link)] hover:underline"
+                          >
+                            {o.storeItem.title}
+                          </Link>
+                          <p className="text-sm text-gray-600 mt-1">
+                            ${(o.amountCents / 100).toFixed(2)} from {o.buyer.firstName} {o.buyer.lastName}
+                          </p>
+                          {o.message && (
+                            <p className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">{o.message}</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 shrink-0">
                         <button
                           type="button"
                           onClick={() => respond(o.id, "accepted")}
@@ -105,16 +124,31 @@ export default function ResaleHubOffersPage() {
               <h2 className="text-lg font-semibold mb-3">Responded</h2>
               <ul className="space-y-2">
                 {responded.map((o) => (
-                  <li key={o.id} className="border rounded p-3 text-sm">
-                    <Link href={`/resale/${o.storeItem.slug}`} className="text-[var(--color-link)] hover:underline">
-                      {o.storeItem.title}
+                  <li key={o.id} className="border rounded p-3 text-sm flex gap-3 items-start">
+                    <Link
+                      href={`/resale/${o.storeItem.slug}`}
+                      className="shrink-0 w-14 h-14 rounded-md overflow-hidden bg-gray-100 border border-gray-200"
+                      aria-label={`View listing: ${o.storeItem.title}`}
+                    >
+                      {o.storeItem.photos?.[0] ? (
+                        <img src={o.storeItem.photos[0]} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-400 text-center px-0.5">
+                          —
+                        </div>
+                      )}
                     </Link>
-                    {" — "}
-                    ${(o.amountCents / 100).toFixed(2)} from {o.buyer.firstName} {o.buyer.lastName}
-                    {" — "}
-                    <span className={o.status === "accepted" ? "text-green-600" : "text-gray-600"}>
-                      {o.status}
-                    </span>
+                    <div className="min-w-0 pt-0.5">
+                      <Link href={`/resale/${o.storeItem.slug}`} className="text-[var(--color-link)] hover:underline font-medium">
+                        {o.storeItem.title}
+                      </Link>
+                      {" — "}
+                      ${(o.amountCents / 100).toFixed(2)} from {o.buyer.firstName} {o.buyer.lastName}
+                      {" — "}
+                      <span className={o.status === "accepted" ? "text-green-600" : "text-gray-600"}>
+                        {o.status}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>

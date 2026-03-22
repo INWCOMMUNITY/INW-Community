@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "database";
 import { MemberProfile } from "@/components/MemberProfile";
+import { resolveMemberMediaUrl } from "@/lib/member-media-url";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +21,22 @@ export default async function MyPage() {
       bio: true,
       city: true,
       privacyLevel: true,
+      allTimePointsEarned: true,
+      memberBadges: {
+        include: { badge: { select: { id: true, name: true, slug: true, description: true } } },
+      },
     },
   });
 
   if (!member) redirect("/my-community");
+
+  const badges =
+    member.memberBadges?.map((mb) => ({
+      id: mb.badge.id,
+      name: mb.badge.name,
+      slug: mb.badge.slug,
+      description: mb.badge.description,
+    })) ?? [];
 
   const blogs = await prisma.blog.findMany({
     where: { memberId: member.id, status: "approved" },
@@ -46,18 +59,33 @@ export default async function MyPage() {
     );
 
   return (
-    <div>
+    <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+      <div className="max-w-2xl mx-auto">
+        <div className="rounded-xl border-2 border-[var(--color-primary)] shadow-lg overflow-hidden bg-white">
       <MemberProfile
-        member={member}
+        member={{
+          id: member.id,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          profilePhotoUrl: resolveMemberMediaUrl(member.profilePhotoUrl),
+          bio: member.bio,
+          city: member.city,
+          allTimePointsEarned: member.allTimePointsEarned ?? 0,
+        }}
+        canSeeFullProfile
+        badges={badges}
         blogs={blogs}
         favoriteBusinesses={favoriteBusinesses}
         sessionUserId={session.user.id}
         isOwnProfile
         isFriend={false}
         pendingFriendRequest={null}
+        incomingFriendRequestId={null}
         editProfileHref="/my-community/profile"
-        friendsHref="/my-community/friends"
+        backHref="/my-community"
       />
-    </div>
+        </div>
+      </div>
+    </section>
   );
 }

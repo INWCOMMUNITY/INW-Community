@@ -65,6 +65,8 @@ interface CartItem {
   storeItemId: string;
   quantity: number;
   variant: unknown;
+  /** From GET /api/cart — agreed resale offer unit price when applicable */
+  unitPriceCents?: number;
   fulfillmentType?: string | null;
   localDeliveryDetails?: {
     firstName?: string;
@@ -87,6 +89,10 @@ interface CartItem {
 
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function cartLineUnitPriceCents(item: CartItem): number {
+  return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
 }
 
 function resolvePhotoUrl(path: string | undefined): string | undefined {
@@ -543,8 +549,13 @@ export default function CartScreen() {
                         {item.storeItem.title}
                       </Text>
                       <Text style={styles.itemPrice}>
-                        {formatPrice(item.storeItem.priceCents)} x {item.quantity}
+                        {formatPrice(cartLineUnitPriceCents(item))} x {item.quantity}
                       </Text>
+                      {cartLineUnitPriceCents(item) !== item.storeItem.priceCents ? (
+                        <Text style={styles.offerHint}>
+                          Agreed offer (list {formatPrice(item.storeItem.priceCents)})
+                        </Text>
+                      ) : null}
                       <Text style={styles.itemFulfillment}>{fulfillmentLabel}</Text>
                       {(item as CartItem).unavailableReason ? (
                         <Text style={styles.unavailableReason}>{(item as CartItem).unavailableReason}</Text>
@@ -641,9 +652,7 @@ export default function CartScreen() {
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>Subtotal</Text>
                 <Text style={styles.totalValue}>
-                  {formatPrice(
-                    items.reduce((s, i) => s + i.storeItem.priceCents * i.quantity, 0)
-                  )}
+                  {formatPrice(items.reduce((s, i) => s + cartLineUnitPriceCents(i) * i.quantity, 0))}
                 </Text>
               </View>
 
@@ -924,6 +933,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.primary,
     marginTop: 4,
+  },
+  offerHint: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
   },
   itemFulfillment: {
     fontSize: 12,

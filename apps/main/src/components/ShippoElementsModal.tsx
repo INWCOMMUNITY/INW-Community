@@ -75,11 +75,11 @@ export function ShippoElementsModal({ open, onClose, containerId, title = "Purch
             </span>
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
           <div
             ref={containerRef}
             id={containerId}
-            className="min-h-[min(70vh,720px)] w-full"
+            className="shippo-modal-elements-root min-h-[min(70vh,720px)] w-full min-w-0"
             aria-hidden="true"
           />
         </div>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CheckoutButton } from "@/components/CheckoutButton";
+import { formatSubscriptionPriceForInterval } from "@/lib/subscription-plan-prices";
 
 export function BillingIntervalCheckout({
   planId,
@@ -13,6 +14,7 @@ export function BillingIntervalCheckout({
   className?: string;
 }) {
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
+  const priceLines = formatSubscriptionPriceForInterval(planId, interval);
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -40,6 +42,16 @@ export function BillingIntervalCheckout({
           Yearly
         </button>
       </div>
+      {priceLines ? (
+        <div className="text-center px-2">
+          <p className="text-lg font-semibold" style={{ color: "var(--color-heading)" }}>
+            {priceLines.primary}
+          </p>
+          {priceLines.secondary ? (
+            <p className="text-sm text-gray-600 mt-1">{priceLines.secondary}</p>
+          ) : null}
+        </div>
+      ) : null}
       <CheckoutButton planId={planId} interval={interval} className={className}>
         {children}
       </CheckoutButton>

@@ -83,6 +83,8 @@ export type ShippoElementsTheme = {
 
 export const NWC_SHIPPO_ELEMENTS_THEME: ShippoElementsTheme = {
   primaryColor: PRIMARY,
+  /** Fill the host container (modal); default embed is ~half-width. */
+  width: "100%",
   container: {
     backgroundColor: WHITE,
   },

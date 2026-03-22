@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { authOptions } from "@/lib/auth";
+import { canViewerSeeFullMemberProfile } from "@/lib/member-profile-access";
 
 /**
  * GET /api/members/[id]/posts?limit=30&cursor=...
@@ -28,22 +29,11 @@ export async function GET(
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
 
-  const isSelf = viewerId === memberId;
-  const isPrivate =
-    member.privacyLevel === "friends_only" || member.privacyLevel === "completely_private";
-  let canSeeFullProfile = isSelf;
-  if (!canSeeFullProfile && isPrivate && viewerId) {
-    const friendship = await prisma.friendRequest.findFirst({
-      where: {
-        status: "accepted",
-        OR: [
-          { requesterId: viewerId, addresseeId: memberId },
-          { requesterId: memberId, addresseeId: viewerId },
-        ],
-      },
-    });
-    canSeeFullProfile = !!friendship;
-  }
+  const canSeeFullProfile = await canViewerSeeFullMemberProfile(
+    viewerId,
+    memberId,
+    member.privacyLevel
+  );
 
   if (!canSeeFullProfile) {
     return NextResponse.json({ posts: [], nextCursor: null });

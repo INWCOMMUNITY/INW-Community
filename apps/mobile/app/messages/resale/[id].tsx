@@ -15,7 +15,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface ResaleConversation {
@@ -48,6 +48,9 @@ export default function ResaleConversationScreen() {
     try {
       const data = await apiGet<ResaleConversation>(`/api/resale-conversations/${id}`);
       setConv(data);
+      if (data?.id) {
+        apiPatch(`/api/resale-conversations/${id}/read`).catch(() => {});
+      }
     } catch {
       setConv(null);
     } finally {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -90,6 +90,8 @@ export default function MyCommunityMessagesPage() {
   const resaleId = searchParams.get("conversation");
   const directId = searchParams.get("direct");
   const groupId = searchParams.get("group");
+  const addresseeIdParam = searchParams.get("addresseeId");
+  const addresseePrefillDone = useRef<string | null>(null);
   const tabParam = searchParams.get("tab");
   const tab: Tab =
     tabParam === "groups" || groupId ? "groups" : tabParam === "resale" || resaleId ? "resale" : "direct";
@@ -145,6 +147,42 @@ export default function MyCommunityMessagesPage() {
     load();
   }, [load]);
 
+  /** Open “new message” composer with a member (e.g. from /members/[id] “Message”). */
+  useEffect(() => {
+    if (!addresseeIdParam) {
+      addresseePrefillDone.current = null;
+      return;
+    }
+    if (!session?.user?.id || addresseeIdParam === session.user.id) return;
+    if (addresseePrefillDone.current === addresseeIdParam) return;
+    let cancelled = false;
+    (async () => {
+      const res = await fetch(`/api/members/${addresseeIdParam}`, fetchOpts);
+      if (!res.ok || cancelled) return;
+      const d = (await res.json().catch(() => null)) as {
+        id?: string;
+        firstName?: string;
+        lastName?: string;
+        profilePhotoUrl?: string | null;
+      } | null;
+      if (cancelled || !d?.id) return;
+      addresseePrefillDone.current = addresseeIdParam;
+      setNewMessageFriend({
+        id: d.id,
+        firstName: d.firstName ?? "",
+        lastName: d.lastName ?? "",
+        profilePhotoUrl: d.profilePhotoUrl ?? null,
+      });
+      setShowFriendPicker(false);
+      setNewMessageContent("");
+      setTab("direct");
+      router.replace("/my-community/messages?tab=direct", { scroll: false });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [addresseeIdParam, session?.user?.id, router]);
+
   useEffect(() => {
     if (!resaleId) {
       setOpenResale(null);
@@ -153,8 +191,13 @@ export default function MyCommunityMessagesPage() {
     fetch(`/api/resale-conversations/${resaleId}`, fetchOpts)
       .then((r) => r.json())
       .then((data) => {
-        if (data.id) setOpenResale(data);
-        else setOpenResale(null);
+        if (data.id) {
+          setOpenResale(data);
+          fetch(`/api/resale-conversations/${resaleId}/read`, {
+            ...fetchOpts,
+            method: "PATCH",
+          }).catch(() => {});
+        } else setOpenResale(null);
       })
       .catch(() => setOpenResale(null));
   }, [resaleId]);
@@ -376,8 +419,8 @@ export default function MyCommunityMessagesPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col flex-1 min-h-[320px] bg-white rounded-lg border border-gray-200">
-        <div className="flex items-center justify-center flex-1 py-16">
+      <div className="flex flex-col flex-1 min-h-0 h-full bg-white rounded-lg border border-gray-200">
+        <div className="flex items-center justify-center flex-1 min-h-0 py-16">
           <div className="w-10 h-10 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
         </div>
       </div>
@@ -385,7 +428,7 @@ export default function MyCommunityMessagesPage() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-white rounded-lg border-2 border-gray-200 overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 h-full bg-white rounded-lg border-2 border-gray-200 overflow-hidden">
       {/* App-style green header */}
       <header
         className="flex items-center justify-between px-4 py-3 shrink-0 border-b-2 border-black"

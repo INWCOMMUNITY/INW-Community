@@ -10,7 +10,6 @@ import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
 import {
   buildOrderDetailsFromOrder,
-  buildOrderDetailsFromOrders,
   transactionToLabelFromElementsPayload,
   type ElementsTransactionPayload,
 } from "@/lib/shippo-elements";
@@ -96,6 +95,13 @@ interface StoreOrder {
   shipment?: Shipment | null;
 }
 
+function sellerOrderTotalDisplay(order: Pick<StoreOrder, "orderKind" | "totalCents">): string {
+  if (order.orderKind === "reward_redemption" && order.totalCents === 0) {
+    return "No charge to member (reward)";
+  }
+  return `$${(order.totalCents / 100).toFixed(2)}`;
+}
+
 interface SellerProfile {
   business: {
     name: string;
@@ -111,7 +117,7 @@ interface SellerProfile {
 }
 
 const ORDER_TABS = [
-  { key: "to_ship", label: "To ship", param: "mine=1&needsShipment=1" },
+  { key: "to_ship", label: "To Ship", param: "mine=1&needsShipment=1" },
   { key: "shipped", label: "Shipped", param: "mine=1&shipped=1" },
   { key: "canceled", label: "Canceled", param: "mine=1&canceled=1" },
 ] as const;
@@ -259,10 +265,16 @@ export function StorefrontOrdersContent(props: {
       }
       orderDetails = one;
     } else {
-      const orderDetailsArray = buildOrderDetailsFromOrders(selectedOrders);
-      if (!orderDetailsArray?.length) {
-        setElementsError("Selected order(s) have no valid shipping address.");
-        return;
+      const orderDetailsArray: ReturnType<typeof buildOrderDetailsFromOrder>[] = [];
+      for (const o of selectedOrders) {
+        const one = buildOrderDetailsFromOrder(o, undefined, {
+          freshShippoOrder: Boolean(o.shipment) && !forReprint,
+        });
+        if (!one) {
+          setElementsError("Selected order(s) have no valid shipping address.");
+          return;
+        }
+        orderDetailsArray.push(one);
       }
       orderDetails = orderDetailsArray.length === 1 ? orderDetailsArray[0] : orderDetailsArray;
     }
@@ -347,9 +359,15 @@ export function StorefrontOrdersContent(props: {
                   };
                 })
               );
+            } else {
+              setElementsError(
+                typeof (data as { error?: string }).error === "string"
+                  ? (data as { error: string }).error
+                  : "Could not save label to your order. If you were charged, contact support with your order number."
+              );
             }
           } catch {
-            // ignore
+            setElementsError("Could not save label to your order.");
           }
         });
         shippo.on("ERROR", (err: unknown) => {
@@ -461,7 +479,7 @@ export function StorefrontOrdersContent(props: {
                             <p className="text-sm text-gray-500 mt-1">
                               {formatShippingAddress(order.shippingAddress) || "—"}
                             </p>
-                            <p className="font-semibold mt-1">${(order.totalCents / 100).toFixed(2)}</p>
+                            <p className="font-semibold mt-1">{sellerOrderTotalDisplay(order)}</p>
                           </div>
                         </div>
                       </div>
@@ -560,7 +578,7 @@ export function StorefrontOrdersContent(props: {
                             <p className="text-sm text-gray-500 mt-1">
                               {formatShippingAddress(order.shippingAddress) || "—"}
                             </p>
-                            <p className="font-semibold mt-1">${(order.totalCents / 100).toFixed(2)}</p>
+                            <p className="font-semibold mt-1">{sellerOrderTotalDisplay(order)}</p>
                           </div>
                         </div>
                       </div>
@@ -621,7 +639,7 @@ export function StorefrontOrdersContent(props: {
                           )}
                         </div>
                         <div className="flex items-start gap-3 shrink-0">
-                          <p className="font-semibold">${(order.totalCents / 100).toFixed(2)}</p>
+                          <p className="font-semibold">{sellerOrderTotalDisplay(order)}</p>
                           {tab === "shipped" && order.shipment ? (
                             <div className="relative">
                               <button

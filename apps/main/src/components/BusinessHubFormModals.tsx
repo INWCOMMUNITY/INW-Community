@@ -336,7 +336,7 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
           <IonIcon name="cube-outline" size={28} className="text-[var(--color-primary)] mb-2" />
           <h2 className="text-xl font-bold mb-2">Reward Redemptions</h2>
           <p className="text-sm text-gray-600">
-            See who redeemed your rewards, contact info for shipped items, and links to fulfillment orders.
+            See who redeemed your rewards, contact info for shipped items, and links to fulfillment orders. Shipping is never charged to members for rewards.
           </p>
         </Link>
         <button

@@ -6,13 +6,14 @@ import Image from "next/image";
 import { WIX_IMG } from "@/lib/wix-media";
 import { CheckoutButton } from "@/components/CheckoutButton";
 import { useSiteImageUrls } from "@/components/SiteImageUrls";
+import { SUBSCRIPTION_PLAN_PRICES } from "@/lib/subscription-plan-prices";
 
 const PLANS = [
   {
     id: "subscribe",
     name: "Northwest Community Subscription",
-    price: 10,
-    priceYearly: 100,
+    price: SUBSCRIPTION_PLAN_PRICES.subscribe.monthlyUsd,
+    priceYearly: SUBSCRIPTION_PLAN_PRICES.subscribe.yearlyUsd,
     description:
       "This plan helps support our business and what we do, as well as provides access to our coupons, access to exclusive groups, and gets you exclusive hints in our scavenger hunts!",
     imagePath: "2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg",
@@ -22,8 +23,8 @@ const PLANS = [
   {
     id: "sponsor",
     name: "Northwest Community Business",
-    price: 25,
-    priceYearly: 250,
+    price: SUBSCRIPTION_PLAN_PRICES.sponsor.monthlyUsd,
+    priceYearly: SUBSCRIPTION_PLAN_PRICES.sponsor.yearlyUsd,
     description:
       "Join Northwest Community's Local Business Directory. Offer coupons, post events on our calendar, and gain visibility through the events NWC will put on.",
     imagePath: "2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg",
@@ -33,8 +34,8 @@ const PLANS = [
   {
     id: "seller",
     name: "Northwest Community Seller",
-    price: 30,
-    priceYearly: 325,
+    price: SUBSCRIPTION_PLAN_PRICES.seller.monthlyUsd,
+    priceYearly: SUBSCRIPTION_PLAN_PRICES.seller.yearlyUsd,
     description:
       "Become a Sponsor as well as gain access to sell on our online storefront as a local business! List items personally and get paid, without NWC taking personal percentages from your sold items.",
     imagePath: "2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg",
@@ -90,6 +91,33 @@ export default function SupportNWCInfoPage() {
             >
               Yearly
             </button>
+          </div>
+          <div className="mt-4 text-sm text-gray-700 max-w-2xl mx-auto">
+            <p className="font-semibold mb-2" style={{ color: "var(--color-heading)" }}>
+              {interval === "monthly" ? "Monthly prices" : "Yearly prices"}
+            </p>
+            <ul className="space-y-1 opacity-90">
+              {PLANS.map((plan) => (
+                <li key={plan.id}>
+                  <span className="font-medium text-gray-900">{plan.name}:</span>{" "}
+                  {interval === "monthly" ? (
+                    <>
+                      ${plan.price}
+                      <span className="text-gray-600"> / month</span>
+                    </>
+                  ) : (
+                    <>
+                      ${plan.priceYearly}
+                      <span className="text-gray-600"> / year</span>
+                      <span className="text-gray-500">
+                        {" "}
+                        (${(plan.priceYearly / 12).toFixed(2)} / mo billed annually)
+                      </span>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 

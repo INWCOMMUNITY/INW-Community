@@ -43,7 +43,13 @@ interface CartItem {
   localDeliveryDetails?: LocalDeliveryDetails | null;
   pickupDetails?: PickupDetails & { termsAcceptedAt?: string } | null;
   storeItem: CartItemStoreItem;
+  /** Server-resolved unit price (e.g. accepted resale offer); falls back to storeItem.priceCents when absent. */
+  unitPriceCents?: number;
   unavailableReason?: string;
+}
+
+function cartLineUnitPriceCents(item: CartItem): number {
+  return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
 }
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
@@ -435,10 +441,7 @@ export default function CartPage() {
     }
   }
 
-  const subtotalCents = items.reduce(
-    (sum, i) => sum + i.storeItem.priceCents * i.quantity,
-    0
-  );
+  const subtotalCents = items.reduce((sum, i) => sum + cartLineUnitPriceCents(i) * i.quantity, 0);
   const shippingCostCents = items.reduce((sum, i) => {
     if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
       return sum + i.storeItem.shippingCostCents * i.quantity;
@@ -457,7 +460,7 @@ export default function CartPage() {
   }, 0);
   const totalCents = subtotalCents + shippingCostCents + localDeliveryFeeCents;
 
-  const cardSubtotalCents = cardItems.reduce((sum, i) => sum + i.storeItem.priceCents * i.quantity, 0);
+  const cardSubtotalCents = cardItems.reduce((sum, i) => sum + cartLineUnitPriceCents(i) * i.quantity, 0);
   const cardShippingCents = cardItems.reduce((sum, i) => {
     if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
       return sum + i.storeItem.shippingCostCents * i.quantity;
@@ -472,7 +475,7 @@ export default function CartPage() {
   }, 0);
   const cardTotalCents = cardSubtotalCents + cardShippingCents + cardLocalDeliveryCents;
   const cashTotalCents = cashItems.reduce((sum, i) => {
-    let s = i.storeItem.priceCents * i.quantity;
+    let s = cartLineUnitPriceCents(i) * i.quantity;
     if (i.fulfillmentType === "local_delivery" && i.storeItem?.localDeliveryFeeCents != null && i.storeItem.localDeliveryFeeCents > 0) {
       s += i.storeItem.localDeliveryFeeCents * i.quantity;
     }
@@ -629,7 +632,12 @@ export default function CartPage() {
                           className="text-base font-bold mt-0.5"
                           style={{ color: "var(--color-heading)" }}
                         >
-                          ${((item.storeItem.priceCents * item.quantity) / 100).toFixed(2)}
+                          ${((cartLineUnitPriceCents(item) * item.quantity) / 100).toFixed(2)}
+                          {cartLineUnitPriceCents(item) !== item.storeItem.priceCents ? (
+                            <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                              Agreed offer (list ${(item.storeItem.priceCents / 100).toFixed(2)})
+                            </span>
+                          ) : null}
                           {(item.fulfillmentType === "ship" &&
                             item.storeItem.shippingCostCents != null &&
                             item.storeItem.shippingCostCents > 0) && (

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
 import { CheckoutButton } from "@/components/CheckoutButton";
+import { formatSubscriptionPriceForInterval } from "@/lib/subscription-plan-prices";
 
 interface InfoPageSignupBannerProps {
   /** Wix media path for wall-to-wall background (use with GALLERY_CTA_BACKGROUND). */
@@ -26,6 +27,7 @@ export function InfoPageSignupBanner({
   buttonLabel,
 }: InfoPageSignupBannerProps) {
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
+  const priceLines = planId ? formatSubscriptionPriceForInterval(planId, interval) : null;
 
   return (
     <section
@@ -71,6 +73,16 @@ export function InfoPageSignupBanner({
                 Yearly
               </button>
             </div>
+            {priceLines ? (
+              <div className="w-full text-center px-1">
+                <p className="text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+                  {priceLines.primary}
+                </p>
+                {priceLines.secondary ? (
+                  <p className="text-xs text-gray-600 mt-1">{priceLines.secondary}</p>
+                ) : null}
+              </div>
+            ) : null}
             <CheckoutButton planId={planId} interval={interval} className="btn">
               {buttonLabel}
             </CheckoutButton>

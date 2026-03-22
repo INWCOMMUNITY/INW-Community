@@ -7,9 +7,9 @@ import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 export const dynamic = "force-dynamic";
 
 function statusLabel(fulfillmentStatus: string | null, storeOrderId: string | null) {
-  if (fulfillmentStatus === "paid") return "Paid (fulfill / ship)";
+  if (fulfillmentStatus === "paid") return "Ready to fulfill / ship";
   if (fulfillmentStatus === "pending_checkout") {
-    return storeOrderId ? "Checkout started" : "Awaiting shipping checkout";
+    return storeOrderId ? "Payment pending (legacy)" : "Awaiting shipping address";
   }
   return fulfillmentStatus ?? (storeOrderId ? "In progress" : "Recorded");
 }
@@ -78,8 +78,8 @@ export default async function BusinessRewardRedemptionsPage() {
         </h1>
         <p className="text-gray-600 mb-8">
           {isAdmin
-            ? "All reward redemptions on the platform (admin view). For shipping rewards, contact details are shown for fulfillment."
-            : "Members who redeemed rewards tied to your businesses. For shipping rewards, contact details are shown so you can fulfill after they pay shipping."}
+            ? "All reward redemptions on the platform (admin view). For shipping rewards, contact details are shown for fulfillment. Members are never charged shipping for rewards."
+            : "Members who redeemed rewards tied to your businesses. For shipping rewards, contact details are shown so you can fulfill and ship. Members are never charged shipping for rewards."}
         </p>
 
         {redemptions.length === 0 ? (

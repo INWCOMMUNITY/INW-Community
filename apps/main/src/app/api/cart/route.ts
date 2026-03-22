@@ -3,6 +3,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { expireStaleResaleOffers } from "@/lib/expire-stale-resale-offers";
+import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -82,6 +83,7 @@ export async function GET(req: NextRequest) {
       resaleOffer: {
         select: {
           id: true,
+          buyerId: true,
           status: true,
           checkoutDeadlineAt: true,
           finalAmountCents: true,
@@ -103,6 +105,11 @@ export async function GET(req: NextRequest) {
           ? "This item is no longer available."
           : `Only ${available} available. Reduce quantity or remove.`;
     }
+    const { unitPriceCents } = resolvedPriceForCartLine(
+      { priceCents: storeItem.priceCents },
+      i,
+      session.user.id
+    );
     return {
       id: i.id,
       storeItemId: i.storeItemId,
@@ -115,6 +122,7 @@ export async function GET(req: NextRequest) {
       resaleOfferId: i.resaleOfferId,
       resaleOffer: i.resaleOffer,
       storeItem: i.storeItem,
+      unitPriceCents,
       ...(unavailableReason && { unavailableReason }),
     };
   });

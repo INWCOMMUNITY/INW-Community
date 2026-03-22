@@ -4,7 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { ensureRewardFulfillmentStoreItem } from "@/lib/reward-fulfillment-store-item";
 
 /**
- * GET — summary for reward shipping checkout (authenticated redeemer only).
+ * GET — summary for reward shipping address form (authenticated redeemer only).
  */
 export async function GET(
   req: NextRequest,
@@ -31,17 +31,16 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   if (!redemption.reward.needsShipping) {
-    return NextResponse.json({ error: "This reward does not require shipping checkout" }, { status: 400 });
+    return NextResponse.json({ error: "This reward does not require a shipping address" }, { status: 400 });
   }
   if (redemption.fulfillmentStatus && redemption.fulfillmentStatus !== "pending_checkout") {
-    return NextResponse.json({ error: "Redemption is not awaiting checkout" }, { status: 400 });
+    return NextResponse.json({ error: "Redemption is not awaiting a shipping address" }, { status: 400 });
   }
   const sellerId = redemption.reward.business.memberId;
-  const { shippingCostCents } = await ensureRewardFulfillmentStoreItem(sellerId);
+  await ensureRewardFulfillmentStoreItem(sellerId);
   return NextResponse.json({
     redemptionId: redemption.id,
     rewardTitle: redemption.reward.title,
     businessName: redemption.reward.business.name,
-    shippingCostCents,
   });
 }

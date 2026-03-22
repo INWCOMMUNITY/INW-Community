@@ -52,6 +52,7 @@ export default function ResaleHubMessagesPage() {
   const [openConversation, setOpenConversation] = useState<OpenResale | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
+  const [messageSentOpen, setMessageSentOpen] = useState(false);
 
   const loadList = useCallback(() => {
     setLoading(true);
@@ -74,8 +75,13 @@ export default function ResaleHubMessagesPage() {
     fetch(`/api/resale-conversations/${conversationId}`, fetchOpts)
       .then((r) => r.json())
       .then((data) => {
-        if (data.id) setOpenConversation(data);
-        else setOpenConversation(null);
+        if (data.id) {
+          setOpenConversation(data);
+          fetch(`/api/resale-conversations/${conversationId}/read`, {
+            ...fetchOpts,
+            method: "PATCH",
+          }).catch(() => {});
+        } else setOpenConversation(null);
       })
       .catch(() => setOpenConversation(null));
   }, [conversationId]);
@@ -109,6 +115,7 @@ export default function ResaleHubMessagesPage() {
               }
             : null
         );
+        setMessageSentOpen(true);
       }
     } finally {
       setSending(false);
@@ -279,6 +286,33 @@ export default function ResaleHubMessagesPage() {
           ← Back to Resale Hub
         </Link>
       </div>
+
+      {messageSentOpen ? (
+        <div
+          className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"
+          onClick={() => setMessageSentOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="resale-hub-message-sent-title"
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="resale-hub-message-sent-title" className="text-xl font-semibold mb-2">
+              Message Sent!
+            </h2>
+            <p className="text-gray-600 text-sm mb-6">Your reply was delivered.</p>
+            <button
+              type="button"
+              onClick={() => setMessageSentOpen(false)}
+              className="btn w-full sm:w-auto"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

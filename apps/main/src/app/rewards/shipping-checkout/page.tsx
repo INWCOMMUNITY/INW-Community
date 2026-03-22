@@ -12,7 +12,6 @@ function RewardShippingCheckoutInner() {
   const [summary, setSummary] = useState<{
     rewardTitle: string;
     businessName: string;
-    shippingCostCents: number;
   } | null>(null);
   const [street, setStreet] = useState("");
   const [aptOrSuite, setAptOrSuite] = useState("");
@@ -35,7 +34,6 @@ function RewardShippingCheckoutInner() {
         return data as {
           rewardTitle: string;
           businessName: string;
-          shippingCostCents: number;
         };
       })
       .then((d) => {
@@ -55,7 +53,7 @@ function RewardShippingCheckoutInner() {
     };
   }, [redemptionId]);
 
-  async function handlePayShipping(e: React.FormEvent) {
+  async function handleSubmitShipping(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     if (!redemptionId) return;
@@ -78,15 +76,15 @@ function RewardShippingCheckoutInner() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError((data as { error?: string }).error ?? "Checkout failed");
+        setError((data as { error?: string }).error ?? "Could not save shipping details");
         return;
       }
-      const url = (data as { url?: string }).url;
-      if (url) {
-        window.location.href = url;
+      const redirectUrl = (data as { redirectUrl?: string }).redirectUrl;
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
         return;
       }
-      setError("No checkout URL returned");
+      setError("Unexpected response from server");
     } finally {
       setSubmitting(false);
     }
@@ -109,10 +107,10 @@ function RewardShippingCheckoutInner() {
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-lg mx-auto">
         <h1 className="text-2xl font-bold mb-2" style={{ color: "var(--color-heading)" }}>
-          Complete Shipping for Your Reward
+          Shipping address for your reward
         </h1>
         <p className="text-gray-600 mb-6">
-          You already redeemed with Community Points. Pay shipping and tax only so the business can mail your reward.
+          You redeemed with Community Points. Enter where to send the reward. You are never charged shipping for rewards; the business fulfills the shipment.
         </p>
         {loading ? (
           <p className="text-gray-500">Loading…</p>
@@ -121,11 +119,8 @@ function RewardShippingCheckoutInner() {
             <div className="border rounded-lg p-4 mb-6 bg-[var(--color-section-alt)]/40" style={{ borderColor: "var(--color-primary)" }}>
               <p className="font-semibold">{summary.rewardTitle}</p>
               <p className="text-sm text-gray-600">{summary.businessName}</p>
-              <p className="mt-2 font-medium">
-                Shipping: ${(summary.shippingCostCents / 100).toFixed(2)} + tax at checkout
-              </p>
             </div>
-            <form onSubmit={handlePayShipping} className="space-y-4">
+            <form onSubmit={handleSubmitShipping} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Street address *</label>
                 <input
@@ -179,7 +174,7 @@ function RewardShippingCheckoutInner() {
               </div>
               {error && <p className="text-red-600 text-sm">{error}</p>}
               <button type="submit" className="btn w-full disabled:opacity-60" disabled={submitting}>
-                {submitting ? "Redirecting…" : "Continue to Payment"}
+                {submitting ? "Saving…" : "Save address and continue"}
               </button>
             </form>
           </>

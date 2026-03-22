@@ -61,13 +61,23 @@ export interface OrderForElements {
   }>;
 }
 
+export type BuildOrderDetailsOptions = {
+  /**
+   * When true, append a unique suffix to `order_number` so Shippo opens a **new** order.
+   * Use for “purchase another label” on orders that already have a shipment; otherwise Shippo
+   * may resume the prior order because `order_number` matches.
+   */
+  freshShippoOrder?: boolean;
+};
+
 /**
  * Build Shippo Elements OrderDetails from a single store order.
  * Pass objectId to re-open an existing Shippo order (e.g. for re-print).
  */
 export function buildOrderDetailsFromOrder(
   order: OrderForElements,
-  objectId?: string | null
+  objectId?: string | null,
+  options?: BuildOrderDetailsOptions
 ): ShippoElementsOrderDetails | null {
   const addr = order.shippingAddress as { street?: string; aptOrSuite?: string; city?: string; state?: string; zip?: string } | null;
   if (!addr?.street?.trim() || !addr?.city?.trim() || !addr?.state?.trim() || !addr?.zip?.trim()) {
@@ -84,6 +94,18 @@ export function buildOrderDetailsFromOrder(
     weight_unit: "lb",
     country_of_origin: "US",
   }));
+
+  const baseOrderNumber = String(order.orderNumber ?? order.id);
+  let order_number: string;
+  if (objectId?.trim()) {
+    order_number = baseOrderNumber;
+  } else if (options?.freshShippoOrder) {
+    const safeBase = baseOrderNumber.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 28);
+    order_number = `${safeBase}-L${Date.now()}`.slice(0, 64);
+  } else {
+    order_number = baseOrderNumber;
+  }
+
   return {
     address_to: {
       name,
@@ -96,7 +118,7 @@ export function buildOrderDetailsFromOrder(
       ...(order.buyer.email?.trim() ? { email: order.buyer.email.trim().slice(0, 128) } : {}),
     },
     line_items,
-    order_number: order.orderNumber ?? order.id,
+    order_number,
     ...(objectId?.trim() ? { object_id: objectId.trim() } : {}),
   };
 }

@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "cd ../.. && pnpm install",
-  "buildCommand": "pnpm build",
+  "buildCommand": "cd ../.. && pnpm db:migrate:deploy && pnpm --filter main build",
   "crons": [
     {
       "path": "/api/cron/renewal-reminder",

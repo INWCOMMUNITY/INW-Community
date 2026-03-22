@@ -79,7 +79,19 @@ export async function POST(req: NextRequest) {
       senderId: session.user.id,
       content: contentTrimmed,
     },
+    include: { sender: { select: { id: true, firstName: true, lastName: true } } },
   });
+
+  const pushBody =
+    contentTrimmed.length > 0
+      ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+      : "New message about your listing";
+  const { sendPushNotification } = await import("@/lib/send-push-notification");
+  sendPushNotification(sellerId, {
+    title: "Resale message",
+    body: pushBody,
+    data: { screen: "resale-hub/messages", conversationId: conversation.id },
+  }).catch(() => {});
 
   return NextResponse.json({ conversationId: conversation.id, message });
 }

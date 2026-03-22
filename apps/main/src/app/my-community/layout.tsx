@@ -27,12 +27,14 @@ export default async function MyCommunityLayout({
 
   return (
     <section className="py-12 px-4 lg:pl-[0.5in] lg:pr-6 mt-[0.5in] lg:mb-[0.5in]" style={{ paddingTop: "calc(var(--section-padding) + 0.5in)", paddingBottom: "var(--section-padding)" }}>
-      <div className="max-w-[min(100%,1400px)] mx-auto lg:ml-0 lg:mr-auto flex flex-col lg:flex-row gap-10 w-full">
-        <aside className="w-full lg:w-56 shrink-0 order-2 lg:order-1">
+      <div className="max-w-[min(100%,1400px)] mx-auto lg:ml-0 lg:mr-auto flex flex-col lg:flex-row lg:items-stretch gap-10 w-full">
+        <aside className="w-full lg:w-56 shrink-0 order-2 lg:order-1 lg:self-stretch">
           <MyCommunitySidebar />
         </aside>
-        <div className="flex-1 min-w-0 order-1 lg:order-2 w-full max-w-full">{children}</div>
-        <div className="w-full lg:w-56 shrink-0 order-3 flex flex-col gap-6">
+        <div className="flex flex-col flex-1 min-w-0 min-h-0 order-1 lg:order-2 w-full max-w-full">
+          {children}
+        </div>
+        <div className="w-full lg:w-56 shrink-0 order-3 flex flex-col gap-6 lg:self-stretch">
           <MyCommunityRightSidebar />
           <EventInvitationsSidebar />
         </div>

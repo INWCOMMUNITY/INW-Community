@@ -12,6 +12,7 @@ interface CartItem {
   storeItemId: string;
   quantity: number;
   variant: unknown;
+  unitPriceCents?: number;
   storeItem: {
     id: string;
     title: string;
@@ -21,7 +22,12 @@ interface CartItem {
     quantity: number;
     status: string;
     variants: unknown;
+    listingType?: string;
   };
+}
+
+function cartLineUnitPriceCents(item: CartItem): number {
+  return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
 }
 
 export function SideCart() {
@@ -77,10 +83,7 @@ export function SideCart() {
 
   if (!open) return null;
 
-  const subtotalCents = items.reduce(
-    (sum, i) => sum + i.storeItem.priceCents * i.quantity,
-    0
-  );
+  const subtotalCents = items.reduce((sum, i) => sum + cartLineUnitPriceCents(i) * i.quantity, 0);
   const itemCount = items.reduce((sum, i) => sum + (i.quantity ?? 1), 0);
 
   return (
@@ -135,7 +138,11 @@ export function SideCart() {
                   )}
                   <div className="flex-1 min-w-0">
                     <Link
-                      href={`/storefront/${item.storeItem.slug}`}
+                      href={
+                        item.storeItem.listingType === "resale"
+                          ? `/resale/${item.storeItem.slug}`
+                          : `/storefront/${item.storeItem.slug}`
+                      }
                       className="font-medium hover:underline text-sm"
                       onClick={() => setOpen(false)}
                     >
@@ -149,7 +156,12 @@ export function SideCart() {
                       </p>
                     ) : null}
                     <p className="text-sm font-bold mt-1">
-                      ${(item.storeItem.priceCents / 100).toFixed(2)}
+                      ${(cartLineUnitPriceCents(item) / 100).toFixed(2)}
+                      {cartLineUnitPriceCents(item) !== item.storeItem.priceCents ? (
+                        <span className="block text-xs font-normal text-gray-500">
+                          Offer (list ${(item.storeItem.priceCents / 100).toFixed(2)})
+                        </span>
+                      ) : null}
                     </p>
                     <div className="flex items-center gap-2 mt-2">
                       <button

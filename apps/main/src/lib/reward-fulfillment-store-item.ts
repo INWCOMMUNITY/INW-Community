@@ -3,7 +3,7 @@ import { prisma } from "database";
 const REWARD_PLACEHOLDER_TITLE = "__NWC_REWARD_FULFILLMENT__";
 
 /**
- * Internal StoreItem used only for reward redemptions that need shipping (Stripe line item + Shippo flow).
+ * Internal StoreItem used only for reward redemptions that need shipping (seller order line + Shippo flow).
  * Flat shipping rate is copied from the seller's most recently updated listing that has shippingCostCents set.
  */
 export async function ensureRewardFulfillmentStoreItem(sellerMemberId: string): Promise<{

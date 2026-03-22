@@ -82,6 +82,7 @@ interface Shipment {
 interface StoreOrder {
   id: string;
   orderNumber?: string;
+  orderKind?: string;
   totalCents: number;
   shippingCostCents: number;
   status: string;
@@ -91,6 +92,13 @@ interface StoreOrder {
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
   shipment?: Shipment | null;
+}
+
+function sellerOrderTotalLine(order: Pick<StoreOrder, "orderKind" | "totalCents">): string {
+  if (order.orderKind === "reward_redemption" && order.totalCents === 0) {
+    return "No charge to member (reward)";
+  }
+  return `$${(order.totalCents / 100).toFixed(2)}`;
 }
 
 function getTrackingUrl(carrier: string, trackingNumber: string): string {
@@ -149,7 +157,9 @@ export default function SellerOrderDetailPage() {
   async function openElementsFlow(options: { forReprint?: boolean } = {}) {
     if (!order) return;
     const objectId = options.forReprint ? order.shipment?.shippoOrderId : undefined;
-    const orderDetails = buildOrderDetailsFromOrder(order, objectId);
+    const orderDetails = buildOrderDetailsFromOrder(order, objectId, {
+      freshShippoOrder: Boolean(order.shipment) && !options.forReprint,
+    });
     if (!orderDetails) {
       setElementsError("Order has no valid shipping address.");
       return;
@@ -215,9 +225,18 @@ export default function SellerOrderDetailPage() {
                 ...(shippoOrderId ? { shippoOrderId } : {}),
               }),
             });
-            if (res.ok) refetchOrder();
+            const saveData = await res.json().catch(() => ({}));
+            if (res.ok) {
+              refetchOrder();
+            } else {
+              setElementsError(
+                typeof (saveData as { error?: string }).error === "string"
+                  ? (saveData as { error: string }).error
+                  : "Could not save label to your order. If you were charged, contact support with your order number."
+              );
+            }
           } catch {
-            // ignore
+            setElementsError("Could not save label to your order.");
           }
         });
         shippo.on("ERROR", (err: unknown) => {
@@ -290,7 +309,7 @@ export default function SellerOrderDetailPage() {
               </p>
             </div>
             <div className="text-right">
-              <p className="font-bold">${(order.totalCents / 100).toFixed(2)}</p>
+              <p className="font-bold">{sellerOrderTotalLine(order)}</p>
               <div className="mt-1 flex flex-col items-end gap-1">
                 <span
                   className="inline-block px-2 py-0.5 rounded text-sm"
@@ -298,15 +317,24 @@ export default function SellerOrderDetailPage() {
                 >
                   {getOrderStatusLabel(order.status)}
                 </span>
-                <span
-                  className="inline-block px-2 py-0.5 rounded text-sm font-medium"
-                  style={{
-                    backgroundColor: order.stripePaymentIntentId ? "var(--color-section-alt)" : "#fef3c7",
-                    color: order.stripePaymentIntentId ? "var(--color-primary)" : "#92400e",
-                  }}
-                >
-                  {order.stripePaymentIntentId ? "Paid: Online NWC" : "Awaiting Payment: Cash"}
-                </span>
+                {order.orderKind === "reward_redemption" && order.totalCents === 0 ? (
+                  <span
+                    className="inline-block px-2 py-0.5 rounded text-sm font-medium"
+                    style={{ backgroundColor: "#ecfdf5", color: "#065f46" }}
+                  >
+                    Reward — shipping never charged to member
+                  </span>
+                ) : (
+                  <span
+                    className="inline-block px-2 py-0.5 rounded text-sm font-medium"
+                    style={{
+                      backgroundColor: order.stripePaymentIntentId ? "var(--color-section-alt)" : "#fef3c7",
+                      color: order.stripePaymentIntentId ? "var(--color-primary)" : "#92400e",
+                    }}
+                  >
+                    {order.stripePaymentIntentId ? "Paid: Online NWC" : "Awaiting Payment: Cash"}
+                  </span>
+                )}
               </div>
             </div>
           </div>

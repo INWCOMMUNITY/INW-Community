@@ -10,6 +10,7 @@ function OrderSuccessContent() {
   const searchParams = useSearchParams();
   const { refresh } = useCart();
   const sessionId = searchParams?.get("session_id");
+  const rewardShipping = searchParams?.get("reward_shipping") === "1";
   const cash = searchParams?.get("cash") === "1";
   const orderId = searchParams?.get("order_id");
   const orderIdsParam = searchParams?.get("order_ids");
@@ -89,13 +90,15 @@ function OrderSuccessContent() {
         <div className="max-w-[var(--max-width)] mx-auto text-center">
           <h1 className="text-3xl font-bold mb-4">Thank you for your order!</h1>
           <p className="text-gray-600 mb-6">
-            {isCashOrder
-              ? orderIds.length > 1
-                ? "Your orders are confirmed. Pay in cash when you pick up or receive delivery. Each seller will contact you to arrange details."
-                : "Your order is confirmed. Pay in cash when you pick up or receive delivery. The seller will contact you to arrange details."
-              : hadMixedCheckout
-                ? "Your payment was successful. You were charged only for items paid by card. Pay in cash for the rest when you pick up or receive delivery. Sellers will contact you to arrange details."
-                : "Your payment was successful. Community Points have been added to your account. Sellers will ship your order soon."}
+            {rewardShipping
+              ? "Your shipping details are saved. The business will send your reward soon. Shipping is never billed to you for rewards."
+              : isCashOrder
+                ? orderIds.length > 1
+                  ? "Your orders are confirmed. Pay in cash when you pick up or receive delivery. Each seller will contact you to arrange details."
+                  : "Your order is confirmed. Pay in cash when you pick up or receive delivery. The seller will contact you to arrange details."
+                : hadMixedCheckout
+                  ? "Your payment was successful. You were charged only for items paid by card. Pay in cash for the rest when you pick up or receive delivery. Sellers will contact you to arrange details."
+                  : "Your payment was successful. Community Points have been added to your account. Sellers will ship your order soon."}
           </p>
           <div className="flex flex-wrap gap-4 justify-center">
             <Link href="/storefront" className="btn">Continue Shopping</Link>
