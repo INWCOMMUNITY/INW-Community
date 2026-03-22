@@ -203,7 +203,18 @@ export async function POST(req: NextRequest) {
       const existingSub = await prisma.subscription.findFirst({
         where: { stripeSubscriptionId: subId },
       });
-      if (!existingSub) {
+      if (existingSub) {
+        // Idempotent checkout + reactivation: row may already exist (retry, or prior canceled state).
+        await prisma.subscription.update({
+          where: { id: existingSub.id },
+          data: {
+            memberId,
+            plan: planId,
+            status: "active",
+            ...(checkoutCustomerId ? { stripeCustomerId: checkoutCustomerId } : {}),
+          },
+        });
+      } else {
         await prisma.subscription.create({
           data: {
             memberId,

@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { CheckoutSuccessSessionSync } from "@/components/CheckoutSuccessSessionSync";
 import { MyCommunitySignInGate } from "@/components/MyCommunitySignInGate";
 import { EventInvitationsSidebar } from "@/components/EventInvitationsSidebar";
 import { MyCommunitySidebar } from "@/components/MyCommunitySidebar";
@@ -27,6 +29,9 @@ export default async function MyCommunityLayout({
 
   return (
     <section className="py-12 px-4 lg:pl-[0.5in] lg:pr-6 mt-[0.5in] lg:mb-[0.5in]" style={{ paddingTop: "calc(var(--section-padding) + 0.5in)", paddingBottom: "var(--section-padding)" }}>
+      <Suspense fallback={null}>
+        <CheckoutSuccessSessionSync />
+      </Suspense>
       <div className="max-w-[min(100%,1400px)] mx-auto lg:ml-0 lg:mr-auto flex flex-col lg:flex-row lg:items-stretch gap-10 w-full">
         <aside className="w-full lg:w-56 shrink-0 order-2 lg:order-1 lg:self-stretch">
           <MyCommunitySidebar />
