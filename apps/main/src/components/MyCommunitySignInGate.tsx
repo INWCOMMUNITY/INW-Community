@@ -1,8 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
-export function MyCommunitySignInGate({ callbackUrl = "/my-community" }: { callbackUrl?: string }) {
+export function MyCommunitySignInGate({ callbackUrl }: { callbackUrl?: string }) {
+  const searchParams = useSearchParams();
+  const effectiveCallbackUrl =
+    callbackUrl ??
+    (searchParams.get("success") === "1" ? "/my-community?success=1" : "/my-community");
+
   return (
     <>
       <div className="flex gap-4 mb-8 border-b opacity-60">
@@ -18,7 +24,7 @@ export function MyCommunitySignInGate({ callbackUrl = "/my-community" }: { callb
           Inland Northwest Community is free for everyone. Sign in to edit your profile, save events and businesses, and post events.
         </p>
         <div className="flex flex-wrap gap-4 justify-center">
-          <Link href={`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`} className="btn">
+          <Link href={`/login?callbackUrl=${encodeURIComponent(effectiveCallbackUrl)}`} className="btn">
             Sign in
           </Link>
           <Link href="/signup" className="btn border border-gray-300 bg-white hover:bg-gray-50">

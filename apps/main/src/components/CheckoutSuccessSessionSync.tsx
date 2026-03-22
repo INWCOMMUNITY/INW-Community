@@ -11,10 +11,13 @@ const MAX_MS = 90_000;
  * After Stripe redirects to /my-community?success=1, the webhook may lag a few seconds.
  * Poll /api/me until paid access appears, then refresh the NextAuth client session so
  * Header/Sidebar pick up isSubscriber / canAccessResaleHub without a manual full reload.
+ *
+ * If the user is not signed in yet (session expired on Stripe), we wait until they are
+ * authenticated (e.g. after login with callbackUrl preserving ?success=1) before polling.
  */
 export function CheckoutSuccessSessionSync() {
   const searchParams = useSearchParams();
-  const { update } = useSession();
+  const { update, status } = useSession();
   const doneRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const syncTriesRef = useRef(0);
@@ -23,6 +26,8 @@ export function CheckoutSuccessSessionSync() {
 
   useEffect(() => {
     if (searchParams.get("success") !== "1" || doneRef.current) return;
+    if (status === "loading") return;
+    if (status === "unauthenticated") return;
 
     const stop = () => {
       if (intervalRef.current) {
@@ -89,7 +94,7 @@ export function CheckoutSuccessSessionSync() {
     }, POLL_MS);
 
     return () => stop();
-  }, [searchParams, update]);
+  }, [searchParams, update, status]);
 
   return null;
 }

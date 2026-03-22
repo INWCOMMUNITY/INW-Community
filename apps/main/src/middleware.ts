@@ -68,6 +68,11 @@ function mobileCorsHeaders(req: NextRequest) {
 }
 
 export function middleware(req: NextRequest) {
+  // Stripe must receive the request unchanged; do not add CORS or other logic here.
+  if (req.nextUrl.pathname === "/api/stripe/webhook") {
+    return NextResponse.next();
+  }
+
   // Rate limit login attempts (brute-force protection)
   if (req.method === "POST" && req.nextUrl.pathname === "/api/auth/callback/credentials") {
     const ip = getClientIp(req);

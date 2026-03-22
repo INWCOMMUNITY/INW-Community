@@ -19,9 +19,14 @@ export default async function MyCommunityLayout({
   if (!session?.user?.id) {
     return (
       <section className="py-12 px-4 lg:pl-[0.5in] lg:pr-6" style={{ paddingTop: "calc(var(--section-padding) + 0.5in)", paddingBottom: "var(--section-padding)" }}>
+        <Suspense fallback={null}>
+          <CheckoutSuccessSessionSync />
+        </Suspense>
         <div className="max-w-[min(100%,1400px)] mx-auto lg:ml-0 lg:mr-auto">
           <h1 className="text-3xl font-bold mb-8">Inland Northwest Community</h1>
-          <MyCommunitySignInGate callbackUrl="/my-community" />
+          <Suspense fallback={null}>
+            <MyCommunitySignInGate />
+          </Suspense>
         </div>
       </section>
     );

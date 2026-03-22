@@ -25,6 +25,39 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
 });
 
+/** Node runtime: raw body + Buffer match what stripe-node expects; avoid Edge subtle differences. */
+export const runtime = "nodejs";
+
+export const dynamic = "force-dynamic";
+
+function parseWebhookSecretList(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function constructEventWithAnySecret(
+  body: Buffer,
+  sig: string,
+  secrets: string[],
+  toleranceSeconds: number
+): { event: Stripe.Event | null; lastError: unknown } {
+  let lastError: unknown = new Error("No webhook signing secrets provided");
+  for (const secret of secrets) {
+    try {
+      return {
+        event: stripe.webhooks.constructEvent(body, sig, secret, toleranceSeconds),
+        lastError: null,
+      };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  return { event: null, lastError };
+}
+
 function subscriptionIdFromCheckoutSession(session: Stripe.Checkout.Session): string | null {
   const sub = session.subscription;
   if (typeof sub === "string" && sub.length > 0) return sub;
@@ -112,46 +145,51 @@ export async function POST(req: NextRequest) {
     console.warn("[stripe/webhook] 400: missing stripe-signature header");
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
   }
-  const platformSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
-  const connectSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET?.trim();
-  if (!platformSecret && !connectSecret) {
-    console.warn("[stripe/webhook] 400: STRIPE_WEBHOOK_SECRET and STRIPE_CONNECT_WEBHOOK_SECRET both missing or empty");
+  const platformSecrets = parseWebhookSecretList(process.env.STRIPE_WEBHOOK_SECRET);
+  const connectSecrets = parseWebhookSecretList(process.env.STRIPE_CONNECT_WEBHOOK_SECRET);
+  /** Thin / event-destination webhooks (e.g. v2.core.*) use a different signing secret than snapshot endpoints. */
+  const thinSecrets = parseWebhookSecretList(process.env.STRIPE_THIN_WEBHOOK_SECRET);
+  if (
+    platformSecrets.length === 0 &&
+    connectSecrets.length === 0 &&
+    thinSecrets.length === 0
+  ) {
+    console.warn(
+      "[stripe/webhook] 400: no webhook signing secrets configured (STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_WEBHOOK_SECRET, STRIPE_THIN_WEBHOOK_SECRET)"
+    );
     return NextResponse.json({ error: "Missing webhook secret(s)" }, { status: 400 });
   }
 
   // Tolerance (seconds) for timestamp in signature to allow for clock skew
   const toleranceSeconds = 300;
-  let event: Stripe.Event;
-  let lastError: unknown;
-  if (platformSecret) {
-    try {
-      event = stripe.webhooks.constructEvent(body, sig, platformSecret, toleranceSeconds);
-    } catch (e) {
-      lastError = e;
-      event = null as unknown as Stripe.Event;
-    }
-  } else {
-    lastError = new Error("No platform secret");
-    event = null as unknown as Stripe.Event;
+  let event: Stripe.Event | null = null;
+  let lastError: unknown = new Error("No matching webhook signing secret");
+  if (platformSecrets.length > 0) {
+    const r = constructEventWithAnySecret(body, sig, platformSecrets, toleranceSeconds);
+    event = r.event;
+    lastError = r.lastError;
   }
-  if (!event && connectSecret) {
-    try {
-      event = stripe.webhooks.constructEvent(body, sig, connectSecret, toleranceSeconds);
-    } catch (e) {
-      lastError = e;
-      event = null as unknown as Stripe.Event;
-    }
+  if (!event && connectSecrets.length > 0) {
+    const r = constructEventWithAnySecret(body, sig, connectSecrets, toleranceSeconds);
+    event = r.event;
+    lastError = r.lastError ?? lastError;
+  }
+  if (!event && thinSecrets.length > 0) {
+    const r = constructEventWithAnySecret(body, sig, thinSecrets, toleranceSeconds);
+    event = r.event;
+    lastError = r.lastError ?? lastError;
   }
   if (!event) {
     const msg = lastError instanceof Error ? lastError.message : String(lastError);
     console.warn("[stripe/webhook] 400: invalid signature", {
       detail: msg,
-      hint: "Ensure STRIPE_WEBHOOK_SECRET (and STRIPE_CONNECT_WEBHOOK_SECRET if used) match the signing secret for this endpoint in Stripe Dashboard (Developers → Webhooks), and that the request body is not modified by a proxy.",
+      hint: "Ensure STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_WEBHOOK_SECRET (Connect), and/or STRIPE_THIN_WEBHOOK_SECRET (thin / v2.core event destinations) match each destination's signing secret in Stripe. The request body must be raw (unmodified) for verification.",
     });
     return NextResponse.json(
       {
         error: "Invalid signature",
-        hint: "In Stripe Dashboard go to Developers → Webhooks → your endpoint for this URL → Reveal 'Signing secret'. Copy that value (whsec_...) into STRIPE_WEBHOOK_SECRET in your production env. Use Live mode secret for live events, Test mode secret for test events.",
+        hint:
+          "Each Stripe webhook or event destination has its own signing secret (whsec_...). Snapshot events (checkout.session.completed, etc.) use STRIPE_WEBHOOK_SECRET from Developers → Webhooks. Thin destinations (v2.core.*) need that destination's secret in STRIPE_THIN_WEBHOOK_SECRET. Use Live secrets for livemode events.",
       },
       { status: 400 }
     );
@@ -209,11 +247,14 @@ export async function POST(req: NextRequest) {
     }
 
     if ((!memberId || !planId || !subId) && session.mode === "subscription") {
-      console.warn("[stripe/webhook] checkout.session.completed: missing memberId, planId, or subscription id", {
+      console.warn("[stripe/webhook] checkout.session.completed: subscription upsert skipped (missing fields)", {
         sessionId: session.id,
+        mode: session.mode,
+        upsertSkipped: true,
         hasMemberId: Boolean(memberId),
         hasPlanId: Boolean(planId),
         hasSubId: Boolean(subId),
+        hasClientReferenceId: Boolean(session.client_reference_id?.trim()),
       });
     }
 
@@ -970,8 +1011,17 @@ export async function POST(req: NextRequest) {
       if (!existing) {
         try {
           const sub = await stripe.subscriptions.retrieve(subIdStr);
-          const memberId = sub.metadata?.memberId;
-          const planId = sub.metadata?.planId as "subscribe" | "sponsor" | "seller" | undefined;
+          const memberId = sub.metadata?.memberId?.trim();
+          let planId = sub.metadata?.planId?.trim() as "subscribe" | "sponsor" | "seller" | undefined;
+          if (planId && !["subscribe", "sponsor", "seller"].includes(planId)) {
+            planId = undefined;
+          }
+          if (!planId) {
+            const raw = sub.items.data[0]?.price;
+            const priceId = typeof raw === "string" ? raw : raw?.id ?? null;
+            const p = planFromStripePriceId(priceId);
+            if (p) planId = p;
+          }
           if (memberId && planId) {
             await prisma.subscription.create({
               data: {
@@ -998,6 +1048,12 @@ export async function POST(req: NextRequest) {
             } else if ((planId === "sponsor" || planId === "seller") && businessIdFromSub) {
               if (process.env.NODE_ENV === "development") console.log("[webhook] Business already created as draft:", businessIdFromSub);
             }
+          } else {
+            console.warn("[stripe/webhook] invoice.payment_succeeded: subscription row not created (missing memberId or planId)", {
+              subId: subIdStr,
+              hasMemberId: Boolean(memberId),
+              hasPlanId: Boolean(planId),
+            });
           }
         } catch (err) {
           console.error("[webhook] invoice.payment_succeeded subscription handle:", err);
