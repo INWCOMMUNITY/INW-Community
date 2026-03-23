@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
+import { buildHubWebUrl } from "@/lib/seller-hub-web-url";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -118,8 +119,11 @@ export default function OrderDetailScreen() {
     router.push(`/product/${slug}${q}` as never);
   };
 
-  const orderDetailUrl = `${siteBase}/seller-hub/orders/${order.id}`;
-  const openWebLabels = (title: string) => {
+  const openWebLabels = (title: string, mode: "reprint" | "purchase" | "another") => {
+    const orderDetailUrl = buildHubWebUrl(siteBase, `/seller-hub/orders/${order.id}`, {
+      nwAppShippo: mode,
+      nwAppChrome: true,
+    });
     const url = `/web?url=${encodeURIComponent(orderDetailUrl)}&title=${encodeURIComponent(title)}`;
     (router.push as (href: string) => void)(url);
   };
@@ -186,7 +190,7 @@ export default function OrderDetailScreen() {
             {order.shipment?.shippoOrderId && (
               <Pressable
                 style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => openWebLabels("Print label")}
+                onPress={() => openWebLabels("Print label", "reprint")}
               >
                 <Ionicons name="print-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
                 <Text style={styles.labelBtnText}>Print label</Text>
@@ -194,7 +198,12 @@ export default function OrderDetailScreen() {
             )}
             <Pressable
               style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
-              onPress={() => openWebLabels("Purchase labels")}
+              onPress={() =>
+                openWebLabels(
+                  order.shipment?.shippoOrderId ? "Purchase another label" : "Purchase labels",
+                  order.shipment?.shippoOrderId ? "another" : "purchase"
+                )
+              }
             >
               <Text style={styles.labelBtnText}>
                 {order.shipment?.shippoOrderId ? "Purchase another label" : "Purchase labels"}

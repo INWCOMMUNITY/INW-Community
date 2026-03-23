@@ -312,8 +312,8 @@ export default function BusinessScreen() {
                   >
                     <Image
                       source={{ uri: url }}
-                      style={[styles.galleryImage, { width: 240, height: 240 }]}
-                      resizeMode="cover"
+                      style={styles.galleryImage}
+                      resizeMode="contain"
                     />
                   </Pressable>
                 );
@@ -528,10 +528,11 @@ const styles = StyleSheet.create({
     marginHorizontal: -16,
   },
   galleryImage: {
-    width: 240,
-    height: 240,
+    width: 280,
+    height: 220,
     borderRadius: 8,
     marginHorizontal: 8,
+    backgroundColor: "#f5f5f5",
   },
   couponCard: {
     padding: 16,

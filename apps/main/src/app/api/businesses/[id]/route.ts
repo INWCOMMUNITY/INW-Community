@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateText, containsProfanity } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { normalizeSubcategoriesByPrimary, parseSubcategoriesByPrimary } from "@/lib/business-categories";
+import { photosExcludingLogo } from "@/lib/business-photos";
 import { z } from "zod";
 
 const hoursSchema = z.record(z.string()).nullable().optional();
@@ -54,7 +55,7 @@ export async function GET(
     city: business.city,
     categories: business.categories,
     subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
-    photos: business.photos,
+    photos: photosExcludingLogo(business.photos, business.logoUrl),
     hoursOfOperation: business.hoursOfOperation,
   });
 }

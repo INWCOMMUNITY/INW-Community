@@ -14,6 +14,7 @@ import {
   NWC_PAID_PLAN_ACCESS_STATUSES,
   prismaWhereMemberSponsorOrSellerPlanAccess,
 } from "@/lib/nwc-paid-subscription";
+import { photosExcludingLogo } from "@/lib/business-photos";
 
 export async function GET(req: NextRequest) {
   try {
@@ -39,26 +40,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(businesses);
   }
 
-  // Only show businesses whose owner has an active Business (sponsor) or Seller subscription
+  // Public directory: owner has active Business (sponsor) or Seller subscription, OR listing was
+  // admin-assigned (adminGrantedAt) — e.g. imported/restored businesses without a paid sub on the owner.
   const activeSubs = await prisma.subscription.findMany({
     where: { plan: { in: ["sponsor", "seller"] }, status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
     select: { memberId: true },
   });
   const activeMemberIds = activeSubs.map((s) => s.memberId);
-  if (activeMemberIds.length === 0) {
-    const slug = searchParams.get("slug")?.trim();
-    if (slug) return NextResponse.json({ error: "Business not found" }, { status: 404 });
-    const list = searchParams.get("list");
-    if (list === "meta") return NextResponse.json({ categories: [], subcategoriesByPrimary: {}, cities: [] });
-    return NextResponse.json([]);
-  }
 
-  const activeSubFilter = { nameApprovalStatus: "approved" as const, memberId: { in: activeMemberIds } };
+  const publicDirectoryBase = {
+    nameApprovalStatus: "approved" as const,
+    OR: [
+      ...(activeMemberIds.length > 0 ? [{ memberId: { in: activeMemberIds } }] : []),
+      { adminGrantedAt: { not: null } },
+    ],
+  };
 
   const slug = searchParams.get("slug")?.trim();
   if (slug) {
     const business = await prisma.business.findFirst({
-      where: { slug, ...activeSubFilter },
+      where: { slug, ...publicDirectoryBase },
       include: { coupons: true },
     });
     if (!business) {
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
       categories: business.categories,
       subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
       hoursOfOperation: business.hoursOfOperation,
-      photos: business.photos,
+      photos: photosExcludingLogo(business.photos, business.logoUrl),
       coupons: business.coupons,
     });
   }
@@ -87,9 +88,9 @@ export async function GET(req: NextRequest) {
   const list = searchParams.get("list");
   if (list === "meta") {
     const [businessRows, cityRows] = await Promise.all([
-      prisma.business.findMany({ where: activeSubFilter, select: { categories: true, subcategoriesByPrimary: true } }),
+      prisma.business.findMany({ where: publicDirectoryBase, select: { categories: true, subcategoriesByPrimary: true } }),
       prisma.business.findMany({
-        where: { ...activeSubFilter, city: { not: null } },
+        where: { AND: [publicDirectoryBase, { city: { not: null } }] },
         select: { city: true },
       }),
     ]);
@@ -126,20 +127,24 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get("search")?.trim();
   const businesses = await prisma.business.findMany({
     where: {
-      ...activeSubFilter,
-      ...(category ? { categories: { has: category } } : {}),
-      ...(city ? { city: { equals: city, mode: "insensitive" } } : {}),
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search, mode: "insensitive" } },
-              { shortDescription: { contains: search, mode: "insensitive" } },
-              { fullDescription: { contains: search, mode: "insensitive" } },
-              { city: { contains: search, mode: "insensitive" } },
-              { address: { contains: search, mode: "insensitive" } },
-            ],
-          }
-        : {}),
+      AND: [
+        publicDirectoryBase,
+        ...(category ? [{ categories: { has: category } }] : []),
+        ...(city ? [{ city: { equals: city, mode: "insensitive" as const } }] : []),
+        ...(search
+          ? [
+              {
+                OR: [
+                  { name: { contains: search, mode: "insensitive" as const } },
+                  { shortDescription: { contains: search, mode: "insensitive" as const } },
+                  { fullDescription: { contains: search, mode: "insensitive" as const } },
+                  { city: { contains: search, mode: "insensitive" as const } },
+                  { address: { contains: search, mode: "insensitive" as const } },
+                ],
+              },
+            ]
+          : []),
+      ],
     },
     select: {
       id: true,

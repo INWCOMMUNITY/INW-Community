@@ -121,6 +121,7 @@ export default function SellerOrderDetailPage() {
   const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
   /** Set on each label flow open so LABEL_PURCHASED_SUCCESS (registered once) always saves the right order. */
   const labelFlowOrderIdRef = useRef<string>("");
+  const autoNwAppShippoTriggeredRef = useRef(false);
 
   const refetchOrder = useCallback(() => {
     if (!id) return;
@@ -267,6 +268,46 @@ export default function SellerOrderDetailPage() {
   function closeShippoModal() {
     setShippoModalOpen(false);
   }
+
+  const openElementsFlowRef = useRef(openElementsFlow);
+  openElementsFlowRef.current = openElementsFlow;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !order || loading) return;
+    if (autoNwAppShippoTriggeredRef.current) return;
+    const sp = new URLSearchParams(window.location.search);
+    const mode = sp.get("nwAppShippo");
+    if (!mode) return;
+    autoNwAppShippoTriggeredRef.current = true;
+    sp.delete("nwAppShippo");
+    sp.delete("nwAppChrome");
+    const qs = sp.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
+    );
+
+    const run = openElementsFlowRef.current;
+    if (mode === "reprint") {
+      if (
+        order.status === "paid" &&
+        order.shipment?.shippoOrderId &&
+        order.shipment.createdAt &&
+        isWithinLabelReprintWindow(order.shipment.createdAt)
+      ) {
+        void run({ forReprint: true });
+      }
+    } else if (mode === "purchase") {
+      if (order.status === "paid" && !order.shipment) {
+        void run();
+      }
+    } else if (mode === "another") {
+      if (order.status === "paid" && order.shipment) {
+        void run();
+      }
+    }
+  }, [order, loading, id]);
 
   if (loading) {
     return (

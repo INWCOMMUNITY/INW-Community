@@ -13,7 +13,18 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet } from "@/lib/api";
+import { API_BASE, apiGet } from "@/lib/api";
+
+function gifLoadErrorHint(): string {
+  const isLocalApi =
+    API_BASE.includes("localhost") ||
+    API_BASE.includes("127.0.0.1") ||
+    /https?:\/\/(192\.168\.|10\.)/.test(API_BASE);
+  if (typeof __DEV__ !== "undefined" && __DEV__ && isLocalApi) {
+    return "Make sure the main site is running (pnpm dev:main) and EXPO_PUBLIC_API_URL is reachable from this device.";
+  }
+  return "Check your internet connection. If this continues, try again later.";
+}
 const { width } = Dimensions.get("window");
 const COLS = 3;
 const GAP = 6;
@@ -154,7 +165,7 @@ export function GifPickerModal({
               {error ? (
                 <View style={styles.errorWrap}>
                   <Text style={styles.errorText}>{error}</Text>
-                  <Text style={styles.errorHint}>Make sure the main server is running (pnpm dev:main)</Text>
+                  <Text style={styles.errorHint}>{gifLoadErrorHint()}</Text>
                 </View>
               ) : loading && !loadingMore ? (
                 <View style={styles.loading}>

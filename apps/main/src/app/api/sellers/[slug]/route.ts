@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { parseSubcategoriesByPrimary } from "@/lib/business-categories";
+import { photosExcludingLogo } from "@/lib/business-photos";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 function isCuid(s: string): boolean {
@@ -80,7 +81,7 @@ export async function GET(
       categories: business.categories,
       subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
       hoursOfOperation: business.hoursOfOperation,
-      photos: business.photos,
+      photos: photosExcludingLogo(business.photos, business.logoUrl),
       member: business.member,
       storeItems: business.storeItems,
       sellerLocalDeliveryPolicy: business.member.sellerLocalDeliveryPolicy ?? null,

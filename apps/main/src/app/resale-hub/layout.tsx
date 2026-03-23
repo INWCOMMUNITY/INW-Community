@@ -1,9 +1,11 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
 import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
 import { ResaleHubTopNav } from "@/components/ResaleHubTopNav";
+import { HubWebChrome } from "@/components/HubWebChrome";
 
 export const dynamic = "force-dynamic";
 
@@ -40,9 +42,15 @@ export default async function ResaleHubLayout({
   }
 
   return (
-    <>
-      <ResaleHubTopNav />
-      {children}
-    </>
+    <Suspense
+      fallback={
+        <>
+          <ResaleHubTopNav />
+          {children}
+        </>
+      }
+    >
+      <HubWebChrome variant="resale">{children}</HubWebChrome>
+    </Suspense>
   );
 }

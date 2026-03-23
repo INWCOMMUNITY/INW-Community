@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-auth";
+import { wixOriginalMediaUrl } from "@/lib/business-photos";
 
 export async function GET(
   req: NextRequest,
@@ -29,7 +30,10 @@ export async function GET(
     },
   });
   if (!business) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(business);
+  return NextResponse.json({
+    ...business,
+    photos: (business.photos ?? []).map((p) => wixOriginalMediaUrl(p)),
+  });
 }
 
 const hoursSchema = z.record(z.string()).nullable().optional();

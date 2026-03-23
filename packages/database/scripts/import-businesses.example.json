@@ -1,0 +1,28 @@
+[
+  {
+    "name": "Example Coffee",
+    "slug": "example-coffee",
+    "shortDescription": "One line for directory cards.",
+    "fullDescription": "Longer description for the business page. Paste text from the Wix sponsor page here.",
+    "logoUrl": "https://static.wixstatic.com/media/REPLACE_WITH_YOUR_IMAGE.jpg",
+    "coverPhotoUrl": "https://static.wixstatic.com/media/cover.jpg",
+    "address": "",
+    "city": "Spokane",
+    "website": "https://example.wixsite.com/yoursite",
+    "phone": "555-0100",
+    "email": "hello@example.com",
+    "categories": ["Coffee Shop"],
+    "photos": [
+      "https://static.wixstatic.com/media/photo1.jpg",
+      "https://static.wixstatic.com/media/photo2.jpg"
+    ],
+    "hoursOfOperation": {
+      "monday": "7:00 AM – 5:00 PM",
+      "tuesday": "7:00 AM – 5:00 PM",
+      "sunday": "CLOSED"
+    },
+    "subcategoriesByPrimary": {
+      "Coffee Shop": ["Café", "Other"]
+    }
+  }
+]

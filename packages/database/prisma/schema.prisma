@@ -103,6 +103,22 @@ model Member {
   referralSignupsAsNewMember ReferralSignup[] @relation("ReferralSignupNewMember")
   reports                  Report[]
   pushTokens               MemberPushToken[]
+  webviewBridgeTokens      WebviewBridgeToken[]
+}
+
+model WebviewBridgeToken {
+  id         String    @id @default(cuid())
+  token      String    @unique
+  memberId   String    @map("member_id")
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([expiresAt])
+  @@map("webview_bridge_token")
 }
 
 model MemberPushToken {

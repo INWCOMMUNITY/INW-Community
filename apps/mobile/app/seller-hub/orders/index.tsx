@@ -21,10 +21,10 @@ import { theme } from "@/lib/theme";
 import { apiGet, getToken } from "@/lib/api";
 import { getOrderStatusLabel } from "@/lib/order-status";
 import { formatShippingAddress } from "@/lib/format-address";
+import { buildHubWebUrl } from "@/lib/seller-hub-web-url";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-const ORDERS_LABELS_URL = `${siteBase}/seller-hub/orders`;
 
 function resolvePhotoUrl(path: string | undefined): string | undefined {
   if (!path) return undefined;
@@ -104,7 +104,11 @@ function ToShipFlowView({
   useFocusEffect(useCallback(() => { loadStatus(); }, [loadStatus]));
 
   const openPurchaseLabelsWeb = () => {
-    const url = `/web?url=${encodeURIComponent(ORDERS_LABELS_URL)}&title=${encodeURIComponent("Purchase labels")}`;
+    const hubUrl = buildHubWebUrl(siteBase, "/seller-hub/orders", {
+      nwAppShippo: "bulk",
+      nwAppChrome: true,
+    });
+    const url = `/web?url=${encodeURIComponent(hubUrl)}&title=${encodeURIComponent("Purchase labels")}`;
     (router.push as (href: string) => void)(url);
   };
 

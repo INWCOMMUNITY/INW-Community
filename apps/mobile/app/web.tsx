@@ -2,11 +2,16 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { StyleSheet, View, ActivityIndicator, Pressable, Text, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { useAuth } from "@/contexts/AuthContext";
-import { setToken } from "@/lib/api";
+import { API_BASE, apiPost, setToken } from "@/lib/api";
+import {
+  isHubWebviewBridgePath,
+  sameOriginPathFromUrl,
+  siteOriginFromApiBase,
+} from "@/lib/app-webview-params";
 
 const AUTH_SCHEME = "inwcommunity://auth";
 
@@ -28,12 +33,45 @@ export default function WebScreen() {
   const insets = useSafeAreaInsets();
   const { refreshMember } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [webViewUri, setWebViewUri] = useState<string | null>(null);
   const authHandled = useRef(false);
 
   const resolvedUrl = url ? decodeURIComponent(url) : "";
   const resolvedSuccessPattern = successPattern ? decodeURIComponent(successPattern) : "";
   const resolvedSuccessRoute = successRoute ? decodeURIComponent(successRoute) : "";
   const shouldRefreshOnSuccess = refreshOnSuccess === "1";
+
+  useEffect(() => {
+    if (!resolvedUrl) {
+      setWebViewUri(null);
+      return;
+    }
+    const origin = siteOriginFromApiBase(API_BASE);
+    const path = sameOriginPathFromUrl(resolvedUrl, origin);
+    if (!path || !isHubWebviewBridgePath(path.split("#")[0] ?? "")) {
+      setWebViewUri(resolvedUrl);
+      return;
+    }
+    let cancelled = false;
+    const nextPath = path.split("#")[0];
+    (async () => {
+      try {
+        const data = await apiPost<{ redirectUrl?: string }>("/api/auth/webview-bridge", {
+          next: nextPath,
+        });
+        if (!cancelled && data.redirectUrl) {
+          setWebViewUri(data.redirectUrl);
+          return;
+        }
+      } catch {
+        // fall through to direct URL (user may need to sign in on web)
+      }
+      if (!cancelled) setWebViewUri(resolvedUrl);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedUrl]);
 
   const handleAuthRedirect = useCallback(
     async (targetUrl: string) => {
@@ -86,6 +124,27 @@ export default function WebScreen() {
     return null;
   }
 
+  if (!webViewUri) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          <Pressable
+            style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.7 }]}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </Pressable>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {title ? decodeURIComponent(title) : "Web"}
+          </Text>
+        </View>
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
@@ -105,7 +164,7 @@ export default function WebScreen() {
         </View>
       )}
       <WebView
-        source={{ uri: resolvedUrl }}
+        source={{ uri: webViewUri }}
         style={styles.webview}
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}

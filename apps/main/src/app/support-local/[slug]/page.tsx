@@ -8,6 +8,7 @@ import { ShareButton } from "@/components/ShareButton";
 import { BusinessPhotoGallery } from "@/components/BusinessPhotoGallery";
 import { BusinessCouponsList } from "@/components/BusinessCouponsList";
 import { authOptions } from "@/lib/auth";
+import { photosExcludingLogo } from "@/lib/business-photos";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -49,6 +50,7 @@ export default async function BusinessDetailPage({
   const hours = business.hoursOfOperation as Record<string, string> | null | undefined;
   const hasHours = hours && typeof hours === "object" && Object.keys(hours).length > 0;
   const dayOrder = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+  const galleryPhotos = photosExcludingLogo(business.photos ?? [], business.logoUrl);
 
   return (
     <section
@@ -198,7 +200,7 @@ export default async function BusinessDetailPage({
         </div>
 
         {/* Gallery section - white with green border */}
-        {business.photos?.length > 0 && (
+        {galleryPhotos.length > 0 && (
           <div className="mb-8 max-w-[1306px] mx-auto">
             <div
               className="rounded-lg overflow-hidden p-6 border-2 bg-white"
@@ -207,7 +209,7 @@ export default async function BusinessDetailPage({
               <h2 className="text-lg font-bold mb-4" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
                 Gallery
               </h2>
-              <BusinessPhotoGallery photos={business.photos} alt={business.name} size="large" />
+              <BusinessPhotoGallery photos={galleryPhotos} alt={business.name} size="large" />
             </div>
           </div>
         )}
