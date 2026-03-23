@@ -9,6 +9,7 @@ import { BusinessPhotoGallery } from "@/components/BusinessPhotoGallery";
 import { BusinessCouponsList } from "@/components/BusinessCouponsList";
 import { authOptions } from "@/lib/auth";
 import { photosExcludingLogo } from "@/lib/business-photos";
+import { extractBusinessDisplayCity } from "@/lib/city-utils";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -39,7 +40,8 @@ export default async function BusinessDetailPage({
       })
     : null;
 
-  const addressDisplay = [business.address, business.city].filter(Boolean).join(", ");
+  const cityLine = extractBusinessDisplayCity(business.city) ?? business.city ?? "";
+  const addressDisplay = [business.address, cityLine].filter(Boolean).join(", ");
   const googleMapsUrl = addressDisplay
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressDisplay)}`
     : null;

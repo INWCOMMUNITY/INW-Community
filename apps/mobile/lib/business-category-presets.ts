@@ -72,6 +72,10 @@ export const BUSINESS_CATEGORIES: BusinessCategoryOption[] = [
     subcategories: ["Portrait", "Wedding and Events", "Commercial", "Real Estate", "Product", "Other"],
   },
   { label: "Salon and Barbershop", subcategories: ["Hair Salon", "Barber", "Nails", "Spa Services", "Other"] },
+  {
+    label: "Tattoo and Piercing Studio",
+    subcategories: ["Tattoos", "Piercing", "Both", "Other"],
+  },
   { label: "Spa and Massage", subcategories: ["Day Spa", "Medical Spa", "Massage Therapy", "Other"] },
   {
     label: "Fitness and Gym",
@@ -91,6 +95,16 @@ export const BUSINESS_CATEGORIES: BusinessCategoryOption[] = [
       "Social Worker",
       "Group Practice",
       "Solo Practice",
+      "Other",
+    ],
+  },
+  {
+    label: "Coaching and Consulting",
+    subcategories: [
+      "Life and Personal Coaching",
+      "Executive and Leadership Coaching",
+      "Business Consulting",
+      "Workshops and Speaking",
       "Other",
     ],
   },
@@ -139,7 +153,17 @@ export const BUSINESS_CATEGORIES: BusinessCategoryOption[] = [
   { label: "Office Supplies and Services", subcategories: ["Print and Copy", "Shipping Center", "Office Retail", "Other"] },
   {
     label: "Retail (General Merchandise)",
-    subcategories: ["Apparel", "Electronics", "Home Goods", "Gifts", "Sporting Goods", "Hobby", "Thrift and Resale", "Other"],
+    subcategories: [
+      "Apparel",
+      "Electronics",
+      "Home Goods",
+      "Health and Beauty",
+      "Gifts",
+      "Sporting Goods",
+      "Hobby",
+      "Thrift and Resale",
+      "Other",
+    ],
   },
   { label: "Arts and Culture", subcategories: ["Gallery", "Studio", "Performing Arts", "Museum", "Other"] },
   { label: "Entertainment and Recreation", subcategories: ["Bowling", "Arcade", "Venue", "Golf", "Pool Hall", "Other"] },

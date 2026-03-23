@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { deduplicateCities } from "@/lib/city-utils";
+import {
+  businessDisplayCityEquals,
+  deduplicateCities,
+  extractBusinessDisplayCity,
+} from "@/lib/city-utils";
 import { businessMatchesCategoryAndSub, parseSubcategoriesByPrimary } from "@/lib/business-categories";
 import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 
@@ -15,7 +19,7 @@ export async function GET(req: NextRequest) {
     const list = searchParams.get("list");
     const search = searchParams.get("search")?.trim();
     const category = searchParams.get("category")?.trim() || "";
-    const city = searchParams.get("city")?.trim();
+    const cityFilter = (searchParams.get("city") ?? "").trim();
 
     const sellerMemberIds = await prisma.subscription.findMany({
       where: { plan: "seller", status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
@@ -68,7 +72,6 @@ export async function GET(req: NextRequest) {
       where: {
         memberId: { in: memberIds },
         ...(category ? { categories: { has: category } } : {}),
-        ...(city ? { city: { equals: city, mode: "insensitive" } } : {}),
         ...(search
           ? {
               OR: [
@@ -102,9 +105,12 @@ export async function GET(req: NextRequest) {
 
     let sellerRows = businesses;
     if (category && subcategory) {
-      sellerRows = businesses.filter((b) =>
+      sellerRows = sellerRows.filter((b) =>
         businessMatchesCategoryAndSub(b.categories, b.subcategoriesByPrimary, category, subcategory)
       );
+    }
+    if (cityFilter) {
+      sellerRows = sellerRows.filter((b) => businessDisplayCityEquals(b.city, cityFilter));
     }
 
     return NextResponse.json(
@@ -114,7 +120,7 @@ export async function GET(req: NextRequest) {
         slug: b.slug,
         shortDescription: b.shortDescription,
         address: b.address,
-        city: b.city,
+        city: extractBusinessDisplayCity(b.city) ?? b.city,
         categories: b.categories,
         subcategoriesByPrimary: parseSubcategoriesByPrimary(b.subcategoriesByPrimary),
         logoUrl: b.logoUrl,

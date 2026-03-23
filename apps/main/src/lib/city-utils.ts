@@ -7,7 +7,7 @@ const CANONICAL_CITIES: Record<string, string> = {
   "coeur d''alene": "Coeur d'Alene",
 };
 
-function normalizeKey(city: string): string {
+export function normalizeKey(city: string): string {
   return city
     .toLowerCase()
     .trim()
@@ -15,20 +15,61 @@ function normalizeKey(city: string): string {
 }
 
 /**
- * Deduplicate cities using case-insensitive + apostrophe normalization.
- * Known variants (e.g. Coeur d'Alene) are mapped to a single canonical form.
+ * Parse a business `city` field (often "Post Falls, ID 83854, USA") into a directory display
+ * name ("Post Falls"). Strips trailing country, US state, and ZIP; keeps multi-part city names
+ * (e.g. "Coeur d'Alene") when they are the only segment left.
+ */
+export function extractBusinessDisplayCity(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  let s = raw.trim();
+  if (!s) return null;
+  s = s.replace(/,?\s*(USA|United States)\s*$/i, "").trim();
+  const parts = s
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const stateZip = /^([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?$/i;
+  const stateOnly = /^[A-Z]{2}$/i;
+  while (parts.length >= 2) {
+    const last = parts[parts.length - 1]!;
+    if (stateZip.test(last) || stateOnly.test(last)) {
+      parts.pop();
+      continue;
+    }
+    break;
+  }
+  if (parts.length === 0) return null;
+  const joined = parts.join(", ").trim();
+  if (!joined) return null;
+  const key = normalizeKey(joined);
+  return CANONICAL_CITIES[key] ?? joined;
+}
+
+/** Whether a stored city value represents the same directory city as the filter chip value. */
+export function businessDisplayCityEquals(
+  storedCity: string | null | undefined,
+  filterDisplayCity: string | null | undefined
+): boolean {
+  const a = extractBusinessDisplayCity(storedCity);
+  const b = extractBusinessDisplayCity(filterDisplayCity);
+  if (!a || !b) return false;
+  return normalizeKey(a) === normalizeKey(b);
+}
+
+/**
+ * Unique sorted directory city labels from raw DB values (no duplicate metros from "City" vs
+ * "City, ID 83854, USA").
  */
 export function deduplicateCities(cities: (string | null)[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const c of cities) {
-    const city = (c ?? "").trim();
-    if (!city) continue;
-    const key = normalizeKey(city);
-    const canonical = CANONICAL_CITIES[key] ?? city;
+    const display = extractBusinessDisplayCity(c);
+    if (!display) continue;
+    const key = normalizeKey(display);
     if (seen.has(key)) continue;
     seen.add(key);
-    result.push(canonical);
+    result.push(CANONICAL_CITIES[key] ?? display);
   }
-  return result.sort();
+  return result.sort((a, b) => a.localeCompare(b));
 }

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, type Prisma } from "database";
-import { deduplicateCities } from "@/lib/city-utils";
+import {
+  businessDisplayCityEquals,
+  deduplicateCities,
+  extractBusinessDisplayCity,
+} from "@/lib/city-utils";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -21,14 +25,13 @@ export async function GET(req: NextRequest) {
     });
   }
   const category = searchParams.get("category");
-  const city = searchParams.get("city");
+  const cityFilter = (searchParams.get("city") ?? "").trim();
   const search = searchParams.get("search")?.trim();
 
   const where: Prisma.CouponWhereInput = {};
-  if (category || city) {
+  if (category) {
     where.business = {
-      ...(category ? { categories: { has: category } } : {}),
-      ...(city ? { city: { equals: city, mode: "insensitive" } } : {}),
+      categories: { has: category },
     };
   }
   if (search) {
@@ -51,5 +54,19 @@ export async function GET(req: NextRequest) {
     },
     orderBy: { name: "asc" },
   });
-  return NextResponse.json(coupons);
+  let rows = coupons;
+  if (cityFilter) {
+    rows = rows.filter((c) => businessDisplayCityEquals(c.business?.city, cityFilter));
+  }
+  return NextResponse.json(
+    rows.map((c) => ({
+      ...c,
+      business: c.business
+        ? {
+            ...c.business,
+            city: extractBusinessDisplayCity(c.business.city) ?? c.business.city,
+          }
+        : c.business,
+    }))
+  );
 }

@@ -44,13 +44,13 @@
     "logoUrl": "https://static.wixstatic.com/media/2bdd49_5d32ece31c9f490aa2ff89bf4163f1ff~mv2.png/v1/fill/w_400,h_400,al_c,q_85/36caa8_cc6c3ab589734709b97588b3ae32e463~mv2.png",
     "coverPhotoUrl": "https://static.wixstatic.com/media/2bdd49_5d32ece31c9f490aa2ff89bf4163f1ff~mv2.png/v1/fill/w_1600,h_900,al_c,q_85/36caa8_cc6c3ab589734709b97588b3ae32e463~mv2.png",
     "address": "",
-    "city": "Sandpoint, ID 83864, USA",
+    "city": "Sandpoint",
     "website": "https://farmhandsco.com",
     "phone": "208-568-0467",
     "email": "info@farmhandsco.com",
-    "categories": ["Salon and Barbershop"],
+    "categories": ["Retail (General Merchandise)"],
     "subcategoriesByPrimary": {
-      "Salon and Barbershop": ["Spa Services", "Other"]
+      "Retail (General Merchandise)": ["Health and Beauty", "Gifts", "Other"]
     },
     "photos": [],
     "hoursOfOperation": {
@@ -71,12 +71,13 @@
     "logoUrl": "https://static.wixstatic.com/media/2bdd49_305f077208eb46b4b6a809133e8e10aa~mv2.png/v1/fill/w_400,h_400,al_c,q_85/Standup%20Closets%20Logo.png",
     "coverPhotoUrl": "https://static.wixstatic.com/media/2bdd49_fa54731cec1540faad64b76b2bc3db17~mv2.jpeg/v1/fill/w_1600,h_900,al_c,q_85/2bdd49_fa54731cec1540faad64b76b2bc3db17~mv2.jpeg",
     "address": "",
-    "city": "Post Falls, ID, USA",
+    "city": "Post Falls",
     "website": "https://standupcda.com",
     "phone": "208-704-0006",
     "email": "Thomas@standupcda.com",
-    "categories": ["Retail (General Merchandise)"],
+    "categories": ["General Contractor", "Retail (General Merchandise)"],
     "subcategoriesByPrimary": {
+      "General Contractor": ["Remodel", "Other"],
       "Retail (General Merchandise)": ["Home Goods", "Other"]
     },
     "photos": [
@@ -106,7 +107,7 @@
     "logoUrl": "https://static.wixstatic.com/media/ae9ccb_43b5e05dee1a494a8ba452f578b18bbb~mv2.png/v1/fill/w_400,h_400,al_c,q_85/logo%20%232.png",
     "coverPhotoUrl": "https://static.wixstatic.com/media/ae9ccb_b829c738e8114a81a9cd9f63502d37bc~mv2.jpeg/v1/fill/w_1600,h_900,al_c,q_85/ae9ccb_b829c738e8114a81a9cd9f63502d37bc~mv2.jpeg",
     "address": "",
-    "city": "Coeur d'Alene, ID, USA",
+    "city": "Coeur d'Alene",
     "website": "https://www.wildchildsocials.com",
     "phone": "208.771.2019",
     "email": "wildchildsocials@gmail.com",
@@ -135,7 +136,7 @@
     "logoUrl": "https://static.wixstatic.com/media/b63d9f_ba117a6be0864f40968d499bc3c5d405~mv2.jpeg/v1/fill/w_400,h_400,al_c,q_85/IMG_4216.jpeg",
     "coverPhotoUrl": "https://static.wixstatic.com/media/b63d9f_ba117a6be0864f40968d499bc3c5d405~mv2.jpeg/v1/fill/w_1600,h_900,al_c,q_85/IMG_4216.jpeg",
     "address": "13594 W Hwy 53",
-    "city": "Rathdrum, ID 83858, USA",
+    "city": "Rathdrum",
     "website": "https://www.vagaro.com/boujielashestanning",
     "phone": "208-669-1699",
     "email": "boujielashestanning@gmail.com",
@@ -175,7 +176,7 @@
     "logoUrl": "https://static.wixstatic.com/media/0e3a5e_0c39fff2402d4ed2b5d0738484d227bb~mv2.png/v1/fill/w_400,h_400,al_c,q_85/DJB%20logo.png",
     "coverPhotoUrl": "https://static.wixstatic.com/media/0e3a5e_0c39fff2402d4ed2b5d0738484d227bb~mv2.png/v1/fill/w_1600,h_900,al_c,q_85/DJB%20logo.png",
     "address": "10307 N Maple St",
-    "city": "Hayden, ID 83835, USA",
+    "city": "Hayden",
     "website": "https://www.bookkeepingbydjb.com",
     "phone": "208-512-1322",
     "email": "djb.bookkeeping85@gmail.com",
@@ -205,7 +206,7 @@
     "logoUrl": "https://static.wixstatic.com/media/9cc30f_3bacfb80d5314693af72b033177a0c10~mv2.jpeg/v1/fill/w_400,h_400,al_c,q_85/IMG_0911.jpeg",
     "coverPhotoUrl": "https://static.wixstatic.com/media/9cc30f_3bacfb80d5314693af72b033177a0c10~mv2.jpeg/v1/fill/w_1600,h_900,al_c,q_85/IMG_0911.jpeg",
     "address": "",
-    "city": "Spokane, WA, USA",
+    "city": "Spokane",
     "phone": "509-903-8813",
     "email": "cedarstoneconsult@gmail.com",
     "categories": ["Accounting and Tax Services", "Financial Advisors and Services"],
@@ -237,7 +238,7 @@
     "logoUrl": "https://static.wixstatic.com/media/45ed52_b32ef5e7995c4205b4081e8ed40f1474~mv2.jpg/v1/fill/w_400,h_400,al_c,q_85/mom%20and%20baby.jpg",
     "coverPhotoUrl": "https://static.wixstatic.com/media/45ed52_b32ef5e7995c4205b4081e8ed40f1474~mv2.jpg/v1/fill/w_1600,h_900,al_c,q_85/mom%20and%20baby.jpg",
     "address": "2012 N Ruby St",
-    "city": "Spokane, WA 99207, USA",
+    "city": "Spokane",
     "website": "https://www.covenanthomesandresources.org",
     "phone": "509-418-2751",
     "email": "covenanthomes@comcast.net",
@@ -271,13 +272,13 @@
     "logoUrl": "https://static.wixstatic.com/media/2bdd49_875ca59c8cbb48189496fce34bb9e2e9~mv2.jpeg/v1/fill/w_400,h_400,al_c,q_85/IMG_9434.jpeg",
     "coverPhotoUrl": "https://static.wixstatic.com/media/2bdd49_875ca59c8cbb48189496fce34bb9e2e9~mv2.jpeg/v1/fill/w_1600,h_900,al_c,q_85/IMG_9434.jpeg",
     "address": "9045 Hess St",
-    "city": "Hayden, ID 83835, USA",
+    "city": "Hayden",
     "website": "https://www.helmszzdeep-ink.com",
     "phone": "208-304-5960",
     "email": "helmszzdeep@gmail.com",
-    "categories": ["Arts and Culture"],
+    "categories": ["Tattoo and Piercing Studio"],
     "subcategoriesByPrimary": {
-      "Arts and Culture": ["Studio", "Other"]
+      "Tattoo and Piercing Studio": ["Both", "Other"]
     },
     "photos": [
       "https://static.wixstatic.com/media/2bdd49_9a65d46a1c7249899766f4c32ad6fd56~mv2.jpg/v1/fill/w_1200,h_800,al_c,q_85/2bdd49_9a65d46a1c7249899766f4c32ad6fd56~mv2.jpg",
@@ -311,13 +312,13 @@
     "logoUrl": "https://static.wixstatic.com/media/2bdd49_20681789e7104d3a8d9c795819394858~mv2.jpg/v1/fill/w_400,h_400,al_c,q_85/eeeee861d3be78f34739314f83d3a5f0_edited.jpg",
     "coverPhotoUrl": "https://static.wixstatic.com/media/2bdd49_20681789e7104d3a8d9c795819394858~mv2.jpg/v1/fill/w_1600,h_900,al_c,q_85/eeeee861d3be78f34739314f83d3a5f0_edited.jpg",
     "address": "",
-    "city": "Coeur d'Alene, ID, USA",
+    "city": "Coeur d'Alene",
     "website": "https://www.chrisboecoaching.com",
     "phone": "208-371-2909",
     "email": "chris@coachboe.com",
-    "categories": ["Therapists and Mental Health"],
+    "categories": ["Coaching and Consulting"],
     "subcategoriesByPrimary": {
-      "Therapists and Mental Health": ["Solo Practice", "Other"]
+      "Coaching and Consulting": ["Life and Personal Coaching", "Workshops and Speaking", "Other"]
     },
     "photos": [
       "https://static.wixstatic.com/media/2bdd49_c75bbf0e6167492382226ba9249377b9~mv2.jpeg/v1/fill/w_1200,h_800,al_c,q_85/2bdd49_c75bbf0e6167492382226ba9249377b9~mv2.jpeg"
@@ -340,7 +341,7 @@
     "logoUrl": "https://static.wixstatic.com/media/2bdd49_547da7a129704e16be9263c35822a2a4~mv2.jpg/v1/fill/w_400,h_400,al_c,q_85/0023_22a.jpg",
     "coverPhotoUrl": "https://static.wixstatic.com/media/2bdd49_547da7a129704e16be9263c35822a2a4~mv2.jpg/v1/fill/w_1600,h_900,al_c,q_85/0023_22a.jpg",
     "address": "3650 N Government Wy Ste F",
-    "city": "Coeur d'Alene, ID 83815, USA",
+    "city": "Coeur d'Alene",
     "phone": "208-664-9771",
     "email": "djscoins@hotmail.com",
     "categories": ["Retail (General Merchandise)"],

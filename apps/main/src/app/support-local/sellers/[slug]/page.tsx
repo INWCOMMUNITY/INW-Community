@@ -8,6 +8,7 @@ import { ShareButton } from "@/components/ShareButton";
 import { authOptions } from "@/lib/auth";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { FollowBusinessButton } from "./FollowBusinessButton";
+import { extractBusinessDisplayCity } from "@/lib/city-utils";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -73,7 +74,8 @@ export default async function SellerStorefrontPage({
 
   const session = await getServerSession(authOptions);
 
-  const addressDisplay = [business.address, business.city].filter(Boolean).join(", ");
+  const cityLine = extractBusinessDisplayCity(business.city) ?? business.city ?? "";
+  const addressDisplay = [business.address, cityLine].filter(Boolean).join(", ");
   const googleMapsUrl = addressDisplay
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressDisplay)}`
     : null;

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { deduplicateCities } from "@/lib/city-utils";
+import {
+  businessDisplayCityEquals,
+  deduplicateCities,
+  extractBusinessDisplayCity,
+} from "@/lib/city-utils";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateText, containsProfanity } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
@@ -76,7 +80,7 @@ export async function GET(req: NextRequest) {
       email: business.email,
       logoUrl: business.logoUrl,
       address: business.address,
-      city: business.city,
+      city: extractBusinessDisplayCity(business.city) ?? business.city,
       categories: business.categories,
       subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
       hoursOfOperation: business.hoursOfOperation,
@@ -123,14 +127,13 @@ export async function GET(req: NextRequest) {
   }
   const category = searchParams.get("category")?.trim() || "";
   const subcategory = searchParams.get("subcategory")?.trim() || "";
-  const city = searchParams.get("city");
+  const cityFilter = (searchParams.get("city") ?? "").trim();
   const search = searchParams.get("search")?.trim();
   const businesses = await prisma.business.findMany({
     where: {
       AND: [
         publicDirectoryBase,
         ...(category ? [{ categories: { has: category } }] : []),
-        ...(city ? [{ city: { equals: city, mode: "insensitive" as const } }] : []),
         ...(search
           ? [
               {
@@ -163,11 +166,19 @@ export async function GET(req: NextRequest) {
   let resultRows = businesses;
   // Subcategory only narrows results within the selected primary; it is never required to get directory matches.
   if (category && subcategory) {
-    resultRows = businesses.filter((b) =>
+    resultRows = resultRows.filter((b) =>
       businessMatchesCategoryAndSub(b.categories, b.subcategoriesByPrimary, category, subcategory)
     );
   }
-  return NextResponse.json(resultRows);
+  if (cityFilter) {
+    resultRows = resultRows.filter((b) => businessDisplayCityEquals(b.city, cityFilter));
+  }
+  return NextResponse.json(
+    resultRows.map((b) => ({
+      ...b,
+      city: extractBusinessDisplayCity(b.city) ?? b.city,
+    }))
+  );
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
     if (process.env.NODE_ENV === "development") {

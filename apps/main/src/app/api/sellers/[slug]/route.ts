@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { parseSubcategoriesByPrimary } from "@/lib/business-categories";
 import { photosExcludingLogo } from "@/lib/business-photos";
+import { extractBusinessDisplayCity } from "@/lib/city-utils";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 function isCuid(s: string): boolean {
@@ -77,7 +78,7 @@ export async function GET(
       logoUrl: business.logoUrl,
       coverPhotoUrl: business.coverPhotoUrl,
       address: business.address,
-      city: business.city,
+      city: extractBusinessDisplayCity(business.city) ?? business.city,
       categories: business.categories,
       subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
       hoursOfOperation: business.hoursOfOperation,

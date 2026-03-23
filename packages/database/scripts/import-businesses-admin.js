@@ -45,8 +45,9 @@
  *    URLs from the same media id. **Do not** list the same file as the logo in `photos` if it is
  *    only the hero logo — the API also drops any photo whose `/media/…` file matches `logoUrl`.
  *
- * 5. **Location** — **City only** for listings that shouldn’t show “City, City”: `address` empty
- *    string `""`, `city` e.g. `"Spokane"`. Use a street in `address` only when you need it.
+ * 5. **Location** — Prefer **city-only** labels (`"Post Falls"`, `"Coeur d'Alene"`). The importer
+ *    strips trailing `USA`, state, and ZIP from `city` so `"Post Falls, ID 83854, USA"` becomes
+ *    `"Post Falls"`. Use `address` for street when needed.
  *
  * 6. **Run** — Repo root: `pnpm db:import-businesses`. From `packages/database`: `pnpm run
  *    import-businesses`. Requires `DATABASE_URL` and `ADMIN_EMAIL` in `.env`.
@@ -76,6 +77,32 @@ function slugify(s) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+/** Match apps/main/src/lib/city-utils.ts — store city-only labels in the database. */
+function normalizeImportCity(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  let t = s.replace(/,?\s*(USA|United States)\s*$/i, "").trim();
+  const parts = t
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const stateZip = /^([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?$/i;
+  const stateOnly = /^[A-Z]{2}$/i;
+  while (parts.length >= 2) {
+    const last = parts[parts.length - 1];
+    if (stateZip.test(last) || stateOnly.test(last)) {
+      parts.pop();
+      continue;
+    }
+    break;
+  }
+  const joined = parts.join(", ").trim();
+  if (!joined) return "";
+  const key = joined.toLowerCase().replace(/[''`´]/g, "'");
+  const canon = { "coeur d'alene": "Coeur d'Alene", "coeur d''alene": "Coeur d'Alene" };
+  return canon[key] ?? joined;
 }
 
 async function uniqueSlug(baseName) {
@@ -139,7 +166,7 @@ async function main() {
     const logoUrl = String(row.logoUrl || row.logo_url || "").trim();
     const addressRaw = String(row.address || "").trim();
     const address = addressRaw || null;
-    const city = String(row.city || "").trim();
+    const city = normalizeImportCity(row.city || "");
     if (!logoUrl || !city) {
       console.warn(`Skipping "${name}": logoUrl and city required`);
       continue;
