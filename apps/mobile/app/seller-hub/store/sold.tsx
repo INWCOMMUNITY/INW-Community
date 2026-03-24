@@ -69,6 +69,7 @@ export default function SoldItemsScreen() {
       .then((data) => {
         if (Array.isArray(data)) {
           setItems(data);
+          AsyncStorage.setItem(SOLD_ITEMS_VIEWED_KEY, Date.now().toString()).catch(() => {});
         } else {
           setFetchError((data as { error?: string })?.error ?? "Failed to load.");
           setItems([]);
@@ -86,7 +87,6 @@ export default function SoldItemsScreen() {
 
   useFocusEffect(useCallback(() => {
     load();
-    AsyncStorage.setItem(SOLD_ITEMS_VIEWED_KEY, Date.now().toString());
   }, [load]));
 
   if (loading && items.length === 0) {

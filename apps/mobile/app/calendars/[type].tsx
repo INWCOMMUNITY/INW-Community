@@ -9,6 +9,7 @@ import {
   Linking,
   RefreshControl,
   Dimensions,
+  SectionList,
 } from "react-native";
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,6 +26,22 @@ import {
 
 const VALID_TYPES = new Set<string>(CALENDAR_TYPES.map((c) => c.value));
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Empty or missing segment defaults to fun_events; unknown slug is invalid (match website notFound). */
+function resolveRouteCalendarType(
+  param: string | string[] | undefined
+):
+  | { ok: true; calendarType: string }
+  | { ok: false; attempted: string } {
+  const raw = Array.isArray(param) ? param[0] : param;
+  if (raw == null || raw === "") {
+    return { ok: true, calendarType: "fun_events" };
+  }
+  if (!VALID_TYPES.has(raw)) {
+    return { ok: false, attempted: raw };
+  }
+  return { ok: true, calendarType: raw };
+}
 
 const { width } = Dimensions.get("window");
 const CALENDAR_PADDING = 16;
@@ -45,31 +62,59 @@ function endOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
 }
 
+function startOfWeek(d: Date): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = x.getDay();
+  x.setDate(x.getDate() - dow);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfWeek(d: Date): Date {
+  const s = startOfWeek(d);
+  const x = new Date(s);
+  x.setDate(x.getDate() + 6);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
+type CalendarViewMode = "month" | "week" | "day";
+
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 export default function CalendarDetailScreen() {
   const router = useRouter();
-  const { type } = useLocalSearchParams<{ type: string }>();
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [currentMonth, setCurrentMonth] = useState(() => new Date());
-  const [selectedCity, setSelectedCity] = useState<string>("All cities");
-  const [postEventModalVisible, setPostEventModalVisible] = useState(false);
-
-  const calendarType =
-    type && VALID_TYPES.has(type as string) ? (type as string) : "fun_events";
+  const { type } = useLocalSearchParams<{ type: string | string[] }>();
+  const routeCal = useMemo(() => resolveRouteCalendarType(type), [type]);
+  const invalidCalendarType = !routeCal.ok;
+  const calendarType = routeCal.ok ? routeCal.calendarType : "fun_events";
   const calendarLabel =
     CALENDAR_TYPES.find((c) => c.value === calendarType)?.label ?? "Calendar";
   const calendarUrl = `${siteBase}/calendars/${calendarType}`;
 
-  const from = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
-  const to = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [loading, setLoading] = useState(() => !invalidCalendarType);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [viewAnchor, setViewAnchor] = useState(() => new Date());
+  const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
+  const [selectedCity, setSelectedCity] = useState<string>("All cities");
+  const [postEventModalVisible, setPostEventModalVisible] = useState(false);
+
+  const { from, to } = useMemo(() => {
+    if (viewMode === "week") {
+      return { from: startOfWeek(viewAnchor), to: endOfWeek(viewAnchor) };
+    }
+    if (viewMode === "day") {
+      return { from: startOfMonth(viewAnchor), to: endOfMonth(viewAnchor) };
+    }
+    return { from: startOfMonth(viewAnchor), to: endOfMonth(viewAnchor) };
+  }, [viewAnchor, viewMode]);
 
   const loadEvents = useCallback(
     async (opts: { refresh?: boolean; silent?: boolean } = {}) => {
+      if (invalidCalendarType) return;
       const { refresh, silent } = opts;
       if (refresh) setRefreshing(true);
       else if (!silent) {
@@ -93,11 +138,12 @@ export default function CalendarDetailScreen() {
         setRefreshing(false);
       }
     },
-    [calendarType, from, to, selectedCity]
+    [invalidCalendarType, calendarType, from, to, selectedCity]
   );
 
   // Sync cache check before paint — instant load when revisiting
   useLayoutEffect(() => {
+    if (invalidCalendarType) return;
     const cached = getCachedEventsSync(
       calendarType,
       from,
@@ -108,9 +154,19 @@ export default function CalendarDetailScreen() {
       setEvents(cached);
       setLoading(false);
     }
-  }, [calendarType, from.toISOString(), to.toISOString(), selectedCity]);
+  }, [
+    invalidCalendarType,
+    calendarType,
+    from.toISOString(),
+    to.toISOString(),
+    selectedCity,
+  ]);
 
   useEffect(() => {
+    if (invalidCalendarType) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       await loadEvents({
@@ -126,7 +182,14 @@ export default function CalendarDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [calendarType, from.toISOString(), to.toISOString(), selectedCity, loadEvents]);
+  }, [
+    invalidCalendarType,
+    calendarType,
+    from.toISOString(),
+    to.toISOString(),
+    selectedCity,
+    loadEvents,
+  ]);
 
   const onRefresh = useCallback(() => loadEvents({ refresh: true }), [loadEvents]);
 
@@ -134,16 +197,28 @@ export default function CalendarDetailScreen() {
     Linking.openURL(calendarUrl).catch(() => {});
   };
 
-  const monthLabel = currentMonth.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
+  const periodLabel = useMemo(() => {
+    if (viewMode === "week") {
+      const s = startOfWeek(viewAnchor);
+      const e = endOfWeek(viewAnchor);
+      return `${s.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    }
+    return viewAnchor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }, [viewAnchor, viewMode]);
 
-  const prevMonth = () =>
-    setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1));
-  const nextMonth = () =>
-    setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1));
-  const goToToday = () => setCurrentMonth(new Date());
+  const shiftPeriod = (dir: -1 | 1) => {
+    if (viewMode === "week") {
+      setViewAnchor((d) => {
+        const x = new Date(d);
+        x.setDate(x.getDate() + dir * 7);
+        return x;
+      });
+      return;
+    }
+    setViewAnchor((d) => new Date(d.getFullYear(), d.getMonth() + dir, 1));
+  };
+
+  const goToToday = () => setViewAnchor(new Date());
 
   const eventsByDay = useMemo(() => {
     const map: Record<string, EventItem[]> = {};
@@ -157,8 +232,8 @@ export default function CalendarDetailScreen() {
   }, [events]);
 
   const weeks = useMemo(() => {
-    const first = startOfMonth(currentMonth);
-    const last = endOfMonth(currentMonth);
+    const first = startOfMonth(viewAnchor);
+    const last = endOfMonth(viewAnchor);
     const startDow = first.getDay();
     const daysInMonth = last.getDate();
     const totalCells = startDow + daysInMonth;
@@ -176,9 +251,87 @@ export default function CalendarDetailScreen() {
     for (let i = 0; i < trailingBlanks; i++) row.push(null);
     if (row.length) out.push(row);
     return out;
-  }, [currentMonth]);
+  }, [viewAnchor]);
+
+  const weekDayCells = useMemo(() => {
+    const s = startOfWeek(viewAnchor);
+    const cells: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(s);
+      d.setDate(s.getDate() + i);
+      cells.push(d);
+    }
+    return cells;
+  }, [viewAnchor]);
+
+  const weekEventsSorted = useMemo(() => {
+    const f = startOfWeek(viewAnchor).getTime();
+    const t = endOfWeek(viewAnchor).getTime();
+    return [...events]
+      .filter((ev) => {
+        const x = new Date(ev.date).getTime();
+        return x >= f && x <= t;
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [events, viewAnchor]);
+
+  const daySections = useMemo(() => {
+    const first = startOfMonth(viewAnchor);
+    const last = endOfMonth(viewAnchor);
+    const sections: { title: string; data: EventItem[] }[] = [];
+    const cur = new Date(first);
+    while (cur <= last) {
+      const key = toDateKey(cur);
+      sections.push({
+        title: cur.toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        }),
+        data: eventsByDay[key] ?? [],
+      });
+      cur.setDate(cur.getDate() + 1);
+    }
+    return sections;
+  }, [viewAnchor, eventsByDay]);
 
   const todayKey = toDateKey(new Date());
+
+  if (invalidCalendarType) {
+    const attempted = routeCal.ok === false ? routeCal.attempted : "";
+    return (
+      <View style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Calendar not found</Text>
+          <Text style={styles.errorText}>
+            {attempted
+              ? `"${attempted}" is not a valid calendar. Pick one from the list.`
+              : "This calendar is not available."}
+          </Text>
+          <View style={styles.errorButtons}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => router.back()}
+            >
+              <Text style={styles.backButtonText}>Go back</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.browserButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => router.push("/calendars")}
+            >
+              <Text style={styles.browserButtonText}>View calendars</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   if (loadError && events.length === 0) {
     return (
@@ -228,16 +381,37 @@ export default function CalendarDetailScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{calendarLabel}</Text>
+        <View style={styles.viewModeRow}>
+          {(["month", "week", "day"] as const).map((m) => (
+            <Pressable
+              key={m}
+              style={[
+                styles.viewModeChip,
+                viewMode === m && styles.viewModeChipSelected,
+              ]}
+              onPress={() => setViewMode(m)}
+            >
+              <Text
+                style={[
+                  styles.viewModeChipText,
+                  viewMode === m && styles.viewModeChipTextSelected,
+                ]}
+              >
+                {m === "month" ? "Month" : m === "week" ? "Week" : "Agenda"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
         <View style={styles.monthNav}>
           <Pressable
-            onPress={prevMonth}
+            onPress={() => shiftPeriod(-1)}
             style={({ pressed }) => [styles.navBtn, pressed && styles.buttonPressed]}
           >
             <Text style={styles.navBtnText}>←</Text>
           </Pressable>
-          <Text style={styles.monthLabel}>{monthLabel}</Text>
+          <Text style={styles.monthLabel}>{periodLabel}</Text>
           <Pressable
-            onPress={nextMonth}
+            onPress={() => shiftPeriod(1)}
             style={({ pressed }) => [styles.navBtn, pressed && styles.buttonPressed]}
           >
             <Text style={styles.navBtnText}>→</Text>
@@ -277,7 +451,69 @@ export default function CalendarDetailScreen() {
           ))}
         </ScrollView>
       </View>
-      <ScrollView
+      {viewMode === "day" ? (
+        <SectionList
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          sections={daySections}
+          keyExtractor={(item) => item.id}
+          stickySectionHeadersEnabled
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[theme.colors.primary]}
+            />
+          }
+          ListHeaderComponent={
+            <View>
+              {loadError ? (
+                <Text style={styles.offlineHint}>
+                  Pull to refresh for the latest events.
+                </Text>
+              ) : null}
+              {loading && events.length === 0 ? (
+                <View style={styles.eventsLoading}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <Text style={styles.eventsLoadingText}>Loading events…</Text>
+                </View>
+              ) : null}
+              <Pressable
+                style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
+                onPress={() => setPostEventModalVisible(true)}
+              >
+                <Ionicons name="add-circle" size={20} color="#fff" />
+                <Text style={styles.postEventButtonText}>Post Event</Text>
+              </Pressable>
+              <Text style={styles.eventsSectionTitle}>Events this month</Text>
+            </View>
+          }
+          renderSectionHeader={({ section: { title } }) => (
+            <View style={styles.daySectionHeaderWrap}>
+              <Text style={styles.daySectionHeader}>{title}</Text>
+            </View>
+          )}
+          renderItem={({ item: ev }) => {
+            const timeStr = ev.time
+              ? ev.endTime
+                ? `${formatTime12h(ev.time)} – ${formatTime12h(ev.endTime)}`
+                : formatTime12h(ev.time)
+              : "";
+            return (
+              <Pressable
+                style={({ pressed }) => [styles.eventCard, pressed && styles.buttonPressed]}
+                onPress={() => router.push(`/event/${ev.slug}`)}
+              >
+                <Text style={styles.eventTitle}>{ev.title}</Text>
+                <Text style={styles.eventDate}>{timeStr || "Time TBD"}</Text>
+                {ev.location ? <Text style={styles.eventMeta}>{ev.location}</Text> : null}
+                {ev.business ? <Text style={styles.eventBusiness}>{ev.business.name}</Text> : null}
+              </Pressable>
+            );
+          }}
+        />
+      ) : (
+        <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           refreshControl={
@@ -294,6 +530,7 @@ export default function CalendarDetailScreen() {
             </Text>
           ) : null}
 
+          {viewMode === "month" ? (
           <View style={styles.calendarGrid}>
             <View style={styles.weekdayRow}>
               {WEEKDAYS.map((wd, i) => (
@@ -325,7 +562,7 @@ export default function CalendarDetailScreen() {
                       />
                     );
                   }
-                  const key = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                  const key = `${viewAnchor.getFullYear()}-${String(viewAnchor.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                   const dayEvents = eventsByDay[key] ?? [];
                   const isToday = key === todayKey;
                   return (
@@ -369,6 +606,37 @@ export default function CalendarDetailScreen() {
               </View>
             ))}
           </View>
+          ) : (
+            <View style={styles.weekStrip}>
+              {weekDayCells.map((d, i) => {
+                const key = toDateKey(d);
+                const n = eventsByDay[key]?.length ?? 0;
+                const isToday = key === todayKey;
+                return (
+                  <Pressable
+                    key={key}
+                    style={({ pressed }) => [
+                      styles.weekDayCell,
+                      i < 6 && styles.weekDayCellBorder,
+                      isToday && styles.weekDayToday,
+                      pressed && styles.buttonPressed,
+                    ]}
+                    onPress={() => setViewAnchor(new Date(d))}
+                  >
+                    <Text style={styles.weekDayDow}>{WEEKDAYS[d.getDay()]}</Text>
+                    <Text style={[styles.weekDayNum, isToday && styles.weekDayNumToday]}>
+                      {d.getDate()}
+                    </Text>
+                    {n > 0 ? (
+                      <Text style={styles.weekDayCount}>{n}</Text>
+                    ) : (
+                      <Text style={styles.weekDayCountMuted}>—</Text>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
 
           <Pressable
             style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
@@ -378,14 +646,55 @@ export default function CalendarDetailScreen() {
             <Text style={styles.postEventButtonText}>Post Event</Text>
           </Pressable>
 
-          <Text style={styles.eventsSectionTitle}>Events this month</Text>
+          <Text style={styles.eventsSectionTitle}>
+            {viewMode === "week" ? "Events this week" : "Events this month"}
+          </Text>
           {loading && events.length === 0 ? (
             <View style={styles.eventsLoading}>
               <ActivityIndicator size="small" color={theme.colors.primary} />
               <Text style={styles.eventsLoadingText}>Loading events…</Text>
             </View>
+          ) : viewMode === "week" ? (
+            weekEventsSorted.length === 0 ? (
+              <Text style={styles.emptyText}>No events this week.</Text>
+            ) : (
+              weekEventsSorted.map((ev) => {
+                const dateStr = new Date(ev.date).toLocaleDateString("en-US", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                });
+                const timeStr = ev.time
+                  ? ev.endTime
+                    ? `${formatTime12h(ev.time)} – ${formatTime12h(ev.endTime)}`
+                    : formatTime12h(ev.time)
+                  : "";
+                return (
+                  <Pressable
+                    key={ev.id}
+                    style={({ pressed }) => [
+                      styles.eventCard,
+                      pressed && styles.buttonPressed,
+                    ]}
+                    onPress={() => router.push(`/event/${ev.slug}`)}
+                  >
+                    <Text style={styles.eventTitle}>{ev.title}</Text>
+                    <Text style={styles.eventDate}>
+                      {dateStr}
+                      {timeStr ? ` · ${timeStr}` : ""}
+                    </Text>
+                    {ev.location ? (
+                      <Text style={styles.eventMeta}>{ev.location}</Text>
+                    ) : null}
+                    {ev.business ? (
+                      <Text style={styles.eventBusiness}>{ev.business.name}</Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })
+            )
           ) : events.length === 0 ? (
-            <Text style={styles.emptyText}>No events for {monthLabel}.</Text>
+            <Text style={styles.emptyText}>No events for {periodLabel}.</Text>
           ) : (
             events.map((ev) => {
               const dateStr = new Date(ev.date).toLocaleDateString("en-US", {
@@ -423,6 +732,7 @@ export default function CalendarDetailScreen() {
             })
           )}
         </ScrollView>
+      )}
 
       <PopupModal
         visible={postEventModalVisible}
@@ -454,6 +764,70 @@ const styles = StyleSheet.create({
     fontFamily: theme.fonts.heading,
     textAlign: "center",
     marginBottom: 8,
+  },
+  viewModeRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 10,
+    flexWrap: "wrap",
+  },
+  viewModeChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+  },
+  viewModeChipSelected: {
+    backgroundColor: theme.colors.primary,
+  },
+  viewModeChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  viewModeChipTextSelected: {
+    color: theme.colors.buttonText,
+  },
+  weekStrip: {
+    flexDirection: "row",
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  weekDayCell: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+  },
+  weekDayCellBorder: {
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.primary,
+  },
+  weekDayToday: {
+    backgroundColor: "#e8f4fd",
+  },
+  weekDayDow: { fontSize: 10, fontWeight: "600", color: "#666" },
+  weekDayNum: { fontSize: 16, fontWeight: "700", color: theme.colors.heading, marginTop: 2 },
+  weekDayNumToday: { color: theme.colors.primary },
+  weekDayCount: { fontSize: 10, color: theme.colors.primary, marginTop: 2 },
+  weekDayCountMuted: { fontSize: 10, color: "#aaa", marginTop: 2 },
+  daySectionHeaderWrap: {
+    backgroundColor: "#f5f5f5",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  daySectionHeader: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: theme.colors.heading,
   },
   postEventButton: {
     flexDirection: "row",
@@ -546,7 +920,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
   },
-  scroll: { flex: 1 },
+  scroll: { flex: 1, width: "100%" },
   scrollContent: { padding: 16, paddingBottom: 40 },
   offlineHint: {
     fontSize: 13,

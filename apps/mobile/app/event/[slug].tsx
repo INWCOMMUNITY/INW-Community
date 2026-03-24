@@ -368,13 +368,16 @@ export default function EventDetailScreen() {
         ) : null}
 
         {event.business ? (
-          <Pressable
-            style={({ pressed }) => [styles.businessLink, pressed && styles.pressed]}
-            onPress={() => router.push(`/business/${event.business!.slug}`)}
-          >
-            <Text style={styles.businessLinkText}>{event.business.name}</Text>
-            <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
-          </Pressable>
+          <View style={styles.eventByRow}>
+            <Text style={styles.eventByLabel}>Event by </Text>
+            <Pressable
+              onPress={() => router.push(`/business/${event.business!.slug}`)}
+              style={({ pressed }) => [styles.businessLinkInline, pressed && styles.pressed]}
+            >
+              <Text style={styles.businessLinkText}>{event.business.name}</Text>
+              <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
+            </Pressable>
+          </View>
         ) : null}
       </ScrollView>
 
@@ -629,6 +632,23 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: theme.colors.primary,
     borderRadius: 8,
+  },
+  eventByRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 4,
+  },
+  eventByLabel: {
+    fontSize: 14,
+    color: theme.colors.text,
+  },
+  businessLinkInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   businessLinkText: {
     fontSize: 14,

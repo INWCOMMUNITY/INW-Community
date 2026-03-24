@@ -66,6 +66,13 @@ export async function POST(
     return NextResponse.json({ error: "No valid friends to invite" }, { status: 400 });
   }
 
+  const alreadyInvited = await prisma.eventInvite.findMany({
+    where: { eventId, inviteeId: { in: toInvite } },
+    select: { inviteeId: true },
+  });
+  const alreadySet = new Set(alreadyInvited.map((r) => r.inviteeId));
+  const newInviteeIds = toInvite.filter((id) => !alreadySet.has(id));
+
   const created = await prisma.eventInvite.createMany({
     data: toInvite.map((inviteeId) => ({
       eventId,
@@ -79,6 +86,41 @@ export async function POST(
   if (created.count > 0) {
     const { awardPartyPlannerBadge } = await import("@/lib/badge-award");
     awardPartyPlannerBadge(session.user.id).catch(() => {});
+  }
+
+  if (newInviteeIds.length > 0) {
+    const [eventMeta, inviter, inviteRows] = await Promise.all([
+      prisma.event.findUnique({
+        where: { id: eventId },
+        select: { title: true, slug: true },
+      }),
+      prisma.member.findUnique({
+        where: { id: session.user.id },
+        select: { firstName: true, lastName: true },
+      }),
+      prisma.eventInvite.findMany({
+        where: { eventId, inviteeId: { in: newInviteeIds } },
+        select: { id: true, inviteeId: true },
+      }),
+    ]);
+    const inviterName = inviter
+      ? [inviter.firstName, inviter.lastName].filter(Boolean).join(" ").trim() || "Someone"
+      : "Someone";
+    const title = eventMeta?.title ?? "an event";
+    const slug = eventMeta?.slug ?? "";
+    const { sendPushNotification } = await import("@/lib/send-push-notification");
+    for (const row of inviteRows) {
+      sendPushNotification(row.inviteeId, {
+        title: "Event invitation",
+        body: `${inviterName} invited you to ${title}`,
+        data: {
+          screen: "event_invite",
+          inviteId: String(row.id),
+          eventSlug: String(slug),
+          eventTitle: String(title),
+        },
+      }).catch(() => {});
+    }
   }
 
   return NextResponse.json({ ok: true, invited: created.count });

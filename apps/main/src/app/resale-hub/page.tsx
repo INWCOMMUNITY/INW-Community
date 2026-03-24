@@ -37,11 +37,14 @@ export default async function ResaleHubPage() {
 
   const cards = [
     { href: "/resale-hub/list", label: "List Item", icon: "add-circle" as const, desc: "Add a resale listing with photos, price, and delivery options.", badge: false },
+    { href: "/resale-hub/listings", label: "My Listings", icon: "list" as const, desc: "Edit, pause, or remove your resale listings.", badge: false },
     { href: "/resale-hub/orders", label: "Orders / To Ship", icon: "receipt-outline" as const, desc: "View orders and purchase shipping labels.", badge: toShipResaleCount > 0 },
     { href: "/resale-hub/deliveries", label: "Deliveries", icon: "car-outline" as const, desc: "View and confirm local delivery orders. Mark as delivered when complete.", badge: false },
     { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" as const, desc: "View pickup orders. Mark as picked up when the buyer collects.", badge: false },
     { href: "/resale-hub/offers", label: "Offers", icon: "pricetag-outline" as const, desc: "Review and accept or decline offers from buyers.", badge: pendingOffersResaleCount > 0 },
     { href: "/resale-hub/messages", label: "Messages", icon: "chatbubbles" as const, desc: "Chat with buyers about your listings.", badge: false },
+    { href: "/resale-hub/cancellations", label: "Cancellations", icon: "close-circle" as const, desc: "Review canceled orders and next steps.", badge: false },
+    { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" as const, desc: "Let buyers know when you are not shipping or fulfilling orders.", badge: false },
     { href: "/resale-hub/payouts", label: "Payouts", icon: "wallet" as const, desc: "View your balance and payout setup.", badge: false },
     { href: "/resale-hub/before-you-start", label: "Before You Start", icon: "checkbox-outline" as const, desc: "Set up payments, shipping, and your policies.", badge: false },
   ];

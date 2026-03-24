@@ -219,7 +219,17 @@ function ResaleHubContent() {
     onPress?: () => void;
     icon: keyof typeof Ionicons.glyphMap;
   }[] = [
+    {
+      label: "Resale Storefront",
+      onPress: () => (router.push as (href: string) => void)("/(tabs)/store?listingType=resale"),
+      icon: "storefront-outline",
+    },
     { label: "List Item", href: "/resale-hub/list", icon: "add-circle" },
+    {
+      label: "My Listings",
+      href: "/seller-hub/store/items?listingType=resale",
+      icon: "list-outline",
+    },
     { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
     { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
     { label: "Pickups", href: "/resale-hub/pickups", icon: "hand-left-outline" },
@@ -229,6 +239,8 @@ function ResaleHubContent() {
       onPress: () => (router.push as (href: string) => void)("/messages?tab=resale"),
       icon: "chatbubbles",
     },
+    { label: "Time Away", href: "/seller-hub/time-away", icon: "calendar-outline" },
+    { label: "Cancellations", href: "/seller-hub/store/cancellations", icon: "close-circle-outline" },
     { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
     { label: "Before You Start", href: "/resale-hub/before-you-start", icon: "checkbox-outline" },
   ];
@@ -269,18 +281,6 @@ function ResaleHubContent() {
               <ThemedText style={styles.sellerHubGridLabel}>{action.label}</ThemedText>
             </Pressable>
           ))}
-        </RNView>
-
-        <RNView style={styles.sellerHubExtra}>
-          <Pressable
-            style={({ pressed }) => [styles.sellerHubExtraButton, pressed && styles.buttonPressed]}
-            onPress={() =>
-              (router.push as (href: string) => void)("/(tabs)/store?listingType=resale")
-            }
-          >
-            <Ionicons name="bag" size={20} color="#fff" />
-            <Text style={styles.sellerHubExtraText}>Browse Resale Store</Text>
-          </Pressable>
         </RNView>
 
         <RNView style={styles.sellerHubFooter}>
@@ -597,6 +597,11 @@ export default function MyCommunityScreen() {
             },
           ]
         : []),
+      {
+        label: "Customer redemptions",
+        icon: "receipt-outline",
+        onPress: () => (router.push as (href: string) => void)("/redeemed-rewards"),
+      },
     ];
 
     return (
@@ -1557,24 +1562,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: theme.colors.heading,
     textAlign: "center",
-  },
-  sellerHubExtra: {
-    marginTop: 16,
-  },
-  sellerHubExtraButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  sellerHubExtraText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
   },
   sellerHubFooter: {
     marginTop: 24,

@@ -487,7 +487,7 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
       )}
       {openModal === "event" && (
         <Modal title="Post Event" onClose={closeModal}>
-          <EventForm onSuccess={closeModal} />
+          <EventForm onSuccess={closeModal} businesses={businesses} />
         </Modal>
       )}
       {openModal === "reward" && (

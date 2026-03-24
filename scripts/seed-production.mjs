@@ -8,6 +8,9 @@
  *
  * Or inline:
  *   DATABASE_URL_PRODUCTION="postgresql://..." pnpm db:seed:prod
+ *
+ * Default seed is minimal (blog categories, tags, badges). To include demo sponsors/businesses/test
+ * accounts on a DB, set SEED_DEMO_DATA=1 in the environment before running (use with care on production).
  */
 import { spawn } from "child_process";
 import fs from "fs";

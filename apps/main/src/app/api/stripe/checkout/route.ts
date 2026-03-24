@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
+import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
@@ -80,7 +81,9 @@ async function createBusinessDraftInDb(
       categories,
       subcategoriesByPrimary: normalizeSubcategoriesByPrimary(categories, data.subcategoriesByPrimary),
       slug,
-      photos: Array.isArray(data.photos) ? (data.photos as string[]).filter(Boolean) : [],
+      photos: Array.isArray(data.photos)
+        ? (data.photos as string[]).filter(Boolean).slice(0, MAX_BUSINESS_GALLERY_PHOTOS)
+        : [],
       hoursOfOperation: data.hoursOfOperation && typeof data.hoursOfOperation === "object" ? (data.hoursOfOperation as Record<string, string>) : undefined,
     },
   });

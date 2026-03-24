@@ -87,7 +87,6 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"card" | "cash">("card");
   /** Per-item payment for pickup/local: only those items are charged at checkout when "card"; "cash" items are not charged. */
   const [paymentMethodByItemId, setPaymentMethodByItemId] = useState<Record<string, "card" | "cash">>({});
   const [localDeliveryModalItemId, setLocalDeliveryModalItemId] = useState<string | null>(null);
@@ -187,9 +186,24 @@ export default function CartPage() {
   }
 
   const hasLocalDelivery = items.some((i) => i.fulfillmentType === "local_delivery");
+  const localDeliveryItems = items.filter((i) => i.fulfillmentType === "local_delivery");
   const localDeliveryDetailsForCheckout = hasLocalDelivery
     ? items.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
     : undefined;
+  const localDeliveryFormComplete =
+    localDeliveryItems.length === 0 ||
+    localDeliveryItems.every(
+      (i) =>
+        i.localDeliveryDetails?.firstName?.trim() &&
+        i.localDeliveryDetails?.lastName?.trim() &&
+        i.localDeliveryDetails?.phone?.trim() &&
+        i.localDeliveryDetails?.email?.trim() &&
+        i.localDeliveryDetails?.deliveryAddress?.street?.trim() &&
+        i.localDeliveryDetails?.deliveryAddress?.city?.trim() &&
+        i.localDeliveryDetails?.deliveryAddress?.state?.trim() &&
+        i.localDeliveryDetails?.deliveryAddress?.zip?.trim() &&
+        i.localDeliveryDetails?.availableDropOffTimes?.trim()
+    );
   const pickupItems = items.filter((i) => i.fulfillmentType === "pickup");
   const pickupItemsWithPolicy = pickupItems.filter(
     (i) =>
@@ -202,7 +216,9 @@ export default function CartPage() {
       (i) =>
         i.pickupDetails?.firstName?.trim() &&
         i.pickupDetails?.lastName?.trim() &&
-        i.pickupDetails?.phone?.trim()
+        i.pickupDetails?.phone?.trim() &&
+        i.pickupDetails?.preferredPickupDate?.trim() &&
+        i.pickupDetails?.preferredPickupTime?.trim()
     );
   const allPickupTermsAgreed =
     pickupItemsWithPolicy.length === 0 ||
@@ -217,7 +233,7 @@ export default function CartPage() {
   const hasUnavailableItems = items.some((i) => i.unavailableReason);
   const canCheckout =
     !hasUnavailableItems &&
-    (!hasLocalDelivery || (hasLocalDelivery && localDeliveryDetailsForCheckout)) &&
+    localDeliveryFormComplete &&
     allPickupDetailsFilled &&
     allPickupTermsAgreed &&
     shippingValid;
@@ -236,14 +252,14 @@ export default function CartPage() {
   const cashItems = items.filter(
     (i) =>
       (i.fulfillmentType === "pickup" || i.fulfillmentType === "local_delivery") &&
-      (paymentMethodByItemId[i.id] ?? "cash") === "cash" &&
+      (paymentMethodByItemId[i.id] ?? "card") === "cash" &&
       i.storeItem.member?.acceptCashForPickupDelivery !== false
   );
   const cardItems = items.filter((i) => !cashItems.includes(i));
 
   async function handleCheckout() {
     if (items.length === 0) return;
-    if (hasLocalDelivery && !localDeliveryDetailsForCheckout) {
+    if (hasLocalDelivery && !localDeliveryFormComplete) {
       setError(
         "Complete delivery details for local delivery items (use “Edit delivery” on each item)."
       );
@@ -811,7 +827,7 @@ export default function CartPage() {
                                 <input
                                   type="radio"
                                   name={`payment-${item.id}`}
-                                  checked={(paymentMethodByItemId[item.id] ?? "cash") === "card"}
+                                  checked={(paymentMethodByItemId[item.id] ?? "card") === "card"}
                                   onChange={() => setPaymentMethodByItemId((prev) => ({ ...prev, [item.id]: "card" }))}
                                   className="rounded"
                                   style={{ accentColor: "var(--color-primary)" }}
@@ -824,7 +840,7 @@ export default function CartPage() {
                                 <input
                                   type="radio"
                                   name={`payment-${item.id}`}
-                                  checked={(paymentMethodByItemId[item.id] ?? "cash") === "cash"}
+                                  checked={(paymentMethodByItemId[item.id] ?? "card") === "cash"}
                                   onChange={() => setPaymentMethodByItemId((prev) => ({ ...prev, [item.id]: "cash" }))}
                                   className="rounded"
                                   style={{ accentColor: "var(--color-primary)" }}
@@ -977,7 +993,7 @@ export default function CartPage() {
                     )}
                   </div>
                 )}
-                {hasLocalDelivery && !localDeliveryDetailsForCheckout && (
+                {hasLocalDelivery && !localDeliveryFormComplete && (
                   <p className="text-sm mb-2" style={{ color: "var(--color-primary)" }}>
                     Complete delivery details for local delivery items before checkout.
                   </p>
@@ -1033,12 +1049,14 @@ export default function CartPage() {
                 firstName: itemForModal.localDeliveryDetails.firstName ?? "",
                 lastName: itemForModal.localDeliveryDetails.lastName ?? "",
                 phone: itemForModal.localDeliveryDetails.phone ?? "",
+                email: itemForModal.localDeliveryDetails.email ?? "",
                 deliveryAddress: {
                   street: itemForModal.localDeliveryDetails.deliveryAddress?.street ?? "",
                   city: itemForModal.localDeliveryDetails.deliveryAddress?.city ?? "",
                   state: itemForModal.localDeliveryDetails.deliveryAddress?.state ?? "",
                   zip: itemForModal.localDeliveryDetails.deliveryAddress?.zip ?? "",
                 },
+                availableDropOffTimes: itemForModal.localDeliveryDetails.availableDropOffTimes ?? "",
                 note: itemForModal.localDeliveryDetails.note ?? "",
               }
             : undefined
@@ -1060,8 +1078,10 @@ export default function CartPage() {
                 lastName: itemForPickupModal.pickupDetails.lastName ?? "",
                 phone: itemForPickupModal.pickupDetails.phone ?? "",
                 email: itemForPickupModal.pickupDetails.email ?? "",
+                preferredPickupDate: itemForPickupModal.pickupDetails.preferredPickupDate ?? "",
                 preferredPickupTime: itemForPickupModal.pickupDetails.preferredPickupTime ?? "",
                 note: itemForPickupModal.pickupDetails.note ?? "",
+                termsAcceptedAt: itemForPickupModal.pickupDetails.termsAcceptedAt,
               }
             : undefined
         }

@@ -9,6 +9,7 @@ import {
   RefreshControl,
   useWindowDimensions,
   Pressable,
+  Alert,
 } from "react-native";
 import { useNavigation, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -104,7 +105,14 @@ export default function MyBadgesScreen() {
           mb.badgeId === badgeId ? { ...mb, displayOnProfile } : mb
         )
       );
-    } catch {}
+    } catch (e) {
+      if (__DEV__) console.warn("[my-badges] toggle display", e);
+      const msg =
+        e && typeof e === "object" && "error" in e && typeof (e as { error: unknown }).error === "string"
+          ? (e as { error: string }).error
+          : "Could not update this badge. Try again.";
+      Alert.alert("Update failed", msg);
+    }
   };
 
   if (loading && !refreshing) {

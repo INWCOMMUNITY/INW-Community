@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
+import { REWARD_PLACEHOLDER_TITLE } from "@/lib/reward-fulfillment-store-item";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
@@ -330,7 +331,8 @@ export async function GET(req: NextRequest) {
       listingType?: string;
       status?: string;
       quantity?: { gt: number };
-    } = { memberId: userId };
+      NOT?: { title: string };
+    } = { memberId: userId, NOT: { title: REWARD_PLACEHOLDER_TITLE } };
     if (listingTypeFilter) where.listingType = listingTypeFilter;
     // My Items tabs: active (live), ended (inactive), sold (sold_out). No filter = all.
     const soldOnly = searchParams.get("sold") === "1";

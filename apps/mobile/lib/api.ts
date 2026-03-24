@@ -23,13 +23,15 @@ async function clearTokenAndNotify(): Promise<void> {
 /** Track app open for admin analytics (fire-and-forget, no auth required) */
 export function trackAppOpen(): void {
   const source = Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "web";
+  const uaOs = Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Web";
+  const userAgent = `INWCommunity/1.0 (com.northwestcommunity.app; ${uaOs})`;
   const url = `${API_BASE}/api/analytics/track`;
   fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Accept": "application/json",
-      "User-Agent": "INWCommunity/1.0 (com.northwestcommunity.app; iOS)",
+      "User-Agent": userAgent,
     },
     body: JSON.stringify({ event: "app_open", source }),
   }).catch(() => {});

@@ -891,12 +891,14 @@ export default function ProductScreen() {
               firstName: localDeliveryForm.firstName ?? "",
               lastName: localDeliveryForm.lastName ?? "",
               phone: localDeliveryForm.phone ?? "",
+              email: localDeliveryForm.email ?? "",
               deliveryAddress: {
                 street: localDeliveryForm.deliveryAddress?.street ?? "",
                 city: localDeliveryForm.deliveryAddress?.city ?? "",
                 state: localDeliveryForm.deliveryAddress?.state ?? "",
                 zip: localDeliveryForm.deliveryAddress?.zip ?? "",
               },
+              availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
               note: localDeliveryForm.note ?? "",
             }}
             onSave={(form) => {
@@ -914,8 +916,10 @@ export default function ProductScreen() {
               lastName: pickupForm.lastName ?? "",
               phone: pickupForm.phone ?? "",
               email: pickupForm.email ?? "",
+              preferredPickupDate: pickupForm.preferredPickupDate ?? "",
               preferredPickupTime: pickupForm.preferredPickupTime ?? "",
               note: pickupForm.note ?? "",
+              termsAcceptedAt: pickupForm.termsAcceptedAt,
             }}
             onSave={(form) => {
               setPickupForm(form);

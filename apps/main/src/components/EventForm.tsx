@@ -16,6 +16,8 @@ interface EventFormProps {
   hideCalendarSelect?: boolean;
   /** When provided, called after successful post instead of redirecting (e.g. close modal and refresh). */
   onSuccess?: () => void;
+  /** User's businesses (e.g. Business Hub); event is tagged for Support Local + “Event by …”. */
+  businesses?: { id: string; name: string }[];
 }
 
 export function EventForm({
@@ -23,6 +25,7 @@ export function EventForm({
   initialCalendarType,
   hideCalendarSelect = false,
   onSuccess,
+  businesses,
 }: EventFormProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
@@ -46,6 +49,13 @@ export function EventForm({
   const [submitting, setSubmitting] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [showThankYou, setShowThankYou] = useState(false);
+  const [eventBusinessId, setEventBusinessId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (businesses?.length) {
+      setEventBusinessId((prev) => prev ?? businesses[0].id);
+    }
+  }, [businesses]);
 
   async function uploadFile(file: File): Promise<string> {
     const formData = new FormData();
@@ -99,6 +109,7 @@ export function EventForm({
           description: description || null,
           calendarType: effectiveCalendarType,
           photos,
+          ...(businesses?.length && eventBusinessId ? { businessId: eventBusinessId } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -151,6 +162,23 @@ export function EventForm({
         </div>
       )}
       <form onSubmit={handleSubmit} className="space-y-4 max-w-xl max-md:mx-auto">
+      {businesses && businesses.length > 1 ? (
+        <div>
+          <label className="block text-sm font-medium mb-1">Post as business *</label>
+          <select
+            value={eventBusinessId ?? businesses[0].id}
+            onChange={(e) => setEventBusinessId(e.target.value)}
+            required
+            className="w-full border rounded px-3 py-2"
+          >
+            {businesses.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       <div>
         <label className="block text-sm font-medium mb-1">Event title *</label>
         <input

@@ -1,17 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSessionForApi } from "@/lib/mobile-auth";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
 }
 
 export async function POST(
-  req: Request,
+  req: NextRequest,
   { params }: { params: Promise<{ slugOrId: string }> }
 ) {
-  const session = await getServerSession(authOptions);
+  const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

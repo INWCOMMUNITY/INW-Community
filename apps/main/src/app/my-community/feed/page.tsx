@@ -108,11 +108,13 @@ export default function CommunityFeedPage() {
         <h1 className="text-2xl font-bold max-md:text-center md:order-1">Northwest Community Feed</h1>
       </div>
       <p className="text-gray-600 mb-6 max-md:text-center">
-        Posts from people you follow and groups you&apos;ve joined. Share blogs to add them here!
+        Posts from you and your friends, groups you&apos;ve joined, tags you follow, and businesses you follow (including
+        their updates). Share a blog or other item to add it here.
       </p>
       {posts.length === 0 ? (
         <p className="text-gray-500">
-          Your feed is empty. Follow blog authors, join groups, or share a blog post to get started!
+          Your feed is empty. Add friends, join groups, follow tags or local businesses, or share a blog post to get
+          started!
         </p>
       ) : (
         <div className="space-y-6">

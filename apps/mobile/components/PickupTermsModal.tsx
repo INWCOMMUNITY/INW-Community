@@ -19,6 +19,8 @@ export interface PickupDetails {
   lastName: string;
   phone: string;
   email?: string;
+  /** ISO date string (YYYY-MM-DD) or display text */
+  preferredPickupDate?: string;
   preferredPickupTime?: string;
   note?: string;
   termsAcceptedAt?: string;
@@ -37,6 +39,7 @@ const emptyForm: PickupDetails = {
   lastName: "",
   phone: "",
   email: "",
+  preferredPickupDate: "",
   preferredPickupTime: "",
   note: "",
 };
@@ -66,6 +69,7 @@ export function PickupTermsModal({
         lastName: initialForm?.lastName ?? "",
         phone: initialForm?.phone ?? "",
         email: initialForm?.email ?? "",
+        preferredPickupDate: initialForm?.preferredPickupDate ?? "",
         preferredPickupTime: initialForm?.preferredPickupTime ?? "",
         note: initialForm?.note ?? "",
       });
@@ -86,7 +90,10 @@ export function PickupTermsModal({
       if (d?.lastName) setForm((f) => ({ ...f, lastName: d.lastName! }));
       if (d?.phone) setForm((f) => ({ ...f, phone: d.phone ?? "" }));
       if (d?.email) setForm((f) => ({ ...f, email: d.email ?? "" }));
-    } catch {}
+    } catch (e) {
+      if (__DEV__) console.warn("[PickupTermsModal] autofill", e);
+      setValidationError("Could not load your profile. Enter your details manually or try again.");
+    }
   };
 
   const handleSave = () => {
@@ -96,6 +103,8 @@ export function PickupTermsModal({
       f.firstName.trim() &&
       f.lastName.trim() &&
       f.phone.trim() &&
+      (f.preferredPickupDate ?? "").trim() &&
+      (f.preferredPickupTime ?? "").trim() &&
       (!hasPolicy || termsAccepted);
     if (ok) {
       onSave({
@@ -197,14 +206,27 @@ export function PickupTermsModal({
               />
             </View>
             <View style={styles.field}>
-              <Text style={styles.label}>Preferable Time of Pick Up</Text>
+              <Text style={styles.label}>Estimated pickup date *</Text>
+              <TextInput
+                style={styles.input}
+                value={form.preferredPickupDate ?? ""}
+                onChangeText={(v) =>
+                  setForm((f) => ({ ...f, preferredPickupDate: v }))
+                }
+                placeholder="e.g. 2025-03-28 or Fri Mar 28"
+                placeholderTextColor={theme.colors.placeholder}
+                autoCorrect={true}
+              />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Estimated pickup time *</Text>
               <TextInput
                 style={styles.input}
                 value={form.preferredPickupTime ?? ""}
                 onChangeText={(v) =>
                   setForm((f) => ({ ...f, preferredPickupTime: v }))
                 }
-                placeholder="e.g. Weekday mornings, Saturday after 2pm"
+                placeholder="e.g. 2:00–4:00 PM"
                 placeholderTextColor={theme.colors.placeholder}
                 autoCorrect={true}
               />

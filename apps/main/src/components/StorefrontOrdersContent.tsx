@@ -390,6 +390,43 @@ export function StorefrontOrdersContent(props: {
     }
   }
 
+  const runShippoLabelFlowRef = useRef(runShippoLabelFlow);
+  runShippoLabelFlowRef.current = runShippoLabelFlow;
+  const autoNwAppBulkRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || loading) return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("nwAppShippo") !== "bulk" || autoNwAppBulkRef.current) return;
+    if (tab !== "to_ship") {
+      setTab("to_ship");
+      return;
+    }
+    const toShip = orders.filter(
+      (o) =>
+        o.status === "paid" &&
+        !o.shipment &&
+        !(o as { shippedWithOrderId?: string }).shippedWithOrderId
+    );
+    autoNwAppBulkRef.current = true;
+    sp.delete("nwAppShippo");
+    sp.delete("nwAppChrome");
+    const qs = sp.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
+    );
+    if (toShip.length === 0) {
+      setElementsError("No orders to ship.");
+      return;
+    }
+    void runShippoLabelFlowRef.current(
+      toShip.map((o) => o.id),
+      false
+    );
+  }, [loading, tab, orders]);
+
   async function openElementsFlow() {
     await runShippoLabelFlow(Array.from(selectedOrderIds), false);
   }

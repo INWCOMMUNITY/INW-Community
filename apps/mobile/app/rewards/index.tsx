@@ -13,6 +13,7 @@ import {
   TextInput,
   Modal,
   Share,
+  FlatList,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,6 +23,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { theme as defaultTheme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
+import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { RedeemRewardFormModal } from "@/components/RedeemRewardFormModal";
 import { buildShareUrl } from "@/lib/share-utils";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -63,6 +66,7 @@ interface Reward {
   redemptionLimit: number;
   timesRedeemed: number;
   imageUrl: string | null;
+  needsShipping?: boolean;
   business: { id: string; name: string; slug: string; logoUrl: string | null };
 }
 
@@ -71,41 +75,7 @@ function resolveUrl(path: string | null | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-/** Renders reward image at its natural aspect ratio so the full photo is visible. */
-function RewardModalImage({
-  uri,
-  setImageSize,
-  imageSize,
-}: {
-  uri: string | undefined;
-  setImageSize: (size: { width: number; height: number } | null) => void;
-  imageSize: { width: number; height: number } | null;
-}) {
-  useEffect(() => {
-    if (!uri) return;
-    Image.getSize(
-      uri,
-      (width, height) => setImageSize({ width, height }),
-      () => {}
-    );
-    return () => setImageSize(null);
-  }, [uri, setImageSize]);
-  const maxWidth = Math.min(SCREEN_WIDTH - 40, 400);
-  const width = imageSize
-    ? Math.min(imageSize.width, maxWidth)
-    : maxWidth;
-  const height = imageSize
-    ? (width / imageSize.width) * imageSize.height
-    : maxWidth;
-  if (!uri) return null;
-  return (
-    <Image
-      source={{ uri }}
-      style={{ width, height, alignSelf: "center" }}
-      resizeMode="contain"
-    />
-  );
-}
+const REWARD_PREVIEW_SIZE = Math.min(220, SCREEN_WIDTH - 64);
 
 export default function RewardsScreen() {
   const theme = useTheme();
@@ -122,7 +92,6 @@ export default function RewardsScreen() {
   const [seasonPointsEarned, setSeasonPointsEarned] = useState<number | null>(null);
   const [currentSeason, setCurrentSeason] = useState<{ id: string; name: string } | null>(null);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
-  const [redeeming, setRedeeming] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -133,7 +102,9 @@ export default function RewardsScreen() {
   const [savedRewardIds, setSavedRewardIds] = useState<Set<string>>(new Set());
   const [prizePopupPrize, setPrizePopupPrize] = useState<Top5Prize | null>(null);
   const [selectedRewardForModal, setSelectedRewardForModal] = useState<Reward | null>(null);
-  const [rewardModalImageSize, setRewardModalImageSize] = useState<{ width: number; height: number } | null>(null);
+  const [redeemFormReward, setRedeemFormReward] = useState<Reward | null>(null);
+  const [rewardGalleryOpen, setRewardGalleryOpen] = useState(false);
+  const [rewardGalleryIndex, setRewardGalleryIndex] = useState(0);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -202,35 +173,24 @@ export default function RewardsScreen() {
     loadPoints();
   }, [load, loadPoints]);
 
-  const handleRedeem = async (rewardId: string) => {
-    const token = await getToken();
-    if (!token) {
-      router.push("/(tabs)/my-community");
-      return;
+  const openRedeemForm = (r: Reward) => {
+    setSelectedRewardForModal(null);
+    setRedeemFormReward(r);
+  };
+
+  const applyRedeemSuccess = (rewardId: string, pointsSpent: number) => {
+    const reward = rewards.find((x) => x.id === rewardId);
+    setPoints((p) => (p ?? 0) - pointsSpent);
+    if (reward && reward.timesRedeemed + 1 >= reward.redemptionLimit) {
+      setRewards((prev) => prev.filter((x) => x.id !== rewardId));
+    } else {
+      setRewards((prev) =>
+        prev.map((x) =>
+          x.id === rewardId ? { ...x, timesRedeemed: x.timesRedeemed + 1 } : x
+        )
+      );
     }
     setError("");
-    setRedeeming(rewardId);
-    try {
-      await apiPost(`/api/rewards/${rewardId}/redeem`, {});
-      const reward = rewards.find((r) => r.id === rewardId);
-      if (reward) {
-        setPoints((p) => (p ?? 0) - reward.pointsRequired);
-        if (reward.timesRedeemed + 1 >= reward.redemptionLimit) {
-          setRewards((prev) => prev.filter((r) => r.id !== rewardId));
-        } else {
-          setRewards((prev) =>
-            prev.map((r) =>
-              r.id === rewardId ? { ...r, timesRedeemed: r.timesRedeemed + 1 } : r
-            )
-          );
-        }
-      }
-    } catch (e) {
-      const err = e as { error?: string };
-      setError(err?.error ?? "Failed to redeem");
-    } finally {
-      setRedeeming(null);
-    }
   };
 
   const handleSubscribe = async () => {
@@ -636,14 +596,12 @@ export default function RewardsScreen() {
                                   style={[
                                     styles.redeemBtnGrid,
                                     { backgroundColor: theme.colors.primary },
-                                    (!canRedeem || redeeming === r.id) && styles.redeemBtnDisabled,
+                                    !canRedeem && styles.redeemBtnDisabled,
                                   ]}
-                                  onPress={() => handleRedeem(r.id)}
-                                  disabled={!canRedeem || redeeming === r.id}
+                                  onPress={() => openRedeemForm(r)}
+                                  disabled={!canRedeem}
                                 >
-                                  {redeeming === r.id ? (
-                                    <ActivityIndicator size="small" color="#fff" />
-                                  ) : canRedeem ? (
+                                  {canRedeem ? (
                                     <Text style={styles.redeemBtnText}>Redeem</Text>
                                   ) : (
                                     <Text style={styles.redeemBtnText}>
@@ -673,21 +631,19 @@ export default function RewardsScreen() {
         </ScrollView>
       )}
 
-      {/* Reward detail modal: photo at natural aspect ratio so full photo is visible */}
+      {/* Reward detail modal: 1:1 preview strip; tap opens full gallery (ImageGalleryViewer). */}
       <Modal
         visible={!!selectedRewardForModal}
         animationType="slide"
         transparent
         onRequestClose={() => {
           setSelectedRewardForModal(null);
-          setRewardModalImageSize(null);
         }}
       >
         <Pressable
           style={styles.rewardModalOverlay}
           onPress={() => {
             setSelectedRewardForModal(null);
-            setRewardModalImageSize(null);
           }}
         >
           <View style={styles.rewardModalContent} onStartShouldSetResponder={() => true}>
@@ -700,7 +656,6 @@ export default function RewardsScreen() {
                   <Pressable
                     onPress={() => {
                       setSelectedRewardForModal(null);
-                      setRewardModalImageSize(null);
                     }}
                     style={styles.rewardModalCloseBtn}
                     hitSlop={12}
@@ -714,18 +669,49 @@ export default function RewardsScreen() {
                   nestedScrollEnabled
                 >
                   <View style={styles.rewardModalImageWrap}>
-                    {selectedRewardForModal.imageUrl ? (
-                      <RewardModalImage
-                        uri={resolveUrl(selectedRewardForModal.imageUrl)}
-                        setImageSize={setRewardModalImageSize}
-                        imageSize={rewardModalImageSize}
-                      />
-                    ) : (
-                      <View style={styles.rewardModalImagePlaceholder}>
-                        <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
-                        <Text style={styles.rewardModalPlaceholderText}>No image</Text>
-                      </View>
-                    )}
+                    {(() => {
+                      const urls = selectedRewardForModal.imageUrl
+                        ? [resolveUrl(selectedRewardForModal.imageUrl)!].filter(Boolean)
+                        : [];
+                      if (urls.length === 0) {
+                        return (
+                          <View style={styles.rewardModalImagePlaceholder}>
+                            <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
+                            <Text style={styles.rewardModalPlaceholderText}>No image</Text>
+                          </View>
+                        );
+                      }
+                      return (
+                        <FlatList
+                          horizontal
+                          data={urls}
+                          keyExtractor={(u, i) => `${i}-${u}`}
+                          showsHorizontalScrollIndicator={urls.length > 1}
+                          pagingEnabled={false}
+                          contentContainerStyle={
+                            urls.length === 1
+                              ? styles.rewardPreviewListSingle
+                              : styles.rewardPreviewListMulti
+                          }
+                          ItemSeparatorComponent={() => <View style={{ width: 10 }} />}
+                          renderItem={({ item, index }) => (
+                            <Pressable
+                              onPress={() => {
+                                setRewardGalleryIndex(index);
+                                setRewardGalleryOpen(true);
+                              }}
+                              style={styles.rewardPreviewThumbPress}
+                            >
+                              <Image
+                                source={{ uri: item }}
+                                style={styles.rewardPreviewThumb}
+                                resizeMode="cover"
+                              />
+                            </Pressable>
+                          )}
+                        />
+                      );
+                    })()}
                   </View>
                   {selectedRewardForModal.business && (
                     <Pressable
@@ -799,8 +785,8 @@ export default function RewardsScreen() {
                     style={[
                       styles.rewardModalRedeemBtn,
                       { backgroundColor: theme.colors.primary },
-                      (!(signedIn && points !== null && points >= selectedRewardForModal.pointsRequired) ||
-                        redeeming === selectedRewardForModal.id) && styles.rewardModalRedeemBtnDisabled,
+                      (!(signedIn && points !== null && points >= selectedRewardForModal.pointsRequired)) &&
+                        styles.rewardModalRedeemBtnDisabled,
                     ]}
                     onPress={() => {
                       if (!signedIn || points === null) {
@@ -808,16 +794,13 @@ export default function RewardsScreen() {
                         router.push("/(tabs)/my-community");
                         return;
                       }
-                      handleRedeem(selectedRewardForModal.id);
+                      openRedeemForm(selectedRewardForModal);
                     }}
                     disabled={
-                      redeeming === selectedRewardForModal.id ||
                       !(signedIn && points !== null && points >= selectedRewardForModal.pointsRequired)
                     }
                   >
-                    {redeeming === selectedRewardForModal.id ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : signedIn && points !== null && points >= selectedRewardForModal.pointsRequired ? (
+                    {signedIn && points !== null && points >= selectedRewardForModal.pointsRequired ? (
                       <Text style={styles.rewardModalRedeemBtnText}>
                         Redeem {selectedRewardForModal.pointsRequired} pts
                       </Text>
@@ -835,6 +818,29 @@ export default function RewardsScreen() {
           </View>
         </Pressable>
       </Modal>
+      <ImageGalleryViewer
+        visible={
+          rewardGalleryOpen &&
+          !!selectedRewardForModal?.imageUrl &&
+          !!resolveUrl(selectedRewardForModal.imageUrl)
+        }
+        images={
+          selectedRewardForModal?.imageUrl
+            ? [resolveUrl(selectedRewardForModal.imageUrl)!].filter((u): u is string => !!u)
+            : []
+        }
+        initialIndex={rewardGalleryIndex}
+        onClose={() => setRewardGalleryOpen(false)}
+      />
+
+      <RedeemRewardFormModal
+        visible={!!redeemFormReward}
+        reward={redeemFormReward}
+        onClose={() => setRedeemFormReward(null)}
+        onSuccess={(rewardId, pointsSpent) => {
+          applyRedeemSuccess(rewardId, pointsSpent);
+        }}
+      />
     </View>
   );
 }
@@ -1073,6 +1079,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 12,
     backgroundColor: "#f5f5f5",
+  },
+  rewardPreviewListSingle: {
+    alignSelf: "center",
+    paddingHorizontal: 16,
+  },
+  rewardPreviewListMulti: {
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  rewardPreviewThumbPress: {
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#ddd",
+  },
+  rewardPreviewThumb: {
+    width: REWARD_PREVIEW_SIZE,
+    height: REWARD_PREVIEW_SIZE,
+    backgroundColor: "#e8e8e8",
   },
   rewardModalImagePlaceholder: {
     width: "100%",

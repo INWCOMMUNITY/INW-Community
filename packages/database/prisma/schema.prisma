@@ -762,8 +762,11 @@ model RewardRedemption {
   createdAt  DateTime @default(now()) @map("created_at")
   storeOrderId String? @unique @map("store_order_id")
   fulfillmentStatus String? @map("fulfillment_status") // pending_checkout | paid | shipped | fulfilled | canceled
+  contactName String? @map("contact_name")
   contactPhone String? @map("contact_phone")
   contactEmail String? @map("contact_email")
+  notesToBusiness String? @map("notes_to_business") @db.Text
+  shippingAddress Json? @map("shipping_address")
 
   member  Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
   reward  Reward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
@@ -818,8 +821,11 @@ model StoreOrder {
   taxCents                Int      @default(0) @map("tax_cents")
   status                  String   @default("pending") // pending | paid | shipped | delivered | refunded | canceled
   shippingAddress         Json?    @map("shipping_address") // { street, city, state, zip }
-  localDeliveryDetails    Json?    @map("local_delivery_details") // { firstName, lastName, phone, deliveryAddress, note, termsAcceptedAt }
-  deliveryConfirmedAt     DateTime? @map("delivery_confirmed_at")
+  localDeliveryDetails    Json?    @map("local_delivery_details") // { firstName, lastName, phone, email?, deliveryAddress, note, termsAcceptedAt, availableDropOffTimes? }
+  deliveryConfirmedAt     DateTime? @map("delivery_confirmed_at") // seller marked delivered (local delivery)
+  deliveryBuyerConfirmedAt DateTime? @map("delivery_buyer_confirmed_at")
+  pickupSellerConfirmedAt DateTime? @map("pickup_seller_confirmed_at")
+  pickupBuyerConfirmedAt  DateTime? @map("pickup_buyer_confirmed_at")
   stripePaymentIntentId   String?  @map("stripe_payment_intent_id")
   stripeCheckoutSessionId String?  @map("stripe_checkout_session_id")
   pointsAwarded           Int      @default(0) @map("points_awarded")
@@ -873,6 +879,7 @@ model OrderItem {
   priceCentsAtPurchase Int      @map("price_cents_at_purchase")
   variant              Json?    // selected variant if applicable
   fulfillmentType      String?  @map("fulfillment_type") // ship | local_delivery | pickup
+  pickupDetails        Json?    @map("pickup_details") // snapshot at checkout from cart
   createdAt            DateTime @default(now()) @map("created_at")
 
   order     StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)

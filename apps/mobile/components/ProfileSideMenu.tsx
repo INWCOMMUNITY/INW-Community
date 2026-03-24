@@ -221,7 +221,13 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     }
     if (href === "action:logout") {
       onClose();
-      signOut?.().then(() => router.replace("/(auth)/login" as any));
+      signOut
+        ?.()
+        .then(() => router.replace("/(auth)/login" as any))
+        .catch((e) => {
+          if (__DEV__) console.warn("[ProfileSideMenu] signOut", e);
+          router.replace("/(auth)/login" as any);
+        });
       return;
     }
     if (href === "action:resale-hub") {

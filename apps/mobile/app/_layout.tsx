@@ -27,6 +27,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { trackAppOpen } from '@/lib/api';
 import * as WebBrowser from 'expo-web-browser';
 import { PushNotificationHandler } from '@/components/PushNotificationHandler';
+import { EventInvitePopupHost } from '@/components/EventInvitePopupHost';
 import { theme } from '@/lib/theme';
 
 /** True if the string looks like HTML (never render raw in UI). */
@@ -156,8 +157,22 @@ function AuthDeepLinkHandler() {
       await refreshMember?.().catch(() => {});
       router.replace('/(tabs)/home' as never);
     };
-    Linking.getInitialURL().then(handleUrl);
-    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    void Linking.getInitialURL()
+      .then(async (url) => {
+        try {
+          await handleUrl(url);
+        } catch (e) {
+          if (__DEV__) console.warn('[AuthDeepLinkHandler]', e);
+        }
+      })
+      .catch((e) => {
+        if (__DEV__) console.warn('[AuthDeepLinkHandler] getInitialURL', e);
+      });
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      void handleUrl(url).catch((e) => {
+        if (__DEV__) console.warn('[AuthDeepLinkHandler] url event', e);
+      });
+    });
     return () => sub.remove();
   }, [refreshMember, router]);
   return null;
@@ -209,6 +224,7 @@ function RootLayoutNav() {
         <Stack.Screen name="seller/[slug]" />
         <Stack.Screen name="coupons/index" />
         <Stack.Screen name="rewards/index" />
+        <Stack.Screen name="redeemed-rewards" options={{ headerShown: false }} />
         <Stack.Screen name="profile-edit" />
         <Stack.Screen name="policies" />
         <Stack.Screen name="profile-businesses" />
@@ -236,6 +252,7 @@ function RootLayoutNav() {
       <AuthProvider>
       <AuthDeepLinkHandler />
       <PushNotificationHandler />
+      <EventInvitePopupHost />
       <ProfileViewLayout>
       <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       {hasStripeKey ? (

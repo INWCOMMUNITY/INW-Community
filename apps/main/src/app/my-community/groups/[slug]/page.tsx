@@ -110,7 +110,7 @@ export default function GroupAdminPage() {
     );
   }
 
-  const isAdmin = group.memberRole === "admin" || group.createdBy;
+  const isAdmin = group.memberRole === "admin";
   if (!isAdmin) {
     return (
       <div>

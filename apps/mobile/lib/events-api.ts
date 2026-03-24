@@ -103,7 +103,6 @@ export async function fetchEvents(
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
     if (!res.ok) throw new Error(`Server error: ${res.status}`);
     const ct = res.headers.get("content-type");
     if (!ct?.includes("application/json"))
@@ -112,9 +111,10 @@ export async function fetchEvents(
     const events = Array.isArray(data) ? data : [];
     await setCachedEvents(calendarType, from, to, events, city);
     return events;
-  } catch {
+  } catch (e) {
+    throw e instanceof Error ? e : new Error("Failed to load events");
+  } finally {
     clearTimeout(timeout);
-    return [];
   }
 }
 

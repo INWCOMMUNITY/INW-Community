@@ -1,6 +1,8 @@
 /**
  * Badge award utilities. Call after relevant events (member/business/post/order created, etc.).
  * Uses badge slugs from seed. Safe to call multiple times - badges are unique per member/business.
+ *
+ * Not auto-awarded here: `community_star_business` (planned / TBD), `community_point_giver` (admin_only in seed).
  */
 import { prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
@@ -178,7 +180,10 @@ async function ensureMemberBadgeWithInfo(memberId: string, badgeSlug: string): P
   return { slug: badge.slug, name: badge.name, description: badge.description };
 }
 
-/** Call after QRScan create - Super Scanner (10), Elite Scanner (50) */
+/**
+ * Call after QRScan create — Super Scanner (10), Elite Scanner (50).
+ * Uses **distinct businesses** scanned (see prisma.qRScan groupBy businessId), not total scan count.
+ */
 export async function awardScannerBadges(memberId: string): Promise<EarnedBadge[]> {
   const earned: EarnedBadge[] = [];
   const distinctBizCount = await prisma.qRScan.groupBy({
@@ -265,7 +270,8 @@ export async function awardSellerDeliveryBadge(sellerId: string): Promise<Earned
   const deliveryCount = await prisma.storeOrder.count({
     where: {
       sellerId,
-      status: "delivered",
+      deliveryConfirmedAt: { not: null },
+      deliveryBuyerConfirmedAt: { not: null },
       items: { some: { fulfillmentType: "local_delivery" } },
     },
   });
@@ -282,7 +288,8 @@ export async function awardSellerPickupBadge(sellerId: string): Promise<EarnedBa
   const pickupCount = await prisma.storeOrder.count({
     where: {
       sellerId,
-      status: "delivered",
+      pickupSellerConfirmedAt: { not: null },
+      pickupBuyerConfirmedAt: { not: null },
       items: { some: { fulfillmentType: "pickup" } },
     },
   });

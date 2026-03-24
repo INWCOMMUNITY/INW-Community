@@ -201,7 +201,7 @@ const bodySchema = z.object({
   city: z.string().min(1, "City is required"),
   categories: z.array(z.string().min(1)).min(1, "At least one category is required").max(2, "Maximum 2 categories"),
   subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
-  photos: z.array(z.string()).optional(),
+  photos: z.array(z.string()).max(12, "Maximum 12 gallery photos").optional(),
   hoursOfOperation: hoursSchema,
 });
 

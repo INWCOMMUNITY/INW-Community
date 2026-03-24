@@ -20,7 +20,10 @@ export default async function EventDetailPage({
 }) {
   const { slug } = await params;
   const event = await prisma.event.findFirst({
-    where: isCuid(slug) ? { id: slug } : { slug },
+    where: {
+      status: "approved",
+      ...(isCuid(slug) ? { id: slug } : { slug }),
+    },
     include: { business: { select: { name: true, slug: true, memberId: true } } },
   });
   if (!event) notFound();
@@ -61,9 +64,16 @@ export default async function EventDetailPage({
         </p>
         {event.location && <p className="text-gray-600 mb-2">Location: {event.location}</p>}
         {event.business && (
-          <Link href={`/support-local/${event.business.slug}`} className="hover:underline mb-4 inline-block" style={{ color: "var(--color-link)" }}>
-            {event.business.name}
-          </Link>
+          <p className="text-gray-700 mb-4">
+            Event by{" "}
+            <Link
+              href={`/support-local/${event.business.slug}`}
+              className="hover:underline font-medium"
+              style={{ color: "var(--color-link)" }}
+            >
+              {event.business.name}
+            </Link>
+          </p>
         )}
         {event.description && <p className="mb-4 whitespace-pre-wrap">{event.description}</p>}
         {event.photos && event.photos.length > 0 && (

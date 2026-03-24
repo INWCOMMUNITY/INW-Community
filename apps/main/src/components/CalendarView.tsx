@@ -37,6 +37,7 @@ export function CalendarView({ calendarType }: { calendarType: string }) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
 
   const from = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
@@ -44,12 +45,26 @@ export function CalendarView({ calendarType }: { calendarType: string }) {
 
   useEffect(() => {
     setLoading(true);
+    setFetchError(null);
     fetch(
       `/api/events?calendarType=${encodeURIComponent(calendarType)}&from=${from.toISOString()}&to=${to.toISOString()}`
     )
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) {
+          throw new Error(`Request failed (${r.status})`);
+        }
+        const ct = r.headers.get("content-type");
+        if (!ct?.includes("application/json")) {
+          throw new Error("Invalid response");
+        }
+        return r.json() as Promise<unknown>;
+      })
       .then((d) => {
         setEvents(Array.isArray(d) ? d : []);
+      })
+      .catch(() => {
+        setFetchError("Could not load events. Try again.");
+        setEvents([]);
       })
       .finally(() => setLoading(false));
   }, [calendarType, from.toISOString(), to.toISOString()]);
@@ -144,6 +159,12 @@ export function CalendarView({ calendarType }: { calendarType: string }) {
           </button>
         </div>
       </div>
+
+      {fetchError ? (
+        <p className="text-sm text-red-600" role="alert">
+          {fetchError}
+        </p>
+      ) : null}
 
       <div className="border-2 border-[var(--color-primary)] rounded-xl overflow-hidden bg-white">
         <div className="grid grid-cols-7 border-b bg-gray-50">

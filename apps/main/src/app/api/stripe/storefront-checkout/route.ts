@@ -6,6 +6,13 @@ import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
+import {
+  validateLocalDeliveryDetails,
+  validatePickupLine,
+  validateRequestedFulfillment,
+  storeItemHasLocalDeliveryPolicy,
+  type LocalDeliveryDetailsJson,
+} from "@/lib/pickup-delivery-checkout";
 
 const PLATFORM_FEE_PERCENT = 0.05; // 5%
 const PLATFORM_FEE_MIN_CENTS = 50;
@@ -37,9 +44,11 @@ export async function POST(req: NextRequest) {
       firstName: string;
       lastName: string;
       phone: string;
+      email?: string;
       deliveryAddress: { street?: string; city?: string; state?: string; zip?: string };
       note?: string;
       termsAcceptedAt?: string;
+      availableDropOffTimes?: string;
     };
     cashOrderIds?: string[];
     /** Mobile app can pass this so redirect works on device (e.g. http://192.168.1.140:3000) */
@@ -74,27 +83,12 @@ export async function POST(req: NextRequest) {
   }
 
   const hasLocalDelivery = items.some((i) => i.fulfillmentType === "local_delivery");
-  if (hasLocalDelivery) {
-    if (
-      !localDeliveryDetails ||
-      !localDeliveryDetails.firstName?.trim() ||
-      !localDeliveryDetails.lastName?.trim() ||
-      !localDeliveryDetails.phone?.trim() ||
-      !localDeliveryDetails.deliveryAddress ||
-      !localDeliveryDetails.deliveryAddress.street?.trim() ||
-      !localDeliveryDetails.deliveryAddress.city?.trim() ||
-      !localDeliveryDetails.deliveryAddress.state?.trim() ||
-      !localDeliveryDetails.deliveryAddress.zip?.trim()
-    ) {
-      return NextResponse.json(
-        { error: "Local Delivery requires complete delivery details (name, phone, full address)." },
-        { status: 400 }
-      );
-    }
-  }
 
   const storeItems = await prisma.storeItem.findMany({
     where: { id: { in: items.map((i) => i.storeItemId) }, status: "active" },
+    include: {
+      member: { select: { sellerPickupPolicy: true, sellerLocalDeliveryPolicy: true } },
+    },
   });
 
   if (storeItems.length !== items.length) {
@@ -102,6 +96,31 @@ export async function POST(req: NextRequest) {
   }
 
   const itemMap = new Map(storeItems.map((s) => [s.id, s]));
+
+  for (const line of items) {
+    const si = itemMap.get(line.storeItemId);
+    if (!si) continue;
+    const fv = validateRequestedFulfillment(si, line.fulfillmentType);
+    if (!fv.ok) {
+      return NextResponse.json({ error: fv.error }, { status: 400 });
+    }
+  }
+
+  let normalizedLocalDelivery: LocalDeliveryDetailsJson | undefined;
+  if (hasLocalDelivery) {
+    const requireLocalPolicy = items.some(
+      (i) =>
+        (i.fulfillmentType ?? "ship") === "local_delivery" &&
+        storeItemHasLocalDeliveryPolicy(itemMap.get(i.storeItemId)!)
+    );
+    const ld = validateLocalDeliveryDetails(localDeliveryDetails, {
+      requirePolicyAcceptance: requireLocalPolicy,
+    });
+    if (!ld.ok) {
+      return NextResponse.json({ error: ld.error }, { status: 400 });
+    }
+    normalizedLocalDelivery = ld.details;
+  }
 
   const cartDbItems = await prisma.cartItem.findMany({
     where: {
@@ -112,6 +131,17 @@ export async function POST(req: NextRequest) {
   });
   const cartByStoreItem = new Map(cartDbItems.map((c) => [c.storeItemId, c]));
   const resaleOfferIdsMeta = new Set<string>();
+
+  for (const item of items) {
+    if ((item.fulfillmentType ?? "ship") !== "pickup") continue;
+    const storeItem = itemMap.get(item.storeItemId);
+    const cartRow = cartByStoreItem.get(item.storeItemId);
+    if (!storeItem) continue;
+    const v = validatePickupLine(cartRow, storeItem);
+    if (!v.ok) {
+      return NextResponse.json({ error: v.error }, { status: 400 });
+    }
+  }
 
   // Group cart items by seller; each seller gets a separate order and their share of the payment.
   const bySeller = new Map<string, typeof items>();
@@ -139,8 +169,10 @@ export async function POST(req: NextRequest) {
       priceCentsAtPurchase: number;
       variant?: unknown;
       fulfillmentType?: string;
+      pickupDetails?: object;
     }[] = [];
     const hasShippedInThisOrder = sellerItems.some((i) => (i.fulfillmentType ?? "ship") === "ship");
+    const hasLocalDeliveryInThisOrder = sellerItems.some((i) => i.fulfillmentType === "local_delivery");
 
     for (const item of sellerItems) {
       const storeItem = itemMap.get(item.storeItemId)!;
@@ -186,6 +218,10 @@ export async function POST(req: NextRequest) {
         priceCentsAtPurchase: priceCents,
         variant: item.variant ?? undefined,
         fulfillmentType,
+        pickupDetails:
+          fulfillmentType === "pickup" && cartRow?.pickupDetails
+            ? (cartRow.pickupDetails as object)
+            : undefined,
       });
     }
 
@@ -223,7 +259,10 @@ export async function POST(req: NextRequest) {
         totalCents,
         status: "pending",
         shippingAddress: shippingAddress ? (shippingAddress as object) : Prisma.JsonNull,
-        localDeliveryDetails: localDeliveryDetails && hasLocalDelivery ? (localDeliveryDetails as object) : Prisma.JsonNull,
+        localDeliveryDetails:
+          normalizedLocalDelivery && hasLocalDeliveryInThisOrder
+            ? (normalizedLocalDelivery as object)
+            : Prisma.JsonNull,
       },
     });
     orderIds.push(order.id);
@@ -237,6 +276,7 @@ export async function POST(req: NextRequest) {
           priceCentsAtPurchase: oi.priceCentsAtPurchase,
           variant: oi.variant == null ? Prisma.JsonNull : (oi.variant as object),
           fulfillmentType: oi.fulfillmentType ?? null,
+          pickupDetails: oi.pickupDetails ? (oi.pickupDetails as object) : Prisma.JsonNull,
         },
       });
     }

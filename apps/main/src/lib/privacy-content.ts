@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "March 21, 2026";
+export const PRIVACY_LAST_UPDATED = "March 23, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -19,6 +19,7 @@ You may provide information when you:
 ● Submit an event
 ● Submit an NWC Requests form
 ● Make a payment
+● Complete checkout for marketplace items that offer local pickup or local delivery (you may be asked for your name, email address, phone number, optional notes, agreement to the seller's stated terms where shown, and for pickup an estimated pickup date and time; for local delivery a delivery address and when you are available to receive the delivery)
 ● Communicate with NWC staff
 
 This information may include:
@@ -30,7 +31,9 @@ This information may include:
 ● Address
 ● Business logos
 ● Payment details (processed securely through Stripe)
+● Subscription and billing records for paid plans (for example, resident, business, or seller subscriptions): we store the information needed to provide access to paid features (such as plan type, subscription status, and renewal timing) and identifiers that Stripe associates with your account. Full payment card numbers are not stored on our servers; they are handled by Stripe.
 ● Blog submissions, feed posts, comments, direct messages, group conversations, listings, event information
+● Marketplace order fulfillment details you enter at checkout for local pickup or local delivery (including contact and scheduling fields described above), stored with your order
 ● Any content you voluntarily provide
 
 NWC information disclosure
@@ -55,8 +58,9 @@ Our website uses essential session and security cookies. We do not use third-par
 When you use our Northwest Community mobile app, we may also collect or process:
 ● Account credentials and authentication tokens stored on your device (secured storage)
 ● Device type and operating system (for compatibility)
-● Photos uploaded from your device (stored via our secure file storage)
-● Push notification tokens (if you enable notifications)
+● Photos and images uploaded from your device (including logos, listing photos, and business gallery images), stored via our secure file storage. Per-file uploads are limited to 80MB; accepted formats are JPEG, PNG, WebP, and GIF. Business directory profiles may include up to 12 gallery photos in addition to a logo.
+
+Push notifications: If you enable notifications on your device, a push token may be registered with Northwest Community (and with our push delivery provider) so we can send notices to your app. We use push notifications for service- and activity-related messages, such as order or account alerts, event invitations, responses to event invitations you sent, event reminders, and similar messages tied to your account. You may disable push notifications at any time in your device settings. We may remove tokens that are no longer valid (for example, after you turn off notifications or uninstall the app).
 
 1.4 Information from sellers & business subscribers
 When businesses join NWC, we may collect:
@@ -66,7 +70,7 @@ When businesses join NWC, we may collect:
 ● Coupon offerings
 ● Event submissions
 ● Shipping or sales-related information
-● Shipping addresses, local delivery details, pickup details (name, phone, address) for orders
+● Shipping addresses; local delivery details (including name, email, phone, delivery address, available drop-off or receipt times, optional notes, and agreement timestamps where applicable); pickup details (including name, email, phone, optional notes, estimated pickup date and time, and agreement timestamps where applicable) for orders they fulfill
 ● Any updates provided to NWC for posting
 
 Sellers who connect Shippo may have an OAuth access token (or, for some legacy accounts, an API key) stored encrypted at rest; we use it only to provide shipping features on their behalf and do not share it.
@@ -74,11 +78,13 @@ Sellers who connect Shippo may have an OAuth access token (or, for some legacy a
 2. HOW WE USE YOUR INFORMATION
 We use the collected information for the following purposes:
 ● To operate and maintain our website and mobile app
-● To process payments and subscriptions
+● To process payments and subscriptions (including granting access to website and app features included with your plan)
+● To send push notifications you have opted into on your device (for the purposes described in section 1.3)
 ● To manage seller and business subscriber profiles
 ● To display user-generated content (blogs, feed posts, comments, listings, events)
 ● To provide customer support
 ● To send service-related notifications (including order tracking)
+● To attach pickup and local delivery information you submit at checkout to your order and make it available to the selling member so they can coordinate pickup or delivery
 ● To verify business eligibility
 ● To improve website and app function and security
 ● To communicate with you about updates or policy changes
@@ -95,7 +101,8 @@ NWC may share information only in the following circumstances:
 3.1 Service Providers
 We use third-party vendors such as:
 ● Vercel (website hosting and file storage via Vercel Blob)
-● Stripe (payment processing and subscriptions)
+● Stripe (payment processing, subscriptions, billing portal, and related payment data)
+● Expo push notification service (delivery of mobile push notifications when you enable them on your device)
 ● Shippo (shipping labels for marketplace orders)
 ● Resend (transactional email)
 ● Our database hosting provider (PostgreSQL)
@@ -119,7 +126,10 @@ We may share information if you explicitly authorize it, such as:
 
 By becoming a seller or Business subscriber, you automatically authorize NWC to share store information.
 
-3.4 Handling Disputes
+3.4 Marketplace buyers and sellers (order fulfillment)
+When you buy or sell through the marketplace, NWC shares with the seller or buyer the information reasonably needed to fulfill the order. For shipped orders, this includes the shipping address you provide. For local pickup and local delivery, this includes the contact and scheduling details you enter at checkout (as described in section 1). Sellers receive this information to arrange pickup or delivery; buyers should not expect that information to remain hidden from the seller for those order types. NWC does not sell this information separately; it is used for transaction fulfillment and related account and support functions.
+
+3.5 Handling Disputes
 ● We may provide only business information (not personal information) if a user of inwcommunity.com claims to have conducted business with your company and initiates a dispute. NWC is not a party to disputes, but may act as a mediator to provide accurate information to help our clients and your company resolve an issue. See Terms of Service 7.4.
 ● NWC does not access or disclose private user communications unless required by law, compelled by a valid legal request, or necessary to protect the safety and security of the community.
 

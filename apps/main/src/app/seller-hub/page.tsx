@@ -162,7 +162,7 @@ export default async function SellerHubPage() {
               </p>
             </Link>
             <Link
-              href="/seller-hub/store"
+              href="/seller-hub/policies"
               className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
             >
               <IonIcon name="book-outline" size={28} className="text-[var(--color-primary)] mb-2" />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -113,6 +113,7 @@ export default function ListItemScreen() {
   const [category, setCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
   const [useCustomCategory, setUseCustomCategory] = useState(false);
+  const [categorySearch, setCategorySearch] = useState("");
   const [priceCents, setPriceCents] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [listingType, setListingType] = useState<"new" | "resale">(listingTypeParam);
@@ -138,6 +139,24 @@ export default function ListItemScreen() {
   const [editSuccess, setEditSuccess] = useState(false);
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
+
+  const filteredStoreCategories = useMemo(() => {
+    const q = categorySearch.trim().toLowerCase();
+    if (!q) return storeCategories;
+    return storeCategories.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.subcategories.some((s) => s.toLowerCase().includes(q))
+    );
+  }, [storeCategories, categorySearch]);
+
+  const filteredSubcategoriesForCategory = useMemo(() => {
+    const sel = storeCategories.find((c) => c.label === category);
+    if (!sel?.subcategories?.length) return [];
+    const q = categorySearch.trim().toLowerCase();
+    if (!q) return sel.subcategories;
+    return sel.subcategories.filter((s) => s.toLowerCase().includes(q));
+  }, [storeCategories, category, categorySearch]);
 
   const hasVariantsWithOptions =
     optionsEnabled && variants.some((v) => v.name.trim() && v.options.length > 0);
@@ -918,10 +937,20 @@ export default function ListItemScreen() {
         <>
           {storeCategories.length > 0 && (
             <>
+              <Text style={styles.hint}>Search categories</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Filter by name…"
+                placeholderTextColor={placeholderColor}
+                value={categorySearch}
+                onChangeText={setCategorySearch}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
               <Text style={styles.hint}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
                 <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                  {storeCategories.map((c) => (
+                  {filteredStoreCategories.map((c) => (
                     <Pressable
                       key={c.label}
                       style={[
@@ -937,12 +966,12 @@ export default function ListItemScreen() {
                   ))}
                 </View>
               </ScrollView>
-              {category && storeCategories.find((c) => c.label === category)?.subcategories?.length ? (
+              {category && filteredSubcategoriesForCategory.length ? (
                 <>
                   <Text style={styles.hint}>Subcategory (optional)</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
                     <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                      {storeCategories.find((c) => c.label === category)!.subcategories.map((s) => (
+                      {filteredSubcategoriesForCategory.map((s) => (
                         <Pressable
                           key={s}
                           style={[styles.typeBtn, subcategory === s && styles.typeBtnActive]}

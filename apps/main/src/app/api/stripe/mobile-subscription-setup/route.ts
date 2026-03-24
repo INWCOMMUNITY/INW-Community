@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
+import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
@@ -58,7 +59,9 @@ async function createBusinessDraftInDb(
   const email = typeof data.email === "string" && data.email.trim() ? data.email.trim() : null;
   const logoUrl = typeof data.logoUrl === "string" && data.logoUrl.trim() ? data.logoUrl.trim() : null;
   const address = typeof data.address === "string" && data.address.trim() ? data.address.trim() : null;
-  const photos = Array.isArray(data.photos) ? (data.photos as string[]).filter(Boolean) : [];
+  const photos = Array.isArray(data.photos)
+    ? (data.photos as string[]).filter(Boolean).slice(0, MAX_BUSINESS_GALLERY_PHOTOS)
+    : [];
   const hoursOfOperation = data.hoursOfOperation && typeof data.hoursOfOperation === "object"
     ? (data.hoursOfOperation as Record<string, string>)
     : undefined;

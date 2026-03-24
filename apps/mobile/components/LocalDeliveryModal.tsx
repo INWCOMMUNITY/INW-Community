@@ -18,7 +18,9 @@ export interface LocalDeliveryDetails {
   firstName: string;
   lastName: string;
   phone: string;
+  email: string;
   deliveryAddress: { street: string; city: string; state: string; zip: string };
+  availableDropOffTimes: string;
   note?: string;
   termsAcceptedAt?: string;
 }
@@ -35,7 +37,9 @@ const emptyForm: LocalDeliveryDetails = {
   firstName: "",
   lastName: "",
   phone: "",
+  email: "",
   deliveryAddress: { street: "", city: "", state: "", zip: "" },
+  availableDropOffTimes: "",
   note: "",
 };
 
@@ -61,12 +65,14 @@ export function LocalDeliveryModal({
         firstName: initialForm?.firstName ?? "",
         lastName: initialForm?.lastName ?? "",
         phone: initialForm?.phone ?? "",
+        email: initialForm?.email ?? "",
         deliveryAddress: {
           street: initialForm?.deliveryAddress?.street ?? "",
           city: initialForm?.deliveryAddress?.city ?? "",
           state: initialForm?.deliveryAddress?.state ?? "",
           zip: initialForm?.deliveryAddress?.zip ?? "",
         },
+        availableDropOffTimes: initialForm?.availableDropOffTimes ?? "",
         note: initialForm?.note ?? "",
       });
       setTermsAccepted(false);
@@ -80,11 +86,13 @@ export function LocalDeliveryModal({
         firstName?: string;
         lastName?: string;
         phone?: string | null;
+        email?: string | null;
         deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string };
       }>("/api/me");
       if (d?.firstName) setForm((f) => ({ ...f, firstName: d.firstName! }));
       if (d?.lastName) setForm((f) => ({ ...f, lastName: d.lastName! }));
       if (d?.phone) setForm((f) => ({ ...f, phone: d.phone ?? "" }));
+      if (d?.email) setForm((f) => ({ ...f, email: d.email ?? "" }));
       const addr = d?.deliveryAddress;
       if (addr && typeof addr === "object") {
         setForm((f) => ({
@@ -97,29 +105,39 @@ export function LocalDeliveryModal({
           },
         }));
       }
-    } catch {}
+    } catch (e) {
+      if (__DEV__) console.warn("[LocalDeliveryModal] autofill", e);
+      setValidationError("Could not load your saved details. Enter them manually or try again.");
+    }
   };
 
   const handleSave = () => {
     setValidationError("");
     const f = form;
-    const ok =
+    const hasPolicy = !!(policyText && String(policyText).trim());
+    const fieldsOk =
       f.firstName.trim() &&
       f.lastName.trim() &&
       f.phone.trim() &&
+      f.email.trim() &&
       f.deliveryAddress.street.trim() &&
       f.deliveryAddress.city.trim() &&
       f.deliveryAddress.state.trim() &&
       f.deliveryAddress.zip.trim() &&
-      termsAccepted;
+      f.availableDropOffTimes.trim();
+    const ok = fieldsOk && (!hasPolicy || termsAccepted);
     if (ok) {
       onSave({
         ...f,
-        termsAcceptedAt: new Date().toISOString(),
+        ...(hasPolicy ? { termsAcceptedAt: new Date().toISOString() } : {}),
       });
       onClose();
     } else {
-      setValidationError("Please fill all required fields and agree to the terms.");
+      setValidationError(
+        hasPolicy
+          ? "Please fill all required fields and agree to the delivery terms."
+          : "Please fill all required fields."
+      );
     }
   };
 
@@ -156,44 +174,6 @@ export function LocalDeliveryModal({
                 <Text style={styles.autofillText}>Autofill from my profile</Text>
               </Pressable>
             ) : null}
-            <View style={styles.row}>
-              <View style={styles.fieldHalf}>
-                <Text style={styles.label}>First name *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={form.firstName}
-                  onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
-                  placeholder="First name"
-                  placeholderTextColor={theme.colors.placeholder}
-                  autoCapitalize="words"
-                  autoCorrect={true}
-                />
-              </View>
-              <View style={styles.fieldHalf}>
-                <Text style={styles.label}>Last name *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={form.lastName}
-                  onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
-                  placeholder="Last name"
-                  placeholderTextColor={theme.colors.placeholder}
-                  autoCapitalize="words"
-                  autoCorrect={true}
-                />
-              </View>
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Phone *</Text>
-              <TextInput
-                style={styles.input}
-                value={form.phone}
-                onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
-                placeholder="Phone"
-                placeholderTextColor={theme.colors.placeholder}
-                keyboardType="phone-pad"
-                autoCorrect={true}
-              />
-            </View>
             <View style={styles.field}>
               <Text style={styles.label}>Delivery address *</Text>
               <TextInput
@@ -253,6 +233,70 @@ export function LocalDeliveryModal({
               </View>
             </View>
             <View style={styles.field}>
+              <Text style={styles.label}>Available drop-off times *</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={form.availableDropOffTimes}
+                onChangeText={(v) => setForm((f) => ({ ...f, availableDropOffTimes: v }))}
+                placeholder="When you can receive the delivery"
+                placeholderTextColor={theme.colors.placeholder}
+                multiline
+                numberOfLines={2}
+                autoCorrect={true}
+              />
+            </View>
+            <View style={styles.row}>
+              <View style={styles.fieldHalf}>
+                <Text style={styles.label}>First name *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={form.firstName}
+                  onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
+                  placeholder="First name"
+                  placeholderTextColor={theme.colors.placeholder}
+                  autoCapitalize="words"
+                  autoCorrect={true}
+                />
+              </View>
+              <View style={styles.fieldHalf}>
+                <Text style={styles.label}>Last name *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={form.lastName}
+                  onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
+                  placeholder="Last name"
+                  placeholderTextColor={theme.colors.placeholder}
+                  autoCapitalize="words"
+                  autoCorrect={true}
+                />
+              </View>
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Phone *</Text>
+              <TextInput
+                style={styles.input}
+                value={form.phone}
+                onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
+                placeholder="Phone"
+                placeholderTextColor={theme.colors.placeholder}
+                keyboardType="phone-pad"
+                autoCorrect={true}
+              />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Email *</Text>
+              <TextInput
+                style={styles.input}
+                value={form.email}
+                onChangeText={(v) => setForm((f) => ({ ...f, email: v }))}
+                placeholder="Email"
+                placeholderTextColor={theme.colors.placeholder}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={true}
+              />
+            </View>
+            <View style={styles.field}>
               <Text style={styles.label}>Note to seller (optional)</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
@@ -265,17 +309,19 @@ export function LocalDeliveryModal({
                 autoCorrect={true}
               />
             </View>
-            <View style={styles.termsRow}>
-              <Switch
-                value={termsAccepted}
-                onValueChange={setTermsAccepted}
-                trackColor={{ false: "#ccc", true: theme.colors.primary }}
-                thumbColor="#fff"
-              />
-              <Text style={styles.termsText}>
-                I understand and agree to the seller's delivery terms.
-              </Text>
-            </View>
+            {policyText && String(policyText).trim() ? (
+              <View style={styles.termsRow}>
+                <Switch
+                  value={termsAccepted}
+                  onValueChange={setTermsAccepted}
+                  trackColor={{ false: "#ccc", true: theme.colors.primary }}
+                  thumbColor="#fff"
+                />
+                <Text style={styles.termsText}>
+                  I understand and agree to the seller&apos;s delivery terms.
+                </Text>
+              </View>
+            ) : null}
             {validationError ? (
               <Text style={styles.errorText}>{validationError}</Text>
             ) : null}

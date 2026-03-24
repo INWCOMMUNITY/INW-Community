@@ -8,9 +8,12 @@ import {
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+
+const SOLD_ITEMS_VIEWED_KEY = "sellerHubSoldItemsViewedAt";
 
 function AlertBadge() {
   return (
@@ -24,17 +27,30 @@ export default function ManageStoreScreen() {
   const router = useRouter();
   const [pendingShip, setPendingShip] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
+  const [soldCount, setSoldCount] = useState(0);
+  const [soldItemsViewedAt, setSoldItemsViewedAt] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
-      apiGet<{ pendingShip?: number; pendingReturns?: number }>("/api/seller-hub/pending-actions")
-        .then((data) => {
+      Promise.all([
+        apiGet<{
+          pendingShip?: number;
+          pendingReturns?: number;
+          soldCount?: number;
+        }>("/api/seller-hub/pending-actions"),
+        AsyncStorage.getItem(SOLD_ITEMS_VIEWED_KEY),
+      ])
+        .then(([data, viewedAt]) => {
           setPendingShip(Number(data.pendingShip) || 0);
           setPendingReturns(Number(data.pendingReturns) || 0);
+          setSoldCount(Number(data.soldCount) || 0);
+          setSoldItemsViewedAt(viewedAt);
         })
         .catch(() => {});
     }, [])
   );
+
+  const soldItemsAlert = soldCount > 0 && !soldItemsViewedAt;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -57,7 +73,7 @@ export default function ManageStoreScreen() {
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
         onPress={() => (router.push as (href: string) => void)("/seller-hub/store/sold")}
       >
-        {pendingShip > 0 && (
+        {soldItemsAlert && (
           <View style={styles.cardAlertBadge}>
             <AlertBadge />
           </View>

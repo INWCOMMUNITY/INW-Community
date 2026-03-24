@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { CreateGroupCallout } from "@/components/CreateGroupCallout";
@@ -12,6 +12,7 @@ interface Group {
   category: string | null;
   coverImageUrl: string | null;
   slug: string;
+  rules: string | null;
   createdBy: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   _count: { members: number; groupPosts: number };
   isMember: boolean;
@@ -25,6 +26,8 @@ export default function GroupsPage() {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rulesModalGroup, setRulesModalGroup] = useState<Group | null>(null);
+  const rulesDialogRef = useRef<HTMLDialogElement>(null);
 
   function loadGroups() {
     const params = new URLSearchParams();
@@ -41,11 +44,23 @@ export default function GroupsPage() {
     loadGroups().finally(() => setLoading(false));
   }, [q, category]);
 
-  async function handleJoin(slug: string) {
+  useEffect(() => {
+    const el = rulesDialogRef.current;
+    if (!el) return;
+    if (rulesModalGroup) el.showModal();
+    else el.close();
+  }, [rulesModalGroup]);
+
+  async function joinWithAgreement(slug: string, agreedToRules: boolean) {
     setActionLoading(slug);
     try {
-      const res = await fetch(`/api/groups/${slug}/join`, { method: "POST" });
+      const res = await fetch(`/api/groups/${slug}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agreedToRules }),
+      });
       if (res.ok) {
+        setRulesModalGroup(null);
         await loadGroups();
       } else {
         const err = await res.json().catch(() => ({}));
@@ -56,9 +71,18 @@ export default function GroupsPage() {
     }
   }
 
-  async function handleLeave(slug: string, memberRole: string | null) {
-    if (memberRole === "admin") {
-      alert("Group admins cannot leave. Transfer ownership or delete the group from the group page.");
+  function handleJoinClick(g: Group) {
+    if (g.rules != null && String(g.rules).trim().length > 0) {
+      setRulesModalGroup(g);
+    } else {
+      void joinWithAgreement(g.slug, false);
+    }
+  }
+
+  async function handleLeave(slug: string, createdById: string) {
+    const userId = session?.user && "id" in session.user ? (session.user as { id: string }).id : null;
+    if (userId && createdById === userId) {
+      alert("Group creators cannot leave. Transfer ownership or delete the group from the group page.");
       return;
     }
     setActionLoading(slug);
@@ -79,6 +103,42 @@ export default function GroupsPage() {
 
   return (
     <div>
+      <dialog
+        ref={rulesDialogRef}
+        className="max-w-lg w-[calc(100%-2rem)] rounded-lg border border-gray-200 p-0 shadow-lg backdrop:bg-black/40"
+        onClose={() => setRulesModalGroup(null)}
+      >
+        <div className="p-6">
+          <h2 className="text-lg font-semibold mb-2">Group rules</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            {rulesModalGroup ? (
+              <>
+                Read and agree before joining <span className="font-medium">{rulesModalGroup.name}</span>.
+              </>
+            ) : null}
+          </p>
+          <div className="max-h-64 overflow-y-auto rounded border bg-gray-50 p-3 text-sm whitespace-pre-wrap mb-4">
+            {rulesModalGroup?.rules}
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn border border-gray-300 bg-white"
+              onClick={() => setRulesModalGroup(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn bg-green-600 text-white hover:bg-green-700"
+              disabled={!rulesModalGroup || actionLoading === rulesModalGroup.slug}
+              onClick={() => rulesModalGroup && void joinWithAgreement(rulesModalGroup.slug, true)}
+            >
+              {rulesModalGroup && actionLoading === rulesModalGroup.slug ? "Joining…" : "I agree — Join"}
+            </button>
+          </div>
+        </div>
+      </dialog>
       <h1 className="text-2xl font-bold mb-6">Groups</h1>
       {session?.user?.id && <CreateGroupCallout className="mb-6" />}
       <p className="text-gray-600 mb-6">
@@ -154,7 +214,7 @@ export default function GroupsPage() {
                       {g.memberRole !== "admin" && (
                         <button
                           type="button"
-                          onClick={() => handleLeave(g.slug, g.memberRole)}
+                          onClick={() => handleLeave(g.slug, g.createdBy.id)}
                           disabled={actionLoading === g.slug}
                           className="btn border border-gray-300 bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
                         >
@@ -165,7 +225,7 @@ export default function GroupsPage() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => handleJoin(g.slug)}
+                      onClick={() => handleJoinClick(g)}
                       disabled={actionLoading === g.slug}
                       className="btn w-full text-sm disabled:opacity-50"
                     >

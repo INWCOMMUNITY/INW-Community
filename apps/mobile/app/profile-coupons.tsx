@@ -14,6 +14,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { CouponPopup } from "@/components/CouponPopup";
+import { API_BASE } from "@/lib/api";
+
+const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+function resolveUrl(path: string | null | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
 
 interface SavedCoupon {
   id: string;
@@ -74,14 +82,16 @@ export default function ProfileCouponsScreen() {
             You haven&apos;t saved any coupons yet. Browse the coupon book to find coupons to save.
           </Text>
         ) : (
-          coupons.map((c) => (
+          coupons.map((c) => {
+            const imageUri = resolveUrl(c.imageUrl);
+            return (
             <Pressable
               key={c.id}
               style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
               onPress={() => setCouponPopupId(c.id)}
             >
-              {c.imageUrl ? (
-                <Image source={{ uri: c.imageUrl }} style={styles.image} />
+              {imageUri ? (
+                <Image source={{ uri: imageUri }} style={styles.image} />
               ) : (
                 <View style={styles.imagePlaceholder}>
                   <Ionicons name="pricetag" size={28} color={theme.colors.primary} />
@@ -96,7 +106,8 @@ export default function ProfileCouponsScreen() {
               </View>
               <Ionicons name="chevron-forward" size={20} color={theme.colors.primary} />
             </Pressable>
-          ))
+            );
+          })
         )}
       </ScrollView>
 

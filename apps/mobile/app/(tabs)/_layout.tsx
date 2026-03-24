@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, View, Text, Modal } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Tabs, useRouter, usePathname } from "expo-router";
 
 import { useClientOnlyValue } from "@/components/useClientOnlyValue";
@@ -229,7 +230,8 @@ function TabLayoutInner() {
   const theme = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  const { member, subscriptionPlan, loading } = useAuth();
+  const { profileSyncError, clearProfileSyncError, refreshMember } = useAuth();
+  const tabSafeInsets = useSafeAreaInsets();
   const { profileView, showSwitcher, openSwitcher, hasSponsor, hasSeller, hasSubscriber } = useProfileView();
   const [sideMenuType, setSideMenuType] = useState<SideMenuType>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
@@ -281,6 +283,35 @@ function TabLayoutInner() {
 
   return (
     <>
+    {profileSyncError ? (
+      <View
+        style={{
+          paddingTop: tabSafeInsets.top > 0 ? 4 : 8,
+          paddingHorizontal: 12,
+          paddingBottom: 8,
+          backgroundColor: "#fef3c7",
+          borderBottomWidth: 1,
+          borderBottomColor: "#fcd34d",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <Text style={{ flex: 1, fontSize: 13, color: "#78350f" }}>{profileSyncError}</Text>
+        <Pressable
+          onPress={() => refreshMember()}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 4, paddingHorizontal: 8 })}
+        >
+          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.primary }}>Retry</Text>
+        </Pressable>
+        <Pressable
+          onPress={clearProfileSyncError}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 4, paddingHorizontal: 8 })}
+        >
+          <Text style={{ fontSize: 13, fontWeight: "600", color: "#78350f" }}>Dismiss</Text>
+        </Pressable>
+      </View>
+    ) : null}
     <Tabs
       initialRouteName="home"
       screenOptions={({ route }) => ({

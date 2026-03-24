@@ -21,7 +21,7 @@ const bodySchema = z.object({
   city: z.string().nullable().optional(),
   categories: z.array(z.string()).max(2).optional(),
   subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
-  photos: z.array(z.string()).optional(),
+  photos: z.array(z.string()).max(12, "Maximum 12 gallery photos").optional(),
   hoursOfOperation: hoursSchema,
 });
 

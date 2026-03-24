@@ -99,7 +99,9 @@ export default function ResaleProductDetailPage() {
     firstName: "",
     lastName: "",
     phone: "",
+    email: "",
     deliveryAddress: { street: "", city: "", state: "", zip: "" },
+    availableDropOffTimes: "",
     note: "",
   });
   const [localDeliveryDetailsSaved, setLocalDeliveryDetailsSaved] = useState(false);
@@ -109,6 +111,7 @@ export default function ResaleProductDetailPage() {
     lastName: "",
     phone: "",
     email: "",
+    preferredPickupDate: "",
     preferredPickupTime: "",
     note: "",
   });
@@ -344,7 +347,9 @@ export default function ResaleProductDetailPage() {
           firstName: localDeliveryForm.firstName ?? "",
           lastName: localDeliveryForm.lastName ?? "",
           phone: localDeliveryForm.phone ?? "",
+          email: localDeliveryForm.email ?? "",
           deliveryAddress: localDeliveryForm.deliveryAddress ?? { street: "", city: "", state: "", zip: "" },
+          availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
           note: localDeliveryForm.note ?? "",
           termsAcceptedAt: new Date().toISOString(),
         };
@@ -356,6 +361,7 @@ export default function ResaleProductDetailPage() {
           lastName: pickupForm.lastName ?? "",
           phone: pickupForm.phone ?? "",
           email: pickupForm.email ?? "",
+          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
           preferredPickupTime: pickupForm.preferredPickupTime ?? "",
           note: pickupForm.note ?? "",
           termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
@@ -421,7 +427,9 @@ export default function ResaleProductDetailPage() {
           firstName: localDeliveryForm.firstName ?? "",
           lastName: localDeliveryForm.lastName ?? "",
           phone: localDeliveryForm.phone ?? "",
+          email: localDeliveryForm.email ?? "",
           deliveryAddress: localDeliveryForm.deliveryAddress ?? { street: "", city: "", state: "", zip: "" },
+          availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
           note: localDeliveryForm.note ?? "",
           termsAcceptedAt: new Date().toISOString(),
         };
@@ -433,6 +441,7 @@ export default function ResaleProductDetailPage() {
           lastName: pickupForm.lastName ?? "",
           phone: pickupForm.phone ?? "",
           email: pickupForm.email ?? "",
+          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
           preferredPickupTime: pickupForm.preferredPickupTime ?? "",
           note: pickupForm.note ?? "",
           termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
@@ -766,12 +775,14 @@ export default function ResaleProductDetailPage() {
             firstName: localDeliveryForm.firstName ?? "",
             lastName: localDeliveryForm.lastName ?? "",
             phone: localDeliveryForm.phone ?? "",
+            email: localDeliveryForm.email ?? "",
             deliveryAddress: {
               street: localDeliveryForm.deliveryAddress?.street ?? "",
               city: localDeliveryForm.deliveryAddress?.city ?? "",
               state: localDeliveryForm.deliveryAddress?.state ?? "",
               zip: localDeliveryForm.deliveryAddress?.zip ?? "",
             },
+            availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
             note: localDeliveryForm.note ?? "",
           }}
           onSave={(form) => {
@@ -789,6 +800,7 @@ export default function ResaleProductDetailPage() {
             lastName: pickupForm.lastName ?? "",
             phone: pickupForm.phone ?? "",
             email: pickupForm.email ?? "",
+            preferredPickupDate: pickupForm.preferredPickupDate ?? "",
             preferredPickupTime: pickupForm.preferredPickupTime ?? "",
             note: pickupForm.note ?? "",
           }}

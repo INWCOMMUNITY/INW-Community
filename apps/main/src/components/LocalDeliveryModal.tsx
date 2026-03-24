@@ -8,7 +8,9 @@ export interface LocalDeliveryDetails {
   firstName: string;
   lastName: string;
   phone: string;
+  email: string;
   deliveryAddress: { street: string; city: string; state: string; zip: string };
+  availableDropOffTimes: string;
   note?: string;
   termsAcceptedAt?: string;
 }
@@ -25,7 +27,9 @@ const emptyForm: LocalDeliveryDetails = {
   firstName: "",
   lastName: "",
   phone: "",
+  email: "",
   deliveryAddress: { street: "", city: "", state: "", zip: "" },
+  availableDropOffTimes: "",
   note: "",
 };
 
@@ -47,12 +51,14 @@ export function LocalDeliveryModal({
         firstName: initialForm?.firstName ?? "",
         lastName: initialForm?.lastName ?? "",
         phone: initialForm?.phone ?? "",
+        email: initialForm?.email ?? "",
         deliveryAddress: {
           street: initialForm?.deliveryAddress?.street ?? "",
           city: initialForm?.deliveryAddress?.city ?? "",
           state: initialForm?.deliveryAddress?.state ?? "",
           zip: initialForm?.deliveryAddress?.zip ?? "",
         },
+        availableDropOffTimes: initialForm?.availableDropOffTimes ?? "",
         note: initialForm?.note ?? "",
       });
       setTermsAccepted(false);
@@ -69,6 +75,7 @@ export function LocalDeliveryModal({
         if (d?.firstName) setForm((f) => ({ ...f, firstName: d.firstName }));
         if (d?.lastName) setForm((f) => ({ ...f, lastName: d.lastName }));
         if (d?.phone) setForm((f) => ({ ...f, phone: d.phone }));
+        if (d?.email) setForm((f) => ({ ...f, email: d.email }));
         const addr = d?.deliveryAddress;
         if (addr && typeof addr === "object") {
           setForm((f) => ({
@@ -88,23 +95,30 @@ export function LocalDeliveryModal({
   function handleSave() {
     setValidationError("");
     const f = form;
-    const ok =
+    const hasPolicy = !!(policyText && String(policyText).trim());
+    const fieldsOk =
       f.firstName.trim() &&
       f.lastName.trim() &&
       f.phone.trim() &&
+      f.email.trim() &&
       f.deliveryAddress.street.trim() &&
       f.deliveryAddress.city.trim() &&
       f.deliveryAddress.state.trim() &&
       f.deliveryAddress.zip.trim() &&
-      termsAccepted;
+      f.availableDropOffTimes.trim();
+    const ok = fieldsOk && (!hasPolicy || termsAccepted);
     if (ok) {
       onSave({
         ...f,
-        termsAcceptedAt: new Date().toISOString(),
+        ...(hasPolicy ? { termsAcceptedAt: new Date().toISOString() } : {}),
       });
       onClose();
     } else {
-      setValidationError("Please fill all required fields and agree to the terms.");
+      setValidationError(
+        hasPolicy
+          ? "Please fill all required fields and agree to the delivery terms."
+          : "Please fill all required fields."
+      );
     }
   }
 
@@ -158,44 +172,6 @@ export function LocalDeliveryModal({
             </button>
           )}
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
-                  First name *
-                </label>
-                <input
-                  type="text"
-                  value={form.firstName}
-                  onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  style={{ borderColor: "var(--color-primary)" }}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
-                  Last name *
-                </label>
-                <input
-                  type="text"
-                  value={form.lastName}
-                  onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  style={{ borderColor: "var(--color-primary)" }}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
-                Phone *
-              </label>
-              <input
-                type="tel"
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: "var(--color-primary)" }}
-              />
-            </div>
             <div>
               <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
                 Delivery address *
@@ -257,6 +233,69 @@ export function LocalDeliveryModal({
             </div>
             <div>
               <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
+                Available drop-off times *
+              </label>
+              <textarea
+                value={form.availableDropOffTimes}
+                onChange={(e) => setForm((f) => ({ ...f, availableDropOffTimes: e.target.value }))}
+                placeholder="When you can receive the delivery"
+                className="w-full border rounded px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-primary)" }}
+                rows={2}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
+                  First name *
+                </label>
+                <input
+                  type="text"
+                  value={form.firstName}
+                  onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                  style={{ borderColor: "var(--color-primary)" }}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
+                  Last name *
+                </label>
+                <input
+                  type="text"
+                  value={form.lastName}
+                  onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                  style={{ borderColor: "var(--color-primary)" }}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
+                Phone *
+              </label>
+              <input
+                type="tel"
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                className="w-full border rounded px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-primary)" }}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
+                Email *
+              </label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                className="w-full border rounded px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-primary)" }}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
                 Note to seller (optional)
               </label>
               <textarea
@@ -267,18 +306,20 @@ export function LocalDeliveryModal({
                 rows={2}
               />
             </div>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={termsAccepted}
-                onChange={(e) => setTermsAccepted(e.target.checked)}
-                className="rounded mt-1"
-                style={{ accentColor: "var(--color-primary)" }}
-              />
-              <span className="text-sm" style={{ color: "var(--color-text)" }}>
-                I understand and agree to the seller&apos;s delivery terms.
-              </span>
-            </label>
+            {policyText && String(policyText).trim() ? (
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={termsAccepted}
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                  className="rounded mt-1"
+                  style={{ accentColor: "var(--color-primary)" }}
+                />
+                <span className="text-sm" style={{ color: "var(--color-text)" }}>
+                  I understand and agree to the seller&apos;s delivery terms.
+                </span>
+              </label>
+            ) : null}
           </div>
           {validationError && (
             <p className="text-sm mt-3" style={{ color: "var(--color-primary)" }}>

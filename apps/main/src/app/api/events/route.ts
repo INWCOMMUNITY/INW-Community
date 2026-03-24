@@ -26,6 +26,8 @@ const bodySchema = z.object({
   description: z.string().nullable().optional(),
   calendarType: z.enum(calendarTypes as unknown as [string, ...string[]]),
   photos: z.array(z.string()).optional(),
+  /** When posting on behalf of a business; must be owned by the authenticated member. */
+  businessId: z.string().min(1).optional(),
 });
 
 function slugify(s: string): string {
@@ -71,10 +73,23 @@ export async function POST(req: NextRequest) {
       flagReason = "prohibited_category";
     }
 
+    let businessId: string | null = null;
+    if (data.businessId) {
+      const owned = await prisma.business.findFirst({
+        where: { id: data.businessId, memberId: session.user.id },
+        select: { id: true },
+      });
+      if (!owned) {
+        return NextResponse.json({ error: "Invalid business" }, { status: 400 });
+      }
+      businessId = owned.id;
+    }
+
     // All events are saved unless explicitly deleted (admin delete or flagged content removed).
     const event = await prisma.event.create({
       data: {
         memberId: session.user.id,
+        businessId,
         calendarType: data.calendarType as CalendarType,
         title: data.title,
         date,

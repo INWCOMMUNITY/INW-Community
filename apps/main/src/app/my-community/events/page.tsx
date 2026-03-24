@@ -19,7 +19,7 @@ export default async function MyEventsPage() {
   const eventIds = saved.map((s) => s.referenceId);
   const events = eventIds.length
     ? await prisma.event.findMany({
-        where: { id: { in: eventIds } },
+        where: { id: { in: eventIds }, status: "approved" },
         include: { business: { select: { name: true, slug: true } } },
         orderBy: { date: "asc" },
       })

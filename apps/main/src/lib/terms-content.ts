@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "March 21, 2026";
+export const TERMS_LAST_UPDATED = "March 23, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -32,6 +32,7 @@ Businesses and Sellers must:
 3. USER-GENERATED CONTENT (UGC) POLICY
 3.1 Your Content
 Users may post blogs, listings, messages, feed posts, group posts, and event information.
+Uploads (such as images for listings, logos, or business gallery photos) are subject to technical limits posted in the app or on the website, including a maximum of 80MB per file and, for business profiles, up to 12 gallery photos in addition to a logo; accepted image types are JPEG, PNG, WebP, and GIF unless we state otherwise.
 By submitting content, you grant NWC a non-exclusive, worldwide, royalty-free license to:
 ● Display, distribute, share, and promote your content
 ● Modify content only for formatting or minor grammatical corrections. You retain ownership of your content.
@@ -133,7 +134,16 @@ Upon request, the seller must issue refunds in accordance with its policy. Pleas
 Seller's listing resale items must accurately describe the condition. Make-offer negotiations are between buyer and seller; NWC is not a party. The same prohibited items apply to resale listings. NWC may remove listings that violate these policies.
 
 7.8 Local Delivery & Pickup
-For local delivery and pickup orders, the transaction and all related arrangements are entirely between the seller and the consumer. NWC is merely a platform for setting up transactions and has no responsibility for these in-person transactions. Sellers and buyers should arrange delivery and pickup at their own discretion.
+For local delivery and pickup orders, the transaction and all related arrangements are primarily between the seller and the consumer. NWC provides checkout forms and order tools on the website and mobile app; NWC is not a party to handoffs or drop-offs and does not guarantee timing, safety, or outcomes of in-person meetings.
+
+7.8.1 Information you provide at checkout
+Before you can complete checkout for an item offered with local pickup or local delivery, you must complete the applicable form. You agree to provide accurate information. Depending on the options you choose, this may include your name, email address, phone number, optional notes, agreement to the seller's stated pickup or delivery terms where presented, and for pickup your estimated pickup date and time; for local delivery your delivery address, when you are available to receive delivery (available drop-off or receipt windows), and the same contact fields. That information is stored with your order and provided to the seller so they can fulfill the order.
+
+7.8.2 Tickets and confirmations in the app
+The mobile app may show a "Pick Up Ticket" or "Delivery Ticket" for eligible orders. These screens summarize order and payment status (for example, paid online versus cash due at pickup or delivery) to help buyers and sellers coordinate. Buyers and sellers may each mark pickup or delivery as completed in the app where those actions are offered. Where the platform requires both a buyer action and a seller action to treat fulfillment as complete for a given order, you agree to use those controls honestly and only after the underlying pickup or delivery has actually occurred.
+
+7.8.3 Responsibility
+Sellers and buyers should arrange delivery and pickup at their own discretion and follow applicable laws and safety practices. NWC is merely a platform for setting up transactions and has no responsibility for in-person transactions, delivery timing, or disputes over whether an item was picked up or delivered, except where a website or app error or system issue is clearly the cause (see 7.4).
 
 8. SUBSCRIPTION PLANS
 8.0 Paid plan benefits (Subscribe, Business, Seller)

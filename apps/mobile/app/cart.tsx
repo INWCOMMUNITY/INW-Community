@@ -33,6 +33,7 @@ import {
   type StorefrontCheckoutPayload,
 } from "@/components/StorefrontNativeCheckoutButton";
 import { PointsEarnedPopup } from "@/components/PointsEarnedPopup";
+import { useAuth } from "@/contexts/AuthContext";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -54,7 +55,9 @@ interface CartItemStoreItem {
   inStorePickupAvailable?: boolean;
   shippingDisabled?: boolean;
   pickupTerms?: string | null;
+  localDeliveryTerms?: string | null;
   member?: {
+    acceptCashForPickupDelivery?: boolean;
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
   };
@@ -72,7 +75,9 @@ interface CartItem {
     firstName?: string;
     lastName?: string;
     phone?: string;
+    email?: string;
     deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string };
+    availableDropOffTimes?: string;
     note?: string;
   } | null;
   pickupDetails?: {
@@ -80,8 +85,10 @@ interface CartItem {
     lastName?: string;
     phone?: string;
     email?: string;
+    preferredPickupDate?: string;
     preferredPickupTime?: string;
     note?: string;
+    termsAcceptedAt?: string;
   } | null;
   storeItem: CartItemStoreItem;
   unavailableReason?: string;
@@ -103,6 +110,7 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
 export default function CartScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { member } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -123,6 +131,8 @@ export default function CartScreen() {
     previousTotal: number;
     newTotal: number;
   } | null>(null);
+  const [paymentMethodByItemId, setPaymentMethodByItemId] = useState<Record<string, "card" | "cash">>({});
+  const mixedCashOrderIdsRef = useRef<string[]>([]);
   const scrollViewRef = useRef<ScrollView>(null);
 
   const load = useCallback(async (refresh = false) => {
@@ -219,44 +229,99 @@ export default function CartScreen() {
     !shippingAddress.zip?.trim()
   );
 
-  const needsLocalDeliveryForm =
-    hasLocalDelivery &&
-    !localDeliveryDetails?.firstName?.trim() &&
-    !localDeliveryDetails?.lastName?.trim() &&
-    !localDeliveryDetails?.phone?.trim() &&
-    !localDeliveryDetails?.deliveryAddress?.street?.trim() &&
-    !localDeliveryDetails?.deliveryAddress?.city?.trim() &&
-    !localDeliveryDetails?.deliveryAddress?.state?.trim() &&
-    !localDeliveryDetails?.deliveryAddress?.zip?.trim();
+  const localDeliveryItems = items.filter((i) => i.fulfillmentType === "local_delivery");
+  const localDeliveryFormComplete =
+    localDeliveryItems.length === 0 ||
+    localDeliveryItems.every(
+      (i) =>
+        i.localDeliveryDetails?.firstName?.trim() &&
+        i.localDeliveryDetails?.lastName?.trim() &&
+        i.localDeliveryDetails?.phone?.trim() &&
+        i.localDeliveryDetails?.email?.trim() &&
+        i.localDeliveryDetails?.deliveryAddress?.street?.trim() &&
+        i.localDeliveryDetails?.deliveryAddress?.city?.trim() &&
+        i.localDeliveryDetails?.deliveryAddress?.state?.trim() &&
+        i.localDeliveryDetails?.deliveryAddress?.zip?.trim() &&
+        i.localDeliveryDetails?.availableDropOffTimes?.trim()
+    );
+  const needsLocalDeliveryForm = hasLocalDelivery && !localDeliveryFormComplete;
 
-  const needsPickupForm =
-    hasPickup &&
-    !pickupDetails?.firstName?.trim() &&
-    !pickupDetails?.lastName?.trim() &&
-    !pickupDetails?.phone?.trim();
+  const pickupItems = items.filter((i) => i.fulfillmentType === "pickup");
+  const pickupFormComplete =
+    pickupItems.length === 0 ||
+    pickupItems.every(
+      (i) =>
+        i.pickupDetails?.firstName?.trim() &&
+        i.pickupDetails?.lastName?.trim() &&
+        i.pickupDetails?.phone?.trim() &&
+        i.pickupDetails?.preferredPickupDate?.trim() &&
+        i.pickupDetails?.preferredPickupTime?.trim()
+    );
+  const needsPickupForm = hasPickup && !pickupFormComplete;
+
+  const pickupItemsWithPolicy = pickupItems.filter(
+    (i) =>
+      (i.storeItem.pickupTerms ?? i.storeItem.member?.sellerPickupPolicy) &&
+      String(i.storeItem.pickupTerms ?? i.storeItem.member?.sellerPickupPolicy).trim()
+  );
+  const allPickupTermsAgreed =
+    pickupItemsWithPolicy.length === 0 ||
+    pickupItemsWithPolicy.every((i) => i.pickupDetails?.termsAcceptedAt);
 
   const hasUnavailableItems = items.some((i) => (i as CartItem).unavailableReason);
   const canCheckout =
-    !hasUnavailableItems && !needsShippingForm && !needsLocalDeliveryForm && !needsPickupForm;
+    !hasUnavailableItems &&
+    !needsShippingForm &&
+    !needsLocalDeliveryForm &&
+    !needsPickupForm &&
+    allPickupTermsAgreed;
+
+  const allPickupOrLocalDelivery =
+    items.length > 0 &&
+    items.every((i) => i.fulfillmentType === "pickup" || i.fulfillmentType === "local_delivery");
+  const allSellersAcceptCash =
+    items.length > 0 && items.every((i) => i.storeItem.member?.acceptCashForPickupDelivery !== false);
+  const showPayInCash = allPickupOrLocalDelivery && allSellersAcceptCash;
+  const cashItems = showPayInCash
+    ? items.filter(
+        (i) =>
+          (i.fulfillmentType === "pickup" || i.fulfillmentType === "local_delivery") &&
+          (paymentMethodByItemId[i.id] ?? "card") === "cash" &&
+          i.storeItem.member?.acceptCashForPickupDelivery !== false
+      )
+    : [];
+  const cardItems = items.filter((i) => !cashItems.some((c) => c.id === i.id));
 
   const updateLocalDeliveryDetails = async (form: LocalDeliveryDetails) => {
     const details = {
       firstName: form.firstName,
       lastName: form.lastName,
       phone: form.phone,
+      email: form.email,
       deliveryAddress: form.deliveryAddress,
+      availableDropOffTimes: form.availableDropOffTimes,
       note: form.note,
       termsAcceptedAt: form.termsAcceptedAt,
     };
     const toUpdate = items.filter((i) => i.fulfillmentType === "local_delivery");
-    for (const item of toUpdate) {
-      await apiPatch(`/api/cart/${item.id}`, {
-        fulfillmentType: "local_delivery",
-        localDeliveryDetails: details,
-      });
+    try {
+      await Promise.all(
+        toUpdate.map((item) =>
+          apiPatch(`/api/cart/${item.id}`, {
+            fulfillmentType: "local_delivery",
+            localDeliveryDetails: details,
+          })
+        )
+      );
+      setLocalDeliveryModalOpen(false);
+      load(true);
+    } catch (e) {
+      const err = e as { error?: string };
+      Alert.alert(
+        "Could not save delivery details",
+        err.error ?? "Something went wrong. Check your connection and try again."
+      );
     }
-    setLocalDeliveryModalOpen(false);
-    load(true);
   };
 
   const updatePickupDetails = async (form: PickupDetails) => {
@@ -265,19 +330,159 @@ export default function CartScreen() {
       lastName: form.lastName,
       phone: form.phone,
       email: form.email,
+      preferredPickupDate: form.preferredPickupDate,
       preferredPickupTime: form.preferredPickupTime,
       note: form.note,
       termsAcceptedAt: form.termsAcceptedAt,
     };
     const toUpdate = items.filter((i) => i.fulfillmentType === "pickup");
-    for (const item of toUpdate) {
-      await apiPatch(`/api/cart/${item.id}`, {
-        fulfillmentType: "pickup",
-        pickupDetails: details,
-      });
+    try {
+      await Promise.all(
+        toUpdate.map((item) =>
+          apiPatch(`/api/cart/${item.id}`, {
+            fulfillmentType: "pickup",
+            pickupDetails: details,
+          })
+        )
+      );
+      setPickupModalOpen(false);
+      load(true);
+    } catch (e) {
+      const err = e as { error?: string };
+      Alert.alert(
+        "Could not save pickup details",
+        err.error ?? "Something went wrong. Check your connection and try again."
+      );
     }
-    setPickupModalOpen(false);
-    load(true);
+  };
+
+  const getNativeCheckoutPayload = useCallback(async (): Promise<StorefrontCheckoutPayload> => {
+    mixedCashOrderIdsRef.current = [];
+    let lines = items;
+    if (cashItems.length > 0) {
+      const ldSource = hasLocalDelivery
+        ? items.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
+        : undefined;
+      const body: Record<string, unknown> = {
+        items: cashItems.map((i) => ({
+          storeItemId: i.storeItemId,
+          quantity: i.quantity,
+          variant: i.variant ?? undefined,
+          fulfillmentType: i.fulfillmentType ?? "ship",
+        })),
+      };
+      if (hasLocalDelivery && ldSource) {
+        body.localDeliveryDetails = ldSource;
+      }
+      const data = await apiPost<{ orderIds?: string[] }>("/api/store-orders/cash-checkout", body);
+      mixedCashOrderIdsRef.current = data.orderIds ?? [];
+      // Server cash-checkout already removes matching cart rows; refetch only.
+      const refreshed = await apiGet<CartItem[]>("/api/cart").catch(() => []);
+      lines = Array.isArray(refreshed) ? refreshed : [];
+      setItems(lines);
+    }
+
+    const hasShippedInner = lines.some((i) => (i.fulfillmentType ?? "ship") === "ship");
+    const hasLocalInner = lines.some((i) => i.fulfillmentType === "local_delivery");
+    const ldForStripe = hasLocalInner
+      ? lines.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
+      : undefined;
+    const shippingCostCentsInner = lines.reduce((sum, i) => {
+      if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
+        return sum + i.storeItem.shippingCostCents * i.quantity;
+      }
+      return sum;
+    }, 0);
+
+    const out: StorefrontCheckoutPayload = {
+      items: lines.map((i) => ({
+        storeItemId: i.storeItemId,
+        quantity: i.quantity,
+        variant: i.variant ?? undefined,
+        fulfillmentType: i.fulfillmentType ?? "ship",
+      })),
+      shippingCostCents: shippingCostCentsInner,
+      returnBaseUrl: siteBase,
+    };
+    if (mixedCashOrderIdsRef.current.length > 0) {
+      out.cashOrderIds = [...mixedCashOrderIdsRef.current];
+    }
+    if (hasShippedInner) {
+      out.shippingAddress = shippingAddress;
+      if (shippingAddressFromPlaces) {
+        out.shippingAddressVerifiedFromPlaces = true;
+      }
+    }
+    if (hasLocalInner && ldForStripe) {
+      out.localDeliveryDetails = ldForStripe;
+    }
+    return out;
+  }, [items, cashItems, hasLocalDelivery, shippingAddress, shippingAddressFromPlaces, siteBase]);
+
+  const handleCashOnlyCheckout = async () => {
+    const token = await getToken();
+    if (!token) {
+      Alert.alert("Sign in required", "Please sign in to checkout.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
+      ]);
+      return;
+    }
+    if (items.length === 0) {
+      Alert.alert("Cart is empty", "Add items to your cart before checkout.");
+      return;
+    }
+    if (needsShippingForm || needsLocalDeliveryForm || needsPickupForm) {
+      if (needsLocalDeliveryForm) setLocalDeliveryModalOpen(true);
+      else if (needsPickupForm) setPickupModalOpen(true);
+      Alert.alert(
+        "Complete details",
+        needsLocalDeliveryForm
+          ? "Please complete your local delivery details."
+          : needsPickupForm
+            ? "Please complete the pick up form."
+            : "Please enter your shipping address.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    const ldSource = hasLocalDelivery
+      ? items.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
+      : undefined;
+    const body: Record<string, unknown> = {
+      items: cashItems.map((i) => ({
+        storeItemId: i.storeItemId,
+        quantity: i.quantity,
+        variant: i.variant ?? undefined,
+        fulfillmentType: i.fulfillmentType ?? "ship",
+      })),
+    };
+    if (hasLocalDelivery && ldSource) {
+      body.localDeliveryDetails = ldSource;
+    }
+
+    setCheckingOut(true);
+    setError("");
+    try {
+      const data = await apiPost<{ url?: string; error?: string }>("/api/store-orders/cash-checkout", body);
+      if (data.url) {
+        setCheckoutUrl(data.url);
+      } else {
+        setError(data.error ?? "Checkout failed");
+      }
+    } catch (e) {
+      const err = e as { error?: string; status?: number };
+      if (err.status === 401) {
+        Alert.alert("Sign in required", "Please sign in to checkout.", [
+          { text: "OK", onPress: () => router.push("/(tabs)/my-community") },
+        ]);
+      } else {
+        setError(err.error ?? "Checkout failed");
+      }
+    } finally {
+      setCheckingOut(false);
+    }
   };
 
   const doCheckout = async () => {
@@ -317,8 +522,89 @@ export default function CartScreen() {
     setCheckingOut(true);
     setError("");
     try {
+      const makePayload = (list: CartItem[]) => {
+        const shippingCostCentsInner = list.reduce((sum, i) => {
+          if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
+            return sum + i.storeItem.shippingCostCents * i.quantity;
+          }
+          return sum;
+        }, 0);
+        const ld =
+          list.some((i) => i.fulfillmentType === "local_delivery") &&
+          list.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails;
+        const body: Record<string, unknown> = {
+          items: list.map((i) => ({
+            storeItemId: i.storeItemId,
+            quantity: i.quantity,
+            variant: i.variant ?? undefined,
+            fulfillmentType: i.fulfillmentType ?? "ship",
+          })),
+          shippingCostCents: shippingCostCentsInner,
+          returnBaseUrl: siteBase,
+        };
+        if (ld) body.localDeliveryDetails = ld;
+        return body;
+      };
+
+      const ldForCash = hasLocalDelivery
+        ? items.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
+        : undefined;
+      const makeCashBody = (list: CartItem[]) => {
+        const body: Record<string, unknown> = {
+          items: list.map((i) => ({
+            storeItemId: i.storeItemId,
+            quantity: i.quantity,
+            variant: i.variant ?? undefined,
+            fulfillmentType: i.fulfillmentType ?? "ship",
+          })),
+        };
+        if (hasLocalDelivery && ldForCash) {
+          body.localDeliveryDetails = ldForCash;
+        }
+        return body;
+      };
+
+      if (cardItems.length === 0 && cashItems.length > 0) {
+        const data = await apiPost<{ url?: string; error?: string }>(
+          "/api/store-orders/cash-checkout",
+          makeCashBody(cashItems)
+        );
+        if (data.url) {
+          setCheckoutUrl(data.url);
+        } else {
+          setError(data.error ?? "Checkout failed");
+        }
+        return;
+      }
+
+      let cashOrderIds: string[] | undefined;
+      if (cashItems.length > 0) {
+        const cashRes = await apiPost<{ orderIds?: string[]; error?: string }>(
+          "/api/store-orders/cash-checkout",
+          makeCashBody(cashItems)
+        );
+        if (cashRes.error || !cashRes.orderIds?.length) {
+          setError(cashRes.error ?? "Cash checkout failed");
+          return;
+        }
+        cashOrderIds = cashRes.orderIds;
+        // Cart lines for cash items are cleared on the server by cash-checkout.
+      }
+
+      if (cardItems.length === 0) {
+        return;
+      }
+
+      let linesForStripe = cardItems;
+      if (cashItems.length > 0) {
+        const refreshed = await apiGet<CartItem[]>("/api/cart").catch(() => []);
+        linesForStripe = Array.isArray(refreshed) ? refreshed : [];
+        setItems(linesForStripe);
+      }
+
       let resolvedShippingAddress = shippingAddress;
-      if (hasShippedItem) {
+      const hasShippedCardItem = linesForStripe.some((i) => (i.fulfillmentType ?? "ship") === "ship");
+      if (hasShippedCardItem) {
         type ValidateRes = {
           valid?: boolean;
           formatted?: { street: string; city: string; state: string; zip: string };
@@ -343,8 +629,10 @@ export default function CartScreen() {
             });
           }
           if (!validateData.valid) {
-            setError(validateData.error ?? "This address cannot be used for shipping. Please check street, city, state, and ZIP.");
-            setCheckingOut(false);
+            setError(
+              validateData.error ??
+                "This address cannot be used for shipping. Please check street, city, state, and ZIP."
+            );
             return;
           }
           resolvedShippingAddress = {
@@ -363,41 +651,20 @@ export default function CartScreen() {
             };
           } else {
             setError(err.error ?? "Address verification failed. Please try again.");
-            setCheckingOut(false);
             return;
           }
         }
       }
 
-      const shippingCostCents = items.reduce((sum, i) => {
-        if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
-          return sum + i.storeItem.shippingCostCents * i.quantity;
-        }
-        return sum;
-      }, 0);
-
-      const payload: Record<string, unknown> = {
-        items: items.map((i) => ({
-          storeItemId: i.storeItemId,
-          quantity: i.quantity,
-          variant: i.variant ?? undefined,
-          fulfillmentType: i.fulfillmentType ?? "ship",
-        })),
-        shippingCostCents,
-      };
-
-      if (hasShippedItem) {
-        payload.shippingAddress = resolvedShippingAddress;
+      const stripeBody = makePayload(linesForStripe) as Record<string, unknown>;
+      if (cashOrderIds?.length) {
+        stripeBody.cashOrderIds = cashOrderIds;
       }
-      if (hasLocalDelivery && localDeliveryDetails) {
-        payload.localDeliveryDetails = localDeliveryDetails;
+      if (hasShippedCardItem) {
+        stripeBody.shippingAddress = resolvedShippingAddress;
       }
-      payload.returnBaseUrl = siteBase;
 
-      const data = await apiPost<{ url?: string; error?: string }>(
-        "/api/stripe/storefront-checkout",
-        payload
-      );
+      const data = await apiPost<{ url?: string; error?: string }>("/api/stripe/storefront-checkout", stripeBody);
 
       if (data.url) {
         setCheckoutUrl(data.url);
@@ -560,6 +827,53 @@ export default function CartScreen() {
                       {(item as CartItem).unavailableReason ? (
                         <Text style={styles.unavailableReason}>{(item as CartItem).unavailableReason}</Text>
                       ) : null}
+                      {showPayInCash &&
+                      (item.fulfillmentType === "pickup" || item.fulfillmentType === "local_delivery") &&
+                      item.storeItem.member?.acceptCashForPickupDelivery !== false ? (
+                        <View style={styles.paymentMethodRow}>
+                          <Text style={styles.paymentMethodLabel}>Payment for this item</Text>
+                          <View style={styles.paymentMethodChoices}>
+                            <Pressable
+                              style={[
+                                styles.paymentChip,
+                                (paymentMethodByItemId[item.id] ?? "card") === "card" && styles.paymentChipActive,
+                              ]}
+                              onPress={() =>
+                                setPaymentMethodByItemId((p) => ({ ...p, [item.id]: "card" }))
+                              }
+                            >
+                              <Text
+                                style={[
+                                  styles.paymentChipText,
+                                  (paymentMethodByItemId[item.id] ?? "card") === "card" &&
+                                    styles.paymentChipTextActive,
+                                ]}
+                              >
+                                Card (charged now)
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              style={[
+                                styles.paymentChip,
+                                (paymentMethodByItemId[item.id] ?? "card") === "cash" && styles.paymentChipActive,
+                              ]}
+                              onPress={() =>
+                                setPaymentMethodByItemId((p) => ({ ...p, [item.id]: "cash" }))
+                              }
+                            >
+                              <Text
+                                style={[
+                                  styles.paymentChipText,
+                                  (paymentMethodByItemId[item.id] ?? "card") === "cash" &&
+                                    styles.paymentChipTextActive,
+                                ]}
+                              >
+                                Pay in cash
+                              </Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      ) : null}
                       <View style={styles.itemActions}>
                         <View style={styles.qtyRow}>
                           <Pressable
@@ -657,74 +971,75 @@ export default function CartScreen() {
               </View>
 
               {useNativeStorefrontCheckout ? (
-                <StorefrontNativeCheckoutButton
-                  payload={{
-                    items: items.map((i) => ({
-                      storeItemId: i.storeItemId,
-                      quantity: i.quantity,
-                      variant: i.variant ?? undefined,
-                      fulfillmentType: i.fulfillmentType ?? "ship",
-                    })),
-                    shippingCostCents: items.reduce((sum, i) => {
-                      if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
-                        return sum + i.storeItem.shippingCostCents * i.quantity;
-                      }
-                      return sum;
-                    }, 0),
-                    ...(hasShippedItem && { shippingAddress }),
-                    ...(hasShippedItem && shippingAddressFromPlaces && { shippingAddressVerifiedFromPlaces: true }),
-                    ...(hasLocalDelivery && localDeliveryDetails && { localDeliveryDetails }),
-                  }}
-                  onShippingAddressFormatted={
-                    hasShippedItem
-                      ? (addr) =>
-                          setShippingAddress({
-                            street: addr.street ?? "",
-                            city: addr.city ?? "",
-                            state: addr.state ?? "",
-                            zip: addr.zip ?? "",
-                            aptOrSuite: addr.aptOrSuite ?? "",
-                          })
-                      : undefined
-                  }
-                  onSuccess={async (orderIds) => {
-                    try {
-                      await apiDelete("/api/cart");
-                    } catch {
-                      // ignore; load() will still refresh
+                showPayInCash && cashItems.length > 0 && cardItems.length === 0 ? (
+                  <Pressable
+                    style={[styles.checkoutBtn, (checkingOut || !canCheckout) && styles.checkoutBtnDisabled]}
+                    onPress={handleCashOnlyCheckout}
+                    disabled={checkingOut || !canCheckout}
+                  >
+                    {checkingOut ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.checkoutBtnText}>Complete order (pay in cash)</Text>
+                    )}
+                  </Pressable>
+                ) : (
+                  <StorefrontNativeCheckoutButton
+                    getPayload={getNativeCheckoutPayload}
+                    onShippingAddressFormatted={
+                      hasShippedItem
+                        ? (addr) =>
+                            setShippingAddress({
+                              street: addr.street ?? "",
+                              city: addr.city ?? "",
+                              state: addr.state ?? "",
+                              zip: addr.zip ?? "",
+                              aptOrSuite: addr.aptOrSuite ?? "",
+                            })
+                        : undefined
                     }
-                    await load();
-                    if (orderIds && orderIds.length > 0) {
+                    onSuccess={async (orderIds) => {
+                      const preorder = [...mixedCashOrderIdsRef.current];
+                      mixedCashOrderIdsRef.current = [];
+                      const merged = [...new Set([...preorder, ...(orderIds ?? [])])];
                       try {
-                        const orderIdsQuery = orderIds.join(",");
-                        const [summaryRes, meRes] = await Promise.all([
-                          apiGet<{ pointsAwarded?: number }>(
-                            `/api/store-orders/success-summary?order_ids=${encodeURIComponent(orderIdsQuery)}`
-                          ),
-                          apiGet<{ points?: number }>("/api/me"),
-                        ]);
-                        const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
-                        const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
-                        if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
-                          setPointsPopup({
-                            pointsAwarded,
-                            previousTotal: newTotal - pointsAwarded,
-                            newTotal,
-                          });
-                          return;
-                        }
+                        await apiDelete("/api/cart");
                       } catch {
-                        // ignore; fall through to router.back()
+                        // ignore; load() will still refresh
                       }
-                    }
-                    router.back();
-                  }}
-                  onError={setError}
-                  setCheckingOut={setCheckingOut}
-                  disabled={!canCheckout || checkingOut}
-                  buttonStyle={styles.checkoutBtn}
-                  buttonDisabledStyle={styles.checkoutBtnDisabled}
-                />
+                      await load();
+                      if (merged.length > 0) {
+                        try {
+                          const orderIdsQuery = merged.join(",");
+                          const [summaryRes, meRes] = await Promise.all([
+                            apiGet<{ pointsAwarded?: number }>(
+                              `/api/store-orders/success-summary?order_ids=${encodeURIComponent(orderIdsQuery)}`
+                            ),
+                            apiGet<{ points?: number }>("/api/me"),
+                          ]);
+                          const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
+                          const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
+                          if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
+                            setPointsPopup({
+                              pointsAwarded,
+                              previousTotal: newTotal - pointsAwarded,
+                              newTotal,
+                            });
+                            return;
+                          }
+                        } catch {
+                          // ignore; fall through to router.back()
+                        }
+                      }
+                      router.back();
+                    }}
+                    onError={setError}
+                    setCheckingOut={setCheckingOut}
+                    disabled={!canCheckout || checkingOut}
+                    buttonStyle={styles.checkoutBtn}
+                    buttonDisabledStyle={styles.checkoutBtnDisabled}
+                  />
+                )
               ) : (
                 <Pressable
                   style={[styles.checkoutBtn, (checkingOut || !canCheckout) && styles.checkoutBtnDisabled]}
@@ -748,8 +1063,10 @@ export default function CartScreen() {
           visible={localDeliveryModalOpen}
           onClose={() => setLocalDeliveryModalOpen(false)}
           policyText={
-            (itemForLocalDeliveryModal.storeItem as CartItemStoreItem).member
-              ?.sellerLocalDeliveryPolicy ?? undefined
+            (itemForLocalDeliveryModal.storeItem as CartItemStoreItem).localDeliveryTerms?.trim()
+              ? (itemForLocalDeliveryModal.storeItem as CartItemStoreItem).localDeliveryTerms ?? undefined
+              : (itemForLocalDeliveryModal.storeItem as CartItemStoreItem).member?.sellerLocalDeliveryPolicy ??
+                undefined
           }
           initialForm={
             localDeliveryDetails
@@ -757,12 +1074,14 @@ export default function CartScreen() {
                   firstName: localDeliveryDetails.firstName ?? "",
                   lastName: localDeliveryDetails.lastName ?? "",
                   phone: localDeliveryDetails.phone ?? "",
+                  email: localDeliveryDetails.email ?? "",
                   deliveryAddress: {
                     street: localDeliveryDetails.deliveryAddress?.street ?? "",
                     city: localDeliveryDetails.deliveryAddress?.city ?? "",
                     state: localDeliveryDetails.deliveryAddress?.state ?? "",
                     zip: localDeliveryDetails.deliveryAddress?.zip ?? "",
                   },
+                  availableDropOffTimes: localDeliveryDetails.availableDropOffTimes ?? "",
                   note: localDeliveryDetails.note ?? "",
                 }
               : undefined
@@ -786,8 +1105,10 @@ export default function CartScreen() {
                   lastName: pickupDetails.lastName ?? "",
                   phone: pickupDetails.phone ?? "",
                   email: pickupDetails.email ?? "",
+                  preferredPickupDate: pickupDetails.preferredPickupDate ?? "",
                   preferredPickupTime: pickupDetails.preferredPickupTime ?? "",
                   note: pickupDetails.note ?? "",
+                  termsAcceptedAt: pickupDetails.termsAcceptedAt,
                 }
               : undefined
           }
@@ -808,6 +1129,7 @@ export default function CartScreen() {
           category="store"
           message="Thanks for supporting local! You earned points on this purchase."
           buttonText="Awesome!"
+          applyDoubleMultiplierAnimation={member?.hasPaidSubscription === true}
         />
       )}
     </View>
@@ -943,6 +1265,43 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     marginTop: 2,
+  },
+  paymentMethodRow: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+  },
+  paymentMethodLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    marginBottom: 8,
+  },
+  paymentMethodChoices: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  paymentChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#ddd",
+    backgroundColor: "#fff",
+  },
+  paymentChipActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: "rgba(80, 85, 66, 0.08)",
+  },
+  paymentChipText: {
+    fontSize: 12,
+    color: "#666",
+  },
+  paymentChipTextActive: {
+    color: theme.colors.primary,
+    fontWeight: "600",
   },
   itemActions: {
     flexDirection: "row",

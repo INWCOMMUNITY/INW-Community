@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { CreatePostButton } from "@/components/CreatePostButton";
 
 interface GroupDetail {
@@ -12,6 +13,7 @@ interface GroupDetail {
   category: string | null;
   coverImageUrl: string | null;
   slug: string;
+  rules: string | null;
   createdBy: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   _count: { members: number; groupPosts: number };
   isMember: boolean;
@@ -21,9 +23,12 @@ interface GroupDetail {
 export default function GroupDetailPage() {
   const params = useParams();
   const slug = params.slug as string;
+  const { data: session } = useSession();
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const rulesDialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     if (!slug) return;
@@ -34,13 +39,25 @@ export default function GroupDetailPage() {
       .finally(() => setLoading(false));
   }, [slug]);
 
-  async function handleJoin() {
+  useEffect(() => {
+    const el = rulesDialogRef.current;
+    if (!el) return;
+    if (rulesOpen) el.showModal();
+    else el.close();
+  }, [rulesOpen]);
+
+  async function performJoin(agreedToRules: boolean) {
     if (!group || actionLoading) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`/api/groups/${group.slug}/join`, { method: "POST" });
+      const res = await fetch(`/api/groups/${group.slug}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agreedToRules }),
+      });
       if (res.ok) {
         setGroup((prev) => prev ? { ...prev, isMember: true, memberRole: "member" } : null);
+        setRulesOpen(false);
       } else {
         const err = await res.json().catch(() => ({}));
         alert(err.error ?? "Failed to join");
@@ -50,9 +67,19 @@ export default function GroupDetailPage() {
     }
   }
 
+  function handleJoinClick() {
+    if (!group || actionLoading) return;
+    if (group.rules != null && String(group.rules).trim().length > 0) {
+      setRulesOpen(true);
+    } else {
+      void performJoin(false);
+    }
+  }
+
   async function handleLeave() {
     if (!group || actionLoading) return;
-    if (group.memberRole === "admin" && group.createdBy) {
+    const userId = session?.user && "id" in session.user ? (session.user as { id: string }).id : null;
+    if (userId && group.createdBy.id === userId) {
       alert("Group creators cannot leave. Transfer ownership or delete the group.");
       return;
     }
@@ -80,11 +107,42 @@ export default function GroupDetailPage() {
     </section>
   );
 
-  const isCreator = group.createdBy;
-  const canLeave = group.isMember && group.memberRole !== "admin";
+  const userId =
+    session?.user && "id" in session.user ? (session.user as { id: string }).id : undefined;
+  const canLeave = Boolean(group.isMember && userId && userId !== group.createdBy.id);
 
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+      <dialog
+        ref={rulesDialogRef}
+        className="max-w-lg w-[calc(100%-2rem)] rounded-lg border border-gray-200 p-0 shadow-lg backdrop:bg-black/40"
+        onClose={() => setRulesOpen(false)}
+      >
+        <div className="p-6">
+          <h2 className="text-lg font-semibold mb-2">Group rules</h2>
+          <p className="text-sm text-gray-600 mb-4">Read and agree before joining.</p>
+          <div className="max-h-64 overflow-y-auto rounded border bg-gray-50 p-3 text-sm whitespace-pre-wrap mb-4">
+            {group?.rules}
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn border border-gray-300 bg-white"
+              onClick={() => setRulesOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn bg-green-600 text-white hover:bg-green-700"
+              disabled={actionLoading}
+              onClick={() => void performJoin(true)}
+            >
+              {actionLoading ? "Joining…" : "I agree — Join group"}
+            </button>
+          </div>
+        </div>
+      </dialog>
       <div className="max-w-[var(--max-width)] mx-auto">
         <Link href="/community-groups" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
           ← Back to groups
@@ -112,7 +170,7 @@ export default function GroupDetailPage() {
                 {!group.isMember ? (
                   <button
                     type="button"
-                    onClick={handleJoin}
+                    onClick={handleJoinClick}
                     disabled={actionLoading}
                     className="btn"
                   >

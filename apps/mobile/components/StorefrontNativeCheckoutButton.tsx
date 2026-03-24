@@ -82,10 +82,14 @@ export interface StorefrontCheckoutPayload {
   shippingAddressVerifiedFromPlaces?: boolean;
   localDeliveryDetails?: unknown;
   cashOrderIds?: string[];
+  returnBaseUrl?: string;
 }
 
 interface StorefrontNativeCheckoutButtonProps {
-  payload: StorefrontCheckoutPayload;
+  /** Static payload (e.g. all card lines). Ignored when `getPayload` is set. */
+  payload?: StorefrontCheckoutPayload;
+  /** Build payload at tap time — use for mixed cash-then-card checkout. */
+  getPayload?: () => Promise<StorefrontCheckoutPayload>;
   onSuccess: (orderIds?: string[]) => void;
   onError: (message: string) => void;
   setCheckingOut: (v: boolean) => void;
@@ -98,6 +102,7 @@ interface StorefrontNativeCheckoutButtonProps {
 
 export function StorefrontNativeCheckoutButton({
   payload,
+  getPayload,
   onSuccess,
   onError,
   setCheckingOut,
@@ -173,8 +178,34 @@ export function StorefrontNativeCheckoutButton({
     }, CHECKOUT_TIMEOUT_MS);
 
     try {
-      let checkoutPayload: StorefrontCheckoutPayload = payload;
-      const hasShipping = !!(payload.shippingAddress?.street && payload.shippingAddress?.city && payload.shippingAddress?.state && payload.shippingAddress?.zip);
+      let checkoutPayload: StorefrontCheckoutPayload;
+      try {
+        if (getPayload) {
+          checkoutPayload = await getPayload();
+        } else if (payload) {
+          checkoutPayload = payload;
+        } else {
+          onError("Checkout is not configured.");
+          setLoading(false);
+          setCheckingOut(false);
+          if (timeoutId != null) clearTimeout(timeoutId);
+          return;
+        }
+      } catch (prepErr: unknown) {
+        const err = prepErr as { error?: string; status?: number };
+        onError(err.error ?? "Checkout could not be started.");
+        setLoading(false);
+        setCheckingOut(false);
+        if (timeoutId != null) clearTimeout(timeoutId);
+        return;
+      }
+
+      const hasShipping = !!(
+        checkoutPayload.shippingAddress?.street &&
+        checkoutPayload.shippingAddress?.city &&
+        checkoutPayload.shippingAddress?.state &&
+        checkoutPayload.shippingAddress?.zip
+      );
       if (hasShipping) {
         type ValidateRes = {
           valid?: boolean;
@@ -184,10 +215,10 @@ export function StorefrontNativeCheckoutButton({
         };
         try {
           let validateData = await apiPost<ValidateRes>("/api/validate-address", {
-            street: payload.shippingAddress!.street,
-            city: payload.shippingAddress!.city,
-            state: payload.shippingAddress!.state,
-            zip: payload.shippingAddress!.zip,
+            street: checkoutPayload.shippingAddress!.street,
+            city: checkoutPayload.shippingAddress!.city,
+            state: checkoutPayload.shippingAddress!.state,
+            zip: checkoutPayload.shippingAddress!.zip,
             requireCarrierVerification: true,
           });
           if (!validateData.valid && validateData.suggestedFormatted) {
@@ -207,17 +238,17 @@ export function StorefrontNativeCheckoutButton({
             return;
           }
           checkoutPayload = {
-            ...payload,
+            ...checkoutPayload,
             shippingAddress: {
               ...validateData.formatted!,
-              aptOrSuite: payload.shippingAddress!.aptOrSuite?.trim() || undefined,
+              aptOrSuite: checkoutPayload.shippingAddress!.aptOrSuite?.trim() || undefined,
             },
           };
           onShippingAddressFormatted?.(checkoutPayload.shippingAddress!);
         } catch (validateErr: unknown) {
           const err = validateErr as { error?: string; status?: number };
           if (err.status === 503 && (err.error ?? "").toLowerCase().includes("temporarily unavailable")) {
-            checkoutPayload = { ...payload };
+            checkoutPayload = { ...checkoutPayload };
           } else {
             onError(err.error ?? "Address verification failed. Please try again.");
             setLoading(false);
@@ -371,6 +402,7 @@ export function StorefrontNativeCheckoutButton({
     }
   }, [
     payload,
+    getPayload,
     disabled,
     loading,
     initPaymentSheet,
@@ -378,6 +410,7 @@ export function StorefrontNativeCheckoutButton({
     onSuccess,
     onError,
     setCheckingOut,
+    onShippingAddressFormatted,
   ]);
 
   const isDisabled = disabled || loading;

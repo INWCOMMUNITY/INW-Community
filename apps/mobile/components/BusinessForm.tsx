@@ -6,21 +6,31 @@ import {
   TextInput,
   Pressable,
   ScrollView,
-  Image,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { Image } from "expo-image";
 import { theme } from "@/lib/theme";
+import {
+  MAX_BUSINESS_GALLERY_PHOTOS,
+  MAX_UPLOAD_FILE_BYTES,
+  formatMaxUploadSizeLabel,
+} from "@/lib/upload-limits";
 import { PREBUILT_CITIES } from "@/lib/prebuilt-cities";
-import { apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
+import { apiPost, apiPatch, apiUploadFile, apiGet, getToken } from "@/lib/api";
 import {
   normalizeSubcategoriesByPrimary,
   parseSubcategoriesByPrimary,
 } from "@/lib/business-categories-align";
-import { getSubcategoriesForBusinessCategory } from "@/lib/business-category-presets";
+import {
+  BUSINESS_CATEGORIES,
+  getSubcategoriesForBusinessCategory,
+} from "@/lib/business-category-presets";
+import type { CategoryPreset } from "@/lib/business-category-suggest";
+import { BusinessCategoryPrimaryPicker } from "@/components/BusinessCategoryPrimaryPicker";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -165,7 +175,9 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       return next;
     });
   }
-  const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
+  const [photos, setPhotos] = useState<string[]>(
+    () => (existing?.photos ?? []).slice(0, MAX_BUSINESS_GALLERY_PHOTOS)
+  );
   const [hours, setHours] = useState<HoursRecord>(() =>
     parseHours(existing?.hoursOfOperation ?? null)
   );
@@ -173,6 +185,13 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [error, setError] = useState("");
+  const [categoryPresets, setCategoryPresets] = useState<CategoryPreset[]>([]);
+
+  useEffect(() => {
+    apiGet<{ categories?: CategoryPreset[] }>("/api/business-categories")
+      .then((d) => setCategoryPresets(Array.isArray(d.categories) ? d.categories : []))
+      .catch(() => setCategoryPresets([]));
+  }, []);
 
   const pickLogo = async () => {
     const { status } =
@@ -186,6 +205,11 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       quality: 0.8,
     });
     if (result.canceled) return;
+    const asset = result.assets[0];
+    if (asset.fileSize != null && asset.fileSize > MAX_UPLOAD_FILE_BYTES) {
+      setError(`Image is too large (max ${formatMaxUploadSizeLabel()}).`);
+      return;
+    }
     setUploadingLogo(true);
     setError("");
     try {
@@ -194,7 +218,6 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         setError("Sign in to upload photos.");
         return;
       }
-      const asset = result.assets[0];
       const formData = new FormData();
       formData.append("file", {
         uri: asset.uri,
@@ -205,15 +228,22 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
       setLogoUrl(toFullUrl(url));
     } catch (e) {
-      setError(
-        (e as { error?: string }).error ?? "Logo upload failed. Try again."
-      );
+      const msg = (e as { error?: string }).error;
+      setError(typeof msg === "string" && msg.trim() ? msg : "Logo upload failed. Try again.");
     } finally {
       setUploadingLogo(false);
     }
   };
 
   const pickPhotos = async () => {
+    const remaining = MAX_BUSINESS_GALLERY_PHOTOS - photos.length;
+    if (remaining <= 0) {
+      Alert.alert(
+        "Gallery limit",
+        `You can add up to ${MAX_BUSINESS_GALLERY_PHOTOS} gallery photos. Remove one to add another.`
+      );
+      return;
+    }
     const { status } =
       await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -224,32 +254,60 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       mediaTypes: ["images"],
       allowsMultipleSelection: true,
       quality: 0.8,
+      selectionLimit: remaining,
     });
     if (result.canceled) return;
+    const assets = result.assets.slice(0, remaining);
     setUploadingPhotos(true);
     setError("");
+    const token = await getToken();
+    if (!token) {
+      setUploadingPhotos(false);
+      setError("Sign in to upload photos.");
+      return;
+    }
+    let added = 0;
+    let lastErr = "";
+    const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
     try {
-      const token = await getToken();
-      if (!token) {
-        setError("Sign in to upload photos.");
-        return;
+      for (let i = 0; i < assets.length; i++) {
+        const asset = assets[i];
+        if (asset.fileSize != null && asset.fileSize > MAX_UPLOAD_FILE_BYTES) {
+          lastErr = `A photo exceeds ${formatMaxUploadSizeLabel()}.`;
+          continue;
+        }
+        try {
+          const formData = new FormData();
+          formData.append("file", {
+            uri: asset.uri,
+            type: asset.mimeType ?? "image/jpeg",
+            name: "photo.jpg",
+          } as unknown as Blob);
+          const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
+          const fullUrl = toFullUrl(url);
+          setPhotos((p) => {
+            if (p.length >= MAX_BUSINESS_GALLERY_PHOTOS) return p;
+            if (p.includes(fullUrl)) return p;
+            return [...p, fullUrl];
+          });
+          added += 1;
+        } catch (e) {
+          const msg = (e as { error?: string }).error;
+          lastErr =
+            typeof msg === "string" && msg.trim()
+              ? msg
+              : "Photo upload failed. Try again.";
+        }
       }
-      for (const asset of result.assets) {
-        const formData = new FormData();
-        formData.append("file", {
-          uri: asset.uri,
-          type: asset.mimeType ?? "image/jpeg",
-          name: "photo.jpg",
-        } as unknown as Blob);
-        const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
-        const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
-        const fullUrl = toFullUrl(url);
-        setPhotos((p) => (p.includes(fullUrl) ? p : [...p, fullUrl]));
+      if (added < assets.length && lastErr) {
+        setError(
+          added > 0
+            ? `Uploaded ${added} of ${assets.length}. ${lastErr}`
+            : lastErr
+        );
+      } else if (added === 0 && assets.length > 0 && lastErr) {
+        setError(lastErr);
       }
-    } catch (e) {
-      setError(
-        (e as { error?: string }).error ?? "Photo upload failed. Try again."
-      );
     } finally {
       setUploadingPhotos(false);
     }
@@ -301,7 +359,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         city: (city === "Other" ? customCity.trim() : city.trim()) || null,
         categories: cats,
         subcategoriesByPrimary: normalizeSubcategoriesByPrimary(cats, map),
-        photos,
+        photos: photos.slice(0, MAX_BUSINESS_GALLERY_PHOTOS),
         hoursOfOperation: (() => {
           const filtered = Object.fromEntries(
             Object.entries(hours).filter(
@@ -426,7 +484,8 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
               <Image
                 source={{ uri: logoUrl }}
                 style={styles.logoPreview}
-                resizeMode="contain"
+                contentFit="contain"
+                cachePolicy="memory-disk"
               />
               <Pressable
                 style={styles.removeLogoBtn}
@@ -444,9 +503,14 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             onPress={pickLogo}
             disabled={uploadingLogo}
           >
-            <Text style={styles.uploadBtnText}>
-              {uploadingLogo ? "Uploading…" : logoUrl ? "Change logo" : "Upload logo"}
-            </Text>
+            <View style={styles.uploadBtnInner}>
+              {uploadingLogo ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : null}
+              <Text style={styles.uploadBtnText}>
+                {uploadingLogo ? "Uploading…" : logoUrl ? "Change logo" : "Upload logo"}
+              </Text>
+            </View>
           </Pressable>
         </View>
         <View style={styles.field}>
@@ -515,35 +579,24 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
                   i === 1 ? { marginTop: 12 } : undefined,
                 ]}
               >
-                <TextInput
-                  style={styles.input}
+                <BusinessCategoryPrimaryPicker
                   value={categories[i] ?? ""}
-                  onChangeText={(v) => {
+                  onChange={(v) => {
                     const next = [...categories];
                     next[i] = v;
-                    if (i === 0 && next.length === 1 && v) next.push("");
+                    if (i === 0 && next.length === 1 && v.trim()) next.push("");
                     setCategories(next.slice(0, 2));
-                    if (!v.trim()) {
-                      setSubsPerSlot((sp) => {
-                        const n = sp.map((a) => [...a]);
-                        n[i] = [];
-                        return n;
-                      });
-                    }
+                    primaryCommittedRef.current[i] = v.trim();
+                    setSubsPerSlot((sp) => {
+                      const n = sp.map((a) => [...a]);
+                      n[i] = [];
+                      return n;
+                    });
                   }}
-                  onBlur={() => {
-                    const t = (categories[i] ?? "").trim();
-                    if (t !== primaryCommittedRef.current[i]) {
-                      primaryCommittedRef.current[i] = t;
-                      setSubsPerSlot((sp) => {
-                        const n = sp.map((a) => [...a]);
-                        n[i] = [];
-                        return n;
-                      });
-                    }
-                  }}
-                  placeholder={i === 0 ? "Primary category" : "Second primary (optional)"}
-                  placeholderTextColor={theme.colors.placeholder}
+                  shortDescription={shortDescription}
+                  fullDescription={fullDescription}
+                  presets={categoryPresets.length > 0 ? categoryPresets : BUSINESS_CATEGORIES}
+                  required={i === 0}
                 />
                 {primaryTrim ? (
                   <View style={{ marginTop: 8 }}>
@@ -605,6 +658,9 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Photos for Gallery (Recommended)</Text>
+          <Text style={styles.hint}>
+            Up to {MAX_BUSINESS_GALLERY_PHOTOS} photos, {formatMaxUploadSizeLabel()} each (JPEG, PNG, WebP, GIF).
+          </Text>
           <Pressable
             style={[
               styles.uploadBtn,
@@ -613,18 +669,25 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             onPress={pickPhotos}
             disabled={uploadingPhotos}
           >
-            <Text style={styles.uploadBtnText}>
-              {uploadingPhotos ? "Uploading…" : "Upload photos"}
-            </Text>
+            <View style={styles.uploadBtnInner}>
+              {uploadingPhotos ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : null}
+              <Text style={styles.uploadBtnText}>
+                {uploadingPhotos ? "Uploading…" : "Upload photos"}
+              </Text>
+            </View>
           </Pressable>
           {photos.length > 0 && (
             <View style={styles.photosRow}>
               {photos.map((url, i) => (
-                <View key={url} style={styles.photoWrap}>
+                <View key={`${i}-${url}`} style={styles.photoWrap}>
                   <Image
                     source={{ uri: url }}
                     style={styles.photo}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    cachePolicy="none"
+                    recyclingKey={`g-${i}-${url}`}
                   />
                   <Pressable
                     style={styles.removePhotoBtn}
@@ -731,6 +794,11 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
     borderRadius: 6,
     alignSelf: "flex-start",
+  },
+  uploadBtnInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   uploadBtnDisabled: { opacity: 0.6 },
   uploadBtnText: {

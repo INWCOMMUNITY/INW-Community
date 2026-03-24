@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { prisma } from "database";
-import { authOptions } from "@/lib/auth";
+import { getSessionForApi } from "@/lib/mobile-auth";
 import { z } from "zod";
 
 function isCuid(s: string): boolean {
@@ -16,7 +15,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ slugOrId: string }> }
 ) {
-  const session = await getServerSession(authOptions);
+  const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
