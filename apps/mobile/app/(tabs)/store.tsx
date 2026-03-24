@@ -23,6 +23,7 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 
 const ANIM_DURATION = 480;
 import { useRouter, useNavigation, useLocalSearchParams } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, getToken } from "@/lib/api";
@@ -164,7 +165,7 @@ export default function StoreScreen() {
     [listingType, search, category, subcategory, size, deliveryFilter]
   );
 
-  useEffect(() => {
+  const loadMeta = useCallback(() => {
     const params = new URLSearchParams({ list: "meta", listingType });
     apiGet<{
       categories?: string[];
@@ -183,6 +184,22 @@ export default function StoreScreen() {
       })
       .catch(() => {});
   }, [listingType]);
+
+  useEffect(() => {
+    loadMeta();
+  }, [loadMeta]);
+
+  const storeFocusSkipRef = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (storeFocusSkipRef.current) {
+        storeFocusSkipRef.current = false;
+        return;
+      }
+      load(true);
+      loadMeta();
+    }, [load, loadMeta])
+  );
 
   useEffect(() => {
     if (browseByCategories.length === 0) {

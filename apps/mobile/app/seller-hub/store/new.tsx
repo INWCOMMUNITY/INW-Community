@@ -52,6 +52,7 @@ interface PoliciesResponse {
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
   offerLocalPickup?: boolean;
+  acceptCashForPickupDelivery?: boolean;
 }
 
 type VariantOption = { value: string; quantity: number };
@@ -76,6 +77,8 @@ function normalizeVariants(raw: unknown): Variant[] {
 }
 
 const PLACEHOLDER_COLOR = "#888888";
+/** Must stay in sync with server [/api/upload] max size for listing photos. */
+const MAX_LISTING_PHOTO_BYTES = 160 * 1024 * 1024;
 
 export default function ListItemScreen() {
   const theme = useTheme();
@@ -102,6 +105,7 @@ export default function ListItemScreen() {
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
+  const [acceptCashForPickupDelivery, setAcceptCashForPickupDelivery] = useState(true);
   const [useSellerProfilePickup, setUseSellerProfilePickup] = useState(true);
   const [useSellerProfileLocalDelivery, setUseSellerProfileLocalDelivery] = useState(true);
   const [pickupTerms, setPickupTerms] = useState("");
@@ -133,6 +137,7 @@ export default function ListItemScreen() {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [loadedDraft, setLoadedDraft] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [showListingSuccessModal, setShowListingSuccessModal] = useState(false);
@@ -393,6 +398,9 @@ export default function ListItemScreen() {
         if (pol.offerLocalDelivery === false) setLocalDeliveryAvailable(false);
         if (pol.offerLocalPickup === false) setInStorePickupAvailable(false);
         if (pol.offerLocalDelivery === false && pol.offerLocalPickup === false) setShippingDisabled(false);
+        if (pol.acceptCashForPickupDelivery !== undefined) {
+          setAcceptCashForPickupDelivery(pol.acceptCashForPickupDelivery !== false);
+        }
       })
       .catch(() => {})
       .finally(() => setPoliciesLoaded(true));
@@ -444,16 +452,25 @@ export default function ListItemScreen() {
     });
     if (result.canceled) return;
     setUploading(true);
-    setError(null);
+    setPhotoError(null);
     const urls: string[] = [];
     try {
       const token = await getToken();
       if (!token) {
-        setError("Sign in to upload photos.");
+        setPhotoError("Sign in to upload photos.");
         return;
       }
       for (let i = 0; i < result.assets.length; i++) {
         const asset = result.assets[i];
+        if (
+          typeof asset.fileSize === "number" &&
+          asset.fileSize > MAX_LISTING_PHOTO_BYTES
+        ) {
+          setPhotoError(
+            `Each photo must be under ${MAX_LISTING_PHOTO_BYTES / (1024 * 1024)}MB. Skip very large originals or compress them.`
+          );
+          continue;
+        }
         const formData = new FormData();
         formData.append("file", {
           uri: asset.uri,
@@ -470,8 +487,9 @@ export default function ListItemScreen() {
         }
         return next;
       });
+      if (urls.length > 0) setPhotoError(null);
     } catch (e) {
-      setError((e as { error?: string })?.error ?? "Photo upload failed.");
+      setPhotoError((e as { error?: string })?.error ?? "Photo upload failed.");
       if (urls.length > 0) {
         setPhotos((p) => {
           const next = [...p];
@@ -611,6 +629,7 @@ export default function ListItemScreen() {
 
     setSubmitting(true);
     setError(null);
+    setPhotoError(null);
     submittedRef.current = true;
     const payload = {
       title: title.trim(),
@@ -772,6 +791,9 @@ export default function ListItemScreen() {
           )}
         </Pressable>
       </View>
+      {photoError ? (
+        <Text style={styles.photoErr}>{photoError}</Text>
+      ) : null}
 
       <Text style={styles.label}>Title *</Text>
       <TextInput
@@ -1273,6 +1295,26 @@ export default function ListItemScreen() {
             )}
           </>
         )}
+
+        {(offerLocalDelivery || offerLocalPickup) && (
+          <>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Accept cash for pickup and local delivery</Text>
+              <Switch
+                value={acceptCashForPickupDelivery}
+                onValueChange={(v) => {
+                  setAcceptCashForPickupDelivery(v);
+                  apiPatch("/api/me", { acceptCashForPickupDelivery: v }).catch(() => {});
+                }}
+                trackColor={{ false: "#ccc", true: theme.colors.cream }}
+                thumbColor={theme.colors.primary}
+              />
+            </View>
+            <Text style={styles.hint}>
+              If on, buyers can choose pay in cash at checkout for pickup or local delivery (not for shipped orders).
+            </Text>
+          </>
+        )}
       </View>
       )}
 
@@ -1478,7 +1520,13 @@ const styles = StyleSheet.create({
   inputReadonly: { backgroundColor: "#f5f5f5" },
   textArea: { minHeight: 80, textAlignVertical: "top" },
   textAreaSmall: { minHeight: 60, textAlignVertical: "top" },
-  photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 16 },
+  photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 8 },
+  photoErr: {
+    fontSize: 14,
+    color: defaultTheme.colors.primary,
+    marginBottom: 12,
+    lineHeight: 20,
+  },
   photoWrap: { position: "relative" },
   photo: { width: 80, height: 80, borderRadius: 8 },
   removePhoto: {

@@ -24,7 +24,15 @@ import { apiPost, apiUploadFile, getToken } from "@/lib/api";
 
 interface PostEventFormProps {
   initialCalendarType?: CalendarType;
+  /** When set, the event date field starts on this calendar day (local midnight). */
+  initialEventDate?: Date;
   onSuccess?: () => void;
+}
+
+function normalizeEventDate(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
 }
 
 function formatDateForApi(d: Date): string {
@@ -60,11 +68,13 @@ today.setHours(0, 0, 0, 0);
 
 export function PostEventForm({
   initialCalendarType,
+  initialEventDate,
   onSuccess,
 }: PostEventFormProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [dateValue, setDateValue] = useState<Date>(() => {
+    if (initialEventDate) return normalizeEventDate(initialEventDate);
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d;

@@ -24,6 +24,7 @@ interface PolicyData {
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
   offerLocalPickup?: boolean;
+  acceptCashForPickupDelivery?: boolean;
 }
 
 const POLICY_FIELDS: { key: keyof PolicyData; label: string; placeholder: string; offerKey?: "offerShipping" | "offerLocalDelivery" | "offerLocalPickup"; offerLabel?: string }[] = [
@@ -48,6 +49,7 @@ export default function PoliciesScreen() {
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
+  const [acceptCashForPickupDelivery, setAcceptCashForPickupDelivery] = useState(true);
 
   useEffect(() => {
     apiGet<PolicyData>("/api/me")
@@ -61,6 +63,7 @@ export default function PoliciesScreen() {
         setOfferShipping(data?.offerShipping ?? true);
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
         setOfferLocalPickup(data?.offerLocalPickup ?? true);
+        setAcceptCashForPickupDelivery(data?.acceptCashForPickupDelivery !== false);
       })
       .catch(() => setError("Failed to load policies."))
       .finally(() => setLoading(false));
@@ -79,6 +82,7 @@ export default function PoliciesScreen() {
         offerShipping,
         offerLocalDelivery,
         offerLocalPickup,
+        acceptCashForPickupDelivery,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -119,6 +123,24 @@ export default function PoliciesScreen() {
         <Text style={styles.intro}>
           Set your delivery, pick-up, shipping, and refund policies. These apply to your resale and store listings.
         </Text>
+
+        {(offerLocalDelivery || offerLocalPickup) && (
+          <View style={styles.cashRow}>
+            <Switch
+              value={acceptCashForPickupDelivery}
+              onValueChange={setAcceptCashForPickupDelivery}
+              trackColor={{ false: "#ccc", true: theme.colors.primary }}
+              thumbColor="#fff"
+            />
+            <View style={styles.cashRowText}>
+              <Text style={styles.cashRowTitle}>Accept cash for pickup and local delivery</Text>
+              <Text style={styles.cashRowHint}>
+                If on, buyers can choose to pay in cash when they pick up or receive local delivery (not for shipped
+                orders).
+              </Text>
+            </View>
+          </View>
+        )}
 
         {POLICY_FIELDS.map(({ key, label, placeholder, offerKey, offerLabel }) => (
           <View key={key} style={styles.field}>
@@ -216,6 +238,29 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginBottom: 20,
     lineHeight: 20,
+  },
+  cashRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 20,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.creamAlt,
+  },
+  cashRowText: { flex: 1 },
+  cashRowTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    marginBottom: 4,
+  },
+  cashRowHint: {
+    fontSize: 13,
+    color: theme.colors.text,
+    lineHeight: 18,
   },
   field: { marginBottom: 20 },
   checkboxRow: {

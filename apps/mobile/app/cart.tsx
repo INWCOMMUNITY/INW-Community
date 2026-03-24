@@ -292,6 +292,43 @@ export default function CartScreen() {
     : [];
   const cardItems = items.filter((i) => !cashItems.some((c) => c.id === i.id));
 
+  /** Same post-checkout flow as native Stripe success (no WebView). */
+  const finalizeCashCheckoutSuccess = useCallback(
+    async (orderIds: string[]) => {
+      if (!orderIds.length) return;
+      try {
+        await apiDelete("/api/cart");
+      } catch {
+        /* ignore; load() refreshes */
+      }
+      await load(true);
+      setOrderJustConfirmed(true);
+      const orderIdsQuery = orderIds.join(",");
+      try {
+        const [summaryRes, meRes] = await Promise.all([
+          apiGet<{ pointsAwarded?: number }>(
+            `/api/store-orders/success-summary?order_ids=${encodeURIComponent(orderIdsQuery)}`
+          ),
+          apiGet<{ points?: number }>("/api/me"),
+        ]);
+        const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
+        const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
+        if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
+          setPointsPopup({
+            pointsAwarded,
+            previousTotal: newTotal - pointsAwarded,
+            newTotal,
+          });
+          return;
+        }
+      } catch {
+        /* ignore; fall through */
+      }
+      router.back();
+    },
+    [load, router]
+  );
+
   const updateLocalDeliveryDetails = async (form: LocalDeliveryDetails) => {
     const details = {
       firstName: form.firstName,
@@ -465,8 +502,13 @@ export default function CartScreen() {
     setCheckingOut(true);
     setError("");
     try {
-      const data = await apiPost<{ url?: string; error?: string }>("/api/store-orders/cash-checkout", body);
-      if (data.url) {
+      const data = await apiPost<{ url?: string; orderIds?: string[]; error?: string }>(
+        "/api/store-orders/cash-checkout",
+        body
+      );
+      if (data.orderIds?.length) {
+        await finalizeCashCheckoutSuccess(data.orderIds);
+      } else if (data.url) {
         setCheckoutUrl(data.url);
       } else {
         setError(data.error ?? "Checkout failed");
@@ -565,11 +607,13 @@ export default function CartScreen() {
       };
 
       if (cardItems.length === 0 && cashItems.length > 0) {
-        const data = await apiPost<{ url?: string; error?: string }>(
+        const data = await apiPost<{ url?: string; orderIds?: string[]; error?: string }>(
           "/api/store-orders/cash-checkout",
           makeCashBody(cashItems)
         );
-        if (data.url) {
+        if (data.orderIds?.length) {
+          await finalizeCashCheckoutSuccess(data.orderIds);
+        } else if (data.url) {
           setCheckoutUrl(data.url);
         } else {
           setError(data.error ?? "Checkout failed");

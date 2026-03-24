@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "March 23, 2026";
+export const PRIVACY_LAST_UPDATED = "March 24, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -62,6 +62,8 @@ When you use our Northwest Community mobile app, we may also collect or process:
 
 Push notifications: If you enable notifications on your device, a push token may be registered with Northwest Community (and with our push delivery provider) so we can send notices to your app. We use push notifications for service- and activity-related messages, such as order or account alerts, event invitations, responses to event invitations you sent, event reminders, and similar messages tied to your account. You may disable push notifications at any time in your device settings. We may remove tokens that are no longer valid (for example, after you turn off notifications or uninstall the app).
 
+Community guidelines acknowledgment (mobile app): The first time you open the community feed on a device, the app may store only on that device that you have seen the introductory community guidelines summary (for example in local app storage), so you are not shown that full-screen introduction again on the same device. That on-device flag is not uploaded to NWC servers solely for that purpose and is not used for advertising.
+
 1.4 Information from sellers & business subscribers
 When businesses join NWC, we may collect:
 ● Business category
@@ -89,6 +91,7 @@ We use the collected information for the following purposes:
 ● To improve website and app function and security
 ● To communicate with you about updates or policy changes
 ● To prevent fraud or misuse
+● To enforce member-to-member blocks you create (for example, filtering feeds and certain interactions) and to review related safety reports
 ● To comply with legal obligations
 
 We do not sell your personal information to third parties.
@@ -202,6 +205,7 @@ NWC does not store seller-specific payment or financial data; payments are proce
 
 10. REPORTS, REFERRALS & REWARDS
 ● When you report content (e.g., political, hate, nudity, CSAM, other), we store the report metadata (reporter, content type, reason, details) for moderation and safety purposes.
+● When you block another member (website or app, where available), we store the block relationship (such as identifiers for your account and the blocked member, and when the block was created) so we can hide their posts and limit certain interactions from your perspective. We may store a related report or log entry for staff review, including when a block action automatically creates a report in the app.
 ● If you participate in our referral program, we store referral links and signup associations for badges and rewards.
 ● Points, redemptions, and reward data are stored to operate our rewards program.
 

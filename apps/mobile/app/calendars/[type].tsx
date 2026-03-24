@@ -54,6 +54,19 @@ function toDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function eventItemDateKey(ev: EventItem): string {
+  return (ev.date?.split("T")[0] ?? ev.date?.slice(0, 10) ?? "").trim();
+}
+
+function parseDateKeyToLocalDate(key: string): Date {
+  const [ys, ms, ds] = key.split("-");
+  const y = Number(ys);
+  const m = Number(ms);
+  const day = Number(ds);
+  const d = new Date(y, m - 1, day, 0, 0, 0, 0);
+  return d;
+}
+
 function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
@@ -101,6 +114,9 @@ export default function CalendarDetailScreen() {
   const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
   const [selectedCity, setSelectedCity] = useState<string>("All cities");
   const [postEventModalVisible, setPostEventModalVisible] = useState(false);
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+  const [postEventFormSeed, setPostEventFormSeed] = useState(0);
+  const [postEventInitialDate, setPostEventInitialDate] = useState<Date | undefined>(undefined);
 
   const { from, to } = useMemo(() => {
     if (viewMode === "week") {
@@ -191,6 +207,10 @@ export default function CalendarDetailScreen() {
     loadEvents,
   ]);
 
+  useEffect(() => {
+    setSelectedDateKey(null);
+  }, [viewMode, selectedCity, from.toISOString(), to.toISOString()]);
+
   const onRefresh = useCallback(() => loadEvents({ refresh: true }), [loadEvents]);
 
   const openInBrowser = () => {
@@ -274,6 +294,47 @@ export default function CalendarDetailScreen() {
       })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [events, viewAnchor]);
+
+  const monthEventsSorted = useMemo(
+    () =>
+      [...events].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      ),
+    [events]
+  );
+
+  const displayedEvents = useMemo(() => {
+    const base = viewMode === "week" ? weekEventsSorted : monthEventsSorted;
+    if (!selectedDateKey) return base;
+    return base.filter((ev) => eventItemDateKey(ev) === selectedDateKey);
+  }, [viewMode, weekEventsSorted, monthEventsSorted, selectedDateKey]);
+
+  const eventsSectionTitle = useMemo(() => {
+    if (selectedDateKey) {
+      const d = parseDateKeyToLocalDate(selectedDateKey);
+      return `Events on ${d.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })}`;
+    }
+    return viewMode === "week" ? "Events this week" : "Events this month";
+  }, [selectedDateKey, viewMode]);
+
+  const openPostEventModal = useCallback((forDayKey: string | null) => {
+    if (forDayKey) {
+      setPostEventInitialDate(parseDateKeyToLocalDate(forDayKey));
+    } else {
+      setPostEventInitialDate(undefined);
+    }
+    setPostEventFormSeed((s) => s + 1);
+    setPostEventModalVisible(true);
+  }, []);
+
+  const closePostEventModal = useCallback(() => {
+    setPostEventModalVisible(false);
+  }, []);
 
   const daySections = useMemo(() => {
     const first = startOfMonth(viewAnchor);
@@ -480,7 +541,7 @@ export default function CalendarDetailScreen() {
               ) : null}
               <Pressable
                 style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
-                onPress={() => setPostEventModalVisible(true)}
+                onPress={() => openPostEventModal(null)}
               >
                 <Ionicons name="add-circle" size={20} color="#fff" />
                 <Text style={styles.postEventButtonText}>Post Event</Text>
@@ -565,18 +626,28 @@ export default function CalendarDetailScreen() {
                   const key = `${viewAnchor.getFullYear()}-${String(viewAnchor.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                   const dayEvents = eventsByDay[key] ?? [];
                   const isToday = key === todayKey;
+                  const isSelected = key === selectedDateKey;
                   return (
-                    <View
+                    <Pressable
                       key={key}
-                      style={[
+                      style={({ pressed }) => [
                         styles.dayCell,
-                        isToday && styles.dayCellToday,
+                        isSelected && styles.dayCellSelected,
+                        isToday && !isSelected && styles.dayCellToday,
                         !isLastCol && styles.cellRightBorder,
                         !isLastRow && styles.cellBottomBorder,
+                        pressed && styles.dayCellPressed,
                       ]}
+                      onPress={() => setSelectedDateKey(key)}
                     >
-                      <View style={[styles.dayNumWrap, isToday && styles.dayNumToday]}>
-                        <Text style={[styles.dayNum, isToday && styles.dayNumTodayText]}>
+                      <View style={[styles.dayNumWrap, isToday && !isSelected && styles.dayNumToday]}>
+                        <Text
+                          style={[
+                            styles.dayNum,
+                            isToday && !isSelected && styles.dayNumTodayText,
+                            isSelected && styles.dayNumSelected,
+                          ]}
+                        >
                           {day}
                         </Text>
                       </View>
@@ -600,7 +671,7 @@ export default function CalendarDetailScreen() {
                           </Text>
                         )}
                       </View>
-                    </View>
+                    </Pressable>
                   );
                 })}
               </View>
@@ -612,19 +683,30 @@ export default function CalendarDetailScreen() {
                 const key = toDateKey(d);
                 const n = eventsByDay[key]?.length ?? 0;
                 const isToday = key === todayKey;
+                const isSelected = key === selectedDateKey;
                 return (
                   <Pressable
                     key={key}
                     style={({ pressed }) => [
                       styles.weekDayCell,
                       i < 6 && styles.weekDayCellBorder,
-                      isToday && styles.weekDayToday,
+                      isToday && !isSelected && styles.weekDayToday,
+                      isSelected && styles.weekDaySelected,
                       pressed && styles.buttonPressed,
                     ]}
-                    onPress={() => setViewAnchor(new Date(d))}
+                    onPress={() => {
+                      setViewAnchor(new Date(d));
+                      setSelectedDateKey(key);
+                    }}
                   >
                     <Text style={styles.weekDayDow}>{WEEKDAYS[d.getDay()]}</Text>
-                    <Text style={[styles.weekDayNum, isToday && styles.weekDayNumToday]}>
+                    <Text
+                      style={[
+                        styles.weekDayNum,
+                        isToday && !isSelected && styles.weekDayNumToday,
+                        isSelected && styles.weekDayNumSelected,
+                      ]}
+                    >
                       {d.getDate()}
                     </Text>
                     {n > 0 ? (
@@ -638,65 +720,61 @@ export default function CalendarDetailScreen() {
             </View>
           )}
 
+          <Text style={styles.eventsSectionTitle}>{eventsSectionTitle}</Text>
+          {selectedDateKey ? (
+            <Pressable
+              style={({ pressed }) => [styles.showAllEventsBtn, pressed && styles.buttonPressed]}
+              onPress={() => setSelectedDateKey(null)}
+            >
+              <Text style={styles.showAllEventsText}>Show all events</Text>
+            </Pressable>
+          ) : null}
+
+          {selectedDateKey ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.postEventButton,
+                styles.postEventOnDayButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => openPostEventModal(selectedDateKey)}
+            >
+              <Ionicons name="add-circle" size={20} color="#fff" />
+              <Text style={styles.postEventButtonText}>
+                Post event on{" "}
+                {parseDateKeyToLocalDate(selectedDateKey).toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </Text>
+            </Pressable>
+          ) : null}
+
           <Pressable
             style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
-            onPress={() => setPostEventModalVisible(true)}
+            onPress={() => openPostEventModal(null)}
           >
             <Ionicons name="add-circle" size={20} color="#fff" />
             <Text style={styles.postEventButtonText}>Post Event</Text>
           </Pressable>
 
-          <Text style={styles.eventsSectionTitle}>
-            {viewMode === "week" ? "Events this week" : "Events this month"}
-          </Text>
           {loading && events.length === 0 ? (
             <View style={styles.eventsLoading}>
               <ActivityIndicator size="small" color={theme.colors.primary} />
               <Text style={styles.eventsLoadingText}>Loading events…</Text>
             </View>
-          ) : viewMode === "week" ? (
-            weekEventsSorted.length === 0 ? (
-              <Text style={styles.emptyText}>No events this week.</Text>
-            ) : (
-              weekEventsSorted.map((ev) => {
-                const dateStr = new Date(ev.date).toLocaleDateString("en-US", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                });
-                const timeStr = ev.time
-                  ? ev.endTime
-                    ? `${formatTime12h(ev.time)} – ${formatTime12h(ev.endTime)}`
-                    : formatTime12h(ev.time)
-                  : "";
-                return (
-                  <Pressable
-                    key={ev.id}
-                    style={({ pressed }) => [
-                      styles.eventCard,
-                      pressed && styles.buttonPressed,
-                    ]}
-                    onPress={() => router.push(`/event/${ev.slug}`)}
-                  >
-                    <Text style={styles.eventTitle}>{ev.title}</Text>
-                    <Text style={styles.eventDate}>
-                      {dateStr}
-                      {timeStr ? ` · ${timeStr}` : ""}
-                    </Text>
-                    {ev.location ? (
-                      <Text style={styles.eventMeta}>{ev.location}</Text>
-                    ) : null}
-                    {ev.business ? (
-                      <Text style={styles.eventBusiness}>{ev.business.name}</Text>
-                    ) : null}
-                  </Pressable>
-                );
-              })
-            )
-          ) : events.length === 0 ? (
-            <Text style={styles.emptyText}>No events for {periodLabel}.</Text>
+          ) : displayedEvents.length === 0 ? (
+            <Text style={styles.emptyText}>
+              {selectedDateKey
+                ? "No events on this day."
+                : viewMode === "week"
+                  ? "No events this week."
+                  : `No events for ${periodLabel}.`}
+            </Text>
           ) : (
-            events.map((ev) => {
+            displayedEvents.map((ev) => {
               const dateStr = new Date(ev.date).toLocaleDateString("en-US", {
                 weekday: "short",
                 month: "short",
@@ -736,13 +814,15 @@ export default function CalendarDetailScreen() {
 
       <PopupModal
         visible={postEventModalVisible}
-        onClose={() => setPostEventModalVisible(false)}
+        onClose={closePostEventModal}
         title="Post Event"
         scrollable={false}
       >
         <PostEventForm
+          key={postEventFormSeed}
           initialCalendarType={calendarType as CalendarType}
-          onSuccess={() => setPostEventModalVisible(false)}
+          initialEventDate={postEventInitialDate}
+          onSuccess={closePostEventModal}
         />
       </PopupModal>
     </View>
@@ -810,11 +890,15 @@ const styles = StyleSheet.create({
     borderRightColor: theme.colors.primary,
   },
   weekDayToday: {
-    backgroundColor: "#e8f4fd",
+    backgroundColor: theme.colors.cream,
+  },
+  weekDaySelected: {
+    backgroundColor: "#e8f5e9",
   },
   weekDayDow: { fontSize: 10, fontWeight: "600", color: "#666" },
   weekDayNum: { fontSize: 16, fontWeight: "700", color: theme.colors.heading, marginTop: 2 },
   weekDayNumToday: { color: theme.colors.primary },
+  weekDayNumSelected: { color: theme.colors.primary, fontWeight: "800" },
   weekDayCount: { fontSize: 10, color: theme.colors.primary, marginTop: 2 },
   weekDayCountMuted: { fontSize: 10, color: "#aaa", marginTop: 2 },
   daySectionHeaderWrap: {
@@ -838,13 +922,30 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 6,
-    marginBottom: 20,
+    marginBottom: 12,
     alignSelf: "center",
+    maxWidth: "100%",
+  },
+  postEventOnDayButton: {
+    flexWrap: "wrap",
+    paddingHorizontal: 14,
   },
   postEventButtonText: {
     color: theme.colors.buttonText,
     fontSize: 14,
     fontWeight: "600",
+  },
+  showAllEventsBtn: {
+    alignSelf: "center",
+    marginBottom: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  showAllEventsText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    textDecorationLine: "underline",
   },
   monthNav: {
     flexDirection: "row",
@@ -980,6 +1081,12 @@ const styles = StyleSheet.create({
   dayCellToday: {
     backgroundColor: "#FFF8E1",
   },
+  dayCellSelected: {
+    backgroundColor: "#e8f5e9",
+  },
+  dayCellPressed: {
+    opacity: 0.92,
+  },
   dayNumWrap: {
     marginBottom: 4,
   },
@@ -998,6 +1105,10 @@ const styles = StyleSheet.create({
   },
   dayNumTodayText: {
     color: theme.colors.buttonText,
+  },
+  dayNumSelected: {
+    color: theme.colors.primary,
+    fontWeight: "800",
   },
   dayEvents: {
     gap: 2,

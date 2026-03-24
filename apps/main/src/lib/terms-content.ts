@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "March 23, 2026";
+export const TERMS_LAST_UPDATED = "March 24, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -55,6 +55,13 @@ Users may report content they believe violates these rules; NWC will review repo
 Any admission of, or reasonable suspicion of, criminal behavior will be reported to the authorities.
 NWC is not responsible for verifying the accuracy of user-submitted information and is not liable for any harm or damage resulting from inaccurate or misleading user content. Such behavior, however, will be removed from our site immediately, and NWC will do all it can to return any such funds to the victim.
 NWC will do its utmost to prevent scams, misinformation, and fraudulent businesses within its power.
+
+3.4 Member blocking and safety tools
+Signed-in members may block other members using controls we provide on the website or in the mobile app (for example, on feed posts, group posts, member profiles, comments, or messages, where available).
+When you block someone, their posts are generally removed from your personalized community feed and their content may be hidden in other areas where blocking applies (such as certain messaging or conversation lists).
+NWC also receives an associated internal report for moderation and safety review when you use block as implemented in the app.
+Blocking changes what you see and certain interactions; it does not delete the other member's account and does not remove their content for other users.
+You should continue to use reporting tools to flag specific posts, comments, or conversations that violate these Terms.
 
 4. COMMUNITY FEED, POSTS, AND MESSAGING
 4.1 Purpose
@@ -250,7 +257,9 @@ Users may not:
 Unauthorized scraping, data-mining, automated harvesting, or downloading of NWC content is strictly prohibited.
 
 11. MOBILE APP
-The Northwest Community mobile app is part of our services. These Terms apply to the use of the app. Your account may be terminated or access revoked in accordance with Section 14. The same rules for content, conduct, and eligibility apply when using the app.
+The Northwest Community mobile app is part of our services. These Terms apply to the use of the app. The same rules for content, conduct, and eligibility apply when using the app. Your account may be terminated or access revoked in accordance with Section 15.
+
+Before you browse the community feed in the mobile app for the first time on a given device, we present a short introduction explaining that the feed contains user-generated content, that you may report objectionable material, and that signed-in members may block others, with links to this Terms of Service and our Privacy Policy. You must acknowledge that screen to continue to the feed on that device. That acknowledgment is stored locally on your device (for example in on-device app storage) so you are not repeatedly prompted on the same device; we do not use it for advertising.
 
 12. LIMITATION OF LIABILITY (IMPORTANT)
 To the fullest extent permitted by Idaho law, NWC is not liable for:

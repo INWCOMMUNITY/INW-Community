@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { useSearchParams } from "next/navigation";
@@ -285,7 +285,7 @@ export function StorefrontGallery({
 
   useLockBodyScroll(browseOpen || filterOpen);
 
-  useEffect(() => {
+  const fetchMeta = useCallback(() => {
     const params = new URLSearchParams({ list: "meta", listingType });
     fetch(`/api/store-items?${params}`)
       .then((r) => r.json())
@@ -301,6 +301,56 @@ export function StorefrontGallery({
       })
       .catch(() => {});
   }, [listingType]);
+
+  const fetchItems = useCallback(() => {
+    setFetchError(null);
+    const params = new URLSearchParams({ listingType });
+    if (category) params.set("category", category);
+    if (subcategory) params.set("subcategory", subcategory);
+    if (size) params.set("size", size);
+    if (search) params.set("search", search);
+    if (deliveryFilter === "local") params.set("localDelivery", "1");
+    if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
+    params.set("_", String(Date.now()));
+    fetch(`/api/store-items?${params}`)
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((d as { error?: string }).error ?? "Failed to load items.");
+        return Array.isArray(d) ? d : [];
+      })
+      .then(setItems)
+      .catch((err) => {
+        setFetchError(err instanceof Error ? err.message : "Failed to load items.");
+        setItems([]);
+      });
+  }, [listingType, category, subcategory, size, search, deliveryFilter]);
+
+  useEffect(() => {
+    fetchMeta();
+  }, [fetchMeta]);
+
+  useEffect(() => {
+    fetchItems();
+  }, [fetchItems]);
+
+  const visibilitySkipRef = useRef(true);
+  useEffect(() => {
+    const onVisible = () => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible") return;
+      if (visibilitySkipRef.current) {
+        visibilitySkipRef.current = false;
+        return;
+      }
+      fetchMeta();
+      fetchItems();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [fetchMeta, fetchItems]);
 
   useEffect(() => {
     if (browseByCategories.length === 0) {
@@ -332,29 +382,6 @@ export function StorefrontGallery({
       /* ignore */
     }
   }, [storageKey, category, subcategory, size, search, deliveryFilter]);
-
-  useEffect(() => {
-    setFetchError(null);
-    const params = new URLSearchParams({ listingType });
-    if (category) params.set("category", category);
-    if (subcategory) params.set("subcategory", subcategory);
-    if (size) params.set("size", size);
-    if (search) params.set("search", search);
-    if (deliveryFilter === "local") params.set("localDelivery", "1");
-    if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
-    params.set("_", String(Date.now()));
-    fetch(`/api/store-items?${params}`)
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error((d as { error?: string }).error ?? "Failed to load items.");
-        return Array.isArray(d) ? d : [];
-      })
-      .then(setItems)
-      .catch((err) => {
-        setFetchError(err instanceof Error ? err.message : "Failed to load items.");
-        setItems([]);
-      });
-  }, [listingType, category, subcategory, size, search, deliveryFilter]);
 
   const browsePanel = (
     <div className="rounded-lg border-2 bg-white shadow-sm overflow-hidden p-4" style={{ borderColor: "var(--color-primary)" }}>

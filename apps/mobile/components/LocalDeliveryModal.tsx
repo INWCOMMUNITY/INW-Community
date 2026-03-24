@@ -177,7 +177,7 @@ export function LocalDeliveryModal({
             <View style={styles.field}>
               <Text style={styles.label}>Delivery address *</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, styles.streetInput]}
                 value={form.deliveryAddress.street}
                 onChangeText={(v) =>
                   setForm((f) => ({
@@ -189,7 +189,7 @@ export function LocalDeliveryModal({
                 placeholderTextColor={theme.colors.placeholder}
                 autoCorrect={true}
               />
-              <View style={styles.row}>
+              <View style={styles.addressSecondRow}>
                 <TextInput
                   style={[styles.input, styles.inputThird]}
                   value={form.deliveryAddress.city}
@@ -440,6 +440,13 @@ const styles = StyleSheet.create({
   },
   inputThird: {
     flex: 1,
+  },
+  streetInput: {
+    marginBottom: 14,
+  },
+  addressSecondRow: {
+    flexDirection: "row",
+    gap: 12,
   },
   textArea: {
     minHeight: 60,

@@ -167,7 +167,7 @@ export default function GroupConversationScreen() {
         senderId: string;
         sharedContentType?: string;
         sharedContentId?: string;
-        sender: { id: string; firstName: string; lastName: string };
+        sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
       }>(`/api/group-conversations/${id}`, {
         sharedContentType: "photo",
         sharedContentId: fullUrl,
@@ -186,7 +186,7 @@ export default function GroupConversationScreen() {
                   senderId: msg.senderId,
                   sharedContentType: "photo",
                   sharedContentId: fullUrl,
-                  sender: msg.sender ? { ...msg.sender, profilePhotoUrl: null } : undefined,
+                  sender: msg.sender,
                 },
               ],
             }
@@ -211,7 +211,7 @@ export default function GroupConversationScreen() {
         content: string;
         createdAt: string;
         senderId: string;
-        sender: { id: string; firstName: string; lastName: string };
+        sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
       }>(`/api/group-conversations/${id}`, { content: text });
       setConv((prev) =>
         (prev
@@ -224,7 +224,7 @@ export default function GroupConversationScreen() {
                   content: msg.content,
                   createdAt: msg.createdAt,
                   senderId: msg.senderId,
-                  sender: msg.sender ? { ...msg.sender, profilePhotoUrl: null } : undefined,
+                  sender: msg.sender,
                 },
               ],
             }

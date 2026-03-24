@@ -175,7 +175,7 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
                   <Text style={[styles.menuItemText, { color: "#c00" }]}>Report Post</Text>
                 </Pressable>
               )}
-              {onBlockUser && member?.id !== post.author.id && (
+              {onBlockUser && !post.id.startsWith("example-") && (
                 <Pressable
                   style={styles.menuItem}
                   onPress={() => { setMenuOpen(false); onBlockUser(post.author.id, post.id); }}

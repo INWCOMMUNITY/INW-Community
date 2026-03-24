@@ -168,6 +168,13 @@ export default function HomeScreen() {
       <ThemedView style={styles.buttons} lightColor="#fff" darkColor="#fff">
         <Pressable
           style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+          onPress={() => (router.push as (href: string) => void)("/calendars")}
+        >
+          <Text style={styles.buttonText}>Events</Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
           onPress={() => (router.push as (href: string) => void)("/badges")}
         >
           <Text style={styles.buttonText}>Badges</Text>

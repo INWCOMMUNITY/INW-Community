@@ -10,9 +10,12 @@ import {
   Alert,
   Linking,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { getToken } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { CommunityUgcTermsModal } from "@/components/CommunityUgcTermsModal";
 import {
   fetchFeed,
   toggleLike,
@@ -26,11 +29,14 @@ import { useCreatePost } from "@/contexts/CreatePostContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+const UGC_TERMS_STORAGE_KEY = "nwc_community_ugc_terms_v1";
 
 export default function CommunityScreen() {
   const openCreatePost = useCreatePost()?.openCreatePost ?? (() => {});
   const router = useRouter();
+  const { member: authMember } = useAuth();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [ugcGate, setUgcGate] = useState<"loading" | "needs" | "ok">("loading");
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,10 +80,36 @@ export default function CommunityScreen() {
   }, [checkAuth]);
 
   useEffect(() => {
-    if (signedIn !== null) {
+    if (signedIn === null) return;
+    let cancelled = false;
+    AsyncStorage.getItem(UGC_TERMS_STORAGE_KEY)
+      .then((v) => {
+        if (!cancelled) setUgcGate(v === "1" ? "ok" : "needs");
+      })
+      .catch(() => {
+        if (!cancelled) setUgcGate("needs");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn]);
+
+  useEffect(() => {
+    if (signedIn !== null && ugcGate === "ok") {
       loadInitial();
     }
-  }, [signedIn, loadInitial]);
+  }, [signedIn, ugcGate, loadInitial]);
+
+  const acceptUgcTerms = useCallback(() => {
+    AsyncStorage.setItem(UGC_TERMS_STORAGE_KEY, "1").catch(() => {});
+    setUgcGate("ok");
+  }, []);
+
+  const openTermsWeb = useCallback(() => {
+    (router.push as (href: string) => void)(
+      `/web?url=${encodeURIComponent(`${siteBase}/terms`)}&title=${encodeURIComponent("Terms of Service")}`
+    );
+  }, [router]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -194,6 +226,13 @@ export default function CommunityScreen() {
   };
 
   const handleBlockUser = useCallback(async (memberId: string, postId: string) => {
+    if (authMember?.id === memberId) {
+      Alert.alert(
+        "Cannot block yourself",
+        "Blocking is for other members. It removes their posts from your feed and stops them from messaging you."
+      );
+      return;
+    }
     Alert.alert(
       "Block user",
       "This user will be blocked. Their posts will be removed from your feed and they will not be able to message you.",
@@ -221,7 +260,7 @@ export default function CommunityScreen() {
         },
       ]
     );
-  }, []);
+  }, [authMember?.id]);
 
   const handleCommentAdded = useCallback(() => {
     if (!commentPostId) return;
@@ -237,7 +276,7 @@ export default function CommunityScreen() {
     Linking.openURL(`${siteBase}/my-community`).catch(() => {});
   };
 
-  if (signedIn === null) {
+  if (signedIn === null || ugcGate === "loading") {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -246,6 +285,12 @@ export default function CommunityScreen() {
   }
 
   return (
+    <>
+      <CommunityUgcTermsModal
+        visible={ugcGate === "needs"}
+        onAccept={acceptUgcTerms}
+        onOpenTerms={openTermsWeb}
+      />
     <ScrollView
       style={styles.scroll}
       contentContainerStyle={styles.scrollContent}
@@ -361,6 +406,7 @@ export default function CommunityScreen() {
         />
       )}
     </ScrollView>
+    </>
   );
 }
 

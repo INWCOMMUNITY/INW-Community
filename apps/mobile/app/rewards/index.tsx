@@ -105,6 +105,17 @@ export default function RewardsScreen() {
   const [redeemFormReward, setRedeemFormReward] = useState<Reward | null>(null);
   const [rewardGalleryOpen, setRewardGalleryOpen] = useState(false);
   const [rewardGalleryIndex, setRewardGalleryIndex] = useState(0);
+  const [prizeFullGalleryOpen, setPrizeFullGalleryOpen] = useState(false);
+  const [prizeFullGalleryImages, setPrizeFullGalleryImages] = useState<string[]>([]);
+  const [prizeFullGalleryIndex, setPrizeFullGalleryIndex] = useState(0);
+
+  const openPrizeFullGallery = useCallback((urls: (string | undefined)[]) => {
+    const clean = urls.filter((u): u is string => !!u);
+    if (clean.length === 0) return;
+    setPrizeFullGalleryImages(clean);
+    setPrizeFullGalleryIndex(0);
+    setPrizeFullGalleryOpen(true);
+  }, []);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -353,37 +364,45 @@ export default function RewardsScreen() {
                   const p = prizesList.find((x: Top5Prize) => x.rank === rank);
                   const hasContent = p && (p.label?.trim() || p.imageUrl);
                   return (
-                    <Pressable
-                      key={rank}
-                      style={({ pressed }) => [styles.prizeRow, hasContent && pressed && styles.buttonPressed]}
-                      onPress={hasContent ? () => setPrizePopupPrize(p!) : undefined}
-                      disabled={!hasContent}
-                    >
+                    <View key={rank} style={styles.prizeRow}>
                       <Text style={styles.prizeRank}>#{rank}</Text>
-                      {hasContent ? (
+                      {!hasContent ? (
+                        <Text style={styles.prizeEmpty}>—</Text>
+                      ) : (
                         <>
                           {p!.imageUrl ? (
-                            <Image
-                              source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
-                              style={styles.prizeThumb}
-                              resizeMode="cover"
-                            />
+                            <Pressable
+                              onPress={() => {
+                                const u = resolveUrl(p!.imageUrl);
+                                if (u) openPrizeFullGallery([u]);
+                              }}
+                              style={({ pressed }) => [pressed && styles.buttonPressed]}
+                            >
+                              <Image
+                                source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
+                                style={styles.prizeThumb}
+                                resizeMode="cover"
+                              />
+                            </Pressable>
                           ) : (
                             <View style={[styles.prizeThumb, styles.prizeThumbPlaceholder]} />
                           )}
-                          <Text style={styles.prizeLabel} numberOfLines={1}>
-                            {p!.label?.trim() || "—"}
-                          </Text>
-                          {p!.business && (
-                            <Text style={styles.prizeBusiness} numberOfLines={1}>
-                              {p!.business.name}
+                          <Pressable
+                            style={({ pressed }) => [styles.prizeRowDetails, pressed && styles.buttonPressed]}
+                            onPress={() => setPrizePopupPrize(p!)}
+                          >
+                            <Text style={styles.prizeLabel} numberOfLines={1}>
+                              {p!.label?.trim() || "—"}
                             </Text>
-                          )}
+                            {p!.business ? (
+                              <Text style={styles.prizeBusiness} numberOfLines={1}>
+                                {p!.business.name}
+                              </Text>
+                            ) : null}
+                          </Pressable>
                         </>
-                      ) : (
-                        <Text style={styles.prizeEmpty}>—</Text>
                       )}
-                    </Pressable>
+                    </View>
                   );
                 })}
               </ScrollView>
@@ -449,11 +468,28 @@ export default function RewardsScreen() {
                     Place Prize for {currentSeason?.name ?? "Season"}
                   </Text>
                   {prizePopupPrize.imageUrl ? (
-                    <Image
-                      source={{ uri: resolveUrl(prizePopupPrize.imageUrl) }}
-                      style={styles.prizeModalImage}
-                      resizeMode="cover"
-                    />
+                    <View style={styles.prizeModalImageWrap}>
+                      <FlatList
+                        horizontal
+                        data={[resolveUrl(prizePopupPrize.imageUrl)!].filter(Boolean)}
+                        keyExtractor={(u, i) => `${i}-${u}`}
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.prizePreviewListSingle}
+                        ItemSeparatorComponent={() => <View style={{ width: 10 }} />}
+                        renderItem={({ item, index }) => (
+                          <Pressable
+                            onPress={() => openPrizeFullGallery([item])}
+                            style={styles.prizePreviewThumbPress}
+                          >
+                            <Image
+                              source={{ uri: item }}
+                              style={styles.prizePreviewThumb}
+                              resizeMode="cover"
+                            />
+                          </Pressable>
+                        )}
+                      />
+                    </View>
                   ) : (
                     <View style={[styles.prizeModalImage, styles.prizeImagePlaceholder]}>
                       <Text style={styles.prizePlaceholderText}>No image</Text>
@@ -819,6 +855,11 @@ export default function RewardsScreen() {
         </Pressable>
       </Modal>
       <ImageGalleryViewer
+        key={
+          rewardGalleryOpen && selectedRewardForModal?.imageUrl
+            ? `reward-${rewardGalleryIndex}-${selectedRewardForModal.imageUrl}`
+            : "reward-gallery-closed"
+        }
         visible={
           rewardGalleryOpen &&
           !!selectedRewardForModal?.imageUrl &&
@@ -831,6 +872,16 @@ export default function RewardsScreen() {
         }
         initialIndex={rewardGalleryIndex}
         onClose={() => setRewardGalleryOpen(false)}
+      />
+
+      <ImageGalleryViewer
+        key={
+          prizeFullGalleryOpen ? `prize-${prizeFullGalleryIndex}-${prizeFullGalleryImages.join("|")}` : "prize-gallery-closed"
+        }
+        visible={prizeFullGalleryOpen && prizeFullGalleryImages.length > 0}
+        images={prizeFullGalleryImages}
+        initialIndex={prizeFullGalleryIndex}
+        onClose={() => setPrizeFullGalleryOpen(false)}
       />
 
       <RedeemRewardFormModal
@@ -1002,9 +1053,10 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f0f0f0",
     gap: 8,
   },
-  prizeThumb: { width: 40, height: 40, borderRadius: 6 },
+  prizeRowDetails: { flex: 1, minWidth: 0, justifyContent: "center" },
+  prizeThumb: { width: 44, height: 44, borderRadius: 8 },
   prizeThumbPlaceholder: { backgroundColor: "#f0f0f0" },
-  prizeBusiness: { fontSize: 12, color: "#666", flex: 1 },
+  prizeBusiness: { fontSize: 12, color: "#666" },
   prizeDetailsBtn: { padding: 4 },
   prizeEmpty: { fontSize: 14, color: "#999", flex: 1 },
   leaderboardList: { maxHeight: 320, marginTop: 12 },
@@ -1041,6 +1093,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   prizeModalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 12, textAlign: "center" },
+  prizeModalImageWrap: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    marginBottom: 12,
+    backgroundColor: "#f5f5f5",
+  },
+  prizePreviewListSingle: {
+    alignSelf: "center",
+    paddingHorizontal: 16,
+  },
+  prizePreviewThumbPress: {
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#ddd",
+  },
+  prizePreviewThumb: {
+    width: REWARD_PREVIEW_SIZE,
+    height: REWARD_PREVIEW_SIZE,
+    backgroundColor: "#e8e8e8",
+  },
   prizeModalImage: { width: "100%", aspectRatio: 1, borderRadius: 8, marginBottom: 12 },
   prizeImagePlaceholder: { backgroundColor: "#f0f0f0", alignItems: "center", justifyContent: "center" },
   prizeModalDesc: { fontSize: 14, color: "#444", marginBottom: 8, textAlign: "center" },
