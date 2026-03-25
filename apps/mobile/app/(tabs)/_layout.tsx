@@ -119,7 +119,7 @@ function ProfileSwitcherModal({
     switcherVisible,
     closeSwitcher,
     setProfileView,
-    hasSponsor,
+    hasBusinessHub,
     hasSeller,
     hasSubscriber,
   } = useProfileView();
@@ -152,7 +152,7 @@ function ProfileSwitcherModal({
             backgroundColor: "#ffffff",
           }}
         >
-          {hasSponsor && (
+          {hasBusinessHub && (
             <Pressable
               style={{
                 paddingVertical: 14,
@@ -278,7 +278,7 @@ function TabLayoutInner() {
   const pathname = usePathname();
   const { profileSyncError, clearProfileSyncError, refreshMember } = useAuth();
   const tabSafeInsets = useSafeAreaInsets();
-  const { profileView, showSwitcher, openSwitcher, hasSponsor, hasSeller, hasSubscriber } = useProfileView();
+  const { profileView, showSwitcher, openSwitcher, hasSeller, hasSubscriber } = useProfileView();
   const [sideMenuType, setSideMenuType] = useState<SideMenuType>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [hubAlerts, setHubAlerts] = useState({
@@ -578,12 +578,10 @@ function TabLayoutInner() {
       visible={sideMenuType === "profile"}
       onClose={() => setSideMenuType(null)}
       hasSubscriber={hasSubscriber}
-      hasSponsor={hasSponsor}
     />
     <AppNavMenu
       visible={sideMenuType === "app"}
       onClose={() => setSideMenuType(null)}
-      hasSponsor={hasSponsor}
       hasSeller={hasSeller}
       hasSubscriber={hasSubscriber}
     />

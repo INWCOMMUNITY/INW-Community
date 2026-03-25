@@ -42,7 +42,6 @@ interface ProfileSideMenuProps {
   visible: boolean;
   onClose: () => void;
   hasSubscriber?: boolean;
-  hasSponsor?: boolean;
 }
 
 function NavLink({ item, onPress }: { item: NavItem; onPress: () => void }) {
@@ -100,7 +99,7 @@ const LEGAL_ITEMS: NavItem[] = [
   { href: `/web?url=${encodeURIComponent(siteBase + "/privacy")}&title=${encodeURIComponent("Privacy Policy")}`, label: "Privacy Policy", icon: "shield-checkmark-outline" },
 ];
 
-export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }: ProfileSideMenuProps) {
+export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSideMenuProps) {
   const router = useRouter();
   const { setProfileView } = useProfileView();
   const insets = useSafeAreaInsets();

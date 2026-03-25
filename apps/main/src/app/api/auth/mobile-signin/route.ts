@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import bcrypt from "bcryptjs";
 import { signMobileToken } from "@/lib/mobile-auth";
-import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
+import {
+  prismaWhereMemberSubscribePlanAccess,
+  prismaWhereMemberSubscribeTierPerksAccess,
+} from "@/lib/subscribe-plan-access";
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 
 export async function POST(req: NextRequest) {
@@ -31,10 +34,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    const sub = await prisma.subscription.findFirst({
-      where: prismaWhereMemberSubscribeTierPerksAccess(member.id),
-      select: { id: true },
-    });
+    const [subTier, subResaleHub] = await Promise.all([
+      prisma.subscription.findFirst({
+        where: prismaWhereMemberSubscribeTierPerksAccess(member.id),
+        select: { id: true },
+      }),
+      prisma.subscription.findFirst({
+        where: prismaWhereMemberSubscribePlanAccess(member.id),
+        select: { id: true },
+      }),
+    ]);
 
     const effectivePlan = await resolveEffectiveNwcPlan(member.id);
 
@@ -52,7 +61,8 @@ export async function POST(req: NextRequest) {
       id: member.id,
       email: member.email,
       name: `${member.firstName} ${member.lastName}`,
-      isSubscriber: !!sub,
+      isSubscriber: !!subTier,
+      hasResaleHubAccess: !!subResaleHub,
       subscriptionPlan: effectivePlan ?? undefined,
     });
 

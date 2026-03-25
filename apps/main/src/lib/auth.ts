@@ -2,7 +2,10 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { getServerSession as nextAuthGetServerSession } from "next-auth";
 import { prisma } from "database";
 import bcrypt from "bcryptjs";
-import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
+import {
+  prismaWhereMemberSubscribePlanAccess,
+  prismaWhereMemberSubscribeTierPerksAccess,
+} from "@/lib/subscribe-plan-access";
 
 export const authOptions = {
   providers: [
@@ -46,13 +49,19 @@ export const authOptions = {
         (session.user as { id?: string }).id = token.id as string;
         const memberId = token.id as string | undefined;
         if (memberId) {
-          const sub = await prisma.subscription.findFirst({
-            where: prismaWhereMemberSubscribeTierPerksAccess(memberId),
-            select: { id: true },
-          });
-          (session.user as { isSubscriber?: boolean }).isSubscriber = !!sub;
-          /** Resale Hub — any paid NWC tier that includes resident subscriber perks. */
-          (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = !!sub;
+          const [subTier, subResale] = await Promise.all([
+            prisma.subscription.findFirst({
+              where: prismaWhereMemberSubscribeTierPerksAccess(memberId),
+              select: { id: true },
+            }),
+            prisma.subscription.findFirst({
+              where: prismaWhereMemberSubscribePlanAccess(memberId),
+              select: { id: true },
+            }),
+          ]);
+          (session.user as { isSubscriber?: boolean }).isSubscriber = !!subTier;
+          /** NWC Resale Hub — Resident Subscribe plan only (not Business/Seller). */
+          (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = !!subResale;
         }
         const adminEmail = process.env.ADMIN_EMAIL;
         (session.user as { isAdmin?: boolean }).isAdmin =

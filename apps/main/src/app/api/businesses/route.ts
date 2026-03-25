@@ -16,8 +16,10 @@ import {
 import { z } from "zod";
 import {
   NWC_PAID_PLAN_ACCESS_STATUSES,
+  prismaWhereMemberSellerPlanAccess,
   prismaWhereMemberSponsorOrSellerPlanAccess,
 } from "@/lib/nwc-paid-subscription";
+import { linkUnscopedResaleItemsToBusiness } from "@/lib/migrate-resale-items-for-seller-plan";
 import { photosExcludingLogo } from "@/lib/business-photos";
 
 export async function GET(req: NextRequest) {
@@ -258,6 +260,8 @@ export async function POST(req: NextRequest) {
     while (await prisma.business.findUnique({ where: { slug } })) {
       slug = `${slugify(data.name)}-${++suffix}`;
     }
+    const isFirstBusiness = existingCount === 0;
+
     const business = await prisma.business.create({
       data: {
         memberId: session.user.id,
@@ -287,6 +291,14 @@ export async function POST(req: NextRequest) {
         snippet: data.name,
         authorId: session.user.id,
       });
+    }
+    if (isFirstBusiness) {
+      const sellerPlan = await prisma.subscription.findFirst({
+        where: prismaWhereMemberSellerPlanAccess(session.user.id),
+      });
+      if (sellerPlan) {
+        await linkUnscopedResaleItemsToBusiness(session.user.id, business.id);
+      }
     }
     const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
     awardBusinessSignupBadges(business.id).catch(() => {});

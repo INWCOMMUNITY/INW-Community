@@ -177,16 +177,11 @@ export async function GET(req: NextRequest) {
             quantity: { gt: 0 } as const,
             member: { stripeConnectAccountId: { not: null } },
           };
-    const reservedForSlug = await prisma.orderItem.findMany({
-      where: { order: { status: "pending" } },
-      select: { storeItemId: true },
-      distinct: ["storeItemId"],
-    });
-    const reservedIds = reservedForSlug.map((r) => r.storeItemId);
+    // Do not hide listings while another buyer has only started checkout (pending order).
+    // Inventory is decremented and status becomes sold_out only after payment succeeds (webhook / cash flow).
     const item = await prisma.storeItem.findFirst({
       where: {
         ...slugWhere,
-        ...(reservedIds.length > 0 ? { id: { notIn: reservedIds } } : {}),
       },
       include: {
         member: {

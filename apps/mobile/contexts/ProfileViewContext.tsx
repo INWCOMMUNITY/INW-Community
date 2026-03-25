@@ -12,6 +12,8 @@ interface ProfileViewContextValue {
   closeSwitcher: () => void;
   hasSponsor: boolean;
   hasSeller: boolean;
+  /** Business Hub: sponsor plan or Seller plan (seller gets Business Hub without sponsor). */
+  hasBusinessHub: boolean;
   hasSubscriber: boolean;
   showSwitcher: boolean;
 }
@@ -39,6 +41,7 @@ export function ProfileViewProvider({
   }, [defaultView]);
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const showSwitcher = hasSponsor || hasSeller || hasSubscriber;
+  const hasBusinessHub = hasSponsor || hasSeller;
   const openSwitcher = useCallback(() => setSwitcherVisible(true), []);
   const closeSwitcher = useCallback(() => setSwitcherVisible(false), []);
 
@@ -51,10 +54,21 @@ export function ProfileViewProvider({
       closeSwitcher,
       hasSponsor,
       hasSeller,
+      hasBusinessHub,
       hasSubscriber,
       showSwitcher,
     }),
-    [profileView, switcherVisible, openSwitcher, closeSwitcher, hasSponsor, hasSeller, hasSubscriber, showSwitcher]
+    [
+      profileView,
+      switcherVisible,
+      openSwitcher,
+      closeSwitcher,
+      hasSponsor,
+      hasSeller,
+      hasBusinessHub,
+      hasSubscriber,
+      showSwitcher,
+    ]
   );
 
   return (
@@ -70,6 +84,7 @@ const defaultProfileViewValue: ProfileViewContextValue = {
   closeSwitcher: () => {},
   hasSponsor: false,
   hasSeller: false,
+  hasBusinessHub: false,
   hasSubscriber: false,
   showSwitcher: false,
 };

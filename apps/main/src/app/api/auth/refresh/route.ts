@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { jwtVerify } from "jose";
 import { signMobileToken, getBearerToken } from "@/lib/mobile-auth";
-import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
+import {
+  prismaWhereMemberSubscribePlanAccess,
+  prismaWhereMemberSubscribeTierPerksAccess,
+} from "@/lib/subscribe-plan-access";
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 
 const JWT_ISSUER = "nwc-mobile";
@@ -61,9 +64,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Account not found or suspended" }, { status: 401 });
     }
 
-    const [sub, effectivePlan] = await Promise.all([
+    const [subTier, subResaleHub, effectivePlan] = await Promise.all([
       prisma.subscription.findFirst({
         where: prismaWhereMemberSubscribeTierPerksAccess(member.id),
+        select: { id: true },
+      }),
+      prisma.subscription.findFirst({
+        where: prismaWhereMemberSubscribePlanAccess(member.id),
         select: { id: true },
       }),
       resolveEffectiveNwcPlan(member.id),
@@ -73,7 +80,8 @@ export async function POST(req: NextRequest) {
       id: member.id,
       email,
       name,
-      isSubscriber: !!sub,
+      isSubscriber: !!subTier,
+      hasResaleHubAccess: !!subResaleHub,
       subscriptionPlan: effectivePlan ?? undefined,
     });
 

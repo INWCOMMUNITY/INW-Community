@@ -232,8 +232,7 @@ function ResaleHubContent() {
   const router = useRouter();
   const { member } = useAuth();
   const { setProfileView } = useProfileView();
-  const isSubscriber = member?.isSubscriber ?? false;
-  const canAccessResaleHub = isSubscriber;
+  const canAccessResaleHub = member?.hasResaleHubAccess ?? false;
   const [resaleSetupComplete, setResaleSetupComplete] = useState(false);
 
   useFocusEffect(

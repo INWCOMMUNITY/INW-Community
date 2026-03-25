@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
-import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
 import { ResaleHubTopNav } from "@/components/ResaleHubTopNav";
 import { HubWebChrome } from "@/components/HubWebChrome";
 
@@ -21,7 +21,7 @@ export default async function ResaleHubLayout({
 
   const isAdmin = (session.user as { isAdmin?: boolean }).isAdmin === true;
   const subscribeSub = await prisma.subscription.findFirst({
-    where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
+    where: prismaWhereMemberSubscribePlanAccess(session.user.id),
   });
 
   if (!subscribeSub && !isAdmin) {
@@ -30,8 +30,9 @@ export default async function ResaleHubLayout({
         <div className="max-w-[var(--max-width)] mx-auto text-center">
           <h1 className="text-2xl font-bold mb-4">NWC Resale Hub</h1>
           <p className="mb-6">
-            Subscribe, Business, and Seller plans include Resale Hub, the coupon book, and 2× rewards points.
-            To sell new items on the storefront, use the Seller plan and Seller Hub.
+            NWC Resale Hub is included with the Resident Subscribe plan. Business and Seller plans include the coupon
+            book and 2× rewards points, and use Business Hub / Seller Hub to sell; add Subscribe if you also want the
+            member resale experience.
           </p>
           <a href="/support-nwc" className="btn">
             View plans

@@ -185,20 +185,20 @@ function ProfileViewLayout({ children }: { children: React.ReactNode }) {
   const { member, subscriptionPlan } = useAuth();
   const hasSponsor = member?.subscriptions?.some((s) => s.plan === "sponsor") ?? false;
   const hasSeller = member?.subscriptions?.some((s) => s.plan === "seller") ?? false;
-  const hasSubscriber = member?.isSubscriber ?? false;
+  const hasResaleHubSwitcher = member?.hasResaleHubAccess ?? false;
   const defaultView: ProfileView =
     subscriptionPlan === "sponsor"
       ? "business_hub"
       : subscriptionPlan === "seller"
         ? "seller_hub"
-        : hasSubscriber
+        : hasResaleHubSwitcher
           ? "resale_hub"
           : "profile";
   return (
     <ProfileViewProvider
       hasSponsor={hasSponsor}
       hasSeller={hasSeller}
-      hasSubscriber={hasSubscriber}
+      hasSubscriber={hasResaleHubSwitcher}
       defaultView={defaultView}
     >
       {children}

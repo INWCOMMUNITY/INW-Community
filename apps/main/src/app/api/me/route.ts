@@ -3,7 +3,10 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getCurrentSeasonId } from "@/lib/award-points";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, NWC_PAID_PLAN_SLUGS } from "@/lib/nwc-paid-subscription";
-import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
+import {
+  prismaWhereMemberSubscribePlanAccess,
+  prismaWhereMemberSubscribeTierPerksAccess,
+} from "@/lib/subscribe-plan-access";
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 import { z } from "zod";
 
@@ -84,9 +87,13 @@ export async function GET(req: NextRequest) {
       seasonPointsEarned = msp?.pointsEarned ?? 0;
     }
   }
-  const [sub, subscriptions, subscriptionPlan] = await Promise.all([
+  const [subTier, subResaleHub, subscriptions, subscriptionPlan] = await Promise.all([
     prisma.subscription.findFirst({
       where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
+      select: { id: true },
+    }),
+    prisma.subscription.findFirst({
+      where: prismaWhereMemberSubscribePlanAccess(session.user.id),
       select: { id: true },
     }),
     prisma.subscription.findMany({
@@ -101,7 +108,9 @@ export async function GET(req: NextRequest) {
     ...member,
     seasonPointsEarned,
     currentSeason,
-    isSubscriber: !!sub,
+    isSubscriber: !!subTier,
+    /** Resident Subscribe ($10/mo) only — NWC Resale Hub; Business/Seller use Seller Hub for resale listings. */
+    hasResaleHubAccess: !!subResaleHub,
     hasPaidSubscription,
     subscriptionPlan,
     subscriptions: subscriptions.map((s) => ({ plan: s.plan, status: s.status })),

@@ -46,6 +46,7 @@ interface StoreItem {
   id: string;
   title: string;
   slug: string;
+  status?: string;
   description: string | null;
   photos: string[];
   category: string | null;
@@ -522,12 +523,16 @@ export default function ProductScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {itemUnavailable && (
+        {itemUnavailable && item && (
           <View style={styles.soldBanner}>
             <Text style={styles.soldBannerText}>
-              {item?.soldAt
-                ? `This item was sold on ${new Date(item.soldAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`
-                : "This item was sold."}
+              {item.status === "sold_out" || item.soldAt
+                ? item.soldAt
+                  ? `This item was sold on ${new Date(item.soldAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`
+                  : "This item was sold."
+                : item.status === "inactive"
+                  ? "This listing has ended."
+                  : "This listing is not available for purchase right now."}
             </Text>
           </View>
         )}

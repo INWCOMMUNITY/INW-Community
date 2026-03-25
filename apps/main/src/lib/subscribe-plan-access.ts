@@ -15,8 +15,9 @@ export function prismaWhereMemberSubscribePlanAccess(memberId: string) {
 }
 
 /**
- * Subscribe + Business + Seller with paid access — coupon tier, Resale Hub, 2× points, mobile `isSubscriber`, etc.
- * Business and Seller plans include resident subscriber perks.
+ * Subscribe + Business + Seller with paid access — coupon book, 2× points on purchases/scans, mobile `isSubscriber`, etc.
+ * Business and Seller plans include those resident perks. Resale Hub (member NWC Resale) is **not** included here;
+ * use `prismaWhereMemberSubscribePlanAccess` for the Resident Subscribe plan only.
  */
 export function prismaWhereMemberSubscribeTierPerksAccess(memberId: string) {
   return {

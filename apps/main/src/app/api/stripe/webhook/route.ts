@@ -14,6 +14,7 @@ import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { stripeSubscriptionStatusToDb } from "@/lib/stripe-subscription-db-status";
 import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
 import { removeNwcMemberPerksAfterSubscriptionEnd } from "@/lib/nwc-subscription-perk-cleanup";
+import { migrateResaleItemsForSellerMember } from "@/lib/migrate-resale-items-for-seller-plan";
 import type { Plan } from "database";
 
 /**
@@ -346,6 +347,11 @@ export async function POST(req: NextRequest) {
         }
       } else if ((planId === "sponsor" || planId === "seller") && businessIdFromMeta) {
         if (process.env.NODE_ENV === "development") console.log("[webhook] Business already created as draft:", businessIdFromMeta);
+      }
+      if (planId === "seller") {
+        migrateResaleItemsForSellerMember(memberId).catch((err) =>
+          console.error("[stripe/webhook] migrate resale items for seller", memberId, err)
+        );
       }
     }
 
@@ -1118,6 +1124,24 @@ export async function POST(req: NextRequest) {
       where: { stripeSubscriptionId: sub.id },
       data,
     });
+
+    const sellerStripeActive =
+      planResolved === "seller" &&
+      (sub.status === "active" || sub.status === "trialing" || sub.status === "past_due");
+    if (sellerStripeActive) {
+      const memberRows = await prisma.subscription.findMany({
+        where: { stripeSubscriptionId: sub.id },
+        select: { memberId: true },
+      });
+      const memberIds = [...new Set(memberRows.map((r) => r.memberId))];
+      const metaMember = sub.metadata?.memberId?.trim();
+      if (memberIds.length === 0 && metaMember) memberIds.push(metaMember);
+      for (const mid of memberIds) {
+        migrateResaleItemsForSellerMember(mid).catch((err) =>
+          console.error("[stripe/webhook] migrate resale items for seller (subscription event)", mid, err)
+        );
+      }
+    }
 
     const subscriptionEnded =
       event.type === "customer.subscription.deleted" ||
