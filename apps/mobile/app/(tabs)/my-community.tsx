@@ -184,6 +184,48 @@ function ResaleHubContent() {
   const { setProfileView } = useProfileView();
   const isSubscriber = member?.isSubscriber ?? false;
   const canAccessResaleHub = isSubscriber;
+  const [resaleSetupComplete, setResaleSetupComplete] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const [funds, shipping, me] = await Promise.all([
+            apiGet<{ hasStripeConnect?: boolean } | { error?: string }>("/api/seller-funds"),
+            apiGet<{ connected?: boolean } | { error?: string }>("/api/shipping/status"),
+            apiGet<{
+              sellerShippingPolicy?: string | null;
+              sellerLocalDeliveryPolicy?: string | null;
+              sellerPickupPolicy?: string | null;
+              sellerReturnPolicy?: string | null;
+            }>("/api/me"),
+          ]);
+          if (cancelled) return;
+          const stripe = Boolean((funds as { hasStripeConnect?: boolean }).hasStripeConnect);
+          const shippo = Boolean((shipping as { connected?: boolean }).connected);
+          const p = me as {
+            sellerShippingPolicy?: string | null;
+            sellerLocalDeliveryPolicy?: string | null;
+            sellerPickupPolicy?: string | null;
+            sellerReturnPolicy?: string | null;
+          };
+          const anyPolicy = [
+            p?.sellerShippingPolicy,
+            p?.sellerLocalDeliveryPolicy,
+            p?.sellerPickupPolicy,
+            p?.sellerReturnPolicy,
+          ].some((v) => typeof v === "string" && v.trim().length > 0);
+          setResaleSetupComplete(stripe && shippo && anyPolicy);
+        } catch {
+          if (!cancelled) setResaleSetupComplete(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
 
   if (!canAccessResaleHub) {
     return (
@@ -219,11 +261,6 @@ function ResaleHubContent() {
     onPress?: () => void;
     icon: keyof typeof Ionicons.glyphMap;
   }[] = [
-    {
-      label: "Resale Storefront",
-      onPress: () => (router.push as (href: string) => void)("/(tabs)/store?listingType=resale"),
-      icon: "storefront-outline",
-    },
     { label: "List Item", href: "/resale-hub/list", icon: "add-circle" },
     {
       label: "My Listings",
@@ -231,18 +268,15 @@ function ResaleHubContent() {
       icon: "list-outline",
     },
     { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
-    { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
-    { label: "Pickups", href: "/resale-hub/pickups", icon: "hand-left-outline" },
     { label: "Offers", href: "/resale-hub/offers", icon: "pricetag-outline" },
-    {
-      label: "Messages",
-      onPress: () => (router.push as (href: string) => void)("/messages?tab=resale"),
-      icon: "chatbubbles",
-    },
-    { label: "Time Away", href: "/seller-hub/time-away", icon: "calendar-outline" },
-    { label: "Cancellations", href: "/seller-hub/store/cancellations", icon: "close-circle-outline" },
+    { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
+    { label: "Pick Ups", href: "/resale-hub/pickups", icon: "hand-left-outline" },
     { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
-    { label: "Before You Start", href: "/resale-hub/before-you-start", icon: "checkbox-outline" },
+    {
+      label: resaleSetupComplete ? "Store Variables" : "Before You Start",
+      href: "/resale-hub/before-you-start",
+      icon: "checkbox-outline",
+    },
   ];
 
   return (

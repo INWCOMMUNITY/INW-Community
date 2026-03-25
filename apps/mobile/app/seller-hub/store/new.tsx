@@ -639,7 +639,7 @@ export default function ListItemScreen() {
       subcategory: subcategory.trim() || null,
       priceCents: price,
       quantity: payloadQuantity,
-      listingType: editId ? ("new" as const) : listingType,
+      listingType,
       shippingDisabled,
       localDeliveryAvailable,
       inStorePickupAvailable,

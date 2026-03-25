@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Modal,
   StyleSheet,
@@ -9,7 +9,9 @@ import {
   ScrollView,
   Platform,
   Switch,
+  KeyboardAvoidingView,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, getToken } from "@/lib/api";
@@ -43,6 +45,23 @@ const emptyForm: LocalDeliveryDetails = {
   note: "",
 };
 
+function formFromInitial(initial: Partial<LocalDeliveryDetails> | null | undefined): LocalDeliveryDetails {
+  return {
+    firstName: initial?.firstName ?? "",
+    lastName: initial?.lastName ?? "",
+    phone: initial?.phone ?? "",
+    email: initial?.email ?? "",
+    deliveryAddress: {
+      street: initial?.deliveryAddress?.street ?? "",
+      city: initial?.deliveryAddress?.city ?? "",
+      state: initial?.deliveryAddress?.state ?? "",
+      zip: initial?.deliveryAddress?.zip ?? "",
+    },
+    availableDropOffTimes: initial?.availableDropOffTimes ?? "",
+    note: initial?.note ?? "",
+  };
+}
+
 export function LocalDeliveryModal({
   visible,
   onClose,
@@ -50,37 +69,81 @@ export function LocalDeliveryModal({
   initialForm,
   onSave,
 }: LocalDeliveryModalProps) {
+  const insets = useSafeAreaInsets();
   const [form, setForm] = useState<LocalDeliveryDetails>({ ...emptyForm });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [validationError, setValidationError] = useState("");
   const [signedIn, setSignedIn] = useState(false);
 
-  useEffect(() => {
-    getToken().then((t) => setSignedIn(!!t));
-  }, [visible]);
+  const mergeProfileIntoForm = useCallback(
+    (
+      base: LocalDeliveryDetails,
+      d: {
+        firstName?: string;
+        lastName?: string;
+        phone?: string | null;
+        email?: string | null;
+        deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string };
+      },
+      onlyEmpty: boolean
+    ): LocalDeliveryDetails => {
+      const pick = (cur: string, next: string | null | undefined) => {
+        const n = (next ?? "").trim();
+        if (!n) return cur;
+        if (onlyEmpty && cur.trim()) return cur;
+        return n;
+      };
+      const addr = d.deliveryAddress;
+      return {
+        firstName: pick(base.firstName, d.firstName),
+        lastName: pick(base.lastName, d.lastName),
+        phone: pick(base.phone, d.phone),
+        email: pick(base.email, d.email),
+        deliveryAddress: {
+          street: pick(base.deliveryAddress.street, addr?.street),
+          city: pick(base.deliveryAddress.city, addr?.city),
+          state: pick(base.deliveryAddress.state, addr?.state),
+          zip: pick(base.deliveryAddress.zip, addr?.zip),
+        },
+        availableDropOffTimes: base.availableDropOffTimes,
+        note: base.note,
+      };
+    },
+    []
+  );
 
   useEffect(() => {
-    if (visible) {
-      setForm({
-        firstName: initialForm?.firstName ?? "",
-        lastName: initialForm?.lastName ?? "",
-        phone: initialForm?.phone ?? "",
-        email: initialForm?.email ?? "",
-        deliveryAddress: {
-          street: initialForm?.deliveryAddress?.street ?? "",
-          city: initialForm?.deliveryAddress?.city ?? "",
-          state: initialForm?.deliveryAddress?.state ?? "",
-          zip: initialForm?.deliveryAddress?.zip ?? "",
-        },
-        availableDropOffTimes: initialForm?.availableDropOffTimes ?? "",
-        note: initialForm?.note ?? "",
-      });
+    if (!visible) return;
+    let cancelled = false;
+    (async () => {
+      const base = formFromInitial(initialForm);
+      setForm(base);
       setTermsAccepted(false);
       setValidationError("");
-    }
-  }, [visible, initialForm]);
+      const token = await getToken();
+      if (cancelled) return;
+      setSignedIn(!!token);
+      if (!token) return;
+      try {
+        const d = await apiGet<{
+          firstName?: string;
+          lastName?: string;
+          phone?: string | null;
+          email?: string | null;
+          deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string };
+        }>("/api/me");
+        if (cancelled) return;
+        setForm((prev) => mergeProfileIntoForm(prev, d, true));
+      } catch {
+        /* keep initialForm only */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, initialForm, mergeProfileIntoForm]);
 
-  const handleAutofill = async () => {
+  const handleRefreshFromProfile = async () => {
     try {
       const d = await apiGet<{
         firstName?: string;
@@ -89,22 +152,8 @@ export function LocalDeliveryModal({
         email?: string | null;
         deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string };
       }>("/api/me");
-      if (d?.firstName) setForm((f) => ({ ...f, firstName: d.firstName! }));
-      if (d?.lastName) setForm((f) => ({ ...f, lastName: d.lastName! }));
-      if (d?.phone) setForm((f) => ({ ...f, phone: d.phone ?? "" }));
-      if (d?.email) setForm((f) => ({ ...f, email: d.email ?? "" }));
-      const addr = d?.deliveryAddress;
-      if (addr && typeof addr === "object") {
-        setForm((f) => ({
-          ...f,
-          deliveryAddress: {
-            street: addr.street ?? "",
-            city: addr.city ?? "",
-            state: addr.state ?? "",
-            zip: addr.zip ?? "",
-          },
-        }));
-      }
+      setForm((prev) => mergeProfileIntoForm(prev, d, false));
+      setValidationError("");
     } catch (e) {
       if (__DEV__) console.warn("[LocalDeliveryModal] autofill", e);
       setValidationError("Could not load your saved details. Enter them manually or try again.");
@@ -131,7 +180,6 @@ export function LocalDeliveryModal({
         ...f,
         ...(hasPolicy ? { termsAcceptedAt: new Date().toISOString() } : {}),
       });
-      onClose();
     } else {
       setValidationError(
         hasPolicy
@@ -151,196 +199,203 @@ export function LocalDeliveryModal({
     >
       <View style={styles.backdrop}>
         <Pressable style={styles.backdropTouch} onPress={onClose} />
-        <View style={styles.panel}>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Local Delivery – your details</Text>
-            <Pressable onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={24} color={theme.colors.heading} />
-            </Pressable>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.kav}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
+        >
+          <View style={styles.panel}>
+            <View style={styles.header}>
+              <Text style={styles.headerTitle}>Local Delivery – your details</Text>
+              <Pressable onPress={onClose} style={styles.closeBtn}>
+                <Ionicons name="close" size={24} color={theme.colors.heading} />
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              {policyText ? (
+                <View style={styles.policyBox}>
+                  <Text style={styles.policyLabel}>Seller's delivery terms:</Text>
+                  <Text style={styles.policyText}>{policyText}</Text>
+                </View>
+              ) : null}
+              {signedIn ? (
+                <Pressable onPress={handleRefreshFromProfile} style={styles.autofillBtn}>
+                  <Text style={styles.autofillText}>Refresh from my profile</Text>
+                </Pressable>
+              ) : null}
+              <View style={styles.field}>
+                <Text style={styles.label}>Delivery address *</Text>
+                <TextInput
+                  style={[styles.input, styles.streetInput]}
+                  value={form.deliveryAddress.street}
+                  onChangeText={(v) =>
+                    setForm((f) => ({
+                      ...f,
+                      deliveryAddress: { ...f.deliveryAddress, street: v },
+                    }))
+                  }
+                  placeholder="Street"
+                  placeholderTextColor={theme.colors.placeholder}
+                  autoCorrect={true}
+                />
+                <View style={styles.addressSecondRow}>
+                  <TextInput
+                    style={[styles.input, styles.inputThird]}
+                    value={form.deliveryAddress.city}
+                    onChangeText={(v) =>
+                      setForm((f) => ({
+                        ...f,
+                        deliveryAddress: { ...f.deliveryAddress, city: v },
+                      }))
+                    }
+                    placeholder="City"
+                    placeholderTextColor={theme.colors.placeholder}
+                    autoCorrect={true}
+                  />
+                  <TextInput
+                    style={[styles.input, styles.inputThird]}
+                    value={form.deliveryAddress.state}
+                    onChangeText={(v) =>
+                      setForm((f) => ({
+                        ...f,
+                        deliveryAddress: { ...f.deliveryAddress, state: v },
+                      }))
+                    }
+                    placeholder="State"
+                    placeholderTextColor={theme.colors.placeholder}
+                    autoCorrect={true}
+                  />
+                  <TextInput
+                    style={[styles.input, styles.inputThird]}
+                    value={form.deliveryAddress.zip}
+                    onChangeText={(v) =>
+                      setForm((f) => ({
+                        ...f,
+                        deliveryAddress: { ...f.deliveryAddress, zip: v },
+                      }))
+                    }
+                    placeholder="ZIP"
+                    placeholderTextColor={theme.colors.placeholder}
+                    keyboardType="numeric"
+                    autoCorrect={true}
+                  />
+                </View>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Available drop-off times *</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={form.availableDropOffTimes}
+                  onChangeText={(v) => setForm((f) => ({ ...f, availableDropOffTimes: v }))}
+                  placeholder="When you can receive the delivery"
+                  placeholderTextColor={theme.colors.placeholder}
+                  multiline
+                  numberOfLines={2}
+                  autoCorrect={true}
+                />
+              </View>
+              <View style={styles.row}>
+                <View style={styles.fieldHalf}>
+                  <Text style={styles.label}>First name *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={form.firstName}
+                    onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
+                    placeholder="First name"
+                    placeholderTextColor={theme.colors.placeholder}
+                    autoCapitalize="words"
+                    autoCorrect={true}
+                  />
+                </View>
+                <View style={styles.fieldHalf}>
+                  <Text style={styles.label}>Last name *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={form.lastName}
+                    onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
+                    placeholder="Last name"
+                    placeholderTextColor={theme.colors.placeholder}
+                    autoCapitalize="words"
+                    autoCorrect={true}
+                  />
+                </View>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Phone *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={form.phone}
+                  onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
+                  placeholder="Phone"
+                  placeholderTextColor={theme.colors.placeholder}
+                  keyboardType="phone-pad"
+                  autoCorrect={true}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Email *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={form.email}
+                  onChangeText={(v) => setForm((f) => ({ ...f, email: v }))}
+                  placeholder="Email"
+                  placeholderTextColor={theme.colors.placeholder}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={true}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Note to seller (optional)</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={form.note ?? ""}
+                  onChangeText={(v) => setForm((f) => ({ ...f, note: v }))}
+                  placeholder="Add a note..."
+                  placeholderTextColor={theme.colors.placeholder}
+                  multiline
+                  numberOfLines={2}
+                  autoCorrect={true}
+                />
+              </View>
+              {policyText && String(policyText).trim() ? (
+                <View style={styles.termsRow}>
+                  <Switch
+                    value={termsAccepted}
+                    onValueChange={setTermsAccepted}
+                    trackColor={{ false: "#ccc", true: theme.colors.primary }}
+                    thumbColor="#fff"
+                  />
+                  <Text style={styles.termsText}>
+                    I understand and agree to the seller&apos;s delivery terms.
+                  </Text>
+                </View>
+              ) : null}
+              {validationError ? (
+                <Text style={styles.errorText}>{validationError}</Text>
+              ) : null}
+              <View style={styles.actions}>
+                <Pressable
+                  style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.8 }]}
+                  onPress={handleSave}
+                >
+                  <Text style={styles.saveBtnText}>Save & continue</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}
+                  onPress={onClose}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
           </View>
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            {policyText ? (
-              <View style={styles.policyBox}>
-                <Text style={styles.policyLabel}>Seller's delivery terms:</Text>
-                <Text style={styles.policyText}>{policyText}</Text>
-              </View>
-            ) : null}
-            {signedIn ? (
-              <Pressable onPress={handleAutofill} style={styles.autofillBtn}>
-                <Text style={styles.autofillText}>Autofill from my profile</Text>
-              </Pressable>
-            ) : null}
-            <View style={styles.field}>
-              <Text style={styles.label}>Delivery address *</Text>
-              <TextInput
-                style={[styles.input, styles.streetInput]}
-                value={form.deliveryAddress.street}
-                onChangeText={(v) =>
-                  setForm((f) => ({
-                    ...f,
-                    deliveryAddress: { ...f.deliveryAddress, street: v },
-                  }))
-                }
-                placeholder="Street"
-                placeholderTextColor={theme.colors.placeholder}
-                autoCorrect={true}
-              />
-              <View style={styles.addressSecondRow}>
-                <TextInput
-                  style={[styles.input, styles.inputThird]}
-                  value={form.deliveryAddress.city}
-                  onChangeText={(v) =>
-                    setForm((f) => ({
-                      ...f,
-                      deliveryAddress: { ...f.deliveryAddress, city: v },
-                    }))
-                  }
-                  placeholder="City"
-                  placeholderTextColor={theme.colors.placeholder}
-                  autoCorrect={true}
-                />
-                <TextInput
-                  style={[styles.input, styles.inputThird]}
-                  value={form.deliveryAddress.state}
-                  onChangeText={(v) =>
-                    setForm((f) => ({
-                      ...f,
-                      deliveryAddress: { ...f.deliveryAddress, state: v },
-                    }))
-                  }
-                  placeholder="State"
-                  placeholderTextColor={theme.colors.placeholder}
-                  autoCorrect={true}
-                />
-                <TextInput
-                  style={[styles.input, styles.inputThird]}
-                  value={form.deliveryAddress.zip}
-                  onChangeText={(v) =>
-                    setForm((f) => ({
-                      ...f,
-                      deliveryAddress: { ...f.deliveryAddress, zip: v },
-                    }))
-                  }
-                  placeholder="ZIP"
-                  placeholderTextColor={theme.colors.placeholder}
-                  keyboardType="numeric"
-                  autoCorrect={true}
-                />
-              </View>
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Available drop-off times *</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={form.availableDropOffTimes}
-                onChangeText={(v) => setForm((f) => ({ ...f, availableDropOffTimes: v }))}
-                placeholder="When you can receive the delivery"
-                placeholderTextColor={theme.colors.placeholder}
-                multiline
-                numberOfLines={2}
-                autoCorrect={true}
-              />
-            </View>
-            <View style={styles.row}>
-              <View style={styles.fieldHalf}>
-                <Text style={styles.label}>First name *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={form.firstName}
-                  onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
-                  placeholder="First name"
-                  placeholderTextColor={theme.colors.placeholder}
-                  autoCapitalize="words"
-                  autoCorrect={true}
-                />
-              </View>
-              <View style={styles.fieldHalf}>
-                <Text style={styles.label}>Last name *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={form.lastName}
-                  onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
-                  placeholder="Last name"
-                  placeholderTextColor={theme.colors.placeholder}
-                  autoCapitalize="words"
-                  autoCorrect={true}
-                />
-              </View>
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Phone *</Text>
-              <TextInput
-                style={styles.input}
-                value={form.phone}
-                onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
-                placeholder="Phone"
-                placeholderTextColor={theme.colors.placeholder}
-                keyboardType="phone-pad"
-                autoCorrect={true}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Email *</Text>
-              <TextInput
-                style={styles.input}
-                value={form.email}
-                onChangeText={(v) => setForm((f) => ({ ...f, email: v }))}
-                placeholder="Email"
-                placeholderTextColor={theme.colors.placeholder}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={true}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Note to seller (optional)</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={form.note ?? ""}
-                onChangeText={(v) => setForm((f) => ({ ...f, note: v }))}
-                placeholder="Add a note..."
-                placeholderTextColor={theme.colors.placeholder}
-                multiline
-                numberOfLines={2}
-                autoCorrect={true}
-              />
-            </View>
-            {policyText && String(policyText).trim() ? (
-              <View style={styles.termsRow}>
-                <Switch
-                  value={termsAccepted}
-                  onValueChange={setTermsAccepted}
-                  trackColor={{ false: "#ccc", true: theme.colors.primary }}
-                  thumbColor="#fff"
-                />
-                <Text style={styles.termsText}>
-                  I understand and agree to the seller&apos;s delivery terms.
-                </Text>
-              </View>
-            ) : null}
-            {validationError ? (
-              <Text style={styles.errorText}>{validationError}</Text>
-            ) : null}
-            <View style={styles.actions}>
-              <Pressable
-                style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.8 }]}
-                onPress={handleSave}
-              >
-                <Text style={styles.saveBtnText}>Save & continue</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}
-                onPress={onClose}
-              >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </Pressable>
-            </View>
-          </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -355,11 +410,14 @@ const styles = StyleSheet.create({
   backdropTouch: {
     ...StyleSheet.absoluteFillObject,
   },
+  kav: {
+    maxHeight: "92%",
+  },
   panel: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    maxHeight: "90%",
+    maxHeight: "100%",
   },
   header: {
     flexDirection: "row",
@@ -380,11 +438,11 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   scroll: {
-    maxHeight: 500,
+    flexGrow: 0,
+    maxHeight: 520,
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 32,
   },
   policyBox: {
     padding: 12,

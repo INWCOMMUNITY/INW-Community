@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Modal,
   StyleSheet,
@@ -9,7 +9,9 @@ import {
   ScrollView,
   Platform,
   Switch,
+  KeyboardAvoidingView,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, getToken } from "@/lib/api";
@@ -44,6 +46,18 @@ const emptyForm: PickupDetails = {
   note: "",
 };
 
+function formFromInitial(initial: Partial<PickupDetails> | null | undefined): PickupDetails {
+  return {
+    firstName: initial?.firstName ?? "",
+    lastName: initial?.lastName ?? "",
+    phone: initial?.phone ?? "",
+    email: initial?.email ?? "",
+    preferredPickupDate: initial?.preferredPickupDate ?? "",
+    preferredPickupTime: initial?.preferredPickupTime ?? "",
+    note: initial?.note ?? "",
+  };
+}
+
 export function PickupTermsModal({
   visible,
   onClose,
@@ -51,6 +65,7 @@ export function PickupTermsModal({
   initialForm,
   onSave,
 }: PickupTermsModalProps) {
+  const insets = useSafeAreaInsets();
   const [form, setForm] = useState<PickupDetails>({ ...emptyForm });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [validationError, setValidationError] = useState("");
@@ -58,27 +73,60 @@ export function PickupTermsModal({
 
   const hasPolicy = !!policyText && String(policyText).trim();
 
-  useEffect(() => {
-    getToken().then((t) => setSignedIn(!!t));
-  }, [visible]);
+  const mergeProfilePickup = useCallback(
+    (
+      base: PickupDetails,
+      d: { firstName?: string; lastName?: string; phone?: string | null; email?: string | null },
+      onlyEmpty: boolean
+    ): PickupDetails => {
+      const pick = (cur: string, next: string | null | undefined) => {
+        const n = (next ?? "").trim();
+        if (!n) return cur;
+        if (onlyEmpty && cur.trim()) return cur;
+        return n;
+      };
+      return {
+        ...base,
+        firstName: pick(base.firstName, d.firstName),
+        lastName: pick(base.lastName, d.lastName),
+        phone: pick(base.phone, d.phone),
+        email: pick(base.email ?? "", d.email) || undefined,
+      };
+    },
+    []
+  );
 
   useEffect(() => {
-    if (visible) {
-      setForm({
-        firstName: initialForm?.firstName ?? "",
-        lastName: initialForm?.lastName ?? "",
-        phone: initialForm?.phone ?? "",
-        email: initialForm?.email ?? "",
-        preferredPickupDate: initialForm?.preferredPickupDate ?? "",
-        preferredPickupTime: initialForm?.preferredPickupTime ?? "",
-        note: initialForm?.note ?? "",
-      });
+    if (!visible) return;
+    let cancelled = false;
+    (async () => {
+      const base = formFromInitial(initialForm);
+      setForm(base);
       setTermsAccepted(!!initialForm?.termsAcceptedAt);
       setValidationError("");
-    }
-  }, [visible, initialForm]);
+      const token = await getToken();
+      if (cancelled) return;
+      setSignedIn(!!token);
+      if (!token) return;
+      try {
+        const d = await apiGet<{
+          firstName?: string;
+          lastName?: string;
+          phone?: string | null;
+          email?: string | null;
+        }>("/api/me");
+        if (cancelled) return;
+        setForm((prev) => mergeProfilePickup(prev, d, true));
+      } catch {
+        /* keep initial */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, initialForm, mergeProfilePickup]);
 
-  const handleAutofill = async () => {
+  const handleRefreshFromProfile = async () => {
     try {
       const d = await apiGet<{
         firstName?: string;
@@ -86,10 +134,8 @@ export function PickupTermsModal({
         phone?: string | null;
         email?: string | null;
       }>("/api/me");
-      if (d?.firstName) setForm((f) => ({ ...f, firstName: d.firstName! }));
-      if (d?.lastName) setForm((f) => ({ ...f, lastName: d.lastName! }));
-      if (d?.phone) setForm((f) => ({ ...f, phone: d.phone ?? "" }));
-      if (d?.email) setForm((f) => ({ ...f, email: d.email ?? "" }));
+      setForm((prev) => mergeProfilePickup(prev, d, false));
+      setValidationError("");
     } catch (e) {
       if (__DEV__) console.warn("[PickupTermsModal] autofill", e);
       setValidationError("Could not load your profile. Enter your details manually or try again.");
@@ -111,7 +157,6 @@ export function PickupTermsModal({
         ...f,
         termsAcceptedAt: hasPolicy ? new Date().toISOString() : undefined,
       });
-      onClose();
     } else {
       setValidationError(
         hasPolicy
@@ -131,151 +176,154 @@ export function PickupTermsModal({
     >
       <View style={styles.backdrop}>
         <Pressable style={styles.backdropTouch} onPress={onClose} />
-        <View style={styles.panel}>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Pick Up Form</Text>
-            <Pressable onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={24} color={theme.colors.heading} />
-            </Pressable>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.kav}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
+        >
+          <View style={styles.panel}>
+            <View style={styles.header}>
+              <Text style={styles.headerTitle}>Pick Up Form</Text>
+              <Pressable onPress={onClose} style={styles.closeBtn}>
+                <Ionicons name="close" size={24} color={theme.colors.heading} />
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              {policyText ? (
+                <View style={styles.policyBox}>
+                  <Text style={styles.policyLabel}>Seller's pickup terms:</Text>
+                  <Text style={styles.policyText}>{policyText}</Text>
+                </View>
+              ) : null}
+              {signedIn ? (
+                <Pressable onPress={handleRefreshFromProfile} style={styles.autofillBtn}>
+                  <Text style={styles.autofillText}>Refresh from my profile</Text>
+                </Pressable>
+              ) : null}
+              <View style={styles.row}>
+                <View style={styles.fieldHalf}>
+                  <Text style={styles.label}>First name *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={form.firstName}
+                    onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
+                    placeholder="First name"
+                    placeholderTextColor={theme.colors.placeholder}
+                    autoCapitalize="words"
+                    autoCorrect={true}
+                  />
+                </View>
+                <View style={styles.fieldHalf}>
+                  <Text style={styles.label}>Last name *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={form.lastName}
+                    onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
+                    placeholder="Last name"
+                    placeholderTextColor={theme.colors.placeholder}
+                    autoCapitalize="words"
+                    autoCorrect={true}
+                  />
+                </View>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Phone *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={form.phone}
+                  onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
+                  placeholder="Phone"
+                  placeholderTextColor={theme.colors.placeholder}
+                  keyboardType="phone-pad"
+                  autoCorrect={true}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Email (optional)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={form.email ?? ""}
+                  onChangeText={(v) => setForm((f) => ({ ...f, email: v }))}
+                  placeholder="Email"
+                  placeholderTextColor={theme.colors.placeholder}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={true}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Estimated pickup date *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={form.preferredPickupDate ?? ""}
+                  onChangeText={(v) => setForm((f) => ({ ...f, preferredPickupDate: v }))}
+                  placeholder="e.g. 2025-03-28 or Fri Mar 28"
+                  placeholderTextColor={theme.colors.placeholder}
+                  autoCorrect={true}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Estimated pickup time *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={form.preferredPickupTime ?? ""}
+                  onChangeText={(v) => setForm((f) => ({ ...f, preferredPickupTime: v }))}
+                  placeholder="e.g. 2:00–4:00 PM"
+                  placeholderTextColor={theme.colors.placeholder}
+                  autoCorrect={true}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Note to seller (optional)</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={form.note ?? ""}
+                  onChangeText={(v) => setForm((f) => ({ ...f, note: v }))}
+                  placeholder="Add a note..."
+                  placeholderTextColor={theme.colors.placeholder}
+                  multiline
+                  numberOfLines={2}
+                  autoCorrect={true}
+                />
+              </View>
+              {hasPolicy ? (
+                <View style={styles.termsRow}>
+                  <Switch
+                    value={termsAccepted}
+                    onValueChange={setTermsAccepted}
+                    trackColor={{ false: "#ccc", true: theme.colors.primary }}
+                    thumbColor="#fff"
+                  />
+                  <Text style={styles.termsText}>
+                    I understand and agree to the seller's pickup terms.
+                  </Text>
+                </View>
+              ) : null}
+              {validationError ? (
+                <Text style={styles.errorText}>{validationError}</Text>
+              ) : null}
+              <View style={styles.actions}>
+                <Pressable
+                  style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.8 }]}
+                  onPress={handleSave}
+                >
+                  <Text style={styles.saveBtnText}>Save & continue</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}
+                  onPress={onClose}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
           </View>
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            {policyText ? (
-              <View style={styles.policyBox}>
-                <Text style={styles.policyLabel}>Seller's pickup terms:</Text>
-                <Text style={styles.policyText}>{policyText}</Text>
-              </View>
-            ) : null}
-            {signedIn ? (
-              <Pressable onPress={handleAutofill} style={styles.autofillBtn}>
-                <Text style={styles.autofillText}>Autofill from my profile</Text>
-              </Pressable>
-            ) : null}
-            <View style={styles.row}>
-              <View style={styles.fieldHalf}>
-                <Text style={styles.label}>First name *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={form.firstName}
-                  onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
-                  placeholder="First name"
-                  placeholderTextColor={theme.colors.placeholder}
-                  autoCapitalize="words"
-                  autoCorrect={true}
-                />
-              </View>
-              <View style={styles.fieldHalf}>
-                <Text style={styles.label}>Last name *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={form.lastName}
-                  onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
-                  placeholder="Last name"
-                  placeholderTextColor={theme.colors.placeholder}
-                  autoCapitalize="words"
-                  autoCorrect={true}
-                />
-              </View>
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Phone *</Text>
-              <TextInput
-                style={styles.input}
-                value={form.phone}
-                onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
-                placeholder="Phone"
-                placeholderTextColor={theme.colors.placeholder}
-                keyboardType="phone-pad"
-                autoCorrect={true}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Email (optional)</Text>
-              <TextInput
-                style={styles.input}
-                value={form.email ?? ""}
-                onChangeText={(v) => setForm((f) => ({ ...f, email: v }))}
-                placeholder="Email"
-                placeholderTextColor={theme.colors.placeholder}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={true}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Estimated pickup date *</Text>
-              <TextInput
-                style={styles.input}
-                value={form.preferredPickupDate ?? ""}
-                onChangeText={(v) =>
-                  setForm((f) => ({ ...f, preferredPickupDate: v }))
-                }
-                placeholder="e.g. 2025-03-28 or Fri Mar 28"
-                placeholderTextColor={theme.colors.placeholder}
-                autoCorrect={true}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Estimated pickup time *</Text>
-              <TextInput
-                style={styles.input}
-                value={form.preferredPickupTime ?? ""}
-                onChangeText={(v) =>
-                  setForm((f) => ({ ...f, preferredPickupTime: v }))
-                }
-                placeholder="e.g. 2:00–4:00 PM"
-                placeholderTextColor={theme.colors.placeholder}
-                autoCorrect={true}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Note to seller (optional)</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={form.note ?? ""}
-                onChangeText={(v) => setForm((f) => ({ ...f, note: v }))}
-                placeholder="Add a note..."
-                placeholderTextColor={theme.colors.placeholder}
-                multiline
-                numberOfLines={2}
-                autoCorrect={true}
-              />
-            </View>
-            {hasPolicy ? (
-              <View style={styles.termsRow}>
-                <Switch
-                  value={termsAccepted}
-                  onValueChange={setTermsAccepted}
-                  trackColor={{ false: "#ccc", true: theme.colors.primary }}
-                  thumbColor="#fff"
-                />
-                <Text style={styles.termsText}>
-                  I understand and agree to the seller's pickup terms.
-                </Text>
-              </View>
-            ) : null}
-            {validationError ? (
-              <Text style={styles.errorText}>{validationError}</Text>
-            ) : null}
-            <View style={styles.actions}>
-              <Pressable
-                style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.8 }]}
-                onPress={handleSave}
-              >
-                <Text style={styles.saveBtnText}>Save & continue</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}
-                onPress={onClose}
-              >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </Pressable>
-            </View>
-          </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -290,11 +338,14 @@ const styles = StyleSheet.create({
   backdropTouch: {
     ...StyleSheet.absoluteFillObject,
   },
+  kav: {
+    maxHeight: "92%",
+  },
   panel: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    maxHeight: "90%",
+    maxHeight: "100%",
   },
   header: {
     flexDirection: "row",
@@ -315,11 +366,11 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   scroll: {
-    maxHeight: 500,
+    flexGrow: 0,
+    maxHeight: 520,
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 32,
   },
   policyBox: {
     padding: 12,

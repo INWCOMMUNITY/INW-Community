@@ -114,9 +114,15 @@ export async function POST(req: NextRequest) {
     });
 
     const { awardAdminBadge } = await import("@/lib/badge-award");
-    awardAdminBadge(session.user.id).catch(() => {});
+    let earnedBadges: { slug: string; name: string; description: string }[] = [];
+    try {
+      const b = await awardAdminBadge(session.user.id);
+      if (b) earnedBadges = [b];
+    } catch {
+      /* badge award is best-effort */
+    }
 
-    return NextResponse.json({ group });
+    return NextResponse.json({ group, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });

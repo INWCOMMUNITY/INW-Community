@@ -20,6 +20,7 @@ import { getToken, apiGet } from "@/lib/api";
 import { fetchEvents } from "@/lib/events-api";
 import { useState, useEffect, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -65,6 +66,9 @@ const logoSource = require("@/assets/images/nwc-logo-home.png");
 const logoDims = Image.resolveAssetSource(logoSource);
 const logoHeight =
   logoDims?.width && logoDims?.height ? (width * logoDims.height) / logoDims.width : width;
+
+const homeShortcutGap = 12;
+const homeShortcutCellWidth = (width - containerPadding * 2 - homeShortcutGap) / 2;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -166,33 +170,52 @@ export default function HomeScreen() {
       </View>
 
       <ThemedView style={styles.buttons} lightColor="#fff" darkColor="#fff">
-        <Pressable
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          onPress={() => (router.push as (href: string) => void)("/calendars")}
-        >
-          <Text style={styles.buttonText}>Events</Text>
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          onPress={() => (router.push as (href: string) => void)("/badges")}
-        >
-          <Text style={styles.buttonText}>Badges</Text>
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          onPress={openCoupons}
-        >
-          <Text style={styles.buttonText}>Coupons</Text>
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          onPress={openRewards}
-        >
-          <Text style={styles.buttonText}>Rewards</Text>
-        </Pressable>
+        <View style={styles.buttonGrid}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.buttonCell,
+              { width: homeShortcutCellWidth },
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={() => (router.push as (href: string) => void)("/calendars")}
+          >
+            <Ionicons name="calendar-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.buttonText}>Events</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.buttonCell,
+              { width: homeShortcutCellWidth },
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={() => (router.push as (href: string) => void)("/badges")}
+          >
+            <Ionicons name="ribbon-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.buttonText}>Badges</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.buttonCell,
+              { width: homeShortcutCellWidth },
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={openCoupons}
+          >
+            <Ionicons name="pricetag-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.buttonText}>Coupons</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.buttonCell,
+              { width: homeShortcutCellWidth },
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={openRewards}
+          >
+            <Ionicons name="gift-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.buttonText}>Rewards</Text>
+          </Pressable>
+        </View>
       </ThemedView>
 
       {isSignedIn && points !== null && (
@@ -513,16 +536,24 @@ const styles = StyleSheet.create({
   },
   buttons: {
     width: "100%",
-    maxWidth: 320,
     marginBottom: 32,
   },
-  button: {
+  buttonGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: homeShortcutGap,
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  buttonCell: {
     backgroundColor: theme.colors.primary,
-    marginBottom: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     borderRadius: 8,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
   },
   buttonPressed: { opacity: 0.8 },
   pointsCard: {

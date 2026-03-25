@@ -107,9 +107,9 @@ export async function awardCommunityWriterBadge(authorId: string) {
   await ensureMemberBadge(authorId, "community_writer");
 }
 
-/** Call after Group create */
-export async function awardAdminBadge(createdById: string) {
-  await ensureMemberBadge(createdById, "admin_badge");
+/** Call after Group create — returns badge info when newly awarded (for in-app popup). */
+export async function awardAdminBadge(createdById: string): Promise<EarnedBadge | null> {
+  return ensureMemberBadgeWithInfo(createdById, "admin_badge");
 }
 
 /** Call after Event create by member - check if 5 events */

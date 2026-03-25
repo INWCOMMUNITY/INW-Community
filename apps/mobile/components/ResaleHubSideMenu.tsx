@@ -1,7 +1,5 @@
 /**
- * Resale Hub side menu - same order as website (Resale Storefront, List Item, My Listings,
- * Orders/To Ship, Deliveries, Pickups, Offers, Messages, Cancellations, Payouts, Before You Start).
- * Includes Ionicons per item.
+ * Resale Hub side menu - full list (main hub shortcuts plus storefront, messages, time away, cancellations).
  */
 import {
   Modal,
@@ -74,20 +72,20 @@ function Section({
   );
 }
 
-// Website order + Time Away: Resale Storefront, List Item, My Listings, Orders/To Ship, Deliveries, Pickups, Offers, Messages, Time Away, Cancellations, Payouts, Before You Start.
+// Main hub flow first; full links including storefront, messages, time away, cancellations.
 const RESALE_HUB_SIDE_MENU_ITEMS: NavItem[] = [
-  { href: "/(tabs)/store?listingType=resale", label: "Resale Storefront", icon: "storefront-outline" },
   { href: "/resale-hub/list", label: "List Item", icon: "add-circle-outline" },
   { href: "/seller-hub/store/items?listingType=resale", label: "My Listings", icon: "list-outline" },
   { href: "/seller-hub/orders", label: "Orders / To Ship", icon: "receipt-outline" },
   { href: "/seller-hub/deliveries", label: "Deliveries", icon: "car-outline" },
-  { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" },
+  { href: "/resale-hub/pickups", label: "Pick Ups", icon: "hand-left-outline" },
   { href: "/resale-hub/offers", label: "Offers", icon: "pricetag-outline" },
+  { href: "/seller-hub/store/payouts", label: "Payouts", icon: "wallet-outline" },
+  { href: "/resale-hub/before-you-start", label: "Before You Start", icon: "checkbox-outline" },
+  { href: "/(tabs)/store?listingType=resale", label: "Resale Storefront", icon: "storefront-outline" },
   { href: "/messages?tab=resale", label: "Messages", icon: "chatbubbles-outline" },
   { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
   { href: "/seller-hub/store/cancellations", label: "Cancellations", icon: "close-circle-outline" },
-  { href: "/seller-hub/store/payouts", label: "Payouts", icon: "wallet-outline" },
-  { href: "/resale-hub/before-you-start", label: "Before You Start", icon: "checkbox-outline" },
 ];
 
 export function ResaleHubSideMenu({ visible, onClose }: ResaleHubSideMenuProps) {

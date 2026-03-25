@@ -454,7 +454,7 @@ export default function RewardsScreen() {
           </View>
 
           {prizePopupPrize && (
-            <Modal visible transparent animationType="fade">
+            <Modal visible={!prizeFullGalleryOpen} transparent animationType="fade">
               <Pressable style={styles.prizeModalBackdrop} onPress={() => setPrizePopupPrize(null)}>
                 <View style={styles.prizeModalPanel} onStartShouldSetResponder={() => true}>
                   <Text style={styles.prizeModalTitle}>
@@ -669,7 +669,7 @@ export default function RewardsScreen() {
 
       {/* Reward detail modal: 1:1 preview strip; tap opens full gallery (ImageGalleryViewer). */}
       <Modal
-        visible={!!selectedRewardForModal}
+        visible={!!selectedRewardForModal && !rewardGalleryOpen}
         animationType="slide"
         transparent
         onRequestClose={() => {

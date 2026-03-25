@@ -77,7 +77,13 @@ export async function PATCH(
 
   const item = await prisma.cartItem.findFirst({
     where: { id: params.itemId, memberId: session.user.id },
-    include: { storeItem: true },
+    include: {
+      storeItem: {
+        include: {
+          member: { select: { sellerLocalDeliveryPolicy: true, sellerPickupPolicy: true } },
+        },
+      },
+    },
   });
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -89,7 +95,11 @@ export async function PATCH(
     inStorePickupAvailable?: boolean;
     shippingDisabled?: boolean;
     localDeliveryTerms?: string | null;
-    member?: { sellerLocalDeliveryPolicy?: string | null } | null;
+    pickupTerms?: string | null;
+    member?: {
+      sellerLocalDeliveryPolicy?: string | null;
+      sellerPickupPolicy?: string | null;
+    } | null;
   };
 
   let body: z.infer<typeof patchSchema>;

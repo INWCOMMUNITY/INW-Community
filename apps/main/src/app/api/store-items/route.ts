@@ -50,6 +50,11 @@ function passesPublicStorefrontSlugFilter(item: { slug: string }): boolean {
 
 const MAX_ALLOW_SALES_DAYS = 14;
 
+/** Public browse: include uncategorized items; PostgreSQL `<> 'Test'` excludes NULL. */
+const publicBrowseCategoryWhere: Prisma.StoreItemWhereInput = {
+  OR: [{ category: null }, { category: { not: "Test" } }],
+};
+
 function passesSellerTimeAwayForPurchases(item: {
   member?: { sellerTimeAway?: { startAt: Date; endAt: Date } | null } | null;
 }): boolean {
@@ -115,7 +120,7 @@ export async function GET(req: NextRequest) {
               quantity: { gt: 0 },
               ...listingWhere,
               ...sellerCanReceivePayment,
-              AND: [{ category: { not: "Test" } }, { category: { not: null } }],
+              AND: [publicBrowseCategoryWhere],
             },
             select: {
               category: true,
@@ -130,7 +135,7 @@ export async function GET(req: NextRequest) {
               quantity: { gt: 0 },
               variants: { not: Prisma.JsonNull },
               ...listingWhere,
-              category: { not: "Test" },
+              AND: [publicBrowseCategoryWhere],
               ...sellerCanReceivePayment,
             },
             select: { variants: true, slug: true, member: { select: { sellerTimeAway: true } } },
@@ -397,7 +402,7 @@ export async function GET(req: NextRequest) {
         quantity: { gt: 0 },
         ...listingWhere,
         ...sellerCanReceivePayment,
-        AND: [{ category: { not: "Test" } }],
+        AND: [publicBrowseCategoryWhere],
         // Main category filter alone returns all items in that category; subcategory only narrows further.
         ...(categoryTrim ? { category: categoryTrim } : {}),
         ...(categoryTrim && subcategoryTrim ? { subcategory: subcategoryTrim } : {}),

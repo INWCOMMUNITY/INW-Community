@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface NWCRequestsModalProps {
   visible: boolean;
@@ -22,6 +23,7 @@ interface NWCRequestsModalProps {
 
 export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
   const insets = useSafeAreaInsets();
+  const { member } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -30,23 +32,41 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    if (visible) {
-      setError(null);
-      setSent(false);
-      getToken().then((t) => {
-        if (t) {
-          apiGet<{ firstName?: string; lastName?: string; email?: string }>("/api/me")
-            .then((me) => {
-              if (me?.firstName || me?.lastName) {
-                setName([me.firstName, me.lastName].filter(Boolean).join(" "));
-              }
-              if (me?.email) setEmail(me.email);
-            })
-            .catch(() => {});
+    if (!visible) return;
+    setError(null);
+    setSent(false);
+    let cancelled = false;
+    (async () => {
+      const token = await getToken();
+      if (cancelled || !token) {
+        if (member?.firstName || member?.lastName) {
+          setName([member.firstName, member.lastName].filter(Boolean).join(" "));
         }
-      });
-    }
-  }, [visible]);
+        if (member?.email) setEmail(member.email);
+        return;
+      }
+      try {
+        const me = await apiGet<{ firstName?: string; lastName?: string; email?: string }>("/api/me");
+        if (cancelled) return;
+        if (me?.firstName || me?.lastName) {
+          setName([me.firstName, me.lastName].filter(Boolean).join(" "));
+        }
+        if (me?.email?.trim()) {
+          setEmail(me.email);
+        } else if (member?.email) {
+          setEmail(member.email);
+        }
+      } catch {
+        if (!cancelled && member?.firstName) {
+          setName([member.firstName, member.lastName].filter(Boolean).join(" "));
+        }
+        if (!cancelled && member?.email) setEmail(member.email);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, member?.email, member?.firstName, member?.lastName]);
 
   async function handleSubmit() {
     setError(null);
@@ -87,8 +107,8 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     >
       <KeyboardAvoidingView
         style={styles.modal}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(insets.top, 20) : 0}
       >
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
           <Text style={styles.title}>NWC Requests</Text>

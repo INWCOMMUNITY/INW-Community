@@ -184,6 +184,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
   const [submitting, setSubmitting] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [uploadPhotoProgress, setUploadPhotoProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState("");
   const [categoryPresets, setCategoryPresets] = useState<CategoryPreset[]>([]);
 
@@ -259,45 +260,57 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
     if (result.canceled) return;
     const assets = result.assets.slice(0, remaining);
     setUploadingPhotos(true);
+    setUploadPhotoProgress({ done: 0, total: assets.length });
     setError("");
     const token = await getToken();
     if (!token) {
       setUploadingPhotos(false);
+      setUploadPhotoProgress(null);
       setError("Sign in to upload photos.");
       return;
     }
     let added = 0;
     let lastErr = "";
     const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
+    const CONCURRENCY = 3;
+
+    const uploadOne = async (asset: (typeof assets)[0]) => {
+      if (asset.fileSize != null && asset.fileSize > MAX_UPLOAD_FILE_BYTES) {
+        lastErr = `A photo exceeds ${formatMaxUploadSizeLabel()}.`;
+        return;
+      }
+      try {
+        const formData = new FormData();
+        formData.append("file", {
+          uri: asset.uri,
+          type: asset.mimeType ?? "image/jpeg",
+          name: "photo.jpg",
+        } as unknown as Blob);
+        const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
+        const fullUrl = toFullUrl(url);
+        setPhotos((p) => {
+          if (p.length >= MAX_BUSINESS_GALLERY_PHOTOS) return p;
+          if (p.includes(fullUrl)) return p;
+          return [...p, fullUrl];
+        });
+        added += 1;
+      } catch (e) {
+        const msg = (e as { error?: string }).error;
+        lastErr =
+          typeof msg === "string" && msg.trim()
+            ? msg
+            : "Photo upload failed. Try again.";
+      } finally {
+        setUploadPhotoProgress((prev) =>
+          prev ? { ...prev, done: Math.min(prev.done + 1, prev.total) } : null
+        );
+      }
+    };
+
     try {
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-        if (asset.fileSize != null && asset.fileSize > MAX_UPLOAD_FILE_BYTES) {
-          lastErr = `A photo exceeds ${formatMaxUploadSizeLabel()}.`;
-          continue;
-        }
-        try {
-          const formData = new FormData();
-          formData.append("file", {
-            uri: asset.uri,
-            type: asset.mimeType ?? "image/jpeg",
-            name: "photo.jpg",
-          } as unknown as Blob);
-          const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
-          const fullUrl = toFullUrl(url);
-          setPhotos((p) => {
-            if (p.length >= MAX_BUSINESS_GALLERY_PHOTOS) return p;
-            if (p.includes(fullUrl)) return p;
-            return [...p, fullUrl];
-          });
-          added += 1;
-        } catch (e) {
-          const msg = (e as { error?: string }).error;
-          lastErr =
-            typeof msg === "string" && msg.trim()
-              ? msg
-              : "Photo upload failed. Try again.";
-        }
+      for (let start = 0; start < assets.length; start += CONCURRENCY) {
+        const chunk = assets.slice(start, start + CONCURRENCY);
+        await Promise.all(chunk.map((a) => uploadOne(a)));
       }
       if (added < assets.length && lastErr) {
         setError(
@@ -310,6 +323,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       }
     } finally {
       setUploadingPhotos(false);
+      setUploadPhotoProgress(null);
     }
   };
 
@@ -674,7 +688,11 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
                 <ActivityIndicator size="small" color={theme.colors.primary} />
               ) : null}
               <Text style={styles.uploadBtnText}>
-                {uploadingPhotos ? "Uploading…" : "Upload photos"}
+                {uploadingPhotos && uploadPhotoProgress
+                  ? `Uploading ${uploadPhotoProgress.done}/${uploadPhotoProgress.total}…`
+                  : uploadingPhotos
+                    ? "Uploading…"
+                    : "Upload photos"}
               </Text>
             </View>
           </Pressable>

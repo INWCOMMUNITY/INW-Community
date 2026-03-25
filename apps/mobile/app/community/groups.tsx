@@ -14,12 +14,14 @@ import {
   Platform,
   Modal,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiUploadFile } from "@/lib/api";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
 function toFullUrl(url: string): string {
@@ -41,6 +43,7 @@ interface Group {
 
 export default function GroupsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [groups, setGroups] = useState<Group[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -56,6 +59,11 @@ export default function GroupsScreen() {
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [rulesJoinTarget, setRulesJoinTarget] = useState<Group | null>(null);
   const [joinBusyId, setJoinBusyId] = useState<string | null>(null);
+  const [earnedBadges, setEarnedBadges] = useState<
+    { slug: string; name: string; description?: string }[]
+  >([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+  const [pendingGroupSlug, setPendingGroupSlug] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -139,6 +147,13 @@ export default function GroupsScreen() {
     }
   };
 
+  const finishCreateNavigation = useCallback(
+    (slug: string) => {
+      (router.push as (href: string) => void)(`/community/group/${slug}`);
+    },
+    [router]
+  );
+
   const handleCreate = async () => {
     if (!createName.trim()) {
       Alert.alert("Error", "Enter a group name");
@@ -146,7 +161,10 @@ export default function GroupsScreen() {
     }
     setCreating(true);
     try {
-      const data = await apiPost<{ group: { slug: string } }>("/api/groups", {
+      const data = await apiPost<{
+        group: { slug: string };
+        earnedBadges?: { slug: string; name: string; description?: string }[];
+      }>("/api/groups", {
         name: createName.trim(),
         description: createDescription.trim() || undefined,
         category: createCategory.trim() || undefined,
@@ -159,10 +177,17 @@ export default function GroupsScreen() {
       setCreateCategory("");
       setCreateRules("");
       setCreateCoverUrl(null);
-      if (data?.group?.slug) {
-        (router.push as (href: string) => void)(`/community/group/${data.group.slug}`);
-      }
       load();
+      const slug = data?.group?.slug;
+      if (!slug) return;
+      const badges = data?.earnedBadges?.filter(Boolean) ?? [];
+      if (badges.length > 0) {
+        setPendingGroupSlug(slug);
+        setEarnedBadges(badges);
+        setBadgePopupIndex(0);
+      } else {
+        finishCreateNavigation(slug);
+      }
     } catch (e) {
       const err = e as { error?: string };
       Alert.alert("Error", err?.error ?? "Failed to create group");
@@ -177,6 +202,7 @@ export default function GroupsScreen() {
   const uniqueCategories = [...new Set(categoriesFromGroups)];
 
   return (
+    <>
     <KeyboardAvoidingView
       style={styles.keyboardRoot}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -216,90 +242,6 @@ export default function GroupsScreen() {
           autoCorrect={true}
         />
       </View>
-
-      {showCreate && (
-        <View style={styles.createCard}>
-          <Text style={styles.createTitle}>Create a group</Text>
-          <Pressable onPress={pickCover} style={styles.coverPicker} disabled={uploadingCover}>
-            {createCoverUrl ? (
-              <Image source={{ uri: createCoverUrl }} style={styles.coverPickerImage} resizeMode="cover" />
-            ) : (
-              <View style={styles.coverPickerPlaceholder}>
-                {uploadingCover ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <>
-                    <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
-                    <Text style={styles.coverPickerText}>Add group photo</Text>
-                  </>
-                )}
-              </View>
-            )}
-          </Pressable>
-          <TextInput
-            style={styles.input}
-            placeholder="Group name *"
-            placeholderTextColor={theme.colors.placeholder}
-            value={createName}
-            onChangeText={setCreateName}
-            autoCorrect={true}
-          />
-          <TextInput
-            style={[styles.input, styles.inputMultiline]}
-            placeholder="Description (optional)"
-            placeholderTextColor={theme.colors.placeholder}
-            value={createDescription}
-            onChangeText={setCreateDescription}
-            multiline
-            numberOfLines={3}
-            autoCorrect={true}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Category (optional)"
-            placeholderTextColor={theme.colors.placeholder}
-            value={createCategory}
-            onChangeText={setCreateCategory}
-            autoCorrect={true}
-          />
-          <TextInput
-            style={[styles.input, styles.inputMultiline]}
-            placeholder="Group rules (optional). Members must agree to join."
-            placeholderTextColor={theme.colors.placeholder}
-            value={createRules}
-            onChangeText={setCreateRules}
-            multiline
-            numberOfLines={4}
-            autoCorrect={true}
-          />
-          <View style={styles.createActions}>
-            <Pressable
-              style={({ pressed }) => [styles.cancelBtn, pressed && styles.buttonPressed]}
-              onPress={() => {
-                setShowCreate(false);
-                setCreateName("");
-                setCreateDescription("");
-                setCreateCategory("");
-                setCreateRules("");
-                setCreateCoverUrl(null);
-              }}
-            >
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.submitBtn, pressed && styles.buttonPressed]}
-              onPress={handleCreate}
-              disabled={creating}
-            >
-              {creating ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.submitBtnText}>Create</Text>
-              )}
-            </Pressable>
-          </View>
-        </View>
-      )}
 
       {uniqueCategories.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterRowContent}>
@@ -399,6 +341,138 @@ export default function GroupsScreen() {
       </Modal>
     </ScrollView>
     </KeyboardAvoidingView>
+
+      <Modal visible={showCreate} animationType="slide" onRequestClose={() => setShowCreate(false)}>
+        <KeyboardAvoidingView
+          style={styles.createModalRoot}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
+        >
+          <View style={[styles.createModalHeader, { paddingTop: Math.max(insets.top, 12) }]}>
+            <Text style={styles.createModalHeaderTitle}>Create a group</Text>
+            <Pressable
+              onPress={() => {
+                setShowCreate(false);
+                setCreateName("");
+                setCreateDescription("");
+                setCreateCategory("");
+                setCreateRules("");
+                setCreateCoverUrl(null);
+              }}
+              hitSlop={12}
+            >
+              <Text style={styles.createModalClose}>Close</Text>
+            </Pressable>
+          </View>
+          <ScrollView
+            style={styles.createModalScroll}
+            contentContainerStyle={[styles.createModalContent, { paddingBottom: insets.bottom + 24 }]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            <Pressable onPress={pickCover} style={styles.coverPicker} disabled={uploadingCover}>
+              {createCoverUrl ? (
+                <Image source={{ uri: createCoverUrl }} style={styles.coverPickerImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.coverPickerPlaceholder}>
+                  {uploadingCover ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <>
+                      <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
+                      <Text style={styles.coverPickerText}>Add group photo</Text>
+                    </>
+                  )}
+                </View>
+              )}
+            </Pressable>
+            <TextInput
+              style={styles.input}
+              placeholder="Group name *"
+              placeholderTextColor={theme.colors.placeholder}
+              value={createName}
+              onChangeText={setCreateName}
+              autoCorrect={true}
+            />
+            <TextInput
+              style={[styles.input, styles.inputMultiline]}
+              placeholder="Description (optional)"
+              placeholderTextColor={theme.colors.placeholder}
+              value={createDescription}
+              onChangeText={setCreateDescription}
+              multiline
+              numberOfLines={3}
+              autoCorrect={true}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Category (optional)"
+              placeholderTextColor={theme.colors.placeholder}
+              value={createCategory}
+              onChangeText={setCreateCategory}
+              autoCorrect={true}
+            />
+            <TextInput
+              style={[styles.input, styles.inputMultiline]}
+              placeholder="Group rules (optional). Members must agree to join."
+              placeholderTextColor={theme.colors.placeholder}
+              value={createRules}
+              onChangeText={setCreateRules}
+              multiline
+              numberOfLines={4}
+              autoCorrect={true}
+            />
+            <View style={styles.createActions}>
+              <Pressable
+                style={({ pressed }) => [styles.cancelBtn, pressed && styles.buttonPressed]}
+                onPress={() => {
+                  setShowCreate(false);
+                  setCreateName("");
+                  setCreateDescription("");
+                  setCreateCategory("");
+                  setCreateRules("");
+                  setCreateCoverUrl(null);
+                }}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.submitBtn, pressed && styles.buttonPressed]}
+                onPress={handleCreate}
+                disabled={creating}
+              >
+                {creating ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.submitBtnText}>Create</Text>
+                )}
+              </Pressable>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? (
+        <BadgeEarnedPopup
+          visible
+          onClose={() => {
+            const next = badgePopupIndex + 1;
+            if (next < earnedBadges.length) {
+              setBadgePopupIndex(next);
+            } else {
+              setBadgePopupIndex(-1);
+              setEarnedBadges([]);
+              const slug = pendingGroupSlug;
+              setPendingGroupSlug(null);
+              if (slug) finishCreateNavigation(slug);
+            }
+          }}
+          badgeName={earnedBadges[badgePopupIndex].name}
+          badgeSlug={earnedBadges[badgePopupIndex].slug}
+          badgeDescription={earnedBadges[badgePopupIndex].description}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -491,6 +565,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   joinModalAgreeText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  createModalRoot: { flex: 1, backgroundColor: "#fff" },
+  createModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e5e5",
+  },
+  createModalHeaderTitle: { fontSize: 18, fontWeight: "600", color: theme.colors.heading, flex: 1 },
+  createModalClose: { fontSize: 16, color: theme.colors.primary, fontWeight: "600" },
+  createModalScroll: { flex: 1 },
+  createModalContent: { padding: 16 },
   createCard: {
     backgroundColor: "#f9f9f9",
     padding: 16,
