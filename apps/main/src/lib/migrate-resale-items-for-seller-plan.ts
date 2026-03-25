@@ -1,15 +1,17 @@
 import { prisma } from "database";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
-/** Attach resale listings with no business to a specific business (idempotent). */
-export async function linkUnscopedResaleItemsToBusiness(
+/**
+ * Attach storefront listings with no `businessId` to a business (idempotent).
+ * Used when Seller Hub should reuse an existing Business Hub profile.
+ */
+export async function linkAllUnscopedStoreItemsToBusiness(
   memberId: string,
   businessId: string
 ): Promise<number> {
   const r = await prisma.storeItem.updateMany({
     where: {
       memberId,
-      listingType: "resale",
       businessId: null,
     },
     data: { businessId },
@@ -18,8 +20,8 @@ export async function linkUnscopedResaleItemsToBusiness(
 }
 
 /**
- * After Subscribe → Seller (or any Seller activation), point orphaned resale items at the
- * member's oldest business so Seller Hub treats them like the rest of the storefront.
+ * After Business → Seller (or Subscribe → Seller), point items missing `businessId` at the
+ * member's oldest business so Seller Hub matches their existing Business Hub setup.
  */
 export async function migrateResaleItemsForSellerMember(memberId: string): Promise<void> {
   const sellerRow = await prisma.subscription.findFirst({
@@ -34,5 +36,5 @@ export async function migrateResaleItemsForSellerMember(memberId: string): Promi
   });
   if (!business) return;
 
-  await linkUnscopedResaleItemsToBusiness(memberId, business.id);
+  await linkAllUnscopedStoreItemsToBusiness(memberId, business.id);
 }

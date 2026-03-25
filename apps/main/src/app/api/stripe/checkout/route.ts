@@ -42,7 +42,8 @@ function slugify(s: string): string {
 
 async function createBusinessDraftInDb(
   memberId: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  planId: "subscribe" | "sponsor" | "seller"
 ): Promise<string | undefined> {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const city = typeof data.city === "string" ? data.city.trim() : "";
@@ -57,6 +58,17 @@ async function createBusinessDraftInDb(
   if (!activeSub) {
     await prisma.business.deleteMany({ where: { memberId } });
   }
+
+  // Business → Seller: reuse Business Hub profile; do not create a second business from checkout form.
+  if (planId === "seller") {
+    const existingBusiness = await prisma.business.findFirst({
+      where: { memberId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (existingBusiness) return existingBusiness.id;
+  }
+
   const existingCount = await prisma.business.count({ where: { memberId } });
   if (existingCount >= 2) return undefined;
 
@@ -151,7 +163,7 @@ export async function POST(req: NextRequest) {
       Object.keys(businessData).length > 0
     ) {
       try {
-        const businessId = await createBusinessDraftInDb(session.user.id, businessData);
+        const businessId = await createBusinessDraftInDb(session.user.id, businessData, planKey);
         if (businessId) metadata.businessId = businessId;
       } catch (bErr) {
         console.error("[stripe/checkout] business draft create:", bErr);

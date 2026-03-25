@@ -80,7 +80,8 @@ function slugify(s: string): string {
 
 async function createBusinessFromMetadata(
   memberId: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  ctx?: { planId?: "subscribe" | "sponsor" | "seller" }
 ): Promise<void> {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const city = typeof data.city === "string" ? data.city.trim() : "";
@@ -91,6 +92,15 @@ async function createBusinessFromMetadata(
     : [];
 
   if (!name || !city || categories.length === 0) return;
+
+  // Business → Seller: keep existing Business Hub row; do not duplicate from subscription metadata.
+  if (ctx?.planId === "seller") {
+    const existingAny = await prisma.business.findFirst({
+      where: { memberId },
+      select: { id: true },
+    });
+    if (existingAny) return;
+  }
 
   const website = typeof data.website === "string" && data.website.trim()
     ? (data.website.startsWith("http") ? data.website : `https://${data.website}`)
@@ -1075,7 +1085,7 @@ export async function POST(req: NextRequest) {
             ) {
               try {
                 const businessData = JSON.parse(businessDataRaw) as Record<string, unknown>;
-                await createBusinessFromMetadata(memberId, businessData);
+                await createBusinessFromMetadata(memberId, businessData, { planId });
               } catch (bErr) {
                 console.error("[webhook] business create from invoice metadata:", bErr);
               }

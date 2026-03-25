@@ -19,7 +19,7 @@ import {
   prismaWhereMemberSellerPlanAccess,
   prismaWhereMemberSponsorOrSellerPlanAccess,
 } from "@/lib/nwc-paid-subscription";
-import { linkUnscopedResaleItemsToBusiness } from "@/lib/migrate-resale-items-for-seller-plan";
+import { linkAllUnscopedStoreItemsToBusiness } from "@/lib/migrate-resale-items-for-seller-plan";
 import { photosExcludingLogo } from "@/lib/business-photos";
 
 export async function GET(req: NextRequest) {
@@ -297,7 +297,7 @@ export async function POST(req: NextRequest) {
         where: prismaWhereMemberSellerPlanAccess(session.user.id),
       });
       if (sellerPlan) {
-        await linkUnscopedResaleItemsToBusiness(session.user.id, business.id);
+        await linkAllUnscopedStoreItemsToBusiness(session.user.id, business.id);
       }
     }
     const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
