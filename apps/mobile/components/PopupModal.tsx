@@ -7,8 +7,10 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
+import { useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
+import { useEventInvitePopupSuppression } from "@/contexts/EventInvitePopupSuppressionContext";
 
 interface PopupModalProps {
   visible: boolean;
@@ -26,6 +28,13 @@ export function PopupModal({
   children,
   scrollable = true,
 }: PopupModalProps) {
+  const { incrementSuppression, decrementSuppression } = useEventInvitePopupSuppression();
+  useEffect(() => {
+    if (!visible) return;
+    incrementSuppression();
+    return () => decrementSuppression();
+  }, [visible, incrementSuppression, decrementSuppression]);
+
   const content = scrollable ? (
     <ScrollView
       style={styles.scroll}

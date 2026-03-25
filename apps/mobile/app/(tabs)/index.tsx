@@ -29,10 +29,12 @@ import { useCreatePost } from "@/contexts/CreatePostContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-const UGC_TERMS_STORAGE_KEY = "nwc_community_ugc_terms_v1";
+const UGC_TERMS_STORAGE_KEY = "nwc_community_ugc_terms_v2";
 
 export default function CommunityScreen() {
-  const openCreatePost = useCreatePost()?.openCreatePost ?? (() => {});
+  const createPostMenu = useCreatePost();
+  const openCreatePost = createPostMenu?.openCreatePost ?? (() => {});
+  const openEditPost = createPostMenu?.openEditPost;
   const router = useRouter();
   const { member: authMember } = useAuth();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
@@ -356,6 +358,7 @@ export default function CommunityScreen() {
               onReport={handleReport}
               onBlockUser={signedIn ? handleBlockUser : undefined}
               onSave={handleSave}
+              onEditPost={openEditPost}
               onOpenCoupon={(id) => setCouponPopupId(id)}
             />
           ))}

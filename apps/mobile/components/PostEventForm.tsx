@@ -124,10 +124,21 @@ export function PostEventForm({
       }
       for (const asset of result.assets) {
         const formData = new FormData();
+        const mime = asset.mimeType ?? "image/jpeg";
+        const extFromMime =
+          mime === "image/png"
+            ? ".png"
+            : mime === "image/webp"
+              ? ".webp"
+              : mime === "image/gif"
+                ? ".gif"
+                : mime === "image/heic" || mime === "image/heif"
+                  ? ".heic"
+                  : ".jpg";
         formData.append("file", {
           uri: asset.uri,
-          type: asset.mimeType ?? "image/jpeg",
-          name: "photo.jpg",
+          type: mime,
+          name: `photo${extFromMime}`,
         } as unknown as Blob);
         const { url } = await apiUploadFile("/api/upload/event", formData);
         const base =

@@ -6,7 +6,14 @@ import path from "path";
 import fs from "fs/promises";
 
 const MAX_SIZE = 80 * 1024 * 1024; // 80MB
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const ALLOWED_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+];
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);

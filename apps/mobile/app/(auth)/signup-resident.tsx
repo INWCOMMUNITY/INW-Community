@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
   View,
@@ -42,6 +43,10 @@ export default function SignupResidentScreen() {
 
   const finishSignup = async () => {
     try {
+      await AsyncStorage.multiRemove([
+        "nwc_community_ugc_terms_v1",
+        "nwc_community_ugc_terms_v2",
+      ]).catch(() => {});
       await signIn(email.trim(), password, "subscribe");
       await refreshMember?.();
       router.replace("/(tabs)");

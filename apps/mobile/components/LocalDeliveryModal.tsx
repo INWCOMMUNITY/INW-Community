@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Modal,
   StyleSheet,
@@ -74,6 +74,8 @@ export function LocalDeliveryModal({
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [validationError, setValidationError] = useState("");
   const [signedIn, setSignedIn] = useState(false);
+  const initialFormRef = useRef(initialForm);
+  initialFormRef.current = initialForm;
 
   const mergeProfileIntoForm = useCallback(
     (
@@ -112,11 +114,12 @@ export function LocalDeliveryModal({
     []
   );
 
+  /** Initialize only when the sheet opens — not on every parent re-render (unstable `initialForm` object would clear drop-off text mid-edit). */
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
     (async () => {
-      const base = formFromInitial(initialForm);
+      const base = formFromInitial(initialFormRef.current);
       setForm(base);
       setTermsAccepted(false);
       setValidationError("");
@@ -141,7 +144,7 @@ export function LocalDeliveryModal({
     return () => {
       cancelled = true;
     };
-  }, [visible, initialForm, mergeProfileIntoForm]);
+  }, [visible, mergeProfileIntoForm]);
 
   const handleRefreshFromProfile = async () => {
     try {

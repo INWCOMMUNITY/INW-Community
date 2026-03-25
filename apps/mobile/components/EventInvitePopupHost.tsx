@@ -1,9 +1,45 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { usePathname } from "expo-router";
 import { useAuth } from "@/contexts/AuthContext";
+import { useEventInvitePopupSuppression } from "@/contexts/EventInvitePopupSuppressionContext";
 import { apiGet, apiPatch } from "@/lib/api";
 import { EventInvitePopup, type EventInvitePopupInvite } from "@/components/EventInvitePopup";
+
+/** Routes where an interrupting invite popup would clash with checkout, web flows, or heavy forms. */
+function routeSuppressesEventInvitePopup(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  const p = pathname.toLowerCase().replace(/\/$/, "");
+  const firstSeg = p.split("/").filter(Boolean)[0] ?? "";
+  return (
+    firstSeg === "cart" ||
+    p.startsWith("/web") ||
+    p.startsWith("web") ||
+    p.startsWith("/subscribe") ||
+    p.startsWith("subscribe") ||
+    p.startsWith("/profile-edit") ||
+    p.startsWith("profile-edit") ||
+    p.startsWith("/sponsor-business") ||
+    p.startsWith("sponsor-business") ||
+    p.startsWith("/scanner") ||
+    p.startsWith("scanner") ||
+    p.includes("/seller-hub/store/new") ||
+    p.includes("/seller-hub/store/edit") ||
+    p.startsWith("/coupons/") ||
+    p.startsWith("coupons/") ||
+    p.startsWith("/rewards/") ||
+    p.startsWith("rewards/") ||
+    p.startsWith("/redeemed-rewards") ||
+    p.startsWith("redeemed-rewards") ||
+    p.startsWith("/policies") ||
+    p.startsWith("policies") ||
+    p.startsWith("/messages") ||
+    p.startsWith("messages") ||
+    p.startsWith("/manage-subscription") ||
+    p.startsWith("manage-subscription")
+  );
+}
 
 const DISMISS_KEY = "event_invite_popup_dismissed_ids";
 
@@ -33,6 +69,8 @@ interface PendingInviteApi {
 
 export function EventInvitePopupHost() {
   const { member } = useAuth();
+  const pathname = usePathname();
+  const { formOrModalOpenCount } = useEventInvitePopupSuppression();
   const [invite, setInvite] = useState<EventInvitePopupInvite | null>(null);
   const [visible, setVisible] = useState(false);
   const [responding, setResponding] = useState(false);
@@ -40,6 +78,11 @@ export function EventInvitePopupHost() {
 
   const pickInvite = useCallback(async () => {
     if (!member?.id) {
+      setVisible(false);
+      setInvite(null);
+      return;
+    }
+    if (formOrModalOpenCount > 0 || routeSuppressesEventInvitePopup(pathname)) {
       setVisible(false);
       setInvite(null);
       return;
@@ -62,10 +105,14 @@ export function EventInvitePopupHost() {
         setVisible(false);
         setInvite(null);
       }
-    } catch {
-      // ignore
+    } catch (e) {
+      if (__DEV__) {
+        console.warn("[EventInvitePopupHost] pending invites fetch failed", e);
+      }
+      setVisible(false);
+      setInvite(null);
     }
-  }, [member?.id]);
+  }, [member?.id, formOrModalOpenCount, pathname]);
 
   useEffect(() => {
     if (!member?.id) return;
@@ -82,6 +129,20 @@ export function EventInvitePopupHost() {
       sub.remove();
     };
   }, [member?.id, pickInvite]);
+
+  /** React immediately to suppression; when it lifts, re-poll on the next tick to avoid effect ordering races. */
+  useEffect(() => {
+    if (formOrModalOpenCount > 0 || routeSuppressesEventInvitePopup(pathname)) {
+      setVisible(false);
+      setInvite(null);
+      return;
+    }
+    if (!member?.id) return;
+    const t = setTimeout(() => {
+      void pickInvite();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [member?.id, formOrModalOpenCount, pathname, pickInvite]);
 
   const handleClose = () => {
     if (invite) {

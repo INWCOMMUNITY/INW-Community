@@ -24,8 +24,7 @@ import { ResaleHubSideMenu } from "@/components/ResaleHubSideMenu";
 import { ProfileSideMenu } from "@/components/ProfileSideMenu";
 import { AppNavMenu } from "@/components/AppNavMenu";
 import { CommunitySideMenu } from "@/components/CommunitySideMenu";
-import { CreatePostModal } from "@/components/CreatePostModal";
-import { CreatePostProvider, useCreatePost } from "@/contexts/CreatePostContext";
+import { useCreatePost } from "@/contexts/CreatePostContext";
 
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof Ionicons>["name"];
@@ -85,7 +84,36 @@ function ProfileTabButton(props: {
   );
 }
 
-function ProfileSwitcherModal() {
+function HubAttentionBadge() {
+  const theme = useTheme();
+  return (
+    <View
+      style={{
+        minWidth: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: theme.colors.cream,
+        borderWidth: 2,
+        borderColor: theme.colors.primary,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 6,
+      }}
+    >
+      <Text style={{ fontSize: 14, fontWeight: "800", color: theme.colors.primary }}>!</Text>
+    </View>
+  );
+}
+
+function ProfileSwitcherModal({
+  businessHubAttention,
+  sellerHubAttention,
+  resaleHubAttention,
+}: {
+  businessHubAttention: boolean;
+  sellerHubAttention: boolean;
+  resaleHubAttention: boolean;
+}) {
   const theme = useTheme();
   const {
     switcherVisible,
@@ -131,6 +159,10 @@ function ProfileSwitcherModal() {
                 paddingHorizontal: 20,
                 borderBottomWidth: 1,
                 borderBottomColor: "#eee",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
               onPress={() => {
                 setProfileView("business_hub");
@@ -142,10 +174,12 @@ function ProfileSwitcherModal() {
                   fontSize: 16,
                   fontWeight: "600",
                   color: theme.colors.heading,
+                  flex: 1,
                 }}
               >
                 Business Hub
               </Text>
+              {businessHubAttention ? <HubAttentionBadge /> : null}
             </Pressable>
           )}
           {hasSeller && (
@@ -155,6 +189,10 @@ function ProfileSwitcherModal() {
                 paddingHorizontal: 20,
                 borderBottomWidth: 1,
                 borderBottomColor: "#eee",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
               onPress={() => {
                 setProfileView("seller_hub");
@@ -166,10 +204,12 @@ function ProfileSwitcherModal() {
                   fontSize: 16,
                   fontWeight: "600",
                   color: theme.colors.heading,
+                  flex: 1,
                 }}
               >
                 Seller Hub
               </Text>
+              {sellerHubAttention ? <HubAttentionBadge /> : null}
             </Pressable>
           )}
           {hasSubscriber && (
@@ -179,6 +219,10 @@ function ProfileSwitcherModal() {
                 paddingHorizontal: 20,
                 borderBottomWidth: 1,
                 borderBottomColor: "#eee",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
               onPress={() => {
                 setProfileView("resale_hub");
@@ -190,10 +234,12 @@ function ProfileSwitcherModal() {
                   fontSize: 16,
                   fontWeight: "600",
                   color: theme.colors.heading,
+                  flex: 1,
                 }}
               >
                 Resale Hub
               </Text>
+              {resaleHubAttention ? <HubAttentionBadge /> : null}
             </Pressable>
           )}
           <Pressable
@@ -235,14 +281,45 @@ function TabLayoutInner() {
   const { profileView, showSwitcher, openSwitcher, hasSponsor, hasSeller, hasSubscriber } = useProfileView();
   const [sideMenuType, setSideMenuType] = useState<SideMenuType>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [hubAlerts, setHubAlerts] = useState({
+    sellerOffersPending: false,
+    buyerOffersAction: false,
+    sellerFulfillmentPending: false,
+  });
 
   useFocusEffect(
     useCallback(() => {
       apiGet<{ unreadMessages?: number }>("/api/me/sidebar-alerts")
         .then((d) => setUnreadMessages(Number(d?.unreadMessages) || 0))
         .catch(() => {});
+      apiGet<{
+        sellerOffersPending?: boolean;
+        buyerOffersAction?: boolean;
+        sellerFulfillmentPending?: boolean;
+      }>("/api/me/hub-alerts")
+        .then((d) =>
+          setHubAlerts({
+            sellerOffersPending: !!d?.sellerOffersPending,
+            buyerOffersAction: !!d?.buyerOffersAction,
+            sellerFulfillmentPending: !!d?.sellerFulfillmentPending,
+          })
+        )
+        .catch(() =>
+          setHubAlerts({
+            sellerOffersPending: false,
+            buyerOffersAction: false,
+            sellerFulfillmentPending: false,
+          })
+        );
     }, [])
   );
+
+  const sellerWorkPending =
+    hubAlerts.sellerOffersPending || hubAlerts.sellerFulfillmentPending;
+  const sellerHubAttention = hasSeller && sellerWorkPending;
+  const resaleHubAttention =
+    hasSubscriber && (hubAlerts.buyerOffersAction || sellerWorkPending);
+  const businessHubAttention = false;
 
   const isProfileTab = typeof pathname === "string" && pathname.includes("my-community");
   useEffect(() => {
@@ -515,28 +592,13 @@ function TabLayoutInner() {
       onClose={() => setSideMenuType(null)}
     />
 
-    <CreatePostModalInLayout />
-    </>
-  );
-}
-
-function CreatePostModalInLayout() {
-  const createPostCtx = useCreatePost();
-  const createPostVisible = createPostCtx?.createPostVisible ?? false;
-  const setCreatePostVisible = createPostCtx?.setCreatePostVisible ?? (() => {});
-  return (
-    <CreatePostModal
-      visible={createPostVisible}
-      onClose={() => {
-        setCreatePostVisible(false);
-        createPostCtx?.setInitialBusinessForPost(null);
-      }}
-      onSuccess={() => {
-        setCreatePostVisible(false);
-        createPostCtx?.setInitialBusinessForPost(null);
-      }}
-      initialBusinessForPost={createPostCtx?.initialBusinessForPost ?? undefined}
+    <ProfileSwitcherModal
+      businessHubAttention={businessHubAttention}
+      sellerHubAttention={sellerHubAttention}
+      resaleHubAttention={resaleHubAttention}
     />
+
+    </>
   );
 }
 
@@ -558,10 +620,5 @@ function CommunitySideMenuWithContext({
 }
 
 export default function TabLayout() {
-  return (
-    <CreatePostProvider>
-      <TabLayoutInner />
-      <ProfileSwitcherModal />
-    </CreatePostProvider>
-  );
+  return <TabLayoutInner />;
 }

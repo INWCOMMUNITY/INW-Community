@@ -11,6 +11,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
@@ -26,7 +27,7 @@ function toFullUrl(url: string): string {
 }
 
 interface SellerProfile {
-  member: { firstName: string; lastName: string; email: string } | null;
+  member: { firstName: string; lastName: string; email: string; acceptOffersOnResale?: boolean } | null;
   business: {
     id: string;
     name: string;
@@ -40,7 +41,6 @@ interface SellerProfile {
     coverPhotoUrl?: string | null;
     slug: string;
   } | null;
-  packingSlipNote?: string | null;
 }
 
 export default function EditSellerProfileScreen() {
@@ -59,7 +59,7 @@ export default function EditSellerProfileScreen() {
   const [address, setAddress] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
-  const [packingSlipNote, setPackingSlipNote] = useState("");
+  const [acceptOffersOnResale, setAcceptOffersOnResale] = useState(true);
 
   useEffect(() => {
     apiGet<SellerProfile | { error: string }>("/api/seller-profile")
@@ -75,8 +75,8 @@ export default function EditSellerProfileScreen() {
           setLogoUrl(biz.logoUrl ?? "");
           setCoverPhotoUrl((biz as { coverPhotoUrl?: string | null }).coverPhotoUrl ?? "");
         }
-        if (data && "packingSlipNote" in data) {
-          setPackingSlipNote((data as SellerProfile).packingSlipNote ?? "");
+        if (data && "member" in data && data.member && typeof data.member.acceptOffersOnResale === "boolean") {
+          setAcceptOffersOnResale(data.member.acceptOffersOnResale);
         }
       })
       .catch(() => setError("Failed to load profile"))
@@ -150,6 +150,7 @@ export default function EditSellerProfileScreen() {
     setSaving(true);
     try {
       await apiPatch("/api/seller-profile", {
+        acceptOffersOnResale,
         business: {
           name: name.trim() || "My Store",
           phone: phone.trim() || null,
@@ -160,7 +161,6 @@ export default function EditSellerProfileScreen() {
           logoUrl: logoUrl.trim() || null,
           coverPhotoUrl: coverPhotoUrl.trim() || null,
         },
-        packingSlipNote: packingSlipNote.trim() || null,
       });
       router.back();
     } catch (e) {
@@ -317,27 +317,27 @@ export default function EditSellerProfileScreen() {
             autoCorrect={true}
           />
 
+          <View style={styles.switchRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={labelStyle}>Take offers on resale items</Text>
+              <Text style={styles.switchHint}>
+                Default for new resale listings. You can change this per item when listing.
+              </Text>
+            </View>
+            <Switch
+              value={acceptOffersOnResale}
+              onValueChange={setAcceptOffersOnResale}
+              trackColor={{ false: "#ccc", true: theme.colors.cream }}
+              thumbColor={acceptOffersOnResale ? theme.colors.primary : "#f4f3f4"}
+            />
+          </View>
+
           <Text style={labelStyle}>Storefront Address</Text>
           <TextInput
             style={inputStyle}
             value={address}
             onChangeText={setAddress}
             placeholder="123 Main St, City, State"
-            autoCorrect={true}
-          />
-        </View>
-
-<View style={styles.section}>
-          <Text style={styles.sectionTitle}>Packing Slip Note</Text>
-          <Text style={labelStyle}>Custom message on printed packing slips (optional)</Text>
-          <TextInput
-            style={[inputStyle, styles.textArea]}
-            value={packingSlipNote}
-            onChangeText={setPackingSlipNote}
-            placeholder="e.g. Thank you for your order!"
-            placeholderTextColor="#666"
-            multiline
-            numberOfLines={2}
             autoCorrect={true}
           />
         </View>
@@ -412,4 +412,13 @@ const styles = StyleSheet.create({
   uploadBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
   removeBtn: { padding: 8 },
   removeBtnText: { color: "#c00", fontSize: 14 },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+    marginBottom: 8,
+    paddingVertical: 8,
+  },
+  switchHint: { fontSize: 12, color: "#888", marginTop: 4, lineHeight: 18 },
 });

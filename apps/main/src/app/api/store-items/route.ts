@@ -48,13 +48,12 @@ function passesPublicStorefrontSlugFilter(item: { slug: string }): boolean {
   return !s.includes("trial") && !s.includes("test-resale");
 }
 
-const MAX_ALLOW_SALES_DAYS = 14;
-
 /** Public browse: include uncategorized items; PostgreSQL `<> 'Test'` excludes NULL. */
 const publicBrowseCategoryWhere: Prisma.StoreItemWhereInput = {
   OR: [{ category: null }, { category: { not: "Test" } }],
 };
 
+/** While seller time away is active, hide listings from public storefront browse/checkout. */
 function passesSellerTimeAwayForPurchases(item: {
   member?: { sellerTimeAway?: { startAt: Date; endAt: Date } | null } | null;
 }): boolean {
@@ -64,10 +63,6 @@ function passesSellerTimeAwayForPurchases(item: {
   const start = new Date(ta.startAt);
   const end = new Date(ta.endAt);
   if (now < start || now > end) return true;
-  const allowThrough = new Date(start);
-  allowThrough.setDate(allowThrough.getDate() + MAX_ALLOW_SALES_DAYS);
-  const effectiveAllow = allowThrough <= end ? allowThrough : end;
-  if (now <= effectiveAllow) return true;
   return false;
 }
 
@@ -166,10 +161,22 @@ export async function GET(req: NextRequest) {
 
   if (slug) {
     const slugListingType = searchParams.get("listingType");
+    // Keep resale and new consistent with public browse: active, quantity > 0, Connect on seller.
     const slugWhere =
       slugListingType === "resale"
-        ? { slug, status: "active" as const, listingType: "resale" as const, member: { stripeConnectAccountId: { not: null } } }
-        : { slug, status: "active" as const, quantity: { gt: 0 } as const, member: { stripeConnectAccountId: { not: null } } };
+        ? {
+            slug,
+            status: "active" as const,
+            listingType: "resale" as const,
+            quantity: { gt: 0 } as const,
+            member: { stripeConnectAccountId: { not: null } },
+          }
+        : {
+            slug,
+            status: "active" as const,
+            quantity: { gt: 0 } as const,
+            member: { stripeConnectAccountId: { not: null } },
+          };
     const reservedForSlug = await prisma.orderItem.findMany({
       where: { order: { status: "pending" } },
       select: { storeItemId: true },
@@ -394,6 +401,8 @@ export async function GET(req: NextRequest) {
 
   try {
     // Only list items from sellers who have Stripe Connect set up (payment/redirect can function).
+    // Note: `listingType` is either "new" or "resale" per request — the same seller can have both;
+    // mobile/web tabs use separate calls, so one item can appear in one tab and not the other.
     const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
     // Exclude Test category in DB. Trial/test-resale slugs excluded in-memory below (Neon adapter does not support mode in nested slug filter).
     let items = await prisma.storeItem.findMany({
@@ -529,6 +538,7 @@ export async function POST(req: NextRequest) {
       shippoApiKeyEncrypted: true,
       shippoOAuthTokenEncrypted: true,
       sellerShippingPolicy: true,
+      acceptOffersOnResale: true,
     },
   });
 
@@ -665,7 +675,12 @@ export async function POST(req: NextRequest) {
         localDeliveryTerms: data.localDeliveryTerms?.trim() || null,
         pickupTerms: data.pickupTerms?.trim() || null,
         listingType: data.listingType,
-        acceptOffers: data.acceptOffers ?? true,
+        acceptOffers:
+          data.acceptOffers !== undefined
+            ? data.acceptOffers
+            : data.listingType === "resale"
+              ? member!.acceptOffersOnResale
+              : true,
         minOfferCents: data.minOfferCents ?? null,
         slug,
       },

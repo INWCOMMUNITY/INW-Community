@@ -313,7 +313,7 @@ export default function BusinessScreen() {
                     <Image
                       source={{ uri: url }}
                       style={styles.galleryImage}
-                      resizeMode="contain"
+                      resizeMode="cover"
                     />
                   </Pressable>
                 );

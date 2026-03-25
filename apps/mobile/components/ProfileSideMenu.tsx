@@ -19,7 +19,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, getToken } from "@/lib/api";
+import { apiGet, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 
@@ -114,7 +114,6 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     ) ?? false;
 
   const [inviteLoading, setInviteLoading] = useState(false);
-  const [billingLoading, setBillingLoading] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [incomingFriendRequests, setIncomingFriendRequests] = useState(0);
 
@@ -142,32 +141,9 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     }
   };
 
-  const handleManageSubscription = async () => {
-    setBillingLoading(true);
-    try {
-      const res = await apiPost<{ url?: string; error?: string }>(
-        "/api/stripe/billing-portal",
-        { returnBaseUrl: siteBase }
-      );
-      if (res?.url) {
-        onClose();
-        const webUrl =
-          `/web?url=${encodeURIComponent(res.url)}&title=Manage subscriptions` +
-          `&successPattern=${encodeURIComponent("my-community/subscriptions")}` +
-          `&successRoute=${encodeURIComponent("/(tabs)/my-community")}` +
-          "&refreshOnSuccess=1";
-        router.push(webUrl as any);
-      } else {
-        Alert.alert("Error", res?.error ?? "Could not open subscription management.");
-      }
-    } catch (e) {
-      Alert.alert(
-        "Error",
-        (e as { error?: string })?.error ?? "Could not open subscription management."
-      );
-    } finally {
-      setBillingLoading(false);
-    }
+  const handleManageSubscription = () => {
+    onClose();
+    router.push("/manage-subscription" as never);
   };
 
   useEffect(() => {

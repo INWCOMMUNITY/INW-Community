@@ -29,6 +29,9 @@ import * as WebBrowser from 'expo-web-browser';
 import { PushNotificationHandler } from '@/components/PushNotificationHandler';
 import { EventInvitePopupHost } from '@/components/EventInvitePopupHost';
 import { theme } from '@/lib/theme';
+import { CreatePostProvider } from '@/contexts/CreatePostContext';
+import { CreatePostModalHost } from '@/components/CreatePostModalHost';
+import { EventInvitePopupSuppressionProvider } from '@/contexts/EventInvitePopupSuppressionContext';
 
 /** True if the string looks like HTML (never render raw in UI). */
 function looksLikeHtml(s: string): boolean {
@@ -241,6 +244,7 @@ function RootLayoutNav() {
         <Stack.Screen name="scanner" options={{ presentation: 'fullScreenModal' }} />
         <Stack.Screen name="saved-posts" />
         <Stack.Screen name="subscribe" />
+        <Stack.Screen name="manage-subscription" options={{ headerShown: false }} />
         <Stack.Screen name="community" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'containedModal' }} />
       </Stack>
@@ -250,9 +254,11 @@ function RootLayoutNav() {
     <GestureHandlerRootView style={{ flex: 1 }}>
     <ThemeProvider>
       <AuthProvider>
+      <EventInvitePopupSuppressionProvider>
       <AuthDeepLinkHandler />
       <PushNotificationHandler />
       <EventInvitePopupHost />
+      <CreatePostProvider>
       <ProfileViewLayout>
       <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       {hasStripeKey ? (
@@ -266,8 +272,11 @@ function RootLayoutNav() {
       ) : (
         content
       )}
+      <CreatePostModalHost />
     </NavThemeProvider>
     </ProfileViewLayout>
+    </CreatePostProvider>
+    </EventInvitePopupSuppressionProvider>
     </AuthProvider>
     </ThemeProvider>
     </GestureHandlerRootView>

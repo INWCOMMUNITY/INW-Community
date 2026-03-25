@@ -3,7 +3,7 @@
  * Uses API client with auth (Bearer token).
  */
 
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiPatch } from "@/lib/api";
 
 export interface FeedPost {
   id: string;
@@ -58,6 +58,8 @@ export interface FeedPost {
   } | null;
   sourcePost?: unknown;
   sourceGroup?: { id: string; name: string; slug: string } | null;
+  /** Present on API payloads for group posts; used when editing. */
+  groupId?: string | null;
   liked: boolean;
   likeCount: number;
   commentCount: number;
@@ -162,4 +164,19 @@ export interface CreatePostBody {
 
 export async function createPost(body: CreatePostBody): Promise<{ post?: FeedPost }> {
   return apiPost<{ post?: FeedPost }>("/api/posts", body);
+}
+
+export interface UpdatePostBody {
+  content?: string | null;
+  photos?: string[];
+  videos?: string[];
+  tags?: string[];
+  taggedMemberIds?: string[];
+}
+
+export async function updatePost(
+  postId: string,
+  body: UpdatePostBody
+): Promise<{ post?: FeedPost }> {
+  return apiPatch<{ post?: FeedPost }>(`/api/posts/${postId}`, body);
 }

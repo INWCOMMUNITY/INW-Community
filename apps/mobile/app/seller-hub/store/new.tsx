@@ -133,6 +133,7 @@ export default function ListItemScreen() {
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [variants, setVariants] = useState<Variant[]>([]);
   const [optionsEnabled, setOptionsEnabled] = useState(false);
+  const [acceptOffers, setAcceptOffers] = useState(true);
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -258,6 +259,7 @@ export default function ListItemScreen() {
         businessId: string | null;
         variants: unknown;
         listingType?: "new" | "resale";
+        acceptOffers?: boolean;
         useSellerProfileShipping?: boolean;
         useSellerProfileLocalDelivery?: boolean;
         useSellerProfilePickup?: boolean;
@@ -292,6 +294,7 @@ export default function ListItemScreen() {
           setVariants(normalized);
           setOptionsEnabled(normalized.some((v) => v.name.trim() && v.options.length > 0));
           if (item.listingType === "resale" || item.listingType === "new") setListingType(item.listingType);
+          if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
@@ -335,6 +338,17 @@ export default function ListItemScreen() {
       setLoadedDraft(true);
     }
   }, [draftId, editId, loadedDraft]);
+
+  useEffect(() => {
+    if (editId) return;
+    apiGet<{ member?: { acceptOffersOnResale?: boolean } } | { error?: string }>("/api/seller-profile")
+      .then((data) => {
+        if (data && "member" in data && data.member && typeof data.member.acceptOffersOnResale === "boolean") {
+          setAcceptOffers(data.member.acceptOffersOnResale);
+        }
+      })
+      .catch(() => {});
+  }, [editId]);
 
   useEffect(() => {
     if (editId && category && storeCategories.length > 0 && !storeCategories.some((c) => c.label === category)) {
@@ -660,6 +674,7 @@ export default function ListItemScreen() {
           : null,
       localDeliveryFeeCents: localFee,
       variants: variantPayload,
+      ...(listingType === "resale" ? { acceptOffers } : {}),
     };
     try {
       isExitingRef.current = true;
@@ -768,6 +783,18 @@ export default function ListItemScreen() {
           </Pressable>
         </View>
       </View>
+
+      {listingType === "resale" && (
+        <View style={styles.switchRow}>
+          <Text style={styles.switchLabel}>Accept offers on this listing</Text>
+          <Switch
+            value={acceptOffers}
+            onValueChange={setAcceptOffers}
+            trackColor={{ false: "#ccc", true: theme.colors.cream }}
+            thumbColor={acceptOffers ? theme.colors.primary : "#f4f3f4"}
+          />
+        </View>
+      )}
 
       <Text style={styles.label}>Photos *</Text>
       <View style={styles.photoRow}>

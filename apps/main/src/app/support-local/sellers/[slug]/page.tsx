@@ -60,7 +60,11 @@ export default async function SellerStorefrontPage({
         },
       },
       storeItems: {
-        where: { status: "active", quantity: { gt: 0 } },
+        where: {
+          status: "active",
+          quantity: { gt: 0 },
+          member: { stripeConnectAccountId: { not: null } },
+        },
         orderBy: { createdAt: "desc" },
       },
     },

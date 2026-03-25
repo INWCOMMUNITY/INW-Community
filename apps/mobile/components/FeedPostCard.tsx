@@ -48,11 +48,23 @@ interface FeedPostCardProps {
   onReport?: (postId: string) => void;
   onBlockUser?: (memberId: string, postId: string) => void;
   onSave?: (postId: string) => void;
+  /** Opens create/edit modal for this post (only shown when viewer is the author). */
+  onEditPost?: (post: FeedPost) => void;
   onDeleteComment?: (commentId: string) => void;
   onOpenCoupon?: (couponId: string) => void;
 }
 
-export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlockUser, onSave, onOpenCoupon }: FeedPostCardProps) {
+export function FeedPostCard({
+  post,
+  onLike,
+  onComment,
+  onShare,
+  onReport,
+  onBlockUser,
+  onSave,
+  onEditPost,
+  onOpenCoupon,
+}: FeedPostCardProps) {
   const router = useRouter();
   const { member } = useAuth();
   const [blogSaved, setBlogSaved] = useState(false);
@@ -157,6 +169,21 @@ export function FeedPostCard({ post, onLike, onComment, onShare, onReport, onBlo
         <Modal visible transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
           <Pressable style={styles.menuOverlay} onPress={() => setMenuOpen(false)}>
             <View style={styles.menuSheet}>
+              {member &&
+                onEditPost &&
+                member.id === post.author.id &&
+                !post.id.startsWith("example-") && (
+                  <Pressable
+                    style={styles.menuItem}
+                    onPress={() => {
+                      setMenuOpen(false);
+                      onEditPost(post);
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={20} color={theme.colors.heading} />
+                    <Text style={styles.menuItemText}>Edit post</Text>
+                  </Pressable>
+                )}
               {onSave && (
                 <Pressable
                   style={styles.menuItem}

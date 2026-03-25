@@ -3,8 +3,6 @@ import { prisma } from "database";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
-const MAX_ALLOW_SALES_DAYS = 14;
-
 export async function GET(req: NextRequest) {
   try {
     const session = await getSessionForApi(req);
@@ -25,18 +23,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ timeAway: null });
     }
     const now = new Date();
-    const allowSalesThrough = new Date(timeAway.startAt);
-    allowSalesThrough.setDate(allowSalesThrough.getDate() + MAX_ALLOW_SALES_DAYS);
+    const startAt = new Date(timeAway.startAt);
     const endAt = new Date(timeAway.endAt);
-    const effectiveAllowSalesThrough = allowSalesThrough <= endAt ? allowSalesThrough : endAt;
+    const inWindow = now >= startAt && now <= endAt;
     return NextResponse.json({
       timeAway: {
         id: timeAway.id,
         startAt: timeAway.startAt.toISOString(),
         endAt: timeAway.endAt.toISOString(),
-        allowSalesThrough: effectiveAllowSalesThrough.toISOString(),
-        isActive: now >= new Date(timeAway.startAt) && now <= endAt,
-        itemsHidden: now > effectiveAllowSalesThrough && now <= endAt,
+        /** @deprecated storefront pauses for full window; equals startAt for clients that still read it */
+        allowSalesThrough: timeAway.startAt.toISOString(),
+        isActive: inWindow,
+        itemsHidden: inWindow,
       },
     });
   } catch (e) {
@@ -67,9 +65,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const allowSalesThrough = new Date(startAt);
-    allowSalesThrough.setDate(allowSalesThrough.getDate() + MAX_ALLOW_SALES_DAYS);
-    const effectiveEnd = endAt <= allowSalesThrough ? endAt : allowSalesThrough;
     await prisma.sellerTimeAway.upsert({
       where: { memberId: userId },
       create: {
@@ -81,7 +76,7 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({
       success: true,
-      allowSalesThrough: (endAt <= allowSalesThrough ? endAt : allowSalesThrough).toISOString(),
+      allowSalesThrough: startAt.toISOString(),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Server error";

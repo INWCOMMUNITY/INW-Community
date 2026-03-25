@@ -8,6 +8,7 @@ import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-varia
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
+import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -233,6 +234,29 @@ export async function PATCH(
   if (data.listingType !== undefined) update.listingType = data.listingType;
   if (data.acceptOffers !== undefined) update.acceptOffers = data.acceptOffers;
   if (data.minOfferCents !== undefined) update.minOfferCents = data.minOfferCents;
+
+  const mergedStatus =
+    data.status !== undefined ? data.status : existing.status;
+  let mergedQuantity = existing.quantity;
+  if (data.variants !== undefined && hasOptionQuantities(data.variants)) {
+    mergedQuantity = sumOptionQuantities(data.variants);
+  } else if (data.quantity !== undefined) {
+    const variantsForQuantity =
+      data.variants !== undefined ? data.variants : existing.variants;
+    if (!hasOptionQuantities(variantsForQuantity)) mergedQuantity = data.quantity;
+  }
+  if (mergedStatus === "active" && mergedQuantity > 0) {
+    const connectOk = await memberHasStripeConnectForStorefront(ownerId);
+    if (!connectOk) {
+      return NextResponse.json(
+        {
+          error:
+            "This seller must complete Stripe Connect before a listing can be live on the storefront.",
+        },
+        { status: 403 }
+      );
+    }
+  }
 
   const item = await prisma.storeItem.update({
     where: { id: itemId },

@@ -37,6 +37,8 @@ model Member {
   offerShipping              Boolean @default(true) @map("offer_shipping")
   offerLocalDelivery         Boolean @default(true) @map("offer_local_delivery")
   offerLocalPickup           Boolean @default(true) @map("offer_local_pickup")
+  // Default for new resale listings; per-listing StoreItem.acceptOffers can override.
+  acceptOffersOnResale       Boolean  @default(true) @map("accept_offers_on_resale")
   status            String   @default("active") // active | suspended
   privacyLevel      String   @default("public") @map("privacy_level") // public | friends_only | completely_private
   signupIntent      String?  @map("signup_intent") // resident | business | seller

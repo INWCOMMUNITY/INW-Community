@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { FeedPostCard } from "@/components/FeedPostCard";
+import { CreatePostModal, type EditFeedPostPayload } from "@/components/CreatePostModal";
 import { BackToProfileLink } from "@/components/BackToProfileLink";
 
 interface FeedPost {
@@ -12,6 +14,7 @@ interface FeedPost {
   videos?: string[];
   tags?: { id: string; name: string; slug: string }[];
   createdAt: string;
+  groupId?: string | null;
   author: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   sourceBlog?: {
     id: string;
@@ -34,10 +37,13 @@ interface FeedPost {
 }
 
 export default function MyPostsPage() {
+  const { data: session } = useSession();
+  const viewerUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [editPost, setEditPost] = useState<EditFeedPostPayload | null>(null);
 
   function loadMyPosts(cursor?: string) {
     const params = new URLSearchParams();
@@ -83,6 +89,26 @@ export default function MyPostsPage() {
     }
   }
 
+  function refreshPostsFromStart() {
+    void loadMyPosts().then(({ posts: p, nextCursor: c }) => {
+      setPosts(p);
+      setNextCursor(c);
+    });
+  }
+
+  function openEditFeedPost(p: FeedPost) {
+    setEditPost({
+      id: p.id,
+      content: p.content,
+      photos: p.photos,
+      videos: p.videos ?? [],
+      tags: p.tags,
+      groupId: p.groupId ?? null,
+      type: p.type,
+      sourceBusiness: p.sourceBusiness ? { id: p.sourceBusiness.id, name: p.sourceBusiness.name } : null,
+    });
+  }
+
   if (loading) {
     return (
       <div>
@@ -112,6 +138,8 @@ export default function MyPostsPage() {
               key={post.id}
               post={post as Parameters<typeof FeedPostCard>[0]["post"]}
               onLike={toggleLike}
+              viewerUserId={viewerUserId}
+              onEditPost={openEditFeedPost}
               onCommentAdded={(postId) => {
                 setPosts((prev) =>
                   prev.map((p) =>
@@ -133,6 +161,12 @@ export default function MyPostsPage() {
           )}
         </div>
       )}
+      <CreatePostModal
+        open={!!editPost}
+        onClose={() => setEditPost(null)}
+        editPost={editPost}
+        onAfterSuccess={refreshPostsFromStart}
+      />
     </div>
   );
 }

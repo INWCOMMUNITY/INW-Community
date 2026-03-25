@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { Alert, Pressable, Text, ActivityIndicator, StyleSheet, Platform } from "react-native";
 import { usePaymentSheet, PlatformPay } from "@stripe/stripe-react-native";
 import { theme } from "@/lib/theme";
@@ -7,6 +7,7 @@ import {
   syncStripeSubscriptionsFromClient,
   waitForMemberPlanAfterCheckout,
 } from "@/lib/subscription-checkout-entitlements";
+import { useEventInvitePopupSuppression } from "@/contexts/EventInvitePopupSuppressionContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/$/, "");
@@ -92,6 +93,12 @@ export function SubscriptionCheckoutSheet({
 }: SubscriptionCheckoutSheetProps) {
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
   const [loading, setLoading] = useState(false);
+  const { incrementSuppression, decrementSuppression } = useEventInvitePopupSuppression();
+  useEffect(() => {
+    if (!loading) return;
+    incrementSuppression();
+    return () => decrementSuppression();
+  }, [loading, incrementSuppression, decrementSuppression]);
 
   const finalizeAfterPayment = useCallback(async () => {
     await syncStripeSubscriptionsFromClient();

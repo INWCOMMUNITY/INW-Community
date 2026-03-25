@@ -43,6 +43,7 @@ interface FeedPostCardProps {
     videos?: string[];
     tags?: { id: string; name: string; slug: string }[];
     createdAt: string;
+    groupId?: string | null;
     author: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
     sourceBlog?: SourceBlog | null;
     sourceBusiness?: { id: string; name: string; slug: string; shortDescription: string | null; logoUrl: string | null } | null;
@@ -57,6 +58,9 @@ interface FeedPostCardProps {
   onLike: (postId: string) => void;
   onShare?: (postId: string) => void;
   onCommentAdded?: (postId: string) => void;
+  /** Current user id (for author actions). */
+  viewerUserId?: string | null;
+  onEditPost?: (post: FeedPostCardProps["post"]) => void;
 }
 
 function isVideoUrl(url: string) {
@@ -73,8 +77,9 @@ type CommentItem = {
   parentAuthorName?: string | null;
 };
 
-export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPostCardProps) {
+export function FeedPostCard({ post, onLike, onShare, onCommentAdded, viewerUserId, onEditPost }: FeedPostCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [postMenuOpen, setPostMenuOpen] = useState(false);
   const [showAllPhotos, setShowAllPhotos] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryMedia, setGalleryMedia] = useState<string[]>([]);
@@ -192,8 +197,45 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
               </div>
             </Link>
           )}
-          <div className="shrink-0 flex gap-1">
-            {/* Member badges placeholder - can add logic later */}
+          <div className="shrink-0 flex items-center gap-1">
+            {viewerUserId &&
+              onEditPost &&
+              viewerUserId === post.author.id &&
+              !post.id.startsWith("example-") && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setPostMenuOpen((o) => !o)}
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-100"
+                    aria-label="Post options"
+                    aria-expanded={postMenuOpen}
+                  >
+                    <span className="text-xl leading-none">⋯</span>
+                  </button>
+                  {postMenuOpen && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Close menu"
+                        className="fixed inset-0 z-30 cursor-default"
+                        onClick={() => setPostMenuOpen(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+                        <button
+                          type="button"
+                          className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                          onClick={() => {
+                            setPostMenuOpen(false);
+                            onEditPost(post);
+                          }}
+                        >
+                          Edit post
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
           </div>
         </div>
 

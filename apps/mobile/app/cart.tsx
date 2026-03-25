@@ -667,10 +667,11 @@ export default function CartScreen() {
         return body;
       };
 
-      const ldForCash = hasLocalDelivery
-        ? items.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
-        : undefined;
       const makeCashBody = (list: CartItem[]) => {
+        const hasLocalInList = list.some((i) => (i.fulfillmentType ?? "ship") === "local_delivery");
+        const ldFromList = hasLocalInList
+          ? list.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
+          : undefined;
         const body: Record<string, unknown> = {
           items: list.map((i) => ({
             storeItemId: i.storeItemId,
@@ -679,8 +680,8 @@ export default function CartScreen() {
             fulfillmentType: i.fulfillmentType ?? "ship",
           })),
         };
-        if (hasLocalDelivery && ldForCash) {
-          body.localDeliveryDetails = ldForCash;
+        if (hasLocalInList && ldFromList) {
+          body.localDeliveryDetails = ldFromList;
         }
         return body;
       };

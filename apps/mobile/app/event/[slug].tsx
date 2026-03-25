@@ -20,6 +20,7 @@ import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { fetchEventBySlug, type EventDetail } from "@/lib/events-api";
 import { formatTime12h } from "@/lib/format-time";
 import { useAuth } from "@/contexts/AuthContext";
+import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -48,6 +49,8 @@ export default function EventDetailScreen() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
   const [friends, setFriends] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [inviting, setInviting] = useState(false);
@@ -234,6 +237,7 @@ export default function EventDetailScreen() {
 
   const photos = event?.photos ?? [];
   const photoUrl = resolvePhotoUrl(photos[0]);
+  const galleryUrls = photos.map((p) => resolvePhotoUrl(p)).filter(Boolean) as string[];
   const imageHeight = width * 0.65;
 
   if (loading) {
@@ -277,37 +281,73 @@ export default function EventDetailScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.photoSection, { height: imageHeight }]}>
-          {photoUrl ? (
-            <Image
-              source={{ uri: photoUrl }}
-              style={styles.photo}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.photoPlaceholder}>
+        <View style={styles.photoSectionOuter}>
+          <View style={[styles.photoSection, { height: imageHeight }]}>
+            {photoUrl ? (
+              <Pressable
+                style={styles.photoTouchable}
+                onPress={() => {
+                  setGalleryIndex(0);
+                  setGalleryOpen(true);
+                }}
+              >
+                <Image
+                  source={{ uri: photoUrl }}
+                  style={styles.photo}
+                  resizeMode="cover"
+                />
+              </Pressable>
+            ) : (
+              <View style={styles.photoPlaceholder}>
+                <Ionicons
+                  name="calendar-outline"
+                  size={64}
+                  color={theme.colors.primary}
+                />
+                <Text style={styles.photoPlaceholderText}>Event photo</Text>
+              </View>
+            )}
+            <Pressable
+              style={({ pressed }) => [
+                styles.favoriteBtn,
+                pressed && styles.pressed,
+              ]}
+              onPress={toggleFavorite}
+              disabled={saving}
+            >
               <Ionicons
-                name="calendar-outline"
-                size={64}
-                color={theme.colors.primary}
+                name={saved ? "heart" : "heart-outline"}
+                size={28}
+                color={saved ? "#e74c3c" : "#fff"}
               />
-              <Text style={styles.photoPlaceholderText}>Event photo</Text>
-            </View>
-          )}
-          <Pressable
-            style={({ pressed }) => [
-              styles.favoriteBtn,
-              pressed && styles.pressed,
-            ]}
-            onPress={toggleFavorite}
-            disabled={saving}
-          >
-            <Ionicons
-              name={saved ? "heart" : "heart-outline"}
-              size={28}
-              color={saved ? "#e74c3c" : "#fff"}
-            />
-          </Pressable>
+            </Pressable>
+          </View>
+          {galleryUrls.length > 1 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.galleryStrip}
+              contentContainerStyle={styles.galleryStripContent}
+            >
+              {galleryUrls.map((uri, i) => (
+                <Pressable
+                  key={`${i}-${uri}`}
+                  onPress={() => {
+                    setGalleryIndex(i);
+                    setGalleryOpen(true);
+                  }}
+                >
+                  <Image source={{ uri }} style={styles.galleryThumb} resizeMode="cover" />
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
+          <ImageGalleryViewer
+            visible={galleryOpen}
+            images={galleryUrls}
+            initialIndex={galleryIndex}
+            onClose={() => setGalleryOpen(false)}
+          />
         </View>
 
         <View style={styles.shareInviteRow}>
@@ -483,14 +523,38 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 32,
   },
+  photoSectionOuter: {
+    width: "100%",
+    backgroundColor: "#f5f5f5",
+  },
   photoSection: {
     width: "100%",
     backgroundColor: "#f5f5f5",
     position: "relative",
   },
+  photoTouchable: {
+    width: "100%",
+    height: "100%",
+  },
   photo: {
     width: "100%",
     height: "100%",
+  },
+  galleryStrip: {
+    maxHeight: 88,
+  },
+  galleryStripContent: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  galleryThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    backgroundColor: "#e5e5e5",
+    marginRight: 8,
   },
   photoPlaceholder: {
     flex: 1,

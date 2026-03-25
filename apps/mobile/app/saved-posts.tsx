@@ -16,6 +16,7 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiDelete, apiPost } from "@/lib/api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import type { FeedPost } from "@/lib/feed-api";
+import { useCreatePost } from "@/contexts/CreatePostContext";
 
 interface SavedItem {
   id: string;
@@ -27,6 +28,7 @@ interface SavedItem {
 export default function SavedPostsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const openEditPost = useCreatePost()?.openEditPost;
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -141,6 +143,7 @@ export default function SavedPostsScreen() {
                 onReport={handleReport}
                 onBlockUser={handleBlockUser}
                 onSave={() => handleUnsave(p.id)}
+                onEditPost={openEditPost}
               />
             ))
           )}

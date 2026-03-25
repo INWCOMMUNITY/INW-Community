@@ -33,6 +33,9 @@ import {
 import type { CategoryPreset } from "@/lib/business-category-suggest";
 import { BusinessCategoryPrimaryPicker } from "@/components/BusinessCategoryPrimaryPicker";
 
+/** Visible tan accent for gallery upload progress on light backgrounds (cream token is too low-contrast). */
+const GALLERY_UPLOAD_SPINNER = "#C4956A";
+
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -728,7 +731,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
           >
             <View style={styles.uploadBtnInner}>
               {uploadingPhotos ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <ActivityIndicator size="small" color={GALLERY_UPLOAD_SPINNER} />
               ) : null}
               <Text style={styles.uploadBtnText}>
                 {uploadingPhotos && uploadPhotoProgress
@@ -774,7 +777,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             <ActivityIndicator color="#fff" />
           ) : uploadingLogo || (!onDraftSubmit && uploadingPhotos) ? (
             <View style={styles.uploadingRow}>
-              <ActivityIndicator color="#fff" size="small" />
+              <ActivityIndicator color={GALLERY_UPLOAD_SPINNER} size="small" />
               <Text style={styles.submitBtnText}>Uploading photos…</Text>
             </View>
           ) : (
@@ -812,7 +815,7 @@ const styles = StyleSheet.create({
   uploadProgressBanner: {
     fontSize: 13,
     fontWeight: "600",
-    color: theme.colors.primary,
+    color: GALLERY_UPLOAD_SPINNER,
     marginBottom: 8,
   },
   categorySlot: {

@@ -13,6 +13,8 @@ import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { stripeSubscriptionStatusToDb } from "@/lib/stripe-subscription-db-status";
 import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
+import { removeNwcMemberPerksAfterSubscriptionEnd } from "@/lib/nwc-subscription-perk-cleanup";
+import type { Plan } from "database";
 
 /**
  * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
@@ -1092,14 +1094,45 @@ export async function POST(req: NextRequest) {
     const sub = event.data.object as Stripe.Subscription;
     const mapped = stripeSubscriptionStatusToDb(sub.status);
     const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
+
+    const affectedRows = await prisma.subscription.findMany({
+      where: { stripeSubscriptionId: sub.id },
+      select: { memberId: true },
+    });
+
+    const metaPlan = sub.metadata?.planId?.trim();
+    const rawPrice = sub.items.data[0]?.price;
+    const priceId = typeof rawPrice === "string" ? rawPrice : rawPrice?.id ?? null;
+    const planFromPrice = planFromStripePriceId(priceId);
+    const planResolved: Plan | undefined =
+      metaPlan === "subscribe" || metaPlan === "sponsor" || metaPlan === "seller"
+        ? (metaPlan as Plan)
+        : planFromPrice ?? undefined;
+
     const data: Prisma.SubscriptionUpdateManyMutationInput = {
       currentPeriodEnd: periodEnd,
       ...(mapped !== null ? { status: mapped } : {}),
+      ...(planResolved ? { plan: planResolved } : {}),
     };
     await prisma.subscription.updateMany({
       where: { stripeSubscriptionId: sub.id },
       data,
     });
+
+    const subscriptionEnded =
+      event.type === "customer.subscription.deleted" ||
+      sub.status === "canceled" ||
+      sub.status === "unpaid" ||
+      sub.status === "incomplete_expired";
+
+    if (subscriptionEnded) {
+      const uniqueMembers = [...new Set(affectedRows.map((r) => r.memberId))];
+      for (const memberId of uniqueMembers) {
+        await removeNwcMemberPerksAfterSubscriptionEnd(memberId).catch((err) =>
+          console.error("[stripe/webhook] perk cleanup", memberId, err)
+        );
+      }
+    }
   }
   return NextResponse.json({ received: true });
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { FeedPostCard } from "@/components/FeedPostCard";
+import { CreatePostModal, type EditFeedPostPayload } from "@/components/CreatePostModal";
 
 interface FeedPost {
   id: string;
@@ -11,6 +13,7 @@ interface FeedPost {
   videos?: string[];
   tags?: { id: string; name: string; slug: string }[];
   createdAt: string;
+  groupId?: string | null;
   author: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   sourceBlog?: {
     id: string;
@@ -33,10 +36,13 @@ interface FeedPost {
 }
 
 export default function CommunityFeedPage() {
+  const { data: session } = useSession();
+  const viewerUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [editPost, setEditPost] = useState<EditFeedPostPayload | null>(null);
 
   function loadFeed(cursor?: string) {
     const params = new URLSearchParams();
@@ -100,6 +106,26 @@ export default function CommunityFeedPage() {
     }
   }
 
+  function refreshFeedFromStart() {
+    void loadFeed().then(({ posts: p, nextCursor: c }) => {
+      setPosts(p);
+      setNextCursor(c);
+    });
+  }
+
+  function openEditFeedPost(p: FeedPost) {
+    setEditPost({
+      id: p.id,
+      content: p.content,
+      photos: p.photos,
+      videos: p.videos ?? [],
+      tags: p.tags,
+      groupId: p.groupId ?? null,
+      type: p.type,
+      sourceBusiness: p.sourceBusiness ? { id: p.sourceBusiness.id, name: p.sourceBusiness.name } : null,
+    });
+  }
+
   if (loading) return <p className="text-gray-500">Loading…</p>;
 
   return (
@@ -124,6 +150,8 @@ export default function CommunityFeedPage() {
               post={post as Parameters<typeof FeedPostCard>[0]["post"]}
               onLike={toggleLike}
               onShare={handleShare}
+              viewerUserId={viewerUserId}
+              onEditPost={openEditFeedPost}
               onCommentAdded={(postId) => {
                 setPosts((prev) =>
                   prev.map((p) =>
@@ -145,6 +173,12 @@ export default function CommunityFeedPage() {
           )}
         </div>
       )}
+      <CreatePostModal
+        open={!!editPost}
+        onClose={() => setEditPost(null)}
+        editPost={editPost}
+        onAfterSuccess={refreshFeedFromStart}
+      />
     </div>
   );
 }

@@ -16,7 +16,7 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.co
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 interface SellerProfile {
-  member: { firstName: string; lastName: string; email: string } | null;
+  member: { firstName: string; lastName: string; email: string; acceptOffersOnResale?: boolean } | null;
   business: {
     id: string;
     name: string;
@@ -99,6 +99,10 @@ export default function StorefrontInfoScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Seller Policy</Text>
+        <InfoRow
+          label="Take offers on resale items (default)"
+          value={member?.acceptOffersOnResale !== false ? "Yes" : "No"}
+        />
         <InfoRow label="Local Delivery Policy" value={profile.sellerLocalDeliveryPolicy ?? "Not set."} multiLine />
         <InfoRow label="Pickup Policy" value={profile.sellerPickupPolicy ?? "Not set."} multiLine />
         <InfoRow label="Shipping Policy" value={profile.sellerShippingPolicy ?? "Not set."} multiLine />

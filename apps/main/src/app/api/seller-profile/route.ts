@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   }
   const member = await prisma.member.findUnique({
     where: { id: userId },
-    select: { firstName: true, lastName: true, email: true },
+    select: { firstName: true, lastName: true, email: true, acceptOffersOnResale: true },
   });
   // Use raw query for new columns (works even if Prisma client wasn't regenerated)
   let sellerLocalDeliveryPolicy: string | null = null;
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    member: member ?? { firstName: "", lastName: "", email: "" },
+    member: member ?? { firstName: "", lastName: "", email: "", acceptOffersOnResale: true },
     sellerLocalDeliveryPolicy,
     sellerPickupPolicy,
     sellerShippingPolicy,
@@ -130,6 +130,12 @@ export async function PATCH(req: NextRequest) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (typeof body.acceptOffersOnResale === "boolean") {
+    await prisma.member.update({
+      where: { id: userId },
+      data: { acceptOffersOnResale: body.acceptOffersOnResale },
+    });
   }
   // Update policy fields via raw query (works even if Prisma client wasn't regenerated)
   const updates: string[] = [];

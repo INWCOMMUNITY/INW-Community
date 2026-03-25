@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "March 24, 2026";
+export const PRIVACY_LAST_UPDATED = "March 25, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -58,11 +58,11 @@ Our website uses essential session and security cookies. We do not use third-par
 When you use our Northwest Community mobile app, we may also collect or process:
 ● Account credentials and authentication tokens stored on your device (secured storage)
 ● Device type and operating system (for compatibility)
-● Photos and images uploaded from your device (including logos, listing photos, and business gallery images), stored via our secure file storage. Per-file uploads are limited to 120MB; accepted formats are JPEG, PNG, WebP, and GIF. Business directory profiles may include up to 12 gallery photos in addition to a logo.
+● Photos and images uploaded from your device (including logos, listing photos, business gallery images, and calendar/event images where supported), stored via our secure file storage. Per-file uploads are limited to 120MB; accepted formats include JPEG, PNG, WebP, GIF, and HEIC/HEIF on endpoints that support them. Business directory profiles may include up to 12 gallery photos in addition to a logo.
 
 Push notifications: If you enable notifications on your device, a push token may be registered with Northwest Community (and with our push delivery provider) so we can send notices to your app. We use push notifications for service- and activity-related messages, such as order or account alerts, event invitations, responses to event invitations you sent, event reminders, and similar messages tied to your account. You may disable push notifications at any time in your device settings. We may remove tokens that are no longer valid (for example, after you turn off notifications or uninstall the app).
 
-Community guidelines acknowledgment (mobile app): The first time you open the community feed on a device, the app may store only on that device that you have seen the introductory community guidelines summary (for example in local app storage), so you are not shown that full-screen introduction again on the same device. That on-device flag is not uploaded to NWC servers solely for that purpose and is not used for advertising.
+Community guidelines acknowledgment (mobile app): The first time you open the community feed on a device, the app may store only on that device that you have seen the introductory community guidelines summary (for example in local app storage), so you are not shown that full-screen introduction again on the same device. The app may clear or version that flag when you create a new resident account on the device or when we materially update the introduction, so you may see the summary again in those cases. That on-device flag is not uploaded to NWC servers solely for that purpose and is not used for advertising.
 
 1.4 Information from sellers & business subscribers
 When businesses join NWC, we may collect:
@@ -80,7 +80,8 @@ Sellers who connect Shippo may have an OAuth access token (or, for some legacy a
 2. HOW WE USE YOUR INFORMATION
 We use the collected information for the following purposes:
 ● To operate and maintain our website and mobile app
-● To process payments and subscriptions (including granting access to website and app features included with your plan)
+● To process payments and subscriptions (including granting or removing access to website and app features included with your plan, and reflecting membership status after plan changes or cancellation)
+● When a paid NWC membership ends and you have no eligible active plan in good standing, to align stored data with your access level—for example, by deactivating marketplace listings and removing or delisting subscription-tied coupons, rewards, and business directory content, while keeping records we need for legal, tax, fraud prevention, accounting, or support, and treating certain NWC-maintained business profiles as described in our Terms of Service
 ● To send push notifications you have opted into on your device (for the purposes described in section 1.3)
 ● To manage seller and business subscriber profiles
 ● To display user-generated content (blogs, feed posts, comments, listings, events)
@@ -104,7 +105,7 @@ NWC may share information only in the following circumstances:
 3.1 Service Providers
 We use third-party vendors such as:
 ● Vercel (website hosting and file storage via Vercel Blob)
-● Stripe (payment processing, subscriptions, billing portal, and related payment data)
+● Stripe (payment processing, subscriptions, billing portal, in-app subscription changes we initiate through Stripe, and related payment data)
 ● Expo push notification service (delivery of mobile push notifications when you enable them on your device)
 ● Shippo (shipping labels for marketplace orders)
 ● Resend (transactional email)
@@ -166,6 +167,7 @@ We retain information for as long as necessary to:
 ● Enforce agreements
 
 User-generated content (blogs, events, feed posts, comments, listings) may remain visible even after account deletion unless removal is explicitly requested.
+● When a paid membership is canceled or lapses, NWC may promptly remove, deactivate, or hide subscription-tied listings, coupons, rewards, and business directory data as described in our Terms of Service and implemented in our systems; some records may be retained for the purposes above even after that cleanup.
 ● NWC may retain transaction-related information as required for tax, accounting, fraud-prevention, or legal compliance, even if a user requests deletion of their account.
 
 7. YOUR RIGHTS & CHOICES
@@ -175,7 +177,7 @@ Depending on your location, you have rights to:
 ● Request deletion
 ● Opt out of marketing communications
 ● Request what data we hold about you
-● Cancel a subscription with NWC
+● Cancel a subscription with NWC or understand how cancellation affects stored listing and business data (see our Terms of Service)
 ● Cancel a posted event
 
 You do not have the right to:

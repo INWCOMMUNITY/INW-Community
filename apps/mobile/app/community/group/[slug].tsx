@@ -21,6 +21,7 @@ import { fetchGroupFeed, toggleLike, type FeedPost } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCreatePost } from "@/contexts/CreatePostContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
@@ -48,6 +49,7 @@ export default function GroupDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const { member } = useAuth();
+  const openEditPost = useCreatePost()?.openEditPost;
   const signedIn = !!member;
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -398,6 +400,7 @@ export default function GroupDetailScreen() {
             onReport={handleReport}
             onBlockUser={signedIn ? handleBlockUser : undefined}
             onSave={handleSave}
+            onEditPost={openEditPost}
           />
         </View>
       )}
