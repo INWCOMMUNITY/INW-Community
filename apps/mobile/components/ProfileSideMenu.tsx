@@ -108,8 +108,10 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
   const showResaleHub = hasSubscriber;
   const { member, signOut } = useAuth();
 
-  const hasActiveSubscription =
-    member?.subscriptions?.some((s) => s.status === "active") ?? false;
+  const hasManageablePaidPlan =
+    member?.subscriptions?.some((s) =>
+      ["active", "trialing", "past_due"].includes(s.status)
+    ) ?? false;
 
   const [inviteLoading, setInviteLoading] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -203,7 +205,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
   ];
 
   const profileItems: NavItem[] = [
-    ...(hasActiveSubscription
+    ...(hasManageablePaidPlan
       ? [{ href: "action:manage-subscription", label: "Manage subscriptions", icon: "card-outline" as const }]
       : []),
     { href: "/profile-edit", label: "Delete account", icon: "trash-outline" },

@@ -74,7 +74,7 @@ export default async function BusinessRewardRedemptionsPage() {
           </Link>
         </div>
         <h1 className="text-2xl font-bold mb-2" style={{ color: "var(--color-heading)" }}>
-          Reward Redemptions
+          Redeemed Rewards
         </h1>
         <p className="text-gray-600 mb-8">
           {isAdmin

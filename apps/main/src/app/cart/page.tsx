@@ -846,7 +846,7 @@ export default function CartPage() {
                                   style={{ accentColor: "var(--color-primary)" }}
                                 />
                                 <span className="text-sm" style={{ color: "var(--color-text)" }}>
-                                  Pay in cash (no charge at checkout)
+                                  Pay in Cash (no charge at checkout)
                                 </span>
                               </label>
                             </div>
@@ -908,7 +908,7 @@ export default function CartPage() {
                         <span>${(cardTotalCents / 100).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm pt-1">
-                        <span>Pay in cash at pickup/delivery</span>
+                        <span>Pay in Cash at pickup/delivery</span>
                         <span>${(cashTotalCents / 100).toFixed(2)}</span>
                       </div>
                     </>

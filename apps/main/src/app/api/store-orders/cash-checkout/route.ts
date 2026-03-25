@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   );
   if (!allPickupOrLocal) {
     return NextResponse.json(
-      { error: "Pay in cash is only available when all items are Pickup or Local Delivery." },
+      { error: "Pay in Cash is only available when all items are Pickup or Local Delivery." },
       { status: 400 }
     );
   }

@@ -3,7 +3,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getCurrentSeasonId } from "@/lib/award-points";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, NWC_PAID_PLAN_SLUGS } from "@/lib/nwc-paid-subscription";
-import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 import { z } from "zod";
 
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
   }
   const [sub, subscriptions, subscriptionPlan] = await Promise.all([
     prisma.subscription.findFirst({
-      where: prismaWhereMemberSubscribePlanAccess(session.user.id),
+      where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
       select: { id: true },
     }),
     prisma.subscription.findMany({

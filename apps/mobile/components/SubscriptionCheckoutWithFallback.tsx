@@ -21,6 +21,8 @@ interface SubscriptionCheckoutWithFallbackProps {
   onSuccess: () => void;
   onError?: (message: string) => void;
   refreshMember?: () => Promise<void>;
+  /** e.g. disable signup back-guard before opening Stripe in WebView or presenting the sheet */
+  onExternalCheckoutStart?: () => void;
 }
 
 function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
@@ -48,6 +50,7 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
         setError("Could not start checkout. Try again.");
         return;
       }
+      props.onExternalCheckoutStart?.();
       const webUrl =
         `/web?url=${encodeURIComponent(data.url)}&title=Checkout` +
         `&successPattern=${encodeURIComponent("my-community")}` +
@@ -61,7 +64,7 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
     } finally {
       setLoading(false);
     }
-  }, [props.planId, props.interval, props.businessData, props.onError, router]);
+  }, [props.planId, props.interval, props.businessData, props.onError, props.onExternalCheckoutStart, router]);
 
   return (
     <View style={styles.fallback}>
@@ -127,8 +130,12 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
       merchantIdentifier?: string;
     }> | null
   >(null);
+  type SheetProps = Pick<
+    SubscriptionCheckoutWithFallbackProps,
+    "planId" | "businessData" | "interval" | "onSuccess" | "onError" | "refreshMember"
+  > & { onCheckoutUiOpening?: () => void };
   const [SubscriptionCheckoutSheet, setSubscriptionCheckoutSheet] = useState<
-    React.ComponentType<SubscriptionCheckoutWithFallbackProps> | null
+    React.ComponentType<SheetProps> | null
   >(null);
   const [loadError, setLoadError] = useState(false);
 
@@ -197,6 +204,7 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
           onSuccess={props.onSuccess}
           onError={props.onError}
           refreshMember={props.refreshMember}
+          onCheckoutUiOpening={props.onExternalCheckoutStart}
         />
       </StripeProvider>
     </CheckoutErrorBoundary>

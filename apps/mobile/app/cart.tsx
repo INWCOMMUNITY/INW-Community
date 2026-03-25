@@ -135,7 +135,7 @@ export default function CartScreen() {
   const mixedCashOrderIdsRef = useRef<string[]>([]);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  const load = useCallback(async (refresh = false) => {
+  const load = useCallback(async (refresh = false): Promise<CartItem[] | null> => {
     if (refresh) setRefreshing(true);
     else setLoading(true);
     setError("");
@@ -144,7 +144,8 @@ export default function CartScreen() {
         apiGet<CartItem[]>("/api/cart"),
         apiGet<{ deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string } | null }>("/api/me").catch(() => null),
       ]);
-      setItems(Array.isArray(cartData) ? cartData : []);
+      const list = Array.isArray(cartData) ? cartData : [];
+      setItems(list);
       const addr = meData?.deliveryAddress;
       if (addr && (addr.street ?? addr.city ?? addr.state ?? addr.zip)) {
         setShippingAddress((prev) => {
@@ -159,6 +160,7 @@ export default function CartScreen() {
           };
         });
       }
+      return list;
     } catch (e) {
       const err = e as { status?: number };
       if (err.status === 401) {
@@ -167,6 +169,7 @@ export default function CartScreen() {
         setError("Could not load cart");
         setItems([]);
       }
+      return null;
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -177,9 +180,14 @@ export default function CartScreen() {
     load();
   }, [load]);
 
-  // When "Payment session expired" is shown, scroll to Checkout button so "Tap Checkout again" is visible.
+  // When checkout errors are shown, scroll so the banner and checkout button are visible.
   useEffect(() => {
-    if (error && error.includes("Payment session expired")) {
+    if (
+      error &&
+      (error.includes("Payment session expired") ||
+        error.includes("Pay in Cash") ||
+        error.toLowerCase().includes("cash checkout"))
+    ) {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }
   }, [error]);
@@ -205,8 +213,8 @@ export default function CartScreen() {
     }
   };
 
-  const [localDeliveryModalOpen, setLocalDeliveryModalOpen] = useState(false);
-  const [pickupModalOpen, setPickupModalOpen] = useState(false);
+  const [localDeliveryModalItemId, setLocalDeliveryModalItemId] = useState<string | null>(null);
+  const [pickupModalItemId, setPickupModalItemId] = useState<string | null>(null);
 
   const hasShippedItem = items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
   const hasLocalDelivery = items.some((i) => i.fulfillmentType === "local_delivery");
@@ -217,10 +225,64 @@ export default function CartScreen() {
   const pickupDetails = hasPickup
     ? items.find((i) => i.fulfillmentType === "pickup" && i.pickupDetails)?.pickupDetails
     : undefined;
-  const itemForLocalDeliveryModal = items.find(
-    (i) => i.fulfillmentType === "local_delivery"
-  );
-  const itemForPickupModal = items.find((i) => i.fulfillmentType === "pickup");
+  const itemForLocalDeliveryModal = localDeliveryModalItemId
+    ? items.find((i) => i.id === localDeliveryModalItemId && i.fulfillmentType === "local_delivery")
+    : undefined;
+  const itemForPickupModal = pickupModalItemId
+    ? items.find((i) => i.id === pickupModalItemId && i.fulfillmentType === "pickup")
+    : undefined;
+
+  const localDeliveryRowComplete = (i: CartItem) =>
+    !!(
+      i.localDeliveryDetails?.firstName?.trim() &&
+      i.localDeliveryDetails?.lastName?.trim() &&
+      i.localDeliveryDetails?.phone?.trim() &&
+      i.localDeliveryDetails?.email?.trim() &&
+      i.localDeliveryDetails?.deliveryAddress?.street?.trim() &&
+      i.localDeliveryDetails?.deliveryAddress?.city?.trim() &&
+      i.localDeliveryDetails?.deliveryAddress?.state?.trim() &&
+      i.localDeliveryDetails?.deliveryAddress?.zip?.trim() &&
+      i.localDeliveryDetails?.availableDropOffTimes?.trim()
+    );
+
+  const pickupRowComplete = (i: CartItem) =>
+    !!(
+      i.pickupDetails?.firstName?.trim() &&
+      i.pickupDetails?.lastName?.trim() &&
+      i.pickupDetails?.phone?.trim() &&
+      i.pickupDetails?.preferredPickupDate?.trim() &&
+      i.pickupDetails?.preferredPickupTime?.trim()
+    );
+
+  const openLocalDeliveryModalForItem = async (itemId: string) => {
+    const list = await load(true);
+    const fresh = list ?? [];
+    if (fresh.some((i) => i.id === itemId && i.fulfillmentType === "local_delivery")) {
+      setLocalDeliveryModalItemId(itemId);
+    }
+  };
+
+  const openFirstIncompleteLocalDeliveryModal = async () => {
+    const list = await load(true);
+    const fresh = list ?? [];
+    const target = fresh.find((i) => i.fulfillmentType === "local_delivery" && !localDeliveryRowComplete(i));
+    if (target) setLocalDeliveryModalItemId(target.id);
+  };
+
+  const openPickupModalForItem = async (itemId: string) => {
+    const list = await load(true);
+    const fresh = list ?? [];
+    if (fresh.some((i) => i.id === itemId && i.fulfillmentType === "pickup")) {
+      setPickupModalItemId(itemId);
+    }
+  };
+
+  const openFirstIncompletePickupModal = async () => {
+    const list = await load(true);
+    const fresh = list ?? [];
+    const target = fresh.find((i) => i.fulfillmentType === "pickup" && !pickupRowComplete(i));
+    if (target) setPickupModalItemId(target.id);
+  };
 
   const needsShippingForm = hasShippedItem && (
     !shippingAddress.street?.trim() ||
@@ -276,6 +338,25 @@ export default function CartScreen() {
     !needsPickupForm &&
     allPickupTermsAgreed;
 
+  const checkoutBlockedHints: string[] = [];
+  if (items.length > 0 && !canCheckout) {
+    if (hasUnavailableItems) {
+      checkoutBlockedHints.push("Remove or fix unavailable items before checkout.");
+    }
+    if (needsShippingForm) {
+      checkoutBlockedHints.push("Enter your full shipping address.");
+    }
+    if (needsLocalDeliveryForm) {
+      checkoutBlockedHints.push("Complete local delivery details (tap the link under each delivery item).");
+    }
+    if (needsPickupForm) {
+      checkoutBlockedHints.push("Complete the pickup form (tap the link under each pickup item).");
+    }
+    if (!allPickupTermsAgreed && pickupItemsWithPolicy.length > 0) {
+      checkoutBlockedHints.push("Open each pickup item’s form and agree to the seller’s pickup terms.");
+    }
+  }
+
   const allPickupOrLocalDelivery =
     items.length > 0 &&
     items.every((i) => i.fulfillmentType === "pickup" || i.fulfillmentType === "local_delivery");
@@ -330,6 +411,8 @@ export default function CartScreen() {
   );
 
   const updateLocalDeliveryDetails = async (form: LocalDeliveryDetails) => {
+    const targetId = localDeliveryModalItemId;
+    if (!targetId) return;
     const details = {
       firstName: form.firstName,
       lastName: form.lastName,
@@ -340,17 +423,12 @@ export default function CartScreen() {
       note: form.note,
       termsAcceptedAt: form.termsAcceptedAt,
     };
-    const toUpdate = items.filter((i) => i.fulfillmentType === "local_delivery");
     try {
-      await Promise.all(
-        toUpdate.map((item) =>
-          apiPatch(`/api/cart/${item.id}`, {
-            fulfillmentType: "local_delivery",
-            localDeliveryDetails: details,
-          })
-        )
-      );
-      setLocalDeliveryModalOpen(false);
+      await apiPatch(`/api/cart/${targetId}`, {
+        fulfillmentType: "local_delivery",
+        localDeliveryDetails: details,
+      });
+      setLocalDeliveryModalItemId(null);
       load(true);
     } catch (e) {
       const err = e as { error?: string };
@@ -362,6 +440,8 @@ export default function CartScreen() {
   };
 
   const updatePickupDetails = async (form: PickupDetails) => {
+    const targetId = pickupModalItemId;
+    if (!targetId) return;
     const details = {
       firstName: form.firstName,
       lastName: form.lastName,
@@ -372,17 +452,12 @@ export default function CartScreen() {
       note: form.note,
       termsAcceptedAt: form.termsAcceptedAt,
     };
-    const toUpdate = items.filter((i) => i.fulfillmentType === "pickup");
     try {
-      await Promise.all(
-        toUpdate.map((item) =>
-          apiPatch(`/api/cart/${item.id}`, {
-            fulfillmentType: "pickup",
-            pickupDetails: details,
-          })
-        )
-      );
-      setPickupModalOpen(false);
+      await apiPatch(`/api/cart/${targetId}`, {
+        fulfillmentType: "pickup",
+        pickupDetails: details,
+      });
+      setPickupModalItemId(null);
       load(true);
     } catch (e) {
       const err = e as { error?: string };
@@ -470,8 +545,8 @@ export default function CartScreen() {
       return;
     }
     if (needsShippingForm || needsLocalDeliveryForm || needsPickupForm) {
-      if (needsLocalDeliveryForm) setLocalDeliveryModalOpen(true);
-      else if (needsPickupForm) setPickupModalOpen(true);
+      if (needsLocalDeliveryForm) void openFirstIncompleteLocalDeliveryModal();
+      else if (needsPickupForm) void openFirstIncompletePickupModal();
       Alert.alert(
         "Complete details",
         needsLocalDeliveryForm
@@ -511,7 +586,9 @@ export default function CartScreen() {
       } else if (data.url) {
         setCheckoutUrl(data.url);
       } else {
-        setError(data.error ?? "Checkout failed");
+        const msg = data.error ?? "Checkout failed";
+        setError(msg);
+        Alert.alert("Could not complete order (Pay in Cash)", msg);
       }
     } catch (e) {
       const err = e as { error?: string; status?: number };
@@ -520,7 +597,9 @@ export default function CartScreen() {
           { text: "OK", onPress: () => router.push("/(tabs)/my-community") },
         ]);
       } else {
-        setError(err.error ?? "Checkout failed");
+        const msg = err.error ?? "Checkout failed";
+        setError(msg);
+        Alert.alert("Could not complete order (Pay in Cash)", msg);
       }
     } finally {
       setCheckingOut(false);
@@ -547,8 +626,8 @@ export default function CartScreen() {
     }
 
     if (needsShippingForm || needsLocalDeliveryForm || needsPickupForm) {
-      if (needsLocalDeliveryForm) setLocalDeliveryModalOpen(true);
-      else if (needsPickupForm) setPickupModalOpen(true);
+      if (needsLocalDeliveryForm) void openFirstIncompleteLocalDeliveryModal();
+      else if (needsPickupForm) void openFirstIncompletePickupModal();
       Alert.alert(
         "Complete details",
         needsLocalDeliveryForm
@@ -616,7 +695,9 @@ export default function CartScreen() {
         } else if (data.url) {
           setCheckoutUrl(data.url);
         } else {
-          setError(data.error ?? "Checkout failed");
+          const msg = data.error ?? "Checkout failed";
+          setError(msg);
+          Alert.alert("Could not complete order (Pay in Cash)", msg);
         }
         return;
       }
@@ -628,7 +709,9 @@ export default function CartScreen() {
           makeCashBody(cashItems)
         );
         if (cashRes.error || !cashRes.orderIds?.length) {
-          setError(cashRes.error ?? "Cash checkout failed");
+          const msg = cashRes.error ?? "Cash checkout failed";
+          setError(msg);
+          Alert.alert("Could not complete order (Pay in Cash)", msg);
           return;
         }
         cashOrderIds = cashRes.orderIds;
@@ -868,6 +951,28 @@ export default function CartScreen() {
                         </Text>
                       ) : null}
                       <Text style={styles.itemFulfillment}>{fulfillmentLabel}</Text>
+                      {item.fulfillmentType === "local_delivery" ? (
+                        <Pressable
+                          onPress={() => openLocalDeliveryModalForItem(item.id)}
+                          style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+                        >
+                          <Text style={styles.itemDetailLink}>
+                            {localDeliveryRowComplete(item)
+                              ? "Edit delivery details"
+                              : "Add delivery details"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      {item.fulfillmentType === "pickup" ? (
+                        <Pressable
+                          onPress={() => openPickupModalForItem(item.id)}
+                          style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+                        >
+                          <Text style={styles.itemDetailLink}>
+                            {pickupRowComplete(item) ? "Edit pickup form" : "Complete pickup form"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                       {(item as CartItem).unavailableReason ? (
                         <Text style={styles.unavailableReason}>{(item as CartItem).unavailableReason}</Text>
                       ) : null}
@@ -912,7 +1017,7 @@ export default function CartScreen() {
                                     styles.paymentChipTextActive,
                                 ]}
                               >
-                                Pay in cash
+                                Pay in Cash
                               </Text>
                             </Pressable>
                           </View>
@@ -984,7 +1089,7 @@ export default function CartScreen() {
                         styles.completeDetailsBtn,
                         pressed && { opacity: 0.8 },
                       ]}
-                      onPress={() => setLocalDeliveryModalOpen(true)}
+                      onPress={() => openFirstIncompleteLocalDeliveryModal()}
                     >
                       <Text style={styles.completeDetailsBtnText}>
                         Complete delivery details
@@ -997,7 +1102,7 @@ export default function CartScreen() {
                         styles.completeDetailsBtn,
                         pressed && { opacity: 0.8 },
                       ]}
-                      onPress={() => setPickupModalOpen(true)}
+                      onPress={() => openFirstIncompletePickupModal()}
                     >
                       <Text style={styles.completeDetailsBtnText}>
                         Complete pickup form
@@ -1014,6 +1119,17 @@ export default function CartScreen() {
                 </Text>
               </View>
 
+              {checkoutBlockedHints.length > 0 ? (
+                <View style={styles.checkoutHintBox}>
+                  <Text style={styles.checkoutHintTitle}>Before you can check out</Text>
+                  {checkoutBlockedHints.map((h) => (
+                    <Text key={h} style={styles.checkoutHintLine}>
+                      • {h}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+
               {useNativeStorefrontCheckout ? (
                 showPayInCash && cashItems.length > 0 && cardItems.length === 0 ? (
                   <Pressable
@@ -1024,7 +1140,7 @@ export default function CartScreen() {
                     {checkingOut ? (
                       <ActivityIndicator size="small" color="#fff" />
                     ) : (
-                      <Text style={styles.checkoutBtnText}>Complete order (pay in cash)</Text>
+                      <Text style={styles.checkoutBtnText}>Complete order (Pay in Cash)</Text>
                     )}
                   </Pressable>
                 ) : (
@@ -1104,8 +1220,9 @@ export default function CartScreen() {
 
       {itemForLocalDeliveryModal && (
         <LocalDeliveryModal
-          visible={localDeliveryModalOpen}
-          onClose={() => setLocalDeliveryModalOpen(false)}
+          key={`ld-${localDeliveryModalItemId}`}
+          visible={!!localDeliveryModalItemId}
+          onClose={() => setLocalDeliveryModalItemId(null)}
           policyText={
             (itemForLocalDeliveryModal.storeItem as CartItemStoreItem).localDeliveryTerms?.trim()
               ? (itemForLocalDeliveryModal.storeItem as CartItemStoreItem).localDeliveryTerms ?? undefined
@@ -1113,20 +1230,21 @@ export default function CartScreen() {
                 undefined
           }
           initialForm={
-            localDeliveryDetails
+            itemForLocalDeliveryModal.localDeliveryDetails
               ? {
-                  firstName: localDeliveryDetails.firstName ?? "",
-                  lastName: localDeliveryDetails.lastName ?? "",
-                  phone: localDeliveryDetails.phone ?? "",
-                  email: localDeliveryDetails.email ?? "",
+                  firstName: itemForLocalDeliveryModal.localDeliveryDetails.firstName ?? "",
+                  lastName: itemForLocalDeliveryModal.localDeliveryDetails.lastName ?? "",
+                  phone: itemForLocalDeliveryModal.localDeliveryDetails.phone ?? "",
+                  email: itemForLocalDeliveryModal.localDeliveryDetails.email ?? "",
                   deliveryAddress: {
-                    street: localDeliveryDetails.deliveryAddress?.street ?? "",
-                    city: localDeliveryDetails.deliveryAddress?.city ?? "",
-                    state: localDeliveryDetails.deliveryAddress?.state ?? "",
-                    zip: localDeliveryDetails.deliveryAddress?.zip ?? "",
+                    street: itemForLocalDeliveryModal.localDeliveryDetails.deliveryAddress?.street ?? "",
+                    city: itemForLocalDeliveryModal.localDeliveryDetails.deliveryAddress?.city ?? "",
+                    state: itemForLocalDeliveryModal.localDeliveryDetails.deliveryAddress?.state ?? "",
+                    zip: itemForLocalDeliveryModal.localDeliveryDetails.deliveryAddress?.zip ?? "",
                   },
-                  availableDropOffTimes: localDeliveryDetails.availableDropOffTimes ?? "",
-                  note: localDeliveryDetails.note ?? "",
+                  availableDropOffTimes:
+                    itemForLocalDeliveryModal.localDeliveryDetails.availableDropOffTimes ?? "",
+                  note: itemForLocalDeliveryModal.localDeliveryDetails.note ?? "",
                 }
               : undefined
           }
@@ -1135,24 +1253,25 @@ export default function CartScreen() {
       )}
       {itemForPickupModal && (
         <PickupTermsModal
-          visible={pickupModalOpen}
-          onClose={() => setPickupModalOpen(false)}
+          key={`pu-${pickupModalItemId}`}
+          visible={!!pickupModalItemId}
+          onClose={() => setPickupModalItemId(null)}
           policyText={
             (itemForPickupModal.storeItem as CartItemStoreItem).pickupTerms ??
             (itemForPickupModal.storeItem as CartItemStoreItem).member
               ?.sellerPickupPolicy ?? undefined
           }
           initialForm={
-            pickupDetails
+            itemForPickupModal.pickupDetails
               ? {
-                  firstName: pickupDetails.firstName ?? "",
-                  lastName: pickupDetails.lastName ?? "",
-                  phone: pickupDetails.phone ?? "",
-                  email: pickupDetails.email ?? "",
-                  preferredPickupDate: pickupDetails.preferredPickupDate ?? "",
-                  preferredPickupTime: pickupDetails.preferredPickupTime ?? "",
-                  note: pickupDetails.note ?? "",
-                  termsAcceptedAt: pickupDetails.termsAcceptedAt,
+                  firstName: itemForPickupModal.pickupDetails.firstName ?? "",
+                  lastName: itemForPickupModal.pickupDetails.lastName ?? "",
+                  phone: itemForPickupModal.pickupDetails.phone ?? "",
+                  email: itemForPickupModal.pickupDetails.email ?? "",
+                  preferredPickupDate: itemForPickupModal.pickupDetails.preferredPickupDate ?? "",
+                  preferredPickupTime: itemForPickupModal.pickupDetails.preferredPickupTime ?? "",
+                  note: itemForPickupModal.pickupDetails.note ?? "",
+                  termsAcceptedAt: itemForPickupModal.pickupDetails.termsAcceptedAt,
                 }
               : undefined
           }
@@ -1310,6 +1429,13 @@ const styles = StyleSheet.create({
     color: "#666",
     marginTop: 2,
   },
+  itemDetailLink: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    marginTop: 6,
+    textDecorationLine: "underline",
+  },
   paymentMethodRow: {
     marginTop: 10,
     paddingTop: 10,
@@ -1439,6 +1565,26 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
+  },
+  checkoutHintBox: {
+    backgroundColor: "#f9f6f0",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  checkoutHintTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 8,
+  },
+  checkoutHintLine: {
+    fontSize: 13,
+    color: theme.colors.text,
+    lineHeight: 20,
+    marginBottom: 4,
   },
   totalRow: {
     flexDirection: "row",

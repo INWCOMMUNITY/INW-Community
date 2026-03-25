@@ -12,7 +12,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { getToken, API_BASE } from "@/lib/api";
+import { getToken, apiPost } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -88,26 +88,30 @@ export default function SubscribeScreen() {
         router.replace({ pathname: "/signin", params: { plan: planId, returnTo: "/subscribe" } } as never);
         return;
       }
-      const res = await fetch(`${API_BASE}/api/stripe/checkout`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ planId, interval }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-      if (data.url) {
-        router.push(
-          `/web?url=${encodeURIComponent(data.url)}&title=${encodeURIComponent("Checkout")}` as import("expo-router").Href
-        );
-        return;
+      try {
+        const data = await apiPost<{ url?: string; error?: string }>("/api/stripe/checkout", {
+          planId,
+          interval,
+          returnBaseUrl: siteBase,
+        });
+        if (data.url) {
+          router.push(
+            `/web?url=${encodeURIComponent(data.url)}&title=${encodeURIComponent("Checkout")}` +
+              `&successPattern=${encodeURIComponent("my-community")}` +
+              `&successRoute=${encodeURIComponent("/(tabs)/my-community")}` +
+              "&refreshOnSuccess=1" as import("expo-router").Href
+          );
+          return;
+        }
+        alert(data.error ?? "Could not start checkout. Please try again.");
+      } catch (e) {
+        const err = e as { status?: number };
+        if (err.status === 401) {
+          router.replace({ pathname: "/signin", params: { returnTo: "/subscribe" } } as never);
+          return;
+        }
+        alert((e as { error?: string }).error ?? "Could not start checkout. Please try again.");
       }
-      if (res.status === 401) {
-        router.replace({ pathname: "/signin", params: { returnTo: "/subscribe" } } as never);
-        return;
-      }
-      alert(data.error ?? "Could not start checkout. Please try again.");
     } catch {
       alert("Something went wrong. Please try again.");
     } finally {

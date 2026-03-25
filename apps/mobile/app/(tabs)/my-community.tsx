@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   StyleSheet,
@@ -57,6 +57,7 @@ function SellerHubContent() {
   const openSellerMenu = useOpenSellerMenu();
   const [pendingShip, setPendingShip] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
+  const [sellerSetupComplete, setSellerSetupComplete] = useState(false);
 
   const hasSeller = member?.subscriptions?.some((s) => s.plan === "seller") ?? false;
 
@@ -70,6 +71,48 @@ function SellerHubContent() {
           })
           .catch(() => {});
       }
+    }, [hasSeller])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasSeller) return;
+      let cancelled = false;
+      (async () => {
+        try {
+          const [funds, shipping, me] = await Promise.all([
+            apiGet<{ hasStripeConnect?: boolean } | { error?: string }>("/api/seller-funds"),
+            apiGet<{ connected?: boolean } | { error?: string }>("/api/shipping/status"),
+            apiGet<{
+              sellerShippingPolicy?: string | null;
+              sellerLocalDeliveryPolicy?: string | null;
+              sellerPickupPolicy?: string | null;
+              sellerReturnPolicy?: string | null;
+            }>("/api/me"),
+          ]);
+          if (cancelled) return;
+          const stripe = Boolean((funds as { hasStripeConnect?: boolean }).hasStripeConnect);
+          const shippo = Boolean((shipping as { connected?: boolean }).connected);
+          const p = me as {
+            sellerShippingPolicy?: string | null;
+            sellerLocalDeliveryPolicy?: string | null;
+            sellerPickupPolicy?: string | null;
+            sellerReturnPolicy?: string | null;
+          };
+          const anyPolicy = [
+            p?.sellerShippingPolicy,
+            p?.sellerLocalDeliveryPolicy,
+            p?.sellerPickupPolicy,
+            p?.sellerReturnPolicy,
+          ].some((v) => typeof v === "string" && v.trim().length > 0);
+          setSellerSetupComplete(stripe && shippo && anyPolicy);
+        } catch {
+          if (!cancelled) setSellerSetupComplete(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
     }, [hasSeller])
   );
 
@@ -107,16 +150,23 @@ function SellerHubContent() {
     href?: string;
     onPress?: () => void;
     icon: keyof typeof Ionicons.glyphMap;
-  }[] = [
-    { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
-    { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
-    { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
-    { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
-    { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
-    { label: "Pick Up", href: "/seller-hub/pickups", icon: "hand-left-outline" },
-    { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
-    { label: "Before You Start", href: "/seller-hub/before-you-start", icon: "checkbox-outline" },
-  ];
+  }[] = useMemo(
+    () => [
+      { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
+      { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
+      { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
+      { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
+      { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
+      { label: "Pick Up", href: "/seller-hub/pickups", icon: "hand-left-outline" },
+      { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
+      {
+        label: sellerSetupComplete ? "Seller Variables" : "Before You Start",
+        href: "/seller-hub/before-you-start",
+        icon: "checkbox-outline",
+      },
+    ],
+    [sellerSetupComplete]
+  );
 
   return (
     <View style={styles.container}>
@@ -142,7 +192,7 @@ function SellerHubContent() {
               action.label === "Orders / To Ship" && pendingShip > 0;
             return (
               <Pressable
-                key={action.label}
+                key={action.href ?? action.label}
                 style={({ pressed }) => [
                   styles.sellerHubGridButton,
                   pressed && styles.buttonPressed,
@@ -300,7 +350,7 @@ function ResaleHubContent() {
         <RNView style={styles.sellerHubGrid}>
           {gridActions.map((action) => (
             <Pressable
-              key={action.label}
+              key={action.href ?? action.label}
               style={({ pressed }) => [
                 styles.sellerHubGridButton,
                 pressed && styles.buttonPressed,
@@ -632,7 +682,7 @@ export default function MyCommunityScreen() {
           ]
         : []),
       {
-        label: "Customer redemptions",
+        label: "Redeemed Rewards",
         icon: "receipt-outline",
         onPress: () => (router.push as (href: string) => void)("/redeemed-rewards"),
       },
@@ -1367,19 +1417,19 @@ const styles = StyleSheet.create({
   },
   tanButton: {
     flex: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
     backgroundColor: theme.colors.primary,
     borderWidth: 1,
     borderColor: theme.colors.primary,
     borderRadius: 6,
-    padding: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    minHeight: 72,
   },
-  tanButtonIcon: {
-    marginRight: 0,
-  },
+  tanButtonIcon: {},
   tanButtonText: {
     fontSize: 16,
     fontWeight: "600",
@@ -1570,6 +1620,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
     borderRadius: 10,
     padding: 16,
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,

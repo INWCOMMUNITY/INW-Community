@@ -64,7 +64,7 @@ export default function SignupBusinessScreen() {
   const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const isExitingRef = useRef(false);
+  const [allowRemoveWithoutPrompt, setAllowRemoveWithoutPrompt] = useState(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({ gestureEnabled: false });
@@ -99,8 +99,8 @@ export default function SignupBusinessScreen() {
               style: "destructive",
               onPress: async () => {
                 await signOut();
-                isExitingRef.current = true;
-                navigation.dispatch(data.action as never);
+                setAllowRemoveWithoutPrompt(true);
+                setTimeout(() => navigation.dispatch(data.action as never), 0);
               },
             },
           ]
@@ -110,7 +110,7 @@ export default function SignupBusinessScreen() {
     [step, navigation, signOut]
   );
 
-  usePreventRemove(!isExitingRef.current, onPreventRemove);
+  usePreventRemove(!allowRemoveWithoutPrompt, onPreventRemove);
 
   const handleAccountSubmit = async () => {
     setError("");
@@ -224,12 +224,15 @@ export default function SignupBusinessScreen() {
   };
 
   const handleCheckoutSuccess = () => {
-    refreshMember()
-      .then(() => router.replace("/(tabs)/my-community"))
-      .catch((e) => {
-        if (__DEV__) console.warn("[handleCheckoutSuccess]", e);
-        router.replace("/(tabs)/my-community");
-      });
+    setAllowRemoveWithoutPrompt(true);
+    setTimeout(() => {
+      refreshMember()
+        .then(() => router.replace("/(tabs)/my-community"))
+        .catch((e) => {
+          if (__DEV__) console.warn("[handleCheckoutSuccess]", e);
+          router.replace("/(tabs)/my-community");
+        });
+    }, 0);
   };
 
   if (step === "account") {
@@ -519,6 +522,7 @@ export default function SignupBusinessScreen() {
             interval={billingInterval}
             onSuccess={handleCheckoutSuccess}
             refreshMember={refreshMember}
+            onExternalCheckoutStart={() => setAllowRemoveWithoutPrompt(true)}
           />
         </View>
       </ScrollView>

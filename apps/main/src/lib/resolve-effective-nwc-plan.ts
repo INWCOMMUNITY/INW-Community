@@ -1,6 +1,5 @@
 import { prisma } from "database";
 import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
-import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
 import type { SubscriptionPlan } from "@/lib/mobile-auth";
 
 /** Highest privilege first: Seller > Business (sponsor) > Resident (subscribe). */
@@ -14,7 +13,11 @@ export async function resolveEffectiveNwcPlan(memberId: string): Promise<Subscri
   for (const plan of PRIORITY) {
     if (plan === "subscribe") {
       const row = await prisma.subscription.findFirst({
-        where: prismaWhereMemberSubscribePlanAccess(memberId),
+        where: {
+          memberId,
+          plan: "subscribe" as const,
+          status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] },
+        },
         select: { plan: true },
       });
       if (row) return "subscribe";

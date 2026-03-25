@@ -7,7 +7,7 @@ import { containsProhibitedCategory, validateText } from "@/lib/content-moderati
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
-import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -87,7 +87,7 @@ export async function PATCH(
         where: prismaWhereMemberSellerPlanAccess(session.user.id),
       });
       const subscribeSub = await prisma.subscription.findFirst({
-        where: prismaWhereMemberSubscribePlanAccess(session.user.id),
+        where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
       });
       if (data.listingType === "new") {
         if (!sellerSub) {

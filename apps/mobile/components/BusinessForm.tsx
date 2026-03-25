@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import * as ImageManipulator from "expo-image-manipulator";
 import {
   StyleSheet,
   View,
@@ -51,6 +52,33 @@ function toFullUrl(url: string): string {
   return url.startsWith("http")
     ? url
     : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+/** Resize/compress before upload for faster transfers; output JPEG. */
+async function prepareBusinessImage(uri: string): Promise<{ uri: string; type: string }> {
+  try {
+    const r = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 2048 } }],
+      { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    return { uri: r.uri, type: "image/jpeg" };
+  } catch {
+    return { uri, type: "image/jpeg" };
+  }
+}
+
+function uploadErrorMessage(e: unknown, fallback: string, onDraftSubmit?: boolean, status?: number): string {
+  const raw = (e as { error?: string }).error;
+  const msg = typeof raw === "string" && raw.trim() ? raw.trim() : fallback;
+  if (
+    onDraftSubmit &&
+    status === 403 &&
+    (msg.includes("Business, Seller, or Subscribe") || msg.includes("plan required"))
+  ) {
+    return "Photo upload requires an active signup step. Go back and confirm your account, or finish the previous screen, then try again.";
+  }
+  return msg;
 }
 
 function parseHours(ho: unknown): HoursRecord {
@@ -187,6 +215,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
   const [uploadPhotoProgress, setUploadPhotoProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState("");
   const [categoryPresets, setCategoryPresets] = useState<CategoryPreset[]>([]);
+  const galleryUploadSessionRef = useRef(Promise.resolve());
 
   useEffect(() => {
     apiGet<{ categories?: CategoryPreset[] }>("/api/business-categories")
@@ -219,18 +248,19 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         setError("Sign in to upload photos.");
         return;
       }
+      const prepared = await prepareBusinessImage(asset.uri);
       const formData = new FormData();
       formData.append("file", {
-        uri: asset.uri,
-        type: asset.mimeType ?? "image/jpeg",
+        uri: prepared.uri,
+        type: prepared.type,
         name: "logo.jpg",
       } as unknown as Blob);
       const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
       const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
       setLogoUrl(toFullUrl(url));
     } catch (e) {
-      const msg = (e as { error?: string }).error;
-      setError(typeof msg === "string" && msg.trim() ? msg : "Logo upload failed. Try again.");
+      const err = e as { error?: string; status?: number };
+      setError(uploadErrorMessage(e, "Logo upload failed. Try again.", !!onDraftSubmit, err.status));
     } finally {
       setUploadingLogo(false);
     }
@@ -259,72 +289,75 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
     });
     if (result.canceled) return;
     const assets = result.assets.slice(0, remaining);
-    setUploadingPhotos(true);
-    setUploadPhotoProgress({ done: 0, total: assets.length });
-    setError("");
-    const token = await getToken();
-    if (!token) {
-      setUploadingPhotos(false);
-      setUploadPhotoProgress(null);
-      setError("Sign in to upload photos.");
-      return;
-    }
-    let added = 0;
-    let lastErr = "";
-    const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
-    const CONCURRENCY = 3;
-
-    const uploadOne = async (asset: (typeof assets)[0]) => {
-      if (asset.fileSize != null && asset.fileSize > MAX_UPLOAD_FILE_BYTES) {
-        lastErr = `A photo exceeds ${formatMaxUploadSizeLabel()}.`;
+    const session = (async () => {
+      setUploadingPhotos(true);
+      setUploadPhotoProgress({ done: 0, total: assets.length });
+      setError("");
+      const token = await getToken();
+      if (!token) {
+        setUploadingPhotos(false);
+        setUploadPhotoProgress(null);
+        setError("Sign in to upload photos.");
         return;
       }
-      try {
-        const formData = new FormData();
-        formData.append("file", {
-          uri: asset.uri,
-          type: asset.mimeType ?? "image/jpeg",
-          name: "photo.jpg",
-        } as unknown as Blob);
-        const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
-        const fullUrl = toFullUrl(url);
-        setPhotos((p) => {
-          if (p.length >= MAX_BUSINESS_GALLERY_PHOTOS) return p;
-          if (p.includes(fullUrl)) return p;
-          return [...p, fullUrl];
-        });
-        added += 1;
-      } catch (e) {
-        const msg = (e as { error?: string }).error;
-        lastErr =
-          typeof msg === "string" && msg.trim()
-            ? msg
-            : "Photo upload failed. Try again.";
-      } finally {
-        setUploadPhotoProgress((prev) =>
-          prev ? { ...prev, done: Math.min(prev.done + 1, prev.total) } : null
-        );
-      }
-    };
+      let added = 0;
+      const errMsgs: string[] = [];
+      const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
+      const CONCURRENCY = 4;
 
-    try {
-      for (let start = 0; start < assets.length; start += CONCURRENCY) {
-        const chunk = assets.slice(start, start + CONCURRENCY);
-        await Promise.all(chunk.map((a) => uploadOne(a)));
+      const uploadOne = async (asset: (typeof assets)[0]) => {
+        if (asset.fileSize != null && asset.fileSize > MAX_UPLOAD_FILE_BYTES) {
+          errMsgs.push(`A photo exceeds ${formatMaxUploadSizeLabel()}.`);
+          return;
+        }
+        try {
+          const prepared = await prepareBusinessImage(asset.uri);
+          const formData = new FormData();
+          formData.append("file", {
+            uri: prepared.uri,
+            type: prepared.type,
+            name: "photo.jpg",
+          } as unknown as Blob);
+          const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
+          const fullUrl = toFullUrl(url);
+          setPhotos((p) => {
+            if (p.length >= MAX_BUSINESS_GALLERY_PHOTOS) return p;
+            if (p.includes(fullUrl)) return p;
+            return [...p, fullUrl];
+          });
+          added += 1;
+        } catch (e) {
+          const err = e as { error?: string; status?: number };
+          errMsgs.push(uploadErrorMessage(e, "Photo upload failed.", !!onDraftSubmit, err.status));
+        } finally {
+          setUploadPhotoProgress((prev) =>
+            prev ? { ...prev, done: Math.min(prev.done + 1, prev.total) } : null
+          );
+        }
+      };
+
+      try {
+        for (let start = 0; start < assets.length; start += CONCURRENCY) {
+          const chunk = assets.slice(start, start + CONCURRENCY);
+          await Promise.all(chunk.map((a) => uploadOne(a)));
+        }
+        const distinct = [...new Set(errMsgs.filter(Boolean))];
+        const summary = distinct.join(" ");
+        if (added < assets.length && summary) {
+          setError(
+            added > 0
+              ? `Uploaded ${added} of ${assets.length}. ${summary}`
+              : summary
+          );
+        } else if (added === 0 && assets.length > 0 && summary) {
+          setError(summary);
+        }
+      } finally {
+        setUploadingPhotos(false);
+        setUploadPhotoProgress(null);
       }
-      if (added < assets.length && lastErr) {
-        setError(
-          added > 0
-            ? `Uploaded ${added} of ${assets.length}. ${lastErr}`
-            : lastErr
-        );
-      } else if (added === 0 && assets.length > 0 && lastErr) {
-        setError(lastErr);
-      }
-    } finally {
-      setUploadingPhotos(false);
-      setUploadPhotoProgress(null);
-    }
+    })();
+    galleryUploadSessionRef.current = galleryUploadSessionRef.current.then(() => session);
   };
 
   const removePhoto = (i: number) => {
@@ -356,6 +389,9 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
     setError("");
     setSubmitting(true);
     try {
+      if (onDraftSubmit) {
+        await galleryUploadSessionRef.current.catch(() => {});
+      }
       const map: Record<string, string[]> = {};
       cats.forEach((c, i) => {
         const list = (subsPerSlot[i] ?? []).map((s) => s.trim()).filter(Boolean);
@@ -674,7 +710,14 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
           <Text style={styles.label}>Photos for Gallery (Recommended)</Text>
           <Text style={styles.hint}>
             Up to {MAX_BUSINESS_GALLERY_PHOTOS} photos, {formatMaxUploadSizeLabel()} each (JPEG, PNG, WebP, GIF).
+            Images are resized for faster upload. You can tap Continue during signup; we finish any in-progress uploads
+            before moving on.
           </Text>
+          {uploadingPhotos && uploadPhotoProgress ? (
+            <Text style={styles.uploadProgressBanner}>
+              Uploading gallery photos: {uploadPhotoProgress.done}/{uploadPhotoProgress.total} complete…
+            </Text>
+          ) : null}
           <Pressable
             style={[
               styles.uploadBtn,
@@ -720,13 +763,16 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable
-          style={[styles.submitBtn, (submitting || uploadingLogo || uploadingPhotos) && styles.submitBtnDisabled]}
+          style={[
+            styles.submitBtn,
+            (submitting || uploadingLogo || (!onDraftSubmit && uploadingPhotos)) && styles.submitBtnDisabled,
+          ]}
           onPress={handleSubmit}
-          disabled={submitting || uploadingLogo || uploadingPhotos}
+          disabled={submitting || uploadingLogo || (!onDraftSubmit && uploadingPhotos)}
         >
           {submitting ? (
             <ActivityIndicator color="#fff" />
-          ) : uploadingLogo || uploadingPhotos ? (
+          ) : uploadingLogo || (!onDraftSubmit && uploadingPhotos) ? (
             <View style={styles.uploadingRow}>
               <ActivityIndicator color="#fff" size="small" />
               <Text style={styles.submitBtnText}>Uploading photos…</Text>
@@ -763,6 +809,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   hint: { fontSize: 12, color: "#666", marginBottom: 8 },
+  uploadProgressBanner: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    marginBottom: 8,
+  },
   categorySlot: {
     borderWidth: 1,
     borderColor: "#e5e7eb",

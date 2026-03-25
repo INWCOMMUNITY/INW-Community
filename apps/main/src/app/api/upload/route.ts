@@ -7,7 +7,7 @@ import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import path from "path";
 import fs from "fs/promises";
 
-const MAX_SIZE = 160 * 1024 * 1024; // 160MB (listing photos; was 80MB)
+const MAX_SIZE = 120 * 1024 * 1024; // 120MB (business / listing uploads via this route)
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 export async function POST(req: NextRequest) {
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: "File too large (max 160MB)" }, { status: 400 });
+    return NextResponse.json({ error: "File too large (max 120MB)" }, { status: 400 });
   }
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: "Invalid file type. Use JPEG, PNG, WebP, or GIF." }, { status: 400 });

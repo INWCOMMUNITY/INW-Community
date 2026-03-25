@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useLayoutEffect } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Alert,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
@@ -27,6 +28,7 @@ interface TodoItem {
 
 export default function BeforeYouStartScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const [loading, setLoading] = useState(true);
   const [hasStripeConnect, setHasStripeConnect] = useState(false);
   const [hasShippo, setHasShippo] = useState(false);
@@ -128,10 +130,14 @@ export default function BeforeYouStartScreen() {
   ];
 
   const allComplete = hasStripeConnect && hasShippo && hasPolicies;
-  const title = allComplete ? "Checklist" : "Before You Start";
+  const title = allComplete ? "Seller Variables" : "Before You Start";
   const subtitle = allComplete
     ? "You're all set. You can still open the links below to update or view."
     : "Complete these steps to start selling and shipping on NWC. Set up payments, shipping, and your policies.";
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ title });
+  }, [navigation, title]);
 
   if (loading) {
     return (

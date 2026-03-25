@@ -58,7 +58,7 @@ Our website uses essential session and security cookies. We do not use third-par
 When you use our Northwest Community mobile app, we may also collect or process:
 ● Account credentials and authentication tokens stored on your device (secured storage)
 ● Device type and operating system (for compatibility)
-● Photos and images uploaded from your device (including logos, listing photos, and business gallery images), stored via our secure file storage. Per-file uploads are limited to 80MB; accepted formats are JPEG, PNG, WebP, and GIF. Business directory profiles may include up to 12 gallery photos in addition to a logo.
+● Photos and images uploaded from your device (including logos, listing photos, and business gallery images), stored via our secure file storage. Per-file uploads are limited to 120MB; accepted formats are JPEG, PNG, WebP, and GIF. Business directory profiles may include up to 12 gallery photos in addition to a logo.
 
 Push notifications: If you enable notifications on your device, a push token may be registered with Northwest Community (and with our push delivery provider) so we can send notices to your app. We use push notifications for service- and activity-related messages, such as order or account alerts, event invitations, responses to event invitations you sent, event reminders, and similar messages tied to your account. You may disable push notifications at any time in your device settings. We may remove tokens that are no longer valid (for example, after you turn off notifications or uninstall the app).
 

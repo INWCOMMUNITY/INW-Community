@@ -35,11 +35,23 @@ export default function WebScreen() {
   const [loading, setLoading] = useState(true);
   const [webViewUri, setWebViewUri] = useState<string | null>(null);
   const authHandled = useRef(false);
+  const checkoutSuccessHandled = useRef(false);
 
   const resolvedUrl = url ? decodeURIComponent(url) : "";
   const resolvedSuccessPattern = successPattern ? decodeURIComponent(successPattern) : "";
   const resolvedSuccessRoute = successRoute ? decodeURIComponent(successRoute) : "";
   const shouldRefreshOnSuccess = refreshOnSuccess === "1";
+
+  useEffect(() => {
+    checkoutSuccessHandled.current = false;
+  }, [resolvedUrl]);
+
+  const runCheckoutSuccessRefresh = useCallback(async () => {
+    if (checkoutSuccessHandled.current) return;
+    checkoutSuccessHandled.current = true;
+    await apiPost("/api/stripe/sync-subscriptions", {}).catch(() => {});
+    await refreshMember?.().catch(() => {});
+  }, [refreshMember]);
 
   useEffect(() => {
     if (!resolvedUrl) {
@@ -81,14 +93,14 @@ export default function WebScreen() {
       try {
         await setToken(token);
         if (shouldRefreshOnSuccess) {
-          await refreshMember?.().catch(() => {});
+          await runCheckoutSuccessRefresh();
         }
         router.replace((resolvedSuccessRoute || "/(tabs)/home") as never);
       } catch {
         authHandled.current = false;
       }
     },
-    [shouldRefreshOnSuccess, refreshMember, router, resolvedSuccessRoute]
+    [shouldRefreshOnSuccess, router, resolvedSuccessRoute, runCheckoutSuccessRefresh]
   );
 
   const onNavigationStateChange = useCallback(
@@ -101,12 +113,12 @@ export default function WebScreen() {
       if (!nav.url.includes(resolvedSuccessPattern)) return;
       (async () => {
         if (shouldRefreshOnSuccess) {
-          await refreshMember?.().catch(() => {});
+          await runCheckoutSuccessRefresh();
         }
         router.replace(resolvedSuccessRoute as never);
       })();
     },
-    [resolvedSuccessPattern, resolvedSuccessRoute, shouldRefreshOnSuccess, refreshMember, router, handleAuthRedirect]
+    [resolvedSuccessPattern, resolvedSuccessRoute, shouldRefreshOnSuccess, router, handleAuthRedirect, runCheckoutSuccessRefresh]
   );
 
   const onShouldStartLoadWithRequest = useCallback(

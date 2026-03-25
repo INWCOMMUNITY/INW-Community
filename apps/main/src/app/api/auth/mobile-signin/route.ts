@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import bcrypt from "bcryptjs";
 import { signMobileToken } from "@/lib/mobile-auth";
-import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 
 export async function POST(req: NextRequest) {
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     }
 
     const sub = await prisma.subscription.findFirst({
-      where: prismaWhereMemberSubscribePlanAccess(member.id),
+      where: prismaWhereMemberSubscribeTierPerksAccess(member.id),
       select: { id: true },
     });
 

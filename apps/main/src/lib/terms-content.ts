@@ -32,7 +32,7 @@ Businesses and Sellers must:
 3. USER-GENERATED CONTENT (UGC) POLICY
 3.1 Your Content
 Users may post blogs, listings, messages, feed posts, group posts, and event information.
-Uploads (such as images for listings, logos, or business gallery photos) are subject to technical limits posted in the app or on the website, including a maximum of 80MB per file and, for business profiles, up to 12 gallery photos in addition to a logo; accepted image types are JPEG, PNG, WebP, and GIF unless we state otherwise.
+Uploads (such as images for listings, logos, or business gallery photos) are subject to technical limits posted in the app or on the website, including a maximum of 120MB per file and, for business profiles, up to 12 gallery photos in addition to a logo; accepted image types are JPEG, PNG, WebP, and GIF unless we state otherwise.
 By submitting content, you grant NWC a non-exclusive, worldwide, royalty-free license to:
 ● Display, distribute, share, and promote your content
 ● Modify content only for formatting or minor grammatical corrections. You retain ownership of your content.

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { jwtVerify } from "jose";
 import { signMobileToken, getBearerToken } from "@/lib/mobile-auth";
-import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 
 const JWT_ISSUER = "nwc-mobile";
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     const [sub, effectivePlan] = await Promise.all([
       prisma.subscription.findFirst({
-        where: prismaWhereMemberSubscribePlanAccess(member.id),
+        where: prismaWhereMemberSubscribeTierPerksAccess(member.id),
         select: { id: true },
       }),
       resolveEffectiveNwcPlan(member.id),

@@ -2,7 +2,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { getServerSession as nextAuthGetServerSession } from "next-auth";
 import { prisma } from "database";
 import bcrypt from "bcryptjs";
-import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 
 export const authOptions = {
   providers: [
@@ -47,11 +47,11 @@ export const authOptions = {
         const memberId = token.id as string | undefined;
         if (memberId) {
           const sub = await prisma.subscription.findFirst({
-            where: prismaWhereMemberSubscribePlanAccess(memberId),
+            where: prismaWhereMemberSubscribeTierPerksAccess(memberId),
             select: { id: true },
           });
           (session.user as { isSubscriber?: boolean }).isSubscriber = !!sub;
-          /** Resale Hub (member marketplace UI) — Subscribe ($10) only; Seller Hub is separate. */
+          /** Resale Hub — any paid NWC tier that includes resident subscriber perks. */
           (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = !!sub;
         }
         const adminEmail = process.env.ADMIN_EMAIL;

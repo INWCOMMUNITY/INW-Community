@@ -1311,7 +1311,7 @@ export default function ListItemScreen() {
               />
             </View>
             <Text style={styles.hint}>
-              If on, buyers can choose pay in cash at checkout for pickup or local delivery (not for shipped orders).
+              If on, buyers can choose Pay in Cash at checkout for pickup or local delivery (not for shipped orders).
             </Text>
           </>
         )}

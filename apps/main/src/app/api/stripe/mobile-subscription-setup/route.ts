@@ -206,6 +206,9 @@ export async function POST(req: NextRequest) {
 
     console.log("[mobile-subscription-setup] Using priceId:", priceId, "for plan:", planId, "interval:", interval);
 
+    const priceDetails = await stripe.prices.retrieve(priceId);
+    const recurring = priceDetails.recurring;
+
     const subscriptionParams: Stripe.SubscriptionCreateParams = {
       customer: customerId,
       items: [{ price: priceId, quantity: 1 }],
@@ -254,6 +257,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           completed: true,
           subscriptionId: subscription.id,
+          applePayPresentation: {
+            amountCents: 0,
+            currency: "usd",
+            intervalUnit: recurring?.interval === "year" ? "year" : "month",
+            intervalCount: recurring?.interval_count ?? 1,
+            planLabel:
+              planId === "subscribe"
+                ? "NWC Resident Subscribe"
+                : planId === "sponsor"
+                  ? "NWC Business"
+                  : "NWC Seller",
+          },
         });
       }
       await stripe.subscriptions.cancel(subscription.id);
@@ -273,6 +288,18 @@ export async function POST(req: NextRequest) {
       ephemeralKey: ephemeralKey.secret,
       customerId,
       subscriptionId: subscription.id,
+      applePayPresentation: {
+        amountCents: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        intervalUnit: recurring?.interval === "year" ? "year" : "month",
+        intervalCount: recurring?.interval_count ?? 1,
+        planLabel:
+          planId === "subscribe"
+            ? "NWC Resident Subscribe"
+            : planId === "sponsor"
+              ? "NWC Business"
+              : "NWC Seller",
+      },
     });
   } catch (e) {
     const err = e as Error;

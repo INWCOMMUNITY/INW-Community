@@ -7,7 +7,7 @@ import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-varia
 import { REWARD_PLACEHOLDER_TITLE } from "@/lib/reward-fulfillment-store-item";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
-import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -315,7 +315,7 @@ export async function GET(req: NextRequest) {
     const listingTypeFilter = listingTypeParam === "resale" ? "resale" : listingTypeParam === "new" ? "new" : null;
     if (listingTypeFilter === "resale") {
       const subscribeSub = await prisma.subscription.findFirst({
-        where: prismaWhereMemberSubscribePlanAccess(userId),
+        where: prismaWhereMemberSubscribeTierPerksAccess(userId),
       });
       const sellerSub = await prisma.subscription.findFirst({
         where: prismaWhereMemberSellerPlanAccess(userId),
@@ -503,7 +503,7 @@ export async function POST(req: NextRequest) {
     where: prismaWhereMemberSellerPlanAccess(userId),
   });
   const subscribeSub = await prisma.subscription.findFirst({
-    where: prismaWhereMemberSubscribePlanAccess(userId),
+    where: prismaWhereMemberSubscribeTierPerksAccess(userId),
   });
   const canListResale = Boolean(sellerSub || subscribeSub);
   if (listingType === "new") {
