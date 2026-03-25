@@ -106,6 +106,7 @@ model Member {
   reports                  Report[]
   pushTokens               MemberPushToken[]
   webviewBridgeTokens      WebviewBridgeToken[]
+  planSwitchLogs           PlanSwitchLog[]
 }
 
 model WebviewBridgeToken {
@@ -209,6 +210,20 @@ model Subscription {
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+
+// Audit + rate limit for change-plan API (max 2 per rolling 30 days unless admin).
+model PlanSwitchLog {
+  id        String   @id @default(cuid())
+  memberId  String   @map("member_id")
+  fromPlan  Plan     @map("from_plan")
+  toPlan    Plan     @map("to_plan")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, createdAt])
+  @@map("plan_switch_log")
 }
 
 enum Plan {

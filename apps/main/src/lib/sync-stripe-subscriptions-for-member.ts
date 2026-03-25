@@ -51,14 +51,15 @@ async function upsertSubscriptionRow(
     }
   }
 
-  let plan: Plan | null = null;
-  const metaPlan = sub.metadata?.planId?.trim();
-  if (metaPlan === "subscribe" || metaPlan === "sponsor" || metaPlan === "seller") {
-    plan = metaPlan as Plan;
-  } else {
-    const rawPrice = sub.items.data[0]?.price;
-    const priceId = typeof rawPrice === "string" ? rawPrice : rawPrice?.id ?? null;
-    plan = planFromStripePriceId(priceId);
+  const rawPrice = sub.items.data[0]?.price;
+  const priceId = typeof rawPrice === "string" ? rawPrice : rawPrice?.id ?? null;
+  // Prefer line-item price (source of truth after Stripe applies changes); metadata can lag after scheduled downgrades.
+  let plan: Plan | null = planFromStripePriceId(priceId);
+  if (!plan) {
+    const metaPlan = sub.metadata?.planId?.trim();
+    if (metaPlan === "subscribe" || metaPlan === "sponsor" || metaPlan === "seller") {
+      plan = metaPlan as Plan;
+    }
   }
   if (!plan) {
     return 0;

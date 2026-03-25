@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
 } from "react-native";
-import { StripeProvider, usePaymentSheet } from "@stripe/stripe-react-native";
+import { StripeProvider, usePaymentSheet, usePlatformPay } from "@stripe/stripe-react-native";
 import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
+import { logApplePayDiagnostics } from "@/lib/stripe-wallet-config";
 
 /** Single Connect payment: init + present inside a StripeProvider with stripeAccountId so the SDK finds the PI. */
 function ConnectSheetRunner({
@@ -21,11 +23,20 @@ function ConnectSheetRunner({
   onError: (message: string) => void;
 }) {
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
+  const { isPlatformPaySupported } = usePlatformPay();
   const ran = useRef(false);
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
     (async () => {
+      if (Platform.OS === "ios") {
+        const walletOk = await isPlatformPaySupported().catch(() => false);
+        if (!walletOk) {
+          logApplePayDiagnostics("store-connect", "isPlatformPaySupported returned false (Connect checkout)", {
+            hint: "Apple Pay on marketplace checkout uses the seller’s Stripe Connect account; the seller account must support wallets, and the app needs a valid Merchant ID.",
+          });
+        }
+      }
       const amountCents = payment.amountCents ?? 0;
       const applePayConfig: {
         merchantCountryCode: string;
@@ -40,8 +51,9 @@ function ConnectSheetRunner({
         merchantDisplayName: "Northwest Community",
         paymentIntentClientSecret: payment.clientSecret,
         returnURL: "mobile://stripe-redirect",
+        allowsDelayedPaymentMethods: true,
         applePay: applePayConfig,
-        googlePay: { merchantCountryCode: "US", testEnv: __DEV__ ?? false },
+        googlePay: { merchantCountryCode: "US", currencyCode: "USD", testEnv: __DEV__ ?? false },
         paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
         appearance: {
           colors: {
@@ -70,7 +82,16 @@ function ConnectSheetRunner({
       }
       onSuccess();
     })();
-  }, [payment.clientSecret, payment.orderIds, initPaymentSheet, presentPaymentSheet, onSuccess, onError]);
+  }, [
+    payment.clientSecret,
+    payment.orderIds,
+    payment.amountCents,
+    initPaymentSheet,
+    presentPaymentSheet,
+    onSuccess,
+    onError,
+    isPlatformPaySupported,
+  ]);
   return null;
 }
 
@@ -112,6 +133,7 @@ export function StorefrontNativeCheckoutButton({
   onShippingAddressFormatted,
 }: StorefrontNativeCheckoutButtonProps) {
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
+  const { isPlatformPaySupported } = usePlatformPay();
   const [loading, setLoading] = useState(false);
   const [connectSheet, setConnectSheet] = useState<{ payments: { clientSecret: string; orderIds: string[]; stripeAccountId?: string; amountCents?: number }[]; index: number } | null>(null);
   const completedRef = useRef(false);
@@ -286,6 +308,14 @@ export function StorefrontNativeCheckoutButton({
       }
 
       // Fallback when API doesn't return stripeAccountId (e.g. old backend).
+      if (Platform.OS === "ios") {
+        const walletOk = await isPlatformPaySupported().catch(() => false);
+        if (!walletOk) {
+          logApplePayDiagnostics("store-platform", "isPlatformPaySupported returned false", {
+            hint: "Verify Apple Pay capability, Merchant ID, and Wallet on device.",
+          });
+        }
+      }
       for (let i = 0; i < payments.length; i++) {
         const p = payments[i];
         const amountCents = p.amountCents ?? 0;
@@ -302,9 +332,11 @@ export function StorefrontNativeCheckoutButton({
           merchantDisplayName: "Northwest Community",
           paymentIntentClientSecret: p.clientSecret,
           returnURL: "mobile://stripe-redirect",
+          allowsDelayedPaymentMethods: true,
           applePay: applePayConfig,
           googlePay: {
             merchantCountryCode: "US",
+            currencyCode: "USD",
             testEnv: __DEV__ ?? false,
           },
           paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
@@ -411,6 +443,7 @@ export function StorefrontNativeCheckoutButton({
     onError,
     setCheckingOut,
     onShippingAddressFormatted,
+    isPlatformPaySupported,
   ]);
 
   const isDisabled = disabled || loading;

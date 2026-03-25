@@ -32,7 +32,12 @@ interface LocalDeliveryModalProps {
   onClose: () => void;
   policyText?: string | null;
   initialForm?: Partial<LocalDeliveryDetails> | null;
-  onSave: (form: LocalDeliveryDetails & { termsAcceptedAt?: string }) => void;
+  /** Cart line id when saving from cart — passed as 2nd arg so PATCH does not rely on separate React state. */
+  contextItemId?: string | null;
+  onSave: (
+    form: LocalDeliveryDetails & { termsAcceptedAt?: string },
+    contextItemId?: string | null
+  ) => void;
 }
 
 const emptyForm: LocalDeliveryDetails = {
@@ -67,6 +72,7 @@ export function LocalDeliveryModal({
   onClose,
   policyText,
   initialForm,
+  contextItemId,
   onSave,
 }: LocalDeliveryModalProps) {
   const insets = useSafeAreaInsets();
@@ -179,10 +185,13 @@ export function LocalDeliveryModal({
       f.availableDropOffTimes.trim();
     const ok = fieldsOk && (!hasPolicy || termsAccepted);
     if (ok) {
-      onSave({
-        ...f,
-        ...(hasPolicy ? { termsAcceptedAt: new Date().toISOString() } : {}),
-      });
+      onSave(
+        {
+          ...f,
+          ...(hasPolicy ? { termsAcceptedAt: new Date().toISOString() } : {}),
+        },
+        contextItemId ?? undefined
+      );
     } else {
       setValidationError(
         hasPolicy

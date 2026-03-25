@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getBlockedMemberIds } from "@/lib/member-block";
+import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 import { isFeedPostRenderable } from "@/lib/feed-post-visible";
 
 export async function GET(req: NextRequest) {
@@ -133,7 +133,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ posts: feedItems, nextCursor });
   }
 
-  const [followBusinesses, friendships, myGroups, followedTags, blockedIdSet] = await Promise.all([
+  const [followBusinesses, friendships, myGroups, followedTags, excludedAuthors] = await Promise.all([
     prisma.followBusiness.findMany({
       where: { memberId: session.user.id },
       select: { business: { select: { memberId: true } } },
@@ -155,9 +155,9 @@ export async function GET(req: NextRequest) {
       where: { memberId: session.user.id },
       select: { tagId: true },
     }),
-    getBlockedMemberIds(session.user.id),
+    getFeedExcludedAuthorIds(session.user.id),
   ]);
-  const blockedIds = Array.from(blockedIdSet);
+  const blockedIds = excludedAuthors;
 
   const followBusinessAuthorIds = followBusinesses
     .map((fb) => fb.business?.memberId)

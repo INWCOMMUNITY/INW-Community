@@ -45,3 +45,35 @@ export async function isBlocked(blockerId: string, blockedId: string): Promise<b
     throw e;
   }
 }
+
+/**
+ * Member IDs who have blocked `viewerId` (viewer is the blocked party).
+ * Those authors' content must not appear in the viewer's feed, and the viewer must not see their profiles/posts.
+ */
+export async function getMemberIdsWhoBlockedViewer(viewerId: string): Promise<Set<string>> {
+  try {
+    const blocks = await prisma.memberBlock.findMany({
+      where: { blockedId: viewerId },
+      select: { blockerId: true },
+    });
+    return new Set(blocks.map((b) => b.blockerId));
+  } catch (e) {
+    if (isMemberBlockTableError(e)) return new Set();
+    throw e;
+  }
+}
+
+/** Union of "I blocked them" and "they blocked me" — exclude these authors from feeds. */
+export async function getFeedExcludedAuthorIds(viewerId: string): Promise<string[]> {
+  const [iBlocked, blockedMe] = await Promise.all([
+    getBlockedMemberIds(viewerId),
+    getMemberIdsWhoBlockedViewer(viewerId),
+  ]);
+  return [...new Set([...iBlocked, ...blockedMe])];
+}
+
+/** True if either party has blocked the other (no mutual visibility). */
+export async function hasBlockBetween(viewerId: string | null, otherId: string): Promise<boolean> {
+  if (!viewerId || viewerId === otherId) return false;
+  return (await isBlocked(viewerId, otherId)) || (await isBlocked(otherId, viewerId));
+}

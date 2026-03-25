@@ -5,6 +5,9 @@ import { validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { z } from "zod";
 
+/** Avoid edge/CDN serving a cached HTML shell for API responses. */
+export const dynamic = "force-dynamic";
+
 const patchSchema = z.object({
   content: z.string().max(5000).optional().nullable(),
   photos: z.array(z.string()).optional(),

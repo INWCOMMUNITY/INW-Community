@@ -33,7 +33,8 @@ interface PickupTermsModalProps {
   onClose: () => void;
   policyText?: string | null;
   initialForm?: Partial<PickupDetails> | null;
-  onSave: (form: PickupDetails & { termsAcceptedAt?: string }) => void;
+  contextItemId?: string | null;
+  onSave: (form: PickupDetails & { termsAcceptedAt?: string }, contextItemId?: string | null) => void;
 }
 
 const emptyForm: PickupDetails = {
@@ -63,6 +64,7 @@ export function PickupTermsModal({
   onClose,
   policyText,
   initialForm,
+  contextItemId,
   onSave,
 }: PickupTermsModalProps) {
   const insets = useSafeAreaInsets();
@@ -153,10 +155,13 @@ export function PickupTermsModal({
       (f.preferredPickupTime ?? "").trim() &&
       (!hasPolicy || termsAccepted);
     if (ok) {
-      onSave({
-        ...f,
-        termsAcceptedAt: hasPolicy ? new Date().toISOString() : undefined,
-      });
+      onSave(
+        {
+          ...f,
+          termsAcceptedAt: hasPolicy ? new Date().toISOString() : undefined,
+        },
+        contextItemId ?? undefined
+      );
     } else {
       setValidationError(
         hasPolicy

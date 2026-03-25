@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { canViewerSeeFullMemberProfile } from "@/lib/member-profile-access";
+import { hasBlockBetween } from "@/lib/member-block";
 
 /**
  * GET /api/members/[id] – profile for a member (used by native app and any client).
@@ -41,6 +42,10 @@ export async function GET(
 
   if (!member) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  }
+
+  if (viewerId && (await hasBlockBetween(viewerId, id))) {
+    return NextResponse.json({ error: "Not available", blocked: true }, { status: 404 });
   }
 
   const isPrivate =

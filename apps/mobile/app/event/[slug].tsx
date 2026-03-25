@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -11,6 +11,9 @@ import {
   useWindowDimensions,
   Share,
   Modal,
+  FlatList,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -51,6 +54,7 @@ export default function EventDetailScreen() {
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const heroPagerRef = useRef<FlatList<string> | null>(null);
   const [friends, setFriends] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [inviting, setInviting] = useState(false);
@@ -240,6 +244,30 @@ export default function EventDetailScreen() {
   const galleryUrls = photos.map((p) => resolvePhotoUrl(p)).filter(Boolean) as string[];
   const imageHeight = width * 0.65;
 
+  const onHeroMomentumEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = e.nativeEvent.contentOffset.x;
+      const idx = Math.round(x / width);
+      setGalleryIndex(Math.max(0, Math.min(galleryUrls.length - 1, idx)));
+    },
+    [width, galleryUrls.length]
+  );
+
+  const openGalleryAt = useCallback((index: number) => {
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  }, []);
+
+  const scrollHeroTo = useCallback(
+    (index: number) => {
+      heroPagerRef.current?.scrollToOffset({
+        offset: index * width,
+        animated: true,
+      });
+    },
+    [width]
+  );
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -280,16 +308,55 @@ export default function EventDetailScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
       >
         <View style={styles.photoSectionOuter}>
           <View style={[styles.photoSection, { height: imageHeight }]}>
-            {photoUrl ? (
+            {galleryUrls.length > 1 ? (
+              <>
+                <FlatList
+                  ref={heroPagerRef}
+                  data={galleryUrls}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  keyExtractor={(uri, i) => `hero-${i}-${uri}`}
+                  style={{ width, height: imageHeight }}
+                  getItemLayout={(_, index) => ({
+                    length: width,
+                    offset: width * index,
+                    index,
+                  })}
+                  onMomentumScrollEnd={onHeroMomentumEnd}
+                  renderItem={({ item: uri, index }) => (
+                    <Pressable
+                      style={{ width, height: imageHeight }}
+                      onPress={() => openGalleryAt(index)}
+                    >
+                      <Image
+                        source={{ uri }}
+                        style={styles.photo}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  )}
+                />
+                <View style={styles.heroDots} pointerEvents="none">
+                  {galleryUrls.map((_, i) => (
+                    <View
+                      key={`dot-${i}`}
+                      style={[
+                        styles.heroDot,
+                        i === galleryIndex && styles.heroDotActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : photoUrl ? (
               <Pressable
                 style={styles.photoTouchable}
-                onPress={() => {
-                  setGalleryIndex(0);
-                  setGalleryOpen(true);
-                }}
+                onPress={() => openGalleryAt(0)}
               >
                 <Image
                   source={{ uri: photoUrl }}
@@ -333,6 +400,7 @@ export default function EventDetailScreen() {
                 <Pressable
                   key={`${i}-${uri}`}
                   onPress={() => {
+                    scrollHeroTo(i);
                     setGalleryIndex(i);
                     setGalleryOpen(true);
                   }}
@@ -531,6 +599,28 @@ const styles = StyleSheet.create({
     width: "100%",
     backgroundColor: "#f5f5f5",
     position: "relative",
+  },
+  heroDots: {
+    position: "absolute",
+    bottom: 12,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+  heroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+  heroDotActive: {
+    backgroundColor: "#fff",
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   photoTouchable: {
     width: "100%",

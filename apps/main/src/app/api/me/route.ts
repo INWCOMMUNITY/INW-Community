@@ -128,7 +128,7 @@ export async function PATCH(req: NextRequest) {
       ...body,
       profilePhotoUrl: body.profilePhotoUrl ?? null,
     });
-    await prisma.member.update({
+    const { count } = await prisma.member.updateMany({
       where: { id: session.user.id },
       data: {
         ...(data.profilePhotoUrl !== undefined && {
@@ -162,6 +162,9 @@ export async function PATCH(req: NextRequest) {
         }),
       },
     });
+    if (count === 0) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     // Update offer columns if present (may fail if db:push not run - ignore)
     if (data.offerShipping !== undefined || data.offerLocalDelivery !== undefined || data.offerLocalPickup !== undefined) {
       try {

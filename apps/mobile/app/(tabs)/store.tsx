@@ -243,9 +243,7 @@ export default function StoreScreen() {
       return;
     }
     if (!canListResale) {
-      (router.push as (href: string) => void)(
-        `/web?url=${encodeURIComponent(`${siteBase}/support-nwc`)}&title=${encodeURIComponent("Support NWC")}`
-      );
+      (router.push as (href: string) => void)("/subscribe");
       return;
     }
     (router.push as (href: string) => void)("/seller-hub/store/new?listingType=resale");
@@ -395,14 +393,6 @@ export default function StoreScreen() {
                   ? "Eastern Washington and North Idaho local goods. Shop local without losing the comfort of shopping from home!"
                   : "Buy and sell pre-loved local goods. Give items a second life and support your community."}
               </Text>
-              {listingType === "resale" ? (
-                <View style={styles.resaleSellerHint}>
-                  <Text style={styles.resaleSellerHintText}>
-                    Sellers: your resale listings show here after you connect Stripe for payouts (Seller Hub → Before
-                    You Start). Active items in My Items stay hidden from Community Resale until then.
-                  </Text>
-                </View>
-              ) : null}
             </View>
             <TextInput
               style={styles.searchInput}
@@ -593,20 +583,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "rgba(255,255,255,0.95)",
     lineHeight: 20,
-    textAlign: "center",
-  },
-  resaleSellerHint: {
-    marginTop: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: "rgba(0,0,0,0.2)",
-    borderRadius: 8,
-    maxWidth: "100%",
-  },
-  resaleSellerHintText: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.95)",
-    lineHeight: 17,
     textAlign: "center",
   },
   list: {

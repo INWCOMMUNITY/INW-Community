@@ -52,11 +52,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Only update lastLogin; never overwrite profile fields
-    await prisma.member.update({
+    // Only update lastLogin; never overwrite profile fields (updateMany avoids P2025 if row vanished)
+    const { count } = await prisma.member.updateMany({
       where: { id },
       data: { lastLogin: new Date() },
     });
+    if (count === 0) {
+      return NextResponse.json({ error: "Account not found or suspended" }, { status: 401 });
+    }
 
     const [sub, effectivePlan] = await Promise.all([
       prisma.subscription.findFirst({

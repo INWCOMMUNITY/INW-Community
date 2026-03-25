@@ -243,6 +243,7 @@ function RootLayoutNav() {
         <Stack.Screen name="my-sellers" />
         <Stack.Screen name="scanner" options={{ presentation: 'fullScreenModal' }} />
         <Stack.Screen name="saved-posts" />
+        <Stack.Screen name="blocked-members" options={{ headerShown: false }} />
         <Stack.Screen name="subscribe" />
         <Stack.Screen name="manage-subscription" options={{ headerShown: false }} />
         <Stack.Screen name="community" options={{ headerShown: false }} />

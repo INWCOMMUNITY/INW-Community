@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getBlockedMemberIds } from "@/lib/member-block";
+import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -28,19 +28,19 @@ export async function GET(
     return NextResponse.json({ error: "Group not found" }, { status: 404 });
   }
 
-  const [membership, blockedIdSet] = await Promise.all([
+  const [membership, excludedAuthors] = await Promise.all([
     prisma.groupMember.findUnique({
       where: {
         groupId_memberId: { groupId: group.id, memberId: session.user.id },
       },
     }),
-    getBlockedMemberIds(session.user.id),
+    getFeedExcludedAuthorIds(session.user.id),
   ]);
   if (!membership) {
     return NextResponse.json({ error: "Not a member of this group" }, { status: 403 });
   }
 
-  const blockedIds = Array.from(blockedIdSet);
+  const blockedIds = excludedAuthors;
   const where = {
     groupId: group.id,
     ...(blockedIds.length > 0 ? { authorId: { notIn: blockedIds } } : {}),

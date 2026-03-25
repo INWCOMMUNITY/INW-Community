@@ -5,7 +5,8 @@ import { getBusinessRewardRedemptionsForOwner } from "@/lib/business-reward-rede
 export const dynamic = "force-dynamic";
 
 /**
- * List reward redemptions for a business the authenticated member owns.
+ * Merchant view: redemptions for one business (alias for …/reward-redemptions).
+ * Shorter path; use if proxies or older deployments differ.
  */
 export async function GET(
   req: NextRequest,

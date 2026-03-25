@@ -39,6 +39,34 @@ type ListPayload = {
   redemptions: RedemptionRow[];
 };
 
+/** Production may 404 HTML on one path until deploy; try both JSON routes. */
+async function fetchRewardRedemptionsForBusiness(businessId: string): Promise<ListPayload> {
+  const paths = [
+    `/api/businesses/${businessId}/reward-redemptions`,
+    `/api/businesses/${businessId}/redemptions`,
+  ] as const;
+  let lastErr: unknown;
+  for (let i = 0; i < paths.length; i++) {
+    const path = paths[i];
+    try {
+      return await apiGet<ListPayload>(path);
+    } catch (e) {
+      lastErr = e;
+      const err = e as { error?: string; status?: number };
+      const msg = (err.error ?? "").toLowerCase();
+      const tryNext =
+        i < paths.length - 1 &&
+        (msg.includes("web page") ||
+          msg.includes("check your connection") ||
+          msg.includes("try again later") ||
+          err.status === 404 ||
+          msg.includes("not found"));
+      if (!tryNext) throw e;
+    }
+  }
+  throw lastErr;
+}
+
 function formatWhen(iso: string): string {
   try {
     return new Date(iso).toLocaleString(undefined, {
@@ -77,12 +105,10 @@ export default function RedeemedRewardsScreen() {
       return;
     }
     setError(null);
-    const res = await apiGet<ListPayload>(`/api/businesses/${selectedId}/reward-redemptions`).catch(
-      (e) => {
-        setError((e as { error?: string })?.error ?? "Failed to load.");
-        return null;
-      }
-    );
+    const res = await fetchRewardRedemptionsForBusiness(selectedId).catch((e) => {
+      setError((e as { error?: string })?.error ?? "Failed to load.");
+      return null;
+    });
     if (res && typeof res === "object" && Array.isArray(res.redemptions)) {
       setData(res);
     } else {
