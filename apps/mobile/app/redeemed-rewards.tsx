@@ -196,6 +196,18 @@ export default function RedeemedRewardsScreen() {
         Members who redeemed points for your rewards. Contact them to fulfill the reward.
       </Text>
 
+      <Pressable
+        style={({ pressed }) => [styles.manageBtn, pressed && { opacity: 0.85 }]}
+        onPress={() =>
+          (router.push as (href: string) => void)(
+            `/web?url=${encodeURIComponent(`${siteBase}/business-hub/offered-rewards`)}&title=${encodeURIComponent("My Offered Rewards")}`
+          )
+        }
+      >
+        <Ionicons name="settings-outline" size={18} color="#fff" />
+        <Text style={styles.manageBtnText}>My Offered Rewards</Text>
+      </Pressable>
+
       {businesses.length > 1 ? (
         <Pressable style={styles.bizPicker} onPress={pickBusiness}>
           <Text style={styles.bizPickerLabel} numberOfLines={1}>
@@ -286,6 +298,21 @@ const styles = StyleSheet.create({
   backText: { fontSize: 16, color: theme.colors.primary, fontWeight: "600" },
   title: { fontSize: 22, fontWeight: "700", color: theme.colors.heading, marginBottom: 6 },
   subtitle: { fontSize: 14, color: "#666", marginBottom: 16 },
+  manageBtn: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 12,
+  },
+  manageBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
   bizPicker: {
     flexDirection: "row",
     alignItems: "center",

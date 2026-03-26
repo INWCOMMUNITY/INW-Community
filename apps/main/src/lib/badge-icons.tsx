@@ -32,6 +32,7 @@ const SLUG_TO_IONICON: Record<string, string> = {
   community_point_giver: "leaf-outline",
   local_deliverer: "bicycle-outline",
   here_in_town: "location-outline",
+  nwc_feedback: "chatbubbles-outline",
 };
 
 const DEFAULT_ICON = "ribbon-outline";

@@ -3,7 +3,7 @@ import { prisma } from "database";
 
 export const maxDuration = 30;
 
-/** Run daily. Cancel store orders that have been pending for more than 24 hours (e.g. abandoned checkout). */
+/** Cancel store orders that have been pending too long (abandoned checkout). */
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   const secret = process.env.CRON_SECRET;
@@ -14,8 +14,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const cutoff = new Date();
-  cutoff.setHours(cutoff.getHours() - 24);
+  const cutoff = new Date(Date.now() - 25 * 60 * 1000);
 
   const result = await prisma.storeOrder.updateMany({
     where: { status: "pending", createdAt: { lt: cutoff } },

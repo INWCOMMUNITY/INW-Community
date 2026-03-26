@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { prisma } from "database";
-import { authOptions } from "@/lib/auth";
 import { z } from "zod";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
+import { getSessionForApi } from "@/lib/mobile-auth";
+import { awardNwcFeedbackBadge, type EarnedBadge } from "@/lib/badge-award";
 
 const bodySchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = bodySchema.parse(body);
 
-    const session = await getServerSession(authOptions);
+    const session = await getSessionForApi(req);
     const memberId = session?.user?.id ?? null;
 
     await prisma.nwcRequest.create({
@@ -37,7 +37,12 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ ok: true });
+    let earnedBadges: EarnedBadge[] = [];
+    if (memberId) {
+      earnedBadges = await awardNwcFeedbackBadge(memberId).catch(() => []);
+    }
+
+    return NextResponse.json({ ok: true, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json(

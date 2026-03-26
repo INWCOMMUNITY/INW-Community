@@ -111,6 +111,8 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
     { type: "route", href: "/sponsor-business", label: "Set up / Edit Local Business Page" },
     { type: "coupon", label: "Offer a Coupon" },
     { type: "reward", label: "Offer a Reward" },
+    { type: "web", url: `${siteBase}/business-hub/offered-rewards`, label: "My Businesses Rewards" },
+    { type: "web", url: `${siteBase}/business-hub/offered-coupons`, label: "My Business Coupons" },
     {
       type: "web",
       url: `${siteBase}/business-hub/event`,

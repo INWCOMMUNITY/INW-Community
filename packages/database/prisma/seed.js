@@ -945,6 +945,14 @@ async function main() {
     { slug: "community_point_giver", name: "Community Point Giver", description: "Awarded to businesses that display an NWC flyer or QR code. Point Givers get extra visibility.", category: "business", order: 26, criteria: { type: "admin_only" } },
     { slug: "local_deliverer", name: "Local Deliverer", description: "Complete 3 local deliveries.", category: "seller", order: 27, criteria: { type: "seller_delivery", count: 3 } },
     { slug: "here_in_town", name: "Here in Town", description: "Complete 1 pickup order.", category: "seller", order: 28, criteria: { type: "seller_pickup", count: 1 } },
+    {
+      slug: "nwc_feedback",
+      name: "NWC Feedback",
+      description: "Submit a request through NWC Requests.",
+      category: "member",
+      order: 29,
+      criteria: { type: "nwc_request_submit" },
+    },
   ];
   for (const b of BADGES) {
     await prisma.badge.upsert({

@@ -56,6 +56,8 @@ interface CreatePostModalProps {
   onSuccess?: () => void;
   /** When set, post is created as a Business Post (posting as this business). Used when opening from Business Hub. */
   initialBusinessForPost?: { id: string; name: string } | null;
+  /** When set, post is created into this group. Used when opening from a group detail page. */
+  initialGroupId?: string | null;
   /** When set, submit PATCHes this post (author-only on server). */
   editingPost?: FeedPost | null;
 }
@@ -65,6 +67,7 @@ export function CreatePostModal({
   onClose,
   onSuccess,
   initialBusinessForPost,
+  initialGroupId = null,
   editingPost = null,
 }: CreatePostModalProps) {
   const insets = useSafeAreaInsets();
@@ -132,7 +135,7 @@ export function CreatePostModal({
         ? { id: initialBusinessForPost.id, name: initialBusinessForPost.name, slug: "" }
         : null
     );
-  }, [visible, editingPost?.id, initialBusinessForPost?.id]);
+  }, [visible, editingPost?.id, initialBusinessForPost?.id, initialGroupId]);
 
   useEffect(() => {
     if (!tagPickerOpen) return;
@@ -268,6 +271,7 @@ export function CreatePostModal({
           ...(selectedBusiness
             ? { sharedItemType: "business" as const, sharedItemId: selectedBusiness.id }
             : {}),
+          ...(initialGroupId ? { groupId: initialGroupId } : {}),
         });
       }
       resetForm();

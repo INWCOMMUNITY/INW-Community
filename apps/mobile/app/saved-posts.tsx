@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiDelete, apiPost } from "@/lib/api";
 import { FeedPostCard } from "@/components/FeedPostCard";
-import type { FeedPost } from "@/lib/feed-api";
+import { deletePost, type FeedPost } from "@/lib/feed-api";
 import { useCreatePost } from "@/contexts/CreatePostContext";
 
 interface SavedItem {
@@ -84,6 +84,26 @@ export default function SavedPostsScreen() {
     }
   };
 
+  const handleDeletePost = useCallback((postId: string) => {
+    Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void deletePost(postId)
+            .then(() => {
+              setPosts((prev) => prev.filter((p) => p.id !== postId));
+              void apiDelete(`/api/saved?type=post&referenceId=${encodeURIComponent(postId)}`).catch(() => {});
+            })
+            .catch((e) =>
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
+            );
+        },
+      },
+    ]);
+  }, []);
+
   const handleBlockUser = async (memberId: string, postId: string) => {
     Alert.alert(
       "Block user",
@@ -144,6 +164,7 @@ export default function SavedPostsScreen() {
                 onBlockUser={handleBlockUser}
                 onSave={() => handleUnsave(p.id)}
                 onEditPost={openEditPost}
+                onDeletePost={handleDeletePost}
               />
             ))
           )}

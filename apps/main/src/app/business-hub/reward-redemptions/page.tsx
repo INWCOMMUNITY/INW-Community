@@ -82,6 +82,27 @@ export default async function BusinessRewardRedemptionsPage() {
             : "Members who redeemed rewards tied to your businesses. For shipping rewards, contact details are shown so you can fulfill and ship. Members are never charged shipping for rewards."}
         </p>
 
+        {!isAdmin && (
+          <div className="border rounded-lg p-4 mb-6 bg-[var(--color-section-alt)]">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold" style={{ color: "var(--color-heading)" }}>
+                  My Offered Rewards
+                </h2>
+                <p className="text-sm text-gray-600">
+                  Manage your active rewards (edit or remove).
+                </p>
+              </div>
+              <Link
+                href="/business-hub/offered-rewards"
+                className="btn"
+              >
+                Manage Rewards
+              </Link>
+            </div>
+          </div>
+        )}
+
         {redemptions.length === 0 ? (
           <p className="text-gray-500">No redemptions yet.</p>
         ) : (

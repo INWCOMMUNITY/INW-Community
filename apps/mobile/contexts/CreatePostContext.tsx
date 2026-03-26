@@ -7,6 +7,8 @@ type CreatePostContextValue = {
   openCreatePost: () => void;
   /** Open create post modal pre-set to post as this business (Business Post). */
   openCreatePostAsBusiness: (business: CreatePostBusiness) => void;
+  /** Open create post modal pre-scoped to a specific group. */
+  openCreatePostInGroup: (groupId: string) => void;
   /** Open modal to edit the user's own post (author checked in UI before calling). */
   openEditPost: (post: FeedPost) => void;
   createPostVisible: boolean;
@@ -14,6 +16,9 @@ type CreatePostContextValue = {
   /** When set, the create post modal should post as this business. Cleared when modal closes. */
   initialBusinessForPost: CreatePostBusiness | null;
   setInitialBusinessForPost: (b: CreatePostBusiness | null) => void;
+  /** When set, the create post modal should post into this group. */
+  initialGroupIdForPost: string | null;
+  setInitialGroupIdForPost: (groupId: string | null) => void;
   editingPost: FeedPost | null;
   setEditingPost: (p: FeedPost | null) => void;
 };
@@ -23,19 +28,29 @@ const CreatePostContext = createContext<CreatePostContextValue | null>(null);
 export function CreatePostProvider({ children }: { children: ReactNode }) {
   const [createPostVisible, setCreatePostVisible] = useState(false);
   const [initialBusinessForPost, setInitialBusinessForPost] = useState<CreatePostBusiness | null>(null);
+  const [initialGroupIdForPost, setInitialGroupIdForPost] = useState<string | null>(null);
   const [editingPost, setEditingPost] = useState<FeedPost | null>(null);
   const openCreatePost = useCallback(() => {
     setEditingPost(null);
     setInitialBusinessForPost(null);
+    setInitialGroupIdForPost(null);
     setCreatePostVisible(true);
   }, []);
   const openCreatePostAsBusiness = useCallback((business: CreatePostBusiness) => {
     setEditingPost(null);
     setInitialBusinessForPost(business);
+    setInitialGroupIdForPost(null);
+    setCreatePostVisible(true);
+  }, []);
+  const openCreatePostInGroup = useCallback((groupId: string) => {
+    setEditingPost(null);
+    setInitialBusinessForPost(null);
+    setInitialGroupIdForPost(groupId);
     setCreatePostVisible(true);
   }, []);
   const openEditPost = useCallback((post: FeedPost) => {
     setEditingPost(post);
+    setInitialGroupIdForPost(null);
     if (post.type === "shared_business" && post.sourceBusiness) {
       setInitialBusinessForPost({ id: post.sourceBusiness.id, name: post.sourceBusiness.name });
     } else {
@@ -48,11 +63,14 @@ export function CreatePostProvider({ children }: { children: ReactNode }) {
       value={{
         openCreatePost,
         openCreatePostAsBusiness,
+        openCreatePostInGroup,
         openEditPost,
         createPostVisible,
         setCreatePostVisible,
         initialBusinessForPost,
         setInitialBusinessForPost,
+        initialGroupIdForPost,
+        setInitialGroupIdForPost,
         editingPost,
         setEditingPost,
       }}

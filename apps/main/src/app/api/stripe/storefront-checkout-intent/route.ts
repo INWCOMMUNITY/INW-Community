@@ -183,10 +183,15 @@ export async function POST(req: NextRequest) {
   // Reject only if the item is in another customer's pending order (they started checkout).
   // We do not block when the item is only in someone's cart—carts have no order until checkout is started.
   if (singleQtyStoreItemIds.length > 0) {
+    const pendingCutoff = new Date(Date.now() - 25 * 60 * 1000);
     const otherPending = await prisma.orderItem.findFirst({
       where: {
         storeItemId: { in: singleQtyStoreItemIds },
-        order: { status: "pending", buyerId: { not: session.user.id } },
+        order: {
+          status: "pending",
+          buyerId: { not: session.user.id },
+          createdAt: { gte: pendingCutoff },
+        },
       },
       include: { order: { select: { buyerId: true } } },
     });

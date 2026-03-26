@@ -166,7 +166,7 @@ export default function GroupDetailPage() {
                   {group._count.members} member{group._count.members !== 1 ? "s" : ""} · {group._count.groupPosts} post{group._count.groupPosts !== 1 ? "s" : ""}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 {!group.isMember ? (
                   <button
                     type="button"
@@ -194,6 +194,17 @@ export default function GroupDetailPage() {
                   </Link>
                 ) : (
                   <span className="btn opacity-75 cursor-default">Member</span>
+                )}
+                {group.isMember && (
+                  <CreatePostButton
+                    groupId={group.id}
+                    returnTo={`/community-groups/${group.slug}`}
+                    className="btn !p-0 w-10 h-10 flex items-center justify-center"
+                  >
+                    <span aria-hidden className="text-xl leading-none">
+                      +
+                    </span>
+                  </CreatePostButton>
                 )}
               </div>
             </div>
@@ -225,13 +236,6 @@ export default function GroupDetailPage() {
           <div className="mt-8">
             <div className="flex items-center justify-between gap-4 mb-4">
               <h2 className="text-xl font-bold">Posts</h2>
-              <CreatePostButton
-                groupId={group.id}
-                returnTo={`/community-groups/${group.slug}`}
-                className="btn"
-              >
-                Create post
-              </CreatePostButton>
             </div>
             <p className="text-gray-500">Group posts appear in your feed. Create a post above!</p>
           </div>

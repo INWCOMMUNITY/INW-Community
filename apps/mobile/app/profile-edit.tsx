@@ -21,6 +21,7 @@ import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } f
 import { apiGet, apiPatch, apiPost, apiUploadFile, getToken } from "@/lib/api";
 import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
 import { signOut } from "@/lib/auth";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -59,6 +60,7 @@ interface ProfileData {
 export default function ProfileEditScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { refreshMember } = useAuth();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -245,6 +247,12 @@ export default function ProfileEditScreen() {
       });
       if (addressCorrectedToCarrier) {
         Alert.alert("Saved", "Address corrected to carrier records.");
+      }
+      // Ensure avatar/profile photo updates immediately across the app.
+      try {
+        await refreshMember();
+      } catch {
+        // Non-fatal: local state already updated; global avatar will refresh later.
       }
       router.back();
     } catch (e) {
@@ -506,12 +514,18 @@ export default function ProfileEditScreen() {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable
-          style={({ pressed }) => [styles.saveBtn, submitting && styles.saveBtnDisabled, pressed && { opacity: 0.8 }]}
+          style={({ pressed }) => [
+            styles.saveBtn,
+            (submitting || uploadingPhoto) && styles.saveBtnDisabled,
+            pressed && { opacity: 0.8 },
+          ]}
           onPress={handleSave}
-          disabled={submitting}
+          disabled={submitting || uploadingPhoto}
         >
           {submitting ? (
             <ActivityIndicator color="#fff" />
+          ) : uploadingPhoto ? (
+            <Text style={styles.saveBtnText}>Uploading…</Text>
           ) : (
             <Text style={styles.saveBtnText}>Save profile</Text>
           )}

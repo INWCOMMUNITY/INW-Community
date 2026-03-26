@@ -15,6 +15,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+
+type EarnedBadgeItem = { slug: string; name: string; description: string };
 
 interface NWCRequestsModalProps {
   visible: boolean;
@@ -30,11 +33,15 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeItem[]>([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
   useEffect(() => {
     if (!visible) return;
     setError(null);
     setSent(false);
+    setEarnedBadges([]);
+    setBadgePopupIndex(-1);
     let cancelled = false;
     (async () => {
       const token = await getToken();
@@ -79,17 +86,26 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     }
     setLoading(true);
     try {
-      await apiPost("/api/nwc-requests", {
-        name: submitName,
-        email: submitEmail,
-        message: submitMessage,
-      });
-      setSent(true);
+      const data = await apiPost<{ ok?: boolean; earnedBadges?: EarnedBadgeItem[] }>(
+        "/api/nwc-requests",
+        {
+          name: submitName,
+          email: submitEmail,
+          message: submitMessage,
+        }
+      );
+      const badges = (data?.earnedBadges ?? []).filter(Boolean);
       setMessage("");
-      setTimeout(() => {
-        setSent(false);
-        onClose();
-      }, 1800);
+      if (badges.length > 0) {
+        setEarnedBadges(badges);
+        setBadgePopupIndex(0);
+      } else {
+        setSent(true);
+        setTimeout(() => {
+          setSent(false);
+          onClose();
+        }, 1800);
+      }
     } catch (e) {
       setError((e as { error?: string }).error ?? "Failed to send. Please try again.");
     } finally {
@@ -97,9 +113,28 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     }
   }
 
+  const finishAfterBadges = () => {
+    setEarnedBadges([]);
+    setBadgePopupIndex(-1);
+    setSent(true);
+    setTimeout(() => {
+      setSent(false);
+      onClose();
+    }, 1800);
+  };
+
+  const handleCloseBadgePopup = () => {
+    if (badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length - 1) {
+      setBadgePopupIndex((i) => i + 1);
+    } else {
+      finishAfterBadges();
+    }
+  };
+
   if (!visible) return null;
 
   return (
+    <>
     <Modal
       visible={visible}
       animationType="slide"
@@ -186,6 +221,17 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
+
+      {visible && badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? (
+        <BadgeEarnedPopup
+          visible
+          onClose={handleCloseBadgePopup}
+          badgeName={earnedBadges[badgePopupIndex].name}
+          badgeSlug={earnedBadges[badgePopupIndex].slug}
+          badgeDescription={earnedBadges[badgePopupIndex].description}
+        />
+      ) : null}
+    </>
   );
 }
 

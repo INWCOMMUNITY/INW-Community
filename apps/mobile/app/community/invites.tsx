@@ -7,7 +7,11 @@ import {
   Pressable,
   ActivityIndicator,
   RefreshControl,
+  Alert,
+  Platform,
+  ActionSheetIOS,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
@@ -75,35 +79,75 @@ export default function InvitesScreen() {
     }
   };
 
+  const openChangeRsvpMenu = (inv: EventInvite) => {
+    const run = (status: "accepted" | "declined" | "maybe") => {
+      void setRsvp(inv.id, status);
+    };
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Cancel", "Going", "Maybe", "Can't make it"],
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: 3,
+        },
+        (i) => {
+          if (i === 1) run("accepted");
+          if (i === 2) run("maybe");
+          if (i === 3) run("declined");
+        }
+      );
+    } else {
+      Alert.alert("Change RSVP", "Update how you’ll attend.", [
+        { text: "Going", onPress: () => run("accepted") },
+        { text: "Maybe", onPress: () => run("maybe") },
+        { text: "Can't make it", style: "destructive", onPress: () => run("declined") },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    }
+  };
+
   const pending = invites.filter((i) => i.status === "pending");
   const responded = invites.filter((i) => i.status !== "pending");
 
   const renderCard = (inv: EventInvite, showActions: boolean) => (
     <View key={inv.id} style={styles.card}>
-      <Pressable
-        onPress={() => (router.push as (href: string) => void)(`/event/${inv.event.slug}`)}
-      >
-        <Text style={styles.eventTitle}>{inv.event.title}</Text>
-        <Text style={styles.eventDate}>
-          {new Date(inv.event.date).toLocaleDateString("en-US", {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-          })}
-          {inv.event.time ? ` · ${formatTime12h(inv.event.time)}` : ""}
-        </Text>
-        {inv.event.location && (
-          <Text style={styles.eventLocation}>{inv.event.location}</Text>
-        )}
-        <Text style={styles.inviter}>
-          Invited by {inv.inviter.firstName} {inv.inviter.lastName}
-        </Text>
-        {!showActions && (
-          <View style={styles.statusPill}>
-            <Text style={styles.statusPillText}>{statusLabel(inv.status)}</Text>
-          </View>
-        )}
-      </Pressable>
+      <View style={styles.cardTopRow}>
+        <Pressable
+          style={styles.cardMainPressable}
+          onPress={() => (router.push as (href: string) => void)(`/event/${inv.event.slug}`)}
+        >
+          <Text style={styles.eventTitle}>{inv.event.title}</Text>
+          <Text style={styles.eventDate}>
+            {new Date(inv.event.date).toLocaleDateString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            })}
+            {inv.event.time ? ` · ${formatTime12h(inv.event.time)}` : ""}
+          </Text>
+          {inv.event.location && (
+            <Text style={styles.eventLocation}>{inv.event.location}</Text>
+          )}
+          <Text style={styles.inviter}>
+            Invited by {inv.inviter.firstName} {inv.inviter.lastName}
+          </Text>
+          {!showActions && (
+            <View style={styles.statusPill}>
+              <Text style={styles.statusPillText}>{statusLabel(inv.status)}</Text>
+            </View>
+          )}
+        </Pressable>
+        {!showActions ? (
+          <Pressable
+            style={({ pressed }) => [styles.cardMenuBtn, pressed && { opacity: 0.7 }]}
+            onPress={() => openChangeRsvpMenu(inv)}
+            hitSlop={12}
+            accessibilityLabel="Change RSVP"
+          >
+            <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
+          </Pressable>
+        ) : null}
+      </View>
       {showActions ? (
         <View style={styles.actions}>
           <Pressable
@@ -199,6 +243,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: theme.colors.primary,
   },
+  cardTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  cardMainPressable: { flex: 1, minWidth: 0 },
+  cardMenuBtn: { padding: 4, marginTop: -4 },
   eventTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
   eventDate: { fontSize: 14, color: "#666", marginTop: 4 },
   eventLocation: { fontSize: 13, color: "#888", marginTop: 2 },

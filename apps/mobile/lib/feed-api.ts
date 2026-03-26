@@ -3,7 +3,7 @@
  * Uses API client with auth (Bearer token).
  */
 
-import { apiGet, apiPost, apiPatch } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 
 export interface FeedPost {
   id: string;
@@ -158,6 +158,8 @@ export interface CreatePostBody {
   videos?: string[];
   tags?: string[];
   taggedMemberIds?: string[];
+  /** When set, create this post as a group post (must be a member). */
+  groupId?: string | null;
   sharedItemType?: "business" | "coupon" | "reward" | "store_item";
   sharedItemId?: string;
 }
@@ -179,4 +181,8 @@ export async function updatePost(
   body: UpdatePostBody
 ): Promise<{ post?: FeedPost }> {
   return apiPatch<{ post?: FeedPost }>(`/api/posts/${postId}`, body);
+}
+
+export async function deletePost(postId: string): Promise<void> {
+  await apiDelete(`/api/posts/${postId}`);
 }

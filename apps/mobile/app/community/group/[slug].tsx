@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
-import { fetchGroupFeed, toggleLike, type FeedPost } from "@/lib/feed-api";
+import { fetchGroupFeed, toggleLike, deletePost, type FeedPost } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -49,7 +49,10 @@ export default function GroupDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const { member } = useAuth();
-  const openEditPost = useCreatePost()?.openEditPost;
+  const createPostMenu = useCreatePost();
+  const openEditPost = createPostMenu?.openEditPost;
+  const openCreatePostInGroup = createPostMenu?.openCreatePostInGroup;
+  const createPostVisible = createPostMenu?.createPostVisible;
   const signedIn = !!member;
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,6 +130,39 @@ export default function GroupDetailScreen() {
     if (group?.isMember && slug) loadFeed(undefined, true);
   }, [group?.id, group?.isMember, slug, loadFeed]);
 
+  const wasCreatePostOpenRef = useRef(false);
+  useEffect(() => {
+    // Refresh the group feed after the create-post modal closes.
+    if (wasCreatePostOpenRef.current && !createPostVisible && group?.isMember && slug) {
+      void loadFeed(undefined, true);
+    }
+    wasCreatePostOpenRef.current = !!createPostVisible;
+  }, [createPostVisible, group?.isMember, loadFeed, slug]);
+
+  useEffect(() => {
+    if (!navigation) return;
+    if (!group?.isMember || !openCreatePostInGroup) {
+      navigation.setOptions({ headerRight: undefined });
+      return;
+    }
+
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable
+          onPress={() => openCreatePostInGroup(group.id)}
+          style={({ pressed }) => [
+            styles.headerPlusBtn,
+            pressed && { opacity: 0.85 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Create post in this group"
+        >
+          <Ionicons name="add" size={22} color="#fff" />
+        </Pressable>
+      ),
+    });
+  }, [group?.id, group?.isMember, navigation, openCreatePostInGroup]);
+
   const handleJoin = async (agreedToRules = false) => {
     if (!group || joining) return;
     if (group.rules?.trim() && !agreedToRules) {
@@ -190,6 +226,26 @@ export default function GroupDetailScreen() {
       )
     );
   }, [commentPostId]);
+
+  const handleDeletePost = useCallback((postId: string) => {
+    Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void deletePost(postId)
+            .then(() => {
+              setPosts((prev) => prev.filter((p) => p.id !== postId));
+              setCommentPostId((id) => (id === postId ? null : id));
+            })
+            .catch((e) =>
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
+            );
+        },
+      },
+    ]);
+  }, []);
 
   const handleShare = useCallback((_postId: string) => {
     Alert.alert("Share", "Sharing from group feed can be added here.");
@@ -401,6 +457,7 @@ export default function GroupDetailScreen() {
             onBlockUser={signedIn ? handleBlockUser : undefined}
             onSave={handleSave}
             onEditPost={openEditPost}
+            onDeletePost={handleDeletePost}
           />
         </View>
       )}
@@ -518,6 +575,11 @@ const styles = StyleSheet.create({
   feedSectionTitle: { fontSize: 18, fontWeight: "700", color: theme.colors.heading, marginBottom: 16 },
   feedLoading: { paddingVertical: 32, alignItems: "center" },
   feedEmpty: { fontSize: 15, color: theme.colors.placeholder, textAlign: "center", paddingVertical: 24 },
+  headerPlusBtn: {
+    padding: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
   loadMoreBtn: {
     marginTop: 16,
     marginBottom: 24,

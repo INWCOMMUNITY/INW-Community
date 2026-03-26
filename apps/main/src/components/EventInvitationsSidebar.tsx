@@ -34,6 +34,7 @@ export function EventInvitationsSidebar() {
   const [invites, setInvites] = useState<EventInvite[]>([]);
   const [loading, setLoading] = useState(true);
   const [responding, setResponding] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/me/event-invites?scope=all")
@@ -44,6 +45,16 @@ export function EventInvitationsSidebar() {
       .catch(() => setInvites([]))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const handle = (e: MouseEvent) => {
+      const el = document.querySelector(`[data-invite-menu="${openMenuId}"]`);
+      if (el && !el.contains(e.target as Node)) setOpenMenuId(null);
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [openMenuId]);
 
   async function respond(
     inviteId: string,
@@ -139,20 +150,89 @@ export function EventInvitationsSidebar() {
               {responded.map((inv) => (
                 <li
                   key={inv.id}
-                  className="border-b border-gray-200 pb-3 last:border-0 last:pb-0"
+                  data-invite-menu={inv.id}
+                  className="relative border-b border-gray-200 pb-3 last:border-0 last:pb-0"
                 >
-                  <Link
-                    href={`/events/${inv.event.slug}`}
-                    className="font-medium text-gray-900 hover:underline block mb-1"
-                  >
-                    {inv.event.title}
-                  </Link>
-                  <p className="text-xs text-gray-500 mb-1">
-                    {new Date(inv.event.date).toLocaleDateString()}
-                  </p>
-                  <p className="text-xs font-medium text-gray-700">
-                    {statusLabel(inv.status)}
-                  </p>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={`/events/${inv.event.slug}`}
+                        className="font-medium text-gray-900 hover:underline block mb-1"
+                      >
+                        {inv.event.title}
+                      </Link>
+                      <p className="text-xs text-gray-500 mb-1">
+                        {new Date(inv.event.date).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs font-medium text-gray-700">
+                        {statusLabel(inv.status)}
+                      </p>
+                    </div>
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        aria-label="Change RSVP"
+                        aria-expanded={openMenuId === inv.id}
+                        onClick={() =>
+                          setOpenMenuId((id) => (id === inv.id ? null : inv.id))
+                        }
+                        className="rounded p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-800"
+                      >
+                        <span className="sr-only">Change RSVP</span>
+                        <svg
+                          className="h-5 w-5"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-hidden
+                        >
+                          <path d="M10 6a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
+                        </svg>
+                      </button>
+                      {openMenuId === inv.id ? (
+                        <div
+                          className="absolute right-0 z-20 mt-1 w-44 rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+                          role="menu"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="block w-full px-3 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                            disabled={responding === inv.id}
+                            onClick={() => {
+                              void respond(inv.id, "accepted");
+                              setOpenMenuId(null);
+                            }}
+                          >
+                            Going
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="block w-full px-3 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                            disabled={responding === inv.id}
+                            onClick={() => {
+                              void respond(inv.id, "maybe");
+                              setOpenMenuId(null);
+                            }}
+                          >
+                            Maybe
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="block w-full px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+                            disabled={responding === inv.id}
+                            onClick={() => {
+                              void respond(inv.id, "declined");
+                              setOpenMenuId(null);
+                            }}
+                          >
+                            Can&apos;t make it
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>

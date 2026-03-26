@@ -9,6 +9,7 @@ export function CreatePostModalHost() {
   const clearCreatePostState = () => {
     setCreatePostVisible(false);
     createPostCtx?.setInitialBusinessForPost(null);
+    createPostCtx?.setInitialGroupIdForPost(null);
     createPostCtx?.setEditingPost(null);
   };
   return (
@@ -17,6 +18,7 @@ export function CreatePostModalHost() {
       onClose={clearCreatePostState}
       onSuccess={clearCreatePostState}
       initialBusinessForPost={createPostCtx?.initialBusinessForPost ?? undefined}
+      initialGroupId={createPostCtx?.initialGroupIdForPost ?? null}
       editingPost={createPostCtx?.editingPost ?? null}
     />
   );

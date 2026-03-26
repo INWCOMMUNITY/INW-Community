@@ -61,6 +61,7 @@ interface FeedPostCardProps {
   /** Current user id (for author actions). */
   viewerUserId?: string | null;
   onEditPost?: (post: FeedPostCardProps["post"]) => void;
+  onDeletePost?: (postId: string) => void;
 }
 
 function isVideoUrl(url: string) {
@@ -77,7 +78,15 @@ type CommentItem = {
   parentAuthorName?: string | null;
 };
 
-export function FeedPostCard({ post, onLike, onShare, onCommentAdded, viewerUserId, onEditPost }: FeedPostCardProps) {
+export function FeedPostCard({
+  post,
+  onLike,
+  onShare,
+  onCommentAdded,
+  viewerUserId,
+  onEditPost,
+  onDeletePost,
+}: FeedPostCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [postMenuOpen, setPostMenuOpen] = useState(false);
   const [showAllPhotos, setShowAllPhotos] = useState(false);
@@ -199,7 +208,7 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded, viewerUser
           )}
           <div className="shrink-0 flex items-center gap-1">
             {viewerUserId &&
-              onEditPost &&
+              (onEditPost || onDeletePost) &&
               viewerUserId === post.author.id &&
               !post.id.startsWith("example-") && (
                 <div className="relative">
@@ -221,16 +230,30 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded, viewerUser
                         onClick={() => setPostMenuOpen(false)}
                       />
                       <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
-                        <button
-                          type="button"
-                          className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                          onClick={() => {
-                            setPostMenuOpen(false);
-                            onEditPost(post);
-                          }}
-                        >
-                          Edit post
-                        </button>
+                        {onEditPost && (
+                          <button
+                            type="button"
+                            className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                            onClick={() => {
+                              setPostMenuOpen(false);
+                              onEditPost(post);
+                            }}
+                          >
+                            Edit post
+                          </button>
+                        )}
+                        {onDeletePost && (
+                          <button
+                            type="button"
+                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50"
+                            onClick={() => {
+                              setPostMenuOpen(false);
+                              onDeletePost(post.id);
+                            }}
+                          >
+                            Delete post
+                          </button>
+                        )}
                       </div>
                     </>
                   )}
@@ -606,7 +629,12 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded, viewerUser
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="text-sm">
-                      <span className="font-semibold text-gray-900">{c.member.firstName} {c.member.lastName}</span>
+                      <Link
+                        href={`/members/${c.member.id}`}
+                        className="font-semibold text-gray-900 hover:underline"
+                      >
+                        {c.member.firstName} {c.member.lastName}
+                      </Link>
                       {" "}
                       <span className="text-gray-700">{c.content}</span>
                     </p>

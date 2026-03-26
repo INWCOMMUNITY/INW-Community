@@ -264,6 +264,14 @@ export async function awardCouponRedeemBadges(memberId: string): Promise<EarnedB
   return earned;
 }
 
+/** First successful NWC Requests form submission (logged-in members only). */
+export async function awardNwcFeedbackBadge(memberId: string): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
+  const b = await ensureMemberBadgeWithInfo(memberId, "nwc_feedback");
+  if (b) earned.push(b);
+  return earned;
+}
+
 /** Call when a local delivery order is completed */
 export async function awardSellerDeliveryBadge(sellerId: string): Promise<EarnedBadge[]> {
   const earned: EarnedBadge[] = [];

@@ -19,6 +19,7 @@ import { CommunityUgcTermsModal } from "@/components/CommunityUgcTermsModal";
 import {
   fetchFeed,
   toggleLike,
+  deletePost,
   type FeedPost,
 } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
@@ -273,6 +274,33 @@ export default function CommunityScreen() {
     );
   }, [commentPostId]);
 
+  const handleDeletePost = useCallback(
+    (postId: string) => {
+      Alert.alert(
+        "Delete post",
+        "Delete this post? This cannot be undone.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => {
+              void deletePost(postId)
+                .then(() => {
+                  setPosts((prev) => prev.filter((p) => p.id !== postId));
+                  setCommentPostId((id) => (id === postId ? null : id));
+                })
+                .catch((e) =>
+                  Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
+                );
+            },
+          },
+        ]
+      );
+    },
+    []
+  );
+
 
   const openMyCommunity = () => {
     Linking.openURL(`${siteBase}/my-community`).catch(() => {});
@@ -359,6 +387,7 @@ export default function CommunityScreen() {
               onBlockUser={signedIn ? handleBlockUser : undefined}
               onSave={handleSave}
               onEditPost={openEditPost}
+              onDeletePost={handleDeletePost}
               onOpenCoupon={(id) => setCouponPopupId(id)}
             />
           ))}

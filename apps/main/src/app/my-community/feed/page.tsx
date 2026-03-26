@@ -126,6 +126,20 @@ export default function CommunityFeedPage() {
     });
   }
 
+  async function handleDeletePost(postId: string) {
+    if (!window.confirm("Delete this post? This cannot be undone.")) return;
+    const res = await fetch(`/api/posts/${encodeURIComponent(postId)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (res.ok) {
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert((err as { error?: string }).error ?? "Failed to delete post.");
+    }
+  }
+
   if (loading) return <p className="text-gray-500">Loading…</p>;
 
   return (
@@ -152,6 +166,7 @@ export default function CommunityFeedPage() {
               onShare={handleShare}
               viewerUserId={viewerUserId}
               onEditPost={openEditFeedPost}
+              onDeletePost={handleDeletePost}
               onCommentAdded={(postId) => {
                 setPosts((prev) =>
                   prev.map((p) =>
