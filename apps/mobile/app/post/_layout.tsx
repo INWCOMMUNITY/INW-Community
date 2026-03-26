@@ -3,7 +3,7 @@ import { Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 
-export default function CommunityLayout() {
+export default function PostLayout() {
   const router = useRouter();
   return (
     <Stack
@@ -15,13 +15,10 @@ export default function CommunityLayout() {
         headerBackTitle: "Back",
       }}
     >
-      <Stack.Screen name="tags" options={{ title: "Tags" }} />
-      <Stack.Screen name="posts-photos" options={{ title: "Posted Photos" }} />
-      <Stack.Screen name="groups" options={{ title: "Community Groups" }} />
       <Stack.Screen
-        name="group/[slug]"
+        name="[id]"
         options={{
-          title: "Group",
+          title: "Post",
           headerLeft: () => (
             <Pressable
               onPress={() => router.back()}
@@ -34,11 +31,6 @@ export default function CommunityLayout() {
           ),
         }}
       />
-      <Stack.Screen name="my-orders/index" options={{ title: "My Orders" }} />
-      <Stack.Screen name="my-orders/[id]" options={{ title: "Order Details" }} />
-      <Stack.Screen name="my-friends" options={{ title: "My Friends" }} />
-      <Stack.Screen name="friend-requests" options={{ title: "Friend Requests" }} />
-      <Stack.Screen name="blogs" options={{ title: "Blogs" }} />
     </Stack>
   );
 }

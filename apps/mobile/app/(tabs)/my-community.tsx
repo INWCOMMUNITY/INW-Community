@@ -709,6 +709,22 @@ export default function MyCommunityScreen() {
         onPress: () => setRewardModalVisible(true),
       },
       {
+        label: "My Business Coupons",
+        icon: "pricetags-outline",
+        onPress: () =>
+          (router.push as (href: string) => void)(
+            `/web?url=${encodeURIComponent(`${siteBase}/business-hub/offered-coupons`)}&title=${encodeURIComponent("My Business Coupons")}`
+          ),
+      },
+      {
+        label: "My Business Rewards",
+        icon: "ribbon-outline",
+        onPress: () =>
+          (router.push as (href: string) => void)(
+            `/web?url=${encodeURIComponent(`${siteBase}/business-hub/offered-rewards`)}&title=${encodeURIComponent("My Business Rewards")}`
+          ),
+      },
+      {
         label: "Post Event",
         icon: "calendar",
         onPress: () => setEventModalVisible(true),

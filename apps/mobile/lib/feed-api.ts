@@ -80,6 +80,16 @@ export async function fetchFeed(cursor?: string): Promise<FeedResponse> {
   };
 }
 
+/** Single post (auth required; 404 if viewer cannot see it). */
+export async function fetchPostById(id: string): Promise<FeedPost> {
+  const data = await apiGet<{ post: FeedPost }>(`/api/posts/${encodeURIComponent(id)}`);
+  const post = data?.post;
+  if (!post?.id) {
+    throw { error: "Post not found" } as { error: string };
+  }
+  return post;
+}
+
 /** Fetch feed for a single group (posts directly in that group). Requires membership. */
 export async function fetchGroupFeed(
   groupSlug: string,

@@ -264,8 +264,31 @@ export async function awardCouponRedeemBadges(memberId: string): Promise<EarnedB
   return earned;
 }
 
+/** Ensures the badge row exists even if production never ran full seed. */
+async function ensureNwcFeedbackBadgeDefinition(): Promise<void> {
+  await prisma.badge.upsert({
+    where: { slug: "nwc_feedback" },
+    create: {
+      slug: "nwc_feedback",
+      name: "NWC Feedback",
+      description: "Submit a request through NWC Requests.",
+      category: "member",
+      order: 29,
+      criteria: { type: "nwc_request_submit" },
+    },
+    update: {
+      name: "NWC Feedback",
+      description: "Submit a request through NWC Requests.",
+      category: "member",
+      order: 29,
+      criteria: { type: "nwc_request_submit" },
+    },
+  });
+}
+
 /** First successful NWC Requests form submission (logged-in members only). */
 export async function awardNwcFeedbackBadge(memberId: string): Promise<EarnedBadge[]> {
+  await ensureNwcFeedbackBadgeDefinition();
   const earned: EarnedBadge[] = [];
   const b = await ensureMemberBadgeWithInfo(memberId, "nwc_feedback");
   if (b) earned.push(b);

@@ -247,6 +247,7 @@ function RootLayoutNav() {
         <Stack.Screen name="subscribe" />
         <Stack.Screen name="manage-subscription" options={{ headerShown: false }} />
         <Stack.Screen name="community" options={{ headerShown: false }} />
+        <Stack.Screen name="post" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'containedModal' }} />
       </Stack>
   );

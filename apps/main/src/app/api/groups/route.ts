@@ -45,11 +45,24 @@ export async function GET(req: NextRequest) {
     take: limit,
   });
 
+  const groupIds = groups.map((g) => g.id);
+  const feedPostCounts =
+    groupIds.length > 0
+      ? await prisma.post.groupBy({
+          by: ["groupId"],
+          where: { groupId: { in: groupIds } },
+          _count: { _all: true },
+        })
+      : [];
+  const feedPostCountByGroupId = Object.fromEntries(
+    feedPostCounts.map((row) => [row.groupId, row._count._all])
+  );
+
   let membershipMap: Record<string, { role: string }> = {};
   if (session?.user?.id && groups.length > 0) {
     const memberships = await prisma.groupMember.findMany({
       where: {
-        groupId: { in: groups.map((g) => g.id) },
+        groupId: { in: groupIds },
         memberId: session.user.id,
       },
       select: { groupId: true, role: true },
@@ -61,6 +74,11 @@ export async function GET(req: NextRequest) {
     const membership = membershipMap[g.id];
     return {
       ...g,
+      _count: {
+        members: g._count.members,
+        /** Unified feed posts (`Post.groupId`), not legacy `GroupPost` rows */
+        groupPosts: feedPostCountByGroupId[g.id] ?? 0,
+      },
       isMember: !!membership,
       memberRole: membership?.role ?? null,
     };

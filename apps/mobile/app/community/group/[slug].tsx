@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { ShareToChatModal } from "@/components/ShareToChatModal";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
 function toFullUrl(url: string | null | undefined): string | undefined {
@@ -67,6 +68,7 @@ export default function GroupDetailScreen() {
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [coverGalleryOpen, setCoverGalleryOpen] = useState(false);
   const [coverGalleryIndex, setCoverGalleryIndex] = useState(0);
+  const [shareToChatPost, setShareToChatPost] = useState<{ id: string } | null>(null);
 
   const groupGalleryUrls = useMemo(() => {
     if (!group) return [];
@@ -120,7 +122,7 @@ export default function GroupDetailScreen() {
   );
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (group?.name) {
       navigation.setOptions({ title: group.name });
     }
@@ -139,25 +141,23 @@ export default function GroupDetailScreen() {
     wasCreatePostOpenRef.current = !!createPostVisible;
   }, [createPostVisible, group?.isMember, loadFeed, slug]);
 
-  useEffect(() => {
-    if (!navigation) return;
-    if (!group?.isMember || !openCreatePostInGroup) {
+  useLayoutEffect(() => {
+    if (!group?.isMember || !openCreatePostInGroup || !group) {
       navigation.setOptions({ headerRight: undefined });
       return;
     }
 
+    const groupIdForPost = group.id;
     navigation.setOptions({
       headerRight: () => (
         <Pressable
-          onPress={() => openCreatePostInGroup(group.id)}
-          style={({ pressed }) => [
-            styles.headerPlusBtn,
-            pressed && { opacity: 0.85 },
-          ]}
+          onPress={() => openCreatePostInGroup(groupIdForPost)}
+          style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+          hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Create post in this group"
         >
-          <Ionicons name="add" size={22} color="#fff" />
+          <Ionicons name="add" size={26} color="#fff" />
         </Pressable>
       ),
     });
@@ -247,9 +247,13 @@ export default function GroupDetailScreen() {
     ]);
   }, []);
 
-  const handleShare = useCallback((_postId: string) => {
-    Alert.alert("Share", "Sharing from group feed can be added here.");
+  const handleShare = useCallback((postId: string) => {
+    setShareToChatPost({ id: postId });
   }, []);
+
+  const refreshGroupFeed = useCallback(() => {
+    if (group?.isMember && slug) void loadFeed(undefined, true);
+  }, [group?.isMember, slug, loadFeed]);
 
   const handleSave = useCallback(
     async (postId: string) => {
@@ -488,6 +492,16 @@ export default function GroupDetailScreen() {
         />
       )}
 
+      {shareToChatPost && group && (
+        <ShareToChatModal
+          visible={!!shareToChatPost}
+          onClose={() => setShareToChatPost(null)}
+          sharedContent={{ type: "post", id: shareToChatPost.id }}
+          defaultFeedGroupId={group.id}
+          onShareToFeedComplete={refreshGroupFeed}
+        />
+      )}
+
       {rulesModalOpen && group.rules?.trim() && (
         <Modal visible transparent animationType="fade">
           <Pressable style={styles.modalOverlay} onPress={() => setRulesModalOpen(false)}>
@@ -575,11 +589,6 @@ const styles = StyleSheet.create({
   feedSectionTitle: { fontSize: 18, fontWeight: "700", color: theme.colors.heading, marginBottom: 16 },
   feedLoading: { paddingVertical: 32, alignItems: "center" },
   feedEmpty: { fontSize: 15, color: theme.colors.placeholder, textAlign: "center", paddingVertical: 24 },
-  headerPlusBtn: {
-    padding: 6,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.15)",
-  },
   loadMoreBtn: {
     marginTop: 16,
     marginBottom: 24,

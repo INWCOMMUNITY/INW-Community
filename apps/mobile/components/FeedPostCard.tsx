@@ -76,6 +76,7 @@ export function FeedPostCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [photoCarouselIndex, setPhotoCarouselIndex] = useState(0);
+  const [nestedPhotoCarouselIndex, setNestedPhotoCarouselIndex] = useState(0);
 
   const blog = post.type === "shared_blog" ? post.sourceBlog : null;
   useEffect(() => {
@@ -120,6 +121,10 @@ export function FeedPostCard({
 
   const openProfile = (memberId: string) => {
     (router.push as (href: string) => void)(`/members/${memberId}`);
+  };
+
+  const openOriginalPost = (sourcePostId: string) => {
+    (router.push as (href: string) => void)(`/post/${sourcePostId}`);
   };
 
   return (
@@ -408,153 +413,191 @@ export function FeedPostCard({
           const showSharedByYou =
             member && post.author?.id && post.author.id === member.id;
 
+          const originalId = typeof sourcePost?.id === "string" ? sourcePost.id : null;
+
           return (
             <View style={[styles.sourceCard, { backgroundColor: "#f7f7f7" }]}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                  {sourceAuthor?.profilePhotoUrl ? (
-                    <Image
-                      source={{ uri: resolveUri(sourceAuthor.profilePhotoUrl) }}
-                      style={styles.nestedAvatar}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.nestedAvatarPlaceholder}>
-                      <Text style={styles.avatarInitials}>
-                        {(sourceAuthor?.firstName?.[0] ?? "")}
-                        {(sourceAuthor?.lastName?.[0] ?? "")}
-                      </Text>
-                    </View>
-                  )}
-
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Pressable onPress={() => sourceAuthor?.id && openProfile(sourceAuthor.id)}>
-                      <Text style={styles.sourceAuthorName} numberOfLines={1}>
-                        {sourceAuthorName || "Unknown"}
-                      </Text>
-                    </Pressable>
-                    {sourcePost?.createdAt ? (
-                      <Text style={styles.sourceMeta}>
-                        {new Date(sourcePost.createdAt).toLocaleDateString()}
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-
-                {showSharedByYou ? (
-                  <View style={styles.sharedByYouPill}>
-                    <Text style={styles.sharedByYouPillText}>Shared by you</Text>
-                  </View>
-                ) : null}
-              </View>
-
-              {sourcePost.type === "shared_blog" && sourcePost.sourceBlog ? (
-                <View style={{ marginTop: 10 }}>
-                  <Text style={styles.sourceTitle}>{sourcePost.sourceBlog.title}</Text>
-                  <Text style={styles.sourceMeta}>{sourcePost.sourceBlog.category.name}</Text>
-                  <Text style={styles.sourceBody} numberOfLines={3}>
-                    {stripHtml(sourcePost.sourceBlog.body).slice(0, 150)}…
-                  </Text>
-                  {sourcePost.sourceBlog.photos?.[0] ? (
-                    <Image
-                      source={{ uri: resolveUri(sourcePost.sourceBlog.photos[0]) }}
-                      style={[styles.sourceImage, { height: IMAGE_SIZE }]}
-                      resizeMode="cover"
-                    />
-                  ) : null}
-                </View>
-              ) : null}
-
-              {sourcePost.type === "shared_business" && sourcePost.sourceBusiness ? (
-                <View style={{ marginTop: 10 }}>
-                  <View style={styles.sourceRow}>
-                    {sourcePost.sourceBusiness.logoUrl ? (
+              <Pressable
+                onPress={() => originalId && openOriginalPost(originalId)}
+                disabled={!originalId}
+                accessibilityRole={originalId ? "button" : undefined}
+                accessibilityLabel={originalId ? "View original post" : undefined}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                    {sourceAuthor?.profilePhotoUrl ? (
                       <Image
-                        source={{ uri: resolveUri(sourcePost.sourceBusiness.logoUrl) }}
-                        style={styles.sourceLogo}
+                        source={{ uri: resolveUri(sourceAuthor.profilePhotoUrl) }}
+                        style={styles.nestedAvatar}
                         resizeMode="cover"
                       />
-                    ) : null}
-                    <View style={styles.sourceContent}>
-                      <Text style={styles.sourceTitle}>{sourcePost.sourceBusiness.name}</Text>
-                      {sourcePost.sourceBusiness.shortDescription ? (
-                        <Text style={styles.sourceBody} numberOfLines={2}>
-                          {sourcePost.sourceBusiness.shortDescription}
+                    ) : (
+                      <View style={styles.nestedAvatarPlaceholder}>
+                        <Text style={styles.avatarInitials}>
+                          {(sourceAuthor?.firstName?.[0] ?? "")}
+                          {(sourceAuthor?.lastName?.[0] ?? "")}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Pressable onPress={() => sourceAuthor?.id && openProfile(sourceAuthor.id)}>
+                        <Text style={styles.sourceAuthorName} numberOfLines={1}>
+                          {sourceAuthorName || "Unknown"}
+                        </Text>
+                      </Pressable>
+                      {sourcePost?.createdAt ? (
+                        <Text style={styles.sourceMeta}>
+                          {new Date(sourcePost.createdAt).toLocaleDateString()}
                         </Text>
                       ) : null}
                     </View>
                   </View>
-                </View>
-              ) : null}
 
-              {sourcePost.type === "shared_coupon" && sourcePost.sourceCoupon ? (
-                <View style={{ marginTop: 10 }}>
-                  <Text style={styles.sourceTitle}>{sourcePost.sourceCoupon.name}</Text>
-                  <Text style={styles.sourceBody}>
-                    {sourcePost.sourceCoupon.discount} · {sourcePost.sourceCoupon.business.name}
-                  </Text>
+                  {showSharedByYou ? (
+                    <View style={styles.sharedByYouPill}>
+                      <Text style={styles.sharedByYouPillText}>Shared by you</Text>
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
 
-              {sourcePost.type === "shared_reward" && sourcePost.sourceReward ? (
-                <View style={{ marginTop: 10 }}>
-                  <Text style={styles.sourceTitle}>{sourcePost.sourceReward.title}</Text>
-                  <Text style={styles.sourceBody}>
-                    {sourcePost.sourceReward.pointsRequired} points · {sourcePost.sourceReward.business.name}
-                  </Text>
-                </View>
-              ) : null}
-
-              {sourcePost.type === "shared_store_item" && sourcePost.sourceStoreItem ? (
-                <View style={{ marginTop: 10 }}>
-                  <View style={styles.sourceRow}>
-                    {sourcePost.sourceStoreItem.photos?.[0] ? (
+                {sourcePost.type === "shared_blog" && sourcePost.sourceBlog ? (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={styles.sourceTitle}>{sourcePost.sourceBlog.title}</Text>
+                    <Text style={styles.sourceMeta}>{sourcePost.sourceBlog.category.name}</Text>
+                    <Text style={styles.sourceBody} numberOfLines={3}>
+                      {stripHtml(sourcePost.sourceBlog.body).slice(0, 150)}…
+                    </Text>
+                    {sourcePost.sourceBlog.photos?.[0] ? (
                       <Image
-                        source={{ uri: resolveUri(sourcePost.sourceStoreItem.photos[0]) }}
-                        style={styles.sourceLogo}
+                        source={{ uri: resolveUri(sourcePost.sourceBlog.photos[0]) }}
+                        style={[styles.sourceImage, { height: IMAGE_SIZE }]}
                         resizeMode="cover"
                       />
                     ) : null}
-                    <View style={styles.sourceContent}>
-                      <Text style={styles.sourceTitle}>{sourcePost.sourceStoreItem.title}</Text>
-                      <Text style={styles.sourceBody}>
-                        ${(sourcePost.sourceStoreItem.priceCents / 100).toFixed(2)}
-                      </Text>
+                  </View>
+                ) : null}
+
+                {sourcePost.type === "shared_business" && sourcePost.sourceBusiness ? (
+                  <View style={{ marginTop: 10 }}>
+                    <View style={styles.sourceRow}>
+                      {sourcePost.sourceBusiness.logoUrl ? (
+                        <Image
+                          source={{ uri: resolveUri(sourcePost.sourceBusiness.logoUrl) }}
+                          style={styles.sourceLogo}
+                          resizeMode="cover"
+                        />
+                      ) : null}
+                      <View style={styles.sourceContent}>
+                        <Text style={styles.sourceTitle}>{sourcePost.sourceBusiness.name}</Text>
+                        {sourcePost.sourceBusiness.shortDescription ? (
+                          <Text style={styles.sourceBody} numberOfLines={2}>
+                            {sourcePost.sourceBusiness.shortDescription}
+                          </Text>
+                        ) : null}
+                      </View>
                     </View>
                   </View>
-                </View>
-              ) : null}
+                ) : null}
 
-              {sourcePost.content ? (
-                <View style={{ marginTop: 10 }}>
-                  <Text style={styles.sourceBody}>
-                    {sourcePost.content.slice(0, 300)}
-                    {sourcePost.content.length > 300 ? "…" : ""}
-                  </Text>
-                </View>
-              ) : null}
-
-              {sourcePost.tags?.length ? (
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-                  {sourcePost.tags.map((t: any) => (
-                    <Text key={t.id} style={styles.tag}>
-                      #{t.name}
+                {sourcePost.type === "shared_coupon" && sourcePost.sourceCoupon ? (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={styles.sourceTitle}>{sourcePost.sourceCoupon.name}</Text>
+                    <Text style={styles.sourceBody}>
+                      {sourcePost.sourceCoupon.discount} · {sourcePost.sourceCoupon.business.name}
                     </Text>
-                  ))}
-                </View>
-              ) : null}
+                  </View>
+                ) : null}
+
+                {sourcePost.type === "shared_reward" && sourcePost.sourceReward ? (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={styles.sourceTitle}>{sourcePost.sourceReward.title}</Text>
+                    <Text style={styles.sourceBody}>
+                      {sourcePost.sourceReward.pointsRequired} points · {sourcePost.sourceReward.business.name}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {sourcePost.type === "shared_store_item" && sourcePost.sourceStoreItem ? (
+                  <View style={{ marginTop: 10 }}>
+                    <View style={styles.sourceRow}>
+                      {sourcePost.sourceStoreItem.photos?.[0] ? (
+                        <Image
+                          source={{ uri: resolveUri(sourcePost.sourceStoreItem.photos[0]) }}
+                          style={styles.sourceLogo}
+                          resizeMode="cover"
+                        />
+                      ) : null}
+                      <View style={styles.sourceContent}>
+                        <Text style={styles.sourceTitle}>{sourcePost.sourceStoreItem.title}</Text>
+                        <Text style={styles.sourceBody}>
+                          ${(sourcePost.sourceStoreItem.priceCents / 100).toFixed(2)}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
+
+                {sourcePost.content ? (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={styles.sourceBody}>
+                      {sourcePost.content.slice(0, 300)}
+                      {sourcePost.content.length > 300 ? "…" : ""}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {sourcePost.tags?.length ? (
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                    {sourcePost.tags.map((t: any) => (
+                      <Text key={t.id} style={styles.tag}>
+                        #{t.name}
+                      </Text>
+                    ))}
+                  </View>
+                ) : null}
+              </Pressable>
 
               {(sourcePost.photos?.length ?? 0) > 0 ? (
-                <View style={styles.nestedMediaGrid}>
-                  {sourcePost.photos.slice(0, 4).map((url: string, i: number) => (
-                    <Image
-                      // eslint-disable-next-line react/no-array-index-key
-                      key={i}
-                      source={{ uri: resolveUri(url) }}
-                      style={styles.nestedMediaImage}
-                      resizeMode="cover"
-                    />
-                  ))}
+                <View style={styles.photoCarouselWrap}>
+                  <ScrollView
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+                      const index = Math.round(e.nativeEvent.contentOffset.x / width);
+                      setNestedPhotoCarouselIndex(index);
+                    }}
+                    style={styles.photoCarousel}
+                  >
+                    {sourcePost.photos.map((url: string, i: number) => (
+                      <Pressable
+                        key={i}
+                        onPress={() => originalId && openOriginalPost(originalId)}
+                        accessibilityRole="button"
+                        accessibilityLabel="View original post"
+                      >
+                        <Image
+                          source={{ uri: resolveUri(url) }}
+                          style={[styles.photoCarouselImage, { width, height: PHOTO_CAROUSEL_HEIGHT }]}
+                          resizeMode="cover"
+                        />
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                  {sourcePost.photos.length > 1 ? (
+                    <View style={styles.carouselDots}>
+                      {sourcePost.photos.map((_: string, i: number) => (
+                        <View
+                          key={i}
+                          style={[
+                            styles.carouselDot,
+                            i === nestedPhotoCarouselIndex && styles.carouselDotActive,
+                          ]}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
             </View>

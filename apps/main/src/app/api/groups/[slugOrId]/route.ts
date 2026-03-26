@@ -39,6 +39,8 @@ export async function GET(
     return NextResponse.json({ error: "Group not found" }, { status: 404 });
   }
 
+  const feedPostCount = await prisma.post.count({ where: { groupId: group.id } });
+
   const session = await getSessionForApi(req);
   let isMember = false;
   let memberRole: string | null = null;
@@ -54,6 +56,10 @@ export async function GET(
 
   return NextResponse.json({
     ...group,
+    _count: {
+      members: group._count.members,
+      groupPosts: feedPostCount,
+    },
     isMember,
     memberRole,
   });

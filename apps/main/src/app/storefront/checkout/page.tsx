@@ -310,7 +310,7 @@ export default function CheckoutPage() {
                 theme: "stripe",
                 variables: {
                   colorPrimary: "var(--color-primary)",
-                  colorTextPlaceholder: "#4b5563",
+                  colorTextPlaceholder: "#1f2937",
                 },
               },
             }}

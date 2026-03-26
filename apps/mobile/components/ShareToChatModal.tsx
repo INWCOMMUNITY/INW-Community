@@ -75,6 +75,10 @@ interface ShareToChatModalProps {
   visible: boolean;
   onClose: () => void;
   sharedContent: ShareToChatSharedContent;
+  /** When set, “Share to feed” creates the reshare in this community group (Post.groupId). */
+  defaultFeedGroupId?: string | null;
+  /** Called after a successful “Share to feed” (e.g. refresh group feed). */
+  onShareToFeedComplete?: () => void;
 }
 
 const SHARE_TITLE = "Check this out";
@@ -83,6 +87,8 @@ export function ShareToChatModal({
   visible,
   onClose,
   sharedContent,
+  defaultFeedGroupId = null,
+  onShareToFeedComplete,
 }: ShareToChatModalProps) {
   const router = useRouter();
   const { member } = useAuth();
@@ -158,9 +164,12 @@ export function ShareToChatModal({
   const handleShareToFeed = async () => {
     setShareToFeedLoading(true);
     try {
-      await shareToFeed(content, shareToFeedText);
+      await shareToFeed(content, shareToFeedText, {
+        groupId: defaultFeedGroupId ?? undefined,
+      });
       setShareToFeedText("");
       setComposing(false);
+      onShareToFeedComplete?.();
       onClose();
     } catch {
       Alert.alert("Error", "Could not share to feed. Try again.");

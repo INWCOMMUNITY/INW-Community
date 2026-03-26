@@ -66,14 +66,17 @@ const SHARE_API_PATH: Record<Exclude<SharedContentType, "photo">, string> = {
  */
 export async function shareToFeed(
   content: ShareContent,
-  text?: string
+  text?: string,
+  opts?: { groupId?: string | null }
 ): Promise<{ post?: unknown }> {
   if (content.type === "photo") {
     throw new Error("Photo sharing to feed not supported");
   }
   const path = SHARE_API_PATH[content.type];
+  const groupId = opts?.groupId?.trim() || null;
   return apiPost<{ post?: unknown }>(`${path}/${content.id}/share`, {
     ...(text?.trim() ? { content: text.trim() } : {}),
+    ...(groupId ? { groupId } : {}),
   });
 }
 

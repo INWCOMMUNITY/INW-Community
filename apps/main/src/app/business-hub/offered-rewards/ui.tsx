@@ -1,7 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+
+function formatApiError(error: unknown): string {
+  if (error == null) return "Something went wrong.";
+  if (typeof error === "string") return error;
+  if (typeof error === "object") {
+    const o = error as Record<string, unknown>;
+    const form = o.formErrors;
+    if (Array.isArray(form) && form.length > 0 && typeof form[0] === "string") return form[0];
+    const field = o.fieldErrors as Record<string, string[] | undefined> | undefined;
+    if (field && typeof field === "object") {
+      for (const key of Object.keys(field)) {
+        const msgs = field[key];
+        if (Array.isArray(msgs) && msgs[0]) return String(msgs[0]);
+      }
+    }
+  }
+  return "Something went wrong.";
+}
 
 export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[] }) {
   const router = useRouter();
@@ -9,6 +27,10 @@ export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[]
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRewards(initialRewards);
+  }, [initialRewards]);
 
   async function saveReward(id: string, patch: any) {
     setSavingId(id);
@@ -21,10 +43,13 @@ export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[]
         body: JSON.stringify(patch),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error?.formErrors?.[0] ?? data.error ?? "Failed to save");
+      if (!res.ok) {
+        const msg = formatApiError(data.error);
+        throw new Error(msg || "Failed to save");
+      }
       router.refresh();
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to save.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to save.");
     } finally {
       setSavingId(null);
     }
@@ -40,11 +65,14 @@ export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[]
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Failed to remove");
+      if (!res.ok) {
+        const msg = formatApiError(data.error);
+        throw new Error(msg || "Failed to remove");
+      }
       setRewards((prev: any[]) => prev.filter((r) => r.id !== id));
       router.refresh();
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to remove.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to remove.");
     } finally {
       setDeletingId(null);
     }
@@ -126,9 +154,11 @@ export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[]
                   <td className="p-3">
                     <select
                       className="border rounded px-2 py-1"
-                      defaultValue={r.status ?? "active"}
+                      key={`${r.id}-${r.status ?? "active"}`}
+                      value={r.status === "redeemed_out" ? "redeemed_out" : r.status ?? "active"}
                       onChange={(e) => {
                         const v = e.target.value;
+                        if (v === "redeemed_out") return;
                         setRewards((prev: any[]) =>
                           prev.map((x) => (x.id === r.id ? { ...x, status: v } : x))
                         );
@@ -137,6 +167,9 @@ export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[]
                     >
                       <option value="active">active</option>
                       <option value="inactive">inactive</option>
+                      <option value="redeemed_out" disabled>
+                        redeemed out (auto)
+                      </option>
                     </select>
                   </td>
                   <td className="p-3 whitespace-nowrap">
