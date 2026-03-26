@@ -56,6 +56,8 @@ function SellerHubContent() {
   const { setProfileView } = useProfileView();
   const openSellerMenu = useOpenSellerMenu();
   const [pendingShip, setPendingShip] = useState(0);
+  const [pendingDeliveries, setPendingDeliveries] = useState(0);
+  const [pendingPickups, setPendingPickups] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
   const [sellerSetupComplete, setSellerSetupComplete] = useState(false);
 
@@ -64,9 +66,16 @@ function SellerHubContent() {
   useFocusEffect(
     useCallback(() => {
       if (hasSeller) {
-        apiGet<{ pendingShip?: number; pendingReturns?: number }>("/api/seller-hub/pending-actions")
+        apiGet<{
+          pendingShip?: number;
+          pendingDeliveries?: number;
+          pendingPickups?: number;
+          pendingReturns?: number;
+        }>("/api/seller-hub/pending-actions")
           .then((data) => {
             setPendingShip(Number(data.pendingShip) || 0);
+            setPendingDeliveries(Number(data.pendingDeliveries) || 0);
+            setPendingPickups(Number(data.pendingPickups) || 0);
             setPendingReturns(Number(data.pendingReturns) || 0);
           })
           .catch(() => {});
@@ -168,6 +177,16 @@ function SellerHubContent() {
     [sellerSetupComplete]
   );
 
+  const hubBadgeForLabel = useCallback(
+    (label: string) => {
+      if (label === "Orders / To Ship") return pendingShip > 0;
+      if (label === "Deliveries") return pendingDeliveries > 0;
+      if (label === "Pick Up") return pendingPickups > 0;
+      return false;
+    },
+    [pendingDeliveries, pendingPickups, pendingShip]
+  );
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -188,8 +207,7 @@ function SellerHubContent() {
 
         <RNView style={styles.sellerHubGrid}>
           {gridActions.map((action) => {
-            const needsAction =
-              action.label === "Orders / To Ship" && pendingShip > 0;
+            const needsAction = hubBadgeForLabel(action.label);
             return (
               <Pressable
                 key={action.href ?? action.label}
@@ -234,6 +252,30 @@ function ResaleHubContent() {
   const { setProfileView } = useProfileView();
   const canAccessResaleHub = member?.hasResaleHubAccess ?? false;
   const [resaleSetupComplete, setResaleSetupComplete] = useState(false);
+  const [pendingShip, setPendingShip] = useState(0);
+  const [pendingDeliveries, setPendingDeliveries] = useState(0);
+  const [pendingPickups, setPendingPickups] = useState(0);
+  const [sellerOffersPending, setSellerOffersPending] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (canAccessResaleHub) {
+        apiGet<{
+          pendingShip?: number;
+          pendingDeliveries?: number;
+          pendingPickups?: number;
+          sellerOffersPending?: number;
+        }>("/api/seller-hub/pending-actions")
+          .then((data) => {
+            setPendingShip(Number(data.pendingShip) || 0);
+            setPendingDeliveries(Number(data.pendingDeliveries) || 0);
+            setPendingPickups(Number(data.pendingPickups) || 0);
+            setSellerOffersPending(Number(data.sellerOffersPending) || 0);
+          })
+          .catch(() => {});
+      }
+    }, [canAccessResaleHub])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -328,6 +370,14 @@ function ResaleHubContent() {
     },
   ];
 
+  const resaleHubBadgeForLabel = (label: string) => {
+    if (label === "Orders / To Ship") return pendingShip > 0;
+    if (label === "Offers") return sellerOffersPending > 0;
+    if (label === "Deliveries") return pendingDeliveries > 0;
+    if (label === "Pick Ups") return pendingPickups > 0;
+    return false;
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -347,7 +397,9 @@ function ResaleHubContent() {
         </RNView>
 
         <RNView style={styles.sellerHubGrid}>
-          {gridActions.map((action) => (
+          {gridActions.map((action) => {
+            const needsAction = resaleHubBadgeForLabel(action.label);
+            return (
             <Pressable
               key={action.href ?? action.label}
               style={({ pressed }) => [
@@ -360,10 +412,16 @@ function ResaleHubContent() {
                   : () => action.href && (router.push as (href: string) => void)(action.href)
               }
             >
+              {needsAction && (
+                <RNView style={styles.hubAlertBadge}>
+                  <Text style={styles.hubAlertBadgeText}>!</Text>
+                </RNView>
+              )}
               <Ionicons name={action.icon} size={28} color={theme.colors.primary} />
               <ThemedText style={styles.sellerHubGridLabel}>{action.label}</ThemedText>
             </Pressable>
-          ))}
+            );
+          })}
         </RNView>
 
         <RNView style={styles.sellerHubFooter}>

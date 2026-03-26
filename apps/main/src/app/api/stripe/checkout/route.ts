@@ -172,6 +172,7 @@ export async function POST(req: NextRequest) {
     const existingStripeCustomerId = await resolveStripeCustomerIdForMember(session.user.id);
     const params: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
+      payment_method_types: ["card", "link"],
       ...(existingStripeCustomerId
         ? { customer: existingStripeCustomerId }
         : { customer_email: session.user.email }),

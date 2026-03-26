@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "@/lib/theme";
+import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiGet, getToken } from "@/lib/api";
 
 export interface LocalDeliveryDetails {
@@ -380,8 +380,9 @@ export function LocalDeliveryModal({
                   <Switch
                     value={termsAccepted}
                     onValueChange={setTermsAccepted}
-                    trackColor={{ false: "#ccc", true: theme.colors.primary }}
-                    thumbColor="#fff"
+                    trackColor={switchTrackColor()}
+                    thumbColor={switchThumbColor(termsAccepted)}
+                    ios_backgroundColor={switchIosBackgroundColor}
                   />
                   <Text style={styles.termsText}>
                     I understand and agree to the seller&apos;s delivery terms.

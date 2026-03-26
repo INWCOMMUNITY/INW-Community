@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "@/lib/theme";
+import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
@@ -184,8 +184,9 @@ export default function SignupResidentScreen() {
             <Switch
               value={ageConfirmed}
               onValueChange={setAgeConfirmed}
-              trackColor={{ false: "#fff", true: "#d2b48c" }}
-              thumbColor="#fff"
+              trackColor={switchTrackColor()}
+              thumbColor={switchThumbColor(ageConfirmed)}
+              ios_backgroundColor={switchIosBackgroundColor}
             />
             <Text style={styles.ageLabel}>I confirm I am 16 years or older (users under 18 need parent/guardian permission)</Text>
           </View>

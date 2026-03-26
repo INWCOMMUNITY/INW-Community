@@ -8,6 +8,7 @@ import {
   orderHasShippedLine,
   orderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
+import { tryReleaseBuyerPointsForOrder } from "@/lib/store-order-buyer-points";
 
 export async function GET(
   _req: NextRequest,
@@ -200,6 +201,8 @@ export async function PATCH(
     where: { id },
     data,
   });
+
+  await tryReleaseBuyerPointsForOrder(id);
 
   const deliveryJustCompleted =
     isLocalDeliveryFullyConfirmed(order) &&

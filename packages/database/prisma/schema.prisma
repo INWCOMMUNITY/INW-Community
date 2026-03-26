@@ -846,6 +846,7 @@ model StoreOrder {
   stripePaymentIntentId   String?  @map("stripe_payment_intent_id")
   stripeCheckoutSessionId String?  @map("stripe_checkout_session_id")
   pointsAwarded           Int      @default(0) @map("points_awarded")
+  buyerPointsReleasedAt   DateTime? @map("buyer_points_released_at") // When deferred pickup/delivery buyer points were credited
   refundRequestedAt       DateTime? @map("refund_requested_at")
   refundReason            String?   @map("refund_reason")
   cancelReason            String?   @map("cancel_reason") // Changed my mind | Didn't mean to order | Order Arrived Damaged | Wrong Item Delivered | Other

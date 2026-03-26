@@ -41,6 +41,8 @@ interface PointsEarnedPopupProps {
   buttonText?: string;
   /** 2× slam on points earned only (paid plans on store / scan). Caller sets from member.hasPaidSubscription. */
   applyDoubleMultiplierAnimation?: boolean;
+  /** Extra points held until pickup/delivery is fully confirmed (shown below main message). */
+  pointsPendingFulfillment?: number;
 }
 
 export function PointsEarnedPopup({
@@ -55,6 +57,7 @@ export function PointsEarnedPopup({
   message,
   buttonText,
   applyDoubleMultiplierAnimation = false,
+  pointsPendingFulfillment,
 }: PointsEarnedPopupProps) {
   const resolvedIcon = icon ?? (category ? CATEGORY_ICONS[category] : undefined) ?? "star";
   const scaleAnim = useRef(new Animated.Value(0)).current;
@@ -335,6 +338,12 @@ export function PointsEarnedPopup({
               </>
             )}
           </Text>
+          {pointsPendingFulfillment != null && pointsPendingFulfillment > 0 ? (
+            <Text style={styles.pendingFulfillmentNote}>
+              You&apos;ll earn {pointsPendingFulfillment} more points after pickup or delivery is fully confirmed by you
+              and the seller.
+            </Text>
+          ) : null}
 
           <View style={styles.totalWrap}>
             <Text style={styles.totalLabel}>Your Total</Text>
@@ -404,9 +413,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: -8,
     alignSelf: "center",
-    backgroundColor: "#16a34a",
-    borderWidth: 3,
-    borderColor: "#fff",
+    backgroundColor: theme.colors.cream,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
@@ -418,7 +427,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   bubbleText: {
-    color: "#fff",
+    color: theme.colors.primary,
     fontSize: 20,
     fontWeight: "900",
     letterSpacing: 0.5,
@@ -433,7 +442,15 @@ const styles = StyleSheet.create({
     color: "#555",
     textAlign: "center",
     lineHeight: 22,
+    marginBottom: 12,
+  },
+  pendingFulfillmentNote: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
     marginBottom: 20,
+    fontWeight: "500",
   },
   businessName: {
     fontWeight: "700",

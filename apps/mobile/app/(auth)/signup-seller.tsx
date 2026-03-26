@@ -16,7 +16,7 @@ import {
 import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "@/lib/theme";
+import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiPost, apiPatch } from "@/lib/api";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
@@ -256,8 +256,9 @@ export default function SignupSellerScreen() {
               <Switch
                 value={ageConfirmed}
                 onValueChange={setAgeConfirmed}
-                trackColor={{ false: "#fff", true: "#d2b48c" }}
-                thumbColor="#fff"
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(ageConfirmed)}
+                ios_backgroundColor={switchIosBackgroundColor}
               />
               <Text style={styles.ageLabel}>I confirm I am 16 years or older</Text>
             </View>

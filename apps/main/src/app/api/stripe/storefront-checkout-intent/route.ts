@@ -346,7 +346,7 @@ export async function POST(req: NextRequest) {
             orderId: pair.orderId,
             ...(resaleOfferIdsStr ? { resaleOfferIds: resaleOfferIdsStr.slice(0, 450) } : {}),
           },
-          automatic_payment_methods: { enabled: true },
+          payment_method_types: ["card", "link"],
         },
         { stripeAccount: connectAccountId }
       );

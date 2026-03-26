@@ -17,7 +17,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "@/lib/theme";
+import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost, apiUploadFile, getToken } from "@/lib/api";
 import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
 import { signOut } from "@/lib/auth";
@@ -475,8 +475,11 @@ export default function ProfileEditScreen() {
           <Switch
             value={privacyLevel === "friends_only" || privacyLevel === "completely_private"}
             onValueChange={(on) => setPrivacyLevel(on ? "friends_only" : "public")}
-            trackColor={{ false: "#ccc", true: theme.colors.primary }}
-            thumbColor="#fff"
+            trackColor={switchTrackColor()}
+            thumbColor={switchThumbColor(
+              privacyLevel === "friends_only" || privacyLevel === "completely_private",
+            )}
+            ios_backgroundColor={switchIosBackgroundColor}
           />
         </View>
         <Text style={styles.privacyHint}>

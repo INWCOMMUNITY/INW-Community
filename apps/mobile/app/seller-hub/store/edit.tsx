@@ -16,7 +16,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "@/lib/theme";
+import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -327,8 +327,9 @@ export default function EditSellerProfileScreen() {
             <Switch
               value={acceptOffersOnResale}
               onValueChange={setAcceptOffersOnResale}
-              trackColor={{ false: "#ccc", true: theme.colors.cream }}
-              thumbColor={acceptOffersOnResale ? theme.colors.primary : "#f4f3f4"}
+              trackColor={switchTrackColor()}
+              thumbColor={switchThumbColor(acceptOffersOnResale)}
+              ios_backgroundColor={switchIosBackgroundColor}
             />
           </View>
 

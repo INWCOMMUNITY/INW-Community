@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
+import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-points";
 import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
 import {
   cancelPendingOrdersForSoldOutItems,
@@ -521,7 +522,9 @@ export async function POST(req: NextRequest) {
               });
             }
 
-            await awardPoints(order.buyerId, pointsAwarded);
+            if (!orderQualifiesForDeferredBuyerPoints(order.items)) {
+              await awardPoints(order.buyerId, pointsAwarded);
+            }
 
             const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
             awardLocalBusinessProBadge(order.buyerId).catch(() => {});
@@ -720,7 +723,9 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        await awardPoints(buyerId, pointsAwarded);
+        if (!orderQualifiesForDeferredBuyerPoints(orderItems)) {
+          await awardPoints(buyerId, pointsAwarded);
+        }
 
         const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
         awardLocalBusinessProBadge(buyerId).catch(() => {});
@@ -977,7 +982,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      await awardPoints(order.buyerId, pointsAwarded);
+      if (!orderQualifiesForDeferredBuyerPoints(order.items)) {
+        await awardPoints(order.buyerId, pointsAwarded);
+      }
 
       if (!isConnectEvent) {
         const platformFeeCents = Math.max(50, Math.floor(totalCents * 0.05));

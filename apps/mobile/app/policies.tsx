@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "@/lib/theme";
+import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiGet, apiPatch } from "@/lib/api";
 
 interface PolicyData {
@@ -129,8 +129,9 @@ export default function PoliciesScreen() {
             <Switch
               value={acceptCashForPickupDelivery}
               onValueChange={setAcceptCashForPickupDelivery}
-              trackColor={{ false: "#ccc", true: theme.colors.primary }}
-              thumbColor="#fff"
+              trackColor={switchTrackColor()}
+              thumbColor={switchThumbColor(acceptCashForPickupDelivery)}
+              ios_backgroundColor={switchIosBackgroundColor}
             />
             <View style={styles.cashRowText}>
               <Text style={styles.cashRowTitle}>Accept cash for pickup and local delivery</Text>
@@ -159,8 +160,15 @@ export default function PoliciesScreen() {
                     else if (offerKey === "offerLocalDelivery") setOfferLocalDelivery(v);
                     else setOfferLocalPickup(v);
                   }}
-                  trackColor={{ false: "#ccc", true: theme.colors.primary }}
-                  thumbColor="#fff"
+                  trackColor={switchTrackColor()}
+                  thumbColor={switchThumbColor(
+                    offerKey === "offerShipping"
+                      ? offerShipping
+                      : offerKey === "offerLocalDelivery"
+                        ? offerLocalDelivery
+                        : offerLocalPickup,
+                  )}
+                  ios_backgroundColor={switchIosBackgroundColor}
                 />
                 <Text style={styles.checkboxLabel}>{offerLabel}</Text>
               </View>

@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-points";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
     ? orderIdsParam.split(",").map((id) => id.trim()).filter(Boolean)
     : [];
   if (orderIds.length === 0) {
-    return NextResponse.json({ pointsAwarded: 0 });
+    return NextResponse.json({ pointsAwarded: 0, pointsPendingFulfillment: 0 });
   }
 
   const orders = await prisma.storeOrder.findMany({
@@ -33,9 +34,23 @@ export async function GET(req: NextRequest) {
       buyerId: session.user.id,
       status: "paid",
     },
-    select: { pointsAwarded: true },
+    select: {
+      pointsAwarded: true,
+      buyerPointsReleasedAt: true,
+      items: { select: { fulfillmentType: true } },
+    },
   });
 
-  const pointsAwarded = orders.reduce((sum, o) => sum + (o.pointsAwarded ?? 0), 0);
-  return NextResponse.json({ pointsAwarded });
+  let pointsAwarded = 0;
+  let pointsPendingFulfillment = 0;
+  for (const o of orders) {
+    const deferred = orderQualifiesForDeferredBuyerPoints(o.items);
+    const pts = o.pointsAwarded ?? 0;
+    if (deferred && !o.buyerPointsReleasedAt) {
+      pointsPendingFulfillment += pts;
+    } else {
+      pointsAwarded += pts;
+    }
+  }
+  return NextResponse.json({ pointsAwarded, pointsPendingFulfillment });
 }

@@ -146,6 +146,7 @@ export default function CartScreen() {
     pointsAwarded: number;
     previousTotal: number;
     newTotal: number;
+    pointsPendingFulfillment?: number;
   } | null>(null);
   const [paymentMethodByItemId, setPaymentMethodByItemId] = useState<Record<string, "card" | "cash">>({});
   const mixedCashOrderIdsRef = useRef<string[]>([]);
@@ -422,19 +423,29 @@ export default function CartScreen() {
       const orderIdsQuery = orderIds.join(",");
       try {
         const [summaryRes, meRes] = await Promise.all([
-          apiGet<{ pointsAwarded?: number }>(
+          apiGet<{ pointsAwarded?: number; pointsPendingFulfillment?: number }>(
             `/api/store-orders/success-summary?order_ids=${encodeURIComponent(orderIdsQuery)}`
           ),
           apiGet<{ points?: number }>("/api/me"),
         ]);
         const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
+        const pointsPending = summaryRes?.pointsPendingFulfillment ?? 0;
         const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
         if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
           setPointsPopup({
             pointsAwarded,
             previousTotal: newTotal - pointsAwarded,
             newTotal,
+            pointsPendingFulfillment: pointsPending > 0 ? pointsPending : undefined,
           });
+          return;
+        }
+        if (pointsPending > 0) {
+          Alert.alert(
+            "Points after pickup or delivery",
+            `You'll earn ${pointsPending} points once pickup or delivery is fully confirmed by you and the seller.`,
+            [{ text: "OK", onPress: () => router.back() }]
+          );
           return;
         }
       } catch {
@@ -1234,19 +1245,29 @@ export default function CartScreen() {
                         try {
                           const orderIdsQuery = merged.join(",");
                           const [summaryRes, meRes] = await Promise.all([
-                            apiGet<{ pointsAwarded?: number }>(
+                            apiGet<{ pointsAwarded?: number; pointsPendingFulfillment?: number }>(
                               `/api/store-orders/success-summary?order_ids=${encodeURIComponent(orderIdsQuery)}`
                             ),
                             apiGet<{ points?: number }>("/api/me"),
                           ]);
                           const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
+                          const pointsPending = summaryRes?.pointsPendingFulfillment ?? 0;
                           const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
                           if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
                             setPointsPopup({
                               pointsAwarded,
                               previousTotal: newTotal - pointsAwarded,
                               newTotal,
+                              pointsPendingFulfillment: pointsPending > 0 ? pointsPending : undefined,
                             });
+                            return;
+                          }
+                          if (pointsPending > 0) {
+                            Alert.alert(
+                              "Points after pickup or delivery",
+                              `You'll earn ${pointsPending} points once pickup or delivery is fully confirmed by you and the seller.`,
+                              [{ text: "OK", onPress: () => router.back() }]
+                            );
                             return;
                           }
                         } catch {
@@ -1357,6 +1378,7 @@ export default function CartScreen() {
           message="Thanks for supporting local! You earned points on this purchase."
           buttonText="Awesome!"
           applyDoubleMultiplierAnimation={member?.hasPaidSubscription === true}
+          pointsPendingFulfillment={pointsPopup.pointsPendingFulfillment}
         />
       )}
     </View>

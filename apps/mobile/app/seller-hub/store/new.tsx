@@ -17,7 +17,12 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
-import { theme as defaultTheme } from "@/lib/theme";
+import {
+  theme as defaultTheme,
+  switchIosBackgroundColor,
+  switchThumbColor,
+  switchTrackColor,
+} from "@/lib/theme";
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
@@ -790,8 +795,9 @@ export default function ListItemScreen() {
           <Switch
             value={acceptOffers}
             onValueChange={setAcceptOffers}
-            trackColor={{ false: "#ccc", true: theme.colors.cream }}
-            thumbColor={acceptOffers ? theme.colors.primary : "#f4f3f4"}
+            trackColor={switchTrackColor()}
+            thumbColor={switchThumbColor(acceptOffers)}
+            ios_backgroundColor={switchIosBackgroundColor}
           />
         </View>
       )}
@@ -1073,8 +1079,9 @@ export default function ListItemScreen() {
                   }
                   setShippingDisabled(nextDisabled);
                 }}
-                trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                thumbColor={theme.colors.primary}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(!shippingDisabled)}
+                ios_backgroundColor={switchIosBackgroundColor}
               />
             </View>
             {!shippingDisabled && (
@@ -1162,8 +1169,9 @@ export default function ListItemScreen() {
                       setUseSellerProfileShipping(v);
                       if (v) setShippingPolicy("");
                     }}
-                    trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                    thumbColor={theme.colors.primary}
+                    trackColor={switchTrackColor()}
+                    thumbColor={switchThumbColor(useSellerProfileShipping)}
+                    ios_backgroundColor={switchIosBackgroundColor}
                   />
                 </View>
                 <Text style={styles.hint}>
@@ -1186,8 +1194,9 @@ export default function ListItemScreen() {
                   if (!v && shippingDisabled && !inStorePickupAvailable) return;
                   setLocalDeliveryAvailable(v);
                 }}
-                trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                thumbColor={theme.colors.primary}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(localDeliveryAvailable)}
+                ios_backgroundColor={switchIosBackgroundColor}
               />
             </View>
             {localDeliveryAvailable && (
@@ -1240,8 +1249,9 @@ export default function ListItemScreen() {
                       setUseSellerProfileLocalDelivery(v);
                       if (v) setLocalDeliveryTerms("");
                     }}
-                    trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                    thumbColor={theme.colors.primary}
+                    trackColor={switchTrackColor()}
+                    thumbColor={switchThumbColor(useSellerProfileLocalDelivery)}
+                    ios_backgroundColor={switchIosBackgroundColor}
                   />
                 </View>
                 <Text style={styles.hint}>
@@ -1264,8 +1274,9 @@ export default function ListItemScreen() {
                   if (!v && shippingDisabled && !localDeliveryAvailable) return;
                   setInStorePickupAvailable(v);
                 }}
-                trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                thumbColor={theme.colors.primary}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(inStorePickupAvailable)}
+                ios_backgroundColor={switchIosBackgroundColor}
               />
             </View>
             {inStorePickupAvailable && (
@@ -1309,8 +1320,9 @@ export default function ListItemScreen() {
                       setUseSellerProfilePickup(v);
                       if (v) setPickupTerms("");
                     }}
-                    trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                    thumbColor={theme.colors.primary}
+                    trackColor={switchTrackColor()}
+                    thumbColor={switchThumbColor(useSellerProfilePickup)}
+                    ios_backgroundColor={switchIosBackgroundColor}
                   />
                 </View>
                 <Text style={styles.hint}>
@@ -1333,8 +1345,9 @@ export default function ListItemScreen() {
                   setAcceptCashForPickupDelivery(v);
                   apiPatch("/api/me", { acceptCashForPickupDelivery: v }).catch(() => {});
                 }}
-                trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                thumbColor={theme.colors.primary}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(acceptCashForPickupDelivery)}
+                ios_backgroundColor={switchIosBackgroundColor}
               />
             </View>
             <Text style={styles.hint}>

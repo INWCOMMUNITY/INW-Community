@@ -23,3 +23,14 @@ export const theme = {
     body: "Helvetica Neue",
   },
 } as const;
+
+/** RN Switch: off = tan (cream), on = theme green (primary). */
+export function switchTrackColor() {
+  return { false: theme.colors.cream, true: theme.colors.primary } as const;
+}
+
+export function switchThumbColor(value: boolean) {
+  return value ? theme.colors.buttonText : "#f4f3f4";
+}
+
+export const switchIosBackgroundColor = theme.colors.cream;

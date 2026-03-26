@@ -44,14 +44,18 @@ function ConnectSheetRunner({
       } = { merchantCountryCode: "US" };
       if (amountCents > 0) {
         applePayConfig.cartItems = [
-          { paymentType: "Immediate", label: "Northwest Community", amount: (amountCents / 100).toFixed(2) },
+          {
+            paymentType: "Immediate",
+            label: "Northwest Community",
+            amount: (amountCents / 100).toFixed(2),
+          },
         ];
       }
       const { error: initErr } = await initPaymentSheet({
         merchantDisplayName: "Northwest Community",
         paymentIntentClientSecret: payment.clientSecret,
         returnURL: "mobile://stripe-redirect",
-        allowsDelayedPaymentMethods: true,
+        allowsDelayedPaymentMethods: false,
         applePay: applePayConfig,
         googlePay: { merchantCountryCode: "US", currencyCode: "USD", testEnv: __DEV__ ?? false },
         paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
@@ -332,7 +336,7 @@ export function StorefrontNativeCheckoutButton({
           merchantDisplayName: "Northwest Community",
           paymentIntentClientSecret: p.clientSecret,
           returnURL: "mobile://stripe-redirect",
-          allowsDelayedPaymentMethods: true,
+          allowsDelayedPaymentMethods: false,
           applePay: applePayConfig,
           googlePay: {
             merchantCountryCode: "US",
