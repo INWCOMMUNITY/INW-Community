@@ -34,7 +34,14 @@ export default async function OfferedRewardsPage() {
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto">
-        <div className="mb-8">
+        <div className="mb-8 flex flex-wrap gap-x-6 gap-y-2">
+          <Link
+            href="/business-hub/manage"
+            className="text-sm font-medium hover:underline"
+            style={{ color: "var(--color-primary)" }}
+          >
+            ← Manage
+          </Link>
           <Link
             href="/business-hub/reward-redemptions"
             className="text-sm font-medium hover:underline"

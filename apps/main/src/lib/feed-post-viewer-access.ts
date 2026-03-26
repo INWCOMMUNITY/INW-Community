@@ -52,3 +52,26 @@ export function canViewerSeeFeedItem(
   }
   return false;
 }
+
+/**
+ * Matches /api/feed when there is no session: public authors only, no group posts,
+ * and shared_post items only when the embedded source author is public.
+ */
+export function canUnauthenticatedViewerSeeFeedItem(p: {
+  type: string;
+  author?: { privacyLevel?: string | null } | null;
+  groupId?: string | null;
+  sourcePost?: { author?: { privacyLevel?: string | null } | null } | null;
+}): boolean {
+  if (!p.author) return false;
+  const outer = p.author.privacyLevel ?? "public";
+  if (outer !== "public") return false;
+  if (p.groupId) return false;
+  if (p.type === "shared_post") {
+    const srcAuth = p.sourcePost?.author;
+    if (!srcAuth) return false;
+    const srcLevel = srcAuth.privacyLevel ?? "public";
+    if (srcLevel !== "public") return false;
+  }
+  return true;
+}

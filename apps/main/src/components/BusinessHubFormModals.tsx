@@ -380,6 +380,20 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
         sharedBusinessName={createPostBusiness?.name}
       />
 
+      <div className="mb-8 flex flex-col items-stretch max-w-2xl mx-auto w-full text-center">
+        <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
+          Manage
+        </h2>
+        <Link
+          href="/business-hub/manage"
+          className="inline-flex items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-white font-semibold transition opacity-90 hover:opacity-100 mb-2 w-full no-underline"
+          style={{ backgroundColor: "var(--color-primary)" }}
+        >
+          <IonIcon name="folder-outline" size={28} className="text-white shrink-0" />
+          My Posts, Coupons, and Rewards
+        </Link>
+      </div>
+
       {businesses.length > 0 && (
         <div className="mb-8 flex flex-col items-center text-center">
           <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
@@ -560,7 +574,7 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
       )}
 
       {openModal === "create-post-picker" && (
-        <Modal title="Create post as" onClose={closeModal}>
+        <Modal title="Create Post as" onClose={closeModal}>
           <div className="flex flex-col gap-3">
             {businesses.map((b) => (
               <button

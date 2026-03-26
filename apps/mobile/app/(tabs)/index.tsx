@@ -13,7 +13,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
-import { getToken } from "@/lib/api";
+import { getToken, apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { CommunityUgcTermsModal } from "@/components/CommunityUgcTermsModal";
 import {
@@ -48,6 +48,19 @@ export default function CommunityScreen() {
   const [couponPopupId, setCouponPopupId] = useState<string | null>(null);
   const [shareToChatPost, setShareToChatPost] = useState<{ id: string; slug?: string } | null>(null);
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
+  const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!authMember) {
+      setViewerManagedBusinessIds([]);
+      return;
+    }
+    apiGet<{ id: string }[]>("/api/businesses?mine=1")
+      .then((rows) =>
+        setViewerManagedBusinessIds(Array.isArray(rows) ? rows.map((r) => r.id) : [])
+      )
+      .catch(() => setViewerManagedBusinessIds([]));
+  }, [authMember?.id]);
 
   const checkAuth = useCallback(() => {
     getToken().then((token) => {
@@ -348,7 +361,7 @@ export default function CommunityScreen() {
               ]}
               onPress={() => openCreatePost()}
             >
-              <Text style={styles.createPostBtnText}>Create post</Text>
+              <Text style={styles.createPostBtnText}>Create Post</Text>
             </Pressable>
           ) : (
             <Pressable
@@ -388,6 +401,9 @@ export default function CommunityScreen() {
               onSave={handleSave}
               onEditPost={openEditPost}
               onDeletePost={handleDeletePost}
+              viewerManagedBusinessIds={
+                viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+              }
               onOpenCoupon={(id) => setCouponPopupId(id)}
             />
           ))}

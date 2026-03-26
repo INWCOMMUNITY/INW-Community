@@ -1,5 +1,5 @@
 /**
- * Business Hub side menu - matches the 4-button layout in my-community business hub.
+ * Business Hub side menu - aligns with Business Hub actions on My Community.
  */
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -109,14 +109,18 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
   const rows: MenuRow[] = [
     { type: "route", href: "/my-badges", label: "My Badges" },
     { type: "route", href: "/sponsor-business", label: "Set up / Edit Local Business Page" },
-    { type: "coupon", label: "Offer a Coupon" },
-    { type: "reward", label: "Offer a Reward" },
-    { type: "web", url: `${siteBase}/business-hub/offered-rewards`, label: "My Businesses Rewards" },
-    { type: "web", url: `${siteBase}/business-hub/offered-coupons`, label: "My Business Coupons" },
     {
       type: "web",
       url: `${siteBase}/business-hub/event`,
       label: "Post Event",
+    },
+    { type: "coupon", label: "Create Coupon" },
+    { type: "reward", label: "Offer a Reward" },
+    { type: "route", href: "/redeemed-rewards", label: "Redeemed Rewards" },
+    {
+      type: "route",
+      href: "/business-hub-manage",
+      label: "My Posts, Coupons, and Rewards",
     },
   ];
 

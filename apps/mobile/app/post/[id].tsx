@@ -11,6 +11,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useNavigation } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
+import { apiGet } from "@/lib/api";
 import {
   fetchPostById,
   toggleLike,
@@ -37,6 +38,19 @@ export default function SinglePostScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!member) {
+      setViewerManagedBusinessIds([]);
+      return;
+    }
+    apiGet<{ id: string }[]>("/api/businesses?mine=1")
+      .then((rows) =>
+        setViewerManagedBusinessIds(Array.isArray(rows) ? rows.map((r) => r.id) : [])
+      )
+      .catch(() => setViewerManagedBusinessIds([]));
+  }, [member?.id]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -145,6 +159,9 @@ export default function SinglePostScreen() {
           onShare={() => setShareOpen(true)}
           onEditPost={openEditPost}
           onDeletePost={handleDeletePost}
+          viewerManagedBusinessIds={
+            viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+          }
         />
       </ScrollView>
 

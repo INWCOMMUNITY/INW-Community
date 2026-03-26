@@ -41,13 +41,13 @@ export interface FeedPost {
     name: string;
     discount: string;
     code: string;
-    business: { name: string; slug: string };
+    business: { id: string; name: string; slug: string };
   } | null;
   sourceReward?: {
     id: string;
     title: string;
     pointsRequired: number;
-    business: { name: string; slug: string };
+    business: { id: string; name: string; slug: string };
   } | null;
   sourceStoreItem?: {
     id: string;
@@ -70,6 +70,23 @@ export interface FeedResponse {
   nextCursor: string | null;
 }
 
+/** True if this post (including nested shared_post sources) promotes a business the viewer owns. */
+export function postTouchesViewerManagedBusinesses(post: FeedPost, businessIds: string[]): boolean {
+  if (!businessIds.length) return false;
+  const set = new Set(businessIds);
+  const walk = (p: FeedPost): boolean => {
+    if (p.sourceBusiness?.id && set.has(p.sourceBusiness.id)) return true;
+    if (p.sourceCoupon?.business?.id && set.has(p.sourceCoupon.business.id)) return true;
+    if (p.sourceReward?.business?.id && set.has(p.sourceReward.business.id)) return true;
+    const sp = p.sourcePost;
+    if (sp && typeof sp === "object" && sp !== null && "id" in sp) {
+      return walk(sp as FeedPost);
+    }
+    return false;
+  };
+  return walk(post);
+}
+
 export async function fetchFeed(cursor?: string): Promise<FeedResponse> {
   const params = new URLSearchParams();
   if (cursor) params.set("cursor", cursor);
@@ -80,7 +97,7 @@ export async function fetchFeed(cursor?: string): Promise<FeedResponse> {
   };
 }
 
-/** Single post (auth required; 404 if viewer cannot see it). */
+/** Single post (optional auth; 404 if viewer cannot see it; public posts work without a token). */
 export async function fetchPostById(id: string): Promise<FeedPost> {
   const data = await apiGet<{ post: FeedPost }>(`/api/posts/${encodeURIComponent(id)}`);
   const post = data?.post;
@@ -99,6 +116,30 @@ export async function fetchGroupFeed(
   if (cursor) params.set("cursor", cursor);
   const data = await apiGet<FeedResponse>(
     `/api/groups/${encodeURIComponent(groupSlug)}/feed?${params}`
+  );
+  return {
+    posts: data.posts ?? [],
+    nextCursor: data.nextCursor ?? null,
+  };
+}
+
+/** Business Hub: posts authored as your businesses (shared_business). Requires Business Hub access. */
+export async function fetchBusinessHubBusinessPosts(cursor?: string): Promise<FeedResponse> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const data = await apiGet<FeedResponse>(`/api/business-hub/business-posts?${params}`);
+  return {
+    posts: data.posts ?? [],
+    nextCursor: data.nextCursor ?? null,
+  };
+}
+
+/** Feed of posts that reference this business listing or its coupons/rewards. */
+export async function fetchBusinessFeed(businessId: string, cursor?: string): Promise<FeedResponse> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const data = await apiGet<FeedResponse>(
+    `/api/businesses/${encodeURIComponent(businessId)}/feed?${params}`
   );
   return {
     posts: data.posts ?? [],

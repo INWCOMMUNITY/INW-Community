@@ -228,6 +228,10 @@ function RootLayoutNav() {
         <Stack.Screen name="coupons/index" />
         <Stack.Screen name="rewards/index" />
         <Stack.Screen name="redeemed-rewards" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-offered-coupons" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-offered-rewards" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-manage" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-my-posts" options={{ headerShown: false }} />
         <Stack.Screen name="profile-edit" />
         <Stack.Screen name="policies" />
         <Stack.Screen name="profile-businesses" />

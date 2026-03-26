@@ -2,7 +2,7 @@
  * Returns true if a feed post has meaningful content to render (hides empty / orphaned shares).
  */
 
-type FeedPostLike = {
+export type FeedPostLike = {
   type: string;
   content: string | null;
   photos: string[];

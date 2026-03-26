@@ -11,6 +11,7 @@ import {
   Modal,
   RefreshControl,
   FlatList,
+  Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -69,6 +70,19 @@ export default function GroupDetailScreen() {
   const [coverGalleryOpen, setCoverGalleryOpen] = useState(false);
   const [coverGalleryIndex, setCoverGalleryIndex] = useState(0);
   const [shareToChatPost, setShareToChatPost] = useState<{ id: string } | null>(null);
+  const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!member) {
+      setViewerManagedBusinessIds([]);
+      return;
+    }
+    apiGet<{ id: string }[]>("/api/businesses?mine=1")
+      .then((rows) =>
+        setViewerManagedBusinessIds(Array.isArray(rows) ? rows.map((r) => r.id) : [])
+      )
+      .catch(() => setViewerManagedBusinessIds([]));
+  }, [member?.id]);
 
   const groupGalleryUrls = useMemo(() => {
     if (!group) return [];
@@ -143,24 +157,51 @@ export default function GroupDetailScreen() {
 
   useLayoutEffect(() => {
     if (!group?.isMember || !openCreatePostInGroup || !group) {
-      navigation.setOptions({ headerRight: undefined });
+      navigation.setOptions({
+        headerRight: undefined,
+        ...(Platform.OS === "ios" ? { unstable_headerRightItems: undefined } : {}),
+      });
       return;
     }
 
     const groupIdForPost = group.id;
-    navigation.setOptions({
-      headerRight: () => (
-        <Pressable
-          onPress={() => openCreatePostInGroup(groupIdForPost)}
-          style={({ pressed }) => [pressed && { opacity: 0.85 }]}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Create post in this group"
-        >
-          <Ionicons name="add" size={26} color="#fff" />
-        </Pressable>
-      ),
-    });
+    if (Platform.OS === "ios") {
+      navigation.setOptions({
+        headerRight: undefined,
+        unstable_headerRightItems: () => [
+          {
+            type: "custom",
+            element: (
+              <Pressable
+                onPress={() => openCreatePostInGroup(groupIdForPost)}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Create Post in this group"
+              >
+                <Ionicons name="add" size={26} color="#fff" />
+              </Pressable>
+            ),
+            hidesSharedBackground: true,
+          },
+        ],
+      });
+    } else {
+      navigation.setOptions({
+        unstable_headerRightItems: undefined,
+        headerRight: () => (
+          <Pressable
+            onPress={() => openCreatePostInGroup(groupIdForPost)}
+            style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+            android_ripple={{ color: "rgba(255,255,255,0.2)", borderless: true }}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Create Post in this group"
+          >
+            <Ionicons name="add" size={26} color="#fff" />
+          </Pressable>
+        ),
+      });
+    }
   }, [group?.id, group?.isMember, navigation, openCreatePostInGroup]);
 
   const handleJoin = async (agreedToRules = false) => {
@@ -462,6 +503,9 @@ export default function GroupDetailScreen() {
             onSave={handleSave}
             onEditPost={openEditPost}
             onDeletePost={handleDeletePost}
+            viewerManagedBusinessIds={
+              viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+            }
           />
         </View>
       )}

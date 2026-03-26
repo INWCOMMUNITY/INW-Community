@@ -64,13 +64,13 @@ export async function hydrateFeedPostRows(
       sourceCouponIds.length > 0
         ? prisma.coupon.findMany({
             where: { id: { in: sourceCouponIds } },
-            include: { business: { select: { name: true, slug: true } } },
+            include: { business: { select: { id: true, name: true, slug: true } } },
           })
         : [],
       sourceRewardIds.length > 0
         ? prisma.reward.findMany({
             where: { id: { in: sourceRewardIds } },
-            include: { business: { select: { name: true, slug: true } } },
+            include: { business: { select: { id: true, name: true, slug: true } } },
           })
         : [],
       sourceStoreItemIds.length > 0
@@ -152,13 +152,13 @@ export async function hydrateFeedPostRows(
       sourcePostCouponIds.length > 0
         ? prisma.coupon.findMany({
             where: { id: { in: sourcePostCouponIds } },
-            include: { business: { select: { name: true, slug: true } } },
+            include: { business: { select: { id: true, name: true, slug: true } } },
           })
         : [],
       sourcePostRewardIds.length > 0
         ? prisma.reward.findMany({
             where: { id: { in: sourcePostRewardIds } },
-            include: { business: { select: { name: true, slug: true } } },
+            include: { business: { select: { id: true, name: true, slug: true } } },
           })
         : [],
       sourcePostStoreItemIds.length > 0

@@ -11,6 +11,8 @@ import {
   Linking,
   Platform,
   Modal,
+  Alert,
+  RefreshControl,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,6 +23,10 @@ import { CouponPopup } from "@/components/CouponPopup";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCreatePost } from "@/contexts/CreatePostContext";
+import { fetchBusinessFeed, toggleLike, deletePost, type FeedPost } from "@/lib/feed-api";
+import { FeedPostCard } from "@/components/FeedPostCard";
+import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -74,6 +80,18 @@ export default function BusinessScreen() {
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const { member } = useAuth();
+  const createPostMenu = useCreatePost();
+  const openEditPost = createPostMenu?.openEditPost;
+  const signedIn = !!member;
+
+  const [feedPosts, setFeedPosts] = useState<FeedPost[]>([]);
+  const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
+  const [feedRefreshing, setFeedRefreshing] = useState(false);
+  const [feedCommentPostId, setFeedCommentPostId] = useState<string | null>(null);
+  const [feedSharePost, setFeedSharePost] = useState<{ id: string } | null>(null);
+  const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -106,6 +124,188 @@ export default function BusinessScreen() {
     const timer = setTimeout(() => setShowSavedNote(false), 3000);
     return () => clearTimeout(timer);
   }, [showSavedNote]);
+
+  useEffect(() => {
+    if (!member || !business) {
+      setViewerManagedBusinessIds([]);
+      return;
+    }
+    apiGet<{ id: string }[]>("/api/businesses?mine=1")
+      .then((rows) => {
+        const ids = Array.isArray(rows) ? rows.map((r) => r.id) : [];
+        setViewerManagedBusinessIds(ids.includes(business.id) ? [business.id] : []);
+      })
+      .catch(() => setViewerManagedBusinessIds([]));
+  }, [member?.id, business?.id]);
+
+  const loadBusinessFeed = useCallback(
+    async (cursor?: string, refresh = false) => {
+      if (!business?.id) return;
+      try {
+        if (refresh) setFeedRefreshing(true);
+        else if (!cursor) setFeedLoading(true);
+        else setFeedLoadingMore(true);
+        const { posts: next, nextCursor: nc } = await fetchBusinessFeed(business.id, cursor);
+        setFeedPosts((prev) => (refresh ? next : cursor ? [...prev, ...next] : next));
+        setFeedNextCursor(nc);
+      } catch {
+        if (refresh) setFeedPosts([]);
+      } finally {
+        setFeedLoading(false);
+        setFeedLoadingMore(false);
+        setFeedRefreshing(false);
+      }
+    },
+    [business?.id]
+  );
+
+  useEffect(() => {
+    if (business?.id) void loadBusinessFeed(undefined, true);
+  }, [business?.id, loadBusinessFeed]);
+
+  const handleFeedLike = useCallback(
+    async (postId: string) => {
+      if (!signedIn) {
+        Alert.alert("Sign in", "Sign in to like posts.", [
+          { text: "OK" },
+          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+        ]);
+        return;
+      }
+      try {
+        const { liked } = await toggleLike(postId);
+        setFeedPosts((prev) =>
+          prev.map((p) =>
+            p.id === postId ? { ...p, liked, likeCount: p.likeCount + (liked ? 1 : -1) } : p
+          )
+        );
+      } catch (_) {}
+    },
+    [signedIn, router]
+  );
+
+  const handleFeedComment = useCallback(
+    (postId: string) => {
+      if (!signedIn) {
+        Alert.alert("Sign in", "Sign in to comment on posts.", [
+          { text: "OK" },
+          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+        ]);
+        return;
+      }
+      setFeedCommentPostId(postId);
+    },
+    [signedIn, router]
+  );
+
+  const handleFeedCommentAdded = useCallback(() => {
+    if (!feedCommentPostId) return;
+    setFeedPosts((prev) =>
+      prev.map((p) =>
+        p.id === feedCommentPostId ? { ...p, commentCount: p.commentCount + 1 } : p
+      )
+    );
+  }, [feedCommentPostId]);
+
+  const handleFeedDeletePost = useCallback((postId: string) => {
+    Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void deletePost(postId)
+            .then(() => {
+              setFeedPosts((prev) => prev.filter((p) => p.id !== postId));
+              setFeedCommentPostId((id) => (id === postId ? null : id));
+            })
+            .catch((e) =>
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
+            );
+        },
+      },
+    ]);
+  }, []);
+
+  const handleFeedSave = useCallback(
+    async (postId: string) => {
+      if (!signedIn) {
+        Alert.alert("Sign in", "Sign in to save posts.", [
+          { text: "OK" },
+          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+        ]);
+        return;
+      }
+      try {
+        await apiPost("/api/saved", { type: "post", referenceId: postId });
+        Alert.alert("Saved", "Post saved! View it in your Saved Posts.");
+      } catch {
+        Alert.alert("Error", "Could not save post. Try again.");
+      }
+    },
+    [signedIn, router]
+  );
+
+  const reportFeedPost = async (
+    postId: string,
+    reason: "political" | "hate" | "nudity" | "spam" | "other"
+  ) => {
+    try {
+      await apiPost("/api/reports", { contentType: "post", contentId: postId, reason });
+      Alert.alert("Report submitted", "Thank you. We will review this post.");
+    } catch (e) {
+      Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.");
+    }
+  };
+
+  const handleFeedReport = useCallback((postId: string) => {
+    Alert.alert("Report post", "Why are you reporting this post?", [
+      { text: "Political content", onPress: () => reportFeedPost(postId, "political") },
+      { text: "Nudity / explicit", onPress: () => reportFeedPost(postId, "nudity") },
+      { text: "Spam", onPress: () => reportFeedPost(postId, "spam") },
+      { text: "Other", onPress: () => reportFeedPost(postId, "other") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, []);
+
+  const handleFeedBlockUser = useCallback(
+    (memberId: string, postId: string) => {
+      if (member?.id === memberId) {
+        Alert.alert(
+          "Cannot block yourself",
+          "Blocking is for other members. It removes their posts from your feed and stops them from messaging you."
+        );
+        return;
+      }
+      Alert.alert(
+        "Block user",
+        "This user will be blocked. Their posts will be removed from your feed and they will not be able to message you.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Block",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await apiPost("/api/members/block", { memberId });
+                await apiPost("/api/reports", {
+                  contentType: "post",
+                  contentId: postId,
+                  reason: "other",
+                  details: "User blocked by viewer",
+                }).catch(() => {});
+                setFeedPosts((prev) => prev.filter((p) => p.author?.id !== memberId));
+                Alert.alert("User blocked", "They have been blocked and their posts removed from this list.");
+              } catch (e) {
+                Alert.alert("Error", (e as { error?: string }).error ?? "Could not block user.");
+              }
+            },
+          },
+        ]
+      );
+    },
+    [member?.id]
+  );
 
   const handleSaveToggle = async () => {
     if (!member || !business) return;
@@ -185,6 +385,13 @@ export default function BusinessScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={feedRefreshing}
+            onRefresh={() => void loadBusinessFeed(undefined, true)}
+            colors={[theme.colors.primary]}
+          />
+        }
       >
         {member && (
           <View style={styles.topActions}>
@@ -344,6 +551,52 @@ export default function BusinessScreen() {
           </View>
         )}
 
+        <View style={styles.feedSection}>
+          <Text style={styles.sectionTitle}>Community posts</Text>
+          <Text style={styles.feedHint}>
+            Posts that share this business or its coupons and rewards on the community feed.
+          </Text>
+          {feedLoading && feedPosts.length === 0 ? (
+            <ActivityIndicator size="large" color={theme.colors.primary} style={styles.feedLoading} />
+          ) : feedPosts.length === 0 ? (
+            <Text style={styles.feedEmpty}>No posts yet.</Text>
+          ) : (
+            <>
+              {feedPosts.map((p) => (
+                <FeedPostCard
+                  key={p.id}
+                  post={p}
+                  onLike={handleFeedLike}
+                  onComment={handleFeedComment}
+                  onShare={(id) => setFeedSharePost({ id })}
+                  onReport={handleFeedReport}
+                  onBlockUser={signedIn ? handleFeedBlockUser : undefined}
+                  onSave={handleFeedSave}
+                  onEditPost={openEditPost}
+                  onDeletePost={handleFeedDeletePost}
+                  viewerManagedBusinessIds={
+                    viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+                  }
+                  onOpenCoupon={(id) => setCouponPopupId(id)}
+                />
+              ))}
+              {feedNextCursor ? (
+                <Pressable
+                  style={({ pressed }) => [styles.loadMoreBtn, pressed && { opacity: 0.85 }]}
+                  onPress={() => loadBusinessFeed(feedNextCursor)}
+                  disabled={feedLoadingMore}
+                >
+                  {feedLoadingMore ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Text style={styles.loadMoreText}>Load more</Text>
+                  )}
+                </Pressable>
+              ) : null}
+            </>
+          )}
+        </View>
+
       </ScrollView>
 
       <Modal visible={showSavedNote} transparent animationType="fade">
@@ -365,6 +618,27 @@ export default function BusinessScreen() {
         onClose={() => setShareModalOpen(false)}
         sharedContent={{ type: "business", id: business.id, slug: business.slug }}
       />
+
+      {feedCommentPostId && (
+        <FeedCommentsModal
+          visible={!!feedCommentPostId}
+          postId={feedCommentPostId}
+          post={feedPosts.find((x) => x.id === feedCommentPostId) ?? undefined}
+          initialCommentCount={
+            feedPosts.find((x) => x.id === feedCommentPostId)?.commentCount ?? 0
+          }
+          onClose={() => setFeedCommentPostId(null)}
+          onCommentAdded={handleFeedCommentAdded}
+        />
+      )}
+
+      {feedSharePost && (
+        <ShareToChatModal
+          visible={!!feedSharePost}
+          onClose={() => setFeedSharePost(null)}
+          sharedContent={{ type: "post", id: feedSharePost.id }}
+        />
+      )}
     </View>
   );
 }
@@ -573,5 +847,39 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontWeight: "600",
     textAlign: "center",
+  },
+  feedSection: {
+    paddingHorizontal: 0,
+    marginBottom: 24,
+  },
+  feedHint: {
+    fontSize: 14,
+    color: "#666",
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  feedLoading: {
+    paddingVertical: 24,
+  },
+  feedEmpty: {
+    fontSize: 15,
+    color: "#888",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  loadMoreBtn: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 24,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  loadMoreText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
 });

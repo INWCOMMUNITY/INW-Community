@@ -8,6 +8,7 @@ import {
   Pressable,
   Linking,
   Dimensions,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,7 +16,7 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
-import type { FeedPost } from "@/lib/feed-api";
+import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -48,10 +49,12 @@ interface FeedPostCardProps {
   onReport?: (postId: string) => void;
   onBlockUser?: (memberId: string, postId: string) => void;
   onSave?: (postId: string) => void;
-  /** Opens create/edit modal for this post (only shown when viewer is the author). */
+  /** Opens create/edit modal (author only; business owners cannot edit others' captions). */
   onEditPost?: (post: FeedPost) => void;
-  /** Deletes this post (only shown when viewer is the author). */
+  /** Deletes this post (author, or business owner when post promotes their listing/coupon/reward). */
   onDeletePost?: (postId: string) => void;
+  /** Business IDs the viewer owns — enables delete (not edit) for promotional posts authored by others. */
+  viewerManagedBusinessIds?: string[];
   onDeleteComment?: (commentId: string) => void;
   onOpenCoupon?: (couponId: string) => void;
 }
@@ -66,9 +69,11 @@ export function FeedPostCard({
   onSave,
   onEditPost,
   onDeletePost,
+  viewerManagedBusinessIds,
   onOpenCoupon,
 }: FeedPostCardProps) {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
   const { member } = useAuth();
   const [blogSaved, setBlogSaved] = useState(false);
   const [blogSaving, setBlogSaving] = useState(false);
@@ -77,8 +82,24 @@ export function FeedPostCard({
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [photoCarouselIndex, setPhotoCarouselIndex] = useState(0);
   const [nestedPhotoCarouselIndex, setNestedPhotoCarouselIndex] = useState(0);
+  /** Width of the shared_post embed (gray card inner), so nested photo pager matches the box. */
+  const [sharedPostCarouselWidth, setSharedPostCarouselWidth] = useState<number | null>(null);
 
   const blog = post.type === "shared_blog" ? post.sourceBlog : null;
+
+  const canEditThisPost =
+    !!member &&
+    !!onEditPost &&
+    member.id === post.author.id &&
+    !post.id.startsWith("example-");
+
+  const canDeleteThisPost =
+    !!member &&
+    !!onDeletePost &&
+    !post.id.startsWith("example-") &&
+    (member.id === post.author.id ||
+      (!!viewerManagedBusinessIds?.length &&
+        postTouchesViewerManagedBusinesses(post, viewerManagedBusinessIds)));
   useEffect(() => {
     if (!member || !blog) return;
     apiGet<{ referenceId: string }[]>(`/api/saved?type=blog`)
@@ -177,30 +198,24 @@ export function FeedPostCard({
         <Modal visible transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
           <Pressable style={styles.menuOverlay} onPress={() => setMenuOpen(false)}>
             <View style={styles.menuSheet}>
-              {member &&
-                onEditPost &&
-                member.id === post.author.id &&
-                !post.id.startsWith("example-") && (
+              {canEditThisPost && (
                   <Pressable
                     style={styles.menuItem}
                     onPress={() => {
                       setMenuOpen(false);
-                      onEditPost(post);
+                      onEditPost!(post);
                     }}
                   >
                     <Ionicons name="create-outline" size={20} color={theme.colors.heading} />
                     <Text style={styles.menuItemText}>Edit post</Text>
                   </Pressable>
                 )}
-              {member &&
-                onDeletePost &&
-                member.id === post.author.id &&
-                !post.id.startsWith("example-") && (
+              {canDeleteThisPost && (
                   <Pressable
                     style={styles.menuItem}
                     onPress={() => {
                       setMenuOpen(false);
-                      onDeletePost(post.id);
+                      onDeletePost!(post.id);
                     }}
                   >
                     <Ionicons name="trash-outline" size={20} color="#c00" />
@@ -415,6 +430,14 @@ export function FeedPostCard({
 
           const originalId = typeof sourcePost?.id === "string" ? sourcePost.id : null;
 
+          /** sourceCard: marginHorizontal 12 + padding 12 each side */
+          const nestedFallbackW = Math.max(1, windowWidth - 48);
+          const nestedSlideW =
+            sharedPostCarouselWidth != null && sharedPostCarouselWidth > 0
+              ? sharedPostCarouselWidth
+              : nestedFallbackW;
+          const nestedSlideH = Math.round(Math.min(nestedSlideW * 0.75, 320));
+
           return (
             <View style={[styles.sourceCard, { backgroundColor: "#f7f7f7" }]}>
               <Pressable
@@ -559,45 +582,56 @@ export function FeedPostCard({
               </Pressable>
 
               {(sourcePost.photos?.length ?? 0) > 0 ? (
-                <View style={styles.photoCarouselWrap}>
-                  <ScrollView
-                    horizontal
-                    pagingEnabled
-                    showsHorizontalScrollIndicator={false}
-                    onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
-                      const index = Math.round(e.nativeEvent.contentOffset.x / width);
-                      setNestedPhotoCarouselIndex(index);
-                    }}
-                    style={styles.photoCarousel}
-                  >
-                    {sourcePost.photos.map((url: string, i: number) => (
-                      <Pressable
-                        key={i}
-                        onPress={() => originalId && openOriginalPost(originalId)}
-                        accessibilityRole="button"
-                        accessibilityLabel="View original post"
-                      >
-                        <Image
-                          source={{ uri: resolveUri(url) }}
-                          style={[styles.photoCarouselImage, { width, height: PHOTO_CAROUSEL_HEIGHT }]}
-                          resizeMode="cover"
-                        />
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                  {sourcePost.photos.length > 1 ? (
-                    <View style={styles.carouselDots}>
-                      {sourcePost.photos.map((_: string, i: number) => (
-                        <View
+                <View
+                  style={{ width: "100%" }}
+                  onLayout={(e) => {
+                    const w = e.nativeEvent.layout.width;
+                    if (w > 0) setSharedPostCarouselWidth(w);
+                  }}
+                >
+                  <View style={styles.photoCarouselWrap}>
+                    <ScrollView
+                      horizontal
+                      pagingEnabled
+                      showsHorizontalScrollIndicator={false}
+                      onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+                        const index = Math.round(e.nativeEvent.contentOffset.x / nestedSlideW);
+                        setNestedPhotoCarouselIndex(index);
+                      }}
+                      style={[styles.photoCarousel, { width: nestedSlideW }]}
+                    >
+                      {sourcePost.photos.map((url: string, i: number) => (
+                        <Pressable
                           key={i}
-                          style={[
-                            styles.carouselDot,
-                            i === nestedPhotoCarouselIndex && styles.carouselDotActive,
-                          ]}
-                        />
+                          onPress={() => originalId && openOriginalPost(originalId)}
+                          accessibilityRole="button"
+                          accessibilityLabel="View original post"
+                        >
+                          <Image
+                            source={{ uri: resolveUri(url) }}
+                            style={[
+                              styles.photoCarouselImage,
+                              { width: nestedSlideW, height: nestedSlideH },
+                            ]}
+                            resizeMode="cover"
+                          />
+                        </Pressable>
                       ))}
-                    </View>
-                  ) : null}
+                    </ScrollView>
+                    {sourcePost.photos.length > 1 ? (
+                      <View style={styles.carouselDots}>
+                        {sourcePost.photos.map((_: string, i: number) => (
+                          <View
+                            key={i}
+                            style={[
+                              styles.carouselDot,
+                              i === nestedPhotoCarouselIndex && styles.carouselDotActive,
+                            ]}
+                          />
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
               ) : null}
             </View>

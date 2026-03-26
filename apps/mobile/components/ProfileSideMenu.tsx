@@ -167,7 +167,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSide
     },
     { href: "/community/invites", label: "My Invites", icon: "calendar-outline" },
     { href: "/saved-posts", label: "My Saved Posts", icon: "bookmark-outline" },
-    { href: "/blocked-members", label: "Blocked people", icon: "ban-outline" },
+    { href: "/blocked-members", label: "Blocked Members", icon: "ban-outline" },
     { href: "/community/groups", label: "My Groups", icon: "people-circle-outline" },
     { href: "invite:friends", label: "Share App", icon: "share-social-outline" },
   ];

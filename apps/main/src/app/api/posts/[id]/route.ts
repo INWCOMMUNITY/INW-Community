@@ -5,7 +5,11 @@ import { validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { isFeedPostRenderable } from "@/lib/feed-post-visible";
 import { hydrateFeedPostRows, feedPostListInclude } from "@/lib/hydrate-feed-post-rows";
-import { canViewerSeeFeedItem } from "@/lib/feed-post-viewer-access";
+import {
+  canViewerSeeFeedItem,
+  canUnauthenticatedViewerSeeFeedItem,
+} from "@/lib/feed-post-viewer-access";
+import { canMemberDeletePost } from "@/lib/post-delete-permission";
 import { z } from "zod";
 
 /** Avoid edge/CDN serving a cached HTML shell for API responses. */
@@ -13,63 +17,78 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const session = await getSessionForApi(_req);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+  const viewerId = session?.user?.id ?? null;
   const { id } = await ctx.params;
 
-  const [friendships, myGroups, raw] = await Promise.all([
-    prisma.friendRequest.findMany({
-      where: {
-        OR: [
-          { requesterId: session.user.id, status: "accepted" },
-          { addresseeId: session.user.id, status: "accepted" },
-        ],
-      },
-      select: { requesterId: true, addresseeId: true },
-    }),
-    prisma.groupMember.findMany({
-      where: { memberId: session.user.id },
-      select: { groupId: true },
-    }),
-    prisma.post.findUnique({
-      where: { id },
-      include: feedPostListInclude,
-    }),
-  ]);
+  const [friendships, myGroups, raw] = viewerId
+    ? await Promise.all([
+        prisma.friendRequest.findMany({
+          where: {
+            OR: [
+              { requesterId: viewerId, status: "accepted" },
+              { addresseeId: viewerId, status: "accepted" },
+            ],
+          },
+          select: { requesterId: true, addresseeId: true },
+        }),
+        prisma.groupMember.findMany({
+          where: { memberId: viewerId },
+          select: { groupId: true },
+        }),
+        prisma.post.findUnique({
+          where: { id },
+          include: feedPostListInclude,
+        }),
+      ])
+    : [[], [], await prisma.post.findUnique({ where: { id }, include: feedPostListInclude })];
 
   if (!raw) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const friendIds = new Set(
-    friendships.flatMap((f) => (f.requesterId === session.user.id ? f.addresseeId : f.requesterId))
-  );
-  const groupIds = new Set(myGroups.map((g) => g.groupId));
+  const friendIds = viewerId
+    ? new Set(
+        friendships.flatMap((f) => (f.requesterId === viewerId ? f.addresseeId : f.requesterId))
+      )
+    : new Set<string>();
+  const groupIds = viewerId ? new Set(myGroups.map((g) => g.groupId)) : new Set<string>();
 
-  const [hydrated] = await hydrateFeedPostRows([raw], session.user.id);
+  const [hydrated] = await hydrateFeedPostRows([raw], viewerId ?? "");
   if (!hydrated || !isFeedPostRenderable(hydrated as unknown as Parameters<typeof isFeedPostRenderable>[0])) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const ok = canViewerSeeFeedItem(
-    {
+  if (!viewerId) {
+    const okPublic = canUnauthenticatedViewerSeeFeedItem({
       type: hydrated.type,
-      author: hydrated.author as { id?: string; privacyLevel?: string | null },
+      author: hydrated.author as { privacyLevel?: string | null } | null,
       groupId: (hydrated.groupId as string | null) ?? null,
       sourcePost: hydrated.sourcePost as {
-        author?: { id?: string; privacyLevel?: string | null };
-        groupId?: string | null;
+        author?: { privacyLevel?: string | null } | null;
       } | null,
-    },
-    session.user.id,
-    friendIds,
-    groupIds
-  );
+    });
+    if (!okPublic) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+  } else {
+    const ok = canViewerSeeFeedItem(
+      {
+        type: hydrated.type,
+        author: hydrated.author as { id?: string; privacyLevel?: string | null },
+        groupId: (hydrated.groupId as string | null) ?? null,
+        sourcePost: hydrated.sourcePost as {
+          author?: { id?: string; privacyLevel?: string | null };
+          groupId?: string | null;
+        } | null,
+      },
+      viewerId,
+      friendIds,
+      groupIds
+    );
 
-  if (!ok) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!ok) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
   }
 
   return NextResponse.json({ post: hydrated });
@@ -211,7 +230,8 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   if (!post) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (post.authorId !== session.user.id) {
+  const mayDelete = await canMemberDeletePost(session.user.id, id);
+  if (!mayDelete) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

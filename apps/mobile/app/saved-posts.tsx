@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -17,6 +17,7 @@ import { apiGet, apiDelete, apiPost } from "@/lib/api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { deletePost, type FeedPost } from "@/lib/feed-api";
 import { useCreatePost } from "@/contexts/CreatePostContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface SavedItem {
   id: string;
@@ -28,10 +29,24 @@ interface SavedItem {
 export default function SavedPostsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { member } = useAuth();
   const openEditPost = useCreatePost()?.openEditPost;
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!member) {
+      setViewerManagedBusinessIds([]);
+      return;
+    }
+    apiGet<{ id: string }[]>("/api/businesses?mine=1")
+      .then((rows) =>
+        setViewerManagedBusinessIds(Array.isArray(rows) ? rows.map((r) => r.id) : [])
+      )
+      .catch(() => setViewerManagedBusinessIds([]));
+  }, [member?.id]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -165,6 +180,9 @@ export default function SavedPostsScreen() {
                 onSave={() => handleUnsave(p.id)}
                 onEditPost={openEditPost}
                 onDeletePost={handleDeletePost}
+                viewerManagedBusinessIds={
+                  viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+                }
               />
             ))
           )}

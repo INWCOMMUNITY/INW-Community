@@ -199,13 +199,11 @@ export default function RedeemedRewardsScreen() {
       <Pressable
         style={({ pressed }) => [styles.manageBtn, pressed && { opacity: 0.85 }]}
         onPress={() =>
-          (router.push as (href: string) => void)(
-            `/web?url=${encodeURIComponent(`${siteBase}/business-hub/offered-rewards`)}&title=${encodeURIComponent("My Offered Rewards")}`
-          )
+          (router.push as (href: string) => void)("/business-hub-offered-rewards")
         }
       >
         <Ionicons name="settings-outline" size={18} color="#fff" />
-        <Text style={styles.manageBtnText}>My Offered Rewards</Text>
+        <Text style={styles.manageBtnText}>My Businesses Rewards</Text>
       </Pressable>
 
       {businesses.length > 1 ? (

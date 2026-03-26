@@ -698,37 +698,6 @@ export default function MyCommunityScreen() {
         icon: "business",
         onPress: () => (router.push as (href: string) => void)("/sponsor-business"),
       },
-      {
-        label: "Offer a Coupon",
-        icon: "pricetag",
-        onPress: () => setCouponModalVisible(true),
-      },
-      {
-        label: "Offer a Reward",
-        icon: "gift",
-        onPress: () => setRewardModalVisible(true),
-      },
-      {
-        label: "My Business Coupons",
-        icon: "pricetags-outline",
-        onPress: () =>
-          (router.push as (href: string) => void)(
-            `/web?url=${encodeURIComponent(`${siteBase}/business-hub/offered-coupons`)}&title=${encodeURIComponent("My Business Coupons")}`
-          ),
-      },
-      {
-        label: "My Business Rewards",
-        icon: "ribbon-outline",
-        onPress: () =>
-          (router.push as (href: string) => void)(
-            `/web?url=${encodeURIComponent(`${siteBase}/business-hub/offered-rewards`)}&title=${encodeURIComponent("My Business Rewards")}`
-          ),
-      },
-      {
-        label: "Post Event",
-        icon: "calendar",
-        onPress: () => setEventModalVisible(true),
-      },
       ...(openCreatePostAsBusiness && businesses.length > 0
         ? [
             {
@@ -739,7 +708,7 @@ export default function MyCommunityScreen() {
                   openCreatePostAsBusiness({ id: businesses[0].id, name: businesses[0].name });
                 } else {
                   Alert.alert(
-                    "Create post as",
+                    "Create Post as",
                     "Choose which business to post as (Business Post).",
                     [
                       ...businesses.map((b) => ({
@@ -754,6 +723,21 @@ export default function MyCommunityScreen() {
             },
           ]
         : []),
+      {
+        label: "Post Event",
+        icon: "calendar",
+        onPress: () => setEventModalVisible(true),
+      },
+      {
+        label: "Create Coupon",
+        icon: "pricetag",
+        onPress: () => setCouponModalVisible(true),
+      },
+      {
+        label: "Offer a Reward",
+        icon: "gift",
+        onPress: () => setRewardModalVisible(true),
+      },
       {
         label: "Redeemed Rewards",
         icon: "receipt-outline",
@@ -793,6 +777,20 @@ export default function MyCommunityScreen() {
                 <ThemedText style={styles.sellerHubGridLabel}>{action.label}</ThemedText>
               </Pressable>
             ))}
+          </RNView>
+
+          <RNView style={styles.businessHubDownloadSection}>
+            <Text style={styles.downloadSectionTitle}>Manage</Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.showQRButton,
+                pressed && { opacity: 0.85 },
+              ]}
+              onPress={() => (router.push as (href: string) => void)("/business-hub-manage")}
+            >
+              <Ionicons name="folder-outline" size={28} color="#fff" />
+              <Text style={styles.showQRButtonText}>My Posts, Coupons, and Rewards</Text>
+            </Pressable>
           </RNView>
 
           {businesses.length > 0 && (

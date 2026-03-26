@@ -92,7 +92,7 @@ export default function BlockedMembersScreen() {
         >
           <Ionicons name="chevron-back" size={28} color={theme.colors.primary} />
         </Pressable>
-        <Text style={styles.title}>Blocked people</Text>
+        <Text style={styles.title}>Blocked Members</Text>
         <View style={styles.headerRight} />
       </View>
 

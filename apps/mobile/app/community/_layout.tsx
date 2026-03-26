@@ -1,5 +1,5 @@
 import { Stack, useRouter } from "expo-router";
-import { Pressable } from "react-native";
+import { Platform, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 
@@ -22,16 +22,38 @@ export default function CommunityLayout() {
         name="group/[slug]"
         options={{
           title: "Group",
-          headerLeft: () => (
-            <Pressable
-              onPress={() => router.back()}
-              style={{ padding: 4 }}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-            >
-              <Ionicons name="arrow-back" size={24} color="#fff" />
-            </Pressable>
-          ),
+          ...(Platform.OS === "ios"
+            ? {
+                unstable_headerLeftItems: () => [
+                  {
+                    type: "custom",
+                    element: (
+                      <Pressable
+                        onPress={() => router.back()}
+                        hitSlop={12}
+                        accessibilityRole="button"
+                        accessibilityLabel="Go back"
+                      >
+                        <Ionicons name="arrow-back" size={24} color="#fff" />
+                      </Pressable>
+                    ),
+                    hidesSharedBackground: true,
+                  },
+                ],
+              }
+            : {
+                headerLeft: () => (
+                  <Pressable
+                    onPress={() => router.back()}
+                    style={({ pressed }) => [{ padding: 4, opacity: pressed ? 0.85 : 1 }]}
+                    android_ripple={{ color: "rgba(255,255,255,0.2)", borderless: true }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Go back"
+                  >
+                    <Ionicons name="arrow-back" size={24} color="#fff" />
+                  </Pressable>
+                ),
+              }),
         }}
       />
       <Stack.Screen name="my-orders/index" options={{ title: "My Orders" }} />

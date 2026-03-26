@@ -74,7 +74,7 @@ export function CreatePostModal({
       <div className={panelClass} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between gap-4 z-10">
           <h2 id="create-post-modal-title" className="text-xl font-bold">
-            {editPost ? "Edit post" : "Create post"}
+            {editPost ? "Edit post" : "Create Post"}
           </h2>
           <button
             type="button"

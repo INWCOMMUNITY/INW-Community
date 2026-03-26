@@ -351,7 +351,7 @@ export function CreatePostModal({
           >
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </Pressable>
-          <Text style={styles.headerTitle}>{isEditing ? "Edit post" : "Create post"}</Text>
+          <Text style={styles.headerTitle}>{isEditing ? "Edit post" : "Create Post"}</Text>
           <Pressable
             onPress={handleSubmit}
             disabled={submitting || (!content.trim() && photos.length === 0)}

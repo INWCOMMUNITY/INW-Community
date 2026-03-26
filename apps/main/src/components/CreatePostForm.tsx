@@ -246,7 +246,7 @@ export function CreatePostForm({
           <Link href="/my-community/feed" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
             ← Back to feed
           </Link>
-          <h1 className="text-2xl font-bold mb-6">{editPostId ? "Edit post" : "Create post"}</h1>
+          <h1 className="text-2xl font-bold mb-6">{editPostId ? "Edit post" : "Create Post"}</h1>
         </>
       )}
       <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
