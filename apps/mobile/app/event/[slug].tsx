@@ -24,6 +24,8 @@ import { fetchEventBySlug, type EventDetail } from "@/lib/events-api";
 import { formatTime12h } from "@/lib/format-time";
 import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+import type { EarnedBadgePayload } from "@/lib/share-utils";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -58,6 +60,9 @@ export default function EventDetailScreen() {
   const [friends, setFriends] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [inviting, setInviting] = useState(false);
+  const [inviteEarnedBadges, setInviteEarnedBadges] = useState<EarnedBadgePayload[]>([]);
+  const [inviteBadgePopupIndex, setInviteBadgePopupIndex] = useState(-1);
+  const [pendingInviteAlertBody, setPendingInviteAlertBody] = useState<string | null>(null);
 
   const loadEvent = useCallback(async () => {
     if (!slug) return;
@@ -210,17 +215,47 @@ export default function EventDetailScreen() {
     if (!event || selectedFriendIds.size === 0) return;
     setInviting(true);
     try {
-      const res = await apiPost<{ invited?: number }>(`/api/events/${event.id}/invite`, {
+      const res = await apiPost<{
+        invited?: number;
+        earnedBadges?: EarnedBadgePayload[];
+      }>(`/api/events/${event.id}/invite`, {
         friendIds: Array.from(selectedFriendIds),
       });
-      const invited = (res as { invited?: number })?.invited ?? selectedFriendIds.size;
+      const invited = res?.invited ?? selectedFriendIds.size;
+      const body = `Invited ${invited} friend(s) to this event.`;
+      const badges = (res?.earnedBadges ?? []).filter(
+        (b): b is EarnedBadgePayload =>
+          !!b && typeof b.slug === "string" && typeof b.name === "string"
+      );
       setInviteModalOpen(false);
-      Alert.alert("Invited", `Invited ${invited} friend(s) to this event.`);
+      setSelectedFriendIds(new Set());
+      if (badges.length > 0) {
+        setPendingInviteAlertBody(body);
+        setInviteEarnedBadges(badges);
+        setInviteBadgePopupIndex(0);
+      } else {
+        Alert.alert("Invited", body);
+      }
     } catch (e: unknown) {
       const err = e as { error?: string };
       Alert.alert("Error", err?.error ?? "Could not send invites.");
     } finally {
       setInviting(false);
+    }
+  };
+
+  const handleCloseInviteBadgePopup = () => {
+    const next = inviteBadgePopupIndex + 1;
+    if (next < inviteEarnedBadges.length) {
+      setInviteBadgePopupIndex(next);
+    } else {
+      setInviteBadgePopupIndex(-1);
+      setInviteEarnedBadges([]);
+      const msg = pendingInviteAlertBody;
+      setPendingInviteAlertBody(null);
+      if (msg) {
+        Alert.alert("Invited", msg);
+      }
     }
   };
 
@@ -543,6 +578,15 @@ export default function EventDetailScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      {inviteBadgePopupIndex >= 0 && inviteBadgePopupIndex < inviteEarnedBadges.length && (
+        <BadgeEarnedPopup
+          visible
+          onClose={handleCloseInviteBadgePopup}
+          badgeName={inviteEarnedBadges[inviteBadgePopupIndex].name}
+          badgeSlug={inviteEarnedBadges[inviteBadgePopupIndex].slug}
+          badgeDescription={inviteEarnedBadges[inviteBadgePopupIndex].description}
+        />
+      )}
     </View>
   );
 }

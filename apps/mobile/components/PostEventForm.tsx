@@ -21,6 +21,8 @@ import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { CALENDAR_TYPES, EVENT_CITIES_FORM, type CalendarType } from "@/lib/calendars";
 import { apiPost, apiUploadFile, getToken } from "@/lib/api";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+import type { EarnedBadgePayload } from "@/lib/share-utils";
 
 interface PostEventFormProps {
   initialCalendarType?: CalendarType;
@@ -72,6 +74,23 @@ export function PostEventForm({
   onSuccess,
 }: PostEventFormProps) {
   const router = useRouter();
+  const finishSuccess = () => {
+    Alert.alert(
+      "Event Posted!",
+      "Thanks for posting an event on the Northwest Community Calendar!",
+      [
+        {
+          text: "OK",
+          onPress: () => {
+            if (onSuccess) onSuccess();
+            else router.back();
+          },
+        },
+      ]
+    );
+  };
+  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgePayload[]>([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
   const [title, setTitle] = useState("");
   const [dateValue, setDateValue] = useState<Date>(() => {
     if (initialEventDate) return normalizeEventDate(initialEventDate);
@@ -168,7 +187,10 @@ export function PostEventForm({
     }
     setSubmitting(true);
     try {
-      await apiPost("/api/events", {
+      const res = await apiPost<{
+        ok?: boolean;
+        earnedBadges?: EarnedBadgePayload[];
+      }>("/api/events", {
         title: title.trim(),
         date: formatDateForApi(dateValue),
         time: formatTimeForApi(timeValue),
@@ -179,25 +201,33 @@ export function PostEventForm({
         calendarType,
         photos,
       });
-      Alert.alert(
-        "Event Posted!",
-        "Thanks for posting an event on the Northwest Community Calendar!",
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              if (onSuccess) onSuccess();
-              else router.back();
-            },
-          },
-        ]
+      const badges = (res?.earnedBadges ?? []).filter(
+        (b): b is EarnedBadgePayload =>
+          !!b && typeof b.slug === "string" && typeof b.name === "string"
       );
+      if (badges.length > 0) {
+        setEarnedBadges(badges);
+        setBadgePopupIndex(0);
+      } else {
+        finishSuccess();
+      }
     } catch (e) {
       setError(
         (e as { error?: string }).error ?? "Failed to post event. Try again."
       );
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleCloseBadgePopup = () => {
+    const next = badgePopupIndex + 1;
+    if (next < earnedBadges.length) {
+      setBadgePopupIndex(next);
+    } else {
+      setBadgePopupIndex(-1);
+      setEarnedBadges([]);
+      finishSuccess();
     }
   };
 
@@ -459,6 +489,15 @@ export function PostEventForm({
         )}
       </Pressable>
     </ScrollView>
+    {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
+      <BadgeEarnedPopup
+        visible
+        onClose={handleCloseBadgePopup}
+        badgeName={earnedBadges[badgePopupIndex].name}
+        badgeSlug={earnedBadges[badgePopupIndex].slug}
+        badgeDescription={earnedBadges[badgePopupIndex].description}
+      />
+    )}
     </KeyboardAvoidingView>
   );
 }

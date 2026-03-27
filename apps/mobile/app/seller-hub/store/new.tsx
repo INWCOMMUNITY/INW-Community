@@ -26,6 +26,8 @@ import {
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+import type { EarnedBadgePayload } from "@/lib/share-utils";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -148,6 +150,8 @@ export default function ListItemScreen() {
   const [editLoading, setEditLoading] = useState(false);
   const [showListingSuccessModal, setShowListingSuccessModal] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
+  const [listingEarnedBadges, setListingEarnedBadges] = useState<EarnedBadgePayload[]>([]);
+  const [listingBadgePopupIndex, setListingBadgePopupIndex] = useState(-1);
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
 
@@ -686,11 +690,25 @@ export default function ListItemScreen() {
       if (editId) {
         await apiPatch(`/api/store-items/${editId}`, payload);
         setEditSuccess(true);
+        isExitingRef.current = true;
+        setShowListingSuccessModal(true);
       } else {
-        await apiPost("/api/store-items", payload);
+        const res = await apiPost<{ earnedBadges?: EarnedBadgePayload[] }>(
+          "/api/store-items",
+          payload
+        );
+        isExitingRef.current = true;
+        const badges = (res?.earnedBadges ?? []).filter(
+          (b): b is EarnedBadgePayload =>
+            !!b && typeof b.slug === "string" && typeof b.name === "string"
+        );
+        if (badges.length > 0) {
+          setListingEarnedBadges(badges);
+          setListingBadgePopupIndex(0);
+        } else {
+          setShowListingSuccessModal(true);
+        }
       }
-      isExitingRef.current = true;
-      setShowListingSuccessModal(true);
     } catch (e) {
       setError((e as { error?: string })?.error ?? (editId ? "Failed to update listing" : "Failed to create listing"));
       submittedRef.current = false;
@@ -700,8 +718,28 @@ export default function ListItemScreen() {
     }
   };
 
+  const handleCloseListingBadgePopup = () => {
+    const next = listingBadgePopupIndex + 1;
+    if (next < listingEarnedBadges.length) {
+      setListingBadgePopupIndex(next);
+    } else {
+      setListingBadgePopupIndex(-1);
+      setListingEarnedBadges([]);
+      setShowListingSuccessModal(true);
+    }
+  };
+
   return (
     <View style={styles.screenWrapper}>
+    {listingBadgePopupIndex >= 0 && listingBadgePopupIndex < listingEarnedBadges.length && (
+      <BadgeEarnedPopup
+        visible
+        onClose={handleCloseListingBadgePopup}
+        badgeName={listingEarnedBadges[listingBadgePopupIndex].name}
+        badgeSlug={listingEarnedBadges[listingBadgePopupIndex].slug}
+        badgeDescription={listingEarnedBadges[listingBadgePopupIndex].description}
+      />
+    )}
     <Modal visible={showListingSuccessModal} transparent animationType="fade">
       <View style={styles.successModalOverlay}>
         <View style={styles.successModalCard}>

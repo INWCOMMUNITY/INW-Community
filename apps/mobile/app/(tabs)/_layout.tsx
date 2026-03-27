@@ -1,7 +1,16 @@
 import { useEffect, useState, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, View, Text, Modal } from "react-native";
+import {
+  Pressable,
+  View,
+  Text,
+  Modal,
+  Platform,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
+import type { PressableStateCallbackType } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Tabs, useRouter, usePathname } from "expo-router";
 
@@ -64,13 +73,19 @@ function ProfileTabButton(props: {
   children?: React.ReactNode;
   onPress?: () => void;
   switcherShownOnceRef?: { current: boolean };
+  style?: StyleProp<ViewStyle> | ((state: PressableStateCallbackType) => StyleProp<ViewStyle>);
   [key: string]: unknown;
 }) {
   const { openSwitcher } = useProfileView();
-  const { onPress, children, switcherShownOnceRef, ...rest } = props;
+  const { onPress, children, switcherShownOnceRef, style, ...rest } = props;
   return (
     <Pressable
       {...rest}
+      style={(state) => {
+        const base = typeof style === "function" ? style(state) : style;
+        if (Platform.OS !== "ios") return base;
+        return [base, { backgroundColor: "transparent" }];
+      }}
       onPress={() => {
         if (switcherShownOnceRef && !switcherShownOnceRef.current) {
           switcherShownOnceRef.current = true;
@@ -392,10 +407,19 @@ function TabLayoutInner() {
     <Tabs
       initialRouteName="home"
       screenOptions={({ route }) => ({
-        tabBarActiveTintColor: theme.colors.primary,
+        tabBarActiveTintColor:
+          Platform.OS === "ios" ? theme.colors.cream : theme.colors.primary,
         tabBarInactiveTintColor: "#ffffff",
-        tabBarActiveBackgroundColor: theme.colors.cream,
-        tabBarInactiveBackgroundColor: theme.colors.primary,
+        // iOS draws a rounded "bubble" behind the active tab when this is set; use transparent + cream tint instead.
+        tabBarActiveBackgroundColor:
+          Platform.OS === "ios" ? "transparent" : theme.colors.cream,
+        tabBarInactiveBackgroundColor:
+          Platform.OS === "ios" ? "transparent" : theme.colors.primary,
+        ...(Platform.OS === "ios"
+          ? {
+              tabBarItemStyle: { backgroundColor: "transparent" },
+            }
+          : {}),
         tabBarStyle: {
           backgroundColor: theme.colors.primary,
           borderTopColor: theme.colors.primary,

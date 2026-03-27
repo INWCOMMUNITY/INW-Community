@@ -24,7 +24,7 @@ const items: { href: string; label: string; icon: string }[] = [
   },
 ];
 
-/** Three full-width primary CTAs for Manage Business Directory (web); matches app hub styling. */
+/** Three full-width primary CTAs for Manage NWC Business (web); matches app hub styling. */
 export function BusinessHubManageDirectoryLinks() {
   return (
     <nav className="flex flex-col gap-3 w-full max-w-2xl mx-auto" aria-label="Manage business content">

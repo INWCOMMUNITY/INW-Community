@@ -31,7 +31,7 @@ export default async function BusinessHubManagePage() {
         </div>
 
         <h1 className="text-2xl font-bold mb-2" style={{ color: "var(--color-heading)" }}>
-          Manage Business Directory
+          Manage NWC Business
         </h1>
         <p className="text-gray-600 mb-8">
           Three links: your business posts, rewards, and coupons—same destinations as in the app.

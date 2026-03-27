@@ -681,7 +681,12 @@ export async function POST(req: NextRequest) {
       },
     });
     const { awardNwcSellerBadge } = await import("@/lib/badge-award");
-    awardNwcSellerBadge(item.memberId).catch(() => {});
+    let earnedBadges: { slug: string; name: string; description: string }[] = [];
+    try {
+      earnedBadges = await awardNwcSellerBadge(item.memberId);
+    } catch {
+      /* best-effort */
+    }
     // Auto-post to feed so followers of seller see new listings
     prisma.post
       .create({
@@ -692,7 +697,7 @@ export async function POST(req: NextRequest) {
         },
       })
       .catch((err) => console.error("[store-items] Auto-post failed:", err));
-    return NextResponse.json(item);
+    return NextResponse.json({ ...item, earnedBadges });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const isConn = /P1001|ECONNREFUSED|connect/i.test(msg);

@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { getToken, apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -352,7 +353,17 @@ export default function CommunityScreen() {
             ? "Posts from people you follow and groups you've joined."
             : "Browse recent posts. Sign in to like, comment, and save."}
         </Text>
-        <View style={styles.headerBtns}>
+        <View style={styles.headerBtnsRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerSideBtn,
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={() => (router.push as (href: string) => void)("/community/groups")}
+            accessibilityLabel="Community groups"
+          >
+            <Ionicons name="people-circle-outline" size={22} color={theme.colors.buttonText} />
+          </Pressable>
           {signedIn ? (
             <Pressable
               style={({ pressed }) => [
@@ -374,6 +385,16 @@ export default function CommunityScreen() {
               <Text style={styles.createPostBtnText}>Sign in</Text>
             </Pressable>
           )}
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerSideBtn,
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={() => (router.push as (href: string) => void)("/community/tags")}
+            accessibilityLabel="Manage tags"
+          >
+            <Ionicons name="pricetags-outline" size={22} color={theme.colors.buttonText} />
+          </Pressable>
         </View>
       </View>
 
@@ -494,18 +515,28 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 16,
   },
-  headerBtns: {
+  headerBtnsRow: {
     flexDirection: "row",
-    gap: 12,
-    justifyContent: "center",
-    flexWrap: "wrap",
+    alignItems: "stretch",
+    gap: 10,
     marginTop: 8,
   },
+  headerSideBtn: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 6,
+    width: 48,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   createPostBtn: {
+    flex: 1,
     backgroundColor: theme.colors.primary,
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
     borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
   },
   createPostBtnText: {
     color: theme.colors.buttonText,

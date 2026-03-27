@@ -134,8 +134,7 @@ export async function POST(req: NextRequest) {
     const { awardAdminBadge } = await import("@/lib/badge-award");
     let earnedBadges: { slug: string; name: string; description: string }[] = [];
     try {
-      const b = await awardAdminBadge(session.user.id);
-      if (b) earnedBadges = [b];
+      earnedBadges = await awardAdminBadge(session.user.id);
     } catch {
       /* badge award is best-effort */
     }

@@ -114,8 +114,13 @@ export async function POST(req: NextRequest) {
       });
     }
     const { awardCommunityPlannerBadge } = await import("@/lib/badge-award");
-    awardCommunityPlannerBadge(session.user.id).catch(() => {});
-    return NextResponse.json({ ok: true });
+    let earnedBadges: { slug: string; name: string; description: string }[] = [];
+    try {
+      earnedBadges = await awardCommunityPlannerBadge(session.user.id);
+    } catch {
+      /* best-effort */
+    }
+    return NextResponse.json({ ok: true, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });

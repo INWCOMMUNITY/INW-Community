@@ -35,7 +35,7 @@ export default function BusinessHubManageScreen() {
         <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
         <Text style={styles.backText}>Back</Text>
       </Pressable>
-      <Text style={styles.title}>Manage Business Directory</Text>
+      <Text style={styles.title}>Manage NWC Business</Text>
       <Text style={styles.subtitle}>
         Review and manage posts, rewards, and coupons for your businesses.
       </Text>
