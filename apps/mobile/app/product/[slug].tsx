@@ -448,7 +448,7 @@ export default function ProductScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <ActivityIndicator size="large" color={theme.colors.cream} />
       </View>
     );
   }

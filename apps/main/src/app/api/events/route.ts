@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import {
+  getEventInviteStatsByEventIds,
+  isEventOwner,
+} from "@/lib/event-invite-stats";
 import { validateText } from "@/lib/content-moderation";
 import { containsProhibitedCategory } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
@@ -148,7 +152,19 @@ export async function GET(req: NextRequest) {
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-    return NextResponse.json(event);
+    const session = await getSessionForApi(req);
+    if (session?.user?.id && isEventOwner(event, session.user.id)) {
+      const statsMap = await getEventInviteStatsByEventIds([event.id]);
+      return NextResponse.json({
+        ...event,
+        inviteStats: statsMap.get(event.id)!,
+      });
+    }
+    const { business, ...rest } = event;
+    const businessPublic = business
+      ? { name: business.name, slug: business.slug }
+      : null;
+    return NextResponse.json({ ...rest, business: businessPublic });
   }
 
   const calendarType = searchParams.get("calendarType") as CalendarType | null;
@@ -175,5 +191,34 @@ export async function GET(req: NextRequest) {
     },
     orderBy: { date: "asc" },
   });
-  return NextResponse.json(events);
+  const session = await getSessionForApi(req);
+  if (!session?.user?.id) {
+    return NextResponse.json(events);
+  }
+  const myBusinessIds = new Set(
+    (
+      await prisma.business.findMany({
+        where: { memberId: session.user.id },
+        select: { id: true },
+      })
+    ).map((b) => b.id)
+  );
+  const ownedIds = events
+    .filter(
+      (e) =>
+        e.memberId === session.user.id ||
+        (!!e.businessId && myBusinessIds.has(e.businessId))
+    )
+    .map((e) => e.id);
+  if (ownedIds.length === 0) {
+    return NextResponse.json(events);
+  }
+  const statsMap = await getEventInviteStatsByEventIds(ownedIds);
+  const ownedSet = new Set(ownedIds);
+  const withStats = events.map((e) =>
+    ownedSet.has(e.id)
+      ? { ...e, inviteStats: statsMap.get(e.id)! }
+      : e
+  );
+  return NextResponse.json(withStats);
 }

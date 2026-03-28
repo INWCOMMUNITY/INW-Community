@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -7,11 +7,14 @@ import {
   Pressable,
   ScrollView,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiDelete } from "@/lib/api";
+import type { EventInviteStats } from "@/lib/events-api";
+import { EventInviteStatsBlocks } from "@/components/EventInviteStatsBlocks";
 
 interface SavedEvent {
   id: string;
@@ -23,29 +26,75 @@ interface SavedEvent {
   business: { name: string; slug: string } | null;
 }
 
+interface PostedEvent {
+  id: string;
+  title: string;
+  slug: string;
+  dateStr: string;
+  timeStr: string | null;
+  calendarLabel: string;
+  business: { name: string; slug: string } | null;
+  inviteStats?: EventInviteStats;
+}
+
 export default function ProfileEventsScreen() {
   const router = useRouter();
   const [events, setEvents] = useState<SavedEvent[]>([]);
+  const [posted, setPosted] = useState<PostedEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const load = async (refresh = false) => {
+  const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const data = await apiGet<{ events: SavedEvent[] }>("/api/me/saved-events");
-      setEvents(data.events ?? []);
+      const [savedRes, postedRes] = await Promise.all([
+        apiGet<{ events: SavedEvent[] }>("/api/me/saved-events").catch(() => ({ events: [] as SavedEvent[] })),
+        apiGet<{ events: PostedEvent[] }>("/api/me/my-events").catch(() => ({ events: [] as PostedEvent[] })),
+      ]);
+      setEvents(savedRes.events ?? []);
+      setPosted(postedRes.events ?? []);
     } catch {
       setEvents([]);
+      setPosted([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
+
+  const confirmDelete = (e: PostedEvent) => {
+    Alert.alert(
+      "Delete event",
+      `Remove “${e.title}” from the calendar? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingId(e.id);
+            try {
+              await apiDelete(`/api/events/${e.id}`);
+              setPosted((prev) => prev.filter((x) => x.id !== e.id));
+              setEvents((prev) => prev.filter((x) => x.id !== e.id));
+            } catch (err) {
+              const msg =
+                (err as { error?: string }).error ?? "Could not delete the event. Try again.";
+              Alert.alert("Delete failed", msg);
+            } finally {
+              setDeletingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   if (loading && !refreshing) {
     return (
@@ -68,6 +117,69 @@ export default function ProfileEventsScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
       >
+        <Text style={styles.sectionTitle}>My Posted Events</Text>
+        <Text style={styles.sectionHint}>
+          Events you added to the community calendar. Edit details or remove a listing anytime.
+        </Text>
+        {posted.length === 0 ? (
+          <Text style={styles.empty}>You haven&apos;t posted any events yet.</Text>
+        ) : (
+          posted.map((e) => (
+            <View key={e.id} style={styles.postedCard}>
+              <Pressable
+                style={({ pressed }) => [styles.postedMain, pressed && styles.cardPressed]}
+                onPress={() => (router.push as (href: string) => void)(`/event/${e.slug}`)}
+              >
+                <View style={styles.cardText}>
+                  <Text style={styles.cardTitle}>{e.title}</Text>
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{e.calendarLabel}</Text>
+                  </View>
+                  <Text style={styles.cardSub}>
+                    {e.dateStr}
+                    {e.timeStr ? ` · ${e.timeStr}` : ""}
+                    {e.business ? ` · ${e.business.name}` : ""}
+                  </Text>
+                  {e.inviteStats ? (
+                    <EventInviteStatsBlocks stats={e.inviteStats} />
+                  ) : null}
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.colors.primary} />
+              </Pressable>
+              <View style={styles.postedActions}>
+                <Pressable
+                  style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
+                  onPress={() => (router.push as (href: string) => void)(`/profile-event-edit/${e.id}`)}
+                >
+                  <Ionicons name="create-outline" size={18} color={theme.colors.primary} />
+                  <Text style={styles.actionBtnText}>Edit</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    styles.actionBtnDanger,
+                    pressed && { opacity: 0.8 },
+                    deletingId === e.id && styles.actionBtnDisabled,
+                  ]}
+                  onPress={() => confirmDelete(e)}
+                  disabled={deletingId === e.id}
+                >
+                  {deletingId === e.id ? (
+                    <ActivityIndicator size="small" color="#c00" />
+                  ) : (
+                    <>
+                      <Ionicons name="trash-outline" size={18} color="#c00" />
+                      <Text style={styles.actionBtnTextDanger}>Delete</Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          ))
+        )}
+
+        <Text style={[styles.sectionTitle, styles.sectionTitleSecond]}>Saved events</Text>
+        <Text style={styles.sectionHint}>Events you saved to revisit later.</Text>
         {events.length === 0 ? (
           <Text style={styles.empty}>
             You haven&apos;t saved any events yet. Browse Local Events to find events to save.
@@ -128,9 +240,25 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 32 },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 6,
+  },
+  sectionTitleSecond: {
+    marginTop: 28,
+  },
+  sectionHint: {
+    fontSize: 14,
+    color: theme.colors.text,
+    marginBottom: 14,
+    lineHeight: 20,
+  },
   empty: {
     fontSize: 16,
     color: theme.colors.text,
+    marginBottom: 8,
   },
   card: {
     flexDirection: "row",
@@ -141,6 +269,48 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.primary,
     gap: 12,
+  },
+  postedCard: {
+    marginBottom: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    overflow: "hidden",
+  },
+  postedMain: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    gap: 12,
+  },
+  postedActions: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.creamAlt,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    backgroundColor: "#fafafa",
+  },
+  actionBtnDanger: {
+    borderLeftWidth: 1,
+    borderLeftColor: theme.colors.creamAlt,
+  },
+  actionBtnDisabled: { opacity: 0.6 },
+  actionBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  actionBtnTextDanger: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#c00",
   },
   cardPressed: { opacity: 0.8 },
   cardText: { flex: 1 },

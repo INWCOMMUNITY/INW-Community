@@ -572,6 +572,7 @@ export default function DirectConversationScreen() {
         renderItem={({ item }) => {
           const isMe = item.senderId === member?.id;
           const hasBusinessShare = item.sharedContentType === "business" && (item.sharedBusiness || item.sharedContentSlug);
+          const hasEventShare = item.sharedContentType === "event" && !!item.sharedContentSlug;
           const isPhotoOnly = item.sharedContentType === "photo" && item.sharedContentId && !item.content?.trim();
           const photoUri = item.sharedContentType === "photo" && item.sharedContentId
             ? (resolvePhotoUrl(item.sharedContentId) ?? item.sharedContentId)
@@ -594,6 +595,24 @@ export default function DirectConversationScreen() {
                     style={styles.sharedPhoto}
                     resizeMode="cover"
                   />
+                )}
+                {hasEventShare && (
+                  <Pressable
+                    style={({ pressed }) => [styles.sharedEventCard, pressed && { opacity: 0.9 }]}
+                    onPress={() => item.sharedContentSlug && router.push(`/event/${item.sharedContentSlug}`)}
+                  >
+                    <View style={[styles.sharedEventIconWrap, isMe && styles.sharedEventIconWrapMe]}>
+                      <Ionicons name="calendar-outline" size={28} color={isMe ? "#fff" : theme.colors.primary} />
+                    </View>
+                    <View style={styles.sharedEventContent}>
+                      <Text style={[styles.sharedEventLabel, isMe && styles.sharedBusinessTextMe]}>
+                        Local event
+                      </Text>
+                      <Text style={[styles.sharedEventLink, isMe && styles.sharedBusinessLinkMe]}>
+                        Open event →
+                      </Text>
+                    </View>
+                  </Pressable>
                 )}
                 {hasBusinessShare && (
                   <Pressable
@@ -776,6 +795,42 @@ const styles = StyleSheet.create({
   likedBadgeMe: { alignSelf: "flex-end", marginLeft: 0, marginRight: 4 },
   likedBadgeText: { fontSize: 11, color: theme.colors.primary },
   sharedPhoto: { width: 200, height: 200, borderRadius: 12, marginBottom: 8 },
+  sharedEventCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    marginBottom: 8,
+    backgroundColor: "rgba(255,255,255,0.3)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.1)",
+    minWidth: 200,
+    maxWidth: 260,
+  },
+  sharedEventIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sharedEventIconWrapMe: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+  },
+  sharedEventContent: { flex: 1, minWidth: 0 },
+  sharedEventLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    marginBottom: 4,
+  },
+  sharedEventLink: {
+    fontSize: 12,
+    color: theme.colors.primary,
+    fontWeight: "600",
+  },
   sharedBusinessCard: {
     flexDirection: "row",
     alignItems: "center",

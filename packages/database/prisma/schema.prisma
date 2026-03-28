@@ -993,7 +993,7 @@ model DirectMessage {
   conversationId    String   @map("conversation_id")
   senderId          String   @map("sender_id")
   content           String   @db.Text
-  sharedContentType String?  @map("shared_content_type") // post | blog | store_item | business | coupon | photo
+  sharedContentType String?  @map("shared_content_type") // post | blog | store_item | business | coupon | reward | photo | event
   sharedContentId   String?  @map("shared_content_id")
   sharedContentSlug String?  @map("shared_content_slug") // for blog, business, store_item URL
   createdAt         DateTime @default(now()) @map("created_at")
@@ -1209,17 +1209,20 @@ model ReferralSignup {
   @@map("referral_signup")
 }
 
-// Messages/requests from users to admin (NWC Requests form)
+// Messages/requests from users to admin (NWC Requests form, app Support & contact)
 model NwcRequest {
   id        String   @id @default(cuid())
   memberId  String?  @map("member_id")
   name      String   // sender name (from member or form)
   email     String
+  phone     String   @default("") // optional; user may leave blank
+  subject   String   @default("")
   message   String   @db.Text
   createdAt DateTime @default(now()) @map("created_at")
 
   member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
 
+  @@index([createdAt])
   @@map("nwc_request")
 }
 

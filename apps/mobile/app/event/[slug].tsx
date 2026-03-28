@@ -21,6 +21,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { fetchEventBySlug, type EventDetail } from "@/lib/events-api";
+import { EventInviteStatsBlocks } from "@/components/EventInviteStatsBlocks";
 import { formatTime12h } from "@/lib/format-time";
 import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
@@ -171,11 +172,6 @@ export default function EventDetailScreen() {
   const eventUrl = event
     ? `${siteBase}/events/${typeof slug === "string" ? slug : event.slug ?? event.id}`
     : "";
-  const isCreator =
-    !!member?.id &&
-    (event?.memberId === member.id ||
-      (!!event?.businessId && event?.business?.memberId === member.id));
-
   const handleShareEvent = async () => {
     if (!event) return;
     const url = eventUrl || `${siteBase}/events/${event.slug ?? event.id}`;
@@ -461,7 +457,7 @@ export default function EventDetailScreen() {
             <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
             <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Share</Text>
           </Pressable>
-          {isCreator && (
+          {member?.id ? (
             <Pressable
               style={({ pressed }) => [styles.shareInviteBtn, pressed && styles.pressed]}
               onPress={openInviteModal}
@@ -469,8 +465,15 @@ export default function EventDetailScreen() {
               <Ionicons name="people-outline" size={20} color={theme.colors.primary} />
               <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Invite Friends</Text>
             </Pressable>
-          )}
+          ) : null}
         </View>
+
+        {event.inviteStats ? (
+          <View style={styles.inviteStatsSection}>
+            <Text style={styles.inviteStatsLabel}>Your invite activity</Text>
+            <EventInviteStatsBlocks stats={event.inviteStats} />
+          </View>
+        ) : null}
 
         <View style={styles.divider} />
 
@@ -771,6 +774,18 @@ const styles = StyleSheet.create({
   },
   inviteSubmitDisabled: { opacity: 0.6 },
   inviteSubmitText: { fontSize: 16, fontWeight: "600", color: "#fff" },
+  inviteStatsSection: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  inviteStatsLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#5a6570",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
   divider: {
     height: 2,
     backgroundColor: theme.colors.primary,

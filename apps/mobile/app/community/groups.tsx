@@ -244,7 +244,15 @@ export default function GroupsScreen() {
       </View>
 
       {uniqueCategories.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterRowContent}>
+        <ScrollView
+          horizontal
+          directionalLockEnabled
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          alwaysBounceVertical={false}
+          style={styles.filterRow}
+          contentContainerStyle={styles.filterRowContent}
+        >
           <Pressable
             style={[styles.filterChip, !categoryFilter && styles.filterChipActive]}
             onPress={() => setCategoryFilter("")}
@@ -601,8 +609,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   inputMultiline: { minHeight: 72, textAlignVertical: "top" },
-  filterRow: { marginBottom: 12, maxHeight: 44 },
-  filterRowContent: { gap: 8, paddingVertical: 4 },
+  filterRow: { marginBottom: 12, maxHeight: 44, flexGrow: 0 },
+  filterRowContent: { gap: 8, paddingVertical: 4, alignItems: "center", flexDirection: "row" },
   filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.colors.cream },
   filterChipActive: { backgroundColor: theme.colors.primary },
   filterChipText: { fontSize: 14, color: theme.colors.heading },

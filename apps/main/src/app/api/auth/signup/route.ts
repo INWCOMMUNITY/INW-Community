@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "database";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 import { awardMemberSignupBadges, awardSpreadingTheWordBadge } from "@/lib/badge-award";
+import { normalizeResidentCity } from "@/lib/city-utils";
 
 const schema = z.object({
   email: z
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     const { email, password, tagIds, signupIntent, ref } = parsed;
     const firstName = (parsed.firstName ?? "").trim() || "Pending";
     const lastName = (parsed.lastName ?? "").trim() || "Pending";
-    const city = parsed.city ?? null;
+    const city = parsed.city ? normalizeResidentCity(parsed.city) || null : null;
     const existing = await prisma.member.findUnique({
       where: { email },
       include: { subscriptions: { where: { status: { in: ["active", "trialing"] } }, take: 1 } },

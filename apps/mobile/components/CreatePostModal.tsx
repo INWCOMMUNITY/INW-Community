@@ -23,6 +23,7 @@ import { theme } from "@/lib/theme";
 import { getToken, apiUploadFile, apiGet } from "@/lib/api";
 import { createPost, updatePost, type FeedPost } from "@/lib/feed-api";
 import { useEventInvitePopupSuppression } from "@/contexts/EventInvitePopupSuppressionContext";
+import { ScaledImageFit } from "@/components/ScaledImageFit";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -447,7 +448,7 @@ export function CreatePostModal({
             >
               {photos.map((uri, i) => (
                 <View key={uri} style={styles.photoWrap}>
-                  <Image source={{ uri }} style={styles.photo} />
+                  <ScaledImageFit uri={uri} maxWidth={100} maxHeight={100} style={styles.photoFit} />
                   <Pressable
                     style={styles.removePhoto}
                     onPress={() => removePhoto(i)}
@@ -788,10 +789,9 @@ const styles = StyleSheet.create({
     marginRight: 12,
     position: "relative",
   },
-  photo: {
-    width: 100,
-    height: 100,
+  photoFit: {
     borderRadius: 8,
+    overflow: "hidden",
   },
   removePhoto: {
     position: "absolute",

@@ -17,6 +17,7 @@ import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
+import { ScaledImageFit } from "@/components/ScaledImageFit";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -25,7 +26,6 @@ const resolveUri = (u: string) =>
 const { width } = Dimensions.get("window");
 const CARD_PADDING = 16;
 const IMAGE_SIZE = Math.min((width - CARD_PADDING * 2 - 32) / 2, 120);
-const PHOTO_CAROUSEL_HEIGHT = width; // square, full-width
 const DESCRIPTION_WORD_LIMIT = 30;
 
 function stripHtml(html: string): string {
@@ -39,6 +39,15 @@ function wordCount(text: string): number {
 function firstNWords(text: string, n: number): string {
   const words = text.trim().split(/\s+/).filter(Boolean);
   return words.slice(0, n).join(" ");
+}
+
+function businessInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+  }
+  const t = name.trim();
+  return (t.length >= 2 ? t.slice(0, 2) : t.slice(0, 1) || "?").toUpperCase();
 }
 
 interface FeedPostCardProps {
@@ -73,7 +82,22 @@ export function FeedPostCard({
   onOpenCoupon,
 }: FeedPostCardProps) {
   const router = useRouter();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  /** Measured width of the carousel row inside the card (not screen width — using window width clips the right side). */
+  const [carouselViewportW, setCarouselViewportW] = useState<number | null>(null);
+  const slideW = carouselViewportW && carouselViewportW > 0 ? carouselViewportW : 0;
+  const maxCarouselHeightCap = Math.round(windowHeight * 0.62);
+  /** Fallback while measuring this post’s images; not shared across posts. */
+  const placeholderCarouselH =
+    slideW > 0
+      ? Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap)
+      : Math.min(Math.round(windowWidth * 1.38), maxCarouselHeightCap);
+  /** Tallest scaled photo height for this post only (carousel pages share this height). */
+  const [perPostCarouselH, setPerPostCarouselH] = useState<number | null>(null);
+  const photosSig = post.photos?.join("\u0001") ?? "";
+  const carouselDisplayH =
+    perPostCarouselH != null ? perPostCarouselH : placeholderCarouselH;
+
   const { member } = useAuth();
   const [blogSaved, setBlogSaved] = useState(false);
   const [blogSaving, setBlogSaving] = useState(false);
@@ -85,7 +109,57 @@ export function FeedPostCard({
   /** Width of the shared_post embed (gray card inner), so nested photo pager matches the box. */
   const [sharedPostCarouselWidth, setSharedPostCarouselWidth] = useState<number | null>(null);
 
+  useEffect(() => {
+    setPhotoCarouselIndex(0);
+  }, [post.id]);
+
+  useEffect(() => {
+    if (slideW <= 0 || !post.photos?.length) {
+      setPerPostCarouselH(null);
+      return;
+    }
+    setPerPostCarouselH(null);
+    let cancelled = false;
+    const uris = post.photos.map((u) => resolveUri(u));
+
+    void Promise.all(
+      uris.map(
+        (uri) =>
+          new Promise<number>((resolve) => {
+            Image.getSize(
+              uri,
+              (nw, nh) => {
+                if (nw <= 0 || nh <= 0) {
+                  resolve(
+                    Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap)
+                  );
+                  return;
+                }
+                const scale = Math.min(slideW / nw, maxCarouselHeightCap / nh);
+                resolve(Math.max(1, Math.round(nh * scale)));
+              },
+              () =>
+                resolve(
+                  Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap)
+                )
+            );
+          })
+      )
+    ).then((heights) => {
+      if (cancelled) return;
+      const H = Math.min(Math.max(...heights), maxCarouselHeightCap);
+      setPerPostCarouselH(H);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [slideW, post.id, photosSig, maxCarouselHeightCap]);
+
   const blog = post.type === "shared_blog" ? post.sourceBlog : null;
+
+  const businessAsAuthor =
+    post.type === "shared_business" && post.sourceBusiness ? post.sourceBusiness : null;
 
   const canEditThisPost =
     !!member &&
@@ -127,14 +201,18 @@ export function FeedPostCard({
     }
   };
 
-  const authorName = `${post.author.firstName ?? ""} ${post.author.lastName ?? ""}`.trim();
-  const initials = [
-    post.author.firstName?.[0],
-    post.author.lastName?.[0],
-  ]
-    .filter(Boolean)
-    .join("")
-    .toUpperCase() || "?";
+  const authorName = businessAsAuthor
+    ? businessAsAuthor.name
+    : `${post.author.firstName ?? ""} ${post.author.lastName ?? ""}`.trim();
+  const initials = businessAsAuthor
+    ? businessInitials(businessAsAuthor.name)
+    : [
+          post.author.firstName?.[0],
+          post.author.lastName?.[0],
+        ]
+          .filter(Boolean)
+          .join("")
+          .toUpperCase() || "?";
 
   const openUrl = (path: string) => {
     Linking.openURL(`${siteBase}${path}`).catch(() => {});
@@ -144,6 +222,10 @@ export function FeedPostCard({
     (router.push as (href: string) => void)(`/members/${memberId}`);
   };
 
+  const openBusinessPage = (slug: string) => {
+    (router.push as (href: string) => void)(`/business/${slug}`);
+  };
+
   const openOriginalPost = (sourcePostId: string) => {
     (router.push as (href: string) => void)(`/post/${sourcePostId}`);
   };
@@ -151,8 +233,26 @@ export function FeedPostCard({
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Pressable onPress={() => openProfile(post.author.id)}>
-          {post.author.profilePhotoUrl ? (
+        <Pressable
+          onPress={() =>
+            businessAsAuthor
+              ? openBusinessPage(businessAsAuthor.slug)
+              : openProfile(post.author.id)
+          }
+        >
+          {businessAsAuthor ? (
+            businessAsAuthor.logoUrl ? (
+              <Image
+                source={{ uri: resolveUri(businessAsAuthor.logoUrl) }}
+                style={styles.avatar}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarInitials}>{initials}</Text>
+              </View>
+            )
+          ) : post.author.profilePhotoUrl ? (
             <Image
               source={{ uri: resolveUri(post.author.profilePhotoUrl) }}
               style={styles.avatar}
@@ -165,7 +265,13 @@ export function FeedPostCard({
           )}
         </Pressable>
         <View style={styles.headerText}>
-          <Pressable onPress={() => openProfile(post.author.id)}>
+          <Pressable
+            onPress={() =>
+              businessAsAuthor
+                ? openBusinessPage(businessAsAuthor.slug)
+                : openProfile(post.author.id)
+            }
+          >
             <Text style={styles.authorName} numberOfLines={1}>
               {authorName}
             </Text>
@@ -240,7 +346,7 @@ export function FeedPostCard({
                   <Text style={[styles.menuItemText, { color: "#c00" }]}>Report Post</Text>
                 </Pressable>
               )}
-              {onBlockUser && !post.id.startsWith("example-") && (
+              {onBlockUser && !post.id.startsWith("example-") && !businessAsAuthor && (
                 <Pressable
                   style={styles.menuItem}
                   onPress={() => { setMenuOpen(false); onBlockUser(post.author.id, post.id); }}
@@ -336,31 +442,6 @@ export function FeedPostCard({
         </View>
       )}
 
-      {post.type === "shared_business" && post.sourceBusiness && (
-        <Pressable
-          style={styles.sourceCard}
-          onPress={() => router.push(`/business/${post.sourceBusiness!.slug}`)}
-        >
-          <View style={styles.sourceRow}>
-            {post.sourceBusiness.logoUrl && (
-              <Image
-                source={{ uri: resolveUri(post.sourceBusiness.logoUrl) }}
-                style={styles.sourceLogo}
-                resizeMode="cover"
-              />
-            )}
-            <View style={styles.sourceContent}>
-              <Text style={styles.sourceTitle}>{post.sourceBusiness.name}</Text>
-              {post.sourceBusiness.shortDescription && (
-                <Text style={styles.sourceBody} numberOfLines={2}>
-                  {post.sourceBusiness.shortDescription}
-                </Text>
-              )}
-            </View>
-          </View>
-        </Pressable>
-      )}
-
       {post.type === "shared_coupon" && post.sourceCoupon && (
         <Pressable
           style={styles.sourceCard}
@@ -424,6 +505,17 @@ export function FeedPostCard({
           const sourceAuthorName = sourceAuthor
             ? `${sourceAuthor.firstName ?? ""} ${sourceAuthor.lastName ?? ""}`.trim()
             : "";
+          const nestedBiz =
+            sourcePost?.type === "shared_business" && sourcePost?.sourceBusiness
+              ? sourcePost.sourceBusiness
+              : null;
+          const nestedHeaderName = nestedBiz
+            ? nestedBiz.name
+            : sourceAuthorName || "Unknown";
+          const nestedHeaderInitials = nestedBiz
+            ? businessInitials(nestedBiz.name)
+            : `${sourceAuthor?.firstName?.[0] ?? ""}${sourceAuthor?.lastName?.[0] ?? ""}`.toUpperCase() ||
+              "?";
 
           const showSharedByYou =
             member && post.author?.id && post.author.id === member.id;
@@ -448,7 +540,19 @@ export function FeedPostCard({
               >
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                    {sourceAuthor?.profilePhotoUrl ? (
+                    {nestedBiz ? (
+                      nestedBiz.logoUrl ? (
+                        <Image
+                          source={{ uri: resolveUri(nestedBiz.logoUrl) }}
+                          style={styles.nestedAvatar}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={styles.nestedAvatarPlaceholder}>
+                          <Text style={styles.avatarInitials}>{nestedHeaderInitials}</Text>
+                        </View>
+                      )
+                    ) : sourceAuthor?.profilePhotoUrl ? (
                       <Image
                         source={{ uri: resolveUri(sourceAuthor.profilePhotoUrl) }}
                         style={styles.nestedAvatar}
@@ -456,17 +560,20 @@ export function FeedPostCard({
                       />
                     ) : (
                       <View style={styles.nestedAvatarPlaceholder}>
-                        <Text style={styles.avatarInitials}>
-                          {(sourceAuthor?.firstName?.[0] ?? "")}
-                          {(sourceAuthor?.lastName?.[0] ?? "")}
-                        </Text>
+                        <Text style={styles.avatarInitials}>{nestedHeaderInitials}</Text>
                       </View>
                     )}
 
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Pressable onPress={() => sourceAuthor?.id && openProfile(sourceAuthor.id)}>
+                      <Pressable
+                        onPress={() =>
+                          nestedBiz
+                            ? openBusinessPage(nestedBiz.slug)
+                            : sourceAuthor?.id && openProfile(sourceAuthor.id)
+                        }
+                      >
                         <Text style={styles.sourceAuthorName} numberOfLines={1}>
-                          {sourceAuthorName || "Unknown"}
+                          {nestedHeaderName}
                         </Text>
                       </Pressable>
                       {sourcePost?.createdAt ? (
@@ -498,28 +605,6 @@ export function FeedPostCard({
                         resizeMode="cover"
                       />
                     ) : null}
-                  </View>
-                ) : null}
-
-                {sourcePost.type === "shared_business" && sourcePost.sourceBusiness ? (
-                  <View style={{ marginTop: 10 }}>
-                    <View style={styles.sourceRow}>
-                      {sourcePost.sourceBusiness.logoUrl ? (
-                        <Image
-                          source={{ uri: resolveUri(sourcePost.sourceBusiness.logoUrl) }}
-                          style={styles.sourceLogo}
-                          resizeMode="cover"
-                        />
-                      ) : null}
-                      <View style={styles.sourceContent}>
-                        <Text style={styles.sourceTitle}>{sourcePost.sourceBusiness.name}</Text>
-                        {sourcePost.sourceBusiness.shortDescription ? (
-                          <Text style={styles.sourceBody} numberOfLines={2}>
-                            {sourcePost.sourceBusiness.shortDescription}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
                   </View>
                 ) : null}
 
@@ -674,27 +759,38 @@ export function FeedPostCard({
       ) : null}
 
       {(post.photos?.length ?? 0) > 0 ? (
-        <View style={styles.photoCarouselWrap}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
-              const index = Math.round(e.nativeEvent.contentOffset.x / width);
-              setPhotoCarouselIndex(index);
-            }}
-            style={styles.photoCarousel}
-          >
-            {post.photos!.map((url, i) => (
-              <Image
-                key={i}
-                source={{ uri: resolveUri(url) }}
-                style={[styles.photoCarouselImage, { width, height: PHOTO_CAROUSEL_HEIGHT }]}
-                resizeMode="cover"
-              />
-            ))}
-          </ScrollView>
-          {post.photos!.length > 1 ? (
+        <View
+          style={styles.photoCarouselWrap}
+          onLayout={(e) => {
+            const w = Math.round(e.nativeEvent.layout.width);
+            if (w > 0 && w !== carouselViewportW) setCarouselViewportW(w);
+          }}
+        >
+          {slideW > 0 ? (
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+                const index = Math.round(e.nativeEvent.contentOffset.x / slideW);
+                setPhotoCarouselIndex(index);
+              }}
+              style={[styles.photoCarousel, { width: slideW }]}
+            >
+              {post.photos!.map((url, i) => (
+                <View key={`${url}-${i}`} style={{ width: slideW }}>
+                  <ScaledImageFit
+                    uri={resolveUri(url)}
+                    maxWidth={slideW}
+                    maxHeight={carouselDisplayH}
+                  />
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={{ height: placeholderCarouselH, backgroundColor: "#eee" }} />
+          )}
+          {post.photos!.length > 1 && slideW > 0 ? (
             <View style={styles.carouselDots}>
               {post.photos!.map((_, i) => (
                 <View
@@ -924,9 +1020,7 @@ const styles = StyleSheet.create({
   photoCarouselWrap: {
     marginBottom: 12,
   },
-  photoCarousel: {
-    width,
-  },
+  photoCarousel: {},
   photoCarouselImage: {
     backgroundColor: "#eee",
   },

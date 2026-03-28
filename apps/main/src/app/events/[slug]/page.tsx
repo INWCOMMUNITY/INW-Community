@@ -84,11 +84,7 @@ export default async function EventDetailPage({
         )}
         <HeartSaveButton type="event" referenceId={event.id} initialSaved={!!saved} />
         <EventShareButton eventUrl={`/events/${event.slug}`} eventTitle={event.title} className="ml-2" />
-        {session?.user?.id &&
-          (event.memberId === session.user.id ||
-            (event.businessId && event.business?.memberId === session.user.id)) && (
-          <InviteFriendsToEvent eventId={event.id} />
-        )}
+        {session?.user?.id ? <InviteFriendsToEvent eventId={event.id} /> : null}
       </div>
     </section>
   );

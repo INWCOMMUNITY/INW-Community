@@ -11,7 +11,7 @@ import {
   Share,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Text as ThemedText, View as ThemedView } from "@/components/Themed";
 import { theme } from "@/lib/theme";
@@ -25,6 +25,12 @@ const PLAN_LABELS: Record<SubscriptionPlan, string> = {
   sponsor: "Business",
   seller: "Seller",
 };
+
+function signupRouteForPlan(p: SubscriptionPlan): Href {
+  if (p === "subscribe") return "/signup-resident";
+  if (p === "sponsor") return "/signup-business";
+  return "/signup-seller";
+}
 
 function getApiHost(): string {
   try {
@@ -45,6 +51,7 @@ export default function SignInScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [emailNotRecognized, setEmailNotRecognized] = useState(false);
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [errorPayload, setErrorPayload] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -52,16 +59,10 @@ export default function SignInScreen() {
 
   const planLabel = PLAN_LABELS[plan];
   const signInUrl = `${(API_BASE ?? "").replace(/\/$/, "")}/api/auth/mobile-signin`;
-  const siteBase = (API_BASE ?? "").replace(/\/$/, "") || "https://www.inwcommunity.com";
-  const browserLoginUrl =
-    `/web?url=${encodeURIComponent(`${siteBase}/login/mobile?plan=${plan}`)}` +
-    `&title=${encodeURIComponent("Sign in")}` +
-    `&successPattern=${encodeURIComponent("inwcommunity://auth")}` +
-    `&successRoute=${encodeURIComponent(returnTo ?? "/(tabs)/home")}` +
-    `&refreshOnSuccess=1`;
 
   async function handleSignIn() {
     setError("");
+    setEmailNotRecognized(false);
     setErrorDetails(null);
     setErrorPayload(null);
     setCopied(false);
@@ -121,23 +122,6 @@ export default function SignInScreen() {
       };
       const msg = err.error ?? err.message ?? "";
       const rawError = String(e);
-      setErrorDetails(`URL: ${signInUrl}\nError: ${msg || rawError}`);
-
-      const payload = [
-        "--- INW Community sign-in error ---",
-        `Time: ${new Date().toISOString()}`,
-        `Platform: ${Platform.OS}`,
-        `API_BASE: ${(API_BASE ?? "").replace(/\/$/, "")}`,
-        `Sign-in URL: ${signInUrl}`,
-        `Error: ${msg || rawError}`,
-        err.status != null ? `Status: ${err.status}` : null,
-        err.name ? `Name: ${err.name}` : null,
-        err.code != null ? `Code: ${err.code}` : null,
-        "--- Paste this when reporting the issue ---",
-      ]
-        .filter(Boolean)
-        .join("\n");
-      setErrorPayload(payload);
 
       const isNetworkError =
         err.status === 0 ||
@@ -145,15 +129,59 @@ export default function SignInScreen() {
 
       if (isNetworkError) {
         const host = getApiHost();
+        setErrorDetails(`URL: ${signInUrl}\nError: ${msg || rawError}`);
+        setErrorPayload(
+          [
+            "--- INW Community sign-in error ---",
+            `Time: ${new Date().toISOString()}`,
+            `Platform: ${Platform.OS}`,
+            `API_BASE: ${(API_BASE ?? "").replace(/\/$/, "")}`,
+            `Sign-in URL: ${signInUrl}`,
+            `Error: ${msg || rawError}`,
+            err.status != null ? `Status: ${err.status}` : null,
+            "--- Paste this when reporting the issue ---",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        );
         setError(
           `Can't reach the server (${host}). Check your connection — try Wi‑Fi if on cellular, or another network. If Safari can open inwcommunity.com, the app may need an update.`
         );
+      } else if (err.status === 401 && msg === "EMAIL_NOT_FOUND") {
+        setErrorDetails(null);
+        setErrorPayload(null);
+        setEmailNotRecognized(true);
+        setError("");
       } else if (err.status === 401) {
-        setError("Invalid email or password.");
-      } else if (msg) {
-        setError(msg);
+        setErrorDetails(null);
+        setErrorPayload(null);
+        if (msg === "INVALID_PASSWORD") {
+          setError("Incorrect password.");
+        } else {
+          setError("Invalid email or password.");
+        }
       } else {
-        setError("Sign in failed");
+        setErrorDetails(`URL: ${signInUrl}\nError: ${msg || rawError}`);
+        setErrorPayload(
+          [
+            "--- INW Community sign-in error ---",
+            `Time: ${new Date().toISOString()}`,
+            `Platform: ${Platform.OS}`,
+            `Sign-in URL: ${signInUrl}`,
+            `Error: ${msg || rawError}`,
+            err.status != null ? `Status: ${err.status}` : null,
+            err.name ? `Name: ${err.name}` : null,
+            err.code != null ? `Code: ${err.code}` : null,
+            "--- Paste this when reporting the issue ---",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        );
+        if (msg) {
+          setError(msg);
+        } else {
+          setError("Sign in failed");
+        }
       }
     } finally {
       setSigningIn(false);
@@ -181,7 +209,6 @@ export default function SignInScreen() {
 
       <View style={styles.header}>
         <Text style={styles.title}>Sign in as {planLabel}</Text>
-        <Text style={styles.serverHint}>Server: {getApiHost()}</Text>
       </View>
 
       <ThemedView style={styles.form} lightColor="#fff" darkColor={theme.colors.secondary}>
@@ -208,6 +235,17 @@ export default function SignInScreen() {
           autoComplete="password"
           autoCorrect={true}
         />
+        {emailNotRecognized ? (
+          <View style={styles.errorSignUpBlock}>
+            <Text style={styles.errorSignUpMessage}>Email not recognized. New to NWC?</Text>
+            <Text
+              style={styles.errorSignUpCta}
+              onPress={() => router.push(signupRouteForPlan(plan))}
+            >
+              Sign Up!
+            </Text>
+          </View>
+        ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {errorDetails ? (
           <Text style={styles.errorDetails} selectable>
@@ -254,15 +292,6 @@ export default function SignInScreen() {
             <Text style={styles.buttonText}>Sign In</Text>
           )}
         </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.browserLink, pressed && { opacity: 0.8 }]}
-          onPress={() => router.push(browserLoginUrl as never)}
-          disabled={signingIn}
-        >
-          <Text style={styles.browserLinkText}>
-            Sign in with browser (if app sign-in fails)
-          </Text>
-        </Pressable>
       </ThemedView>
 
     </KeyboardAvoidingView>
@@ -296,11 +325,6 @@ const styles = StyleSheet.create({
     color: theme.colors.heading,
     fontFamily: theme.fonts.heading,
   },
-  serverHint: {
-    fontSize: 12,
-    color: "#888",
-    marginTop: 6,
-  },
   form: {
     padding: 20,
     borderRadius: 8,
@@ -323,6 +347,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 14,
   },
+  errorSignUpBlock: {
+    marginBottom: 12,
+  },
+  errorSignUpMessage: {
+    color: "#fff",
+    fontSize: 14,
+    marginBottom: 6,
+  },
+  errorSignUpCta: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#fff",
+  },
   errorDetails: {
     color: "rgba(255,255,255,0.9)",
     marginBottom: 12,
@@ -340,16 +377,6 @@ const styles = StyleSheet.create({
   copyButtonText: {
     fontSize: 13,
     color: "#fff",
-  },
-  browserLink: {
-    marginTop: 16,
-    paddingVertical: 8,
-    alignSelf: "center",
-  },
-  browserLinkText: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.95)",
-    textDecorationLine: "underline",
   },
   button: {
     backgroundColor: "#fff",

@@ -72,8 +72,9 @@ export default function InvitesScreen() {
       setInvites((prev) =>
         prev.map((i) => (i.id === inviteId ? { ...i, status } : i))
       );
-    } catch {
-      // keep invite on error
+    } catch (e) {
+      const err = e as { error?: string };
+      Alert.alert("Could not update RSVP", err?.error ?? "Try again.");
     } finally {
       setResponding(null);
     }
@@ -188,7 +189,7 @@ export default function InvitesScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} colors={[theme.colors.primary]} />
       }
     >
-      <Text style={styles.title}>Event Invites</Text>
+      <Text style={styles.title}>Local Event Invites</Text>
       <Text style={styles.hint}>
         Invitations and your responses stay here so you can open the event anytime.
       </Text>

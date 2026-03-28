@@ -94,7 +94,6 @@ export default function StoreScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [headerExpanded, setHeaderExpanded] = useState(true);
-  const rawHeaderHeightRef = useRef(400);
   const headerHeightRef = useRef(265);
   const animatedHeight = useRef(new Animated.Value(265)).current;
   const listRef = useRef<FlatList>(null);
@@ -113,18 +112,37 @@ export default function StoreScreen() {
   }, [headerExpanded, animatedHeight]);
 
   const handleHeaderLayout = useCallback((e: { nativeEvent: { layout: { height: number } } }) => {
-    const h = e.nativeEvent.layout.height;
-    rawHeaderHeightRef.current = h;
+    const h = Math.max(1, Math.round(e.nativeEvent.layout.height));
+    const prev = headerHeightRef.current;
     headerHeightRef.current = h;
-    if (headerExpanded) {
-      Animated.timing(animatedHeight, {
-        toValue: h,
-        duration: 150,
-        easing: Easing.bezier(0.33, 1, 0.68, 1),
-        useNativeDriver: false,
-      }).start();
+    if (!headerExpanded) return;
+    // Large change: animate. Tiny deltas (tab refocus noise): snap so animated height never drifts.
+    if (Math.abs(h - prev) < 4) {
+      animatedHeight.stopAnimation();
+      animatedHeight.setValue(h);
+      return;
     }
+    Animated.timing(animatedHeight, {
+      toValue: h,
+      duration: 150,
+      easing: Easing.bezier(0.33, 1, 0.68, 1),
+      useNativeDriver: false,
+    }).start();
   }, [headerExpanded, animatedHeight]);
+
+  /** Tab refocus often leaves Animated height / scroll offset out of sync with the measured header. */
+  const resetLayoutAfterTabFocus = useCallback(() => {
+    scrollYRef.current = 0;
+    setHeaderExpanded(true);
+    animatedHeight.stopAnimation();
+    animatedHeight.setValue(headerHeightRef.current);
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      });
+    });
+  }, [animatedHeight]);
 
   const load = useCallback(
     async (refresh = false) => {
@@ -198,7 +216,8 @@ export default function StoreScreen() {
       }
       load(true);
       loadMeta();
-    }, [load, loadMeta])
+      resetLayoutAfterTabFocus();
+    }, [load, loadMeta, resetLayoutAfterTabFocus])
   );
 
   useEffect(() => {
@@ -443,7 +462,7 @@ export default function StoreScreen() {
 
       {loading && !refreshing ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <ActivityIndicator size="large" color={theme.colors.cream} />
         </View>
       ) : connectionError ? (
         <View style={styles.empty}>
@@ -460,6 +479,13 @@ export default function StoreScreen() {
           ref={listRef}
           style={styles.list}
           contentInsetAdjustmentBehavior="never"
+          {...(Platform.OS === "ios"
+            ? {
+                contentInset: { top: 0, bottom: 0 },
+                scrollIndicatorInsets: { top: 0, bottom: 0 },
+                automaticallyAdjustContentInsets: false,
+              }
+            : {})}
           data={items}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
@@ -474,6 +500,8 @@ export default function StoreScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => load(true)}
+              tintColor={theme.colors.cream}
+              colors={[theme.colors.cream]}
             />
           }
           ListEmptyComponent={

@@ -22,9 +22,14 @@ const items: { href: string; label: string; icon: string }[] = [
     label: "My Business Coupons",
     icon: "pricetags-outline",
   },
+  {
+    href: "/business-hub/my-business-events",
+    label: "My Business Events",
+    icon: "calendar-outline",
+  },
 ];
 
-/** Three full-width primary CTAs for Manage NWC Business (web); matches app hub styling. */
+/** Full-width primary CTAs for Manage NWC Business (web); matches app hub styling. */
 export function BusinessHubManageDirectoryLinks() {
   return (
     <nav className="flex flex-col gap-3 w-full max-w-2xl mx-auto" aria-label="Manage business content">

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { safeInternalPath } from "@/lib/safe-internal-path";
+import { CityPicker } from "@/components/CityPicker";
+import { normalizeResidentCity } from "@/lib/city-utils";
 
 interface Tag {
   id: string;
@@ -67,7 +69,7 @@ export default function SignupPage() {
           password,
           firstName,
           lastName,
-          city: city.trim() || undefined,
+          city: normalizeResidentCity(city).trim() || undefined,
           tagIds: Array.from(selectedTagIds),
           ...(refCode && { ref: refCode }),
         }),
@@ -180,15 +182,17 @@ export default function SignupPage() {
           />
         </div>
         <div>
-          <label htmlFor="city" className="block text-sm font-medium mb-1">City of residence</label>
-          <input
+          <label htmlFor="city" className="block text-sm font-medium mb-1">City of residence (optional)</label>
+          <CityPicker
             id="city"
-            type="text"
             value={city}
-            onChange={(e) => setCity(e.target.value)}
-            placeholder="e.g. Spokane"
+            onChange={setCity}
+            placeholder="Search or select city (e.g. Coeur d'Alene)"
             className="w-full border rounded px-3 py-2"
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Same city list as business profiles. Type a city and leave the field to save a custom city if yours is not listed.
+          </p>
         </div>
         <div className="flex items-start gap-2">
           <input

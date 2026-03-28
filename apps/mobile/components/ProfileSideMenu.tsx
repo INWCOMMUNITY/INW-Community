@@ -94,7 +94,7 @@ const SUPPORT_EMAIL = "donivan@pnwcommunity.com";
 
 const LEGAL_ITEMS: NavItem[] = [
   { href: `mailto:${SUPPORT_EMAIL}`, label: "Email support", icon: "mail-outline" },
-  { href: `/web?url=${encodeURIComponent(siteBase + "/support-nwc")}&title=${encodeURIComponent("Support & Contact")}`, label: "Support & Contact", icon: "help-circle-outline" },
+  { href: "/support-request", label: "Support & Contact", icon: "help-circle-outline" },
   { href: `/web?url=${encodeURIComponent(siteBase + "/terms")}&title=${encodeURIComponent("Terms of Service")}`, label: "Terms of Service", icon: "document-text-outline" },
   { href: `/web?url=${encodeURIComponent(siteBase + "/privacy")}&title=${encodeURIComponent("Privacy Policy")}`, label: "Privacy Policy", icon: "shield-checkmark-outline" },
 ];

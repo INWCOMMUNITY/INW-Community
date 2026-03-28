@@ -849,13 +849,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   feedSection: {
-    paddingHorizontal: 0,
+    paddingHorizontal: 16,
     marginBottom: 24,
   },
   feedHint: {
     fontSize: 14,
     color: "#666",
-    paddingHorizontal: 16,
     marginBottom: 12,
   },
   feedLoading: {
@@ -864,11 +863,9 @@ const styles = StyleSheet.create({
   feedEmpty: {
     fontSize: 15,
     color: "#888",
-    paddingHorizontal: 16,
     paddingVertical: 16,
   },
   loadMoreBtn: {
-    marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 24,
     paddingVertical: 12,

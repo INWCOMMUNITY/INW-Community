@@ -66,7 +66,9 @@ export async function GET(
 
 const postBodySchema = z.object({
   content: z.string().max(5000).optional(),
-  sharedContentType: z.enum(["post", "blog", "store_item", "business", "coupon", "reward", "photo"]).optional(),
+  sharedContentType: z
+    .enum(["post", "blog", "store_item", "business", "coupon", "reward", "photo", "event"])
+    .optional(),
   sharedContentId: z.string().optional(),
   sharedContentSlug: z.string().optional(),
 }).refine((d) => (d.content?.trim() ?? "").length > 0 || (d.sharedContentType && d.sharedContentId), {

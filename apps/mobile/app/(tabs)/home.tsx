@@ -476,11 +476,14 @@ export default function HomeScreen() {
         transparent
         onRequestClose={() => setSelectedPrizeForModal(null)}
       >
-        <Pressable
-          style={styles.top10PrizeModalOverlay}
-          onPress={() => setSelectedPrizeForModal(null)}
-        >
-          <View style={styles.top10PrizeModalContent} onStartShouldSetResponder={() => true}>
+        <View style={styles.top10PrizeModalOverlay}>
+          <Pressable
+            style={styles.top10PrizeModalBackdrop}
+            onPress={() => setSelectedPrizeForModal(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+          />
+          <View style={styles.top10PrizeModalContent}>
             {selectedPrizeForModal && (
               <>
                 <View style={styles.top10PrizeModalHeader}>
@@ -586,7 +589,7 @@ export default function HomeScreen() {
               </>
             )}
           </View>
-        </Pressable>
+        </View>
       </Modal>
 
       <ImageGalleryViewer
@@ -722,6 +725,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
+  },
+  top10PrizeModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
   },
   top10PrizeModalContent: {
     width: "100%",

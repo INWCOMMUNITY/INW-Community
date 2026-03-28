@@ -920,7 +920,7 @@ export default function CartScreen() {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <ActivityIndicator size="large" color={theme.colors.cream} />
         </View>
       ) : (
         <ScrollView
@@ -928,7 +928,12 @@ export default function CartScreen() {
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load(true)}
+              tintColor={theme.colors.cream}
+              colors={[theme.colors.cream]}
+            />
           }
         >
           {orderJustConfirmed ? (

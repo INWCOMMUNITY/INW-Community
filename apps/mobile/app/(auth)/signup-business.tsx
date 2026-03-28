@@ -16,7 +16,13 @@ import {
 import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
+import {
+  signupAgeSwitchOutline,
+  switchIosBackgroundColor,
+  switchThumbColor,
+  switchTrackColor,
+  theme,
+} from "@/lib/theme";
 import { apiPost, apiPatch } from "@/lib/api";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
@@ -261,13 +267,15 @@ export default function SignupBusinessScreen() {
           </Text>
           <View style={styles.form}>
             <View style={styles.ageRow}>
-              <Switch
-                value={ageConfirmed}
-                onValueChange={setAgeConfirmed}
-                trackColor={switchTrackColor()}
-                thumbColor={switchThumbColor(ageConfirmed)}
-                ios_backgroundColor={switchIosBackgroundColor}
-              />
+              <View style={signupAgeSwitchOutline}>
+                <Switch
+                  value={ageConfirmed}
+                  onValueChange={setAgeConfirmed}
+                  trackColor={switchTrackColor()}
+                  thumbColor={switchThumbColor(ageConfirmed)}
+                  ios_backgroundColor={switchIosBackgroundColor}
+                />
+              </View>
               <Text style={styles.ageLabel}>I confirm I am 16 years or older</Text>
             </View>
             <TextInput

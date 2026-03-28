@@ -38,6 +38,7 @@ const SIDEBAR_SECTIONS = [
       { href: "/admin/dashboard/posts", label: "Posts" },
       { href: "/admin/dashboard/flagged", label: "Flagged" },
       { href: "/admin/dashboard/reports", label: "Reports" },
+      { href: "/admin/dashboard/nwc-requests", label: "Support requests" },
       { href: "/admin/dashboard/content-policy", label: "Content policy" },
     ],
   },

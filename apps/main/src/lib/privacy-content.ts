@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "March 25, 2026";
+export const PRIVACY_LAST_UPDATED = "March 27, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -17,7 +17,7 @@ You may provide information when you:
 ● Submit a blog
 ● Post in the community feed, groups, or messaging
 ● Submit an event
-● Submit an NWC Requests form
+● Submit an NWC Requests form on the website, or send a Support & contact message from the mobile app
 ● Make a payment
 ● Complete checkout for marketplace items that offer local pickup or local delivery (you may be asked for your name, email address, phone number, optional notes, agreement to the seller's stated terms where shown, and for pickup an estimated pickup date and time; for local delivery a delivery address and when you are available to receive the delivery)
 ● Communicate with NWC staff
@@ -33,6 +33,7 @@ This information may include:
 ● Payment details (processed securely through Stripe)
 ● Subscription and billing records for paid plans (for example, resident, business, or seller subscriptions): we store the information needed to provide access to paid features (such as plan type, subscription status, and renewal timing) and identifiers that Stripe associates with your account. Full payment card numbers are not stored on our servers; they are handled by Stripe.
 ● Blog submissions, feed posts, comments, direct messages, group conversations, listings, event information
+● NWC Requests and Support & contact: we store your name, email address, and message. On the mobile app you may also enter a short subject line. You may optionally provide a phone number so our team can follow up by call or text as well as by email. These submissions are saved in our administrative systems for support and follow-up.
 ● Marketplace order fulfillment details you enter at checkout for local pickup or local delivery (including contact and scheduling fields described above), stored with your order
 ● Any content you voluntarily provide
 
@@ -85,6 +86,7 @@ We use the collected information for the following purposes:
 ● To send push notifications you have opted into on your device (for the purposes described in section 1.3)
 ● To manage seller and business subscriber profiles
 ● To display user-generated content (blogs, feed posts, comments, listings, events)
+● To receive, store, and respond to NWC Requests and Support & contact submissions, using the contact information you provide (including an optional phone number when you choose to share one)
 ● To provide customer support
 ● To send service-related notifications (including order tracking)
 ● To attach pickup and local delivery information you submit at checkout to your order and make it available to the selling member so they can coordinate pickup or delivery

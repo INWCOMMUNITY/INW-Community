@@ -20,15 +20,56 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { CALENDAR_TYPES, EVENT_CITIES_FORM, type CalendarType } from "@/lib/calendars";
-import { apiPost, apiUploadFile, getToken } from "@/lib/api";
+import { apiPatch, apiPost, apiUploadFile, getToken } from "@/lib/api";
+import {
+  MAX_UPLOAD_FILE_BYTES,
+  formatMaxUploadSizeLabel,
+} from "@/lib/upload-limits";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import type { EarnedBadgePayload } from "@/lib/share-utils";
+
+/** Payload from GET /api/events/[id] (owner) for edit mode */
+export interface PostEventInitialData {
+  title: string;
+  date: string;
+  time: string | null;
+  endTime: string | null;
+  location: string | null;
+  city: string | null;
+  description: string | null;
+  calendarType: CalendarType;
+  photos: string[];
+  businessId?: string | null;
+}
+
+/** When posting from the calendar flow after choosing profile vs business */
+export interface PostEventAsContext {
+  businessId: string | null;
+  displayName: string;
+}
 
 interface PostEventFormProps {
   initialCalendarType?: CalendarType;
   /** When set, the event date field starts on this calendar day (local midnight). */
   initialEventDate?: Date;
+  /** When set with initialEvent, form PATCHes this event on submit. */
+  editEventId?: string;
+  initialEvent?: PostEventInitialData;
+  /** Calendar “post as” choice (profile vs business). Omit for normal create / Business Hub. */
+  postEventAs?: PostEventAsContext;
   onSuccess?: () => void;
+}
+
+function parseTimeToDate(baseDay: Date, timeStr: string | null, fallbackHour: number): Date {
+  const d = new Date(baseDay);
+  d.setHours(0, 0, 0, 0);
+  if (!timeStr || !/^\d{1,2}:\d{2}/.test(timeStr)) {
+    d.setHours(fallbackHour, 0, 0, 0);
+    return d;
+  }
+  const [h, m] = timeStr.split(":").map((x) => parseInt(x, 10));
+  d.setHours(Number.isFinite(h) ? h : fallbackHour, Number.isFinite(m) ? m : 0, 0, 0);
+  return d;
 }
 
 function normalizeEventDate(d: Date): Date {
@@ -71,13 +112,19 @@ today.setHours(0, 0, 0, 0);
 export function PostEventForm({
   initialCalendarType,
   initialEventDate,
+  editEventId,
+  initialEvent,
+  postEventAs,
   onSuccess,
 }: PostEventFormProps) {
   const router = useRouter();
+  const isEdit = Boolean(editEventId && initialEvent);
   const finishSuccess = () => {
     Alert.alert(
-      "Event Posted!",
-      "Thanks for posting an event on the Northwest Community Calendar!",
+      isEdit ? "Event updated" : "Event Posted!",
+      isEdit
+        ? "Your event listing has been saved."
+        : "Thanks for posting an event on the Northwest Community Calendar!",
       [
         {
           text: "OK",
@@ -91,32 +138,49 @@ export function PostEventForm({
   };
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadgePayload[]>([]);
   const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(() => initialEvent?.title ?? "");
   const [dateValue, setDateValue] = useState<Date>(() => {
+    if (initialEvent?.date) {
+      const parsed = new Date(initialEvent.date);
+      return Number.isNaN(parsed.getTime()) ? normalizeEventDate(new Date()) : normalizeEventDate(parsed);
+    }
     if (initialEventDate) return normalizeEventDate(initialEventDate);
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d;
   });
   const [timeValue, setTimeValue] = useState<Date>(() => {
+    if (initialEvent?.date) {
+      const day = new Date(initialEvent.date);
+      return parseTimeToDate(day, initialEvent.time, 9);
+    }
     const d = new Date();
     d.setHours(9, 0, 0, 0);
     return d;
   });
   const [endTimeValue, setEndTimeValue] = useState<Date>(() => {
+    if (initialEvent?.date) {
+      const day = new Date(initialEvent.date);
+      return parseTimeToDate(day, initialEvent.endTime, 17);
+    }
     const d = new Date();
     d.setHours(17, 0, 0, 0);
     return d;
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState<"start" | "end" | null>(null);
-  const [city, setCity] = useState<string>("");
-  const [location, setLocation] = useState("");
-  const [description, setDescription] = useState("");
+  const [city, setCity] = useState<string>(() => initialEvent?.city ?? "");
+  const [location, setLocation] = useState(() => initialEvent?.location ?? "");
+  const [description, setDescription] = useState(() => initialEvent?.description ?? "");
   const [calendarType, setCalendarType] = useState<CalendarType>(
-    initialCalendarType ?? "fun_events"
+    () => initialEvent?.calendarType ?? initialCalendarType ?? "fun_events"
   );
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<string[]>(() => initialEvent?.photos ?? []);
+  const [businessId] = useState<string | null>(() => {
+    if (initialEvent) return initialEvent.businessId ?? null;
+    if (postEventAs) return postEventAs.businessId;
+    return null;
+  });
   const [submitting, setSubmitting] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState("");
@@ -142,6 +206,15 @@ export function PostEventForm({
         return;
       }
       for (const asset of result.assets) {
+        if (
+          typeof asset.fileSize === "number" &&
+          asset.fileSize > MAX_UPLOAD_FILE_BYTES
+        ) {
+          setError(
+            `A photo is over ${formatMaxUploadSizeLabel()} and was skipped.`
+          );
+          continue;
+        }
         const formData = new FormData();
         const mime = asset.mimeType ?? "image/jpeg";
         const extFromMime =
@@ -187,10 +260,7 @@ export function PostEventForm({
     }
     setSubmitting(true);
     try {
-      const res = await apiPost<{
-        ok?: boolean;
-        earnedBadges?: EarnedBadgePayload[];
-      }>("/api/events", {
+      const payload = {
         title: title.trim(),
         date: formatDateForApi(dateValue),
         time: formatTimeForApi(timeValue),
@@ -200,20 +270,31 @@ export function PostEventForm({
         description: description.trim() || null,
         calendarType,
         photos,
-      });
-      const badges = (res?.earnedBadges ?? []).filter(
-        (b): b is EarnedBadgePayload =>
-          !!b && typeof b.slug === "string" && typeof b.name === "string"
-      );
-      if (badges.length > 0) {
-        setEarnedBadges(badges);
-        setBadgePopupIndex(0);
-      } else {
+        ...(businessId ? { businessId } : {}),
+      };
+      if (isEdit && editEventId) {
+        await apiPatch(`/api/events/${editEventId}`, payload);
         finishSuccess();
+      } else {
+        const res = await apiPost<{
+          ok?: boolean;
+          earnedBadges?: EarnedBadgePayload[];
+        }>("/api/events", payload);
+        const badges = (res?.earnedBadges ?? []).filter(
+          (b): b is EarnedBadgePayload =>
+            !!b && typeof b.slug === "string" && typeof b.name === "string"
+        );
+        if (badges.length > 0) {
+          setEarnedBadges(badges);
+          setBadgePopupIndex(0);
+        } else {
+          finishSuccess();
+        }
       }
     } catch (e) {
       setError(
-        (e as { error?: string }).error ?? "Failed to post event. Try again."
+        (e as { error?: string }).error ??
+          (isEdit ? "Failed to update event. Try again." : "Failed to post event. Try again.")
       );
     } finally {
       setSubmitting(false);
@@ -238,6 +319,13 @@ export function PostEventForm({
       keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
     >
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      {!isEdit && postEventAs ? (
+        <View style={styles.postingAsBanner}>
+          <Text style={styles.postingAsBannerText}>
+            Posting as &quot;{postEventAs.displayName}&quot;
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.field}>
         <Text style={styles.label}>Event title *</Text>
         <TextInput
@@ -318,7 +406,7 @@ export function PostEventForm({
               DateTimePickerAndroid.open({
                 value: dateValue,
                 mode: "date",
-                minimumDate: today,
+                minimumDate: isEdit ? undefined : today,
                 onChange: (event, selectedDate) => {
                   if (event.type === "set" && selectedDate) {
                     setDateValue(selectedDate);
@@ -373,7 +461,7 @@ export function PostEventForm({
                 onChange={(_, selectedDate) => {
                   if (selectedDate) setDateValue(selectedDate);
                 }}
-                minimumDate={today}
+                minimumDate={isEdit ? undefined : today}
                 textColor={theme.colors.primary}
               />
               <Pressable
@@ -485,7 +573,7 @@ export function PostEventForm({
         {submitting ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.submitBtnText}>Post event</Text>
+          <Text style={styles.submitBtnText}>{isEdit ? "Save changes" : "Post event"}</Text>
         )}
       </Pressable>
     </ScrollView>
@@ -505,6 +593,20 @@ export function PostEventForm({
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   container: { padding: 16, paddingBottom: 40 },
+  postingAsBanner: {
+    backgroundColor: theme.colors.creamAlt,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  postingAsBannerText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    textAlign: "center",
+  },
   field: { marginBottom: 16 },
   half: { flex: 1 },
   row: { flexDirection: "row", gap: 12 },

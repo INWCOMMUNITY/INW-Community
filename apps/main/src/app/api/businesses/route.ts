@@ -4,6 +4,7 @@ import {
   businessDisplayCityEquals,
   deduplicateCities,
   extractBusinessDisplayCity,
+  normalizeResidentCity,
 } from "@/lib/city-utils";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateText, containsProfanity } from "@/lib/content-moderation";
@@ -262,6 +263,8 @@ export async function POST(req: NextRequest) {
     }
     const isFirstBusiness = existingCount === 0;
 
+    const cityStored = normalizeResidentCity(data.city.trim());
+
     const business = await prisma.business.create({
       data: {
         memberId: session.user.id,
@@ -273,7 +276,7 @@ export async function POST(req: NextRequest) {
         email: data.email ?? null,
         logoUrl: data.logoUrl ?? null,
         address: data.address ?? null,
-        city: data.city ?? null,
+        city: cityStored,
         categories: data.categories ?? [],
         subcategoriesByPrimary: data.subcategoriesByPrimary,
         slug,

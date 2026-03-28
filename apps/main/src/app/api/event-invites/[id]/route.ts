@@ -33,10 +33,6 @@ export async function PATCH(
     return NextResponse.json({ error: "You can only respond to your own invitations" }, { status: 403 });
   }
 
-  if (invite.status !== "pending") {
-    return NextResponse.json({ error: "Invitation already responded to" }, { status: 400 });
-  }
-
   let body: z.infer<typeof bodySchema>;
   try {
     body = bodySchema.parse(await req.json());

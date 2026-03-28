@@ -359,10 +359,11 @@ export default function CommunityScreen() {
               styles.headerSideBtn,
               pressed && styles.buttonPressed,
             ]}
-            onPress={() => (router.push as (href: string) => void)("/community/groups")}
-            accessibilityLabel="Community groups"
+            onPress={() => (router.push as (href: string) => void)("/community/my-friends")}
+            accessibilityLabel="My friends"
           >
-            <Ionicons name="people-circle-outline" size={22} color={theme.colors.buttonText} />
+            <Ionicons name="people-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.headerSideBtnLabel}>Friends</Text>
           </Pressable>
           {signedIn ? (
             <Pressable
@@ -390,10 +391,11 @@ export default function CommunityScreen() {
               styles.headerSideBtn,
               pressed && styles.buttonPressed,
             ]}
-            onPress={() => (router.push as (href: string) => void)("/community/tags")}
-            accessibilityLabel="Manage tags"
+            onPress={() => (router.push as (href: string) => void)("/community/groups")}
+            accessibilityLabel="Community groups"
           >
-            <Ionicons name="pricetags-outline" size={22} color={theme.colors.buttonText} />
+            <Ionicons name="people-circle-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.headerSideBtnLabel}>Groups</Text>
           </Pressable>
         </View>
       </View>
@@ -517,17 +519,25 @@ const styles = StyleSheet.create({
   },
   headerBtnsRow: {
     flexDirection: "row",
-    alignItems: "stretch",
+    alignItems: "center",
     gap: 10,
     marginTop: 8,
   },
   headerSideBtn: {
     backgroundColor: theme.colors.primary,
     borderRadius: 6,
-    width: 48,
-    paddingVertical: 12,
+    minWidth: 52,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerSideBtnLabel: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: "600",
+    color: theme.colors.buttonText,
+    letterSpacing: 0.2,
   },
   createPostBtn: {
     flex: 1,

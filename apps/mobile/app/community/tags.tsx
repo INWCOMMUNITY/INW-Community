@@ -31,11 +31,15 @@ export default function TagsScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [followed, all] = await Promise.all([
-        apiGet<{ tags: Tag[] }>("/api/me/followed-tags"),
-        apiGet<{ tags: Tag[] }>("/api/tags?limit=100"),
-      ]);
-      setFollowedTags(followed?.tags ?? []);
+      let followed: Tag[] = [];
+      try {
+        const f = await apiGet<{ tags: Tag[] }>("/api/me/followed-tags");
+        followed = f?.tags ?? [];
+      } catch {
+        followed = [];
+      }
+      const all = await apiGet<{ tags: Tag[] }>("/api/tags?limit=100");
+      setFollowedTags(followed);
       setAllTags(all?.tags ?? []);
     } catch {
       setFollowedTags([]);

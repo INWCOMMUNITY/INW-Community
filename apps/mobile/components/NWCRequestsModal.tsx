@@ -29,6 +29,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
   const { member } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     setError(null);
     const submitName = name.trim();
     const submitEmail = email.trim();
+    const submitPhone = phone.trim();
     const submitMessage = message.trim();
     if (!submitName || !submitEmail || !submitMessage) {
       setError("Please fill in name, email, and message.");
@@ -91,6 +93,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
         {
           name: submitName,
           email: submitEmail,
+          ...(submitPhone ? { phone: submitPhone } : {}),
           message: submitMessage,
         }
       );
@@ -157,7 +160,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
           </Text>
           <View style={styles.note}>
             <Text style={styles.noteText}>
-              Your email is included with your request so the NWC team can reach out to you if needed.
+              Your email is included with your request so the NWC team can reach out to you if needed. Phone is optional.
             </Text>
           </View>
           {sent ? (
@@ -184,6 +187,16 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={true}
+              />
+              <Text style={styles.label}>Phone (optional)</Text>
+              <TextInput
+                style={styles.input}
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="e.g. (555) 123-4567"
+                placeholderTextColor={theme.colors.placeholder}
+                keyboardType="phone-pad"
+                autoCorrect={false}
               />
               <Text style={styles.label}>Message</Text>
               <TextInput

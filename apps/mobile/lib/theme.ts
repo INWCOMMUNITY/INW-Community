@@ -34,3 +34,12 @@ export function switchThumbColor(value: boolean) {
 }
 
 export const switchIosBackgroundColor = theme.colors.cream;
+
+/** White ring around the age-confirmation Switch so it does not blend into green signup form backgrounds. */
+export const signupAgeSwitchOutline = {
+  borderWidth: 2,
+  borderColor: "#ffffff",
+  borderRadius: 20,
+  padding: 3,
+  alignSelf: "flex-start" as const,
+};

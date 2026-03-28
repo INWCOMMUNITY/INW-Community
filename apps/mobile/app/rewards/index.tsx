@@ -459,8 +459,14 @@ export default function RewardsScreen() {
             transparent
             onRequestClose={() => setPrizePopupPrize(null)}
           >
-            <Pressable style={styles.rewardModalOverlay} onPress={() => setPrizePopupPrize(null)}>
-              <View style={styles.rewardModalContent} onStartShouldSetResponder={() => true}>
+            <View style={styles.rewardModalOverlay}>
+              <Pressable
+                style={styles.rewardModalBackdrop}
+                onPress={() => setPrizePopupPrize(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss"
+              />
+              <View style={styles.rewardModalContent}>
                 {prizePopupPrize && (
                   <>
                     <View style={styles.rewardModalHeader}>
@@ -545,7 +551,7 @@ export default function RewardsScreen() {
                   </>
                 )}
               </View>
-            </Pressable>
+            </View>
           </Modal>
 
           <View style={styles.section}>
@@ -711,13 +717,16 @@ export default function RewardsScreen() {
           setSelectedRewardForModal(null);
         }}
       >
-        <Pressable
-          style={styles.rewardModalOverlay}
-          onPress={() => {
-            setSelectedRewardForModal(null);
-          }}
-        >
-          <View style={styles.rewardModalContent} onStartShouldSetResponder={() => true}>
+        <View style={styles.rewardModalOverlay}>
+          <Pressable
+            style={styles.rewardModalBackdrop}
+            onPress={() => {
+              setSelectedRewardForModal(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+          />
+          <View style={styles.rewardModalContent}>
             {selectedRewardForModal && (
               <>
                 <View style={styles.rewardModalHeader}>
@@ -887,7 +896,7 @@ export default function RewardsScreen() {
               </>
             )}
           </View>
-        </Pressable>
+        </View>
       </Modal>
       <ImageGalleryViewer
         key={
@@ -1118,6 +1127,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
+  },
+  rewardModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
   },
   rewardModalContent: {
     width: "100%",

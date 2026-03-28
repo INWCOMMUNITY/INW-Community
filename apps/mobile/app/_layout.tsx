@@ -232,10 +232,13 @@ function RootLayoutNav() {
         <Stack.Screen name="business-hub-offered-rewards" options={{ headerShown: false }} />
         <Stack.Screen name="business-hub-manage" options={{ headerShown: false }} />
         <Stack.Screen name="business-hub-my-posts" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-my-events" options={{ headerShown: false }} />
+        <Stack.Screen name="support-request" options={{ headerShown: false }} />
         <Stack.Screen name="profile-edit" />
         <Stack.Screen name="policies" />
         <Stack.Screen name="profile-businesses" />
         <Stack.Screen name="profile-events" />
+        <Stack.Screen name="profile-event-edit/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="profile-coupons" />
         <Stack.Screen name="profile-wishlist" />
         <Stack.Screen name="sponsor-business" options={{ headerShown: false }} />

@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireBlobStorage } from "@/lib/upload";
+import {
+  MAX_UPLOAD_FILE_BYTES,
+  formatMaxUploadSizeLabel,
+} from "@/lib/upload-limits";
 import path from "path";
 import fs from "fs/promises";
-
-const MAX_SIZE = 80 * 1024 * 1024; // 80MB
 const ALLOWED_TYPES = [
   "image/jpeg",
   "image/png",
@@ -27,8 +29,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: "File too large (max 80MB)" }, { status: 400 });
+  if (file.size > MAX_UPLOAD_FILE_BYTES) {
+    return NextResponse.json(
+      { error: `File too large (max ${formatMaxUploadSizeLabel()})` },
+      { status: 400 }
+    );
   }
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: "Invalid file type. Use JPEG, PNG, WebP, or GIF." }, { status: 400 });

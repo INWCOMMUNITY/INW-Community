@@ -19,18 +19,11 @@ export async function POST(
   const { id: eventId } = await params;
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, memberId: true, businessId: true, business: { select: { memberId: true } } },
+    select: { id: true, status: true },
   });
 
-  if (!event) {
+  if (!event || event.status !== "approved") {
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
-  }
-
-  const isOwner =
-    event.memberId === session.user.id ||
-    (event.businessId != null && event.business?.memberId === session.user.id);
-  if (!isOwner) {
-    return NextResponse.json({ error: "You can only invite friends to events you created" }, { status: 403 });
   }
 
   let body: { friendIds: string[] };
@@ -73,8 +66,12 @@ export async function POST(
   const alreadySet = new Set(alreadyInvited.map((r) => r.inviteeId));
   const newInviteeIds = toInvite.filter((id) => !alreadySet.has(id));
 
+  if (newInviteeIds.length === 0) {
+    return NextResponse.json({ ok: true, invited: 0, earnedBadges: [] });
+  }
+
   const created = await prisma.eventInvite.createMany({
-    data: toInvite.map((inviteeId) => ({
+    data: newInviteeIds.map((inviteeId) => ({
       eventId,
       inviterId: session.user.id,
       inviteeId,
@@ -126,6 +123,15 @@ export async function POST(
         },
       }).catch(() => {});
     }
+
+    const { sendEventInviteChatMessages } = await import("@/lib/send-event-invite-chat");
+    await sendEventInviteChatMessages({
+      inviterId: session.user.id,
+      inviteeIds: newInviteeIds,
+      eventId,
+      eventSlug: String(slug),
+      eventTitle: String(title),
+    }).catch(() => {});
   }
 
   return NextResponse.json({ ok: true, invited: created.count, earnedBadges });

@@ -21,6 +21,7 @@ import {
   formatMaxUploadSizeLabel,
 } from "@/lib/upload-limits";
 import { PREBUILT_CITIES } from "@/lib/prebuilt-cities";
+import { normalizeResidentCity } from "@/lib/city-utils";
 import { apiPost, apiPatch, apiUploadFile, apiGet, getToken } from "@/lib/api";
 import {
   normalizeSubcategoriesByPrimary,
@@ -380,7 +381,8 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       setError("At least one category is required.");
       return;
     }
-    const effectiveCity = city === "Other" ? customCity.trim() : city.trim();
+    const rawCity = city === "Other" ? customCity.trim() : city.trim();
+    const effectiveCity = normalizeResidentCity(rawCity);
     if (!effectiveCity) {
       setError("City is required.");
       return;
@@ -409,7 +411,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         email: email.trim() || null,
         logoUrl: logoUrl.trim() || null,
         address: address.trim() || null,
-        city: (city === "Other" ? customCity.trim() : city.trim()) || null,
+        city: effectiveCity || null,
         categories: cats,
         subcategoriesByPrimary: normalizeSubcategoriesByPrimary(cats, map),
         photos: photos.slice(0, MAX_BUSINESS_GALLERY_PHOTOS),

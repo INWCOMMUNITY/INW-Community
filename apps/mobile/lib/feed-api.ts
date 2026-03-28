@@ -97,6 +97,17 @@ export async function fetchFeed(cursor?: string): Promise<FeedResponse> {
   };
 }
 
+/** Posts authored by the current member (profile posts). Requires auth. */
+export async function fetchMyPosts(cursor?: string, limit = 30): Promise<FeedResponse> {
+  const params = new URLSearchParams({ limit: String(Math.min(limit, 100)) });
+  if (cursor) params.set("cursor", cursor);
+  const data = await apiGet<FeedResponse>(`/api/me/posts?${params}`);
+  return {
+    posts: data.posts ?? [],
+    nextCursor: data.nextCursor ?? null,
+  };
+}
+
 /** Single post (optional auth; 404 if viewer cannot see it; public posts work without a token). */
 export async function fetchPostById(id: string): Promise<FeedPost> {
   const data = await apiGet<{ post: FeedPost }>(`/api/posts/${encodeURIComponent(id)}`);

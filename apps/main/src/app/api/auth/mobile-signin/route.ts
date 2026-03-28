@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (!member) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+      return NextResponse.json({ error: "EMAIL_NOT_FOUND" }, { status: 401 });
     }
 
     if (member.status === "suspended") {
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     const ok = await bcrypt.compare(password, member.passwordHash);
     if (!ok) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+      return NextResponse.json({ error: "INVALID_PASSWORD" }, { status: 401 });
     }
 
     const [subTier, subResaleHub] = await Promise.all([

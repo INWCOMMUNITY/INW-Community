@@ -16,13 +16,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { CALENDAR_TYPES, EVENT_CITIES, type CalendarType } from "@/lib/calendars";
 import { PopupModal } from "@/components/PopupModal";
-import { PostEventForm } from "@/components/PostEventForm";
+import { PostEventForm, type PostEventAsContext } from "@/components/PostEventForm";
+import { PostEventAsPickerModal } from "@/components/PostEventAsPickerModal";
+import { getToken, apiGet } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { formatTime12h } from "@/lib/format-time";
 import {
   fetchEvents,
   getCachedEventsSync,
   type EventItem,
 } from "@/lib/events-api";
+import { EventInviteStatsBlocks } from "@/components/EventInviteStatsBlocks";
 
 const VALID_TYPES = new Set<string>(CALENDAR_TYPES.map((c) => c.value));
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -96,8 +100,18 @@ type CalendarViewMode = "month" | "week" | "day";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
+function profileDisplayNameFromMember(
+  member: { firstName?: string; lastName?: string } | null
+): string {
+  if (!member) return "Your profile";
+  const n = `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim();
+  return n || "Your profile";
+}
+
 export default function CalendarDetailScreen() {
   const router = useRouter();
+  const { member } = useAuth();
+  const calendarCacheAuthed = Boolean(member?.id);
   const { type } = useLocalSearchParams<{ type: string | string[] }>();
   const routeCal = useMemo(() => resolveRouteCalendarType(type), [type]);
   const invalidCalendarType = !routeCal.ok;
@@ -114,6 +128,11 @@ export default function CalendarDetailScreen() {
   const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
   const [selectedCity, setSelectedCity] = useState<string>("All cities");
   const [postEventModalVisible, setPostEventModalVisible] = useState(false);
+  const [postAsPickerVisible, setPostAsPickerVisible] = useState(false);
+  const [postAsPickerBusinesses, setPostAsPickerBusinesses] = useState<
+    { id: string; name: string; slug: string }[]
+  >([]);
+  const [postEventAs, setPostEventAs] = useState<PostEventAsContext | null>(null);
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
   const [postEventFormSeed, setPostEventFormSeed] = useState(0);
   const [postEventInitialDate, setPostEventInitialDate] = useState<Date | undefined>(undefined);
@@ -154,7 +173,7 @@ export default function CalendarDetailScreen() {
         setRefreshing(false);
       }
     },
-    [invalidCalendarType, calendarType, from, to, selectedCity]
+    [invalidCalendarType, calendarType, from, to, selectedCity, calendarCacheAuthed]
   );
 
   // Sync cache check before paint — instant load when revisiting
@@ -164,7 +183,8 @@ export default function CalendarDetailScreen() {
       calendarType,
       from,
       to,
-      selectedCity !== "All cities" ? selectedCity : undefined
+      selectedCity !== "All cities" ? selectedCity : undefined,
+      calendarCacheAuthed
     );
     if (cached) {
       setEvents(cached);
@@ -176,6 +196,7 @@ export default function CalendarDetailScreen() {
     from.toISOString(),
     to.toISOString(),
     selectedCity,
+    calendarCacheAuthed,
   ]);
 
   useEffect(() => {
@@ -190,7 +211,8 @@ export default function CalendarDetailScreen() {
           calendarType,
           from,
           to,
-          selectedCity !== "All cities" ? selectedCity : undefined
+          selectedCity !== "All cities" ? selectedCity : undefined,
+          calendarCacheAuthed
         ),
       });
       if (cancelled) return;
@@ -205,6 +227,7 @@ export default function CalendarDetailScreen() {
     to.toISOString(),
     selectedCity,
     loadEvents,
+    calendarCacheAuthed,
   ]);
 
   useEffect(() => {
@@ -322,19 +345,50 @@ export default function CalendarDetailScreen() {
     return viewMode === "week" ? "Events this week" : "Events this month";
   }, [selectedDateKey, viewMode]);
 
-  const openPostEventModal = useCallback((forDayKey: string | null) => {
-    if (forDayKey) {
-      setPostEventInitialDate(parseDateKeyToLocalDate(forDayKey));
-    } else {
-      setPostEventInitialDate(undefined);
-    }
-    setPostEventFormSeed((s) => s + 1);
-    setPostEventModalVisible(true);
-  }, []);
+  const openPostEventModal = useCallback(
+    async (forDayKey: string | null) => {
+      if (forDayKey) {
+        setPostEventInitialDate(parseDateKeyToLocalDate(forDayKey));
+      } else {
+        setPostEventInitialDate(undefined);
+      }
+      setPostEventFormSeed((s) => s + 1);
+      setPostEventAs(null);
+
+      const token = await getToken();
+      let businesses: { id: string; name: string; slug: string }[] = [];
+      if (token) {
+        try {
+          const data = await apiGet<{ id: string; name: string; slug: string }[]>(
+            "/api/businesses?mine=1"
+          );
+          businesses = Array.isArray(data) ? data : [];
+        } catch {
+          businesses = [];
+        }
+      }
+
+      if (businesses.length > 0) {
+        setPostAsPickerBusinesses(businesses);
+        setPostAsPickerVisible(true);
+      } else {
+        setPostEventModalVisible(true);
+      }
+    },
+    []
+  );
 
   const closePostEventModal = useCallback(() => {
     setPostEventModalVisible(false);
+    setPostEventAs(null);
   }, []);
+
+  const closePostAsPicker = useCallback(() => {
+    setPostAsPickerVisible(false);
+    setPostAsPickerBusinesses([]);
+  }, []);
+
+  const profileName = profileDisplayNameFromMember(member);
 
   const daySections = useMemo(() => {
     const first = startOfMonth(viewAnchor);
@@ -486,7 +540,10 @@ export default function CalendarDetailScreen() {
         </Pressable>
         <ScrollView
           horizontal
+          directionalLockEnabled
           showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          alwaysBounceVertical={false}
           style={styles.cityFilterScroll}
           contentContainerStyle={styles.cityFilterRow}
         >
@@ -569,6 +626,9 @@ export default function CalendarDetailScreen() {
                 <Text style={styles.eventDate}>{timeStr || "Time TBD"}</Text>
                 {ev.location ? <Text style={styles.eventMeta}>{ev.location}</Text> : null}
                 {ev.business ? <Text style={styles.eventBusiness}>{ev.business.name}</Text> : null}
+                {ev.inviteStats ? (
+                  <EventInviteStatsBlocks stats={ev.inviteStats} compact />
+                ) : null}
               </Pressable>
             );
           }}
@@ -805,12 +865,32 @@ export default function CalendarDetailScreen() {
                   {ev.business ? (
                     <Text style={styles.eventBusiness}>{ev.business.name}</Text>
                   ) : null}
+                  {ev.inviteStats ? (
+                    <EventInviteStatsBlocks stats={ev.inviteStats} compact />
+                  ) : null}
                 </Pressable>
               );
             })
           )}
         </ScrollView>
       )}
+
+      <PostEventAsPickerModal
+        visible={postAsPickerVisible}
+        onClose={closePostAsPicker}
+        profileDisplayName={profileName}
+        businesses={postAsPickerBusinesses}
+        onSelectPersonal={() => {
+          closePostAsPicker();
+          setPostEventAs({ businessId: null, displayName: profileName });
+          setPostEventModalVisible(true);
+        }}
+        onSelectBusiness={(b) => {
+          closePostAsPicker();
+          setPostEventAs({ businessId: b.id, displayName: b.name });
+          setPostEventModalVisible(true);
+        }}
+      />
 
       <PopupModal
         visible={postEventModalVisible}
@@ -822,6 +902,7 @@ export default function CalendarDetailScreen() {
           key={postEventFormSeed}
           initialCalendarType={calendarType as CalendarType}
           initialEventDate={postEventInitialDate}
+          postEventAs={postEventAs ?? undefined}
           onSuccess={closePostEventModal}
         />
       </PopupModal>
@@ -985,9 +1066,12 @@ const styles = StyleSheet.create({
   cityFilterScroll: {
     marginTop: 12,
     marginHorizontal: -16,
+    maxHeight: 44,
+    flexGrow: 0,
   },
   cityFilterRow: {
     flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
   },

@@ -8,6 +8,10 @@ import { awardNwcFeedbackBadge, type EarnedBadge } from "@/lib/badge-award";
 const bodySchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
   email: z.string().email("Valid email is required"),
+  /** Optional callback number; stored trimmed, max 40 chars. */
+  phone: z.string().max(40).optional(),
+  /** Optional on web modal; app Support & contact sends a subject line. */
+  subject: z.string().max(200).optional(),
   message: z.string().min(1, "Message is required").max(10000),
 });
 
@@ -28,11 +32,16 @@ export async function POST(req: NextRequest) {
     const session = await getSessionForApi(req);
     const memberId = session?.user?.id ?? null;
 
+    const subject = (data.subject ?? "").trim().slice(0, 200);
+    const phone = (data.phone ?? "").trim().slice(0, 40);
+
     await prisma.nwcRequest.create({
       data: {
         memberId,
         name: data.name.trim(),
         email: data.email.trim().toLowerCase(),
+        phone,
+        subject,
         message: data.message.trim(),
       },
     });

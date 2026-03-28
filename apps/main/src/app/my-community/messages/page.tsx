@@ -79,6 +79,8 @@ function sharedContentLink(msg: { sharedContentType?: string | null; sharedConte
       return `${base}/rewards`;
     case "post":
       return `${base}/my-community`;
+    case "event":
+      return `${base}/events/${msg.sharedContentSlug || msg.sharedContentId}`;
     default:
       return null;
   }

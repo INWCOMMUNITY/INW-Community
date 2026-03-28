@@ -292,23 +292,6 @@ export function FeedPostCard({
             </Link>
           </div>
         )}
-        {post.type === "shared_business" && post.sourceBusiness && (
-          <div className="border rounded p-4 bg-gray-50 mb-3">
-            <Link href={`/support-local/${post.sourceBusiness.slug}`} className="block hover:opacity-90">
-              <div className="flex gap-3">
-                {post.sourceBusiness.logoUrl && (
-                  <Image src={post.sourceBusiness.logoUrl} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded" quality={95} />
-                )}
-                <div>
-                  <h3 className="font-bold">{post.sourceBusiness.name}</h3>
-                  {post.sourceBusiness.shortDescription && (
-                    <p className="text-gray-700 text-sm mt-1 line-clamp-2">{post.sourceBusiness.shortDescription}</p>
-                  )}
-                </div>
-              </div>
-            </Link>
-          </div>
-        )}
         {post.type === "shared_coupon" && post.sourceCoupon && (
           <div className="border rounded p-4 bg-gray-50 mb-3">
             <Link href={`/coupons`} className="block hover:opacity-90">
@@ -349,28 +332,56 @@ export function FeedPostCard({
             >
               View original post
             </Link>
-            <div className="flex items-center gap-2 mb-2">
-              {post.sourcePost.author.profilePhotoUrl ? (
-                <Image
-                  src={post.sourcePost.author.profilePhotoUrl}
-                  alt=""
-                  width={32}
-                  height={32}
-                  className="w-8 h-8 rounded-full object-cover"
-                  quality={95}
-                />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium text-gray-600">
-                  {post.sourcePost.author.firstName?.[0]}{post.sourcePost.author.lastName?.[0]}
-                </div>
-              )}
-              <Link href={`/members/${post.sourcePost.author.id}`} className="font-semibold text-gray-900 hover:underline">
-                {post.sourcePost.author.firstName} {post.sourcePost.author.lastName}
-              </Link>
-              <span className="text-gray-500 text-sm">
-                {new Date(post.sourcePost.createdAt).toLocaleDateString()}
-              </span>
-            </div>
+            {post.sourcePost.type === "shared_business" && post.sourcePost.sourceBusiness ? (
+              <div className="flex items-center gap-2 mb-2">
+                {post.sourcePost.sourceBusiness.logoUrl ? (
+                  <Image
+                    src={post.sourcePost.sourceBusiness.logoUrl}
+                    alt=""
+                    width={32}
+                    height={32}
+                    className="w-8 h-8 rounded-full object-cover shrink-0"
+                    quality={95}
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium text-gray-600 shrink-0">
+                    {post.sourcePost.sourceBusiness.name?.[0] ?? "?"}
+                  </div>
+                )}
+                <Link
+                  href={`/support-local/${post.sourcePost.sourceBusiness.slug}`}
+                  className="font-semibold text-gray-900 hover:underline min-w-0 truncate"
+                >
+                  {post.sourcePost.sourceBusiness.name}
+                </Link>
+                <span className="text-gray-500 text-sm shrink-0">
+                  {new Date(post.sourcePost.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mb-2">
+                {post.sourcePost.author.profilePhotoUrl ? (
+                  <Image
+                    src={post.sourcePost.author.profilePhotoUrl}
+                    alt=""
+                    width={32}
+                    height={32}
+                    className="w-8 h-8 rounded-full object-cover"
+                    quality={95}
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium text-gray-600">
+                    {post.sourcePost.author.firstName?.[0]}{post.sourcePost.author.lastName?.[0]}
+                  </div>
+                )}
+                <Link href={`/members/${post.sourcePost.author.id}`} className="font-semibold text-gray-900 hover:underline">
+                  {post.sourcePost.author.firstName} {post.sourcePost.author.lastName}
+                </Link>
+                <span className="text-gray-500 text-sm">
+                  {new Date(post.sourcePost.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+            )}
             {post.sourcePost.type === "shared_blog" && post.sourcePost.sourceBlog && (
               <div className="border rounded p-3 bg-white mb-2">
                 <Link href={`/blog/${post.sourcePost.sourceBlog.slug}`} className="block hover:opacity-90">
@@ -384,23 +395,6 @@ export function FeedPostCard({
                       <Image src={post.sourcePost.sourceBlog.photos[0]} alt="" fill className="object-cover rounded" sizes="(max-width: 768px) 100vw, 768px" quality={95} />
                     </div>
                   )}
-                </Link>
-              </div>
-            )}
-            {post.sourcePost.type === "shared_business" && post.sourcePost.sourceBusiness && (
-              <div className="border rounded p-3 bg-white mb-2">
-                <Link href={`/support-local/${post.sourcePost.sourceBusiness.slug}`} className="block hover:opacity-90">
-                  <div className="flex gap-2">
-                    {post.sourcePost.sourceBusiness.logoUrl && (
-                      <Image src={post.sourcePost.sourceBusiness.logoUrl} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded" quality={95} />
-                    )}
-                    <div>
-                      <h3 className="font-bold text-sm">{post.sourcePost.sourceBusiness.name}</h3>
-                      {post.sourcePost.sourceBusiness.shortDescription && (
-                        <p className="text-gray-600 text-xs line-clamp-1">{post.sourcePost.sourceBusiness.shortDescription}</p>
-                      )}
-                    </div>
-                  </div>
                 </Link>
               </div>
             )}

@@ -15,6 +15,7 @@ import {
   Dimensions,
   Alert,
   Linking,
+  useWindowDimensions,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,6 +25,7 @@ import type { FeedPost } from "@/lib/feed-api";
 import { apiPost, apiDelete, apiUploadFile, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { GifPickerModal } from "@/components/GifPickerModal";
+import { ScaledImageFit } from "@/components/ScaledImageFit";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -51,6 +53,16 @@ function stripHtml(html: string): string {
 }
 
 function PostPreview({ post }: { post: FeedPost }) {
+  const { width: windowW } = useWindowDimensions();
+  /** Measured row width inside the preview card (avoid using screen width — clips in modal). */
+  const [previewImgRowW, setPreviewImgRowW] = useState(0);
+  /** Max preview size; image scales down uniformly to fit inside (full photo visible) */
+  const previewImageMaxH = Math.min(Math.round(windowW * 0.55), 300);
+
+  useEffect(() => {
+    setPreviewImgRowW(0);
+  }, [post.id]);
+
   const authorName = `${post.author.firstName ?? ""} ${post.author.lastName ?? ""}`.trim() || "Someone";
   const initials = [post.author.firstName?.[0], post.author.lastName?.[0]]
     .filter(Boolean)
@@ -77,29 +89,44 @@ function PostPreview({ post }: { post: FeedPost }) {
 
   return (
     <View style={styles.postPreview}>
-      {post.author.profilePhotoUrl ? (
-        <Image
-          source={{ uri: resolveUri(post.author.profilePhotoUrl) }}
-          style={styles.previewAvatar}
-        />
-      ) : (
-        <View style={styles.previewAvatarPlaceholder}>
-          <Text style={styles.previewAvatarInitials}>{initials}</Text>
+      <View style={styles.postPreviewHeader}>
+        {post.author.profilePhotoUrl ? (
+          <Image
+            source={{ uri: resolveUri(post.author.profilePhotoUrl) }}
+            style={styles.previewAvatar}
+          />
+        ) : (
+          <View style={styles.previewAvatarPlaceholder}>
+            <Text style={styles.previewAvatarInitials}>{initials}</Text>
+          </View>
+        )}
+        <View style={styles.previewContent}>
+          <Text style={styles.previewAuthor}>{authorName}</Text>
+          <Text style={styles.previewText} numberOfLines={2}>
+            {stripHtml(previewText).slice(0, 100)}
+            {previewText.length > 100 ? "…" : ""}
+          </Text>
         </View>
-      )}
-      <View style={styles.previewContent}>
-        <Text style={styles.previewAuthor}>{authorName}</Text>
-        <Text style={styles.previewText} numberOfLines={2}>
-          {stripHtml(previewText).slice(0, 100)}
-          {previewText.length > 100 ? "…" : ""}
-        </Text>
       </View>
       {previewImg ? (
-        <Image
-          source={{ uri: resolveUri(previewImg) }}
-          style={styles.previewThumb}
-          resizeMode="cover"
-        />
+        <View
+          style={styles.postPreviewImageRow}
+          onLayout={(e) => {
+            const w = Math.round(e.nativeEvent.layout.width);
+            if (w > 0 && w !== previewImgRowW) setPreviewImgRowW(w);
+          }}
+        >
+          {previewImgRowW > 0 ? (
+            <ScaledImageFit
+              uri={resolveUri(previewImg)}
+              maxWidth={previewImgRowW}
+              maxHeight={previewImageMaxH}
+              style={styles.postPreviewImageFit}
+            />
+          ) : (
+            <View style={{ height: previewImageMaxH, backgroundColor: "#eee" }} />
+          )}
+        </View>
       ) : null}
     </View>
   );
@@ -681,8 +708,6 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 8 },
   postPreview: {
-    flexDirection: "row",
-    alignItems: "center",
     padding: 12,
     marginHorizontal: 16,
     marginTop: 8,
@@ -691,7 +716,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderLeftWidth: 4,
     borderLeftColor: theme.colors.primary,
+  },
+  postPreviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
+  },
+  postPreviewImageRow: {
+    width: "100%",
+    marginTop: 10,
+  },
+  postPreviewImageFit: {
+    alignSelf: "center",
+    borderRadius: 8,
+    overflow: "hidden",
   },
   previewAvatar: {
     width: 40,
@@ -721,12 +759,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#666",
     marginTop: 2,
-  },
-  previewThumb: {
-    width: 44,
-    height: 44,
-    borderRadius: 6,
-    backgroundColor: "#e0e0e0",
   },
   commentsSection: { paddingHorizontal: 16, paddingTop: 4 },
   commentsLabel: {

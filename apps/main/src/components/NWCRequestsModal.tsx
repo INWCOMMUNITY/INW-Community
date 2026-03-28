@@ -14,6 +14,7 @@ export function NWCRequestsModal({ open, onClose }: NWCRequestsModalProps) {
   const { data: session } = useSession();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +34,7 @@ export function NWCRequestsModal({ open, onClose }: NWCRequestsModalProps) {
     setError(null);
     const submitName = name.trim();
     const submitEmail = email.trim();
+    const submitPhone = phone.trim();
     const submitMessage = message.trim();
     if (!submitName || !submitEmail || !submitMessage) {
       setError("Please fill in name, email, and message.");
@@ -46,6 +48,7 @@ export function NWCRequestsModal({ open, onClose }: NWCRequestsModalProps) {
         body: JSON.stringify({
           name: submitName,
           email: submitEmail,
+          ...(submitPhone ? { phone: submitPhone } : {}),
           message: submitMessage,
         }),
       });
@@ -130,7 +133,7 @@ export function NWCRequestsModal({ open, onClose }: NWCRequestsModalProps) {
             Send a request or message to the Northwest Community team.
           </p>
           <div className="mb-4 rounded-lg border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/5 px-3 py-2 text-sm text-gray-700">
-            Your email is included with your request so the NWC team can reach out to you if needed.
+            Your email is included with your request so the NWC team can reach out to you if needed. Phone is optional.
           </div>
           {sent ? (
             <p className="text-center py-6 text-green-700 font-medium">Thank you! Your message has been sent.</p>
@@ -153,6 +156,17 @@ export function NWCRequestsModal({ open, onClose }: NWCRequestsModalProps) {
                 className="w-full border border-gray-300 rounded px-3 py-2 mb-3 focus:ring focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
                 placeholder="your@email.com"
                 required
+              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Phone <span className="font-normal text-gray-500">(optional)</span>
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 mb-3 focus:ring focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+                placeholder="e.g. (555) 123-4567"
+                autoComplete="tel"
               />
               <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
               <textarea
