@@ -146,34 +146,37 @@ export default function MyCommunityMessagesPage() {
   const [gifInsertTarget, setGifInsertTarget] = useState<"reply" | "newDm">("reply");
 
   const refreshOpenDirect = useCallback(() => {
-    if (!directId) return;
-    fetch(`/api/direct-conversations/${directId}?_=${Date.now()}`, fetchOpts)
+    const id = directId ?? openDirect?.id;
+    if (!id) return;
+    fetch(`/api/direct-conversations/${id}?_=${Date.now()}`, fetchOpts)
       .then((r) => r.json())
       .then((data) => {
         if (data?.id) setOpenDirect(data);
       })
       .catch(() => {});
-  }, [directId]);
+  }, [directId, openDirect?.id]);
 
   const refreshOpenGroup = useCallback(() => {
-    if (!groupId) return;
-    fetch(`/api/group-conversations/${groupId}?_=${Date.now()}`, fetchOpts)
+    const id = groupId ?? openGroup?.id;
+    if (!id) return;
+    fetch(`/api/group-conversations/${id}?_=${Date.now()}`, fetchOpts)
       .then((r) => r.json())
       .then((data) => {
         if (data?.id) setOpenGroup(data);
       })
       .catch(() => {});
-  }, [groupId]);
+  }, [groupId, openGroup?.id]);
 
   const refreshOpenResale = useCallback(() => {
-    if (!resaleId) return;
-    fetch(`/api/resale-conversations/${resaleId}?_=${Date.now()}`, fetchOpts)
+    const id = resaleId ?? openResale?.id;
+    if (!id) return;
+    fetch(`/api/resale-conversations/${id}?_=${Date.now()}`, fetchOpts)
       .then((r) => r.json())
       .then((data) => {
         if (data?.id) setOpenResale(data);
       })
       .catch(() => {});
-  }, [resaleId]);
+  }, [resaleId, openResale?.id]);
 
   const applyLiveDirect = useCallback((p: LiveSocketMessagePayload) => {
     setOpenDirect((prev) => {
@@ -323,11 +326,16 @@ export default function MyCommunityMessagesPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  /** URL query can lag behind open state (e.g. history.replaceState); Socket.IO must join the open thread id. */
+  const realtimeDirectId = directId ?? openDirect?.id ?? null;
+  const realtimeGroupId = groupId ?? openGroup?.id ?? null;
+  const realtimeResaleId = resaleId ?? openResale?.id ?? null;
+
   const { typingPeerIds, peerPresenceIds, onComposerTyping, stopComposerTyping } = useMessagesPageRealtime({
     tab,
-    directId,
-    groupId,
-    resaleId,
+    directId: realtimeDirectId,
+    groupId: realtimeGroupId,
+    resaleId: realtimeResaleId,
     sessionUserId: sessionStatus === "authenticated" ? session?.user?.id : undefined,
     refreshDirect: refreshOpenDirect,
     refreshGroup: refreshOpenGroup,
@@ -818,9 +826,7 @@ export default function MyCommunityMessagesPage() {
           return [data, ...prev];
         });
         setOpenDirect(data);
-        if (typeof window !== "undefined") {
-          window.history.replaceState(null, "", `/my-community/messages?direct=${data.id}`);
-        }
+        router.replace(`/my-community/messages?direct=${encodeURIComponent(data.id)}`, { scroll: false });
       } else {
         alert(data.error ?? "Failed to send");
       }
