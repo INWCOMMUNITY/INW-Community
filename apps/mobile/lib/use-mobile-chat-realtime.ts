@@ -139,7 +139,13 @@ export function useMobileChatRealtime(
         if (!cid || !socket?.connected) return;
         setPeerPresenceIds([]);
         socket.emit(cfg.join, cid, (err?: string) => {
-          if (err) console.warn(`[${kind} realtime] join:`, err);
+          if (err) {
+            console.warn(`[${kind} realtime] join failed:`, err);
+            return;
+          }
+          if (typeof __DEV__ !== "undefined" && __DEV__) {
+            console.log(`[${kind} realtime] joined conversation (typing & presence active)`);
+          }
         });
       };
       emitJoinHandler = emitJoin;

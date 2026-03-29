@@ -6,6 +6,11 @@ import { Server, type Socket } from "socket.io";
 
 type ChatSpace = "direct" | "group" | "resale";
 
+function logJoinError(space: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`[realtime] join ${space} error:`, msg);
+}
+
 /** Tell others someone opened the thread; send joiner a snapshot of peers already viewing. */
 async function afterJoinPresence(
   io: Server,
@@ -180,7 +185,8 @@ io.on("connection", (socket) => {
       await socket.join(`direct:${conversationId}`);
       await afterJoinPresence(io, socket, "direct", conversationId, memberId);
       ack?.();
-    } catch {
+    } catch (e) {
+      logJoinError("direct", e);
       ack?.("server error");
     }
   });
@@ -224,7 +230,8 @@ io.on("connection", (socket) => {
       await socket.join(`group:${conversationId}`);
       await afterJoinPresence(io, socket, "group", conversationId, memberId);
       ack?.();
-    } catch {
+    } catch (e) {
+      logJoinError("group", e);
       ack?.("server error");
     }
   });
@@ -255,7 +262,8 @@ io.on("connection", (socket) => {
       await socket.join(`resale:${conversationId}`);
       await afterJoinPresence(io, socket, "resale", conversationId, memberId);
       ack?.();
-    } catch {
+    } catch (e) {
+      logJoinError("resale", e);
       ack?.("server error");
     }
   });
@@ -346,6 +354,13 @@ app.post("/internal/publish", (req, res) => {
 const PORT = Number(process.env.PORT ?? process.env.REALTIME_PORT ?? 3007);
 
 async function bootstrap(): Promise<void> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    console.log("[realtime] database ok");
+  } catch (e) {
+    console.error("[realtime] database check failed:", e instanceof Error ? e.message : e);
+  }
+
   const redisUrl = process.env.REDIS_URL?.trim();
   if (redisUrl) {
     try {

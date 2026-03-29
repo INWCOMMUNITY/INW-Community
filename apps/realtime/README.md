@@ -57,6 +57,17 @@ pnpm dev:realtime
 
 Main app `.env`: `REALTIME_PUBLISH_URL=http://127.0.0.1:3007` and `REALTIME_PUBLISH_SECRET=...`.
 
+### Mobile: `connected` then `join failed: server error`
+
+The socket authenticated, but **`join_direct` / `join_group` / `join_resale`** threw (client only sees `server error`). Almost always:
+
+1. **`DATABASE_URL` is missing or wrong on the realtime service** (Railway, Fly, etc.). Set it to the **same** Postgres URL the main app uses, then **redeploy** realtime.
+2. Check **Railway / host logs** for `[realtime] join direct error: …` (after deploy with logging) — e.g. `Can't reach database server`, `P1001`, or schema/table errors.
+
+Without a working DB, the server cannot verify membership, so **typing and presence never attach to a room**.
+
+The shared `database` package uses **TCP Prisma only** (no Neon WebSocket driver). If you still see DB connection errors, check `DATABASE_URL` (Neon **pooler** URL) and redeploy.
+
 ### Mobile / web: `connect_error invalid token`
 
 JWTs for Socket.IO are verified with `NEXTAUTH_SECRET`. That value must match the secret used by the Next.js app that issued the mobile Bearer token. In local dev, `pnpm dev:realtime` loads `NEXTAUTH_SECRET` from the monorepo root `.env` and, when present, from `apps/main/.env` and `apps/main/.env.local` (same order as Next). If you still see this error, confirm there is only one secret in play (no stale shell `export`) and restart both `dev:main` and `dev:realtime`.

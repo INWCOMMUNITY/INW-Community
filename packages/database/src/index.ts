@@ -1,15 +1,14 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaNeon } from "@prisma/adapter-neon";
-import { Pool } from "@neondatabase/serverless";
 
 declare global {
   var prisma: PrismaClient | undefined;
 }
 
-const isNeon =
-  typeof process.env.DATABASE_URL === "string" &&
-  process.env.DATABASE_URL.includes("neon.tech");
-
+/**
+ * Single Prisma client: **TCP** to Postgres (Neon pooled `DATABASE_URL`, Railway, Vercel Node, local).
+ * We do not use `@prisma/adapter-neon` / `@neondatabase/serverless` here — that stack uses WebSockets
+ * and breaks in many Node hosts (`WebSocket … undefined`, `fetch failed`).
+ */
 const isDev = process.env.NODE_ENV === "development";
 
 const logOpt: ("query" | "error" | "warn")[] = isDev
@@ -32,14 +31,7 @@ const prismaClient = (() => {
         log: baseLog,
       };
 
-  let client: PrismaClient;
-  if (isNeon && process.env.DATABASE_URL) {
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    const adapter = new PrismaNeon(pool);
-    client = new PrismaClient({ adapter, ...options } as any);
-  } else {
-    client = new PrismaClient(options as any);
-  }
+  const client = new PrismaClient(options as any);
 
   const firstLog = baseLog[0];
   if (!isDev && Array.isArray(baseLog) && typeof firstLog === "object" && firstLog !== null && "emit" in firstLog && firstLog.emit === "event") {
@@ -60,6 +52,6 @@ const prismaClient = (() => {
 })();
 
 export const prisma = prismaClient;
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+if (process.env.NODE_ENV !== "production") globalThis.prisma = prismaClient;
 
 export * from "@prisma/client";

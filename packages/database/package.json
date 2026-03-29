@@ -23,12 +23,11 @@
     "import-businesses": "node scripts/import-businesses-admin.js scripts/import-businesses.json"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^0.9.0",
-    "@prisma/adapter-neon": "5",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "@types/bcryptjs": "^2.4.6",
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
