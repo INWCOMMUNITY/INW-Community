@@ -26,7 +26,9 @@ import {
   newOptimisticMessageId,
 } from "@/lib/chat-live-types";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
+import { setOpenChatConversationId } from "@/lib/chat-notification-suppression";
 import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
+import { useChatScrollToLatest } from "@/lib/use-chat-scroll-to-latest";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
 
@@ -66,6 +68,11 @@ export default function ResaleConversationScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [listRefreshing, setListRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+
+  useChatScrollToLatest(flatListRef, {
+    conversationId: convId,
+    ready: Boolean(conv && !loading),
+  });
 
   const load = useCallback(async () => {
     if (!convId) return;
@@ -199,8 +206,10 @@ export default function ResaleConversationScreen() {
   useFocusEffect(
     useCallback(() => {
       if (convId) {
+        setOpenChatConversationId(convId);
         apiPatch(`/api/resale-conversations/${convId}/read`).catch(() => {});
       }
+      return () => setOpenChatConversationId(null);
     }, [convId])
   );
 

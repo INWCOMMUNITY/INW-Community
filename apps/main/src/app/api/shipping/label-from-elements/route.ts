@@ -67,9 +67,25 @@ export async function POST(req: NextRequest) {
     heightIn = DEFAULT_HEIGHT_IN,
   } = body;
 
-  const ids = orderIds && orderIds.length > 0 ? orderIds : orderId ? [orderId] : [];
+  let ids = orderIds && orderIds.length > 0 ? orderIds : orderId ? [orderId] : [];
   if (ids.length === 0 || !carrier?.trim() || !service?.trim() || rateCents < 0) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+
+  // Combined shipment: only the primary order has a Shipment row; save must target that id.
+  if (ids.length === 1) {
+    const soleId = ids[0];
+    const row = await prisma.storeOrder.findFirst({
+      where: { id: soleId, sellerId: userId },
+      select: { shippedWithOrderId: true, shipment: { select: { id: true } } },
+    });
+    if (row && !row.shipment && row.shippedWithOrderId) {
+      const primaryOk = await prisma.storeOrder.findFirst({
+        where: { id: row.shippedWithOrderId, sellerId: userId },
+        select: { id: true },
+      });
+      if (primaryOk) ids = [row.shippedWithOrderId];
+    }
   }
 
   const primaryId = ids[0];

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
+import { isCouponActiveByExpiresAt } from "@/lib/coupon-expiration";
 import { z } from "zod";
 
 /** GET coupon by id. Returns full coupon + business; code only when user has subscriber access. */
@@ -31,13 +32,17 @@ export async function GET(
 
   const session = await getSessionForApi(req);
   const userId = session?.user?.id ?? null;
+  const isOwner = userId ? coupon.business?.memberId === userId : false;
+  if (!isOwner && !isCouponActiveByExpiresAt(coupon.expiresAt)) {
+    return NextResponse.json({ error: "Coupon not found" }, { status: 404 });
+  }
+
   const hasPaidPlan = userId
     ? !!(await prisma.subscription.findFirst({
         where: prismaWhereActivePaidNwcPlan(userId),
       }))
     : false;
 
-  const isOwner = userId ? coupon.business?.memberId === userId : false;
   /** Any paid NWC plan + business owners viewing their own listing */
   const hasAccess = hasPaidPlan || isOwner;
 
@@ -67,6 +72,7 @@ export async function GET(
     hasSecretKey: !!coupon.secretKey,
     secretKey: isOwner ? coupon.secretKey : undefined,
     maxMonthlyUses: coupon.maxMonthlyUses,
+    expiresAt: coupon.expiresAt?.toISOString() ?? null,
     usedThisMonth,
     usedToday,
     business: coupon.business
@@ -84,6 +90,7 @@ const patchSchema = z.object({
   imageUrl: z.string().url().nullable().optional().or(z.literal("")),
   secretKey: z.string().nullable().optional(),
   maxMonthlyUses: z.number().int().min(1).optional(),
+  expiresAt: z.union([z.string().min(1), z.null()]).optional(),
 });
 
 export async function PATCH(
@@ -114,6 +121,17 @@ export async function PATCH(
     if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl || null;
     if (data.secretKey !== undefined) updateData.secretKey = data.secretKey || null;
     if (data.maxMonthlyUses !== undefined) updateData.maxMonthlyUses = data.maxMonthlyUses;
+    if (data.expiresAt !== undefined) {
+      if (data.expiresAt === null) {
+        updateData.expiresAt = null;
+      } else {
+        const d = new Date(data.expiresAt);
+        if (Number.isNaN(d.getTime())) {
+          return NextResponse.json({ error: "Invalid expiresAt date" }, { status: 400 });
+        }
+        updateData.expiresAt = d;
+      }
+    }
 
     await prisma.coupon.update({ where: { id }, data: updateData });
     return NextResponse.json({ ok: true });

@@ -265,16 +265,18 @@ model Business {
 }
 
 model Coupon {
-  id             String   @id @default(cuid())
-  businessId     String   @map("business_id")
+  id             String    @id @default(cuid())
+  businessId     String    @map("business_id")
   name           String
   discount       String
   code           String
-  imageUrl       String?  @map("image_url")
-  secretKey      String?  @map("secret_key")
-  maxMonthlyUses Int      @default(1) @map("max_monthly_uses")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  imageUrl       String?   @map("image_url")
+  secretKey      String?   @map("secret_key")
+  maxMonthlyUses Int       @default(1) @map("max_monthly_uses")
+  /// When set, coupon is hidden from the public coupon book and detail after this instant (owners still manage it).
+  expiresAt      DateTime? @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   redemptions CouponRedeem[]
@@ -1051,10 +1053,11 @@ model GroupConversation {
 }
 
 model GroupConversationMember {
-  id             String   @id @default(cuid())
-  conversationId String   @map("conversation_id")
-  memberId       String   @map("member_id")
-  joinedAt       DateTime @default(now()) @map("joined_at")
+  id             String    @id @default(cuid())
+  conversationId String    @map("conversation_id")
+  memberId       String    @map("member_id")
+  joinedAt       DateTime  @default(now()) @map("joined_at")
+  lastReadAt     DateTime? @map("last_read_at")
 
   conversation GroupConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   member       Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)

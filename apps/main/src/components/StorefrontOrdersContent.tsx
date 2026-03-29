@@ -14,6 +14,7 @@ import {
   type ElementsTransactionPayload,
 } from "@/lib/shippo-elements";
 import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
+import { notifyNwAppShippoLabelSuccess } from "@/lib/nw-app-webview-bridge";
 import {
   NWC_SHIPPO_ELEMENTS_THEME,
   type ShippoElementsTheme,
@@ -361,6 +362,7 @@ export function StorefrontOrdersContent(props: {
                   };
                 })
               );
+              notifyNwAppShippoLabelSuccess({ orderIds: labeledOrderIds });
             } else {
               setElementsError(
                 typeof (data as { error?: string }).error === "string"

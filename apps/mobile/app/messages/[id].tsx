@@ -34,6 +34,8 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
 import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
+import { setOpenChatConversationId } from "@/lib/chat-notification-suppression";
+import { useChatScrollToLatest } from "@/lib/use-chat-scroll-to-latest";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
 
@@ -161,6 +163,11 @@ export default function DirectConversationScreen() {
   const [listRefreshing, setListRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const lastTapRef = useRef<{ messageId: string; time: number } | null>(null);
+
+  useChatScrollToLatest(flatListRef, {
+    conversationId: convId,
+    ready: Boolean(conv && !loading),
+  });
 
   const load = useCallback(async () => {
     if (!convId) return;
@@ -293,8 +300,10 @@ export default function DirectConversationScreen() {
   useFocusEffect(
     useCallback(() => {
       if (convId) {
+        setOpenChatConversationId(convId);
         apiPatch(`/api/direct-conversations/${convId}/read`).catch(() => {});
       }
+      return () => setOpenChatConversationId(null);
     }, [convId])
   );
 

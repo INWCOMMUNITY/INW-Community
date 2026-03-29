@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { content: true, createdAt: true, senderId: true },
+          select: { id: true, content: true, createdAt: true, senderId: true },
         },
       },
       orderBy: { updatedAt: "desc" },
@@ -33,5 +33,19 @@ export async function GET(req: NextRequest) {
     return !blockedIds.has(otherId);
   });
 
-  return NextResponse.json(filtered);
+  const withUnread = await Promise.all(
+    filtered.map(async (c) => {
+      const lastRead = c.buyerId === session.user.id ? c.buyerLastReadAt : c.sellerLastReadAt;
+      const unreadCount = await prisma.resaleMessage.count({
+        where: {
+          conversationId: c.id,
+          senderId: { not: session.user.id },
+          ...(lastRead ? { createdAt: { gt: lastRead } } : {}),
+        },
+      });
+      return { ...c, unreadCount };
+    })
+  );
+
+  return NextResponse.json(withUnread);
 }

@@ -1,66 +1,20 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { flushSync } from "react-dom";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { useParams } from "next/navigation";
 import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
-import {
-  buildOrderDetailsFromOrder,
-  transactionToLabelFromElementsPayload,
-  type ElementsTransactionPayload,
-} from "@/lib/shippo-elements";
-import {
-  NWC_SHIPPO_ELEMENTS_THEME,
-  type ShippoElementsTheme,
-} from "@/lib/shippo-elements-theme";
 import { ShippoElementsModal } from "@/components/ShippoElementsModal";
 import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
+import {
+  useShippoLabelFlowForOrder,
+  SHIPPO_EMBEDDABLE_URL,
+  type StoreOrderForShippo,
+} from "@/hooks/use-shippo-label-flow-for-order";
 
-const SHIPPO_ORG = "inw-community";
 const SHIPPO_CONTAINER_ID = "shippo-elements-container-order";
-const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
-
-type ShippoWidget = {
-  init: (o: { token: string; org: string; theme?: ShippoElementsTheme }) => void;
-  labelPurchase: (s: string, d: unknown) => void;
-  on: (ev: string, cb: (arg: unknown) => void) => void;
-};
-
-function isShippoReady(shippo: ShippoWidget | undefined): shippo is ShippoWidget {
-  return (
-    shippo != null &&
-    typeof shippo.init === "function" &&
-    typeof shippo.labelPurchase === "function"
-  );
-}
-
-function waitForShippo(): Promise<ShippoWidget | null> {
-  return new Promise((resolve) => {
-    const win = typeof window !== "undefined" ? (window as { shippo?: ShippoWidget }) : null;
-    if (win?.shippo != null && isShippoReady(win.shippo)) {
-      resolve(win.shippo);
-      return;
-    }
-    let attempts = 0;
-    const maxAttempts = 120; // 12s at 100ms
-    const interval = setInterval(() => {
-      const w = typeof window !== "undefined" ? (window as { shippo?: ShippoWidget }) : null;
-      if (w?.shippo != null && isShippoReady(w.shippo)) {
-        clearInterval(interval);
-        resolve(w.shippo);
-        return;
-      }
-      attempts++;
-      if (attempts >= maxAttempts) {
-        clearInterval(interval);
-        resolve(null);
-      }
-    }, 100);
-  });
-}
 
 interface OrderItem {
   id: string;
@@ -79,15 +33,11 @@ interface Shipment {
   createdAt?: string;
 }
 
-interface StoreOrder {
-  id: string;
-  orderNumber?: string;
+interface StoreOrder extends StoreOrderForShippo {
   orderKind?: string;
   totalCents: number;
   shippingCostCents: number;
-  status: string;
   stripePaymentIntentId?: string | null;
-  shippingAddress: unknown;
   createdAt: string;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
@@ -114,14 +64,6 @@ export default function SellerOrderDetailPage() {
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [elementsLoading, setElementsLoading] = useState(false);
-  const [elementsError, setElementsError] = useState<string | null>(null);
-  const [shippoModalOpen, setShippoModalOpen] = useState(false);
-  const elementsListenersRef = useRef(false);
-  const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
-  /** Set on each label flow open so LABEL_PURCHASED_SUCCESS (registered once) always saves the right order. */
-  const labelFlowOrderIdRef = useRef<string>("");
-  const autoNwAppShippoTriggeredRef = useRef(false);
 
   const refetchOrder = useCallback(() => {
     if (!id) return;
@@ -133,6 +75,20 @@ export default function SellerOrderDetailPage() {
       })
       .then((data) => data && setOrder(data));
   }, [id]);
+
+  const {
+    elementsLoading,
+    elementsError,
+    shippoModalOpen,
+    openElementsFlow,
+    closeShippoModal,
+  } = useShippoLabelFlowForOrder({
+    orderId: id,
+    containerId: SHIPPO_CONTAINER_ID,
+    order,
+    orderLoading: loading,
+    onLabelSaved: refetchOrder,
+  });
 
   useEffect(() => {
     if (!id) {
@@ -156,158 +112,6 @@ export default function SellerOrderDetailPage() {
       })
       .finally(() => setLoading(false));
   }, [id]);
-
-  async function openElementsFlow(options: { forReprint?: boolean } = {}) {
-    if (!order || !id) return;
-    labelFlowOrderIdRef.current = id;
-    const objectId = options.forReprint ? order.shipment?.shippoOrderId : undefined;
-    const orderDetails = buildOrderDetailsFromOrder(order, objectId, {
-      freshShippoOrder: Boolean(order.shipment) && !options.forReprint,
-    });
-    if (!orderDetails) {
-      setElementsError("Order has no valid shipping address.");
-      return;
-    }
-    setElementsError(null);
-    setElementsLoading(true);
-    shippoOrderIdFromCreatedRef.current = null;
-    try {
-      const tokenRes = await fetch("/api/shipping/elements-token");
-      const tokenData = await tokenRes.json().catch(() => ({}));
-      if (!tokenRes.ok) {
-        const code = (tokenData as { code?: string }).code;
-        if (code === "SHIPPING_ACCOUNT_REQUIRED") {
-          setElementsError("Connect your shipping account in shipping setup first.");
-          return;
-        }
-        setElementsError((tokenData as { error?: string }).error ?? "Could not load Shippo widget.");
-        return;
-      }
-      const token = (tokenData as { token?: string }).token;
-      if (!token) {
-        setElementsError("Could not get widget token.");
-        return;
-      }
-      let shippo =
-        typeof window !== "undefined"
-          ? (window as { shippo?: ShippoWidget }).shippo
-          : null;
-      if (!shippo?.init || !shippo?.labelPurchase) {
-        shippo = await waitForShippo();
-        if (!shippo?.init || !shippo?.labelPurchase) {
-          setElementsError(
-            "Shippo could not load (the script may be blocked). Try a hard refresh, pause ad blockers for this site, or try another browser. If it persists, contact support."
-          );
-          return;
-        }
-      }
-      shippo.init({ token, org: SHIPPO_ORG, theme: NWC_SHIPPO_ELEMENTS_THEME });
-      if (!elementsListenersRef.current) {
-        elementsListenersRef.current = true;
-        shippo.on("ORDER_CREATED", (params: unknown) => {
-          const p = params as { order_id?: string };
-          if (p?.order_id) shippoOrderIdFromCreatedRef.current = p.order_id;
-        });
-        shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
-          const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
-          const saveOrderId = labelFlowOrderIdRef.current;
-          if (txs.length === 0 || !saveOrderId) return;
-          const firstTx = txs[0];
-          const payload = transactionToLabelFromElementsPayload(firstTx, {
-            weightOz: 16,
-            lengthIn: 12,
-            widthIn: 12,
-            heightIn: 12,
-          });
-          // Never fall back to shipment.shippoOrderId: for "purchase another label" that is the *previous* Shippo order.
-          const shippoOrderId =
-            firstTx.order_id?.trim() || shippoOrderIdFromCreatedRef.current?.trim() || null;
-          try {
-            const res = await fetch("/api/shipping/label-from-elements", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                orderId: saveOrderId,
-                ...payload,
-                ...(shippoOrderId ? { shippoOrderId } : {}),
-              }),
-            });
-            const saveData = await res.json().catch(() => ({}));
-            if (res.ok) {
-              refetchOrder();
-            } else {
-              setElementsError(
-                typeof (saveData as { error?: string }).error === "string"
-                  ? (saveData as { error: string }).error
-                  : "Could not save label to your order. If you were charged, contact support with your order number."
-              );
-            }
-          } catch {
-            setElementsError("Could not save label to your order.");
-          }
-        });
-        shippo.on("ERROR", (err: unknown) => {
-          const msg =
-            err && typeof err === "object" && "detail" in err ? String((err as { detail: string }).detail) : "Something went wrong.";
-          setElementsError(msg);
-        });
-      }
-      const mount = document.getElementById(SHIPPO_CONTAINER_ID);
-      if (mount) mount.innerHTML = "";
-      flushSync(() => {
-        setShippoModalOpen(true);
-      });
-      shippo.labelPurchase(`#${SHIPPO_CONTAINER_ID}`, orderDetails);
-    } catch {
-      setElementsError("Connection failed.");
-    } finally {
-      setElementsLoading(false);
-    }
-  }
-
-  function closeShippoModal() {
-    setShippoModalOpen(false);
-  }
-
-  const openElementsFlowRef = useRef(openElementsFlow);
-  openElementsFlowRef.current = openElementsFlow;
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !order || loading) return;
-    if (autoNwAppShippoTriggeredRef.current) return;
-    const sp = new URLSearchParams(window.location.search);
-    const mode = sp.get("nwAppShippo");
-    if (!mode) return;
-    autoNwAppShippoTriggeredRef.current = true;
-    sp.delete("nwAppShippo");
-    sp.delete("nwAppChrome");
-    const qs = sp.toString();
-    window.history.replaceState(
-      {},
-      "",
-      `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
-    );
-
-    const run = openElementsFlowRef.current;
-    if (mode === "reprint") {
-      if (
-        order.status === "paid" &&
-        order.shipment?.shippoOrderId &&
-        order.shipment.createdAt &&
-        isWithinLabelReprintWindow(order.shipment.createdAt)
-      ) {
-        void run({ forReprint: true });
-      }
-    } else if (mode === "purchase") {
-      if (order.status === "paid" && !order.shipment) {
-        void run();
-      }
-    } else if (mode === "another") {
-      if (order.status === "paid" && order.shipment) {
-        void run();
-      }
-    }
-  }, [order, loading, id]);
 
   if (loading) {
     return (
@@ -396,11 +200,13 @@ export default function SellerOrderDetailPage() {
           {order.status === "paid" && !order.shipment && (
             <div className="border-t pt-4 mb-4">
               <p className="font-medium mb-2">Purchase shipping label</p>
-              <p className="text-sm text-gray-600 mb-2">Choose carrier in the popup, pay with your Shippo account, then print or download the label.</p>
+              <p className="text-sm text-gray-600 mb-2">
+                Choose carrier in the popup, pay with your Shippo account, then print or download the label.
+              </p>
               {elementsError && <p className="text-sm text-amber-700 mb-2">{elementsError}</p>}
               <button
                 type="button"
-                onClick={() => openElementsFlow()}
+                onClick={() => void openElementsFlow()}
                 disabled={elementsLoading}
                 className="btn text-sm py-2 px-4 disabled:opacity-50"
               >
@@ -454,19 +260,17 @@ export default function SellerOrderDetailPage() {
                 <p className="font-medium mb-2">Labels</p>
                 {elementsError && <p className="text-sm text-amber-700 mb-2">{elementsError}</p>}
                 <div className="flex flex-wrap gap-3 mb-3">
-                  {order.shipment?.shippoOrderId &&
-                  isWithinLabelReprintWindow(order.shipment.createdAt) ? (
+                  {order.shipment?.shippoOrderId && isWithinLabelReprintWindow(order.shipment.createdAt) ? (
                     <button
                       type="button"
-                      onClick={() => openElementsFlow({ forReprint: true })}
+                      onClick={() => void openElementsFlow({ forReprint: true })}
                       disabled={elementsLoading}
                       className="btn text-sm py-2 px-4 disabled:opacity-50"
                     >
                       {elementsLoading ? "Opening…" : "Reprint label"}
                     </button>
                   ) : null}
-                  {order.shipment?.labelUrl &&
-                  isWithinLabelReprintWindow(order.shipment.createdAt) ? (
+                  {order.shipment?.labelUrl && isWithinLabelReprintWindow(order.shipment.createdAt) ? (
                     <a
                       href={order.shipment.labelUrl}
                       target="_blank"
@@ -478,7 +282,7 @@ export default function SellerOrderDetailPage() {
                   ) : null}
                   <button
                     type="button"
-                    onClick={() => openElementsFlow()}
+                    onClick={() => void openElementsFlow()}
                     disabled={elementsLoading}
                     className="btn text-sm py-2 px-4 disabled:opacity-50"
                   >
@@ -486,7 +290,8 @@ export default function SellerOrderDetailPage() {
                   </button>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">
-                  Reprint and PDF download are available for 24 hours after you buy a label. Purchase another label starts a new label (e.g. replacement) and updates tracking when you complete purchase.
+                  Reprint and PDF download are available for 24 hours after you buy a label. Purchase another label
+                  starts a new label (e.g. replacement) and updates tracking when you complete purchase.
                 </p>
               </div>
             </>

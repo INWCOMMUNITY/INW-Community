@@ -5,9 +5,19 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
+import { getOpenChatConversationId } from "./chat-notification-suppression";
 import { apiPost } from "./api";
 
 const isNative = Platform.OS === "ios" || Platform.OS === "android";
+
+export type NotificationData = {
+  screen?: string;
+  conversationId?: string;
+  orderId?: string;
+  eventSlug?: string;
+  eventTitle?: string;
+  inviteId?: string;
+};
 
 // EAS projectId from app.json extra.eas.projectId (for getExpoPushTokenAsync)
 const getProjectId = (): string | undefined => {
@@ -19,14 +29,34 @@ const getProjectId = (): string | undefined => {
   }
 };
 
+const MESSAGE_SCREENS = new Set(["messages", "resale-hub/messages"]);
+
+function shouldSuppressChatNotification(data: NotificationData | undefined): boolean {
+  if (!data?.conversationId) return false;
+  const openId = getOpenChatConversationId();
+  if (!openId || data.conversationId !== openId) return false;
+  return data.screen != null && MESSAGE_SCREENS.has(data.screen);
+}
+
 /** Configure how notifications appear when app is in foreground */
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data as NotificationData | undefined;
+    if (shouldSuppressChatNotification(data)) {
+      return {
+        shouldPlaySound: false,
+        shouldSetBadge: true,
+        shouldShowBanner: false,
+        shouldShowList: false,
+      };
+    }
+    return {
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    };
+  },
 });
 
 /**
@@ -69,15 +99,6 @@ export async function registerPushTokenWithApi(): Promise<void> {
     // Ignore (e.g. network or auth)
   }
 }
-
-export type NotificationData = {
-  screen?: string;
-  conversationId?: string;
-  orderId?: string;
-  eventSlug?: string;
-  eventTitle?: string;
-  inviteId?: string;
-};
 
 /** Map notification data to app route for navigation */
 export function getRouteFromNotificationData(data: NotificationData | null): string | null {

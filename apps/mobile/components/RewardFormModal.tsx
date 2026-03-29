@@ -31,6 +31,7 @@ interface BusinessOption {
   id: string;
   name: string;
   slug: string;
+  logoUrl?: string | null;
 }
 
 interface RewardFormModalProps {
@@ -39,6 +40,8 @@ interface RewardFormModalProps {
   onSuccess?: () => void;
   /** Called when user has no businesses and taps to set up - parent opens WebView */
   onOpenBusinessSetup?: () => void;
+  /** When set and present in the loaded list, pre-select this business (e.g. Business Hub active business). */
+  initialBusinessId?: string | null;
 }
 
 export function RewardFormModal({
@@ -46,6 +49,7 @@ export function RewardFormModal({
   onClose,
   onSuccess,
   onOpenBusinessSetup,
+  initialBusinessId = null,
 }: RewardFormModalProps) {
   const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
   const [businessId, setBusinessId] = useState("");
@@ -68,12 +72,16 @@ export function RewardFormModal({
         .then((data) => {
           const list = Array.isArray(data) ? data : [];
           setBusinesses(list);
-          setBusinessId((prev) => prev || (list[0]?.id ?? ""));
+          const next =
+            initialBusinessId && list.some((b) => b.id === initialBusinessId)
+              ? initialBusinessId
+              : (list[0]?.id ?? "");
+          setBusinessId(next);
         })
         .catch(() => setBusinesses([]))
         .finally(() => setLoading(false));
     }
-  }, [visible]);
+  }, [visible, initialBusinessId]);
 
   const resetForm = () => {
     setTitle("");

@@ -14,8 +14,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
-import { buildHubWebUrl } from "@/lib/seller-hub-web-url";
-
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -114,18 +112,20 @@ export default function OrderDetailScreen() {
     ? formatShippingAddress(order.shippingAddress) || "—"
     : "—";
 
+  const canceledOrRefunded =
+    order.status === "canceled" || order.status === "refunded" || order.status === "cancelled";
+  /** First label while paid; additional labels after shipment (API allows shipped/delivered + shipment). */
+  const showShippingLabels =
+    !canceledOrRefunded &&
+    ((order.status === "paid" && !order.shipment) || Boolean(order.shipment));
+
   const openListing = (slug: string, listingType?: string) => {
     const q = listingType === "resale" ? "?listingType=resale" : "";
     router.push(`/product/${slug}${q}` as never);
   };
 
-  const openWebLabels = (title: string, mode: "reprint" | "purchase" | "another") => {
-    const orderDetailUrl = buildHubWebUrl(siteBase, `/seller-hub/orders/${order.id}`, {
-      nwAppShippo: mode,
-      nwAppChrome: true,
-    });
-    const url = `/web?url=${encodeURIComponent(orderDetailUrl)}&title=${encodeURIComponent(title)}`;
-    (router.push as (href: string) => void)(url);
+  const openShippoLabelFullScreen = (mode: "reprint" | "purchase" | "another") => {
+    router.push(`/seller-hub/orders/label/${order.id}?mode=${mode}` as never);
   };
 
   return (
@@ -182,33 +182,54 @@ export default function OrderDetailScreen() {
         <Text style={styles.value}>{buyerEmail}</Text>
       </View>
 
-      {order.status === "paid" && (
+      {showShippingLabels && (
         <View style={styles.section}>
-          <Text style={styles.label}>Shipping labels</Text>
-          <Text style={styles.valueHint}>Purchase or print labels on the website.</Text>
+          <Text style={styles.label}>Shipping & labels</Text>
+          <Text style={styles.valueHint}>
+            {order.shipment
+              ? "Ship-to and order details are sent to Shippo when you buy another label or reprint."
+              : "Opens a full-screen label screen; sign in with your connected Shippo account when prompted."}
+          </Text>
+
+          {order.shipment && (
+            <View style={styles.shipDetailsCard}>
+              <Text style={styles.shipDetailsTitle}>Ship to (for labels)</Text>
+              <Text style={styles.shipDetailsBody}>{buyerAddress}</Text>
+              {(order.shipment.carrier || order.shipment.trackingNumber) && (
+                <Text style={styles.shipDetailsMeta}>
+                  {[order.shipment.carrier, order.shipment.trackingNumber].filter(Boolean).join(" · ")}
+                </Text>
+              )}
+            </View>
+          )}
+
           <View style={styles.labelBtnRow}>
             {order.shipment?.shippoOrderId && (
               <Pressable
                 style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => openWebLabels("Print label", "reprint")}
+                onPress={() => openShippoLabelFullScreen("reprint")}
               >
                 <Ionicons name="print-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
-                <Text style={styles.labelBtnText}>Print label</Text>
+                <Text style={styles.labelBtnText}>Reprint label</Text>
               </Pressable>
             )}
-            <Pressable
-              style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
-              onPress={() =>
-                openWebLabels(
-                  order.shipment?.shippoOrderId ? "Purchase another label" : "Purchase labels",
-                  order.shipment?.shippoOrderId ? "another" : "purchase"
-                )
-              }
-            >
-              <Text style={styles.labelBtnText}>
-                {order.shipment?.shippoOrderId ? "Purchase another label" : "Purchase labels"}
-              </Text>
-            </Pressable>
+            {!order.shipment && order.status === "paid" && (
+              <Pressable
+                style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
+                onPress={() => openShippoLabelFullScreen("purchase")}
+              >
+                <Text style={styles.labelBtnText}>Purchase labels</Text>
+              </Pressable>
+            )}
+            {order.shipment && (
+              <Pressable
+                style={({ pressed }) => [styles.labelBtnSecondary, pressed && { opacity: 0.85 }]}
+                onPress={() => openShippoLabelFullScreen("another")}
+              >
+                <Ionicons name="cube-outline" size={18} color={theme.colors.primary} style={{ marginRight: 6 }} />
+                <Text style={styles.labelBtnSecondaryText}>Purchase another label</Text>
+              </Pressable>
+            )}
           </View>
         </View>
       )}
@@ -248,6 +269,35 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   labelBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  labelBtnSecondary: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  labelBtnSecondaryText: { color: theme.colors.primary, fontSize: 14, fontWeight: "600" },
+  shipDetailsCard: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+    backgroundColor: "#fafafa",
+  },
+  shipDetailsTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#555",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 6,
+  },
+  shipDetailsBody: { fontSize: 15, color: "#333", lineHeight: 22 },
+  shipDetailsMeta: { fontSize: 13, color: "#666", marginTop: 8 },
   linkBtn: {
     paddingVertical: 8,
     paddingRight: 8,

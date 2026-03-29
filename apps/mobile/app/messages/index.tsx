@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
 import {
   View,
   Text,
@@ -9,16 +9,28 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { inboxPreviewFromLastMessage, inboxPreviewSubtitle } from "@/lib/message-inbox-preview";
+import { useMessagesInboxRealtime } from "@/lib/use-messages-inbox-realtime";
+import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 type Tab = "direct" | "resale" | "groups";
+
+type InboxLastMessage = {
+  id?: string;
+  content: string;
+  createdAt: string;
+  senderId: string;
+  sharedContentType?: string | null;
+};
 
 interface DirectConversation {
   id: string;
@@ -29,8 +41,9 @@ interface DirectConversation {
   memberBLastReadAt?: string | null;
   memberA: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   memberB: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
-  messages: { content: string; createdAt: string; senderId: string }[];
+  messages: InboxLastMessage[];
   updatedAt: string;
+  unreadCount?: number;
 }
 
 interface ResaleConversation {
@@ -38,17 +51,23 @@ interface ResaleConversation {
   storeItem: { id: string; title: string; slug: string; photos: string[] };
   buyer: { id: string; firstName: string; lastName: string };
   seller: { id: string; firstName: string; lastName: string };
-  messages: { content: string; createdAt: string; senderId: string }[];
+  messages: InboxLastMessage[];
   updatedAt: string;
+  unreadCount?: number;
 }
 
 interface GroupConversation {
   id: string;
   name: string | null;
   createdBy: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
-  members: { member: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null } }[];
-  messages: { content: string; createdAt: string; senderId: string }[];
+  members: {
+    memberId?: string;
+    lastReadAt?: string | null;
+    member: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
+  }[];
+  messages: InboxLastMessage[];
   updatedAt: string;
+  unreadCount?: number;
 }
 
 function resolvePhotoUrl(path: string | undefined): string | undefined {
@@ -70,7 +89,7 @@ function formatTime(iso: string): string {
 export default function MessagesInboxScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ tab?: string }>();
-  const { member } = useAuth();
+  const { member, loading: authLoading } = useAuth();
   const myId = member?.id ?? "";
   const initialTab: Tab =
     params.tab === "resale"
@@ -98,7 +117,7 @@ export default function MessagesInboxScreen() {
       setMessageRequests(Array.isArray(directData?.messageRequests) ? directData.messageRequests : []);
       setResale(Array.isArray(r) ? r : []);
       setGroups(Array.isArray(g) ? g : []);
-    } catch (err) {
+    } catch {
       setDirect([]);
       setMessageRequests([]);
       setResale([]);
@@ -109,9 +128,11 @@ export default function MessagesInboxScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
 
   useEffect(() => {
     const t: Tab =
@@ -123,13 +144,105 @@ export default function MessagesInboxScreen() {
     setTab(t);
   }, [params.tab]);
 
+  const list: (DirectConversation | ResaleConversation | GroupConversation)[] =
+    tab === "direct" ? direct : tab === "groups" ? groups : resale;
+  const listIds = useMemo(() => list.map((i) => i.id), [list]);
+
+  const debounceLoadRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleListRefresh = useCallback(() => {
+    if (debounceLoadRef.current) clearTimeout(debounceLoadRef.current);
+    debounceLoadRef.current = setTimeout(() => {
+      debounceLoadRef.current = null;
+      void load();
+    }, 400);
+  }, [load]);
+
+  const patchFromLive = useCallback(
+    (channel: "direct" | "group" | "resale", p: LiveSocketMessagePayload) => {
+      const lastMsg: InboxLastMessage = {
+        id: p.messageId,
+        content: p.content,
+        createdAt: p.createdAt,
+        senderId: p.senderId,
+        sharedContentType: p.sharedContentType ?? null,
+      };
+      const bumpUnread = p.senderId !== myId;
+
+      const patchDirectList = (setter: Dispatch<SetStateAction<DirectConversation[]>>) => {
+        setter((prev) => {
+          const idx = prev.findIndex((c) => c.id === p.conversationId);
+          if (idx === -1) return prev;
+          const c = prev[idx];
+          if (c.messages?.[0]?.id === p.messageId) return prev;
+          const nextUnread = bumpUnread ? (c.unreadCount ?? 0) + 1 : (c.unreadCount ?? 0);
+          const updated: DirectConversation = {
+            ...c,
+            updatedAt: p.createdAt,
+            messages: [lastMsg],
+            unreadCount: nextUnread,
+          };
+          return [updated, ...prev.filter((_, i) => i !== idx)];
+        });
+      };
+
+      if (channel === "direct") {
+        patchDirectList(setDirect);
+        patchDirectList(setMessageRequests);
+        return;
+      }
+      if (channel === "group") {
+        setGroups((prev) => {
+          const idx = prev.findIndex((c) => c.id === p.conversationId);
+          if (idx === -1) return prev;
+          const c = prev[idx];
+          if (c.messages?.[0]?.id === p.messageId) return prev;
+          const nextUnread = bumpUnread ? (c.unreadCount ?? 0) + 1 : (c.unreadCount ?? 0);
+          const updated: GroupConversation = {
+            ...c,
+            updatedAt: p.createdAt,
+            messages: [lastMsg],
+            unreadCount: nextUnread,
+          };
+          return [updated, ...prev.filter((_, i) => i !== idx)];
+        });
+        return;
+      }
+      setResale((prev) => {
+        const idx = prev.findIndex((c) => c.id === p.conversationId);
+        if (idx === -1) return prev;
+        const c = prev[idx];
+        if (c.messages?.[0]?.id === p.messageId) return prev;
+        const nextUnread = bumpUnread ? (c.unreadCount ?? 0) + 1 : (c.unreadCount ?? 0);
+        const updated: ResaleConversation = {
+          ...c,
+          updatedAt: p.createdAt,
+          messages: [lastMsg],
+          unreadCount: nextUnread,
+        };
+        return [updated, ...prev.filter((_, i) => i !== idx)];
+      });
+    },
+    [myId]
+  );
+
+  const { typingByConversationId } = useMessagesInboxRealtime({
+    tab,
+    conversationIds: listIds,
+    authLoading,
+    memberId: member?.id,
+    enabled: Boolean(member?.id),
+    onLiveMessage: patchFromLive,
+    onLiveRead: scheduleListRefresh,
+    onRefreshLists: scheduleListRefresh,
+  });
+
   const onRefresh = () => {
     setRefreshing(true);
-    load();
+    void load();
   };
 
-  const otherMember = (c: DirectConversation, myId: string) => {
-    return c.memberA.id === myId ? c.memberB : c.memberA;
+  const otherMember = (c: DirectConversation, uid: string) => {
+    return c.memberA.id === uid ? c.memberB : c.memberA;
   };
 
   const handleAcceptRequest = async (conversationId: string) => {
@@ -156,8 +269,6 @@ export default function MessagesInboxScreen() {
     }
   };
 
-  const list: (DirectConversation | ResaleConversation | GroupConversation)[] =
-    tab === "direct" ? direct : tab === "groups" ? groups : resale;
   const isEmpty = list.length === 0;
 
   return (
@@ -233,6 +344,7 @@ export default function MessagesInboxScreen() {
         <FlatList
           data={list}
           keyExtractor={(item) => item.id}
+          extraData={typingByConversationId}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
           }
@@ -245,6 +357,14 @@ export default function MessagesInboxScreen() {
                   const name = `${other.firstName} ${other.lastName}`.trim() || "Someone";
                   const photoUrl = resolvePhotoUrl(other.profilePhotoUrl ?? undefined);
                   const isLoading = acceptDeclineLoading === c.id;
+                  const last = c.messages?.[0];
+                  const previewBase = inboxPreviewFromLastMessage(last, "Message request");
+                  const sub = inboxPreviewSubtitle({
+                    previewBase,
+                    unreadFromOthers: c.unreadCount ?? 0,
+                    isTyping: Boolean(typingByConversationId[c.id]),
+                    emptyLabel: "Message request",
+                  });
                   return (
                     <View key={c.id} style={styles.requestRow}>
                       <Pressable
@@ -260,8 +380,15 @@ export default function MessagesInboxScreen() {
                         )}
                         <View style={styles.rowContent}>
                           <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
-                          <Text style={styles.rowPreview} numberOfLines={1}>
-                            {c.messages?.[0]?.content ?? "Message request"}
+                          <Text
+                            style={[
+                              styles.rowPreview,
+                              sub.bold && styles.rowPreviewUnread,
+                              sub.text === "Typing…" && styles.rowPreviewTyping,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {sub.text}
                           </Text>
                         </View>
                       </Pressable>
@@ -299,6 +426,13 @@ export default function MessagesInboxScreen() {
               const name = c.name ?? (members.map((m) => m.member?.firstName).filter(Boolean).join(", ") || "Group");
               const firstPhoto = members[0]?.member?.profilePhotoUrl;
               const photoUrl = resolvePhotoUrl(firstPhoto ?? undefined);
+              const previewBase = inboxPreviewFromLastMessage(last, "No messages yet");
+              const sub = inboxPreviewSubtitle({
+                previewBase,
+                unreadFromOthers: c.unreadCount ?? 0,
+                isTyping: Boolean(typingByConversationId[c.id]),
+                emptyLabel: "No messages yet",
+              });
               return (
                 <Pressable
                   style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -316,10 +450,14 @@ export default function MessagesInboxScreen() {
                   <View style={styles.rowContent}>
                     <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
                     <Text
-                      style={[styles.rowPreview, last && last.senderId !== myId && styles.rowPreviewUnread]}
+                      style={[
+                        styles.rowPreview,
+                        sub.bold && styles.rowPreviewUnread,
+                        sub.text === "Typing…" && styles.rowPreviewTyping,
+                      ]}
                       numberOfLines={1}
                     >
-                      {last?.content ?? "Message request"}
+                      {sub.text}
                     </Text>
                   </View>
                   <Text style={styles.rowTime}>{last ? formatTime(last.createdAt) : ""}</Text>
@@ -332,11 +470,13 @@ export default function MessagesInboxScreen() {
               const other = otherMember(c, myId);
               const name = (other ? `${other.firstName ?? ""} ${other.lastName ?? ""}`.trim() : "") || "Unknown";
               const photoUrl = resolvePhotoUrl(other?.profilePhotoUrl ?? undefined);
-              const myLastReadAt = c.memberAId === myId ? c.memberALastReadAt : c.memberBLastReadAt;
-              const isUnread =
-                last &&
-                last.senderId !== myId &&
-                (myLastReadAt == null || (last.createdAt && new Date(last.createdAt) > new Date(myLastReadAt)));
+              const previewBase = inboxPreviewFromLastMessage(last, "No messages yet");
+              const sub = inboxPreviewSubtitle({
+                previewBase,
+                unreadFromOthers: c.unreadCount ?? 0,
+                isTyping: Boolean(typingByConversationId[c.id]),
+                emptyLabel: "No messages yet",
+              });
               return (
                 <Pressable
                   style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -354,10 +494,14 @@ export default function MessagesInboxScreen() {
                   <View style={styles.rowContent}>
                     <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
                     <Text
-                      style={[styles.rowPreview, isUnread && styles.rowPreviewUnread]}
+                      style={[
+                        styles.rowPreview,
+                        sub.bold && styles.rowPreviewUnread,
+                        sub.text === "Typing…" && styles.rowPreviewTyping,
+                      ]}
                       numberOfLines={1}
                     >
-                      {last?.content ?? "No messages yet"}
+                      {sub.text}
                     </Text>
                   </View>
                   <Text style={styles.rowTime}>{last ? formatTime(last.createdAt) : ""}</Text>
@@ -369,6 +513,13 @@ export default function MessagesInboxScreen() {
             const title = c.storeItem?.title ?? "Item";
             const photo = c.storeItem?.photos?.[0];
             const photoUrl = resolvePhotoUrl(photo);
+            const previewBase = inboxPreviewFromLastMessage(last, "No messages yet");
+            const sub = inboxPreviewSubtitle({
+              previewBase,
+              unreadFromOthers: c.unreadCount ?? 0,
+              isTyping: Boolean(typingByConversationId[c.id]),
+              emptyLabel: "No messages yet",
+            });
             return (
               <Pressable
                 style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -385,8 +536,15 @@ export default function MessagesInboxScreen() {
                 </View>
                 <View style={styles.rowContent}>
                   <Text style={styles.rowName} numberOfLines={1}>{title}</Text>
-                  <Text style={styles.rowPreview} numberOfLines={1}>
-                    {last?.content ?? "No messages yet"}
+                  <Text
+                    style={[
+                      styles.rowPreview,
+                      sub.bold && styles.rowPreviewUnread,
+                      sub.text === "Typing…" && styles.rowPreviewTyping,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {sub.text}
                   </Text>
                 </View>
                 <Text style={styles.rowTime}>{last ? formatTime(last.createdAt) : ""}</Text>
@@ -472,6 +630,7 @@ const styles = StyleSheet.create({
   rowName: { fontSize: 16, fontWeight: "600", color: theme.colors.heading },
   rowPreview: { fontSize: 14, color: theme.colors.placeholder, marginTop: 2 },
   rowPreviewUnread: { fontWeight: "700", color: theme.colors.heading },
+  rowPreviewTyping: { fontStyle: "italic" },
   rowTime: { fontSize: 12, color: theme.colors.placeholder, marginLeft: 8 },
   requestsSection: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "#eee" },
   requestsSectionTitle: { fontSize: 13, fontWeight: "700", color: theme.colors.primary, marginBottom: 8 },

@@ -14,10 +14,11 @@ import {
   Modal,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiPostWithRetry, apiUploadFile } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, apiPostWithRetry, apiUploadFile } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
 import {
@@ -27,6 +28,8 @@ import {
 } from "@/lib/chat-live-types";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
 import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
+import { setOpenChatConversationId } from "@/lib/chat-notification-suppression";
+import { useChatScrollToLatest } from "@/lib/use-chat-scroll-to-latest";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
 
@@ -71,6 +74,11 @@ export default function GroupConversationScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [listRefreshing, setListRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+
+  useChatScrollToLatest(flatListRef, {
+    conversationId: convId,
+    ready: Boolean(conv && !loading),
+  });
 
   const load = useCallback(async () => {
     if (!convId) return;
@@ -127,6 +135,16 @@ export default function GroupConversationScreen() {
     }
     load();
   }, [load, convId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (convId) {
+        setOpenChatConversationId(convId);
+        apiPatch(`/api/group-conversations/${convId}/read`).catch(() => {});
+      }
+      return () => setOpenChatConversationId(null);
+    }, [convId])
+  );
 
   const groupTypingNames = useMemo(() => {
     if (!conv?.members) return undefined;
