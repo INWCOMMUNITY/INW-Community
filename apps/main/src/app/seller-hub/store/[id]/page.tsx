@@ -20,8 +20,11 @@ export default async function EditStoreItemPage({
   });
   if (!sub) {
     return (
-      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-        <div className="max-w-[var(--max-width)] mx-auto text-center">
+      <section
+        className="flex flex-col justify-end min-h-[calc(100dvh-5rem)] box-border w-full"
+        style={{ padding: "var(--section-padding)", paddingTop: "1.5rem", paddingBottom: "3rem" }}
+      >
+        <div className="max-w-[var(--max-width)] mx-auto text-center w-full">
           <h1 className="text-2xl font-bold mb-4">List Items</h1>
           <p className="mb-6">
             List Items is available to members on the Seller plan. Subscribe to unlock this feature.

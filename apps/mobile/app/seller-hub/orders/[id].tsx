@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
+import { orderEligibleForAnotherShippoLabel } from "@/lib/shippo-order-label-eligibility";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -124,10 +125,11 @@ export default function OrderDetailScreen() {
 
   const canceledOrRefunded =
     order.status === "canceled" || order.status === "refunded" || order.status === "cancelled";
-  /** First label while paid; additional labels after shipment (API allows shipped/delivered + shipment). */
+  /** Seller label tools for orders in a shippable lifecycle (not only when `shipment` is present). */
   const showShippingLabels =
     !canceledOrRefunded &&
-    ((order.status === "paid" && !order.shipment) || Boolean(order.shipment));
+    (order.status === "paid" || order.status === "shipped" || order.status === "delivered");
+  const showPurchaseAnother = orderEligibleForAnotherShippoLabel(order);
 
   const openListing = (slug: string, listingType?: string) => {
     const q = listingType === "resale" ? "?listingType=resale" : "";
@@ -135,7 +137,7 @@ export default function OrderDetailScreen() {
   };
 
   const openShippoLabelFullScreen = (mode: "reprint" | "purchase" | "another") => {
-    router.push(`/seller-hub/orders/label/${order.id}?mode=${mode}` as never);
+    router.push(`/seller-hub/shippo-order/${order.id}?mode=${mode}` as never);
   };
 
   return (
@@ -144,33 +146,6 @@ export default function OrderDetailScreen() {
         <Text style={styles.label}>Time Placed</Text>
         <Text style={styles.value}>{formatDate(order.createdAt)}</Text>
       </View>
-
-      {(order.items?.length ?? 0) > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Items in this order</Text>
-          {(order.items ?? []).map((oi) => {
-            const si = oi.storeItem;
-            const photoUrl = si?.photos?.[0] ? resolvePhotoUrl(si.photos[0]) : undefined;
-            return (
-              <Pressable
-                key={oi.id}
-                style={({ pressed }) => [styles.itemRow, pressed && { opacity: 0.8 }]}
-                onPress={() => si && openListing(si.slug, si.listingType ?? undefined)}
-              >
-                {photoUrl ? (
-                  <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
-                ) : (
-                  <View style={[styles.itemThumb, styles.itemThumbPlaceholder]} />
-                )}
-                <View style={styles.itemBody}>
-                  <Text style={styles.itemTitle}>{si?.title ?? "Item"} × {oi.quantity}</Text>
-                  <Text style={styles.linkBtnText}>View in-app listing</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
 
       <View style={styles.section}>
         <Text style={styles.label}>Order Number</Text>
@@ -196,25 +171,25 @@ export default function OrderDetailScreen() {
         <View style={styles.section}>
           <Text style={styles.label}>Shipping & labels</Text>
           <Text style={styles.valueHint}>
-            {order.shipment
-              ? "Ship-to and order details are sent to Shippo when you buy another label or reprint."
+            {showPurchaseAnother || order.shipment
+              ? "Buy another label to the same address, or reprint while the window is open. Shippo opens full screen."
               : "Opens a full-screen label screen; sign in with your connected Shippo account when prompted."}
           </Text>
 
-          {order.shipment && (
+          {(order.shipment || showPurchaseAnother) && (
             <View style={styles.shipDetailsCard}>
               <Text style={styles.shipDetailsTitle}>Ship to (for labels)</Text>
               <Text style={styles.shipDetailsBody}>{buyerAddress}</Text>
-              {(order.shipment.carrier || order.shipment.trackingNumber) && (
+              {order.shipment && (order.shipment.carrier || order.shipment.trackingNumber) ? (
                 <Text style={styles.shipDetailsMeta}>
                   {[order.shipment.carrier, order.shipment.trackingNumber].filter(Boolean).join(" · ")}
                 </Text>
-              )}
+              ) : null}
             </View>
           )}
 
           <View style={styles.labelBtnRow}>
-            {order.shipment?.shippoOrderId && (
+            {order.shipment?.shippoOrderId ? (
               <Pressable
                 style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
                 onPress={() => openShippoLabelFullScreen("reprint")}
@@ -222,16 +197,16 @@ export default function OrderDetailScreen() {
                 <Ionicons name="print-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
                 <Text style={styles.labelBtnText}>Reprint label</Text>
               </Pressable>
-            )}
-            {!order.shipment && order.status === "paid" && (
+            ) : null}
+            {!order.shipment && order.status === "paid" ? (
               <Pressable
                 style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
                 onPress={() => openShippoLabelFullScreen("purchase")}
               >
                 <Text style={styles.labelBtnText}>Purchase labels</Text>
               </Pressable>
-            )}
-            {order.shipment && (
+            ) : null}
+            {showPurchaseAnother ? (
               <Pressable
                 style={({ pressed }) => [styles.labelBtnSecondary, pressed && { opacity: 0.85 }]}
                 onPress={() => openShippoLabelFullScreen("another")}
@@ -239,8 +214,35 @@ export default function OrderDetailScreen() {
                 <Ionicons name="cube-outline" size={18} color={theme.colors.primary} style={{ marginRight: 6 }} />
                 <Text style={styles.labelBtnSecondaryText}>Purchase another label</Text>
               </Pressable>
-            )}
+            ) : null}
           </View>
+        </View>
+      )}
+
+      {(order.items?.length ?? 0) > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Items in this order</Text>
+          {(order.items ?? []).map((oi) => {
+            const si = oi.storeItem;
+            const photoUrl = si?.photos?.[0] ? resolvePhotoUrl(si.photos[0]) : undefined;
+            return (
+              <Pressable
+                key={oi.id}
+                style={({ pressed }) => [styles.itemRow, pressed && { opacity: 0.8 }]}
+                onPress={() => si && openListing(si.slug, si.listingType ?? undefined)}
+              >
+                {photoUrl ? (
+                  <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
+                ) : (
+                  <View style={[styles.itemThumb, styles.itemThumbPlaceholder]} />
+                )}
+                <View style={styles.itemBody}>
+                  <Text style={styles.itemTitle}>{si?.title ?? "Item"} × {oi.quantity}</Text>
+                  <Text style={styles.linkBtnText}>View in-app listing</Text>
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
       )}
 

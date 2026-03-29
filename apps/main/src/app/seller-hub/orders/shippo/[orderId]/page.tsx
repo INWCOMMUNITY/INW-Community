@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { useParams } from "next/navigation";
@@ -13,6 +13,7 @@ import {
   readNwAppShippoModeFromWindow,
   type StoreOrderForShippo,
 } from "@/hooks/use-shippo-label-flow-for-order";
+import { orderEligibleForAnotherShippoLabel } from "types";
 
 const SHIPPO_CONTAINER_ID_THIN = "shippo-elements-container-order-thin";
 
@@ -49,12 +50,26 @@ interface StoreOrder extends StoreOrderForShippo {
 
 export default function SellerShippoThinLabelPage() {
   const params = useParams();
-  const orderId = typeof params?.orderId === "string" ? params.orderId : "";
+  const rawOrderId = params?.orderId;
+  const orderId =
+    typeof rawOrderId === "string" ? rawOrderId : Array.isArray(rawOrderId) ? (rawOrderId[0] ?? "") : "";
 
-  const capturedNwAppShippo = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    return readNwAppShippoModeFromWindow();
-  }, []);
+  /** Capture deep-link mode once on first client render (URL params are stripped after auto-open). */
+  const nwAppModeCaptureRef = useRef<ReturnType<typeof readNwAppShippoModeFromWindow> | undefined>(undefined);
+  const nwAppChromeCaptureRef = useRef<boolean | undefined>(undefined);
+  if (typeof window !== "undefined" && nwAppModeCaptureRef.current === undefined) {
+    nwAppModeCaptureRef.current = readNwAppShippoModeFromWindow();
+  }
+  if (typeof window !== "undefined" && nwAppChromeCaptureRef.current === undefined) {
+    try {
+      nwAppChromeCaptureRef.current =
+        new URLSearchParams(window.location.search).get("nwAppChrome") === "1";
+    } catch {
+      nwAppChromeCaptureRef.current = false;
+    }
+  }
+  const capturedNwAppShippo = nwAppModeCaptureRef.current ?? null;
+  const embeddedNwAppChrome = nwAppChromeCaptureRef.current ?? false;
 
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -157,42 +172,51 @@ export default function SellerShippoThinLabelPage() {
   const buyerLine = `${order.buyer.firstName} ${order.buyer.lastName}`.trim();
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-6">
+    <div className={`mx-auto px-4 py-6 ${embeddedNwAppChrome ? "max-w-none min-h-[100dvh]" : "max-w-lg"}`}>
       <Script src={SHIPPO_EMBEDDABLE_URL} strategy="afterInteractive" />
 
-      <Link href="/seller-hub/orders" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
-        ← Back to orders
-      </Link>
-      <Link
-        href={`/seller-hub/orders/${orderId}`}
-        className="text-sm block mb-6 hover:underline"
-        style={{ color: "var(--color-primary)" }}
-      >
-        View full order details
-      </Link>
+      {!embeddedNwAppChrome ? (
+        <>
+          <Link href="/seller-hub/orders" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
+            ← Back to orders
+          </Link>
+          <Link
+            href={`/seller-hub/orders/${orderId}`}
+            className="text-sm block mb-6 hover:underline"
+            style={{ color: "var(--color-primary)" }}
+          >
+            View full order details
+          </Link>
+        </>
+      ) : null}
 
       <h1 className="text-xl font-bold mb-1" style={{ color: "var(--color-heading)" }}>
-        Shipping label
+        Buy shipping label
       </h1>
       <p className="text-sm text-gray-600 mb-1">
         Order #{orderLabel}
         {buyerLine ? ` · ${buyerLine}` : ""}
       </p>
       <p className="text-sm text-gray-500 mb-4">
-        Opens the label tool on this page: choose a carrier, pay with your Shippo account, then print or download. Tap
-        Close when you are done.
+        {embeddedNwAppChrome
+          ? "Choose a carrier and complete purchase in Shippo below. Use the arrow to close when finished."
+          : "Opens the label tool on this page: choose a carrier, pay with your Shippo account, then print or download. Tap Close when you are done."}
       </p>
 
       {autoOpenBlockedReason && capturedNwAppShippo ? (
         <div className="border rounded-lg p-4 bg-amber-50 text-amber-900 text-sm mb-4">
-          <p className="font-medium mb-1">Label flow did not open automatically</p>
+          <p className="font-medium mb-1">Label checkout did not open automatically</p>
           <p>{autoOpenBlockedReason}</p>
-          <p className="mt-2">
-            <Link href={`/seller-hub/orders/${orderId}`} className="underline font-medium">
-              Open full order
-            </Link>{" "}
-            to purchase or manage labels manually.
-          </p>
+          {!embeddedNwAppChrome ? (
+            <p className="mt-2">
+              <Link href={`/seller-hub/orders/${orderId}`} className="underline font-medium">
+                Open full order
+              </Link>{" "}
+              to purchase or manage labels manually.
+            </p>
+          ) : (
+            <p className="mt-2">Use the button below to open Shippo and buy a label for this address.</p>
+          )}
         </div>
       ) : null}
 
@@ -228,10 +252,10 @@ export default function SellerShippoThinLabelPage() {
                   {elementsLoading ? "Opening…" : "Reprint label"}
                 </button>
               )}
-            {canLabelFlow && order.shipment && (
+            {orderEligibleForAnotherShippoLabel(order) && (
               <button
                 type="button"
-                onClick={() => void openElementsFlow()}
+                onClick={() => void openElementsFlow({ forceAdditionalLabel: true })}
                 disabled={elementsLoading}
                 className="btn text-sm py-2 px-4 disabled:opacity-50 w-full sm:w-auto"
               >

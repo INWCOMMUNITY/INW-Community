@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef } from "react";
+import { clearShippoElementsMount } from "@/lib/shippo-mount-utils";
 
 export type ShippoElementsPresentation = "modal" | "page";
 
@@ -29,11 +30,16 @@ export function ShippoElementsSurface({
   const titleId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open && containerRef.current) {
-      containerRef.current.innerHTML = "";
-    }
-  }, [open]);
+  /**
+   * When `open` becomes false we return `null`, so the mount node unmounts before `useEffect`
+   * can clear it via ref — Shippo iframes may linger. Clear by id on close / unmount.
+   */
+  useLayoutEffect(() => {
+    if (!open) return;
+    return () => {
+      clearShippoElementsMount(containerId);
+    };
+  }, [open, containerId]);
 
   useEffect(() => {
     if (!open) return;

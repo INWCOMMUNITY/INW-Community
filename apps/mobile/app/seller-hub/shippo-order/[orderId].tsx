@@ -7,7 +7,7 @@ import {
   Text,
   Platform,
 } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { useHubWebviewUri } from "@/lib/use-hub-webview-uri";
 import { buildHubWebUrl } from "@/lib/seller-hub-web-url";
+import { isAllowedShippoLabelWebviewUrl } from "@/lib/label-webview-url-allow";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -34,7 +35,12 @@ function paramAsString(v: string | string[] | undefined): string | undefined {
   return v;
 }
 
-export default function SellerOrderShippoLabelScreen() {
+/**
+ * Full-screen Shippo WebView. Lives under `shippo-order/` (not `orders/label/`) so the seller-hub
+ * Stack never mixes “Order Details” header options with `headerShown: false` on a modal — that
+ * combination remounts screens and can loop navigation/focus with the order detail screen.
+ */
+export default function SellerHubShippoOrderScreen() {
   const params = useLocalSearchParams<{ orderId: string | string[]; mode?: string | string[] }>();
   const orderId = paramAsString(params.orderId);
   const modeParam = Array.isArray(params.mode) ? params.mode[0] : params.mode;
@@ -59,6 +65,11 @@ export default function SellerOrderShippoLabelScreen() {
     shippoLabelBackHandled.current = false;
   }, [webViewUri]);
 
+  const onShouldStartLoadWithRequest = useCallback(
+    (request: { url: string }) => isAllowedShippoLabelWebviewUrl(request.url, siteBase),
+    [siteBase]
+  );
+
   const onWebViewMessage = useCallback(
     (event: WebViewMessageEvent) => {
       try {
@@ -78,64 +89,54 @@ export default function SellerOrderShippoLabelScreen() {
 
   if (!orderId) {
     return (
-      <>
-        <Stack.Screen options={{ headerShown: false, presentation: "fullScreenModal" }} />
-        <View style={styles.fallback}>
-          <Text style={styles.fallbackText}>Missing order.</Text>
-          <Pressable style={styles.fallbackBtn} onPress={() => router.back()}>
-            <Text style={styles.fallbackBtnText}>Go back</Text>
-          </Pressable>
-        </View>
-      </>
+      <View style={styles.fallback}>
+        <StatusBar style="dark" />
+        <Text style={styles.fallbackText}>Missing order.</Text>
+        <Pressable style={styles.fallbackBtn} onPress={() => router.back()}>
+          <Text style={styles.fallbackBtnText}>Go back</Text>
+        </Pressable>
+      </View>
     );
   }
 
   return (
-    <>
-      <Stack.Screen
-        options={{
-          headerShown: false,
-          presentation: "fullScreenModal",
-          animation: "slide_from_bottom",
-        }}
-      />
+    <View style={styles.root}>
       <StatusBar style="dark" />
-      <View style={styles.root}>
-        {!webViewUri ? (
-          <View style={styles.loadingFull}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-          </View>
-        ) : (
-          <>
-            <WebView
-              source={{ uri: webViewUri }}
-              style={styles.webview}
-              onLoadStart={() => setLoading(true)}
-              onLoadEnd={() => setLoading(false)}
-              onMessage={onWebViewMessage}
-              androidLayerType="hardware"
-            />
-            <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-              <View style={[styles.chrome, { paddingTop: Math.max(insets.top, 8) }]}>
-                <Pressable
-                  style={({ pressed }) => [styles.closeChip, pressed && { opacity: 0.85 }]}
-                  onPress={() => router.back()}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close shipping label"
-                >
-                  <Ionicons name="chevron-down" size={28} color="#1a1a1a" />
-                </Pressable>
-              </View>
+      {!webViewUri ? (
+        <View style={styles.loadingFull}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      ) : (
+        <>
+          <WebView
+            source={{ uri: webViewUri }}
+            style={styles.webview}
+            onLoadStart={() => setLoading(true)}
+            onLoadEnd={() => setLoading(false)}
+            onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+            onMessage={onWebViewMessage}
+            androidLayerType="hardware"
+          />
+          <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+            <View style={[styles.chrome, { paddingTop: Math.max(insets.top, 8) }]}>
+              <Pressable
+                style={({ pressed }) => [styles.closeChip, pressed && { opacity: 0.85 }]}
+                onPress={() => router.back()}
+                accessibilityRole="button"
+                accessibilityLabel="Close shipping label"
+              >
+                <Ionicons name="chevron-down" size={28} color="#1a1a1a" />
+              </Pressable>
             </View>
-            {loading && (
-              <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
-              </View>
-            )}
-          </>
-        )}
-      </View>
-    </>
+          </View>
+          {loading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+            </View>
+          )}
+        </>
+      )}
+    </View>
   );
 }
 

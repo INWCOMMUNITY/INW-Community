@@ -13,6 +13,7 @@ function useHeaderTitle() {
   if (path.includes("store/items") || (last === "items" && prev === "store")) return "My Items";
   if (path.includes("store/sold") || (String(last) === "sold" && prev === "store")) return "Sold Items";
   if (path.includes("store/manage") || (last === "manage" && prev === "store")) return "Manage Store";
+  if (path.includes("shippo-order")) return "Shipping label";
   if (path.includes("orders") && last !== "orders") return "Order Details";
   if (path.includes("orders") || last === "orders") return "Storefront Orders";
   if (path.includes("deliveries") || last === "deliveries") return "My Deliveries";
@@ -36,7 +37,16 @@ export default function SellerHubLayout() {
         headerShadowVisible: false,
         contentStyle: { backgroundColor: "#fff" },
         }}
-      />
+      >
+        <Stack.Screen
+          name="shippo-order/[orderId]"
+          options={{
+            headerShown: false,
+            presentation: "fullScreenModal",
+            animation: "slide_from_bottom",
+          }}
+        />
+      </Stack>
     </>
   );
 }
