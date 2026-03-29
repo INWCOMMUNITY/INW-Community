@@ -1,20 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import Script from "next/script";
 import { useParams } from "next/navigation";
 import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
-import { ShippoElementsModal } from "@/components/ShippoElementsModal";
 import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
-import {
-  useShippoLabelFlowForOrder,
-  SHIPPO_EMBEDDABLE_URL,
-  type StoreOrderForShippo,
-} from "@/hooks/use-shippo-label-flow-for-order";
-
-const SHIPPO_CONTAINER_ID = "shippo-elements-container-order";
 
 interface OrderItem {
   id: string;
@@ -33,11 +24,15 @@ interface Shipment {
   createdAt?: string;
 }
 
-interface StoreOrder extends StoreOrderForShippo {
+interface StoreOrder {
+  id: string;
+  orderNumber?: string;
   orderKind?: string;
   totalCents: number;
   shippingCostCents: number;
+  status: string;
   stripePaymentIntentId?: string | null;
+  shippingAddress: unknown;
   createdAt: string;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
@@ -58,37 +53,17 @@ function getTrackingUrl(carrier: string, trackingNumber: string): string {
   return `https://www.google.com/search?q=track+${trackingNumber}`;
 }
 
+function shippoLabelHref(orderId: string, labelAction: "purchase" | "reprint" | "another") {
+  const q = new URLSearchParams({ labelAction });
+  return `/seller-hub/orders/shippo/${orderId}?${q.toString()}`;
+}
+
 export default function SellerOrderDetailPage() {
   const params = useParams();
   const id = typeof params?.id === "string" ? params.id : "";
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-
-  const refetchOrder = useCallback(() => {
-    if (!id) return;
-    fetch(`/api/store-orders/${id}`)
-      .then(async (r) => {
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) return null;
-        return data as StoreOrder;
-      })
-      .then((data) => data && setOrder(data));
-  }, [id]);
-
-  const {
-    elementsLoading,
-    elementsError,
-    shippoModalOpen,
-    openElementsFlow,
-    closeShippoModal,
-  } = useShippoLabelFlowForOrder({
-    orderId: id,
-    containerId: SHIPPO_CONTAINER_ID,
-    order,
-    orderLoading: loading,
-    onLabelSaved: refetchOrder,
-  });
 
   useEffect(() => {
     if (!id) {
@@ -138,9 +113,11 @@ export default function SellerOrderDetailPage() {
     );
   }
 
+  const canLabelFlow =
+    order.status === "paid" || order.status === "shipped" || order.status === "delivered";
+
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-      <Script src={SHIPPO_EMBEDDABLE_URL} strategy="afterInteractive" />
       <div className="max-w-[var(--max-width)] mx-auto">
         <Link href="/seller-hub/orders" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
           ← Back to Orders
@@ -201,17 +178,11 @@ export default function SellerOrderDetailPage() {
             <div className="border-t pt-4 mb-4">
               <p className="font-medium mb-2">Purchase shipping label</p>
               <p className="text-sm text-gray-600 mb-2">
-                Choose carrier in the popup, pay with your Shippo account, then print or download the label.
+                Opens the label page where you choose a carrier, pay with your Shippo account, then print or download.
               </p>
-              {elementsError && <p className="text-sm text-amber-700 mb-2">{elementsError}</p>}
-              <button
-                type="button"
-                onClick={() => void openElementsFlow()}
-                disabled={elementsLoading}
-                className="btn text-sm py-2 px-4 disabled:opacity-50"
-              >
-                {elementsLoading ? "Opening…" : "Purchase labels"}
-              </button>
+              <Link href={shippoLabelHref(order.id, "purchase")} className="btn text-sm py-2 px-4 inline-block text-center">
+                Purchase labels
+              </Link>
             </div>
           )}
           <div className="border-t pt-4">
@@ -258,19 +229,18 @@ export default function SellerOrderDetailPage() {
               </div>
               <div className="border-t pt-4">
                 <p className="font-medium mb-2">Labels</p>
-                {elementsError && <p className="text-sm text-amber-700 mb-2">{elementsError}</p>}
                 <div className="flex flex-wrap gap-3 mb-3">
-                  {order.shipment?.shippoOrderId && isWithinLabelReprintWindow(order.shipment.createdAt) ? (
-                    <button
-                      type="button"
-                      onClick={() => void openElementsFlow({ forReprint: true })}
-                      disabled={elementsLoading}
-                      className="btn text-sm py-2 px-4 disabled:opacity-50"
+                  {order.shipment?.shippoOrderId &&
+                  order.shipment.createdAt &&
+                  isWithinLabelReprintWindow(order.shipment.createdAt) ? (
+                    <Link
+                      href={shippoLabelHref(order.id, "reprint")}
+                      className="btn text-sm py-2 px-4 inline-block text-center"
                     >
-                      {elementsLoading ? "Opening…" : "Reprint label"}
-                    </button>
+                      Reprint label
+                    </Link>
                   ) : null}
-                  {order.shipment?.labelUrl && isWithinLabelReprintWindow(order.shipment.createdAt) ? (
+                  {order.shipment?.labelUrl && order.shipment.createdAt && isWithinLabelReprintWindow(order.shipment.createdAt) ? (
                     <a
                       href={order.shipment.labelUrl}
                       target="_blank"
@@ -280,14 +250,14 @@ export default function SellerOrderDetailPage() {
                       Open label PDF
                     </a>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void openElementsFlow()}
-                    disabled={elementsLoading}
-                    className="btn text-sm py-2 px-4 disabled:opacity-50"
-                  >
-                    {elementsLoading ? "Opening…" : "Purchase another label"}
-                  </button>
+                  {canLabelFlow ? (
+                    <Link
+                      href={shippoLabelHref(order.id, "another")}
+                      className="btn text-sm py-2 px-4 inline-block text-center"
+                    >
+                      Purchase another label
+                    </Link>
+                  ) : null}
                 </div>
                 <p className="text-sm text-gray-600 mb-3">
                   Reprint and PDF download are available for 24 hours after you buy a label. Purchase another label
@@ -298,13 +268,6 @@ export default function SellerOrderDetailPage() {
           )}
         </div>
       </div>
-
-      <ShippoElementsModal
-        open={shippoModalOpen}
-        onClose={closeShippoModal}
-        containerId={SHIPPO_CONTAINER_ID}
-        title="Shippo — label"
-      />
     </section>
   );
 }

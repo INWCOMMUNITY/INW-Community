@@ -10,12 +10,14 @@ export default function SetUpShippoPage() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
+    if (!searchParams) return;
     if (searchParams.get("nwAutoOAuth") === "1" && typeof window !== "undefined") {
       window.location.replace("/api/shipping/oauth-start");
     }
   }, [searchParams]);
 
   useEffect(() => {
+    if (!searchParams) return;
     const oauthError = searchParams.get("oauth_error");
     if (oauthError) setError(decodeURIComponent(oauthError));
     if (searchParams.get("connected") === "shippo") {

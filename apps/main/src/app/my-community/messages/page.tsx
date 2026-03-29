@@ -107,12 +107,12 @@ export default function MyCommunityMessagesPage() {
   const { data: session, status: sessionStatus } = useSession();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const resaleId = searchParams.get("conversation");
-  const directId = searchParams.get("direct");
-  const groupId = searchParams.get("group");
-  const addresseeIdParam = searchParams.get("addresseeId");
+  const resaleId = searchParams?.get("conversation");
+  const directId = searchParams?.get("direct");
+  const groupId = searchParams?.get("group");
+  const addresseeIdParam = searchParams?.get("addresseeId");
   const addresseePrefillDone = useRef<string | null>(null);
-  const tabParam = searchParams.get("tab");
+  const tabParam = searchParams?.get("tab");
   const tab: Tab =
     tabParam === "groups" || groupId ? "groups" : tabParam === "resale" || resaleId ? "resale" : "direct";
   function setTab(t: Tab) {

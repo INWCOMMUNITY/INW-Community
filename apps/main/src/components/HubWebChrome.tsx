@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { SellerHubTopNav } from "@/components/SellerHubTopNav";
 import { ResaleHubTopNav } from "@/components/ResaleHubTopNav";
@@ -10,10 +11,14 @@ type Variant = "seller" | "resale";
 /**
  * When `nwAppChrome=1` is present (mobile app WebView), hide hub top nav and use compact chrome
  * so the page matches the in-app seller/resale experience.
+ *
+ * `useSearchParams` is isolated inside Suspense so layout `children` are never duplicated in a
+ * fallback (that breaks Next.js App Router — parallelRouterKey null).
  */
-export function HubWebChrome({ variant, children }: { variant: Variant; children: React.ReactNode }) {
+function HubWebChromeInner({ variant, children }: { variant: Variant; children: React.ReactNode }) {
   const searchParams = useSearchParams();
-  const embed = searchParams.get(NW_APP_CHROME) === "1";
+  /** `useSearchParams()` can be `null` until the router is ready (Next.js client runtime). */
+  const embed = searchParams?.get(NW_APP_CHROME) === "1";
   const Nav = variant === "seller" ? SellerHubTopNav : ResaleHubTopNav;
 
   if (!embed) {
@@ -32,5 +37,21 @@ export function HubWebChrome({ variant, children }: { variant: Variant; children
     >
       {children}
     </div>
+  );
+}
+
+export function HubWebChrome({ variant, children }: { variant: Variant; children: React.ReactNode }) {
+  const Nav = variant === "seller" ? SellerHubTopNav : ResaleHubTopNav;
+  return (
+    <Suspense
+      fallback={
+        <>
+          <Nav />
+          <div className="min-h-[40vh]" aria-hidden />
+        </>
+      }
+    >
+      <HubWebChromeInner variant={variant}>{children}</HubWebChromeInner>
+    </Suspense>
   );
 }

@@ -5,7 +5,6 @@ import {
   Text,
   Pressable,
   ScrollView,
-  Platform,
 } from "react-native";
 import { useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -52,7 +51,8 @@ export function PopupModal({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle={Platform.OS === "ios" ? "pageSheet" : "overFullScreen"}
+      /** iOS does not support `pageSheet` with `transparent` — use full-screen overlay instead. */
+      presentationStyle="overFullScreen"
       onRequestClose={onClose}
       transparent
     >

@@ -217,10 +217,12 @@ export function useShippoLabelFlowForOrder(options: {
     if (typeof window === "undefined" || !order || orderLoading || !orderId) return;
     if (autoNwAppShippoTriggeredRef.current) return;
     const sp = new URLSearchParams(window.location.search);
-    const mode = sp.get("nwAppShippo");
+    const mode = sp.get("nwAppShippo") ?? sp.get("labelAction");
     if (!mode) return;
+    if (mode !== "reprint" && mode !== "purchase" && mode !== "another") return;
     autoNwAppShippoTriggeredRef.current = true;
     sp.delete("nwAppShippo");
+    sp.delete("labelAction");
     sp.delete("nwAppChrome");
     const qs = sp.toString();
     window.history.replaceState(
@@ -308,7 +310,8 @@ export function getNwAppShippoSkippedReason(
 /** Read nwAppShippo from current URL without consuming it (for messaging before strip runs in hook). */
 export function readNwAppShippoModeFromWindow(): NwAppShippoMode | null {
   if (typeof window === "undefined") return null;
-  const m = new URLSearchParams(window.location.search).get("nwAppShippo");
+  const sp = new URLSearchParams(window.location.search);
+  const m = sp.get("nwAppShippo") ?? sp.get("labelAction");
   if (m === "reprint" || m === "purchase" || m === "another") return m;
   return null;
 }

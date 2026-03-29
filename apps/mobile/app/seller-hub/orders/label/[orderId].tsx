@@ -22,13 +22,22 @@ const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 /** Keep in sync with `NW_APP_WEBVIEW_MSG_SHIPPO_LABEL_SUCCESS` in apps/main `nw-app-webview-bridge.ts`. */
 const NW_APP_MSG_SHIPPO_LABEL_SUCCESS = "nw_shippo_label_success";
 
-function parseMode(raw: string | undefined): "reprint" | "purchase" | "another" {
-  if (raw === "reprint" || raw === "another") return raw;
+function parseMode(raw: string | string[] | undefined): "reprint" | "purchase" | "another" {
+  const s = Array.isArray(raw) ? raw[0] : raw;
+  if (s === "reprint" || s === "another") return s;
   return "purchase";
 }
 
+function paramAsString(v: string | string[] | undefined): string | undefined {
+  if (v == null) return undefined;
+  if (Array.isArray(v)) return v[0];
+  return v;
+}
+
 export default function SellerOrderShippoLabelScreen() {
-  const { orderId, mode: modeParam } = useLocalSearchParams<{ orderId: string; mode?: string }>();
+  const params = useLocalSearchParams<{ orderId: string | string[]; mode?: string | string[] }>();
+  const orderId = paramAsString(params.orderId);
+  const modeParam = Array.isArray(params.mode) ? params.mode[0] : params.mode;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
@@ -38,7 +47,7 @@ export default function SellerOrderShippoLabelScreen() {
 
   const targetUrl = useMemo(() => {
     if (!orderId) return "";
-    return buildHubWebUrl(siteBase, `/seller-hub/orders/shippo/${orderId}`, {
+    return buildHubWebUrl(siteBase, `/seller-hub/orders/shippo/${encodeURIComponent(orderId)}`, {
       nwAppShippo: mode,
       nwAppChrome: true,
     });

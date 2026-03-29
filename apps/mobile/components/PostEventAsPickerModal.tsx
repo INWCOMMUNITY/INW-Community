@@ -4,7 +4,6 @@ import {
   View,
   Text,
   Pressable,
-  Platform,
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,7 +45,7 @@ export function PostEventAsPickerModal({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle={Platform.OS === "ios" ? "pageSheet" : "overFullScreen"}
+      presentationStyle="overFullScreen"
       onRequestClose={onClose}
       transparent
     >

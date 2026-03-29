@@ -56,28 +56,38 @@ function formatDate(s: string): string {
   }
 }
 
+/** Expo Router can pass dynamic segments as `string | string[]` — only the first segment is a valid order id. */
+function paramAsString(v: string | string[] | undefined): string | undefined {
+  if (v == null) return undefined;
+  if (Array.isArray(v)) return v[0];
+  return v;
+}
+
 export default function OrderDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string | string[] }>();
+  const id = paramAsString(params.id);
   const router = useRouter();
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    if (!id) return;
     setError(null);
-    apiGet<StoreOrder | { error: string }>(`/api/store-orders/${id}`)
+    setLoading(true);
+    if (!id) {
+      setOrder(null);
+      setError("Missing order.");
+      setLoading(false);
+      return;
+    }
+    apiGet<StoreOrder>(`/api/store-orders/${encodeURIComponent(id)}`)
       .then((data) => {
-        if (data && "error" in data) {
-          setError((data as { error: string }).error);
-          setOrder(null);
-        } else {
-          setOrder(data as StoreOrder);
-        }
+        setOrder(data);
       })
       .catch((e) => {
-        const err = e as { error?: string };
-        setError(err.error ?? "Failed to load order");
+        const err = e as { error?: string; status?: number };
+        const msg = err.error ?? "Failed to load order";
+        setError(err.status === 404 ? "Order not found." : msg);
         setOrder(null);
       })
       .finally(() => setLoading(false));

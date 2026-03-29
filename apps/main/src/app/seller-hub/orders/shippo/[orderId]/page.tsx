@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { useParams } from "next/navigation";
-import { ShippoElementsModal } from "@/components/ShippoElementsModal";
+import { ShippoElementsSurface } from "@/components/ShippoElementsModal";
 import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 import {
   useShippoLabelFlowForOrder,
@@ -179,7 +179,8 @@ export default function SellerShippoThinLabelPage() {
         {buyerLine ? ` · ${buyerLine}` : ""}
       </p>
       <p className="text-sm text-gray-500 mb-4">
-        Choose a carrier in the popup and pay with your Shippo account. You can close this screen when you are done.
+        Opens the label tool on this page: choose a carrier, pay with your Shippo account, then print or download. Tap
+        Close when you are done.
       </p>
 
       {autoOpenBlockedReason && capturedNwAppShippo ? (
@@ -241,11 +242,12 @@ export default function SellerShippoThinLabelPage() {
         );
       })()}
 
-      <ShippoElementsModal
+      <ShippoElementsSurface
         open={shippoModalOpen}
         onClose={closeShippoModal}
         containerId={SHIPPO_CONTAINER_ID_THIN}
         title="Shippo — label"
+        presentation="page"
       />
     </div>
   );
