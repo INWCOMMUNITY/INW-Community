@@ -41,7 +41,7 @@ export default async function MyCommunityLayout({
         <aside className="w-full lg:w-56 shrink-0 order-2 lg:order-1 lg:self-stretch">
           <MyCommunitySidebar />
         </aside>
-        <div className="flex flex-col flex-1 min-w-0 min-h-0 order-1 lg:order-2 w-full max-w-full">
+        <div className="flex flex-col flex-1 min-w-0 min-h-0 order-1 lg:order-2 w-full max-w-full lg:min-w-[calc(14rem+2in)]">
           {children}
         </div>
         <div className="w-full lg:w-56 shrink-0 order-3 flex flex-col gap-6 lg:self-stretch">

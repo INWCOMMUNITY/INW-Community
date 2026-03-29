@@ -1,6 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { publishDirectConversationMessage } from "@/lib/realtime-publish";
+import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+
+function liveDirectPayload(
+  conversationId: string,
+  m: {
+    id: string;
+    senderId: string;
+    content: string;
+    createdAt: Date;
+    sharedContentType?: string | null;
+    sharedContentId?: string | null;
+    sharedContentSlug?: string | null;
+    sender: { id: string; firstName: string; lastName: string };
+  }
+): LiveSocketMessagePayload {
+  return {
+    conversationId,
+    messageId: m.id,
+    senderId: m.senderId,
+    content: m.content,
+    createdAt: m.createdAt.toISOString(),
+    sender: m.sender,
+    sharedContentType: m.sharedContentType ?? null,
+    sharedContentId: m.sharedContentId ?? null,
+    sharedContentSlug: m.sharedContentSlug ?? null,
+  };
+}
 import { isBlocked } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
@@ -249,6 +277,11 @@ export async function POST(
         throw e;
       }
     }
+  }
+
+  void publishDirectConversationMessage(id, liveDirectPayload(id, message));
+  if (botReply) {
+    void publishDirectConversationMessage(id, liveDirectPayload(id, botReply));
   }
 
   return NextResponse.json(botReply ? { ...message, botReply } : message);

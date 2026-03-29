@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -24,8 +24,13 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
+import { apiGet, apiPost, apiPostWithRetry, apiPatch, apiUploadFile } from "@/lib/api";
+import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
+import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 import { useAuth } from "@/contexts/AuthContext";
+import { normalizeRouteParam } from "@/lib/normalize-route-param";
+import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
+import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -44,6 +49,8 @@ interface DirectConversation {
   id: string;
   status?: string;
   requestedByMemberId?: string | null;
+  memberALastReadAt?: string | null;
+  memberBLastReadAt?: string | null;
   memberA: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   memberB: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   messages: Array<{
@@ -129,10 +136,13 @@ const photoViewerStyles = StyleSheet.create({
 });
 
 export default function DirectConversationScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: rawConvId } = useLocalSearchParams<{ id: string }>();
+  const convId = normalizeRouteParam(
+    rawConvId as string | string[] | undefined
+  );
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { member } = useAuth();
+  const { member, loading: authLoading } = useAuth();
   const [conv, setConv] = useState<DirectConversation | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -147,10 +157,10 @@ export default function DirectConversationScreen() {
   const lastTapRef = useRef<{ messageId: string; time: number } | null>(null);
 
   const load = useCallback(async () => {
-    if (!id) return;
+    if (!convId) return;
     setLoadError(null);
     try {
-      const data = await apiGet<DirectConversation>(`/api/direct-conversations/${id}`);
+      const data = await apiGet<DirectConversation>(`/api/direct-conversations/${convId}`);
       setConv(data);
     } catch (e) {
       setConv(null);
@@ -159,25 +169,101 @@ export default function DirectConversationScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [convId]);
 
   useEffect(() => {
+    if (!convId) {
+      setLoading(false);
+      setConv(null);
+      return;
+    }
     load();
-  }, [load]);
+  }, [load, convId]);
+
+  const directTypingNames = useMemo(() => {
+    if (!conv || !member?.id) return undefined;
+    const other = conv.memberA.id === member.id ? conv.memberB : conv.memberA;
+    return { [other.id]: other.firstName ?? "Member" };
+  }, [conv, member?.id]);
+
+  const onLiveDirectMessage = useCallback((p: LiveSocketMessagePayload) => {
+    if (p.conversationId !== convId) return;
+    setConv((prev) => {
+      if (!prev) return prev;
+      if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      return {
+        ...prev,
+        messages: [
+          ...prev.messages,
+          {
+            id: p.messageId,
+            content: p.content,
+            createdAt: p.createdAt,
+            senderId: p.senderId,
+            sharedContentType: p.sharedContentType ?? null,
+            sharedContentId: p.sharedContentId ?? null,
+            sharedContentSlug: p.sharedContentSlug ?? null,
+            sender: p.sender ?? { id: p.senderId, firstName: "", lastName: "" },
+          },
+        ],
+      };
+    });
+  }, [convId]);
+
+  const { typingPeerIds, peerPresenceIds, onComposerChange, stopComposerTyping } = useMobileChatRealtime(
+    "direct",
+    convId,
+    member?.id,
+    load,
+    { flatListRef, memberNamesById: directTypingNames, authLoading, onLiveMessage: onLiveDirectMessage }
+  );
+
+  const typingPeersResolved = useMemo((): ChatTypingPeer[] => {
+    if (!conv || !member?.id || typingPeerIds.length === 0) return [];
+    const other = conv.memberA.id === member.id ? conv.memberB : conv.memberA;
+    return typingPeerIds
+      .filter((tid) => tid === other.id)
+      .map(() => ({
+        id: other.id,
+        name: `${other.firstName ?? ""} ${other.lastName ?? ""}`.trim() || "Member",
+        photoUrl: resolvePhotoUrl(other.profilePhotoUrl ?? undefined) ?? null,
+      }));
+  }, [conv, member?.id, typingPeerIds]);
+
+  const chatPresencePeers = useMemo((): ChatTypingPeer[] => {
+    if (!conv || peerPresenceIds.length === 0) return [];
+    return peerPresenceIds.map((id) => {
+      const m = conv.memberA.id === id ? conv.memberA : conv.memberB.id === id ? conv.memberB : null;
+      if (!m) return { id, name: "Member", photoUrl: null };
+      const name = `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member";
+      return { id, name, photoUrl: resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null };
+    });
+  }, [conv, peerPresenceIds]);
+
+  const showDirectSeen = useMemo(() => {
+    if (!conv || !member?.id) return false;
+    const peerRead =
+      conv.memberA.id === member.id ? conv.memberBLastReadAt : conv.memberALastReadAt;
+    if (!peerRead) return false;
+    const myOutbound = conv.messages.filter((m) => m.senderId === member.id);
+    const lastMine = myOutbound[myOutbound.length - 1];
+    if (!lastMine) return false;
+    return new Date(peerRead).getTime() >= new Date(lastMine.createdAt).getTime();
+  }, [conv, member?.id]);
 
   useFocusEffect(
     useCallback(() => {
-      if (id) {
-        apiPatch(`/api/direct-conversations/${id}/read`).catch(() => {});
+      if (convId) {
+        apiPatch(`/api/direct-conversations/${convId}/read`).catch(() => {});
       }
-    }, [id])
+    }, [convId])
   );
 
   const handleLike = async (messageId: string) => {
-    if (!id || !member) return;
+    if (!convId || !member) return;
     try {
       const { liked } = await apiPost<{ liked: boolean }>(
-        `/api/direct-conversations/${id}/messages/${messageId}/like`,
+        `/api/direct-conversations/${convId}/messages/${messageId}/like`,
         {}
       );
       setConv((prev) => {
@@ -258,30 +344,30 @@ export default function DirectConversationScreen() {
   const isMessageRequest = conv?.status === "pending" && conv?.requestedByMemberId !== member?.id;
 
   const handleAcceptRequest = useCallback(async () => {
-    if (!id || acceptDeclineLoading) return;
+    if (!convId || acceptDeclineLoading) return;
     setAcceptDeclineLoading(true);
     try {
-      await apiPatch(`/api/direct-conversations/${id}`, { action: "accept" });
+      await apiPatch(`/api/direct-conversations/${convId}`, { action: "accept" });
       load();
     } catch (e) {
       Alert.alert("Error", (e as { error?: string }).error ?? "Could not accept request.");
     } finally {
       setAcceptDeclineLoading(false);
     }
-  }, [id, acceptDeclineLoading, load]);
+  }, [convId, acceptDeclineLoading, load]);
 
   const handleDeclineRequest = useCallback(async () => {
-    if (!id || acceptDeclineLoading) return;
+    if (!convId || acceptDeclineLoading) return;
     setAcceptDeclineLoading(true);
     try {
-      await apiPatch(`/api/direct-conversations/${id}`, { action: "decline" });
+      await apiPatch(`/api/direct-conversations/${convId}`, { action: "decline" });
       router.back();
     } catch (e) {
       Alert.alert("Error", (e as { error?: string }).error ?? "Could not decline.");
     } finally {
       setAcceptDeclineLoading(false);
     }
-  }, [id, acceptDeclineLoading, router]);
+  }, [convId, acceptDeclineLoading, router]);
 
   const otherMember = conv && member?.id
     ? (conv.memberA.id === member.id ? conv.memberB : conv.memberA)
@@ -291,7 +377,7 @@ export default function DirectConversationScreen() {
 
   const handleReportConversation = () => {
     setMenuOpen(false);
-    if (!conv || !id) return;
+    if (!conv || !convId) return;
     Alert.alert(
       "Report conversation",
       "Why are you reporting this conversation?",
@@ -305,11 +391,11 @@ export default function DirectConversationScreen() {
     );
   };
   const submitReport = async (reason: "political" | "hate" | "nudity" | "spam" | "other") => {
-    if (!id) return;
+    if (!convId) return;
     try {
       await apiPost("/api/reports", {
         contentType: "direct_message",
-        contentId: id,
+        contentId: convId,
         reason,
       });
       Alert.alert("Report submitted", "Thank you. We will review this.");
@@ -334,7 +420,7 @@ export default function DirectConversationScreen() {
               await apiPost("/api/members/block", { memberId: otherMember.id });
               await apiPost("/api/reports", {
                 contentType: "direct_message",
-                contentId: id ?? "",
+                contentId: convId ?? "",
                 reason: "other",
                 details: "User blocked by viewer",
               }).catch(() => {});
@@ -351,6 +437,7 @@ export default function DirectConversationScreen() {
 
   const pickAndSendPhoto = async () => {
     if (!conv || sending || uploadingPhoto) return;
+    stopComposerTyping();
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission needed", "Allow access to photos to share images.");
@@ -373,8 +460,8 @@ export default function DirectConversationScreen() {
       formData.append("type", "image");
       const { url } = await apiUploadFile("/api/upload/post", formData);
       const fullUrl = url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
-      const res = await apiPost<{ id: string; content: string; createdAt: string; senderId: string; sharedContentType?: string; sharedContentId?: string; sender: { firstName: string; lastName: string }; botReply?: { id: string; content: string; createdAt: string; senderId: string; sender: { id: string; firstName: string; lastName: string } } }>(
-        `/api/direct-conversations/${id}`,
+      const res = await apiPostWithRetry<{ id: string; content: string; createdAt: string; senderId: string; sharedContentType?: string; sharedContentId?: string; sender: { firstName: string; lastName: string }; botReply?: { id: string; content: string; createdAt: string; senderId: string; sender: { id: string; firstName: string; lastName: string } } }>(
+        `/api/direct-conversations/${convId}`,
         { sharedContentType: "photo", sharedContentId: fullUrl, content: "" }
       );
       const newMessages: typeof conv.messages = [
@@ -415,11 +502,12 @@ export default function DirectConversationScreen() {
   const send = async () => {
     if (!conv || !message.trim() || sending) return;
     const text = message.trim();
+    stopComposerTyping();
     setMessage("");
     setSending(true);
     try {
-      const res = await apiPost<{ id: string; content: string; createdAt: string; senderId: string; sender: { firstName: string; lastName: string }; botReply?: { id: string; content: string; createdAt: string; senderId: string; sender: { id: string; firstName: string; lastName: string } } }>(
-        `/api/direct-conversations/${id}`,
+      const res = await apiPostWithRetry<{ id: string; content: string; createdAt: string; senderId: string; sender: { firstName: string; lastName: string }; botReply?: { id: string; content: string; createdAt: string; senderId: string; sender: { id: string; firstName: string; lastName: string } } }>(
+        `/api/direct-conversations/${convId}`,
         { content: text }
       );
       const newMessages: typeof conv.messages = [
@@ -517,6 +605,10 @@ export default function DirectConversationScreen() {
         </Pressable>
       </View>
 
+      {typingPeersResolved.length > 0 && !isMessageRequest && (
+        <ChatTypingRow peers={typingPeersResolved} />
+      )}
+
       {isMessageRequest && (
         <View style={styles.requestBanner}>
           <Text style={styles.requestBannerText}>Message request — accept to continue the conversation</Text>
@@ -569,6 +661,11 @@ export default function DirectConversationScreen() {
         data={conv.messages ?? []}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
         contentContainerStyle={styles.messageList}
+        ListFooterComponent={
+          showDirectSeen || chatPresencePeers.length > 0 ? (
+            <ChatSeenPresenceFooter showSeen={showDirectSeen} peers={chatPresencePeers} />
+          ) : null
+        }
         renderItem={({ item }) => {
           const isMe = item.senderId === member?.id;
           const hasBusinessShare = item.sharedContentType === "business" && (item.sharedBusiness || item.sharedContentSlug);
@@ -679,7 +776,7 @@ export default function DirectConversationScreen() {
           placeholder="Message..."
           placeholderTextColor={theme.colors.placeholder}
           value={message}
-          onChangeText={setMessage}
+          onChangeText={(t) => onComposerChange(t, setMessage)}
           multiline
           maxLength={5000}
           onSubmitEditing={send}

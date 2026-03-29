@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { publishResaleConversationMessage } from "@/lib/realtime-publish";
+import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 import { isBlocked } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
@@ -116,6 +118,20 @@ export async function POST(
     body: pushBody,
     data: { screen: "resale-hub/messages", conversationId: id },
   }).catch(() => {});
+
+  const live: LiveSocketMessagePayload = {
+    conversationId: id,
+    messageId: message.id,
+    senderId: message.senderId,
+    content: message.content,
+    createdAt: message.createdAt.toISOString(),
+    sender: {
+      id: message.sender.id,
+      firstName: message.sender.firstName,
+      lastName: message.sender.lastName,
+    },
+  };
+  void publishResaleConversationMessage(id, live);
 
   return NextResponse.json(message);
 }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { publishGroupConversationMessage } from "@/lib/realtime-publish";
+import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 import { getBlockedMemberIds } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { z } from "zod";
@@ -137,6 +139,24 @@ export async function POST(
     where: { id },
     data: { updatedAt: new Date() },
   });
+
+  const live: LiveSocketMessagePayload = {
+    conversationId: id,
+    messageId: message.id,
+    senderId: message.senderId,
+    content: message.content,
+    createdAt: message.createdAt.toISOString(),
+    sender: {
+      id: message.sender.id,
+      firstName: message.sender.firstName,
+      lastName: message.sender.lastName,
+      profilePhotoUrl: message.sender.profilePhotoUrl,
+    },
+    sharedContentType: message.sharedContentType,
+    sharedContentId: message.sharedContentId,
+    sharedContentSlug: message.sharedContentSlug,
+  };
+  void publishGroupConversationMessage(id, live);
 
   return NextResponse.json(message);
 }
