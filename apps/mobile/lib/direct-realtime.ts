@@ -2,6 +2,15 @@ import { API_BASE } from "./api";
 
 let warnedMissingRealtimeUrl = false;
 
+/** Socket.IO expects http(s); env sometimes uses ws(s). */
+function normalizeSocketIoBaseUrl(input: string): string {
+  const s = input.trim().replace(/\/+$/, "");
+  if (s.startsWith("wss://")) return `https://${s.slice(6)}`;
+  if (s.startsWith("ws://")) return `http://${s.slice(5)}`;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  return `http://${s}`;
+}
+
 function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "[::1]";
 }
@@ -49,9 +58,9 @@ export function getDirectRealtimeUrl(): string | null {
         return `${u.protocol}//${apiHostname}:${port}`;
       }
     } catch {
-      /* use raw */
+      /* use normalized */
     }
-    return explicitRaw;
+    return normalizeSocketIoBaseUrl(explicitRaw);
   }
 
   try {

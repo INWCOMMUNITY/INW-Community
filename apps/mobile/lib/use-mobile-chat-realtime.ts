@@ -104,6 +104,8 @@ export function useMobileChatRealtime(
     const cfg = RT[kind];
     let cancelled = false;
     let socket: Socket | null = null;
+    /** Same ref as connect + reconnect handlers — needed for cleanup `off`. */
+    let emitJoinHandler: (() => void) | null = null;
 
     void (async () => {
       const token = await getToken();
@@ -124,8 +126,10 @@ export function useMobileChatRealtime(
           if (err) console.warn(`[${kind} realtime] join:`, err);
         });
       };
+      emitJoinHandler = emitJoin;
 
       socket.on("connect", emitJoin);
+      socket.io.on("reconnect", emitJoin);
       socket.on("connect_error", (err) => {
         console.warn(`[${kind} realtime] connect_error`, (err as Error)?.message ?? err);
       });
@@ -207,7 +211,13 @@ export function useMobileChatRealtime(
       peerTimeoutsRef.current = {};
       if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
       if (socket) {
-        socket.emit(cfg.leave, conversationId);
+        const leaveId = conversationIdRef.current;
+        if (leaveId) {
+          socket.emit(cfg.leave, leaveId);
+        }
+        if (emitJoinHandler) {
+          socket.io.off("reconnect", emitJoinHandler);
+        }
         socket.removeAllListeners();
         socket.disconnect();
       }

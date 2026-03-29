@@ -215,9 +215,17 @@ export function useMessagesPageRealtime(options: {
     }
     if (cur && sock.connected) {
       sock.emit(joinEvent(cur.kind), cur.id, (err?: string) => {
-        if (err) console.warn("[messages realtime] join failed:", err);
+        if (err) {
+          console.warn("[messages realtime] join failed:", err);
+          return;
+        }
+        if (
+          activeThreadRef.current?.kind === cur.kind &&
+          activeThreadRef.current?.id === cur.id
+        ) {
+          joinedRef.current = cur;
+        }
       });
-      joinedRef.current = cur;
     }
     setTypingMemberIds([]);
     Object.values(peerTimeoutsRef.current).forEach((t) => clearTimeout(t));

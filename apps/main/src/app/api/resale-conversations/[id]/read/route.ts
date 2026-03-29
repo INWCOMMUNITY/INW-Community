@@ -56,7 +56,7 @@ export async function PATCH(
     throw e;
   }
 
-  void publishResaleConversationRead(id, session.user.id);
+  await publishResaleConversationRead(id, session.user.id);
 
   return NextResponse.json({ ok: true });
 }

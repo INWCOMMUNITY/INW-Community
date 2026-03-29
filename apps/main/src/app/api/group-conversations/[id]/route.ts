@@ -156,7 +156,7 @@ export async function POST(
     sharedContentId: message.sharedContentId,
     sharedContentSlug: message.sharedContentSlug,
   };
-  void publishGroupConversationMessage(id, live);
+  await publishGroupConversationMessage(id, live);
 
   return NextResponse.json(message);
 }

@@ -59,7 +59,7 @@ export async function PATCH(
     throw e;
   }
 
-  void publishDirectConversationRead(id, session.user.id);
+  await publishDirectConversationRead(id, session.user.id);
 
   return NextResponse.json({ ok: true });
 }

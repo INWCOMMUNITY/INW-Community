@@ -131,7 +131,7 @@ export async function POST(
       lastName: message.sender.lastName,
     },
   };
-  void publishResaleConversationMessage(id, live);
+  await publishResaleConversationMessage(id, live);
 
   return NextResponse.json(message);
 }

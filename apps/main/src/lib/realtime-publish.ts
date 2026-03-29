@@ -15,6 +15,7 @@ export type ChatPublishType =
   | "resale:read";
 
 let publishDisabledDevWarned = false;
+let publishDisabledProdWarned = false;
 
 function resolvePublishTarget(): { base: string; secret: string } {
   const isProd = process.env.NODE_ENV === "production";
@@ -35,6 +36,13 @@ async function publishChatEvent(type: ChatPublishType, conversationId: string, p
       console.warn(
         "[realtime-publish] Cannot push chat events (missing REALTIME_PUBLISH_URL in prod, or missing NEXTAUTH_SECRET / REALTIME_PUBLISH_SECRET for publish auth). " +
           "Clients can connect but will not receive live updates."
+      );
+    }
+    if (process.env.NODE_ENV === "production" && !publishDisabledProdWarned) {
+      publishDisabledProdWarned = true;
+      console.warn(
+        "[realtime-publish] Skipping live push: set REALTIME_PUBLISH_URL and REALTIME_PUBLISH_SECRET on Vercel (same values as Railway). " +
+          "Without them, messages save but other clients do not get socket updates."
       );
     }
     return;

@@ -279,9 +279,9 @@ export async function POST(
     }
   }
 
-  void publishDirectConversationMessage(id, liveDirectPayload(id, message));
+  await publishDirectConversationMessage(id, liveDirectPayload(id, message));
   if (botReply) {
-    void publishDirectConversationMessage(id, liveDirectPayload(id, botReply));
+    await publishDirectConversationMessage(id, liveDirectPayload(id, botReply));
   }
 
   return NextResponse.json(botReply ? { ...message, botReply } : message);
