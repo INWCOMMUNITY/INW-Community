@@ -43,6 +43,7 @@ interface FeedPostCardProps {
     videos?: string[];
     tags?: { id: string; name: string; slug: string }[];
     createdAt: string;
+    groupId?: string | null;
     author: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
     sourceBlog?: SourceBlog | null;
     sourceBusiness?: { id: string; name: string; slug: string; shortDescription: string | null; logoUrl: string | null } | null;
@@ -57,6 +58,10 @@ interface FeedPostCardProps {
   onLike: (postId: string) => void;
   onShare?: (postId: string) => void;
   onCommentAdded?: (postId: string) => void;
+  /** Current user id (for author actions). */
+  viewerUserId?: string | null;
+  onEditPost?: (post: FeedPostCardProps["post"]) => void;
+  onDeletePost?: (postId: string) => void;
 }
 
 function isVideoUrl(url: string) {
@@ -73,8 +78,17 @@ type CommentItem = {
   parentAuthorName?: string | null;
 };
 
-export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPostCardProps) {
+export function FeedPostCard({
+  post,
+  onLike,
+  onShare,
+  onCommentAdded,
+  viewerUserId,
+  onEditPost,
+  onDeletePost,
+}: FeedPostCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [postMenuOpen, setPostMenuOpen] = useState(false);
   const [showAllPhotos, setShowAllPhotos] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryMedia, setGalleryMedia] = useState<string[]>([]);
@@ -192,8 +206,59 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
               </div>
             </Link>
           )}
-          <div className="shrink-0 flex gap-1">
-            {/* Member badges placeholder - can add logic later */}
+          <div className="shrink-0 flex items-center gap-1">
+            {viewerUserId &&
+              (onEditPost || onDeletePost) &&
+              viewerUserId === post.author.id &&
+              !post.id.startsWith("example-") && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setPostMenuOpen((o) => !o)}
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-100"
+                    aria-label="Post options"
+                    aria-expanded={postMenuOpen}
+                  >
+                    <span className="text-xl leading-none">⋯</span>
+                  </button>
+                  {postMenuOpen && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Close menu"
+                        className="fixed inset-0 z-30 cursor-default"
+                        onClick={() => setPostMenuOpen(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+                        {onEditPost && (
+                          <button
+                            type="button"
+                            className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                            onClick={() => {
+                              setPostMenuOpen(false);
+                              onEditPost(post);
+                            }}
+                          >
+                            Edit post
+                          </button>
+                        )}
+                        {onDeletePost && (
+                          <button
+                            type="button"
+                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50"
+                            onClick={() => {
+                              setPostMenuOpen(false);
+                              onDeletePost(post.id);
+                            }}
+                          >
+                            Delete post
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
           </div>
         </div>
 
@@ -224,23 +289,6 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
                   />
                 </div>
               )}
-            </Link>
-          </div>
-        )}
-        {post.type === "shared_business" && post.sourceBusiness && (
-          <div className="border rounded p-4 bg-gray-50 mb-3">
-            <Link href={`/support-local/${post.sourceBusiness.slug}`} className="block hover:opacity-90">
-              <div className="flex gap-3">
-                {post.sourceBusiness.logoUrl && (
-                  <Image src={post.sourceBusiness.logoUrl} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded" quality={95} />
-                )}
-                <div>
-                  <h3 className="font-bold">{post.sourceBusiness.name}</h3>
-                  {post.sourceBusiness.shortDescription && (
-                    <p className="text-gray-700 text-sm mt-1 line-clamp-2">{post.sourceBusiness.shortDescription}</p>
-                  )}
-                </div>
-              </div>
             </Link>
           </div>
         )}
@@ -277,28 +325,63 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
         )}
         {post.type === "shared_post" && post.sourcePost && (
           <div className="border rounded p-4 bg-gray-50 mb-3">
-            <div className="flex items-center gap-2 mb-2">
-              {post.sourcePost.author.profilePhotoUrl ? (
-                <Image
-                  src={post.sourcePost.author.profilePhotoUrl}
-                  alt=""
-                  width={32}
-                  height={32}
-                  className="w-8 h-8 rounded-full object-cover"
-                  quality={95}
-                />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium text-gray-600">
-                  {post.sourcePost.author.firstName?.[0]}{post.sourcePost.author.lastName?.[0]}
-                </div>
-              )}
-              <Link href={`/members/${post.sourcePost.author.id}`} className="font-semibold text-gray-900 hover:underline">
-                {post.sourcePost.author.firstName} {post.sourcePost.author.lastName}
-              </Link>
-              <span className="text-gray-500 text-sm">
-                {new Date(post.sourcePost.createdAt).toLocaleDateString()}
-              </span>
-            </div>
+            <Link
+              href={`/my-community/posts/${post.sourcePost.id}`}
+              className="text-sm font-semibold mb-3 inline-block hover:underline"
+              style={{ color: "var(--color-primary)" }}
+            >
+              View original post
+            </Link>
+            {post.sourcePost.type === "shared_business" && post.sourcePost.sourceBusiness ? (
+              <div className="flex items-center gap-2 mb-2">
+                {post.sourcePost.sourceBusiness.logoUrl ? (
+                  <Image
+                    src={post.sourcePost.sourceBusiness.logoUrl}
+                    alt=""
+                    width={32}
+                    height={32}
+                    className="w-8 h-8 rounded-full object-cover shrink-0"
+                    quality={95}
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium text-gray-600 shrink-0">
+                    {post.sourcePost.sourceBusiness.name?.[0] ?? "?"}
+                  </div>
+                )}
+                <Link
+                  href={`/support-local/${post.sourcePost.sourceBusiness.slug}`}
+                  className="font-semibold text-gray-900 hover:underline min-w-0 truncate"
+                >
+                  {post.sourcePost.sourceBusiness.name}
+                </Link>
+                <span className="text-gray-500 text-sm shrink-0">
+                  {new Date(post.sourcePost.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mb-2">
+                {post.sourcePost.author.profilePhotoUrl ? (
+                  <Image
+                    src={post.sourcePost.author.profilePhotoUrl}
+                    alt=""
+                    width={32}
+                    height={32}
+                    className="w-8 h-8 rounded-full object-cover"
+                    quality={95}
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium text-gray-600">
+                    {post.sourcePost.author.firstName?.[0]}{post.sourcePost.author.lastName?.[0]}
+                  </div>
+                )}
+                <Link href={`/members/${post.sourcePost.author.id}`} className="font-semibold text-gray-900 hover:underline">
+                  {post.sourcePost.author.firstName} {post.sourcePost.author.lastName}
+                </Link>
+                <span className="text-gray-500 text-sm">
+                  {new Date(post.sourcePost.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+            )}
             {post.sourcePost.type === "shared_blog" && post.sourcePost.sourceBlog && (
               <div className="border rounded p-3 bg-white mb-2">
                 <Link href={`/blog/${post.sourcePost.sourceBlog.slug}`} className="block hover:opacity-90">
@@ -312,23 +395,6 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
                       <Image src={post.sourcePost.sourceBlog.photos[0]} alt="" fill className="object-cover rounded" sizes="(max-width: 768px) 100vw, 768px" quality={95} />
                     </div>
                   )}
-                </Link>
-              </div>
-            )}
-            {post.sourcePost.type === "shared_business" && post.sourcePost.sourceBusiness && (
-              <div className="border rounded p-3 bg-white mb-2">
-                <Link href={`/support-local/${post.sourcePost.sourceBusiness.slug}`} className="block hover:opacity-90">
-                  <div className="flex gap-2">
-                    {post.sourcePost.sourceBusiness.logoUrl && (
-                      <Image src={post.sourcePost.sourceBusiness.logoUrl} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded" quality={95} />
-                    )}
-                    <div>
-                      <h3 className="font-bold text-sm">{post.sourcePost.sourceBusiness.name}</h3>
-                      {post.sourcePost.sourceBusiness.shortDescription && (
-                        <p className="text-gray-600 text-xs line-clamp-1">{post.sourcePost.sourceBusiness.shortDescription}</p>
-                      )}
-                    </div>
-                  </div>
                 </Link>
               </div>
             )}
@@ -377,22 +443,22 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
             )}
             {(post.sourcePost.photos?.length ?? 0) + (post.sourcePost.videos?.length ?? 0) > 0 && (() => {
               const sourcePostMedia = [...(post.sourcePost!.photos ?? []), ...(post.sourcePost!.videos ?? [])];
-              const sourcePostDisplay = sourcePostMedia.slice(0, 4);
+              const originalHref = `/my-community/posts/${post.sourcePost!.id}`;
               return (
-                <div className="grid grid-cols-2 gap-1">
-                  {sourcePostDisplay.map((url, i) => (
-                    <button
+                <div className="mt-2 flex overflow-x-auto snap-x snap-mandatory gap-0 rounded border border-gray-200 bg-black/5 scroll-smooth max-w-full">
+                  {sourcePostMedia.map((url, i) => (
+                    <Link
                       key={i}
-                      type="button"
-                      onClick={() => openGallery(sourcePostMedia, i)}
-                      className="relative aspect-square w-full text-left rounded overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-gray-400 cursor-zoom-in"
+                      href={originalHref}
+                      className="snap-center shrink-0 w-full min-w-full aspect-square relative block focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                      aria-label={`Photo ${i + 1} — view original post`}
                     >
                       {isVideoUrl(url) ? (
                         <video src={url} className="w-full h-full object-cover pointer-events-none" />
                       ) : (
-                        <Image src={url} alt="" fill className="object-cover" sizes="(max-width: 640px) 50vw, 400px" quality={95} />
+                        <Image src={url} alt="" fill className="object-cover" sizes="100vw" quality={95} />
                       )}
-                    </button>
+                    </Link>
                   ))}
                 </div>
               );
@@ -564,7 +630,12 @@ export function FeedPostCard({ post, onLike, onShare, onCommentAdded }: FeedPost
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="text-sm">
-                      <span className="font-semibold text-gray-900">{c.member.firstName} {c.member.lastName}</span>
+                      <Link
+                        href={`/members/${c.member.id}`}
+                        className="font-semibold text-gray-900 hover:underline"
+                      >
+                        {c.member.firstName} {c.member.lastName}
+                      </Link>
                       {" "}
                       <span className="text-gray-700">{c.content}</span>
                     </p>

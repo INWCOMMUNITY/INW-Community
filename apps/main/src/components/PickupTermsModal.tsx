@@ -9,6 +9,7 @@ export interface PickupDetails {
   lastName: string;
   phone: string;
   email?: string;
+  preferredPickupDate?: string;
   preferredPickupTime?: string;
   note?: string;
   termsAcceptedAt?: string;
@@ -27,6 +28,7 @@ const emptyForm: PickupDetails = {
   lastName: "",
   phone: "",
   email: "",
+  preferredPickupDate: "",
   preferredPickupTime: "",
   note: "",
 };
@@ -50,6 +52,7 @@ export function PickupTermsModal({
         lastName: initialForm?.lastName ?? "",
         phone: initialForm?.phone ?? "",
         email: initialForm?.email ?? "",
+        preferredPickupDate: initialForm?.preferredPickupDate ?? "",
         preferredPickupTime: initialForm?.preferredPickupTime ?? "",
         note: initialForm?.note ?? "",
       });
@@ -80,6 +83,8 @@ export function PickupTermsModal({
       f.firstName.trim() &&
       f.lastName.trim() &&
       f.phone.trim() &&
+      (f.preferredPickupDate ?? "").trim() &&
+      (f.preferredPickupTime ?? "").trim() &&
       (!hasPolicy || termsAccepted);
     if (ok) {
       onSave({
@@ -200,11 +205,24 @@ export function PickupTermsModal({
             </div>
             <div>
               <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
-                Preferable Time of Pick Up
+                Estimated pickup date *
               </label>
               <input
                 type="text"
-                placeholder="e.g. Weekday mornings, Saturday after 2pm"
+                placeholder="e.g. 2025-03-28 or Fri Mar 28"
+                value={form.preferredPickupDate ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, preferredPickupDate: e.target.value }))}
+                className="w-full border rounded px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-primary)" }}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-0.5" style={{ color: "var(--color-text)" }}>
+                Estimated pickup time *
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 2:00–4:00 PM"
                 value={form.preferredPickupTime ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, preferredPickupTime: e.target.value }))}
                 className="w-full border rounded px-3 py-2 text-sm"

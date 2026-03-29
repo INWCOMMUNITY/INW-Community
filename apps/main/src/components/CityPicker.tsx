@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { PREBUILT_CITIES, filterPrebuiltCities } from "@/lib/prebuilt-cities";
+import { normalizeResidentCity } from "@/lib/city-utils";
 
 interface CityPickerProps {
   value: string;
@@ -65,7 +66,7 @@ export function CityPicker({
     if (search.trim()) {
       const matches = filterPrebuiltCities(search);
       const exact = matches.find((c) => c.toLowerCase() === search.trim().toLowerCase());
-      onChange(exact ? exact : search.trim());
+      onChange(normalizeResidentCity(exact ?? search.trim()));
     }
     setSearch("");
   }

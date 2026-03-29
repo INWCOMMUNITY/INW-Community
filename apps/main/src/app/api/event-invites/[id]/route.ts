@@ -33,10 +33,6 @@ export async function PATCH(
     return NextResponse.json({ error: "You can only respond to your own invitations" }, { status: 403 });
   }
 
-  if (invite.status !== "pending") {
-    return NextResponse.json({ error: "Invitation already responded to" }, { status: 400 });
-  }
-
   let body: z.infer<typeof bodySchema>;
   try {
     body = bodySchema.parse(await req.json());
@@ -51,6 +47,32 @@ export async function PATCH(
     where: { id: inviteId },
     data: { status: body.status },
   });
+
+  const enriched = await prisma.eventInvite.findUnique({
+    where: { id: inviteId },
+    select: {
+      inviterId: true,
+      event: { select: { title: true, slug: true } },
+      invitee: { select: { firstName: true, lastName: true } },
+    },
+  });
+  if (enriched?.event) {
+    const inviteeName =
+      [enriched.invitee?.firstName, enriched.invitee?.lastName].filter(Boolean).join(" ").trim() ||
+      "Someone";
+    const statusLabel =
+      body.status === "accepted" ? "Accepted" : body.status === "maybe" ? "Maybe" : "Declined";
+    const { sendPushNotification } = await import("@/lib/send-push-notification");
+    sendPushNotification(enriched.inviterId, {
+      title: "Invitation response",
+      body: `${inviteeName} responded to your invite for ${enriched.event.title}: ${statusLabel}`,
+      data: {
+        screen: "event_rsvp",
+        eventSlug: String(enriched.event.slug),
+        eventTitle: String(enriched.event.title),
+      },
+    }).catch(() => {});
+  }
 
   return NextResponse.json({ ok: true, status: body.status });
 }

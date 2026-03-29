@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 const APP_SCHEME = "inwcommunity://auth";
@@ -9,6 +10,12 @@ const PLANS = [
   { value: "sponsor", label: "Business" },
   { value: "seller", label: "Seller" },
 ] as const;
+
+function signUpHrefForPlan(p: (typeof PLANS)[number]["value"]): string {
+  if (p === "sponsor") return "/signup/business";
+  if (p === "seller") return "/signup/seller";
+  return "/signup";
+}
 
 function MobileLoginForm() {
   const searchParams = useSearchParams();
@@ -19,11 +26,13 @@ function MobileLoginForm() {
     PLANS.some((p) => p.value === planParam) ? planParam : "subscribe"
   );
   const [error, setError] = useState("");
+  const [loginFail, setLoginFail] = useState<null | "unknown_email" | "wrong_password">(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setLoginFail(null);
     setLoading(true);
     try {
       const res = await fetch("/api/auth/mobile-signin", {
@@ -37,7 +46,16 @@ function MobileLoginForm() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError((data.error as string) || "Sign in failed. Please try again.");
+        const errCode = typeof data.error === "string" ? data.error : "";
+        if (errCode === "EMAIL_NOT_FOUND") {
+          setLoginFail("unknown_email");
+          return;
+        }
+        if (errCode === "INVALID_PASSWORD") {
+          setLoginFail("wrong_password");
+          return;
+        }
+        setError(errCode || "Sign in failed. Please try again.");
         return;
       }
       if (!data.token) {
@@ -105,9 +123,24 @@ function MobileLoginForm() {
             ))}
           </select>
         </div>
-        {error && (
-          <p className="text-red-600 text-sm">{error}</p>
-        )}
+        {loginFail === "unknown_email" ? (
+          <div className="text-red-600 text-sm space-y-1">
+            <p>Email not recognized. New to NWC?</p>
+            <p>
+              <Link
+                href={signUpHrefForPlan(plan)}
+                className="font-semibold no-underline hover:opacity-90"
+                style={{ color: "var(--color-primary)" }}
+              >
+                Sign Up!
+              </Link>
+            </p>
+          </div>
+        ) : null}
+        {loginFail === "wrong_password" ? (
+          <p className="text-red-600 text-sm">Incorrect password.</p>
+        ) : null}
+        {error && !loginFail ? <p className="text-red-600 text-sm">{error}</p> : null}
         <button type="submit" className="btn w-full" disabled={loading}>
           {loading ? "Signing in…" : "Sign in"}
         </button>

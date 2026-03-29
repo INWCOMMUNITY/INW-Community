@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
 } from "react-native";
-import { StripeProvider, usePaymentSheet } from "@stripe/stripe-react-native";
+import { StripeProvider, usePaymentSheet, usePlatformPay } from "@stripe/stripe-react-native";
 import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
+import { logApplePayDiagnostics } from "@/lib/stripe-wallet-config";
 
 /** Single Connect payment: init + present inside a StripeProvider with stripeAccountId so the SDK finds the PI. */
 function ConnectSheetRunner({
@@ -21,11 +23,20 @@ function ConnectSheetRunner({
   onError: (message: string) => void;
 }) {
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
+  const { isPlatformPaySupported } = usePlatformPay();
   const ran = useRef(false);
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
     (async () => {
+      if (Platform.OS === "ios") {
+        const walletOk = await isPlatformPaySupported().catch(() => false);
+        if (!walletOk) {
+          logApplePayDiagnostics("store-connect", "isPlatformPaySupported returned false (Connect checkout)", {
+            hint: "Apple Pay on marketplace checkout uses the seller’s Stripe Connect account; the seller account must support wallets, and the app needs a valid Merchant ID.",
+          });
+        }
+      }
       const amountCents = payment.amountCents ?? 0;
       const applePayConfig: {
         merchantCountryCode: string;
@@ -33,15 +44,20 @@ function ConnectSheetRunner({
       } = { merchantCountryCode: "US" };
       if (amountCents > 0) {
         applePayConfig.cartItems = [
-          { paymentType: "Immediate", label: "Northwest Community", amount: (amountCents / 100).toFixed(2) },
+          {
+            paymentType: "Immediate",
+            label: "Northwest Community",
+            amount: (amountCents / 100).toFixed(2),
+          },
         ];
       }
       const { error: initErr } = await initPaymentSheet({
         merchantDisplayName: "Northwest Community",
         paymentIntentClientSecret: payment.clientSecret,
         returnURL: "mobile://stripe-redirect",
+        allowsDelayedPaymentMethods: false,
         applePay: applePayConfig,
-        googlePay: { merchantCountryCode: "US", testEnv: __DEV__ ?? false },
+        googlePay: { merchantCountryCode: "US", currencyCode: "USD", testEnv: __DEV__ ?? false },
         paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
         appearance: {
           colors: {
@@ -70,7 +86,16 @@ function ConnectSheetRunner({
       }
       onSuccess();
     })();
-  }, [payment.clientSecret, payment.orderIds, initPaymentSheet, presentPaymentSheet, onSuccess, onError]);
+  }, [
+    payment.clientSecret,
+    payment.orderIds,
+    payment.amountCents,
+    initPaymentSheet,
+    presentPaymentSheet,
+    onSuccess,
+    onError,
+    isPlatformPaySupported,
+  ]);
   return null;
 }
 
@@ -82,10 +107,14 @@ export interface StorefrontCheckoutPayload {
   shippingAddressVerifiedFromPlaces?: boolean;
   localDeliveryDetails?: unknown;
   cashOrderIds?: string[];
+  returnBaseUrl?: string;
 }
 
 interface StorefrontNativeCheckoutButtonProps {
-  payload: StorefrontCheckoutPayload;
+  /** Static payload (e.g. all card lines). Ignored when `getPayload` is set. */
+  payload?: StorefrontCheckoutPayload;
+  /** Build payload at tap time — use for mixed cash-then-card checkout. */
+  getPayload?: () => Promise<StorefrontCheckoutPayload>;
   onSuccess: (orderIds?: string[]) => void;
   onError: (message: string) => void;
   setCheckingOut: (v: boolean) => void;
@@ -98,6 +127,7 @@ interface StorefrontNativeCheckoutButtonProps {
 
 export function StorefrontNativeCheckoutButton({
   payload,
+  getPayload,
   onSuccess,
   onError,
   setCheckingOut,
@@ -107,6 +137,7 @@ export function StorefrontNativeCheckoutButton({
   onShippingAddressFormatted,
 }: StorefrontNativeCheckoutButtonProps) {
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
+  const { isPlatformPaySupported } = usePlatformPay();
   const [loading, setLoading] = useState(false);
   const [connectSheet, setConnectSheet] = useState<{ payments: { clientSecret: string; orderIds: string[]; stripeAccountId?: string; amountCents?: number }[]; index: number } | null>(null);
   const completedRef = useRef(false);
@@ -173,8 +204,34 @@ export function StorefrontNativeCheckoutButton({
     }, CHECKOUT_TIMEOUT_MS);
 
     try {
-      let checkoutPayload: StorefrontCheckoutPayload = payload;
-      const hasShipping = !!(payload.shippingAddress?.street && payload.shippingAddress?.city && payload.shippingAddress?.state && payload.shippingAddress?.zip);
+      let checkoutPayload: StorefrontCheckoutPayload;
+      try {
+        if (getPayload) {
+          checkoutPayload = await getPayload();
+        } else if (payload) {
+          checkoutPayload = payload;
+        } else {
+          onError("Checkout is not configured.");
+          setLoading(false);
+          setCheckingOut(false);
+          if (timeoutId != null) clearTimeout(timeoutId);
+          return;
+        }
+      } catch (prepErr: unknown) {
+        const err = prepErr as { error?: string; status?: number };
+        onError(err.error ?? "Checkout could not be started.");
+        setLoading(false);
+        setCheckingOut(false);
+        if (timeoutId != null) clearTimeout(timeoutId);
+        return;
+      }
+
+      const hasShipping = !!(
+        checkoutPayload.shippingAddress?.street &&
+        checkoutPayload.shippingAddress?.city &&
+        checkoutPayload.shippingAddress?.state &&
+        checkoutPayload.shippingAddress?.zip
+      );
       if (hasShipping) {
         type ValidateRes = {
           valid?: boolean;
@@ -184,10 +241,10 @@ export function StorefrontNativeCheckoutButton({
         };
         try {
           let validateData = await apiPost<ValidateRes>("/api/validate-address", {
-            street: payload.shippingAddress!.street,
-            city: payload.shippingAddress!.city,
-            state: payload.shippingAddress!.state,
-            zip: payload.shippingAddress!.zip,
+            street: checkoutPayload.shippingAddress!.street,
+            city: checkoutPayload.shippingAddress!.city,
+            state: checkoutPayload.shippingAddress!.state,
+            zip: checkoutPayload.shippingAddress!.zip,
             requireCarrierVerification: true,
           });
           if (!validateData.valid && validateData.suggestedFormatted) {
@@ -207,17 +264,17 @@ export function StorefrontNativeCheckoutButton({
             return;
           }
           checkoutPayload = {
-            ...payload,
+            ...checkoutPayload,
             shippingAddress: {
               ...validateData.formatted!,
-              aptOrSuite: payload.shippingAddress!.aptOrSuite?.trim() || undefined,
+              aptOrSuite: checkoutPayload.shippingAddress!.aptOrSuite?.trim() || undefined,
             },
           };
           onShippingAddressFormatted?.(checkoutPayload.shippingAddress!);
         } catch (validateErr: unknown) {
           const err = validateErr as { error?: string; status?: number };
           if (err.status === 503 && (err.error ?? "").toLowerCase().includes("temporarily unavailable")) {
-            checkoutPayload = { ...payload };
+            checkoutPayload = { ...checkoutPayload };
           } else {
             onError(err.error ?? "Address verification failed. Please try again.");
             setLoading(false);
@@ -255,6 +312,14 @@ export function StorefrontNativeCheckoutButton({
       }
 
       // Fallback when API doesn't return stripeAccountId (e.g. old backend).
+      if (Platform.OS === "ios") {
+        const walletOk = await isPlatformPaySupported().catch(() => false);
+        if (!walletOk) {
+          logApplePayDiagnostics("store-platform", "isPlatformPaySupported returned false", {
+            hint: "Verify Apple Pay capability, Merchant ID, and Wallet on device.",
+          });
+        }
+      }
       for (let i = 0; i < payments.length; i++) {
         const p = payments[i];
         const amountCents = p.amountCents ?? 0;
@@ -271,9 +336,11 @@ export function StorefrontNativeCheckoutButton({
           merchantDisplayName: "Northwest Community",
           paymentIntentClientSecret: p.clientSecret,
           returnURL: "mobile://stripe-redirect",
+          allowsDelayedPaymentMethods: false,
           applePay: applePayConfig,
           googlePay: {
             merchantCountryCode: "US",
+            currencyCode: "USD",
             testEnv: __DEV__ ?? false,
           },
           paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
@@ -371,6 +438,7 @@ export function StorefrontNativeCheckoutButton({
     }
   }, [
     payload,
+    getPayload,
     disabled,
     loading,
     initPaymentSheet,
@@ -378,6 +446,8 @@ export function StorefrontNativeCheckoutButton({
     onSuccess,
     onError,
     setCheckingOut,
+    onShippingAddressFormatted,
+    isPlatformPaySupported,
   ]);
 
   const isDisabled = disabled || loading;

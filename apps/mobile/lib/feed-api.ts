@@ -3,7 +3,7 @@
  * Uses API client with auth (Bearer token).
  */
 
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 
 export interface FeedPost {
   id: string;
@@ -41,13 +41,13 @@ export interface FeedPost {
     name: string;
     discount: string;
     code: string;
-    business: { name: string; slug: string };
+    business: { id: string; name: string; slug: string };
   } | null;
   sourceReward?: {
     id: string;
     title: string;
     pointsRequired: number;
-    business: { name: string; slug: string };
+    business: { id: string; name: string; slug: string };
   } | null;
   sourceStoreItem?: {
     id: string;
@@ -58,6 +58,8 @@ export interface FeedPost {
   } | null;
   sourcePost?: unknown;
   sourceGroup?: { id: string; name: string; slug: string } | null;
+  /** Present on API payloads for group posts; used when editing. */
+  groupId?: string | null;
   liked: boolean;
   likeCount: number;
   commentCount: number;
@@ -66,6 +68,23 @@ export interface FeedPost {
 export interface FeedResponse {
   posts: FeedPost[];
   nextCursor: string | null;
+}
+
+/** True if this post (including nested shared_post sources) promotes a business the viewer owns. */
+export function postTouchesViewerManagedBusinesses(post: FeedPost, businessIds: string[]): boolean {
+  if (!businessIds.length) return false;
+  const set = new Set(businessIds);
+  const walk = (p: FeedPost): boolean => {
+    if (p.sourceBusiness?.id && set.has(p.sourceBusiness.id)) return true;
+    if (p.sourceCoupon?.business?.id && set.has(p.sourceCoupon.business.id)) return true;
+    if (p.sourceReward?.business?.id && set.has(p.sourceReward.business.id)) return true;
+    const sp = p.sourcePost;
+    if (sp && typeof sp === "object" && sp !== null && "id" in sp) {
+      return walk(sp as FeedPost);
+    }
+    return false;
+  };
+  return walk(post);
 }
 
 export async function fetchFeed(cursor?: string): Promise<FeedResponse> {
@@ -78,6 +97,27 @@ export async function fetchFeed(cursor?: string): Promise<FeedResponse> {
   };
 }
 
+/** Posts authored by the current member (profile posts). Requires auth. */
+export async function fetchMyPosts(cursor?: string, limit = 30): Promise<FeedResponse> {
+  const params = new URLSearchParams({ limit: String(Math.min(limit, 100)) });
+  if (cursor) params.set("cursor", cursor);
+  const data = await apiGet<FeedResponse>(`/api/me/posts?${params}`);
+  return {
+    posts: data.posts ?? [],
+    nextCursor: data.nextCursor ?? null,
+  };
+}
+
+/** Single post (optional auth; 404 if viewer cannot see it; public posts work without a token). */
+export async function fetchPostById(id: string): Promise<FeedPost> {
+  const data = await apiGet<{ post: FeedPost }>(`/api/posts/${encodeURIComponent(id)}`);
+  const post = data?.post;
+  if (!post?.id) {
+    throw { error: "Post not found" } as { error: string };
+  }
+  return post;
+}
+
 /** Fetch feed for a single group (posts directly in that group). Requires membership. */
 export async function fetchGroupFeed(
   groupSlug: string,
@@ -87,6 +127,30 @@ export async function fetchGroupFeed(
   if (cursor) params.set("cursor", cursor);
   const data = await apiGet<FeedResponse>(
     `/api/groups/${encodeURIComponent(groupSlug)}/feed?${params}`
+  );
+  return {
+    posts: data.posts ?? [],
+    nextCursor: data.nextCursor ?? null,
+  };
+}
+
+/** Business Hub: posts authored as your businesses (shared_business). Requires Business Hub access. */
+export async function fetchBusinessHubBusinessPosts(cursor?: string): Promise<FeedResponse> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const data = await apiGet<FeedResponse>(`/api/business-hub/business-posts?${params}`);
+  return {
+    posts: data.posts ?? [],
+    nextCursor: data.nextCursor ?? null,
+  };
+}
+
+/** Feed of posts that reference this business listing or its coupons/rewards. */
+export async function fetchBusinessFeed(businessId: string, cursor?: string): Promise<FeedResponse> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const data = await apiGet<FeedResponse>(
+    `/api/businesses/${encodeURIComponent(businessId)}/feed?${params}`
   );
   return {
     posts: data.posts ?? [],
@@ -156,10 +220,31 @@ export interface CreatePostBody {
   videos?: string[];
   tags?: string[];
   taggedMemberIds?: string[];
+  /** When set, create this post as a group post (must be a member). */
+  groupId?: string | null;
   sharedItemType?: "business" | "coupon" | "reward" | "store_item";
   sharedItemId?: string;
 }
 
 export async function createPost(body: CreatePostBody): Promise<{ post?: FeedPost }> {
   return apiPost<{ post?: FeedPost }>("/api/posts", body);
+}
+
+export interface UpdatePostBody {
+  content?: string | null;
+  photos?: string[];
+  videos?: string[];
+  tags?: string[];
+  taggedMemberIds?: string[];
+}
+
+export async function updatePost(
+  postId: string,
+  body: UpdatePostBody
+): Promise<{ post?: FeedPost }> {
+  return apiPatch<{ post?: FeedPost }>(`/api/posts/${postId}`, body);
+}
+
+export async function deletePost(postId: string): Promise<void> {
+  await apiDelete(`/api/posts/${postId}`);
 }

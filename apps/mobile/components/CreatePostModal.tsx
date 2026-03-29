@@ -17,11 +17,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { getToken, apiUploadFile, apiGet } from "@/lib/api";
-import { createPost } from "@/lib/feed-api";
+import { createPost, updatePost, type FeedPost } from "@/lib/feed-api";
+import { useEventInvitePopupSuppression } from "@/contexts/EventInvitePopupSuppressionContext";
+import { ScaledImageFit } from "@/components/ScaledImageFit";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -55,6 +57,10 @@ interface CreatePostModalProps {
   onSuccess?: () => void;
   /** When set, post is created as a Business Post (posting as this business). Used when opening from Business Hub. */
   initialBusinessForPost?: { id: string; name: string } | null;
+  /** When set, post is created into this group. Used when opening from a group detail page. */
+  initialGroupId?: string | null;
+  /** When set, submit PATCHes this post (author-only on server). */
+  editingPost?: FeedPost | null;
 }
 
 export function CreatePostModal({
@@ -62,6 +68,8 @@ export function CreatePostModal({
   onClose,
   onSuccess,
   initialBusinessForPost,
+  initialGroupId = null,
+  editingPost = null,
 }: CreatePostModalProps) {
   const insets = useSafeAreaInsets();
   const [content, setContent] = useState("");
@@ -90,12 +98,45 @@ export function CreatePostModal({
   const [myBusinesses, setMyBusinesses] = useState<BusinessItem[]>([]);
   const [businessLoading, setBusinessLoading] = useState(false);
 
-  // When opened as "Business Post" from Business Hub, pre-set the business
+  const isEditing = !!editingPost;
+
+  const { incrementSuppression, decrementSuppression } = useEventInvitePopupSuppression();
   useEffect(() => {
-    if (visible && initialBusinessForPost) {
-      setSelectedBusiness({ id: initialBusinessForPost.id, name: initialBusinessForPost.name, slug: "" });
+    if (!visible) return;
+    incrementSuppression();
+    return () => decrementSuppression();
+  }, [visible, incrementSuppression, decrementSuppression]);
+
+  useEffect(() => {
+    if (!visible) return;
+    if (editingPost) {
+      setContent(editingPost.content ?? "");
+      setPhotos((editingPost.photos ?? []).map((u) => toFullUrl(u)));
+      setSelectedTags(editingPost.tags?.map((t) => t.name) ?? []);
+      setSelectedFriends([]);
+      setError("");
+      if (editingPost.type === "shared_business" && editingPost.sourceBusiness) {
+        setSelectedBusiness({
+          id: editingPost.sourceBusiness.id,
+          name: editingPost.sourceBusiness.name,
+          slug: editingPost.sourceBusiness.slug ?? "",
+        });
+      } else {
+        setSelectedBusiness(null);
+      }
+      return;
     }
-  }, [visible, initialBusinessForPost?.id]);
+    setContent("");
+    setPhotos([]);
+    setSelectedTags([]);
+    setSelectedFriends([]);
+    setError("");
+    setSelectedBusiness(
+      initialBusinessForPost
+        ? { id: initialBusinessForPost.id, name: initialBusinessForPost.name, slug: "" }
+        : null
+    );
+  }, [visible, editingPost?.id, initialBusinessForPost?.id, initialGroupId]);
 
   useEffect(() => {
     if (!tagPickerOpen) return;
@@ -215,21 +256,32 @@ export function CreatePostModal({
     }
     setSubmitting(true);
     try {
-      await createPost({
-        content: content.trim() || null,
-        photos: photos.length ? photos : undefined,
-        tags: selectedTags.length ? selectedTags : undefined,
-        taggedMemberIds: selectedFriends.length ? selectedFriends.map((f) => f.id) : undefined,
-        ...(selectedBusiness
-          ? { sharedItemType: "business" as const, sharedItemId: selectedBusiness.id }
-          : {}),
-      });
+      if (editingPost) {
+        await updatePost(editingPost.id, {
+          content: content.trim() || null,
+          photos,
+          tags: selectedTags,
+          taggedMemberIds: selectedFriends.map((f) => f.id),
+        });
+      } else {
+        await createPost({
+          content: content.trim() || null,
+          photos: photos.length ? photos : undefined,
+          tags: selectedTags.length ? selectedTags : undefined,
+          taggedMemberIds: selectedFriends.length ? selectedFriends.map((f) => f.id) : undefined,
+          ...(selectedBusiness
+            ? { sharedItemType: "business" as const, sharedItemId: selectedBusiness.id }
+            : {}),
+          ...(initialGroupId ? { groupId: initialGroupId } : {}),
+        });
+      }
       resetForm();
       onClose();
       onSuccess?.();
     } catch (e) {
       setError(
-        (e as { error?: string }).error ?? "Failed to create post. Try again."
+        (e as { error?: string }).error ??
+          (isEditing ? "Failed to update post. Try again." : "Failed to create post. Try again.")
       );
     } finally {
       setSubmitting(false);
@@ -300,7 +352,7 @@ export function CreatePostModal({
           >
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </Pressable>
-          <Text style={styles.headerTitle}>Create post</Text>
+          <Text style={styles.headerTitle}>{isEditing ? "Edit post" : "Create Post"}</Text>
           <Pressable
             onPress={handleSubmit}
             disabled={submitting || (!content.trim() && photos.length === 0)}
@@ -314,7 +366,7 @@ export function CreatePostModal({
             {submitting ? (
               <ActivityIndicator size="small" color={theme.colors.buttonText} />
             ) : (
-              <Text style={styles.submitBtnText}>Post</Text>
+              <Text style={styles.submitBtnText}>{isEditing ? "Save" : "Post"}</Text>
             )}
           </Pressable>
         </View>
@@ -374,11 +426,16 @@ export function CreatePostModal({
             <View style={styles.chipRow}>
               <Pressable
                 style={styles.chip}
-                onPress={() => setSelectedBusiness(null)}
+                onPress={() => {
+                  if (isEditing && editingPost?.type === "shared_business") return;
+                  setSelectedBusiness(null);
+                }}
               >
                 <Ionicons name="storefront" size={12} color={theme.colors.primary} />
                 <Text style={styles.chipText}>{selectedBusiness.name}</Text>
-                <Ionicons name="close-circle" size={14} color="#999" />
+                {!(isEditing && editingPost?.type === "shared_business") ? (
+                  <Ionicons name="close-circle" size={14} color="#999" />
+                ) : null}
               </Pressable>
             </View>
           )}
@@ -391,7 +448,7 @@ export function CreatePostModal({
             >
               {photos.map((uri, i) => (
                 <View key={uri} style={styles.photoWrap}>
-                  <Image source={{ uri }} style={styles.photo} />
+                  <ScaledImageFit uri={uri} maxWidth={100} maxHeight={100} style={styles.photoFit} />
                   <Pressable
                     style={styles.removePhoto}
                     onPress={() => removePhoto(i)}
@@ -444,16 +501,18 @@ export function CreatePostModal({
               <Text style={styles.actionBtnText}>Tag Friends</Text>
             </Pressable>
 
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-              onPress={() => {
-                setBusinessPickerOpen(true);
-                loadBusinesses();
-              }}
-            >
-              <Ionicons name="storefront" size={18} color={theme.colors.primary} />
-              <Text style={styles.actionBtnText}>Tag Business</Text>
-            </Pressable>
+            {!isEditing ? (
+              <Pressable
+                style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
+                onPress={() => {
+                  setBusinessPickerOpen(true);
+                  loadBusinesses();
+                }}
+              >
+                <Ionicons name="storefront" size={18} color={theme.colors.primary} />
+                <Text style={styles.actionBtnText}>Tag Business</Text>
+              </Pressable>
+            ) : null}
           </View>
 
           {error ? (
@@ -730,10 +789,9 @@ const styles = StyleSheet.create({
     marginRight: 12,
     position: "relative",
   },
-  photo: {
-    width: 100,
-    height: 100,
+  photoFit: {
     borderRadius: 8,
+    overflow: "hidden",
   },
   removePhoto: {
     position: "absolute",

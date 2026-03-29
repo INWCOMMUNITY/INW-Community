@@ -1,8 +1,74 @@
-import { useCallback, useState } from "react";
-import { Alert, Pressable, Text, ActivityIndicator, StyleSheet } from "react-native";
-import { usePaymentSheet } from "@stripe/stripe-react-native";
+import { useCallback, useState, useEffect } from "react";
+import { Alert, Pressable, Text, ActivityIndicator, StyleSheet, Platform } from "react-native";
+import { usePaymentSheet, PlatformPay, usePlatformPay } from "@stripe/stripe-react-native";
 import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
+import { logApplePayDiagnostics, stripeWalletSiteBase } from "@/lib/stripe-wallet-config";
+import {
+  syncStripeSubscriptionsFromClient,
+  waitForMemberPlanAfterCheckout,
+} from "@/lib/subscription-checkout-entitlements";
+import { useEventInvitePopupSuppression } from "@/contexts/EventInvitePopupSuppressionContext";
+
+type ApplePayPresentation = {
+  amountCents: number;
+  currency: string;
+  intervalUnit: "month" | "year";
+  intervalCount: number;
+  planLabel: string;
+};
+
+function iosMajorVersion(): number {
+  if (Platform.OS !== "ios") return 0;
+  const v = Platform.Version;
+  if (typeof v === "number") return Math.floor(v);
+  const head = String(v).split(".")[0];
+  return parseInt(head, 10) || 0;
+}
+
+function buildApplePayConfig(presentation: ApplePayPresentation | undefined) {
+  const base = { merchantCountryCode: "US" as const };
+  if (Platform.OS !== "ios" || !presentation) {
+    return base;
+  }
+
+  if (iosMajorVersion() < 16) {
+    return base;
+  }
+
+  const amountStr =
+    presentation.amountCents > 0 ? (presentation.amountCents / 100).toFixed(2) : "0.00";
+  const managementUrl = `${stripeWalletSiteBase()}/my-community/subscriptions`;
+  const intervalUnit =
+    presentation.intervalUnit === "year"
+      ? PlatformPay.IntervalUnit.Year
+      : PlatformPay.IntervalUnit.Month;
+  const intervalPhrase =
+    presentation.intervalUnit === "year"
+      ? presentation.intervalCount > 1
+        ? `every ${presentation.intervalCount} years`
+        : "every year"
+      : presentation.intervalCount > 1
+        ? `every ${presentation.intervalCount} months`
+        : "every month";
+
+  return {
+    ...base,
+    request: {
+      type: PlatformPay.PaymentRequestType.Recurring,
+      description: `${presentation.planLabel} (${intervalPhrase})`,
+      managementUrl,
+      billingAgreement: `You will be charged ${amountStr} USD ${intervalPhrase} for ${presentation.planLabel}. You can manage or cancel your membership on our website.`,
+      billing: {
+        paymentType: PlatformPay.PaymentType.Recurring,
+        intervalUnit,
+        intervalCount: Math.max(1, presentation.intervalCount),
+        label: presentation.planLabel,
+        amount: amountStr,
+      },
+    },
+  };
+}
 
 interface SubscriptionCheckoutSheetProps {
   planId: "subscribe" | "sponsor" | "seller";
@@ -11,6 +77,8 @@ interface SubscriptionCheckoutSheetProps {
   onSuccess: () => void;
   onError?: (message: string) => void;
   refreshMember?: () => Promise<void>;
+  /** Called immediately before presenting payment UI (native sheet or external browser). */
+  onCheckoutUiOpening?: () => void;
 }
 
 export function SubscriptionCheckoutSheet({
@@ -20,9 +88,26 @@ export function SubscriptionCheckoutSheet({
   onSuccess,
   onError,
   refreshMember,
+  onCheckoutUiOpening,
 }: SubscriptionCheckoutSheetProps) {
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
+  const { isPlatformPaySupported } = usePlatformPay();
   const [loading, setLoading] = useState(false);
+  const { incrementSuppression, decrementSuppression } = useEventInvitePopupSuppression();
+  useEffect(() => {
+    if (!loading) return;
+    incrementSuppression();
+    return () => decrementSuppression();
+  }, [loading, incrementSuppression, decrementSuppression]);
+
+  const finalizeAfterPayment = useCallback(async () => {
+    await syncStripeSubscriptionsFromClient();
+    await waitForMemberPlanAfterCheckout(planId);
+    if (refreshMember) {
+      await refreshMember().catch(() => {});
+    }
+    onSuccess();
+  }, [planId, refreshMember, onSuccess]);
 
   const handleCheckout = useCallback(async () => {
     setLoading(true);
@@ -34,6 +119,7 @@ export function SubscriptionCheckoutSheet({
         subscriptionId?: string;
         completed?: boolean;
         error?: string;
+        applePayPresentation?: ApplePayPresentation;
       }>("/api/stripe/mobile-subscription-setup", {
         planId,
         interval: interval ?? "monthly",
@@ -41,8 +127,10 @@ export function SubscriptionCheckoutSheet({
       });
 
       if (data.completed) {
+        await syncStripeSubscriptionsFromClient();
+        await waitForMemberPlanAfterCheckout(planId);
         if (refreshMember) {
-          await refreshMember();
+          await refreshMember().catch(() => {});
         }
         onSuccess();
         return;
@@ -61,6 +149,17 @@ export function SubscriptionCheckoutSheet({
         return;
       }
 
+      const applePay = buildApplePayConfig(data.applePayPresentation);
+
+      if (Platform.OS === "ios") {
+        const walletOk = await isPlatformPaySupported().catch(() => false);
+        if (!walletOk) {
+          logApplePayDiagnostics("subscription", "isPlatformPaySupported returned false", {
+            hint: "Check Xcode Apple Pay capability, Merchant ID vs EXPO_PUBLIC_STRIPE_MERCHANT_IDENTIFIER, and a device signed into Wallet.",
+          });
+        }
+      }
+
       const { error: initError } = await initPaymentSheet({
         merchantDisplayName: "Northwest Community",
         paymentIntentClientSecret: data.clientSecret,
@@ -68,11 +167,14 @@ export function SubscriptionCheckoutSheet({
         customerEphemeralKeySecret: data.ephemeralKey,
         allowsDelayedPaymentMethods: true,
         returnURL: "mobile://stripe-redirect",
-        applePay: { merchantCountryCode: "US" },
+        // Stripe RN types expect a narrowed RecurringPaymentRequest literal; runtime shape matches ApplePayParams.
+        applePay: applePay as import("@stripe/stripe-react-native/lib/typescript/src/types/PaymentSheet").ApplePayParams,
         googlePay: {
           merchantCountryCode: "US",
+          currencyCode: (data.applePayPresentation?.currency ?? "usd").toUpperCase(),
           testEnv: __DEV__ ?? false,
         },
+        paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
         appearance: {
           colors: {
             primary: "#505542",
@@ -92,6 +194,8 @@ export function SubscriptionCheckoutSheet({
         return;
       }
 
+      onCheckoutUiOpening?.();
+
       const { error: presentError } = await presentPaymentSheet();
 
       if (presentError) {
@@ -102,17 +206,7 @@ export function SubscriptionCheckoutSheet({
         return;
       }
 
-      if (refreshMember) {
-        const maxAttempts = 3;
-        const delayMs = 2000;
-        for (let i = 0; i < maxAttempts; i++) {
-          await refreshMember();
-          if (i < maxAttempts - 1) {
-            await new Promise((r) => setTimeout(r, delayMs));
-          }
-        }
-      }
-      onSuccess();
+      await finalizeAfterPayment();
     } catch (e) {
       const err = e as { error?: string; status?: number };
       let msg = err.error ?? "Checkout failed. Please try again.";
@@ -133,6 +227,9 @@ export function SubscriptionCheckoutSheet({
     onSuccess,
     onError,
     refreshMember,
+    onCheckoutUiOpening,
+    finalizeAfterPayment,
+    isPlatformPaySupported,
   ]);
 
   return (

@@ -176,7 +176,7 @@ export default function MyItemsScreen() {
     setMenuItemId(null);
     Alert.alert(
       "Remove listing",
-      "Remove this listing? This cannot be undone.",
+      "This permanently deletes the listing from the storefront. To keep a record and allow relisting later, use Mark as sold instead.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -187,6 +187,7 @@ export default function MyItemsScreen() {
             try {
               await apiDelete(`/api/store-items/${id}`);
               setItems((prev) => prev.filter((i) => i.id !== id));
+              load();
             } catch (e) {
               const err = e as { error?: string };
               Alert.alert("Error", err.error ?? "Failed to delete");

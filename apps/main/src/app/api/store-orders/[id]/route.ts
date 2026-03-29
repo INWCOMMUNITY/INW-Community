@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import {
+  isLocalDeliveryFullyConfirmed,
+  isPickupFullyConfirmed,
+  nextStatusAfterFulfillmentConfirmations,
+  orderHasShippedLine,
+  orderPaymentLabel,
+} from "@/lib/store-order-fulfillment";
+import { tryReleaseBuyerPointsForOrder } from "@/lib/store-order-buyer-points";
 
 export async function GET(
   _req: NextRequest,
@@ -38,6 +46,8 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const paymentLabel = orderPaymentLabel(order);
+
     // For buyer: do not expose stripePaymentIntentId; add isCashOrder for UI (cancel vs request refund).
     if (order.buyerId === userId) {
       const { stripePaymentIntentId, ...rest } = order;
@@ -45,11 +55,13 @@ export async function GET(
         ...rest,
         isCashOrder: !stripePaymentIntentId,
         orderNumber: order.id.slice(-8).toUpperCase(),
+        paymentLabel,
       });
     }
     return NextResponse.json({
       ...order,
       orderNumber: order.id.slice(-8).toUpperCase(),
+      paymentLabel,
     });
   } catch (e) {
     console.error("[store-orders GET]", e);
@@ -71,56 +83,138 @@ export async function PATCH(
   const { id } = await params;
   const existing = await prisma.storeOrder.findUnique({
     where: { id },
+    include: { items: { select: { fulfillmentType: true } } },
   });
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (existing.sellerId !== userId) {
+  const prevStatus: string = existing.status;
+  const isSeller = existing.sellerId === userId;
+  const isBuyer = existing.buyerId === userId;
+  if (!isSeller && !isBuyer) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  let body: { status?: string; deliveryConfirmed?: boolean };
+  let body: {
+    status?: string;
+    deliveryConfirmed?: boolean;
+    pickupSellerConfirmed?: boolean;
+    pickupBuyerConfirmed?: boolean;
+    deliveryBuyerConfirmed?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const update: { status?: string; deliveryConfirmedAt?: Date | null } = {};
-  if (body.deliveryConfirmed === true) {
-    update.deliveryConfirmedAt = new Date();
-  }
-  if (body.status) {
-    const validStatuses = ["paid", "shipped", "delivered", "refunded", "canceled"];
-    if (!validStatuses.includes(body.status)) {
-      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
-    }
-    // Only allow shipping/delivery transitions from the correct prior status
-    if (body.status === "shipped" && existing.status !== "paid") {
-      return NextResponse.json(
-        { error: "Order must be paid before it can be marked shipped." },
-        { status: 400 }
-      );
-    }
-    if (body.status === "delivered" && existing.status !== "shipped") {
-      return NextResponse.json(
-        { error: "Order must be shipped before it can be marked delivered." },
-        { status: 400 }
-      );
-    }
-    update.status = body.status;
+  if (!["paid", "shipped", "delivered"].includes(prevStatus)) {
+    return NextResponse.json(
+      { error: "This order cannot be updated (must be paid, shipped, or delivered)." },
+      { status: 400 }
+    );
   }
 
-  if (Object.keys(update).length === 0) {
+  const data: {
+    status?: string;
+    deliveryConfirmedAt?: Date;
+    deliveryBuyerConfirmedAt?: Date;
+    pickupSellerConfirmedAt?: Date;
+    pickupBuyerConfirmedAt?: Date;
+  } = {};
+
+  if (isBuyer) {
+    if (
+      body.status !== undefined ||
+      body.deliveryConfirmed !== undefined ||
+      body.pickupSellerConfirmed !== undefined
+    ) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (body.pickupBuyerConfirmed === true) {
+      data.pickupBuyerConfirmedAt = new Date();
+    }
+    if (body.deliveryBuyerConfirmed === true) {
+      data.deliveryBuyerConfirmedAt = new Date();
+    }
+  }
+
+  if (isSeller) {
+    if (body.pickupBuyerConfirmed !== undefined || body.deliveryBuyerConfirmed !== undefined) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (body.deliveryConfirmed === true) {
+      data.deliveryConfirmedAt = new Date();
+    }
+    if (body.pickupSellerConfirmed === true) {
+      data.pickupSellerConfirmedAt = new Date();
+    }
+    if (body.status) {
+      const validStatuses = ["shipped", "delivered"];
+      if (!validStatuses.includes(body.status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+      }
+      if (!orderHasShippedLine(existing.items)) {
+        return NextResponse.json(
+          { error: "This order does not use shipped status; use pickup or delivery confirmations." },
+          { status: 400 }
+        );
+      }
+      if (body.status === "shipped") {
+        if (prevStatus !== "paid") {
+          return NextResponse.json(
+            { error: "Order must be paid before it can be marked shipped." },
+            { status: 400 }
+          );
+        }
+        data.status = "shipped";
+      } else if (body.status === "delivered") {
+        if (prevStatus !== "shipped") {
+          return NextResponse.json(
+            { error: "Order must be shipped before it can be marked delivered." },
+            { status: 400 }
+          );
+        }
+        data.status = "delivered";
+      }
+    }
+  }
+
+  const merged = {
+    ...existing,
+    ...data,
+    deliveryConfirmedAt: data.deliveryConfirmedAt ?? existing.deliveryConfirmedAt,
+    deliveryBuyerConfirmedAt: data.deliveryBuyerConfirmedAt ?? existing.deliveryBuyerConfirmedAt,
+    pickupSellerConfirmedAt: data.pickupSellerConfirmedAt ?? existing.pickupSellerConfirmedAt,
+    pickupBuyerConfirmedAt: data.pickupBuyerConfirmedAt ?? existing.pickupBuyerConfirmedAt,
+  };
+  const autoStatus = nextStatusAfterFulfillmentConfirmations(merged, existing.items);
+  if (autoStatus) {
+    data.status = autoStatus;
+  }
+
+  if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "No valid update" }, { status: 400 });
   }
 
   const order = await prisma.storeOrder.update({
     where: { id },
-    data: update,
+    data,
   });
+
+  await tryReleaseBuyerPointsForOrder(id);
+
+  const deliveryJustCompleted =
+    isLocalDeliveryFullyConfirmed(order) &&
+    !(existing.deliveryConfirmedAt && existing.deliveryBuyerConfirmedAt);
+  const pickupJustCompleted =
+    isPickupFullyConfirmed(order) &&
+    !(existing.pickupSellerConfirmedAt && existing.pickupBuyerConfirmedAt);
+
+  const statusBecameDelivered =
+    order.status === "delivered" && (prevStatus === "paid" || prevStatus === "shipped");
   const shouldAwardBadges =
-    (update.status === "delivered" || update.deliveryConfirmedAt) && order.sellerId;
+    order.sellerId && (statusBecameDelivered || deliveryJustCompleted || pickupJustCompleted);
 
   let earnedBadges: { slug: string; name: string; description: string }[] = [];
   if (shouldAwardBadges) {

@@ -1,6 +1,7 @@
 import { prisma } from "database";
 
-const REWARD_PLACEHOLDER_TITLE = "__NWC_REWARD_FULFILLMENT__";
+/** Internal listing title — exclude from seller "sold items" and storefront browsing. */
+export const REWARD_PLACEHOLDER_TITLE = "__NWC_REWARD_FULFILLMENT__";
 
 /**
  * Internal StoreItem used only for reward redemptions that need shipping (seller order line + Shippo flow).

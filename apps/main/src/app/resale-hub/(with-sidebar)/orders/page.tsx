@@ -1,16 +1,7 @@
-"use client";
+import { redirectSellerFromResaleHubTo } from "@/lib/resale-hub-seller-redirect";
+import { ResaleHubOrdersClient } from "./ResaleHubOrdersClient";
 
-import { StorefrontOrdersContent } from "@/components/StorefrontOrdersContent";
-
-export default function ResaleHubOrdersPage() {
-  return (
-    <StorefrontOrdersContent
-      backHref="/resale-hub"
-      backLabel="Back to Resale Hub"
-      title="Resale Orders"
-      ordersBasePath="/resale-hub/orders"
-      shippingSetupHref="/seller-hub/shipping-setup"
-      loginCallbackUrl="/resale-hub/orders"
-    />
-  );
+export default async function ResaleHubOrdersPage() {
+  await redirectSellerFromResaleHubTo("/seller-hub/orders");
+  return <ResaleHubOrdersClient />;
 }

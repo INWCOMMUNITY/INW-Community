@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
+import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
@@ -41,7 +42,8 @@ function slugify(s: string): string {
 
 async function createBusinessDraftInDb(
   memberId: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  planId: "subscribe" | "sponsor" | "seller"
 ): Promise<string | undefined> {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const city = typeof data.city === "string" ? data.city.trim() : "";
@@ -56,6 +58,17 @@ async function createBusinessDraftInDb(
   if (!activeSub) {
     await prisma.business.deleteMany({ where: { memberId } });
   }
+
+  // Business → Seller: reuse Business Hub profile; do not create a second business from checkout form.
+  if (planId === "seller") {
+    const existingBusiness = await prisma.business.findFirst({
+      where: { memberId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (existingBusiness) return existingBusiness.id;
+  }
+
   const existingCount = await prisma.business.count({ where: { memberId } });
   if (existingCount >= 2) return undefined;
 
@@ -80,7 +93,9 @@ async function createBusinessDraftInDb(
       categories,
       subcategoriesByPrimary: normalizeSubcategoriesByPrimary(categories, data.subcategoriesByPrimary),
       slug,
-      photos: Array.isArray(data.photos) ? (data.photos as string[]).filter(Boolean) : [],
+      photos: Array.isArray(data.photos)
+        ? (data.photos as string[]).filter(Boolean).slice(0, MAX_BUSINESS_GALLERY_PHOTOS)
+        : [],
       hoursOfOperation: data.hoursOfOperation && typeof data.hoursOfOperation === "object" ? (data.hoursOfOperation as Record<string, string>) : undefined,
     },
   });
@@ -148,7 +163,7 @@ export async function POST(req: NextRequest) {
       Object.keys(businessData).length > 0
     ) {
       try {
-        const businessId = await createBusinessDraftInDb(session.user.id, businessData);
+        const businessId = await createBusinessDraftInDb(session.user.id, businessData, planKey);
         if (businessId) metadata.businessId = businessId;
       } catch (bErr) {
         console.error("[stripe/checkout] business draft create:", bErr);
@@ -157,6 +172,7 @@ export async function POST(req: NextRequest) {
     const existingStripeCustomerId = await resolveStripeCustomerIdForMember(session.user.id);
     const params: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
+      payment_method_types: ["card", "link"],
       ...(existingStripeCustomerId
         ? { customer: existingStripeCustomerId }
         : { customer_email: session.user.email }),

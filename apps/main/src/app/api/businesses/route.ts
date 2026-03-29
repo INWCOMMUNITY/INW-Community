@@ -4,6 +4,7 @@ import {
   businessDisplayCityEquals,
   deduplicateCities,
   extractBusinessDisplayCity,
+  normalizeResidentCity,
 } from "@/lib/city-utils";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateText, containsProfanity } from "@/lib/content-moderation";
@@ -16,8 +17,10 @@ import {
 import { z } from "zod";
 import {
   NWC_PAID_PLAN_ACCESS_STATUSES,
+  prismaWhereMemberSellerPlanAccess,
   prismaWhereMemberSponsorOrSellerPlanAccess,
 } from "@/lib/nwc-paid-subscription";
+import { linkAllUnscopedStoreItemsToBusiness } from "@/lib/migrate-resale-items-for-seller-plan";
 import { photosExcludingLogo } from "@/lib/business-photos";
 
 export async function GET(req: NextRequest) {
@@ -201,7 +204,7 @@ const bodySchema = z.object({
   city: z.string().min(1, "City is required"),
   categories: z.array(z.string().min(1)).min(1, "At least one category is required").max(2, "Maximum 2 categories"),
   subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
-  photos: z.array(z.string()).optional(),
+  photos: z.array(z.string()).max(12, "Maximum 12 gallery photos").optional(),
   hoursOfOperation: hoursSchema,
 });
 
@@ -258,6 +261,10 @@ export async function POST(req: NextRequest) {
     while (await prisma.business.findUnique({ where: { slug } })) {
       slug = `${slugify(data.name)}-${++suffix}`;
     }
+    const isFirstBusiness = existingCount === 0;
+
+    const cityStored = normalizeResidentCity(data.city.trim());
+
     const business = await prisma.business.create({
       data: {
         memberId: session.user.id,
@@ -269,7 +276,7 @@ export async function POST(req: NextRequest) {
         email: data.email ?? null,
         logoUrl: data.logoUrl ?? null,
         address: data.address ?? null,
-        city: data.city ?? null,
+        city: cityStored,
         categories: data.categories ?? [],
         subcategoriesByPrimary: data.subcategoriesByPrimary,
         slug,
@@ -287,6 +294,14 @@ export async function POST(req: NextRequest) {
         snippet: data.name,
         authorId: session.user.id,
       });
+    }
+    if (isFirstBusiness) {
+      const sellerPlan = await prisma.subscription.findFirst({
+        where: prismaWhereMemberSellerPlanAccess(session.user.id),
+      });
+      if (sellerPlan) {
+        await linkAllUnscopedStoreItemsToBusiness(session.user.id, business.id);
+      }
     }
     const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
     awardBusinessSignupBadges(business.id).catch(() => {});

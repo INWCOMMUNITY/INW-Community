@@ -22,6 +22,7 @@ interface StoreItem {
   id: string;
   title: string;
   slug: string;
+  status?: string;
   description: string | null;
   photos: string[];
   category: string | null;
@@ -99,7 +100,9 @@ export default function ResaleProductDetailPage() {
     firstName: "",
     lastName: "",
     phone: "",
+    email: "",
     deliveryAddress: { street: "", city: "", state: "", zip: "" },
+    availableDropOffTimes: "",
     note: "",
   });
   const [localDeliveryDetailsSaved, setLocalDeliveryDetailsSaved] = useState(false);
@@ -109,6 +112,7 @@ export default function ResaleProductDetailPage() {
     lastName: "",
     phone: "",
     email: "",
+    preferredPickupDate: "",
     preferredPickupTime: "",
     note: "",
   });
@@ -344,7 +348,9 @@ export default function ResaleProductDetailPage() {
           firstName: localDeliveryForm.firstName ?? "",
           lastName: localDeliveryForm.lastName ?? "",
           phone: localDeliveryForm.phone ?? "",
+          email: localDeliveryForm.email ?? "",
           deliveryAddress: localDeliveryForm.deliveryAddress ?? { street: "", city: "", state: "", zip: "" },
+          availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
           note: localDeliveryForm.note ?? "",
           termsAcceptedAt: new Date().toISOString(),
         };
@@ -356,6 +362,7 @@ export default function ResaleProductDetailPage() {
           lastName: pickupForm.lastName ?? "",
           phone: pickupForm.phone ?? "",
           email: pickupForm.email ?? "",
+          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
           preferredPickupTime: pickupForm.preferredPickupTime ?? "",
           note: pickupForm.note ?? "",
           termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
@@ -421,7 +428,9 @@ export default function ResaleProductDetailPage() {
           firstName: localDeliveryForm.firstName ?? "",
           lastName: localDeliveryForm.lastName ?? "",
           phone: localDeliveryForm.phone ?? "",
+          email: localDeliveryForm.email ?? "",
           deliveryAddress: localDeliveryForm.deliveryAddress ?? { street: "", city: "", state: "", zip: "" },
+          availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
           note: localDeliveryForm.note ?? "",
           termsAcceptedAt: new Date().toISOString(),
         };
@@ -433,6 +442,7 @@ export default function ResaleProductDetailPage() {
           lastName: pickupForm.lastName ?? "",
           phone: pickupForm.phone ?? "",
           email: pickupForm.email ?? "",
+          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
           preferredPickupTime: pickupForm.preferredPickupTime ?? "",
           note: pickupForm.note ?? "",
           termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
@@ -616,12 +626,16 @@ export default function ResaleProductDetailPage() {
         <Link href={RESALE_BASE} className="text-sm text-gray-600 hover:underline mb-4 inline-block">
           ← Back to Resale
         </Link>
-        {itemUnavailable && (
+        {itemUnavailable && item && (
           <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
             <p className="text-amber-800 font-semibold">
-              {item?.soldAt
-                ? `This item was sold on ${new Date(item.soldAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`
-                : "This item was sold."}
+              {item.status === "sold_out" || item.soldAt
+                ? item.soldAt
+                  ? `This item was sold on ${new Date(item.soldAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`
+                  : "This item was sold."
+                : item.status === "inactive"
+                  ? "This listing has ended."
+                  : "This listing is not available for purchase right now."}
             </p>
           </div>
         )}
@@ -766,12 +780,14 @@ export default function ResaleProductDetailPage() {
             firstName: localDeliveryForm.firstName ?? "",
             lastName: localDeliveryForm.lastName ?? "",
             phone: localDeliveryForm.phone ?? "",
+            email: localDeliveryForm.email ?? "",
             deliveryAddress: {
               street: localDeliveryForm.deliveryAddress?.street ?? "",
               city: localDeliveryForm.deliveryAddress?.city ?? "",
               state: localDeliveryForm.deliveryAddress?.state ?? "",
               zip: localDeliveryForm.deliveryAddress?.zip ?? "",
             },
+            availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
             note: localDeliveryForm.note ?? "",
           }}
           onSave={(form) => {
@@ -789,6 +805,7 @@ export default function ResaleProductDetailPage() {
             lastName: pickupForm.lastName ?? "",
             phone: pickupForm.phone ?? "",
             email: pickupForm.email ?? "",
+            preferredPickupDate: pickupForm.preferredPickupDate ?? "",
             preferredPickupTime: pickupForm.preferredPickupTime ?? "",
             note: pickupForm.note ?? "",
           }}

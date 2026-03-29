@@ -112,3 +112,38 @@ Test on a **custom build** (EAS/TestFlight), not Expo Go (camera scanner is not 
 
 5. **Submit**  
    Submit the build. In Review Notes you can add: “Demo login uses email + password. Parental Controls and Age Assurance set to None. App Privacy updated (no tracking).”
+
+---
+
+## 6. Guideline 1.2 – User-generated content (block, report, terms)
+
+### 6.1 In the app (this repo)
+
+- **Legal docs:** Terms of Service and Privacy Policy (`apps/main/src/lib/terms-content.ts`, `apps/main/src/lib/privacy-content.ts`) were updated **March 24, 2026** to cover the in-app community acknowledgment, member blocking, related moderation reports, and on-device vs server data. Regenerate PDFs if you distribute them (`pnpm` script in `apps/main/scripts/export-policy-pdfs.ts`).
+
+- **Terms before the Community feed:** The first time someone opens the **Community** tab, they must accept a short **community / UGC** screen that explains reporting and blocking and links to **Terms** and **Privacy**. Acceptance is stored on the device (`AsyncStorage` key `nwc_community_ugc_terms_v1`).
+- **Block user:** On each post’s **⋯** menu, **Block user** is shown for signed-in members (including on your **own** posts; choosing it on yourself shows an explanation—use **another member’s post** in the review video to show a real block). Blocking calls `POST /api/members/block`, submits a report with details `User blocked by viewer`, and removes that author’s posts from the current list immediately.
+- **Group feeds:** Group post menus use the same **Block user** behavior (block API + report + remove from list).
+
+### 6.2 App Review video (Notes field)
+
+Record on a **physical device** (as Apple requested):
+
+1. Open the app → Community tab → **UGC / terms** screen → **Read Terms** (optional) → **I agree — continue to Community**.
+2. Open **⋯** on a post → **Report Post** (show options).
+3. Open **⋯** on a post from **another user** (not the signed-in account) → **Block user** → confirm → show that the post disappears from the feed.
+
+Ensure the **demo account’s feed includes at least one post from another member** so reviewers can see **Block user** without using their own posts only.
+
+---
+
+## 7. Guideline 2.2 – No incomplete / “test” content in production
+
+Apple flagged placeholder content (e.g. listings titled “test” or posts like “testing!”) as incomplete features.
+
+**Before resubmitting:**
+
+- **Storefront / Store tab:** Remove or unpublish test products, “test purchase” listings, and internal badges from **production** data (seller dashboard / admin / DB). The app should only show real, shippable catalog content to reviewers.
+- **Community:** Delete or hide obvious test posts from the **production** feed seen by the review account (or use a demo account whose feed is curated).
+
+Optional Review Notes line: “Test listings and placeholder posts have been removed from production; the storefront and community feed now show only real content.”

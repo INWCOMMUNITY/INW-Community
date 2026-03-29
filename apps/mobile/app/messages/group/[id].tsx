@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo, Fragment } from "react";
 import {
   View,
   Text,
@@ -17,14 +17,20 @@ import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiUploadFile } from "@/lib/api";
+import { apiGet, apiPost, apiPostWithRetry, apiUploadFile } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
+import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import { normalizeRouteParam } from "@/lib/normalize-route-param";
+import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
+import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
 
 interface GroupConversation {
   id: string;
   name: string | null;
   createdBy: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   members: { member: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null } }[];
+  nextCursor?: string | null;
   messages: Array<{
     id: string;
     content: string;
@@ -46,39 +52,142 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
 }
 
 export default function GroupConversationScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: rawConvId } = useLocalSearchParams<{ id: string }>();
+  const convId = normalizeRouteParam(rawConvId as string | string[] | undefined);
   const router = useRouter();
-  const { member } = useAuth();
+  const { member, loading: authLoading } = useAuth();
   const [conv, setConv] = useState<GroupConversation | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
-    if (!id) return;
+    if (!convId) return;
     try {
-      const data = await apiGet<GroupConversation>(`/api/group-conversations/${id}`);
+      const data = await apiGet<GroupConversation>(`/api/group-conversations/${convId}`);
       setConv(data);
+      setNextCursor(data.nextCursor ?? null);
     } catch {
       setConv(null);
+      setNextCursor(null);
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [convId]);
+
+  const loadMore = useCallback(async () => {
+    if (!convId || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const q = new URLSearchParams({ cursor: nextCursor, limit: "50" });
+      const data = await apiGet<GroupConversation>(`/api/group-conversations/${convId}?${q}`);
+      setConv((prev) =>
+        prev && data.messages?.length
+          ? { ...prev, messages: [...prev.messages, ...data.messages] }
+          : prev
+      );
+      setNextCursor(data.nextCursor ?? null);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [convId, nextCursor, loadingMore]);
 
   useEffect(() => {
+    if (!convId) {
+      setLoading(false);
+      setConv(null);
+      return;
+    }
     load();
-  }, [load]);
+  }, [load, convId]);
+
+  const groupTypingNames = useMemo(() => {
+    if (!conv?.members) return undefined;
+    const r: Record<string, string> = {};
+    for (const row of conv.members) {
+      r[row.member.id] = row.member.firstName ?? "Member";
+    }
+    return r;
+  }, [conv]);
+
+  const onLiveGroupMessage = useCallback((p: LiveSocketMessagePayload) => {
+    if (p.conversationId !== convId) return;
+    setConv((prev) => {
+      if (!prev) return prev;
+      if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      return {
+        ...prev,
+        messages: [
+          ...prev.messages,
+          {
+            id: p.messageId,
+            content: p.content,
+            createdAt: p.createdAt,
+            senderId: p.senderId,
+            sharedContentType: p.sharedContentType ?? null,
+            sharedContentId: p.sharedContentId ?? null,
+            sharedContentSlug: p.sharedContentSlug ?? null,
+            sender: p.sender
+              ? {
+                  id: p.sender.id,
+                  firstName: p.sender.firstName,
+                  lastName: p.sender.lastName,
+                  profilePhotoUrl: p.sender.profilePhotoUrl ?? null,
+                }
+              : { id: p.senderId, firstName: "", lastName: "", profilePhotoUrl: null },
+          },
+        ],
+      };
+    });
+  }, [convId]);
+
+  const { typingPeerIds, peerPresenceIds, onComposerChange, stopComposerTyping } = useMobileChatRealtime(
+    "group",
+    convId,
+    member?.id,
+    load,
+    { flatListRef, memberNamesById: groupTypingNames, authLoading, onLiveMessage: onLiveGroupMessage }
+  );
+
+  const typingPeersResolved = useMemo((): ChatTypingPeer[] => {
+    if (!conv?.members || typingPeerIds.length === 0) return [];
+    return typingPeerIds.map((tid) => {
+      const row = conv.members!.find((m) => m.member.id === tid);
+      const m = row?.member;
+      return {
+        id: tid,
+        name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Someone" : "Someone",
+        photoUrl: m ? resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null : null,
+      };
+    });
+  }, [conv, typingPeerIds]);
+
+  const chatPresencePeers = useMemo((): ChatTypingPeer[] => {
+    if (!conv?.members || peerPresenceIds.length === 0) return [];
+    return peerPresenceIds.map((id) => {
+      const row = conv.members!.find((m) => m.member.id === id);
+      const m = row?.member;
+      return {
+        id,
+        name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Someone" : "Someone",
+        photoUrl: m ? resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null : null,
+      };
+    });
+  }, [conv, peerPresenceIds]);
 
   const groupName = conv?.name ?? conv?.members?.map((m) => m.member.firstName).filter(Boolean).join(", ") ?? "Group";
   const otherMembers = conv?.members?.filter((m) => m.member.id !== member?.id).map((m) => m.member) ?? [];
 
   const handleReportConversation = () => {
     setMenuOpen(false);
-    if (!id) return;
+    if (!convId) return;
     Alert.alert(
       "Report conversation",
       "Why are you reporting this conversation?",
@@ -92,11 +201,11 @@ export default function GroupConversationScreen() {
     );
   };
   const submitReport = async (reason: "political" | "hate" | "nudity" | "spam" | "other") => {
-    if (!id) return;
+    if (!convId) return;
     try {
       await apiPost("/api/reports", {
         contentType: "group_message",
-        contentId: id,
+        contentId: convId,
         reason,
       });
       Alert.alert("Report submitted", "Thank you. We will review this.");
@@ -121,7 +230,7 @@ export default function GroupConversationScreen() {
               await apiPost("/api/members/block", { memberId: targetMember.id });
               await apiPost("/api/reports", {
                 contentType: "group_message",
-                contentId: id ?? "",
+                contentId: convId ?? "",
                 reason: "other",
                 details: "User blocked by viewer",
               }).catch(() => {});
@@ -138,6 +247,7 @@ export default function GroupConversationScreen() {
 
   const pickAndSendPhoto = async () => {
     if (!conv || sending || uploadingPhoto) return;
+    stopComposerTyping();
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission needed", "Allow access to photos to share images.");
@@ -160,15 +270,15 @@ export default function GroupConversationScreen() {
       formData.append("type", "image");
       const { url } = await apiUploadFile("/api/upload/post", formData);
       const fullUrl = url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
-      const msg = await apiPost<{
+      const msg = await apiPostWithRetry<{
         id: string;
         content: string;
         createdAt: string;
         senderId: string;
         sharedContentType?: string;
         sharedContentId?: string;
-        sender: { id: string; firstName: string; lastName: string };
-      }>(`/api/group-conversations/${id}`, {
+        sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
+      }>(`/api/group-conversations/${convId}`, {
         sharedContentType: "photo",
         sharedContentId: fullUrl,
         content: "",
@@ -186,7 +296,7 @@ export default function GroupConversationScreen() {
                   senderId: msg.senderId,
                   sharedContentType: "photo",
                   sharedContentId: fullUrl,
-                  sender: msg.sender ? { ...msg.sender, profilePhotoUrl: null } : undefined,
+                  sender: msg.sender,
                 },
               ],
             }
@@ -203,16 +313,17 @@ export default function GroupConversationScreen() {
   const send = async () => {
     if (!conv || !message.trim() || sending) return;
     const text = message.trim();
+    stopComposerTyping();
     setMessage("");
     setSending(true);
     try {
-      const msg = await apiPost<{
+      const msg = await apiPostWithRetry<{
         id: string;
         content: string;
         createdAt: string;
         senderId: string;
-        sender: { id: string; firstName: string; lastName: string };
-      }>(`/api/group-conversations/${id}`, { content: text });
+        sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
+      }>(`/api/group-conversations/${convId}`, { content: text });
       setConv((prev) =>
         (prev
           ? {
@@ -224,7 +335,7 @@ export default function GroupConversationScreen() {
                   content: msg.content,
                   createdAt: msg.createdAt,
                   senderId: msg.senderId,
-                  sender: msg.sender ? { ...msg.sender, profilePhotoUrl: null } : undefined,
+                  sender: msg.sender,
                 },
               ],
             }
@@ -293,10 +404,26 @@ export default function GroupConversationScreen() {
         </Modal>
       )}
 
+      {typingPeersResolved.length > 0 && <ChatTypingRow peers={typingPeersResolved} />}
+
       <FlatList
         ref={flatListRef}
         data={conv.messages ?? []}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
+        onEndReached={() => void loadMore()}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={
+          <Fragment>
+            {chatPresencePeers.length > 0 ? (
+              <ChatSeenPresenceFooter showSeen={false} peers={chatPresencePeers} />
+            ) : null}
+            {loadingMore ? (
+              <View style={styles.loadMorePad}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              </View>
+            ) : null}
+          </Fragment>
+        }
         contentContainerStyle={styles.messageList}
         renderItem={({ item }) => {
           const isMe = item.senderId === member?.id;
@@ -340,7 +467,7 @@ export default function GroupConversationScreen() {
           placeholder="Message..."
           placeholderTextColor={theme.colors.placeholder}
           value={message}
-          onChangeText={setMessage}
+          onChangeText={(t) => onComposerChange(t, setMessage)}
           multiline
           maxLength={5000}
           onSubmitEditing={send}
@@ -382,6 +509,7 @@ const styles = StyleSheet.create({
   menuSheet: { backgroundColor: "#fff", borderTopLeftRadius: 12, borderTopRightRadius: 12, padding: 16 },
   menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
   menuItemText: { fontSize: 16, color: theme.colors.heading },
+  loadMorePad: { paddingVertical: 16, alignItems: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   messageList: { padding: 16, paddingBottom: 8 },
   bubbleWrap: { marginBottom: 12, alignItems: "flex-start" },

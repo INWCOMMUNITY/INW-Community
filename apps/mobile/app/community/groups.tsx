@@ -10,13 +10,18 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Modal,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiUploadFile } from "@/lib/api";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
 function toFullUrl(url: string): string {
@@ -38,6 +43,7 @@ interface Group {
 
 export default function GroupsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [groups, setGroups] = useState<Group[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -51,6 +57,13 @@ export default function GroupsScreen() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("");
+  const [rulesJoinTarget, setRulesJoinTarget] = useState<Group | null>(null);
+  const [joinBusyId, setJoinBusyId] = useState<string | null>(null);
+  const [earnedBadges, setEarnedBadges] = useState<
+    { slug: string; name: string; description?: string }[]
+  >([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+  const [pendingGroupSlug, setPendingGroupSlug] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -75,18 +88,31 @@ export default function GroupsScreen() {
     load();
   };
 
-  const handleJoin = async (groupId: string) => {
+  const completeJoin = async (group: Group) => {
+    setJoinBusyId(group.id);
     try {
-      const group = groups.find((g) => g.id === groupId);
-      if (!group) return;
-      await apiPost(`/api/groups/${group.slug}/join`, {});
+      const body = group.rules?.trim() ? { agreedToRules: true as const } : {};
+      await apiPost(`/api/groups/${group.slug}/join`, body);
       setGroups((prev) =>
-        prev.map((g) => (g.id === groupId ? { ...g, isMember: true, memberRole: "member" } : g))
+        prev.map((g) => (g.id === group.id ? { ...g, isMember: true, memberRole: "member" } : g))
       );
+      setRulesJoinTarget(null);
     } catch (e) {
       const err = e as { error?: string };
       Alert.alert("Error", err?.error ?? "Failed to join group");
+    } finally {
+      setJoinBusyId(null);
     }
+  };
+
+  const handleJoin = (groupId: string) => {
+    const group = groups.find((g) => g.id === groupId);
+    if (!group) return;
+    if (group.rules?.trim()) {
+      setRulesJoinTarget(group);
+      return;
+    }
+    void completeJoin(group);
   };
 
   const pickCover = async () => {
@@ -121,6 +147,13 @@ export default function GroupsScreen() {
     }
   };
 
+  const finishCreateNavigation = useCallback(
+    (slug: string) => {
+      (router.push as (href: string) => void)(`/community/group/${slug}`);
+    },
+    [router]
+  );
+
   const handleCreate = async () => {
     if (!createName.trim()) {
       Alert.alert("Error", "Enter a group name");
@@ -128,7 +161,10 @@ export default function GroupsScreen() {
     }
     setCreating(true);
     try {
-      const data = await apiPost<{ group: { slug: string } }>("/api/groups", {
+      const data = await apiPost<{
+        group: { slug: string };
+        earnedBadges?: { slug: string; name: string; description?: string }[];
+      }>("/api/groups", {
         name: createName.trim(),
         description: createDescription.trim() || undefined,
         category: createCategory.trim() || undefined,
@@ -141,10 +177,17 @@ export default function GroupsScreen() {
       setCreateCategory("");
       setCreateRules("");
       setCreateCoverUrl(null);
-      if (data?.group?.slug) {
-        (router.push as (href: string) => void)(`/community/group/${data.group.slug}`);
-      }
       load();
+      const slug = data?.group?.slug;
+      if (!slug) return;
+      const badges = data?.earnedBadges?.filter(Boolean) ?? [];
+      if (badges.length > 0) {
+        setPendingGroupSlug(slug);
+        setEarnedBadges(badges);
+        setBadgePopupIndex(0);
+      } else {
+        finishCreateNavigation(slug);
+      }
     } catch (e) {
       const err = e as { error?: string };
       Alert.alert("Error", err?.error ?? "Failed to create group");
@@ -159,13 +202,36 @@ export default function GroupsScreen() {
   const uniqueCategories = [...new Set(categoriesFromGroups)];
 
   return (
+    <>
+    <KeyboardAvoidingView
+      style={styles.keyboardRoot}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+    >
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
       }
     >
+      <View style={styles.adminCallout}>
+        <View style={styles.adminCalloutTopBar} />
+        <Ionicons name="shield-checkmark" size={40} color={theme.colors.primary} style={styles.adminCalloutIcon} />
+        <Text style={styles.adminCalloutTitle}>Become a Group Admin</Text>
+        <Text style={styles.adminCalloutBody}>
+          Start a group around a hobby, theme, or project you care about, and connect with like-minded people in our
+          community.
+        </Text>
+        <Pressable
+          style={({ pressed }) => [styles.adminCalloutBtn, pressed && styles.buttonPressed]}
+          onPress={() => setShowCreate(true)}
+        >
+          <Text style={styles.adminCalloutBtnText}>Create group</Text>
+        </Pressable>
+      </View>
+
       <View style={styles.searchRow}>
         <TextInput
           style={styles.searchInput}
@@ -175,101 +241,18 @@ export default function GroupsScreen() {
           onChangeText={setSearchQuery}
           autoCorrect={true}
         />
-        <Pressable
-          style={({ pressed }) => [styles.createBtn, pressed && styles.buttonPressed]}
-          onPress={() => setShowCreate(true)}
-        >
-          <Ionicons name="add" size={22} color="#fff" />
-          <Text style={styles.createBtnText}>Create</Text>
-        </Pressable>
       </View>
 
-      {showCreate && (
-        <View style={styles.createCard}>
-          <Text style={styles.createTitle}>Create a group</Text>
-          <Pressable onPress={pickCover} style={styles.coverPicker} disabled={uploadingCover}>
-            {createCoverUrl ? (
-              <Image source={{ uri: createCoverUrl }} style={styles.coverPickerImage} resizeMode="cover" />
-            ) : (
-              <View style={styles.coverPickerPlaceholder}>
-                {uploadingCover ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <>
-                    <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
-                    <Text style={styles.coverPickerText}>Add group photo</Text>
-                  </>
-                )}
-              </View>
-            )}
-          </Pressable>
-          <TextInput
-            style={styles.input}
-            placeholder="Group name *"
-            placeholderTextColor={theme.colors.placeholder}
-            value={createName}
-            onChangeText={setCreateName}
-            autoCorrect={true}
-          />
-          <TextInput
-            style={[styles.input, styles.inputMultiline]}
-            placeholder="Description (optional)"
-            placeholderTextColor={theme.colors.placeholder}
-            value={createDescription}
-            onChangeText={setCreateDescription}
-            multiline
-            numberOfLines={3}
-            autoCorrect={true}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Category (optional)"
-            placeholderTextColor={theme.colors.placeholder}
-            value={createCategory}
-            onChangeText={setCreateCategory}
-            autoCorrect={true}
-          />
-          <TextInput
-            style={[styles.input, styles.inputMultiline]}
-            placeholder="Group rules (optional). Members must agree to join."
-            placeholderTextColor={theme.colors.placeholder}
-            value={createRules}
-            onChangeText={setCreateRules}
-            multiline
-            numberOfLines={4}
-            autoCorrect={true}
-          />
-          <View style={styles.createActions}>
-            <Pressable
-              style={({ pressed }) => [styles.cancelBtn, pressed && styles.buttonPressed]}
-              onPress={() => {
-                setShowCreate(false);
-                setCreateName("");
-                setCreateDescription("");
-                setCreateCategory("");
-                setCreateRules("");
-                setCreateCoverUrl(null);
-              }}
-            >
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.submitBtn, pressed && styles.buttonPressed]}
-              onPress={handleCreate}
-              disabled={creating}
-            >
-              {creating ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.submitBtnText}>Create</Text>
-              )}
-            </Pressable>
-          </View>
-        </View>
-      )}
-
       {uniqueCategories.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterRowContent}>
+        <ScrollView
+          horizontal
+          directionalLockEnabled
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          alwaysBounceVertical={false}
+          style={styles.filterRow}
+          contentContainerStyle={styles.filterRowContent}
+        >
           <Pressable
             style={[styles.filterChip, !categoryFilter && styles.filterChipActive]}
             onPress={() => setCategoryFilter("")}
@@ -335,17 +318,222 @@ export default function GroupsScreen() {
           </Pressable>
         ))
       )}
+
+      <Modal visible={!!rulesJoinTarget} transparent animationType="fade">
+        <View style={styles.joinModalOverlay}>
+          <Pressable style={styles.joinModalBackdrop} onPress={() => setRulesJoinTarget(null)} />
+          <View style={styles.joinModalSheet}>
+            <Text style={styles.joinModalTitle}>Group rules</Text>
+            <ScrollView style={styles.joinModalScroll}>
+              <Text style={styles.joinModalRules}>{rulesJoinTarget?.rules ?? ""}</Text>
+            </ScrollView>
+            <Text style={styles.joinModalHint}>You must agree to the rules to join.</Text>
+            <View style={styles.joinModalActions}>
+              <Pressable style={styles.joinModalCancel} onPress={() => setRulesJoinTarget(null)}>
+                <Text style={styles.joinModalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.joinModalAgree, pressed && styles.buttonPressed]}
+                onPress={() => rulesJoinTarget && void completeJoin(rulesJoinTarget)}
+                disabled={!!joinBusyId}
+              >
+                {joinBusyId ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.joinModalAgreeText}>I agree</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
+    </KeyboardAvoidingView>
+
+      <Modal visible={showCreate} animationType="slide" onRequestClose={() => setShowCreate(false)}>
+        <KeyboardAvoidingView
+          style={styles.createModalRoot}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
+        >
+          <View style={[styles.createModalHeader, { paddingTop: Math.max(insets.top, 12) }]}>
+            <Text style={styles.createModalHeaderTitle}>Create a group</Text>
+            <Pressable
+              onPress={() => {
+                setShowCreate(false);
+                setCreateName("");
+                setCreateDescription("");
+                setCreateCategory("");
+                setCreateRules("");
+                setCreateCoverUrl(null);
+              }}
+              hitSlop={12}
+            >
+              <Text style={styles.createModalClose}>Close</Text>
+            </Pressable>
+          </View>
+          <ScrollView
+            style={styles.createModalScroll}
+            contentContainerStyle={[styles.createModalContent, { paddingBottom: insets.bottom + 24 }]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            <Pressable onPress={pickCover} style={styles.coverPicker} disabled={uploadingCover}>
+              {createCoverUrl ? (
+                <Image source={{ uri: createCoverUrl }} style={styles.coverPickerImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.coverPickerPlaceholder}>
+                  {uploadingCover ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <>
+                      <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
+                      <Text style={styles.coverPickerText}>Add group photo</Text>
+                    </>
+                  )}
+                </View>
+              )}
+            </Pressable>
+            <TextInput
+              style={styles.input}
+              placeholder="Group name *"
+              placeholderTextColor={theme.colors.placeholder}
+              value={createName}
+              onChangeText={setCreateName}
+              autoCorrect={true}
+            />
+            <TextInput
+              style={[styles.input, styles.inputMultiline]}
+              placeholder="Description (optional)"
+              placeholderTextColor={theme.colors.placeholder}
+              value={createDescription}
+              onChangeText={setCreateDescription}
+              multiline
+              numberOfLines={3}
+              autoCorrect={true}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Category (optional)"
+              placeholderTextColor={theme.colors.placeholder}
+              value={createCategory}
+              onChangeText={setCreateCategory}
+              autoCorrect={true}
+            />
+            <TextInput
+              style={[styles.input, styles.inputMultiline]}
+              placeholder="Group rules (optional). Members must agree to join."
+              placeholderTextColor={theme.colors.placeholder}
+              value={createRules}
+              onChangeText={setCreateRules}
+              multiline
+              numberOfLines={4}
+              autoCorrect={true}
+            />
+            <View style={styles.createActions}>
+              <Pressable
+                style={({ pressed }) => [styles.cancelBtn, pressed && styles.buttonPressed]}
+                onPress={() => {
+                  setShowCreate(false);
+                  setCreateName("");
+                  setCreateDescription("");
+                  setCreateCategory("");
+                  setCreateRules("");
+                  setCreateCoverUrl(null);
+                }}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.submitBtn, pressed && styles.buttonPressed]}
+                onPress={handleCreate}
+                disabled={creating}
+              >
+                {creating ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.submitBtnText}>Create</Text>
+                )}
+              </Pressable>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? (
+        <BadgeEarnedPopup
+          visible
+          onClose={() => {
+            const next = badgePopupIndex + 1;
+            if (next < earnedBadges.length) {
+              setBadgePopupIndex(next);
+            } else {
+              setBadgePopupIndex(-1);
+              setEarnedBadges([]);
+              const slug = pendingGroupSlug;
+              setPendingGroupSlug(null);
+              if (slug) finishCreateNavigation(slug);
+            }
+          }}
+          badgeName={earnedBadges[badgePopupIndex].name}
+          badgeSlug={earnedBadges[badgePopupIndex].slug}
+          badgeDescription={earnedBadges[badgePopupIndex].description}
+        />
+      ) : null}
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardRoot: { flex: 1, backgroundColor: "#fff" },
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 16, paddingBottom: 40 },
   center: { paddingVertical: 48, alignItems: "center" },
-  searchRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+  adminCallout: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    overflow: "hidden",
+    marginBottom: 16,
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    paddingTop: 0,
+  },
+  adminCalloutTopBar: {
+    alignSelf: "stretch",
+    height: 6,
+    backgroundColor: theme.colors.primary,
+    marginBottom: 16,
+  },
+  adminCalloutIcon: { marginBottom: 8 },
+  adminCalloutTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    fontFamily: theme.fonts.heading,
+    color: theme.colors.heading,
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  adminCalloutBody: {
+    fontSize: 14,
+    color: theme.colors.text,
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 18,
+    maxWidth: 400,
+  },
+  adminCalloutBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 8,
+  },
+  adminCalloutBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  searchRow: { marginBottom: 16 },
   searchInput: {
-    flex: 1,
+    alignSelf: "stretch",
     borderWidth: 2,
     borderColor: theme.colors.primary,
     borderRadius: 8,
@@ -353,16 +541,52 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 16,
   },
-  createBtn: {
+  joinModalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 24,
+  },
+  joinModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  joinModalSheet: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 20,
+    maxHeight: "80%",
+  },
+  joinModalTitle: { fontSize: 18, fontWeight: "600", marginBottom: 12, color: theme.colors.heading },
+  joinModalScroll: { maxHeight: 220, marginBottom: 12 },
+  joinModalRules: { fontSize: 15, lineHeight: 22, color: theme.colors.heading },
+  joinModalHint: { fontSize: 13, color: theme.colors.placeholder, marginBottom: 16 },
+  joinModalActions: { flexDirection: "row", gap: 12, justifyContent: "flex-end" },
+  joinModalCancel: { paddingVertical: 10, paddingHorizontal: 16 },
+  joinModalCancelText: { fontSize: 16, color: theme.colors.placeholder },
+  joinModalAgree: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    minWidth: 100,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  joinModalAgreeText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  createModalRoot: { flex: 1, backgroundColor: "#fff" },
+  createModalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: theme.colors.primary,
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e5e5",
   },
-  createBtnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
+  createModalHeaderTitle: { fontSize: 18, fontWeight: "600", color: theme.colors.heading, flex: 1 },
+  createModalClose: { fontSize: 16, color: theme.colors.primary, fontWeight: "600" },
+  createModalScroll: { flex: 1 },
+  createModalContent: { padding: 16 },
   createCard: {
     backgroundColor: "#f9f9f9",
     padding: 16,
@@ -372,7 +596,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   createTitle: { fontSize: 16, fontWeight: "600", marginBottom: 12 },
-  coverPicker: { width: "100%", height: 120, marginBottom: 12, borderRadius: 8, overflow: "hidden", borderWidth: 2, borderColor: theme.colors.primary },
+  coverPicker: { width: "100%", height: 216, marginBottom: 12, borderRadius: 8, overflow: "hidden", borderWidth: 2, borderColor: theme.colors.primary },
   coverPickerImage: { width: "100%", height: "100%" },
   coverPickerPlaceholder: { width: "100%", height: "100%", backgroundColor: theme.colors.cream, alignItems: "center", justifyContent: "center" },
   coverPickerText: { fontSize: 14, color: theme.colors.placeholder, marginTop: 4 },
@@ -385,8 +609,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   inputMultiline: { minHeight: 72, textAlignVertical: "top" },
-  filterRow: { marginBottom: 12, maxHeight: 44 },
-  filterRowContent: { gap: 8, paddingVertical: 4 },
+  filterRow: { marginBottom: 12, maxHeight: 44, flexGrow: 0 },
+  filterRowContent: { gap: 8, paddingVertical: 4, alignItems: "center", flexDirection: "row" },
   filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.colors.cream },
   filterChipActive: { backgroundColor: theme.colors.primary },
   filterChipText: { fontSize: 14, color: theme.colors.heading },

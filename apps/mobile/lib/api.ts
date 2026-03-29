@@ -23,13 +23,15 @@ async function clearTokenAndNotify(): Promise<void> {
 /** Track app open for admin analytics (fire-and-forget, no auth required) */
 export function trackAppOpen(): void {
   const source = Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "web";
+  const uaOs = Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Web";
+  const userAgent = `INWCommunity/1.0 (com.northwestcommunity.app; ${uaOs})`;
   const url = `${API_BASE}/api/analytics/track`;
   fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Accept": "application/json",
-      "User-Agent": "INWCommunity/1.0 (com.northwestcommunity.app; iOS)",
+      "User-Agent": userAgent,
     },
     body: JSON.stringify({ event: "app_open", source }),
   }).catch(() => {});
@@ -132,11 +134,16 @@ async function fetchWithAuth(
 ): Promise<Response> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
   const token = await getToken();
+  const method = (options.method ?? "GET").toUpperCase();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "Accept": "application/json",
     "User-Agent": USER_AGENT,
   };
+  if (method === "GET") {
+    headers["Cache-Control"] = "no-cache";
+    headers["Pragma"] = "no-cache";
+  }
   if (API_BASE.includes("inwcommunity.com")) {
     headers["Origin"] = "https://www.inwcommunity.com";
     headers["Referer"] = "https://www.inwcommunity.com/";
@@ -277,6 +284,20 @@ export async function apiPost<T = unknown>(
     throw { error: parseError(res, data), status: res.status };
   }
   return data as T;
+}
+
+/** One retry on transient failures (message sends). */
+export async function apiPostWithRetry<T = unknown>(path: string, body?: unknown): Promise<T> {
+  try {
+    return await apiPost<T>(path, body);
+  } catch (e) {
+    const err = e as { status?: number };
+    if (err.status === 502 || err.status === 503 || err.status === 504 || err.status === 0) {
+      await new Promise((r) => setTimeout(r, 450));
+      return apiPost<T>(path, body);
+    }
+    throw e;
+  }
 }
 
 export async function apiPatch<T = unknown>(

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import * as ImageManipulator from "expo-image-manipulator";
 import {
   StyleSheet,
   View,
@@ -6,21 +7,35 @@ import {
   TextInput,
   Pressable,
   ScrollView,
-  Image,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { Image } from "expo-image";
 import { theme } from "@/lib/theme";
+import {
+  MAX_BUSINESS_GALLERY_PHOTOS,
+  MAX_UPLOAD_FILE_BYTES,
+  formatMaxUploadSizeLabel,
+} from "@/lib/upload-limits";
 import { PREBUILT_CITIES } from "@/lib/prebuilt-cities";
-import { apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
+import { normalizeResidentCity } from "@/lib/city-utils";
+import { apiPost, apiPatch, apiUploadFile, apiGet, getToken } from "@/lib/api";
 import {
   normalizeSubcategoriesByPrimary,
   parseSubcategoriesByPrimary,
 } from "@/lib/business-categories-align";
-import { getSubcategoriesForBusinessCategory } from "@/lib/business-category-presets";
+import {
+  BUSINESS_CATEGORIES,
+  getSubcategoriesForBusinessCategory,
+} from "@/lib/business-category-presets";
+import type { CategoryPreset } from "@/lib/business-category-suggest";
+import { BusinessCategoryPrimaryPicker } from "@/components/BusinessCategoryPrimaryPicker";
+
+/** Visible tan accent for gallery upload progress on light backgrounds (cream token is too low-contrast). */
+const GALLERY_UPLOAD_SPINNER = "#C4956A";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -41,6 +56,33 @@ function toFullUrl(url: string): string {
   return url.startsWith("http")
     ? url
     : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+/** Resize/compress before upload for faster transfers; output JPEG. */
+async function prepareBusinessImage(uri: string): Promise<{ uri: string; type: string }> {
+  try {
+    const r = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 2048 } }],
+      { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    return { uri: r.uri, type: "image/jpeg" };
+  } catch {
+    return { uri, type: "image/jpeg" };
+  }
+}
+
+function uploadErrorMessage(e: unknown, fallback: string, onDraftSubmit?: boolean, status?: number): string {
+  const raw = (e as { error?: string }).error;
+  const msg = typeof raw === "string" && raw.trim() ? raw.trim() : fallback;
+  if (
+    onDraftSubmit &&
+    status === 403 &&
+    (msg.includes("Business, Seller, or Subscribe") || msg.includes("plan required"))
+  ) {
+    return "Photo upload requires an active signup step. Go back and confirm your account, or finish the previous screen, then try again.";
+  }
+  return msg;
 }
 
 function parseHours(ho: unknown): HoursRecord {
@@ -165,14 +207,25 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       return next;
     });
   }
-  const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
+  const [photos, setPhotos] = useState<string[]>(
+    () => (existing?.photos ?? []).slice(0, MAX_BUSINESS_GALLERY_PHOTOS)
+  );
   const [hours, setHours] = useState<HoursRecord>(() =>
     parseHours(existing?.hoursOfOperation ?? null)
   );
   const [submitting, setSubmitting] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [uploadPhotoProgress, setUploadPhotoProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState("");
+  const [categoryPresets, setCategoryPresets] = useState<CategoryPreset[]>([]);
+  const galleryUploadSessionRef = useRef(Promise.resolve());
+
+  useEffect(() => {
+    apiGet<{ categories?: CategoryPreset[] }>("/api/business-categories")
+      .then((d) => setCategoryPresets(Array.isArray(d.categories) ? d.categories : []))
+      .catch(() => setCategoryPresets([]));
+  }, []);
 
   const pickLogo = async () => {
     const { status } =
@@ -186,6 +239,11 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       quality: 0.8,
     });
     if (result.canceled) return;
+    const asset = result.assets[0];
+    if (asset.fileSize != null && asset.fileSize > MAX_UPLOAD_FILE_BYTES) {
+      setError(`Image is too large (max ${formatMaxUploadSizeLabel()}).`);
+      return;
+    }
     setUploadingLogo(true);
     setError("");
     try {
@@ -194,26 +252,33 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         setError("Sign in to upload photos.");
         return;
       }
-      const asset = result.assets[0];
+      const prepared = await prepareBusinessImage(asset.uri);
       const formData = new FormData();
       formData.append("file", {
-        uri: asset.uri,
-        type: asset.mimeType ?? "image/jpeg",
+        uri: prepared.uri,
+        type: prepared.type,
         name: "logo.jpg",
       } as unknown as Blob);
       const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
       const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
       setLogoUrl(toFullUrl(url));
     } catch (e) {
-      setError(
-        (e as { error?: string }).error ?? "Logo upload failed. Try again."
-      );
+      const err = e as { error?: string; status?: number };
+      setError(uploadErrorMessage(e, "Logo upload failed. Try again.", !!onDraftSubmit, err.status));
     } finally {
       setUploadingLogo(false);
     }
   };
 
   const pickPhotos = async () => {
+    const remaining = MAX_BUSINESS_GALLERY_PHOTOS - photos.length;
+    if (remaining <= 0) {
+      Alert.alert(
+        "Gallery limit",
+        `You can add up to ${MAX_BUSINESS_GALLERY_PHOTOS} gallery photos. Remove one to add another.`
+      );
+      return;
+    }
     const { status } =
       await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -224,35 +289,79 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       mediaTypes: ["images"],
       allowsMultipleSelection: true,
       quality: 0.8,
+      selectionLimit: remaining,
     });
     if (result.canceled) return;
-    setUploadingPhotos(true);
-    setError("");
-    try {
+    const assets = result.assets.slice(0, remaining);
+    const session = (async () => {
+      setUploadingPhotos(true);
+      setUploadPhotoProgress({ done: 0, total: assets.length });
+      setError("");
       const token = await getToken();
       if (!token) {
+        setUploadingPhotos(false);
+        setUploadPhotoProgress(null);
         setError("Sign in to upload photos.");
         return;
       }
-      for (const asset of result.assets) {
-        const formData = new FormData();
-        formData.append("file", {
-          uri: asset.uri,
-          type: asset.mimeType ?? "image/jpeg",
-          name: "photo.jpg",
-        } as unknown as Blob);
-        const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
-        const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
-        const fullUrl = toFullUrl(url);
-        setPhotos((p) => (p.includes(fullUrl) ? p : [...p, fullUrl]));
+      let added = 0;
+      const errMsgs: string[] = [];
+      const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
+      const CONCURRENCY = 4;
+
+      const uploadOne = async (asset: (typeof assets)[0]) => {
+        if (asset.fileSize != null && asset.fileSize > MAX_UPLOAD_FILE_BYTES) {
+          errMsgs.push(`A photo exceeds ${formatMaxUploadSizeLabel()}.`);
+          return;
+        }
+        try {
+          const prepared = await prepareBusinessImage(asset.uri);
+          const formData = new FormData();
+          formData.append("file", {
+            uri: prepared.uri,
+            type: prepared.type,
+            name: "photo.jpg",
+          } as unknown as Blob);
+          const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
+          const fullUrl = toFullUrl(url);
+          setPhotos((p) => {
+            if (p.length >= MAX_BUSINESS_GALLERY_PHOTOS) return p;
+            if (p.includes(fullUrl)) return p;
+            return [...p, fullUrl];
+          });
+          added += 1;
+        } catch (e) {
+          const err = e as { error?: string; status?: number };
+          errMsgs.push(uploadErrorMessage(e, "Photo upload failed.", !!onDraftSubmit, err.status));
+        } finally {
+          setUploadPhotoProgress((prev) =>
+            prev ? { ...prev, done: Math.min(prev.done + 1, prev.total) } : null
+          );
+        }
+      };
+
+      try {
+        for (let start = 0; start < assets.length; start += CONCURRENCY) {
+          const chunk = assets.slice(start, start + CONCURRENCY);
+          await Promise.all(chunk.map((a) => uploadOne(a)));
+        }
+        const distinct = [...new Set(errMsgs.filter(Boolean))];
+        const summary = distinct.join(" ");
+        if (added < assets.length && summary) {
+          setError(
+            added > 0
+              ? `Uploaded ${added} of ${assets.length}. ${summary}`
+              : summary
+          );
+        } else if (added === 0 && assets.length > 0 && summary) {
+          setError(summary);
+        }
+      } finally {
+        setUploadingPhotos(false);
+        setUploadPhotoProgress(null);
       }
-    } catch (e) {
-      setError(
-        (e as { error?: string }).error ?? "Photo upload failed. Try again."
-      );
-    } finally {
-      setUploadingPhotos(false);
-    }
+    })();
+    galleryUploadSessionRef.current = galleryUploadSessionRef.current.then(() => session);
   };
 
   const removePhoto = (i: number) => {
@@ -272,7 +381,8 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       setError("At least one category is required.");
       return;
     }
-    const effectiveCity = city === "Other" ? customCity.trim() : city.trim();
+    const rawCity = city === "Other" ? customCity.trim() : city.trim();
+    const effectiveCity = normalizeResidentCity(rawCity);
     if (!effectiveCity) {
       setError("City is required.");
       return;
@@ -284,6 +394,9 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
     setError("");
     setSubmitting(true);
     try {
+      if (onDraftSubmit) {
+        await galleryUploadSessionRef.current.catch(() => {});
+      }
       const map: Record<string, string[]> = {};
       cats.forEach((c, i) => {
         const list = (subsPerSlot[i] ?? []).map((s) => s.trim()).filter(Boolean);
@@ -298,10 +411,10 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         email: email.trim() || null,
         logoUrl: logoUrl.trim() || null,
         address: address.trim() || null,
-        city: (city === "Other" ? customCity.trim() : city.trim()) || null,
+        city: effectiveCity || null,
         categories: cats,
         subcategoriesByPrimary: normalizeSubcategoriesByPrimary(cats, map),
-        photos,
+        photos: photos.slice(0, MAX_BUSINESS_GALLERY_PHOTOS),
         hoursOfOperation: (() => {
           const filtered = Object.fromEntries(
             Object.entries(hours).filter(
@@ -426,7 +539,8 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
               <Image
                 source={{ uri: logoUrl }}
                 style={styles.logoPreview}
-                resizeMode="contain"
+                contentFit="contain"
+                cachePolicy="memory-disk"
               />
               <Pressable
                 style={styles.removeLogoBtn}
@@ -444,9 +558,14 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             onPress={pickLogo}
             disabled={uploadingLogo}
           >
-            <Text style={styles.uploadBtnText}>
-              {uploadingLogo ? "Uploading…" : logoUrl ? "Change logo" : "Upload logo"}
-            </Text>
+            <View style={styles.uploadBtnInner}>
+              {uploadingLogo ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : null}
+              <Text style={styles.uploadBtnText}>
+                {uploadingLogo ? "Uploading…" : logoUrl ? "Change logo" : "Upload logo"}
+              </Text>
+            </View>
           </Pressable>
         </View>
         <View style={styles.field}>
@@ -515,35 +634,24 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
                   i === 1 ? { marginTop: 12 } : undefined,
                 ]}
               >
-                <TextInput
-                  style={styles.input}
+                <BusinessCategoryPrimaryPicker
                   value={categories[i] ?? ""}
-                  onChangeText={(v) => {
+                  onChange={(v) => {
                     const next = [...categories];
                     next[i] = v;
-                    if (i === 0 && next.length === 1 && v) next.push("");
+                    if (i === 0 && next.length === 1 && v.trim()) next.push("");
                     setCategories(next.slice(0, 2));
-                    if (!v.trim()) {
-                      setSubsPerSlot((sp) => {
-                        const n = sp.map((a) => [...a]);
-                        n[i] = [];
-                        return n;
-                      });
-                    }
+                    primaryCommittedRef.current[i] = v.trim();
+                    setSubsPerSlot((sp) => {
+                      const n = sp.map((a) => [...a]);
+                      n[i] = [];
+                      return n;
+                    });
                   }}
-                  onBlur={() => {
-                    const t = (categories[i] ?? "").trim();
-                    if (t !== primaryCommittedRef.current[i]) {
-                      primaryCommittedRef.current[i] = t;
-                      setSubsPerSlot((sp) => {
-                        const n = sp.map((a) => [...a]);
-                        n[i] = [];
-                        return n;
-                      });
-                    }
-                  }}
-                  placeholder={i === 0 ? "Primary category" : "Second primary (optional)"}
-                  placeholderTextColor={theme.colors.placeholder}
+                  shortDescription={shortDescription}
+                  fullDescription={fullDescription}
+                  presets={categoryPresets.length > 0 ? categoryPresets : BUSINESS_CATEGORIES}
+                  required={i === 0}
                 />
                 {primaryTrim ? (
                   <View style={{ marginTop: 8 }}>
@@ -605,6 +713,16 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Photos for Gallery (Recommended)</Text>
+          <Text style={styles.hint}>
+            Up to {MAX_BUSINESS_GALLERY_PHOTOS} photos, {formatMaxUploadSizeLabel()} each (JPEG, PNG, WebP, GIF).
+            Images are resized for faster upload. You can tap Continue during signup; we finish any in-progress uploads
+            before moving on.
+          </Text>
+          {uploadingPhotos && uploadPhotoProgress ? (
+            <Text style={styles.uploadProgressBanner}>
+              Uploading gallery photos: {uploadPhotoProgress.done}/{uploadPhotoProgress.total} complete…
+            </Text>
+          ) : null}
           <Pressable
             style={[
               styles.uploadBtn,
@@ -613,18 +731,29 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             onPress={pickPhotos}
             disabled={uploadingPhotos}
           >
-            <Text style={styles.uploadBtnText}>
-              {uploadingPhotos ? "Uploading…" : "Upload photos"}
-            </Text>
+            <View style={styles.uploadBtnInner}>
+              {uploadingPhotos ? (
+                <ActivityIndicator size="small" color={GALLERY_UPLOAD_SPINNER} />
+              ) : null}
+              <Text style={styles.uploadBtnText}>
+                {uploadingPhotos && uploadPhotoProgress
+                  ? `Uploading ${uploadPhotoProgress.done}/${uploadPhotoProgress.total}…`
+                  : uploadingPhotos
+                    ? "Uploading…"
+                    : "Upload photos"}
+              </Text>
+            </View>
           </Pressable>
           {photos.length > 0 && (
             <View style={styles.photosRow}>
               {photos.map((url, i) => (
-                <View key={url} style={styles.photoWrap}>
+                <View key={`${i}-${url}`} style={styles.photoWrap}>
                   <Image
                     source={{ uri: url }}
                     style={styles.photo}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    cachePolicy="none"
+                    recyclingKey={`g-${i}-${url}`}
                   />
                   <Pressable
                     style={styles.removePhotoBtn}
@@ -639,15 +768,18 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable
-          style={[styles.submitBtn, (submitting || uploadingLogo || uploadingPhotos) && styles.submitBtnDisabled]}
+          style={[
+            styles.submitBtn,
+            (submitting || uploadingLogo || (!onDraftSubmit && uploadingPhotos)) && styles.submitBtnDisabled,
+          ]}
           onPress={handleSubmit}
-          disabled={submitting || uploadingLogo || uploadingPhotos}
+          disabled={submitting || uploadingLogo || (!onDraftSubmit && uploadingPhotos)}
         >
           {submitting ? (
             <ActivityIndicator color="#fff" />
-          ) : uploadingLogo || uploadingPhotos ? (
+          ) : uploadingLogo || (!onDraftSubmit && uploadingPhotos) ? (
             <View style={styles.uploadingRow}>
-              <ActivityIndicator color="#fff" size="small" />
+              <ActivityIndicator color={GALLERY_UPLOAD_SPINNER} size="small" />
               <Text style={styles.submitBtnText}>Uploading photos…</Text>
             </View>
           ) : (
@@ -682,6 +814,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   hint: { fontSize: 12, color: "#666", marginBottom: 8 },
+  uploadProgressBanner: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: GALLERY_UPLOAD_SPINNER,
+    marginBottom: 8,
+  },
   categorySlot: {
     borderWidth: 1,
     borderColor: "#e5e7eb",
@@ -731,6 +869,11 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
     borderRadius: 6,
     alignSelf: "flex-start",
+  },
+  uploadBtnInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   uploadBtnDisabled: { opacity: 0.6 },
   uploadBtnText: {

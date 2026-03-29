@@ -25,8 +25,25 @@ export async function GET(req: NextRequest) {
     },
   });
 
+  const memberGroupIds = memberships.map((m) => m.group.id);
+  const feedPostCounts =
+    memberGroupIds.length > 0
+      ? await prisma.post.groupBy({
+          by: ["groupId"],
+          where: { groupId: { in: memberGroupIds } },
+          _count: { _all: true },
+        })
+      : [];
+  const feedPostCountByGroupId = Object.fromEntries(
+    feedPostCounts.map((row) => [row.groupId, row._count._all])
+  );
+
   const groups = memberships.map((m) => ({
     ...m.group,
+    _count: {
+      members: m.group._count.members,
+      groupPosts: feedPostCountByGroupId[m.group.id] ?? 0,
+    },
     isCreator: m.group.createdById === session.user.id,
   }));
 

@@ -1,8 +1,12 @@
+import { PREBUILT_CITIES } from "./prebuilt-cities";
+
 /**
  * Canonical city names for deduplication. Maps lowercase normalized form → display form.
  * Use when cities from DB may have variants (e.g. "Coeur D'Alene" vs "Coeur d'Alene").
  */
 const CANONICAL_CITIES: Record<string, string> = {
+  cda: "Coeur d'Alene",
+  "coeur d alene": "Coeur d'Alene",
   "coeur d'alene": "Coeur d'Alene",
   "coeur d''alene": "Coeur d'Alene",
 };
@@ -11,7 +15,23 @@ export function normalizeKey(city: string): string {
   return city
     .toLowerCase()
     .trim()
+    .replace(/\s+/g, " ")
     .replace(/[''`´]/g, "'");
+}
+
+/**
+ * Normalize city from signup forms, CityPicker custom entry, or API body.
+ * Uses the same prebuilt list as business/event forms plus aliases (e.g. CDA → Coeur d'Alene).
+ */
+export function normalizeResidentCity(raw: string): string {
+  const s = raw.trim().replace(/\s+/g, " ");
+  if (!s) return s;
+  const key = normalizeKey(s);
+  const canonical = CANONICAL_CITIES[key];
+  if (canonical) return canonical;
+  const prebuilt = PREBUILT_CITIES.find((c) => normalizeKey(c) === key);
+  if (prebuilt) return prebuilt;
+  return s;
 }
 
 /**

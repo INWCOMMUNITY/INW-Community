@@ -2,6 +2,12 @@
  * Build optional branding_settings for Stripe Checkout sessions.
  * Set STRIPE_CHECKOUT_DISPLAY_NAME, STRIPE_CHECKOUT_BUTTON_COLOR, STRIPE_CHECKOUT_BACKGROUND_COLOR
  * in .env to customize checkout appearance.
+ *
+ * Hosted Checkout does not expose a dedicated API field for input placeholder text color; contrast is
+ * mainly affected by background_color, button_color, font_family, and border_style. For finer control,
+ * use Stripe Dashboard → Settings → Branding → Checkout. Embedded Payment Element placeholder color is
+ * set separately (e.g. `colorTextPlaceholder` in apps/main storefront checkout page).
+ *
  * @see https://docs.stripe.com/payments/checkout/customization/appearance
  */
 export function getStripeCheckoutBranding(): {

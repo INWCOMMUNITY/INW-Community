@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -15,7 +15,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiDelete, apiPost } from "@/lib/api";
 import { FeedPostCard } from "@/components/FeedPostCard";
-import type { FeedPost } from "@/lib/feed-api";
+import { deletePost, type FeedPost } from "@/lib/feed-api";
+import { useCreatePost } from "@/contexts/CreatePostContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface SavedItem {
   id: string;
@@ -27,9 +29,24 @@ interface SavedItem {
 export default function SavedPostsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { member } = useAuth();
+  const openEditPost = useCreatePost()?.openEditPost;
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!member) {
+      setViewerManagedBusinessIds([]);
+      return;
+    }
+    apiGet<{ id: string }[]>("/api/businesses?mine=1")
+      .then((rows) =>
+        setViewerManagedBusinessIds(Array.isArray(rows) ? rows.map((r) => r.id) : [])
+      )
+      .catch(() => setViewerManagedBusinessIds([]));
+  }, [member?.id]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -81,6 +98,26 @@ export default function SavedPostsScreen() {
       Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.");
     }
   };
+
+  const handleDeletePost = useCallback((postId: string) => {
+    Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void deletePost(postId)
+            .then(() => {
+              setPosts((prev) => prev.filter((p) => p.id !== postId));
+              void apiDelete(`/api/saved?type=post&referenceId=${encodeURIComponent(postId)}`).catch(() => {});
+            })
+            .catch((e) =>
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
+            );
+        },
+      },
+    ]);
+  }, []);
 
   const handleBlockUser = async (memberId: string, postId: string) => {
     Alert.alert(
@@ -141,6 +178,11 @@ export default function SavedPostsScreen() {
                 onReport={handleReport}
                 onBlockUser={handleBlockUser}
                 onSave={() => handleUnsave(p.id)}
+                onEditPost={openEditPost}
+                onDeletePost={handleDeletePost}
+                viewerManagedBusinessIds={
+                  viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+                }
               />
             ))
           )}

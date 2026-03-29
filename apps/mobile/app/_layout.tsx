@@ -27,7 +27,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { trackAppOpen } from '@/lib/api';
 import * as WebBrowser from 'expo-web-browser';
 import { PushNotificationHandler } from '@/components/PushNotificationHandler';
+import { EventInvitePopupHost } from '@/components/EventInvitePopupHost';
 import { theme } from '@/lib/theme';
+import { CreatePostProvider } from '@/contexts/CreatePostContext';
+import { CreatePostModalHost } from '@/components/CreatePostModalHost';
+import { EventInvitePopupSuppressionProvider } from '@/contexts/EventInvitePopupSuppressionContext';
 
 /** True if the string looks like HTML (never render raw in UI). */
 function looksLikeHtml(s: string): boolean {
@@ -156,8 +160,22 @@ function AuthDeepLinkHandler() {
       await refreshMember?.().catch(() => {});
       router.replace('/(tabs)/home' as never);
     };
-    Linking.getInitialURL().then(handleUrl);
-    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    void Linking.getInitialURL()
+      .then(async (url) => {
+        try {
+          await handleUrl(url);
+        } catch (e) {
+          if (__DEV__) console.warn('[AuthDeepLinkHandler]', e);
+        }
+      })
+      .catch((e) => {
+        if (__DEV__) console.warn('[AuthDeepLinkHandler] getInitialURL', e);
+      });
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      void handleUrl(url).catch((e) => {
+        if (__DEV__) console.warn('[AuthDeepLinkHandler] url event', e);
+      });
+    });
     return () => sub.remove();
   }, [refreshMember, router]);
   return null;
@@ -167,20 +185,20 @@ function ProfileViewLayout({ children }: { children: React.ReactNode }) {
   const { member, subscriptionPlan } = useAuth();
   const hasSponsor = member?.subscriptions?.some((s) => s.plan === "sponsor") ?? false;
   const hasSeller = member?.subscriptions?.some((s) => s.plan === "seller") ?? false;
-  const hasSubscriber = member?.isSubscriber ?? false;
+  const hasResaleHubSwitcher = member?.hasResaleHubAccess ?? false;
   const defaultView: ProfileView =
     subscriptionPlan === "sponsor"
       ? "business_hub"
       : subscriptionPlan === "seller"
         ? "seller_hub"
-        : hasSubscriber
+        : hasResaleHubSwitcher
           ? "resale_hub"
           : "profile";
   return (
     <ProfileViewProvider
       hasSponsor={hasSponsor}
       hasSeller={hasSeller}
-      hasSubscriber={hasSubscriber}
+      hasSubscriber={hasResaleHubSwitcher}
       defaultView={defaultView}
     >
       {children}
@@ -209,10 +227,18 @@ function RootLayoutNav() {
         <Stack.Screen name="seller/[slug]" />
         <Stack.Screen name="coupons/index" />
         <Stack.Screen name="rewards/index" />
+        <Stack.Screen name="redeemed-rewards" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-offered-coupons" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-offered-rewards" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-manage" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-my-posts" options={{ headerShown: false }} />
+        <Stack.Screen name="business-hub-my-events" options={{ headerShown: false }} />
+        <Stack.Screen name="support-request" options={{ headerShown: false }} />
         <Stack.Screen name="profile-edit" />
         <Stack.Screen name="policies" />
         <Stack.Screen name="profile-businesses" />
         <Stack.Screen name="profile-events" />
+        <Stack.Screen name="profile-event-edit/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="profile-coupons" />
         <Stack.Screen name="profile-wishlist" />
         <Stack.Screen name="sponsor-business" options={{ headerShown: false }} />
@@ -224,8 +250,11 @@ function RootLayoutNav() {
         <Stack.Screen name="my-sellers" />
         <Stack.Screen name="scanner" options={{ presentation: 'fullScreenModal' }} />
         <Stack.Screen name="saved-posts" />
+        <Stack.Screen name="blocked-members" options={{ headerShown: false }} />
         <Stack.Screen name="subscribe" />
+        <Stack.Screen name="manage-subscription" options={{ headerShown: false }} />
         <Stack.Screen name="community" options={{ headerShown: false }} />
+        <Stack.Screen name="post" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'containedModal' }} />
       </Stack>
   );
@@ -234,8 +263,11 @@ function RootLayoutNav() {
     <GestureHandlerRootView style={{ flex: 1 }}>
     <ThemeProvider>
       <AuthProvider>
+      <EventInvitePopupSuppressionProvider>
       <AuthDeepLinkHandler />
       <PushNotificationHandler />
+      <EventInvitePopupHost />
+      <CreatePostProvider>
       <ProfileViewLayout>
       <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       {hasStripeKey ? (
@@ -249,8 +281,11 @@ function RootLayoutNav() {
       ) : (
         content
       )}
+      <CreatePostModalHost />
     </NavThemeProvider>
     </ProfileViewLayout>
+    </CreatePostProvider>
+    </EventInvitePopupSuppressionProvider>
     </AuthProvider>
     </ThemeProvider>
     </GestureHandlerRootView>

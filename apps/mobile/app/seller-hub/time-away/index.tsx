@@ -118,7 +118,8 @@ export default function TimeAwayScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Time Away</Text>
       <Text style={styles.hint}>
-        Set dates when you won&apos;t be able to fulfill orders. Listings can stay visible for up to 14 days into your time away.
+        Set dates when you won&apos;t be able to fulfill orders. While time away is active, your storefront listings are
+        hidden from buyers until the end date.
       </Text>
 
       {timeAway && (

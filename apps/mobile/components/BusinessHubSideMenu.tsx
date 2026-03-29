@@ -1,5 +1,5 @@
 /**
- * Business Hub side menu - matches the 4-button layout in my-community business hub.
+ * Business Hub side menu - aligns with Business Hub actions on My Community.
  */
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { QRCodeDisplayModal } from "@/components/QRCodeDisplayModal";
+import { useProfileView } from "@/contexts/ProfileViewContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -26,39 +27,43 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
 const NAV_HEADER_HEIGHT = 44;
 
-type NavItem = { href: string; label: string };
+type MenuRow =
+  | { type: "route"; href: string; label: string }
+  | { type: "coupon"; label: string }
+  | { type: "reward"; label: string }
+  | { type: "web"; url: string; label: string };
 
 interface BusinessHubSideMenuProps {
   visible: boolean;
   onClose: () => void;
 }
 
-function NavLink({ item, onPress }: { item: NavItem; onPress: () => void }) {
+function NavLink({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
     >
-      <Text style={styles.navLinkText}>{item.label}</Text>
+      <Text style={styles.navLinkText}>{label}</Text>
     </Pressable>
   );
 }
 
 function Section({
   title,
-  items,
-  onNavigate,
+  rows,
+  onRowPress,
 }: {
   title: string;
-  items: NavItem[];
-  onNavigate: (href: string) => void;
+  rows: MenuRow[];
+  onRowPress: (row: MenuRow) => void;
 }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
       <View style={styles.divider} />
-      {items.map((item) => (
-        <NavLink key={item.href} item={item} onPress={() => onNavigate(item.href)} />
+      {rows.map((row) => (
+        <NavLink key={row.label} label={row.label} onPress={() => onRowPress(row)} />
       ))}
     </View>
   );
@@ -66,6 +71,7 @@ function Section({
 
 export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuProps) {
   const router = useRouter();
+  const { setProfileView } = useProfileView();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const [businesses, setBusinesses] = useState<{ id: string; name: string; slug: string }[]>([]);
@@ -100,30 +106,43 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
     }
   }, [businesses]);
 
-  const items: NavItem[] = [
-    { href: "/my-badges", label: "My Badges" },
-    { href: "/sponsor-business", label: "Set up / Edit Local Business Page" },
+  const rows: MenuRow[] = [
+    { type: "route", href: "/my-badges", label: "My Badges" },
+    { type: "route", href: "/sponsor-business", label: "Set up / Edit Local Business Page" },
     {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/business-hub/coupon`)}&title=${encodeURIComponent("Offer a Coupon")}`,
-      label: "Offer a Coupon",
-    },
-    {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/business-hub/reward`)}&title=${encodeURIComponent("Offer a Reward")}`,
-      label: "Offer a Reward",
-    },
-    {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/business-hub/event`)}&title=${encodeURIComponent("Post Event")}`,
+      type: "web",
+      url: `${siteBase}/business-hub/event`,
       label: "Post Event",
     },
+    { type: "coupon", label: "Create Coupon" },
+    { type: "reward", label: "Offer a Reward" },
+    { type: "route", href: "/redeemed-rewards", label: "Redeemed Rewards" },
     {
-      href: `/web?url=${encodeURIComponent(`${siteBase}/business-hub`)}&title=${encodeURIComponent("Business Hub")}`,
-      label: "Business Hub",
+      type: "route",
+      href: "/business-hub-manage",
+      label: "My Posts, Coupons, and Rewards",
     },
   ];
 
-  const handleNavigate = (href: string) => {
+  const handleRowPress = (row: MenuRow) => {
     onClose();
-    router.push(href as any);
+    if (row.type === "route") {
+      router.push(row.href as never);
+      return;
+    }
+    if (row.type === "coupon") {
+      setProfileView("business_hub");
+      router.push("/(tabs)/my-community?open=coupon" as never);
+      return;
+    }
+    if (row.type === "reward") {
+      setProfileView("business_hub");
+      router.push("/(tabs)/my-community?open=reward" as never);
+      return;
+    }
+    router.push(
+      `/web?url=${encodeURIComponent(row.url)}&title=${encodeURIComponent(row.label)}` as never
+    );
   };
 
   return (
@@ -157,7 +176,7 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
               </Pressable>
             </View>
           )}
-          <Section title="Business Hub" items={items} onNavigate={handleNavigate} />
+          <Section title="Business Hub" rows={rows} onRowPress={handleRowPress} />
         </ScrollView>
         </View>
       </View>

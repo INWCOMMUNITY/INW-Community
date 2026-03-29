@@ -1,159 +1,380 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
   Pressable,
-  Image,
   ActivityIndicator,
   RefreshControl,
-  useWindowDimensions,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
-import { apiGet } from "@/lib/api";
+import { getToken, apiGet } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-
-function resolveUrl(path: string | null | undefined): string | undefined {
-  if (!path) return undefined;
-  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
-}
-
-interface FeedPost {
-  id: string;
-  type: string;
-  content: string | null;
-  photos: string[];
-  createdAt: string;
-  author?: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
-  sourceBlog?: { title: string; slug: string; photos: string[] } | null;
-  sourceStoreItem?: { title: string; slug: string; photos: string[] } | null;
-  likeCount?: number;
-  commentCount?: number;
-}
+import {
+  fetchMyPosts,
+  toggleLike,
+  deletePost,
+  type FeedPost,
+} from "@/lib/feed-api";
+import { FeedPostCard } from "@/components/FeedPostCard";
+import { FeedCommentsModal } from "@/components/FeedCommentsModal";
+import { CouponPopup } from "@/components/CouponPopup";
+import { ShareToChatModal } from "@/components/ShareToChatModal";
 
 export default function PostsAndPhotosScreen() {
   const router = useRouter();
-  const openCreatePost = useCreatePost()?.openCreatePost ?? (() => {});
-  const { width } = useWindowDimensions();
+  const { member: authMember } = useAuth();
+  const createPostMenu = useCreatePost();
+  const openCreatePost = createPostMenu?.openCreatePost ?? (() => {});
+  const openEditPost = createPostMenu?.openEditPost;
+
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [couponPopupId, setCouponPopupId] = useState<string | null>(null);
+  const [shareToChatPost, setShareToChatPost] = useState<{ id: string; slug?: string } | null>(null);
+  const [commentPostId, setCommentPostId] = useState<string | null>(null);
+  const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
 
-  const load = useCallback(async (refresh = false) => {
+  useEffect(() => {
+    getToken().then((t) => setSignedIn(!!t));
+  }, []);
+
+  useEffect(() => {
+    if (!authMember) {
+      setViewerManagedBusinessIds([]);
+      return;
+    }
+    apiGet<{ id: string }[]>("/api/businesses?mine=1")
+      .then((rows) =>
+        setViewerManagedBusinessIds(Array.isArray(rows) ? rows.map((r) => r.id) : [])
+      )
+      .catch(() => setViewerManagedBusinessIds([]));
+  }, [authMember?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (signedIn !== true) {
+        if (signedIn === false) {
+          setLoading(false);
+          setPosts([]);
+          setNextCursor(null);
+        }
+        return;
+      }
+      setLoading(true);
+      fetchMyPosts()
+        .then(({ posts: p, nextCursor: c }) => {
+          setPosts(p ?? []);
+          setNextCursor(c ?? null);
+        })
+        .catch(() => {
+          setPosts([]);
+          setNextCursor(null);
+        })
+        .finally(() => setLoading(false));
+    }, [signedIn])
+  );
+
+  const onRefresh = useCallback(() => {
+    if (!signedIn) return;
+    setRefreshing(true);
+    fetchMyPosts()
+      .then(({ posts: p, nextCursor: c }) => {
+        setPosts(p ?? []);
+        setNextCursor(c ?? null);
+      })
+      .catch(() => {
+        setPosts([]);
+        setNextCursor(null);
+      })
+      .finally(() => setRefreshing(false));
+  }, [signedIn]);
+
+  const loadMore = useCallback(() => {
+    if (!signedIn || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    fetchMyPosts(nextCursor)
+      .then(({ posts: more, nextCursor: c }) => {
+        setPosts((prev) => [...prev, ...more]);
+        setNextCursor(c);
+      })
+      .finally(() => setLoadingMore(false));
+  }, [signedIn, nextCursor, loadingMore]);
+
+  const handleLike = useCallback(
+    async (postId: string) => {
+      try {
+        const { liked } = await toggleLike(postId);
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === postId
+              ? {
+                  ...p,
+                  liked,
+                  likeCount: p.likeCount + (liked ? 1 : -1),
+                }
+              : p
+          )
+        );
+      } catch {
+        Alert.alert("Error", "Could not update like.");
+      }
+    },
+    []
+  );
+
+  const handleShare = useCallback((postId: string) => {
+    setShareToChatPost({ id: postId });
+  }, []);
+
+  const handleComment = useCallback((postId: string) => {
+    setCommentPostId(postId);
+  }, []);
+
+  const handleSave = useCallback(async (postId: string) => {
     try {
-      if (refresh) setRefreshing(true);
-      else if (posts.length === 0) setLoading(true);
-      const params = new URLSearchParams({ limit: "30" });
-      if (!refresh && cursor) params.set("cursor", cursor);
-      const data = await apiGet<{ posts: FeedPost[]; nextCursor: string | null }>(
-        `/api/me/posts?${params.toString()}`
-      );
-      const list = data?.posts ?? [];
-      setPosts((prev) => (refresh ? list : [...prev, ...list]));
-      setCursor(data?.nextCursor ?? null);
+      const { apiPost } = await import("@/lib/api");
+      await apiPost("/api/saved", { type: "post", referenceId: postId });
+      Alert.alert("Saved", "Post saved! View it in your Saved Posts.");
     } catch {
-      setPosts((prev) => (refresh ? [] : prev));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      Alert.alert("Error", "Could not save post. Try again.");
     }
-  }, [cursor, posts.length]);
+  }, []);
 
-  useFocusEffect(useCallback(() => { load(true); }, []));
+  const handleCommentAdded = useCallback(() => {
+    if (!commentPostId) return;
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === commentPostId ? { ...p, commentCount: p.commentCount + 1 } : p
+      )
+    );
+  }, [commentPostId]);
 
-  // Flatten to a list of only photos (one entry per photo; posts without photos are omitted).
-  const photoEntries: { postId: string; url: string }[] = [];
-  for (const p of posts) {
-    const urls: string[] = [
-      ...(p.photos ?? []),
-      ...(p.sourceBlog?.photos ?? []),
-      ...(p.sourceStoreItem?.photos ?? []),
-    ];
-    for (const path of urls) {
-      const url = resolveUrl(path);
-      if (url) photoEntries.push({ postId: p.id, url });
-    }
+  const handleDeletePost = useCallback((postId: string) => {
+    Alert.alert(
+      "Delete post",
+      "Delete this post? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            void deletePost(postId)
+              .then(() => {
+                setPosts((prev) => prev.filter((p) => p.id !== postId));
+                setCommentPostId((id) => (id === postId ? null : id));
+              })
+              .catch((e) =>
+                Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
+              );
+          },
+        },
+      ]
+    );
+  }, []);
+
+  if (signedIn === null) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
   }
 
-  const tileSize = (width - 24 * 2 - 12 * 2) / 3;
-  const hasPhotos = photoEntries.length > 0;
+  if (!signedIn) {
+    return (
+      <View style={styles.gateWrap}>
+        <Text style={styles.gateTitle}>Posted Photos / Posts</Text>
+        <Text style={styles.gateText}>Sign in to see and manage your posts.</Text>
+        <Pressable
+          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+          onPress={() => router.push("/(auth)/login")}
+        >
+          <Text style={styles.ctaText}>Sign in</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => load(true)}
-          colors={[theme.colors.primary]}
-        />
-      }
-    >
-      <Text style={styles.title}>Posted Photos</Text>
-      <Text style={styles.subtitle}>Photos from your posts.</Text>
-
-      {loading && posts.length === 0 ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-        </View>
-      ) : !hasPhotos ? (
-        <View style={styles.emptyWrap}>
-          <Text style={styles.empty}>
-            No photos yet. Create a post with photos to see them here.
+    <>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[theme.colors.primary]}
+          />
+        }
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Posted Photos / Posts</Text>
+          <Text style={styles.subtitle}>
+            Your community posts in one place. Edit or delete from the menu on each card.
           </Text>
           <Pressable
-            style={({ pressed }) => [styles.emptyCta, pressed && styles.tilePressed]}
+            style={({ pressed }) => [styles.createBtn, pressed && styles.createBtnPressed]}
             onPress={() => openCreatePost()}
           >
-            <Text style={styles.emptyCtaText}>Create a post</Text>
+            <Text style={styles.createBtnText}>Create post</Text>
           </Pressable>
         </View>
-      ) : (
-        <View style={styles.grid}>
-          {photoEntries.map((entry, index) => (
+
+        {loading && posts.length === 0 ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={styles.loadingText}>Loading your posts…</Text>
+          </View>
+        ) : posts.length === 0 ? (
+          <View style={styles.emptyWrap}>
+            <Text style={styles.empty}>No posts yet. Share an update or photos to see them here.</Text>
             <Pressable
-              key={`${entry.postId}-${index}`}
-              style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
-              onPress={() => (router.push as (href: string) => void)("/(tabs)/index")}
+              style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+              onPress={() => openCreatePost()}
             >
-              <Image
-                source={{ uri: entry.url }}
-                style={[styles.tileImage, { width: tileSize, height: tileSize }]}
-                resizeMode="cover"
-              />
+              <Text style={styles.ctaText}>Create a post</Text>
             </Pressable>
-          ))}
-        </View>
+          </View>
+        ) : (
+          <>
+            {posts.map((post) => (
+              <FeedPostCard
+                key={post.id}
+                post={post}
+                onLike={handleLike}
+                onComment={handleComment}
+                onShare={handleShare}
+                onSave={handleSave}
+                onEditPost={openEditPost}
+                onDeletePost={handleDeletePost}
+                viewerManagedBusinessIds={
+                  viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+                }
+                onOpenCoupon={(id) => setCouponPopupId(id)}
+              />
+            ))}
+            {nextCursor ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.loadMoreBtn,
+                  (loadingMore || pressed) && styles.loadMoreBtnPressed,
+                ]}
+                onPress={loadMore}
+                disabled={loadingMore}
+              >
+                {loadingMore ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <Text style={styles.loadMoreBtnText}>Load more</Text>
+                )}
+              </Pressable>
+            ) : null}
+          </>
+        )}
+      </ScrollView>
+
+      {couponPopupId && (
+        <CouponPopup couponId={couponPopupId} onClose={() => setCouponPopupId(null)} />
       )}
-    </ScrollView>
+
+      {shareToChatPost && (
+        <ShareToChatModal
+          visible={!!shareToChatPost}
+          onClose={() => setShareToChatPost(null)}
+          sharedContent={{
+            type: "post",
+            id: shareToChatPost.id,
+            slug: shareToChatPost.slug,
+          }}
+        />
+      )}
+
+      {commentPostId && (
+        <FeedCommentsModal
+          visible={!!commentPostId}
+          postId={commentPostId}
+          post={posts.find((p) => p.id === commentPostId) ?? undefined}
+          initialCommentCount={
+            posts.find((p) => p.id === commentPostId)?.commentCount ?? 0
+          }
+          onClose={() => setCommentPostId(null)}
+          onCommentAdded={handleCommentAdded}
+        />
+      )}
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  content: { padding: 24, paddingBottom: 40 },
-  title: { fontSize: 20, fontWeight: "700", color: theme.colors.heading, marginBottom: 8 },
-  subtitle: { fontSize: 14, color: "#666", marginBottom: 20 },
+  scroll: { flex: 1, backgroundColor: "#fafafa" },
+  scrollContent: { padding: 16, paddingBottom: 40 },
+  header: { marginBottom: 16 },
+  title: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 6,
+    fontFamily: theme.fonts.heading,
+  },
+  subtitle: { fontSize: 14, color: "#666", marginBottom: 12 },
+  createBtn: {
+    alignSelf: "flex-start",
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+  },
+  createBtnPressed: { opacity: 0.88 },
+  createBtnText: { fontSize: 15, fontWeight: "600", color: "#fff" },
   center: { paddingVertical: 48, alignItems: "center" },
-  emptyWrap: { paddingVertical: 32, paddingHorizontal: 16, alignItems: "center" },
+  loadingText: { marginTop: 12, fontSize: 14, color: "#666" },
+  emptyWrap: { paddingVertical: 32, paddingHorizontal: 8, alignItems: "center" },
   empty: { fontSize: 15, color: "#888", textAlign: "center", marginBottom: 20 },
-  emptyCta: {
+  gateWrap: {
+    flex: 1,
+    backgroundColor: "#fff",
+    padding: 24,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  gateTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  gateText: { fontSize: 15, color: "#666", textAlign: "center", marginBottom: 20 },
+  cta: {
     backgroundColor: theme.colors.primary,
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
   },
-  emptyCtaText: { fontSize: 16, fontWeight: "600", color: "#fff" },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  tile: { borderRadius: 8, overflow: "hidden" },
-  tilePressed: { opacity: 0.8 },
-  tileImage: { borderRadius: 8 },
+  ctaPressed: { opacity: 0.88 },
+  ctaText: { fontSize: 16, fontWeight: "600", color: "#fff" },
+  loadMoreBtn: {
+    marginTop: 8,
+    marginBottom: 16,
+    paddingVertical: 14,
+    alignItems: "center",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  loadMoreBtnPressed: { opacity: 0.85 },
+  loadMoreBtnText: { fontSize: 15, fontWeight: "600", color: theme.colors.primary },
 });

@@ -205,10 +205,13 @@ export default function SellerStorefrontScreen() {
         </View>
       </View>
 
-      {/* Name + Follow */}
-      <View style={styles.nameRow}>
+      {/* Name + description (centered); follow under description */}
+      <View style={styles.nameBlock}>
         <Text style={styles.name}>{seller.name}</Text>
-        {member && (
+        {(seller.fullDescription || seller.shortDescription) ? (
+          <Text style={styles.desc}>{seller.fullDescription || seller.shortDescription}</Text>
+        ) : null}
+        {member ? (
           <Pressable
             style={[styles.followBtn, followed && styles.followedBtn, followLoading && styles.disabled]}
             onPress={handleFollowToggle}
@@ -220,12 +223,8 @@ export default function SellerStorefrontScreen() {
               <Text style={styles.followBtnText}>{followed ? "Following" : "Follow"}</Text>
             )}
           </Pressable>
-        )}
+        ) : null}
       </View>
-
-      {(seller.fullDescription || seller.shortDescription) ? (
-        <Text style={styles.desc}>{seller.fullDescription || seller.shortDescription}</Text>
-      ) : null}
 
       {/* Contact */}
       <View style={styles.contactSection}>
@@ -352,7 +351,7 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 16, color: "#666", marginBottom: 16 },
   backBtn: { padding: 12, backgroundColor: theme.colors.primary },
   backBtnText: { color: "#fff", fontWeight: "600" },
-  coverWrap: { height: 180, backgroundColor: "#f0f0f0", position: "relative" },
+  coverWrap: { height: 270, backgroundColor: "#f0f0f0", position: "relative" },
   cover: { width: "100%", height: "100%" },
   coverPlaceholder: { alignItems: "center", justifyContent: "center" },
   logoOverlay: {
@@ -370,26 +369,26 @@ const styles = StyleSheet.create({
   },
   logo: { width: "100%", height: "100%" },
   logoPlaceholder: { alignItems: "center", justifyContent: "center" },
-  nameRow: {
-    flexDirection: "row",
+  nameBlock: {
     alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 48,
-    paddingBottom: 8,
+    paddingTop: 56,
+    paddingBottom: 16,
   },
   name: {
     fontSize: 22,
     fontWeight: "bold",
     color: theme.colors.heading,
     fontFamily: theme.fonts.heading,
-    flex: 1,
+    textAlign: "center",
   },
   followBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 8,
     backgroundColor: theme.colors.primary,
+    alignSelf: "center",
   },
   followedBtn: { backgroundColor: "#666" },
   disabled: { opacity: 0.6 },
@@ -397,9 +396,11 @@ const styles = StyleSheet.create({
   desc: {
     fontSize: 14,
     color: theme.colors.text,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+    marginTop: 10,
+    marginBottom: 0,
     lineHeight: 20,
+    textAlign: "center",
+    alignSelf: "stretch",
   },
   contactSection: { paddingHorizontal: 16, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "#eee" },
   policiesSection: { paddingHorizontal: 16, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "#eee" },

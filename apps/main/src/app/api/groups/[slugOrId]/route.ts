@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSessionForApi } from "@/lib/mobile-auth";
 import { z } from "zod";
 
 function isCuid(s: string): boolean {
@@ -21,7 +20,7 @@ const patchSchema = z.object({
 });
 
 export async function GET(
-  _req: Request,
+  req: NextRequest,
   { params }: { params: Promise<{ slugOrId: string }> }
 ) {
   const { slugOrId } = await params;
@@ -40,7 +39,9 @@ export async function GET(
     return NextResponse.json({ error: "Group not found" }, { status: 404 });
   }
 
-  const session = await getServerSession(authOptions);
+  const feedPostCount = await prisma.post.count({ where: { groupId: group.id } });
+
+  const session = await getSessionForApi(req);
   let isMember = false;
   let memberRole: string | null = null;
   if (session?.user?.id) {
@@ -55,6 +56,10 @@ export async function GET(
 
   return NextResponse.json({
     ...group,
+    _count: {
+      members: group._count.members,
+      groupPosts: feedPostCount,
+    },
     isMember,
     memberRole,
   });
@@ -64,7 +69,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ slugOrId: string }> }
 ) {
-  const session = await getServerSession(authOptions);
+  const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

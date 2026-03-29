@@ -5,6 +5,12 @@ import { photosExcludingLogo } from "@/lib/business-photos";
 import { extractBusinessDisplayCity } from "@/lib/city-utils";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
+export const dynamic = "force-dynamic";
+
+const noStoreJson = {
+  headers: { "Cache-Control": "private, no-store, max-age=0" },
+} as const;
+
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
 }
@@ -56,14 +62,14 @@ export async function GET(
     });
 
     if (!business) {
-      return NextResponse.json({ error: "Seller not found" }, { status: 404 });
+      return NextResponse.json({ error: "Seller not found" }, { status: 404, ...noStoreJson });
     }
 
     const sellerSub = await prisma.subscription.findFirst({
       where: prismaWhereMemberSellerPlanAccess(business.memberId),
     });
     if (!sellerSub) {
-      return NextResponse.json({ error: "Seller not found" }, { status: 404 });
+      return NextResponse.json({ error: "Seller not found" }, { status: 404, ...noStoreJson });
     }
 
     return NextResponse.json({
@@ -89,9 +95,9 @@ export async function GET(
       sellerPickupPolicy: business.member.sellerPickupPolicy ?? null,
       sellerShippingPolicy: business.member.sellerShippingPolicy ?? null,
       sellerReturnPolicy: business.member.sellerReturnPolicy ?? null,
-    });
+    }, noStoreJson);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Database error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: msg }, { status: 500, ...noStoreJson });
   }
 }

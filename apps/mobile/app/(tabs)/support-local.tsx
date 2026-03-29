@@ -23,6 +23,12 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet } from "@/lib/api";
 
 const ANIM_DURATION = 480;
+/** Scroll past this (px) to collapse the green header (lists with 3+ rows only; short lists use the nav chevron). */
+const HEADER_COLLAPSE_SCROLL_Y = 100;
+/** Only expand the header when scrolled essentially flush to the top (hysteresis). */
+const HEADER_EXPAND_SCROLL_Y = 8;
+/** At most this many businesses/sellers: no scroll-to-collapse (no spacer footer); use nav chevron to hide the menu. */
+const SHORT_LIST_MAX_ITEMS_FOR_SCROLL_COLLAPSE = 2;
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -92,6 +98,7 @@ export default function SupportLocalScreen() {
   const animatedHeight = useRef(new Animated.Value(265)).current;
   const listRef = useRef<FlatList>(null);
   const scrollYRef = useRef(0);
+  const prevHeaderExpandedRef = useRef(true);
 
   const loadMeta = useCallback(async () => {
     try {
@@ -188,10 +195,18 @@ export default function SupportLocalScreen() {
       easing: Easing.bezier(0.33, 1, 0.68, 1),
       useNativeDriver: false,
     }).start();
-    if (headerExpanded && scrollYRef.current < 50) {
-      listRef.current?.scrollToOffset({ offset: 0, animated: false });
-    }
   }, [headerExpanded, animatedHeight]);
+
+  /** When the green menu opens again, reset list scroll so the full business card(s) sit under the header (no spacer gap). */
+  useEffect(() => {
+    const expanding = headerExpanded && !prevHeaderExpandedRef.current;
+    prevHeaderExpandedRef.current = headerExpanded;
+    if (!expanding) return;
+    requestAnimationFrame(() => {
+      scrollYRef.current = 0;
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    });
+  }, [headerExpanded]);
 
   const handleHeaderLayout = useCallback((e: { nativeEvent: { layout: { height: number } } }) => {
     const h = e.nativeEvent.layout.height;
@@ -207,10 +222,11 @@ export default function SupportLocalScreen() {
     }
   }, [headerExpanded, animatedHeight]);
 
-  const checkScrollPosition = useCallback((y: number) => {
-    if (y > 40) {
+  const checkScrollPosition = useCallback((y: number, itemCount: number) => {
+    const scrollCollapseOk = itemCount > SHORT_LIST_MAX_ITEMS_FOR_SCROLL_COLLAPSE;
+    if (scrollCollapseOk && y > HEADER_COLLAPSE_SCROLL_Y) {
       setHeaderExpanded(false);
-    } else if (y <= 25) {
+    } else if (y <= HEADER_EXPAND_SCROLL_Y) {
       setHeaderExpanded(true);
     }
   }, []);
@@ -219,18 +235,20 @@ export default function SupportLocalScreen() {
     (e: { nativeEvent: { contentOffset: { y: number } } }) => {
       const y = e.nativeEvent.contentOffset.y;
       scrollYRef.current = y;
-      checkScrollPosition(y);
+      const count = viewMode === "directory" ? businesses.length : sellers.length;
+      checkScrollPosition(y, count);
     },
-    [checkScrollPosition]
+    [checkScrollPosition, viewMode, businesses.length, sellers.length]
   );
 
   const handleScrollEnd = useCallback(
     (e: { nativeEvent: { contentOffset: { y: number } } }) => {
       const y = e.nativeEvent.contentOffset.y;
       scrollYRef.current = y;
-      checkScrollPosition(y);
+      const count = viewMode === "directory" ? businesses.length : sellers.length;
+      checkScrollPosition(y, count);
     },
-    [checkScrollPosition]
+    [checkScrollPosition, viewMode, businesses.length, sellers.length]
   );
 
   useLayoutEffect(() => {
@@ -363,10 +381,15 @@ export default function SupportLocalScreen() {
           color: "#000",
           marginBottom: 12,
         },
-        filters: { marginHorizontal: -16 },
+        filters: {
+          marginHorizontal: -16,
+          maxHeight: 50,
+          flexGrow: 0,
+        },
         filtersContent: {
           paddingHorizontal: 16,
           flexDirection: "row",
+          alignItems: "center",
           paddingBottom: 8,
           justifyContent: "center",
         },
@@ -654,7 +677,10 @@ export default function SupportLocalScreen() {
         />
         <ScrollView
           horizontal
+          directionalLockEnabled
           showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          alwaysBounceVertical={false}
           style={styles.filters}
           contentContainerStyle={styles.filtersContent}
         >
@@ -680,7 +706,10 @@ export default function SupportLocalScreen() {
         </ScrollView>
         <ScrollView
           horizontal
+          directionalLockEnabled
           showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          alwaysBounceVertical={false}
           style={styles.filters}
           contentContainerStyle={styles.filtersContent}
         >
@@ -705,7 +734,10 @@ export default function SupportLocalScreen() {
         {category ? (
           <ScrollView
             horizontal
+            directionalLockEnabled
             showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            alwaysBounceVertical={false}
             style={styles.filters}
             contentContainerStyle={styles.filtersContent}
           >
@@ -752,6 +784,12 @@ export default function SupportLocalScreen() {
           numColumns={2}
           columnWrapperStyle={styles.listRow}
           contentContainerStyle={styles.listContent}
+          {...(Platform.OS === "ios"
+            ? {
+                bounces: false,
+                alwaysBounceVertical: false,
+              }
+            : { overScrollMode: "never" as const })}
           onScroll={handleScroll}
           onScrollEndDrag={handleScrollEnd}
           onMomentumScrollEnd={handleScrollEnd}

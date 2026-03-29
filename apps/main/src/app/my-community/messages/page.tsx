@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -8,11 +8,18 @@ import { IonIcon } from "@/components/IonIcon";
 import { MessageBubbleBody } from "@/components/MessageBubbleBody";
 import { GifPickerModalWeb } from "@/components/GifPickerModalWeb";
 import { messageListPreview } from "@/lib/message-gif-url";
+import { useMessagesPageRealtime } from "@/lib/use-conversation-realtime-web";
+import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import { fetchWithRetry } from "@/lib/fetch-with-retry";
+import { ChatTypingIndicator, type ChatTypingPeer } from "@/components/ChatTypingIndicator";
+import { ChatSeenPresenceRow } from "@/components/ChatSeenPresence";
 
 type Tab = "direct" | "groups" | "resale";
 
 interface ResaleConversation {
   id: string;
+  buyerLastReadAt?: string | null;
+  sellerLastReadAt?: string | null;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
   buyer: { id: string; firstName: string; lastName: string };
   seller: { id: string; firstName: string; lastName: string };
@@ -22,6 +29,8 @@ interface ResaleConversation {
 interface DirectConversation {
   id: string;
   status?: string;
+  memberALastReadAt?: string | null;
+  memberBLastReadAt?: string | null;
   memberA: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   memberB: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   messages: Array<{
@@ -79,15 +88,17 @@ function sharedContentLink(msg: { sharedContentType?: string | null; sharedConte
       return `${base}/rewards`;
     case "post":
       return `${base}/my-community`;
+    case "event":
+      return `${base}/events/${msg.sharedContentSlug || msg.sharedContentId}`;
     default:
       return null;
   }
 }
 
-const fetchOpts = { credentials: "include" as RequestCredentials };
+const fetchOpts: RequestInit = { credentials: "include", cache: "no-store" };
 
 export default function MyCommunityMessagesPage() {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const searchParams = useSearchParams();
   const router = useRouter();
   const resaleId = searchParams.get("conversation");
@@ -109,9 +120,11 @@ export default function MyCommunityMessagesPage() {
   const [loading, setLoading] = useState(true);
   const [openResale, setOpenResale] = useState<{
     id: string;
+    buyerLastReadAt?: string | null;
+    sellerLastReadAt?: string | null;
     storeItem: { title: string; slug: string };
-    buyer: { firstName: string; lastName: string };
-    seller: { firstName: string; lastName: string };
+    buyer: { id: string; firstName: string; lastName: string };
+    seller: { id: string; firstName: string; lastName: string };
     messages: Array<{ content: string; createdAt: string; senderId?: string; sender?: { id: string; firstName: string; lastName: string } }>;
   } | null>(null);
   const [openDirect, setOpenDirect] = useState<DirectConversation | null>(null);
@@ -125,6 +138,108 @@ export default function MyCommunityMessagesPage() {
   const [acceptDeclineLoading, setAcceptDeclineLoading] = useState<string | null>(null);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [gifInsertTarget, setGifInsertTarget] = useState<"reply" | "newDm">("reply");
+
+  const refreshOpenDirect = useCallback(() => {
+    if (!directId) return;
+    fetch(`/api/direct-conversations/${directId}?_=${Date.now()}`, fetchOpts)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.id) setOpenDirect(data);
+      })
+      .catch(() => {});
+  }, [directId]);
+
+  const refreshOpenGroup = useCallback(() => {
+    if (!groupId) return;
+    fetch(`/api/group-conversations/${groupId}?_=${Date.now()}`, fetchOpts)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.id) setOpenGroup(data);
+      })
+      .catch(() => {});
+  }, [groupId]);
+
+  const refreshOpenResale = useCallback(() => {
+    if (!resaleId) return;
+    fetch(`/api/resale-conversations/${resaleId}?_=${Date.now()}`, fetchOpts)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.id) setOpenResale(data);
+      })
+      .catch(() => {});
+  }, [resaleId]);
+
+  const applyLiveDirect = useCallback((p: LiveSocketMessagePayload) => {
+    setOpenDirect((prev) => {
+      if (!prev || prev.id !== p.conversationId) return prev;
+      if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      return {
+        ...prev,
+        messages: [
+          ...prev.messages,
+          {
+            id: p.messageId,
+            content: p.content,
+            createdAt: p.createdAt,
+            senderId: p.senderId,
+            sharedContentType: p.sharedContentType ?? null,
+            sharedContentId: p.sharedContentId ?? null,
+            sharedContentSlug: p.sharedContentSlug ?? null,
+            sender: p.sender ?? { id: p.senderId, firstName: "", lastName: "" },
+          },
+        ],
+      };
+    });
+  }, []);
+
+  const applyLiveGroup = useCallback((p: LiveSocketMessagePayload) => {
+    setOpenGroup((prev) => {
+      if (!prev || prev.id !== p.conversationId) return prev;
+      if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      return {
+        ...prev,
+        messages: [
+          ...prev.messages,
+          {
+            id: p.messageId,
+            content: p.content,
+            createdAt: p.createdAt,
+            senderId: p.senderId,
+            sharedContentType: p.sharedContentType ?? null,
+            sharedContentId: p.sharedContentId ?? null,
+            sharedContentSlug: p.sharedContentSlug ?? null,
+            sender: p.sender
+              ? {
+                  id: p.sender.id,
+                  firstName: p.sender.firstName,
+                  lastName: p.sender.lastName,
+                }
+              : { id: p.senderId, firstName: "", lastName: "" },
+          },
+        ],
+      };
+    });
+  }, []);
+
+  const applyLiveResale = useCallback((p: LiveSocketMessagePayload) => {
+    setOpenResale((prev) => {
+      if (!prev || prev.id !== p.conversationId) return prev;
+      if (prev.messages.some((m) => (m as { id?: string }).id === p.messageId)) return prev;
+      return {
+        ...prev,
+        messages: [
+          ...prev.messages,
+          {
+            id: p.messageId,
+            content: p.content,
+            createdAt: p.createdAt,
+            senderId: p.senderId,
+            sender: p.sender ?? { id: p.senderId, firstName: "", lastName: "" },
+          },
+        ],
+      };
+    });
+  }, []);
 
   const load = useCallback(() => {
     Promise.all([
@@ -146,6 +261,140 @@ export default function MyCommunityMessagesPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const { typingPeerIds, peerPresenceIds, onComposerTyping, stopComposerTyping } = useMessagesPageRealtime({
+    tab,
+    directId,
+    groupId,
+    resaleId,
+    sessionUserId: sessionStatus === "authenticated" ? session?.user?.id : undefined,
+    refreshDirect: refreshOpenDirect,
+    refreshGroup: refreshOpenGroup,
+    refreshResale: refreshOpenResale,
+    refreshSidebar: load,
+    applyLiveDirect,
+    applyLiveGroup,
+    applyLiveResale,
+  });
+
+  const typingPeersResolved = useMemo((): ChatTypingPeer[] => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const abs = (u: string | null | undefined) => (u ? (u.startsWith("http") ? u : origin + u) : null);
+
+    if (typingPeerIds.length === 0) return [];
+
+    if (tab === "direct" && openDirect && session?.user?.id) {
+      const other =
+        openDirect.memberA.id === session.user.id ? openDirect.memberB : openDirect.memberA;
+      const row = (name: string, photo: string | null, id: string): ChatTypingPeer => ({
+        id,
+        name,
+        photoUrl: photo,
+      });
+      const otherName = `${other.firstName ?? ""} ${other.lastName ?? ""}`.trim() || "Member";
+      const otherPhoto = abs(other.profilePhotoUrl);
+      if (typingPeerIds.some((id) => id === other.id)) {
+        return [row(otherName, otherPhoto, other.id)];
+      }
+      const anyPeer = typingPeerIds.find((id) => id && id !== session.user.id);
+      if (anyPeer) {
+        return [row(otherName, otherPhoto, anyPeer)];
+      }
+      return [];
+    }
+
+    if (tab === "groups" && openGroup?.members) {
+      return typingPeerIds.map((id) => {
+        const row = openGroup.members.find((m) => m.member.id === id);
+        const m = row?.member;
+        return {
+          id,
+          name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Someone" : "Someone",
+          photoUrl: m ? abs(m.profilePhotoUrl) : null,
+        };
+      });
+    }
+
+    if (tab === "resale" && openResale) {
+      return typingPeerIds.map((id) => {
+        const buyer = openResale.buyer;
+        const seller = openResale.seller;
+        const m = id === buyer.id ? buyer : id === seller.id ? seller : null;
+        return {
+          id,
+          name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member",
+          photoUrl: null,
+        };
+      });
+    }
+
+    return typingPeerIds.map((id) => ({ id, name: "Someone", photoUrl: null }));
+  }, [typingPeerIds, tab, openDirect, openGroup, openResale, session?.user?.id]);
+
+  const chatPresencePeers = useMemo((): ChatTypingPeer[] => {
+    if (peerPresenceIds.length === 0) return [];
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const abs = (u: string | null | undefined) => (u ? (u.startsWith("http") ? u : origin + u) : null);
+
+    if (tab === "direct" && openDirect) {
+      return peerPresenceIds.map((id) => {
+        const m =
+          openDirect.memberA.id === id
+            ? openDirect.memberA
+            : openDirect.memberB.id === id
+              ? openDirect.memberB
+              : null;
+        if (!m) return { id, name: "Member", photoUrl: null };
+        const name = `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member";
+        return { id, name, photoUrl: abs(m.profilePhotoUrl) };
+      });
+    }
+    if (tab === "groups" && openGroup?.members) {
+      return peerPresenceIds.map((id) => {
+        const row = openGroup.members.find((x) => x.member.id === id);
+        const m = row?.member;
+        const name = m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Someone" : "Someone";
+        return { id, name, photoUrl: m ? abs(m.profilePhotoUrl) : null };
+      });
+    }
+    if (tab === "resale" && openResale) {
+      return peerPresenceIds.map((id) => {
+        const m =
+          id === openResale.buyer.id ? openResale.buyer : id === openResale.seller.id ? openResale.seller : null;
+        const name = m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member";
+        return { id, name, photoUrl: null };
+      });
+    }
+    return [];
+  }, [peerPresenceIds, tab, openDirect, openGroup, openResale]);
+
+  const showDirectSeen = useMemo(() => {
+    if (!openDirect || !session?.user?.id) return false;
+    const peerRead =
+      openDirect.memberA.id === session.user.id
+        ? openDirect.memberBLastReadAt
+        : openDirect.memberALastReadAt;
+    if (!peerRead) return false;
+    const myOutbound = openDirect.messages.filter((m) => m.senderId === session.user.id);
+    const lastMine = myOutbound[myOutbound.length - 1];
+    if (!lastMine) return false;
+    return new Date(peerRead).getTime() >= new Date(lastMine.createdAt).getTime();
+  }, [openDirect, session?.user?.id]);
+
+  const showResaleSeen = useMemo(() => {
+    if (!openResale || !session?.user?.id) return false;
+    const uid = session.user.id;
+    const peerRead =
+      openResale.buyer.id === uid ? openResale.sellerLastReadAt : openResale.buyerLastReadAt;
+    if (!peerRead) return false;
+    const myOutbound = openResale.messages.filter((m) => {
+      const sid = (m as { senderId?: string }).senderId;
+      return sid === uid;
+    });
+    const lastMine = myOutbound[myOutbound.length - 1];
+    if (!lastMine) return false;
+    return new Date(peerRead).getTime() >= new Date(lastMine.createdAt).getTime();
+  }, [openResale, session?.user?.id]);
 
   useEffect(() => {
     setLoading(true);
@@ -215,8 +464,12 @@ export default function MyCommunityMessagesPage() {
     fetch(`/api/direct-conversations/${directId}`, fetchOpts)
       .then((r) => r.json())
       .then((data) => {
-        if (data.id) setOpenDirect(data);
-        else setOpenDirect(null);
+        if (data.id) {
+          setOpenDirect(data);
+          fetch(`/api/direct-conversations/${directId}/read`, { ...fetchOpts, method: "PATCH" }).catch(
+            () => {}
+          );
+        } else setOpenDirect(null);
       })
       .catch(() => setOpenDirect(null));
   }, [directId]);
@@ -267,9 +520,10 @@ export default function MyCommunityMessagesPage() {
 
   async function sendResaleReply() {
     if (!openResale || !reply.trim()) return;
+    stopComposerTyping();
     setSending(true);
     try {
-      const res = await fetch(`/api/resale-conversations/${openResale.id}`, {
+      const res = await fetchWithRetry(`/api/resale-conversations/${openResale.id}`, {
         ...fetchOpts,
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -302,9 +556,10 @@ export default function MyCommunityMessagesPage() {
 
   async function sendDirectReply() {
     if (!openDirect || !reply.trim()) return;
+    stopComposerTyping();
     setSending(true);
     try {
-      const res = await fetch(`/api/direct-conversations/${openDirect.id}`, {
+      const res = await fetchWithRetry(`/api/direct-conversations/${openDirect.id}`, {
         ...fetchOpts,
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -338,9 +593,10 @@ export default function MyCommunityMessagesPage() {
 
   async function sendGroupReply() {
     if (!openGroup || !reply.trim()) return;
+    stopComposerTyping();
     setSending(true);
     try {
-      const res = await fetch(`/api/group-conversations/${openGroup.id}`, {
+      const res = await fetchWithRetry(`/api/group-conversations/${openGroup.id}`, {
         ...fetchOpts,
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -424,7 +680,7 @@ export default function MyCommunityMessagesPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col flex-1 min-h-0 h-full bg-white rounded-lg border border-gray-200">
+      <div className="flex flex-col w-full min-h-0 max-lg:min-h-[min(100dvh-14rem,720px)] lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="flex items-center justify-center flex-1 min-h-0 py-16">
           <div className="w-10 h-10 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
         </div>
@@ -433,7 +689,7 @@ export default function MyCommunityMessagesPage() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 h-full bg-white rounded-lg border-2 border-gray-200 overflow-hidden">
+    <div className="flex flex-col w-full min-h-0 max-lg:min-h-[min(100dvh-14rem,720px)] lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] bg-white rounded-lg border-2 border-gray-200 overflow-hidden">
       {/* App-style green header */}
       <header
         className="flex items-center justify-between px-4 py-3 shrink-0 border-b-2 border-black"
@@ -710,7 +966,12 @@ export default function MyCommunityMessagesPage() {
                   </div>
                 </div>
               )}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+              {typingPeersResolved.length > 0 &&
+                !(
+                  openDirect.status === "pending" &&
+                  openDirect.messages.some((m) => m.senderId !== session?.user?.id)
+                ) && <ChatTypingIndicator peers={typingPeersResolved} />}
+              <div className="flex-1 overflow-y-scroll overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-gutter:stable]">
                 {openDirect.messages.map((m) => {
                   const isMe = session?.user?.id && m.senderId === session.user.id;
                   const link = sharedContentLink(m);
@@ -761,6 +1022,9 @@ export default function MyCommunityMessagesPage() {
                     </div>
                   );
                 })}
+                {(showDirectSeen || chatPresencePeers.length > 0) && (
+                  <ChatSeenPresenceRow showSeen={showDirectSeen} peers={chatPresencePeers} />
+                )}
               </div>
               <div className="p-3 border-t border-gray-200 flex items-end gap-2 shrink-0 bg-white">
                 <button
@@ -776,7 +1040,10 @@ export default function MyCommunityMessagesPage() {
                 </button>
                 <textarea
                   value={reply}
-                  onChange={(e) => setReply(e.target.value)}
+                  onChange={(e) => {
+                    setReply(e.target.value);
+                    onComposerTyping();
+                  }}
                   className="flex-1 min-h-[40px] max-h-[120px] rounded-full border-2 px-4 py-2.5 text-base resize-none"
                   style={{ borderColor: "var(--color-primary)" }}
                   rows={1}
@@ -846,7 +1113,8 @@ export default function MyCommunityMessagesPage() {
                 </Link>
                 <h2 className="font-semibold text-white truncate flex-1">{openGroup.name ?? "Group"}</h2>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+              {typingPeersResolved.length > 0 && <ChatTypingIndicator peers={typingPeersResolved} />}
+              <div className="flex-1 overflow-y-scroll overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-gutter:stable]">
                 {openGroup.messages.map((m) => {
                   const isMe = session?.user?.id && m.senderId === session.user.id;
                   return (
@@ -857,6 +1125,9 @@ export default function MyCommunityMessagesPage() {
                     </div>
                   );
                 })}
+                {chatPresencePeers.length > 0 && (
+                  <ChatSeenPresenceRow showSeen={false} peers={chatPresencePeers} />
+                )}
               </div>
               <div className="p-3 border-t border-gray-200 flex items-end gap-2 shrink-0 bg-white">
                 <button
@@ -870,7 +1141,17 @@ export default function MyCommunityMessagesPage() {
                 >
                   GIF
                 </button>
-                <textarea value={reply} onChange={(e) => setReply(e.target.value)} className="flex-1 min-h-[40px] max-h-[120px] rounded-full border-2 px-4 py-2.5 text-base resize-none" style={{ borderColor: "var(--color-primary)" }} rows={1} placeholder="Message..." />
+                <textarea
+                  value={reply}
+                  onChange={(e) => {
+                    setReply(e.target.value);
+                    onComposerTyping();
+                  }}
+                  className="flex-1 min-h-[40px] max-h-[120px] rounded-full border-2 px-4 py-2.5 text-base resize-none"
+                  style={{ borderColor: "var(--color-primary)" }}
+                  rows={1}
+                  placeholder="Message..."
+                />
                 <button type="button" onClick={sendGroupReply} disabled={sending || !reply.trim()} className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 text-white" style={{ backgroundColor: "var(--color-primary)" }} aria-label="Send">
                   <IonIcon name="send" size={22} className="text-white" />
                 </button>
@@ -926,18 +1207,22 @@ export default function MyCommunityMessagesPage() {
                   <p className="text-xs text-white/80 truncate">With {openResale.buyer.firstName} {openResale.buyer.lastName} / {openResale.seller.firstName} {openResale.seller.lastName}</p>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+              {typingPeersResolved.length > 0 && <ChatTypingIndicator peers={typingPeersResolved} />}
+              <div className="flex-1 overflow-y-scroll overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-gutter:stable]">
                 {openResale.messages.map((m, i) => {
-                  const msg = m as { senderId?: string; sender?: { id: string; firstName: string; lastName: string } };
+                  const msg = m as { id?: string; senderId?: string; sender?: { id: string; firstName: string; lastName: string } };
                   const isMe = session?.user?.id && msg.senderId === session.user.id;
                   return (
-                    <div key={i} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+                    <div key={msg.id ?? `idx-${i}`} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[80%] px-3 py-2.5 rounded-2xl border-2 border-black ${isMe ? "rounded-br-md" : "rounded-bl-md"}`} style={isMe ? { backgroundColor: "var(--color-primary)", borderColor: "transparent" } : { backgroundColor: "var(--color-section-alt)" }}>
                         <MessageBubbleBody content={m.content} isMe={!!isMe} />
                       </div>
                     </div>
                   );
                 })}
+                {(showResaleSeen || chatPresencePeers.length > 0) && (
+                  <ChatSeenPresenceRow showSeen={showResaleSeen} peers={chatPresencePeers} />
+                )}
               </div>
               <div className="p-3 border-t border-gray-200 flex items-end gap-2 shrink-0 bg-white">
                 <button
@@ -951,7 +1236,17 @@ export default function MyCommunityMessagesPage() {
                 >
                   GIF
                 </button>
-                <textarea value={reply} onChange={(e) => setReply(e.target.value)} className="flex-1 min-h-[40px] max-h-[120px] rounded-full border-2 px-4 py-2.5 text-base resize-none" style={{ borderColor: "var(--color-primary)" }} rows={1} placeholder="Message..." />
+                <textarea
+                  value={reply}
+                  onChange={(e) => {
+                    setReply(e.target.value);
+                    onComposerTyping();
+                  }}
+                  className="flex-1 min-h-[40px] max-h-[120px] rounded-full border-2 px-4 py-2.5 text-base resize-none"
+                  style={{ borderColor: "var(--color-primary)" }}
+                  rows={1}
+                  placeholder="Message..."
+                />
                 <button type="button" onClick={sendResaleReply} disabled={sending || !reply.trim()} className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 text-white" style={{ backgroundColor: "var(--color-primary)" }} aria-label="Send">
                   <IonIcon name="send" size={22} className="text-white" />
                 </button>

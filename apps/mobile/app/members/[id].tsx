@@ -406,7 +406,10 @@ export default function MemberProfileScreen() {
               <View style={styles.photosGrid} collapsable={false}>
                 {(() => {
                   const memberPhotosFlatUrls: string[] = [];
-                  const items: { type: "post"; post: MemberPost; photoIndex: number } | { type: "placeholder"; index: number }[] = [];
+                  const items: (
+                    | { type: "post"; post: MemberPost; photoIndex: number }
+                    | { type: "placeholder"; index: number }
+                  )[] = [];
                   for (const post of memberPosts) {
                     const first = (post.photos ?? [])[0];
                     if (first) {
@@ -436,7 +439,6 @@ export default function MemberProfileScreen() {
                         <Image
                           source={{ uri: resolveUrl(item.post.photos?.[0]) ?? item.post.photos?.[0] }}
                           style={styles.photoCellImage}
-                          pointerEvents="none"
                         />
                       </TouchableOpacity>
                     ) : (

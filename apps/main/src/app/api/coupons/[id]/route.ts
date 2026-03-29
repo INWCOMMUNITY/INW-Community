@@ -124,3 +124,25 @@ export async function PATCH(
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSessionForApi(req);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const { id } = await params;
+
+  const coupon = await prisma.coupon.findUnique({
+    where: { id },
+    include: { business: { select: { memberId: true } } },
+  });
+  if (!coupon || coupon.business.memberId !== session.user.id) {
+    return NextResponse.json({ error: "Not found or not yours" }, { status: 403 });
+  }
+
+  await prisma.coupon.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
+}

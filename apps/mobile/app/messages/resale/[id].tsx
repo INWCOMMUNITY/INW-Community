@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -12,14 +12,22 @@ import {
   Alert,
   Modal,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, apiPostWithRetry } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
+import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import { normalizeRouteParam } from "@/lib/normalize-route-param";
+import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
+import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
 
 interface ResaleConversation {
   id: string;
+  buyerLastReadAt?: string | null;
+  sellerLastReadAt?: string | null;
   storeItem: { id: string; title: string; slug: string };
   buyer: { id: string; firstName: string; lastName: string };
   seller: { id: string; firstName: string; lastName: string };
@@ -33,9 +41,10 @@ interface ResaleConversation {
 }
 
 export default function ResaleConversationScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: rawConvId } = useLocalSearchParams<{ id: string }>();
+  const convId = normalizeRouteParam(rawConvId as string | string[] | undefined);
   const router = useRouter();
-  const { member } = useAuth();
+  const { member, loading: authLoading } = useAuth();
   const [conv, setConv] = useState<ResaleConversation | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -44,23 +53,109 @@ export default function ResaleConversationScreen() {
   const flatListRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
-    if (!id) return;
+    if (!convId) return;
     try {
-      const data = await apiGet<ResaleConversation>(`/api/resale-conversations/${id}`);
+      const data = await apiGet<ResaleConversation>(`/api/resale-conversations/${convId}`);
       setConv(data);
       if (data?.id) {
-        apiPatch(`/api/resale-conversations/${id}/read`).catch(() => {});
+        apiPatch(`/api/resale-conversations/${convId}/read`).catch(() => {});
       }
     } catch {
       setConv(null);
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [convId]);
 
   useEffect(() => {
+    if (!convId) {
+      setLoading(false);
+      setConv(null);
+      return;
+    }
     load();
-  }, [load]);
+  }, [load, convId]);
+
+  const resaleTypingNames = useMemo(() => {
+    if (!conv?.buyer?.id || !conv?.seller?.id) return undefined;
+    return {
+      [conv.buyer.id]: conv.buyer.firstName ?? "Member",
+      [conv.seller.id]: conv.seller.firstName ?? "Member",
+    };
+  }, [conv]);
+
+  const onLiveResaleMessage = useCallback((p: LiveSocketMessagePayload) => {
+    if (p.conversationId !== convId) return;
+    setConv((prev) => {
+      if (!prev) return prev;
+      if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      return {
+        ...prev,
+        messages: [
+          ...prev.messages,
+          {
+            id: p.messageId,
+            content: p.content,
+            createdAt: p.createdAt,
+            senderId: p.senderId,
+            sender: p.sender ?? { id: p.senderId, firstName: "", lastName: "" },
+          },
+        ],
+      };
+    });
+  }, [convId]);
+
+  const { typingPeerIds, peerPresenceIds, onComposerChange, stopComposerTyping } = useMobileChatRealtime(
+    "resale",
+    convId,
+    member?.id,
+    load,
+    { flatListRef, memberNamesById: resaleTypingNames, authLoading, onLiveMessage: onLiveResaleMessage }
+  );
+
+  const typingPeersResolved = useMemo((): ChatTypingPeer[] => {
+    if (!conv || typingPeerIds.length === 0) return [];
+    return typingPeerIds.map((tid) => {
+      const m = tid === conv.buyer.id ? conv.buyer : tid === conv.seller.id ? conv.seller : null;
+      return {
+        id: tid,
+        name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member",
+        photoUrl: null,
+      };
+    });
+  }, [conv, typingPeerIds]);
+
+  const chatPresencePeers = useMemo((): ChatTypingPeer[] => {
+    if (!conv || peerPresenceIds.length === 0) return [];
+    return peerPresenceIds.map((id) => {
+      const m = id === conv.buyer.id ? conv.buyer : id === conv.seller.id ? conv.seller : null;
+      return {
+        id,
+        name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member",
+        photoUrl: null,
+      };
+    });
+  }, [conv, peerPresenceIds]);
+
+  const showResaleSeen = useMemo(() => {
+    if (!conv || !member?.id) return false;
+    const uid = member.id;
+    const peerRead =
+      conv.buyer.id === uid ? conv.sellerLastReadAt : conv.buyerLastReadAt;
+    if (!peerRead) return false;
+    const myOutbound = conv.messages.filter((m) => m.senderId === uid);
+    const lastMine = myOutbound[myOutbound.length - 1];
+    if (!lastMine) return false;
+    return new Date(peerRead).getTime() >= new Date(lastMine.createdAt).getTime();
+  }, [conv, member?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (convId) {
+        apiPatch(`/api/resale-conversations/${convId}/read`).catch(() => {});
+      }
+    }, [convId])
+  );
 
   const otherParty = conv && member?.id
     ? (conv.seller.id === member.id ? conv.buyer : conv.seller)
@@ -70,7 +165,7 @@ export default function ResaleConversationScreen() {
 
   const handleReportConversation = () => {
     setMenuOpen(false);
-    if (!id) return;
+    if (!convId) return;
     Alert.alert(
       "Report conversation",
       "Why are you reporting this conversation?",
@@ -84,11 +179,11 @@ export default function ResaleConversationScreen() {
     );
   };
   const submitReport = async (reason: "political" | "hate" | "nudity" | "spam" | "other") => {
-    if (!id) return;
+    if (!convId) return;
     try {
       await apiPost("/api/reports", {
         contentType: "resale_message",
-        contentId: id,
+        contentId: convId,
         reason,
       });
       Alert.alert("Report submitted", "Thank you. We will review this.");
@@ -113,7 +208,7 @@ export default function ResaleConversationScreen() {
               await apiPost("/api/members/block", { memberId: otherParty.id });
               await apiPost("/api/reports", {
                 contentType: "resale_message",
-                contentId: id ?? "",
+                contentId: convId ?? "",
                 reason: "other",
                 details: "User blocked by viewer",
               }).catch(() => {});
@@ -131,11 +226,12 @@ export default function ResaleConversationScreen() {
   const send = async () => {
     if (!conv || !message.trim() || sending) return;
     const text = message.trim();
+    stopComposerTyping();
     setMessage("");
     setSending(true);
     try {
-      const msg = await apiPost<{ id: string; content: string; createdAt: string; senderId: string; sender: { firstName: string; lastName: string } }>(
-        `/api/resale-conversations/${id}`,
+      const msg = await apiPostWithRetry<{ id: string; content: string; createdAt: string; senderId: string; sender: { firstName: string; lastName: string } }>(
+        `/api/resale-conversations/${convId}`,
         { content: text }
       );
       setConv((prev) =>
@@ -221,11 +317,18 @@ export default function ResaleConversationScreen() {
         </Modal>
       )}
 
+      {typingPeersResolved.length > 0 && <ChatTypingRow peers={typingPeersResolved} />}
+
       <FlatList
         ref={flatListRef}
         data={conv.messages ?? []}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
         contentContainerStyle={styles.messageList}
+        ListFooterComponent={
+          showResaleSeen || chatPresencePeers.length > 0 ? (
+            <ChatSeenPresenceFooter showSeen={showResaleSeen} peers={chatPresencePeers} />
+          ) : null
+        }
         renderItem={({ item }) => {
           const isMe = item.senderId === member?.id;
           return (
@@ -244,7 +347,7 @@ export default function ResaleConversationScreen() {
           placeholder="Message..."
           placeholderTextColor={theme.colors.placeholder}
           value={message}
-          onChangeText={setMessage}
+          onChangeText={(t) => onComposerChange(t, setMessage)}
           multiline
           maxLength={5000}
           onSubmitEditing={send}

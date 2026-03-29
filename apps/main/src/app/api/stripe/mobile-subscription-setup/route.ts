@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
+import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
@@ -58,7 +59,9 @@ async function createBusinessDraftInDb(
   const email = typeof data.email === "string" && data.email.trim() ? data.email.trim() : null;
   const logoUrl = typeof data.logoUrl === "string" && data.logoUrl.trim() ? data.logoUrl.trim() : null;
   const address = typeof data.address === "string" && data.address.trim() ? data.address.trim() : null;
-  const photos = Array.isArray(data.photos) ? (data.photos as string[]).filter(Boolean) : [];
+  const photos = Array.isArray(data.photos)
+    ? (data.photos as string[]).filter(Boolean).slice(0, MAX_BUSINESS_GALLERY_PHOTOS)
+    : [];
   const hoursOfOperation = data.hoursOfOperation && typeof data.hoursOfOperation === "object"
     ? (data.hoursOfOperation as Record<string, string>)
     : undefined;
@@ -203,6 +206,9 @@ export async function POST(req: NextRequest) {
 
     console.log("[mobile-subscription-setup] Using priceId:", priceId, "for plan:", planId, "interval:", interval);
 
+    const priceDetails = await stripe.prices.retrieve(priceId);
+    const recurring = priceDetails.recurring;
+
     const subscriptionParams: Stripe.SubscriptionCreateParams = {
       customer: customerId,
       items: [{ price: priceId, quantity: 1 }],
@@ -251,6 +257,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           completed: true,
           subscriptionId: subscription.id,
+          applePayPresentation: {
+            amountCents: 0,
+            currency: "usd",
+            intervalUnit: recurring?.interval === "year" ? "year" : "month",
+            intervalCount: recurring?.interval_count ?? 1,
+            planLabel:
+              planId === "subscribe"
+                ? "NWC Resident Subscribe"
+                : planId === "sponsor"
+                  ? "NWC Business"
+                  : "NWC Seller",
+          },
         });
       }
       await stripe.subscriptions.cancel(subscription.id);
@@ -270,6 +288,18 @@ export async function POST(req: NextRequest) {
       ephemeralKey: ephemeralKey.secret,
       customerId,
       subscriptionId: subscription.id,
+      applePayPresentation: {
+        amountCents: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        intervalUnit: recurring?.interval === "year" ? "year" : "month",
+        intervalCount: recurring?.interval_count ?? 1,
+        planLabel:
+          planId === "subscribe"
+            ? "NWC Resident Subscribe"
+            : planId === "sponsor"
+              ? "NWC Business"
+              : "NWC Seller",
+      },
     });
   } catch (e) {
     const err = e as Error;

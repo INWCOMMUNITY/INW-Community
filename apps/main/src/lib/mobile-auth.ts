@@ -19,6 +19,8 @@ export interface MobileTokenPayload {
   email: string;
   name: string;
   isSubscriber?: boolean;
+  /** Resident Subscribe plan only — NWC Resale Hub. */
+  hasResaleHubAccess?: boolean;
   subscriptionPlan?: SubscriptionPlan;
 }
 
@@ -28,6 +30,7 @@ export async function signMobileToken(payload: MobileTokenPayload): Promise<stri
     email: payload.email,
     name: payload.name,
     isSubscriber: payload.isSubscriber ?? false,
+    hasResaleHubAccess: payload.hasResaleHubAccess ?? false,
     subscriptionPlan: payload.subscriptionPlan ?? null,
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -47,9 +50,10 @@ export async function verifyMobileToken(token: string): Promise<MobileTokenPaylo
     const email = payload.email as string;
     const name = payload.name as string;
     const isSubscriber = Boolean(payload.isSubscriber);
+    const hasResaleHubAccess = Boolean(payload.hasResaleHubAccess);
     const subscriptionPlan = payload.subscriptionPlan as SubscriptionPlan | undefined;
     if (!id || !email) return null;
-    return { id, email, name, isSubscriber, subscriptionPlan };
+    return { id, email, name, isSubscriber, hasResaleHubAccess, subscriptionPlan };
   } catch {
     return null;
   }
@@ -63,12 +67,21 @@ export function getBearerToken(req: NextRequest): string | null {
 
 /**
  * For API routes: get session from NextAuth cookie OR from Authorization Bearer token.
- * Returns session-like shape: { user: { id, email, name, isSubscriber? } }
+ * Returns session-like shape: { user: { id, email, name, isSubscriber?, hasResaleHubAccess? } }
  * When Bearer is used, updates Member.lastLogin for 30-day sliding session (throttled to once per day).
  */
 export async function getSessionForApi(
   req: NextRequest
-): Promise<{ user: { id: string; email: string; name?: string; isSubscriber?: boolean; subscriptionPlan?: SubscriptionPlan } } | null> {
+): Promise<{
+  user: {
+    id: string;
+    email: string;
+    name?: string;
+    isSubscriber?: boolean;
+    hasResaleHubAccess?: boolean;
+    subscriptionPlan?: SubscriptionPlan;
+  };
+} | null> {
   // 1. Try Bearer token (mobile app)
   const bearer = getBearerToken(req);
   if (bearer) {
@@ -86,6 +99,7 @@ export async function getSessionForApi(
           email: payload.email,
           name: payload.name,
           isSubscriber: payload.isSubscriber,
+          hasResaleHubAccess: payload.hasResaleHubAccess,
           subscriptionPlan: payload.subscriptionPlan,
         },
       };
@@ -106,7 +120,14 @@ export async function getSessionForApi(
   // eslint-disable-next-line
   const session = await getServerSession(reqContext as any, resContext as any, authOptions);
   if (session?.user) {
-    const u = session.user as { id?: string; email?: string; name?: string; isSubscriber?: boolean; subscriptionPlan?: SubscriptionPlan };
+    const u = session.user as {
+      id?: string;
+      email?: string;
+      name?: string;
+      isSubscriber?: boolean;
+      canAccessResaleHub?: boolean;
+      subscriptionPlan?: SubscriptionPlan;
+    };
     if (u.id) {
       return {
         user: {
@@ -114,6 +135,7 @@ export async function getSessionForApi(
           email: u.email ?? "",
           name: u.name ?? undefined,
           isSubscriber: u.isSubscriber,
+          hasResaleHubAccess: u.canAccessResaleHub,
           subscriptionPlan: u.subscriptionPlan,
         },
       };

@@ -9,22 +9,43 @@ import {
   Linking,
   RefreshControl,
   Dimensions,
+  SectionList,
 } from "react-native";
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { CALENDAR_TYPES, EVENT_CITIES, type CalendarType } from "@/lib/calendars";
 import { PopupModal } from "@/components/PopupModal";
-import { PostEventForm } from "@/components/PostEventForm";
+import { PostEventForm, type PostEventAsContext } from "@/components/PostEventForm";
+import { PostEventAsPickerModal } from "@/components/PostEventAsPickerModal";
+import { getToken, apiGet } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { formatTime12h } from "@/lib/format-time";
 import {
   fetchEvents,
   getCachedEventsSync,
   type EventItem,
 } from "@/lib/events-api";
+import { EventInviteStatsBlocks } from "@/components/EventInviteStatsBlocks";
 
 const VALID_TYPES = new Set<string>(CALENDAR_TYPES.map((c) => c.value));
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Empty or missing segment defaults to fun_events; unknown slug is invalid (match website notFound). */
+function resolveRouteCalendarType(
+  param: string | string[] | undefined
+):
+  | { ok: true; calendarType: string }
+  | { ok: false; attempted: string } {
+  const raw = Array.isArray(param) ? param[0] : param;
+  if (raw == null || raw === "") {
+    return { ok: true, calendarType: "fun_events" };
+  }
+  if (!VALID_TYPES.has(raw)) {
+    return { ok: false, attempted: raw };
+  }
+  return { ok: true, calendarType: raw };
+}
 
 const { width } = Dimensions.get("window");
 const CALENDAR_PADDING = 16;
@@ -37,6 +58,19 @@ function toDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function eventItemDateKey(ev: EventItem): string {
+  return (ev.date?.split("T")[0] ?? ev.date?.slice(0, 10) ?? "").trim();
+}
+
+function parseDateKeyToLocalDate(key: string): Date {
+  const [ys, ms, ds] = key.split("-");
+  const y = Number(ys);
+  const m = Number(ms);
+  const day = Number(ds);
+  const d = new Date(y, m - 1, day, 0, 0, 0, 0);
+  return d;
+}
+
 function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
@@ -45,31 +79,77 @@ function endOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
 }
 
+function startOfWeek(d: Date): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = x.getDay();
+  x.setDate(x.getDate() - dow);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfWeek(d: Date): Date {
+  const s = startOfWeek(d);
+  const x = new Date(s);
+  x.setDate(x.getDate() + 6);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
+type CalendarViewMode = "month" | "week" | "day";
+
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
+function profileDisplayNameFromMember(
+  member: { firstName?: string; lastName?: string } | null
+): string {
+  if (!member) return "Your profile";
+  const n = `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim();
+  return n || "Your profile";
+}
+
 export default function CalendarDetailScreen() {
   const router = useRouter();
-  const { type } = useLocalSearchParams<{ type: string }>();
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [currentMonth, setCurrentMonth] = useState(() => new Date());
-  const [selectedCity, setSelectedCity] = useState<string>("All cities");
-  const [postEventModalVisible, setPostEventModalVisible] = useState(false);
-
-  const calendarType =
-    type && VALID_TYPES.has(type as string) ? (type as string) : "fun_events";
+  const { member } = useAuth();
+  const calendarCacheAuthed = Boolean(member?.id);
+  const { type } = useLocalSearchParams<{ type: string | string[] }>();
+  const routeCal = useMemo(() => resolveRouteCalendarType(type), [type]);
+  const invalidCalendarType = !routeCal.ok;
+  const calendarType = routeCal.ok ? routeCal.calendarType : "fun_events";
   const calendarLabel =
     CALENDAR_TYPES.find((c) => c.value === calendarType)?.label ?? "Calendar";
   const calendarUrl = `${siteBase}/calendars/${calendarType}`;
 
-  const from = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
-  const to = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [loading, setLoading] = useState(() => !invalidCalendarType);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [viewAnchor, setViewAnchor] = useState(() => new Date());
+  const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
+  const [selectedCity, setSelectedCity] = useState<string>("All cities");
+  const [postEventModalVisible, setPostEventModalVisible] = useState(false);
+  const [postAsPickerVisible, setPostAsPickerVisible] = useState(false);
+  const [postAsPickerBusinesses, setPostAsPickerBusinesses] = useState<
+    { id: string; name: string; slug: string }[]
+  >([]);
+  const [postEventAs, setPostEventAs] = useState<PostEventAsContext | null>(null);
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+  const [postEventFormSeed, setPostEventFormSeed] = useState(0);
+  const [postEventInitialDate, setPostEventInitialDate] = useState<Date | undefined>(undefined);
+
+  const { from, to } = useMemo(() => {
+    if (viewMode === "week") {
+      return { from: startOfWeek(viewAnchor), to: endOfWeek(viewAnchor) };
+    }
+    if (viewMode === "day") {
+      return { from: startOfMonth(viewAnchor), to: endOfMonth(viewAnchor) };
+    }
+    return { from: startOfMonth(viewAnchor), to: endOfMonth(viewAnchor) };
+  }, [viewAnchor, viewMode]);
 
   const loadEvents = useCallback(
     async (opts: { refresh?: boolean; silent?: boolean } = {}) => {
+      if (invalidCalendarType) return;
       const { refresh, silent } = opts;
       if (refresh) setRefreshing(true);
       else if (!silent) {
@@ -93,24 +173,37 @@ export default function CalendarDetailScreen() {
         setRefreshing(false);
       }
     },
-    [calendarType, from, to, selectedCity]
+    [invalidCalendarType, calendarType, from, to, selectedCity, calendarCacheAuthed]
   );
 
   // Sync cache check before paint — instant load when revisiting
   useLayoutEffect(() => {
+    if (invalidCalendarType) return;
     const cached = getCachedEventsSync(
       calendarType,
       from,
       to,
-      selectedCity !== "All cities" ? selectedCity : undefined
+      selectedCity !== "All cities" ? selectedCity : undefined,
+      calendarCacheAuthed
     );
     if (cached) {
       setEvents(cached);
       setLoading(false);
     }
-  }, [calendarType, from.toISOString(), to.toISOString(), selectedCity]);
+  }, [
+    invalidCalendarType,
+    calendarType,
+    from.toISOString(),
+    to.toISOString(),
+    selectedCity,
+    calendarCacheAuthed,
+  ]);
 
   useEffect(() => {
+    if (invalidCalendarType) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       await loadEvents({
@@ -118,7 +211,8 @@ export default function CalendarDetailScreen() {
           calendarType,
           from,
           to,
-          selectedCity !== "All cities" ? selectedCity : undefined
+          selectedCity !== "All cities" ? selectedCity : undefined,
+          calendarCacheAuthed
         ),
       });
       if (cancelled) return;
@@ -126,7 +220,19 @@ export default function CalendarDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [calendarType, from.toISOString(), to.toISOString(), selectedCity, loadEvents]);
+  }, [
+    invalidCalendarType,
+    calendarType,
+    from.toISOString(),
+    to.toISOString(),
+    selectedCity,
+    loadEvents,
+    calendarCacheAuthed,
+  ]);
+
+  useEffect(() => {
+    setSelectedDateKey(null);
+  }, [viewMode, selectedCity, from.toISOString(), to.toISOString()]);
 
   const onRefresh = useCallback(() => loadEvents({ refresh: true }), [loadEvents]);
 
@@ -134,16 +240,28 @@ export default function CalendarDetailScreen() {
     Linking.openURL(calendarUrl).catch(() => {});
   };
 
-  const monthLabel = currentMonth.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
+  const periodLabel = useMemo(() => {
+    if (viewMode === "week") {
+      const s = startOfWeek(viewAnchor);
+      const e = endOfWeek(viewAnchor);
+      return `${s.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    }
+    return viewAnchor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }, [viewAnchor, viewMode]);
 
-  const prevMonth = () =>
-    setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1));
-  const nextMonth = () =>
-    setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1));
-  const goToToday = () => setCurrentMonth(new Date());
+  const shiftPeriod = (dir: -1 | 1) => {
+    if (viewMode === "week") {
+      setViewAnchor((d) => {
+        const x = new Date(d);
+        x.setDate(x.getDate() + dir * 7);
+        return x;
+      });
+      return;
+    }
+    setViewAnchor((d) => new Date(d.getFullYear(), d.getMonth() + dir, 1));
+  };
+
+  const goToToday = () => setViewAnchor(new Date());
 
   const eventsByDay = useMemo(() => {
     const map: Record<string, EventItem[]> = {};
@@ -157,8 +275,8 @@ export default function CalendarDetailScreen() {
   }, [events]);
 
   const weeks = useMemo(() => {
-    const first = startOfMonth(currentMonth);
-    const last = endOfMonth(currentMonth);
+    const first = startOfMonth(viewAnchor);
+    const last = endOfMonth(viewAnchor);
     const startDow = first.getDay();
     const daysInMonth = last.getDate();
     const totalCells = startDow + daysInMonth;
@@ -176,9 +294,159 @@ export default function CalendarDetailScreen() {
     for (let i = 0; i < trailingBlanks; i++) row.push(null);
     if (row.length) out.push(row);
     return out;
-  }, [currentMonth]);
+  }, [viewAnchor]);
+
+  const weekDayCells = useMemo(() => {
+    const s = startOfWeek(viewAnchor);
+    const cells: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(s);
+      d.setDate(s.getDate() + i);
+      cells.push(d);
+    }
+    return cells;
+  }, [viewAnchor]);
+
+  const weekEventsSorted = useMemo(() => {
+    const f = startOfWeek(viewAnchor).getTime();
+    const t = endOfWeek(viewAnchor).getTime();
+    return [...events]
+      .filter((ev) => {
+        const x = new Date(ev.date).getTime();
+        return x >= f && x <= t;
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [events, viewAnchor]);
+
+  const monthEventsSorted = useMemo(
+    () =>
+      [...events].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      ),
+    [events]
+  );
+
+  const displayedEvents = useMemo(() => {
+    const base = viewMode === "week" ? weekEventsSorted : monthEventsSorted;
+    if (!selectedDateKey) return base;
+    return base.filter((ev) => eventItemDateKey(ev) === selectedDateKey);
+  }, [viewMode, weekEventsSorted, monthEventsSorted, selectedDateKey]);
+
+  const eventsSectionTitle = useMemo(() => {
+    if (selectedDateKey) {
+      const d = parseDateKeyToLocalDate(selectedDateKey);
+      return `Events on ${d.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })}`;
+    }
+    return viewMode === "week" ? "Events this week" : "Events this month";
+  }, [selectedDateKey, viewMode]);
+
+  const openPostEventModal = useCallback(
+    async (forDayKey: string | null) => {
+      if (forDayKey) {
+        setPostEventInitialDate(parseDateKeyToLocalDate(forDayKey));
+      } else {
+        setPostEventInitialDate(undefined);
+      }
+      setPostEventFormSeed((s) => s + 1);
+      setPostEventAs(null);
+
+      const token = await getToken();
+      let businesses: { id: string; name: string; slug: string }[] = [];
+      if (token) {
+        try {
+          const data = await apiGet<{ id: string; name: string; slug: string }[]>(
+            "/api/businesses?mine=1"
+          );
+          businesses = Array.isArray(data) ? data : [];
+        } catch {
+          businesses = [];
+        }
+      }
+
+      if (businesses.length > 0) {
+        setPostAsPickerBusinesses(businesses);
+        setPostAsPickerVisible(true);
+      } else {
+        setPostEventModalVisible(true);
+      }
+    },
+    []
+  );
+
+  const closePostEventModal = useCallback(() => {
+    setPostEventModalVisible(false);
+    setPostEventAs(null);
+  }, []);
+
+  const closePostAsPicker = useCallback(() => {
+    setPostAsPickerVisible(false);
+    setPostAsPickerBusinesses([]);
+  }, []);
+
+  const profileName = profileDisplayNameFromMember(member);
+
+  const daySections = useMemo(() => {
+    const first = startOfMonth(viewAnchor);
+    const last = endOfMonth(viewAnchor);
+    const sections: { title: string; data: EventItem[] }[] = [];
+    const cur = new Date(first);
+    while (cur <= last) {
+      const key = toDateKey(cur);
+      sections.push({
+        title: cur.toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        }),
+        data: eventsByDay[key] ?? [],
+      });
+      cur.setDate(cur.getDate() + 1);
+    }
+    return sections;
+  }, [viewAnchor, eventsByDay]);
 
   const todayKey = toDateKey(new Date());
+
+  if (invalidCalendarType) {
+    const attempted = routeCal.ok === false ? routeCal.attempted : "";
+    return (
+      <View style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Calendar not found</Text>
+          <Text style={styles.errorText}>
+            {attempted
+              ? `"${attempted}" is not a valid calendar. Pick one from the list.`
+              : "This calendar is not available."}
+          </Text>
+          <View style={styles.errorButtons}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => router.back()}
+            >
+              <Text style={styles.backButtonText}>Go back</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.browserButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => router.push("/calendars")}
+            >
+              <Text style={styles.browserButtonText}>View calendars</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   if (loadError && events.length === 0) {
     return (
@@ -228,16 +496,37 @@ export default function CalendarDetailScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{calendarLabel}</Text>
+        <View style={styles.viewModeRow}>
+          {(["month", "week", "day"] as const).map((m) => (
+            <Pressable
+              key={m}
+              style={[
+                styles.viewModeChip,
+                viewMode === m && styles.viewModeChipSelected,
+              ]}
+              onPress={() => setViewMode(m)}
+            >
+              <Text
+                style={[
+                  styles.viewModeChipText,
+                  viewMode === m && styles.viewModeChipTextSelected,
+                ]}
+              >
+                {m === "month" ? "Month" : m === "week" ? "Week" : "Agenda"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
         <View style={styles.monthNav}>
           <Pressable
-            onPress={prevMonth}
+            onPress={() => shiftPeriod(-1)}
             style={({ pressed }) => [styles.navBtn, pressed && styles.buttonPressed]}
           >
             <Text style={styles.navBtnText}>←</Text>
           </Pressable>
-          <Text style={styles.monthLabel}>{monthLabel}</Text>
+          <Text style={styles.monthLabel}>{periodLabel}</Text>
           <Pressable
-            onPress={nextMonth}
+            onPress={() => shiftPeriod(1)}
             style={({ pressed }) => [styles.navBtn, pressed && styles.buttonPressed]}
           >
             <Text style={styles.navBtnText}>→</Text>
@@ -251,7 +540,10 @@ export default function CalendarDetailScreen() {
         </Pressable>
         <ScrollView
           horizontal
+          directionalLockEnabled
           showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          alwaysBounceVertical={false}
           style={styles.cityFilterScroll}
           contentContainerStyle={styles.cityFilterRow}
         >
@@ -277,7 +569,72 @@ export default function CalendarDetailScreen() {
           ))}
         </ScrollView>
       </View>
-      <ScrollView
+      {viewMode === "day" ? (
+        <SectionList
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          sections={daySections}
+          keyExtractor={(item) => item.id}
+          stickySectionHeadersEnabled
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[theme.colors.primary]}
+            />
+          }
+          ListHeaderComponent={
+            <View>
+              {loadError ? (
+                <Text style={styles.offlineHint}>
+                  Pull to refresh for the latest events.
+                </Text>
+              ) : null}
+              {loading && events.length === 0 ? (
+                <View style={styles.eventsLoading}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <Text style={styles.eventsLoadingText}>Loading events…</Text>
+                </View>
+              ) : null}
+              <Pressable
+                style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
+                onPress={() => openPostEventModal(null)}
+              >
+                <Ionicons name="add-circle" size={20} color="#fff" />
+                <Text style={styles.postEventButtonText}>Post Event</Text>
+              </Pressable>
+              <Text style={styles.eventsSectionTitle}>Events this month</Text>
+            </View>
+          }
+          renderSectionHeader={({ section: { title } }) => (
+            <View style={styles.daySectionHeaderWrap}>
+              <Text style={styles.daySectionHeader}>{title}</Text>
+            </View>
+          )}
+          renderItem={({ item: ev }) => {
+            const timeStr = ev.time
+              ? ev.endTime
+                ? `${formatTime12h(ev.time)} – ${formatTime12h(ev.endTime)}`
+                : formatTime12h(ev.time)
+              : "";
+            return (
+              <Pressable
+                style={({ pressed }) => [styles.eventCard, pressed && styles.buttonPressed]}
+                onPress={() => router.push(`/event/${ev.slug}`)}
+              >
+                <Text style={styles.eventTitle}>{ev.title}</Text>
+                <Text style={styles.eventDate}>{timeStr || "Time TBD"}</Text>
+                {ev.location ? <Text style={styles.eventMeta}>{ev.location}</Text> : null}
+                {ev.business ? <Text style={styles.eventBusiness}>{ev.business.name}</Text> : null}
+                {ev.inviteStats ? (
+                  <EventInviteStatsBlocks stats={ev.inviteStats} compact />
+                ) : null}
+              </Pressable>
+            );
+          }}
+        />
+      ) : (
+        <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           refreshControl={
@@ -294,6 +651,7 @@ export default function CalendarDetailScreen() {
             </Text>
           ) : null}
 
+          {viewMode === "month" ? (
           <View style={styles.calendarGrid}>
             <View style={styles.weekdayRow}>
               {WEEKDAYS.map((wd, i) => (
@@ -325,21 +683,31 @@ export default function CalendarDetailScreen() {
                       />
                     );
                   }
-                  const key = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                  const key = `${viewAnchor.getFullYear()}-${String(viewAnchor.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                   const dayEvents = eventsByDay[key] ?? [];
                   const isToday = key === todayKey;
+                  const isSelected = key === selectedDateKey;
                   return (
-                    <View
+                    <Pressable
                       key={key}
-                      style={[
+                      style={({ pressed }) => [
                         styles.dayCell,
-                        isToday && styles.dayCellToday,
+                        isSelected && styles.dayCellSelected,
+                        isToday && !isSelected && styles.dayCellToday,
                         !isLastCol && styles.cellRightBorder,
                         !isLastRow && styles.cellBottomBorder,
+                        pressed && styles.dayCellPressed,
                       ]}
+                      onPress={() => setSelectedDateKey(key)}
                     >
-                      <View style={[styles.dayNumWrap, isToday && styles.dayNumToday]}>
-                        <Text style={[styles.dayNum, isToday && styles.dayNumTodayText]}>
+                      <View style={[styles.dayNumWrap, isToday && !isSelected && styles.dayNumToday]}>
+                        <Text
+                          style={[
+                            styles.dayNum,
+                            isToday && !isSelected && styles.dayNumTodayText,
+                            isSelected && styles.dayNumSelected,
+                          ]}
+                        >
                           {day}
                         </Text>
                       </View>
@@ -363,31 +731,110 @@ export default function CalendarDetailScreen() {
                           </Text>
                         )}
                       </View>
-                    </View>
+                    </Pressable>
                   );
                 })}
               </View>
             ))}
           </View>
+          ) : (
+            <View style={styles.weekStrip}>
+              {weekDayCells.map((d, i) => {
+                const key = toDateKey(d);
+                const n = eventsByDay[key]?.length ?? 0;
+                const isToday = key === todayKey;
+                const isSelected = key === selectedDateKey;
+                return (
+                  <Pressable
+                    key={key}
+                    style={({ pressed }) => [
+                      styles.weekDayCell,
+                      i < 6 && styles.weekDayCellBorder,
+                      isToday && !isSelected && styles.weekDayToday,
+                      isSelected && styles.weekDaySelected,
+                      pressed && styles.buttonPressed,
+                    ]}
+                    onPress={() => {
+                      setViewAnchor(new Date(d));
+                      setSelectedDateKey(key);
+                    }}
+                  >
+                    <Text style={styles.weekDayDow}>{WEEKDAYS[d.getDay()]}</Text>
+                    <Text
+                      style={[
+                        styles.weekDayNum,
+                        isToday && !isSelected && styles.weekDayNumToday,
+                        isSelected && styles.weekDayNumSelected,
+                      ]}
+                    >
+                      {d.getDate()}
+                    </Text>
+                    {n > 0 ? (
+                      <Text style={styles.weekDayCount}>{n}</Text>
+                    ) : (
+                      <Text style={styles.weekDayCountMuted}>—</Text>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+
+          <Text style={styles.eventsSectionTitle}>{eventsSectionTitle}</Text>
+          {selectedDateKey ? (
+            <Pressable
+              style={({ pressed }) => [styles.showAllEventsBtn, pressed && styles.buttonPressed]}
+              onPress={() => setSelectedDateKey(null)}
+            >
+              <Text style={styles.showAllEventsText}>Show all events</Text>
+            </Pressable>
+          ) : null}
+
+          {selectedDateKey ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.postEventButton,
+                styles.postEventOnDayButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => openPostEventModal(selectedDateKey)}
+            >
+              <Ionicons name="add-circle" size={20} color="#fff" />
+              <Text style={styles.postEventButtonText}>
+                Post event on{" "}
+                {parseDateKeyToLocalDate(selectedDateKey).toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </Text>
+            </Pressable>
+          ) : null}
 
           <Pressable
             style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
-            onPress={() => setPostEventModalVisible(true)}
+            onPress={() => openPostEventModal(null)}
           >
             <Ionicons name="add-circle" size={20} color="#fff" />
             <Text style={styles.postEventButtonText}>Post Event</Text>
           </Pressable>
 
-          <Text style={styles.eventsSectionTitle}>Events this month</Text>
           {loading && events.length === 0 ? (
             <View style={styles.eventsLoading}>
               <ActivityIndicator size="small" color={theme.colors.primary} />
               <Text style={styles.eventsLoadingText}>Loading events…</Text>
             </View>
-          ) : events.length === 0 ? (
-            <Text style={styles.emptyText}>No events for {monthLabel}.</Text>
+          ) : displayedEvents.length === 0 ? (
+            <Text style={styles.emptyText}>
+              {selectedDateKey
+                ? "No events on this day."
+                : viewMode === "week"
+                  ? "No events this week."
+                  : `No events for ${periodLabel}.`}
+            </Text>
           ) : (
-            events.map((ev) => {
+            displayedEvents.map((ev) => {
               const dateStr = new Date(ev.date).toLocaleDateString("en-US", {
                 weekday: "short",
                 month: "short",
@@ -418,21 +865,45 @@ export default function CalendarDetailScreen() {
                   {ev.business ? (
                     <Text style={styles.eventBusiness}>{ev.business.name}</Text>
                   ) : null}
+                  {ev.inviteStats ? (
+                    <EventInviteStatsBlocks stats={ev.inviteStats} compact />
+                  ) : null}
                 </Pressable>
               );
             })
           )}
         </ScrollView>
+      )}
+
+      <PostEventAsPickerModal
+        visible={postAsPickerVisible}
+        onClose={closePostAsPicker}
+        profileDisplayName={profileName}
+        businesses={postAsPickerBusinesses}
+        onSelectPersonal={() => {
+          closePostAsPicker();
+          setPostEventAs({ businessId: null, displayName: profileName });
+          setPostEventModalVisible(true);
+        }}
+        onSelectBusiness={(b) => {
+          closePostAsPicker();
+          setPostEventAs({ businessId: b.id, displayName: b.name });
+          setPostEventModalVisible(true);
+        }}
+      />
 
       <PopupModal
         visible={postEventModalVisible}
-        onClose={() => setPostEventModalVisible(false)}
+        onClose={closePostEventModal}
         title="Post Event"
         scrollable={false}
       >
         <PostEventForm
+          key={postEventFormSeed}
           initialCalendarType={calendarType as CalendarType}
-          onSuccess={() => setPostEventModalVisible(false)}
+          initialEventDate={postEventInitialDate}
+          postEventAs={postEventAs ?? undefined}
+          onSuccess={closePostEventModal}
         />
       </PopupModal>
     </View>
@@ -455,6 +926,74 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 8,
   },
+  viewModeRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 10,
+    flexWrap: "wrap",
+  },
+  viewModeChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+  },
+  viewModeChipSelected: {
+    backgroundColor: theme.colors.primary,
+  },
+  viewModeChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  viewModeChipTextSelected: {
+    color: theme.colors.buttonText,
+  },
+  weekStrip: {
+    flexDirection: "row",
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  weekDayCell: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+  },
+  weekDayCellBorder: {
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.primary,
+  },
+  weekDayToday: {
+    backgroundColor: theme.colors.cream,
+  },
+  weekDaySelected: {
+    backgroundColor: "#e8f5e9",
+  },
+  weekDayDow: { fontSize: 10, fontWeight: "600", color: "#666" },
+  weekDayNum: { fontSize: 16, fontWeight: "700", color: theme.colors.heading, marginTop: 2 },
+  weekDayNumToday: { color: theme.colors.primary },
+  weekDayNumSelected: { color: theme.colors.primary, fontWeight: "800" },
+  weekDayCount: { fontSize: 10, color: theme.colors.primary, marginTop: 2 },
+  weekDayCountMuted: { fontSize: 10, color: "#aaa", marginTop: 2 },
+  daySectionHeaderWrap: {
+    backgroundColor: "#f5f5f5",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  daySectionHeader: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: theme.colors.heading,
+  },
   postEventButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -464,13 +1003,30 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 6,
-    marginBottom: 20,
+    marginBottom: 12,
     alignSelf: "center",
+    maxWidth: "100%",
+  },
+  postEventOnDayButton: {
+    flexWrap: "wrap",
+    paddingHorizontal: 14,
   },
   postEventButtonText: {
     color: theme.colors.buttonText,
     fontSize: 14,
     fontWeight: "600",
+  },
+  showAllEventsBtn: {
+    alignSelf: "center",
+    marginBottom: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  showAllEventsText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    textDecorationLine: "underline",
   },
   monthNav: {
     flexDirection: "row",
@@ -510,9 +1066,12 @@ const styles = StyleSheet.create({
   cityFilterScroll: {
     marginTop: 12,
     marginHorizontal: -16,
+    maxHeight: 44,
+    flexGrow: 0,
   },
   cityFilterRow: {
     flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
   },
@@ -546,7 +1105,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
   },
-  scroll: { flex: 1 },
+  scroll: { flex: 1, width: "100%" },
   scrollContent: { padding: 16, paddingBottom: 40 },
   offlineHint: {
     fontSize: 13,
@@ -606,6 +1165,12 @@ const styles = StyleSheet.create({
   dayCellToday: {
     backgroundColor: "#FFF8E1",
   },
+  dayCellSelected: {
+    backgroundColor: "#e8f5e9",
+  },
+  dayCellPressed: {
+    opacity: 0.92,
+  },
   dayNumWrap: {
     marginBottom: 4,
   },
@@ -624,6 +1189,10 @@ const styles = StyleSheet.create({
   },
   dayNumTodayText: {
     color: theme.colors.buttonText,
+  },
+  dayNumSelected: {
+    color: theme.colors.primary,
+    fontWeight: "800",
   },
   dayEvents: {
     gap: 2,

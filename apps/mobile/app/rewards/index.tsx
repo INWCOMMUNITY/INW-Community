@@ -13,6 +13,7 @@ import {
   TextInput,
   Modal,
   Share,
+  FlatList,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,6 +23,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { theme as defaultTheme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
+import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { RedeemRewardFormModal } from "@/components/RedeemRewardFormModal";
 import { buildShareUrl } from "@/lib/share-utils";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -63,6 +66,7 @@ interface Reward {
   redemptionLimit: number;
   timesRedeemed: number;
   imageUrl: string | null;
+  needsShipping?: boolean;
   business: { id: string; name: string; slug: string; logoUrl: string | null };
 }
 
@@ -71,41 +75,7 @@ function resolveUrl(path: string | null | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-/** Renders reward image at its natural aspect ratio so the full photo is visible. */
-function RewardModalImage({
-  uri,
-  setImageSize,
-  imageSize,
-}: {
-  uri: string | undefined;
-  setImageSize: (size: { width: number; height: number } | null) => void;
-  imageSize: { width: number; height: number } | null;
-}) {
-  useEffect(() => {
-    if (!uri) return;
-    Image.getSize(
-      uri,
-      (width, height) => setImageSize({ width, height }),
-      () => {}
-    );
-    return () => setImageSize(null);
-  }, [uri, setImageSize]);
-  const maxWidth = Math.min(SCREEN_WIDTH - 40, 400);
-  const width = imageSize
-    ? Math.min(imageSize.width, maxWidth)
-    : maxWidth;
-  const height = imageSize
-    ? (width / imageSize.width) * imageSize.height
-    : maxWidth;
-  if (!uri) return null;
-  return (
-    <Image
-      source={{ uri }}
-      style={{ width, height, alignSelf: "center" }}
-      resizeMode="contain"
-    />
-  );
-}
+const REWARD_PREVIEW_SIZE = Math.min(220, SCREEN_WIDTH - 64);
 
 export default function RewardsScreen() {
   const theme = useTheme();
@@ -122,7 +92,6 @@ export default function RewardsScreen() {
   const [seasonPointsEarned, setSeasonPointsEarned] = useState<number | null>(null);
   const [currentSeason, setCurrentSeason] = useState<{ id: string; name: string } | null>(null);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
-  const [redeeming, setRedeeming] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -133,7 +102,20 @@ export default function RewardsScreen() {
   const [savedRewardIds, setSavedRewardIds] = useState<Set<string>>(new Set());
   const [prizePopupPrize, setPrizePopupPrize] = useState<Top5Prize | null>(null);
   const [selectedRewardForModal, setSelectedRewardForModal] = useState<Reward | null>(null);
-  const [rewardModalImageSize, setRewardModalImageSize] = useState<{ width: number; height: number } | null>(null);
+  const [redeemFormReward, setRedeemFormReward] = useState<Reward | null>(null);
+  const [rewardGalleryOpen, setRewardGalleryOpen] = useState(false);
+  const [rewardGalleryIndex, setRewardGalleryIndex] = useState(0);
+  const [prizeFullGalleryOpen, setPrizeFullGalleryOpen] = useState(false);
+  const [prizeFullGalleryImages, setPrizeFullGalleryImages] = useState<string[]>([]);
+  const [prizeFullGalleryIndex, setPrizeFullGalleryIndex] = useState(0);
+
+  const openPrizeFullGallery = useCallback((urls: (string | undefined)[], initialIndex = 0) => {
+    const clean = urls.filter((u): u is string => !!u);
+    if (clean.length === 0) return;
+    setPrizeFullGalleryImages(clean);
+    setPrizeFullGalleryIndex(Math.min(Math.max(0, initialIndex), clean.length - 1));
+    setPrizeFullGalleryOpen(true);
+  }, []);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -202,35 +184,24 @@ export default function RewardsScreen() {
     loadPoints();
   }, [load, loadPoints]);
 
-  const handleRedeem = async (rewardId: string) => {
-    const token = await getToken();
-    if (!token) {
-      router.push("/(tabs)/my-community");
-      return;
+  const openRedeemForm = (r: Reward) => {
+    setSelectedRewardForModal(null);
+    setRedeemFormReward(r);
+  };
+
+  const applyRedeemSuccess = (rewardId: string, pointsSpent: number) => {
+    const reward = rewards.find((x) => x.id === rewardId);
+    setPoints((p) => (p ?? 0) - pointsSpent);
+    if (reward && reward.timesRedeemed + 1 >= reward.redemptionLimit) {
+      setRewards((prev) => prev.filter((x) => x.id !== rewardId));
+    } else {
+      setRewards((prev) =>
+        prev.map((x) =>
+          x.id === rewardId ? { ...x, timesRedeemed: x.timesRedeemed + 1 } : x
+        )
+      );
     }
     setError("");
-    setRedeeming(rewardId);
-    try {
-      await apiPost(`/api/rewards/${rewardId}/redeem`, {});
-      const reward = rewards.find((r) => r.id === rewardId);
-      if (reward) {
-        setPoints((p) => (p ?? 0) - reward.pointsRequired);
-        if (reward.timesRedeemed + 1 >= reward.redemptionLimit) {
-          setRewards((prev) => prev.filter((r) => r.id !== rewardId));
-        } else {
-          setRewards((prev) =>
-            prev.map((r) =>
-              r.id === rewardId ? { ...r, timesRedeemed: r.timesRedeemed + 1 } : r
-            )
-          );
-        }
-      }
-    } catch (e) {
-      const err = e as { error?: string };
-      setError(err?.error ?? "Failed to redeem");
-    } finally {
-      setRedeeming(null);
-    }
   };
 
   const handleSubscribe = async () => {
@@ -393,37 +364,45 @@ export default function RewardsScreen() {
                   const p = prizesList.find((x: Top5Prize) => x.rank === rank);
                   const hasContent = p && (p.label?.trim() || p.imageUrl);
                   return (
-                    <Pressable
-                      key={rank}
-                      style={({ pressed }) => [styles.prizeRow, hasContent && pressed && styles.buttonPressed]}
-                      onPress={hasContent ? () => setPrizePopupPrize(p!) : undefined}
-                      disabled={!hasContent}
-                    >
+                    <View key={rank} style={styles.prizeRow}>
                       <Text style={styles.prizeRank}>#{rank}</Text>
-                      {hasContent ? (
+                      {!hasContent ? (
+                        <Text style={styles.prizeEmpty}>—</Text>
+                      ) : (
                         <>
                           {p!.imageUrl ? (
-                            <Image
-                              source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
-                              style={styles.prizeThumb}
-                              resizeMode="cover"
-                            />
+                            <Pressable
+                              onPress={() => {
+                                const u = resolveUrl(p!.imageUrl);
+                                if (u) openPrizeFullGallery([u]);
+                              }}
+                              style={({ pressed }) => [pressed && styles.buttonPressed]}
+                            >
+                              <Image
+                                source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
+                                style={styles.prizeThumb}
+                                resizeMode="cover"
+                              />
+                            </Pressable>
                           ) : (
                             <View style={[styles.prizeThumb, styles.prizeThumbPlaceholder]} />
                           )}
-                          <Text style={styles.prizeLabel} numberOfLines={1}>
-                            {p!.label?.trim() || "—"}
-                          </Text>
-                          {p!.business && (
-                            <Text style={styles.prizeBusiness} numberOfLines={1}>
-                              {p!.business.name}
+                          <Pressable
+                            style={({ pressed }) => [styles.prizeRowDetails, pressed && styles.buttonPressed]}
+                            onPress={() => setPrizePopupPrize(p!)}
+                          >
+                            <Text style={styles.prizeLabel} numberOfLines={1}>
+                              {p!.label?.trim() || "—"}
                             </Text>
-                          )}
+                            {p!.business ? (
+                              <Text style={styles.prizeBusiness} numberOfLines={1}>
+                                {p!.business.name}
+                              </Text>
+                            ) : null}
+                          </Pressable>
                         </>
-                      ) : (
-                        <Text style={styles.prizeEmpty}>—</Text>
                       )}
-                    </Pressable>
+                    </View>
                   );
                 })}
               </ScrollView>
@@ -474,48 +453,106 @@ export default function RewardsScreen() {
             )}
           </View>
 
-          {prizePopupPrize && (
-            <Modal visible transparent animationType="fade">
-              <Pressable style={styles.prizeModalBackdrop} onPress={() => setPrizePopupPrize(null)}>
-                <View style={styles.prizeModalPanel} onStartShouldSetResponder={() => true}>
-                  <Text style={styles.prizeModalTitle}>
-                    {prizePopupPrize.rank === 1
-                      ? "1st"
-                      : prizePopupPrize.rank === 2
-                        ? "2nd"
-                        : prizePopupPrize.rank === 3
-                          ? "3rd"
-                          : `${prizePopupPrize.rank}th`}{" "}
-                    Place Prize for {currentSeason?.name ?? "Season"}
-                  </Text>
-                  {prizePopupPrize.imageUrl ? (
-                    <Image
-                      source={{ uri: resolveUrl(prizePopupPrize.imageUrl) }}
-                      style={styles.prizeModalImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={[styles.prizeModalImage, styles.prizeImagePlaceholder]}>
-                      <Text style={styles.prizePlaceholderText}>No image</Text>
-                    </View>
-                  )}
-                  {prizePopupPrize.description ? (
-                    <Text style={styles.prizeModalDesc}>{prizePopupPrize.description}</Text>
-                  ) : null}
-                  {prizePopupPrize.business && (
-                    <Pressable onPress={() => { setPrizePopupPrize(null); openBusiness(prizePopupPrize.business!.slug); }}>
-                      <Text style={[styles.prizeModalBusiness, { color: theme.colors.primary }]}>
-                        {prizePopupPrize.business.name}
+          <Modal
+            visible={!!prizePopupPrize && !prizeFullGalleryOpen}
+            animationType="slide"
+            transparent
+            onRequestClose={() => setPrizePopupPrize(null)}
+          >
+            <View style={styles.rewardModalOverlay}>
+              <Pressable
+                style={styles.rewardModalBackdrop}
+                onPress={() => setPrizePopupPrize(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss"
+              />
+              <View style={styles.rewardModalContent}>
+                {prizePopupPrize && (
+                  <>
+                    <View style={styles.rewardModalHeader}>
+                      <Text style={styles.rewardModalTitle} numberOfLines={2}>
+                        {prizePopupPrize.rank === 1
+                          ? "1st"
+                          : prizePopupPrize.rank === 2
+                            ? "2nd"
+                            : prizePopupPrize.rank === 3
+                              ? "3rd"
+                              : `${prizePopupPrize.rank}th`}{" "}
+                        Place Prize for {currentSeason?.name ?? "Season"}
                       </Text>
-                    </Pressable>
-                  )}
-                  <Pressable style={styles.prizeModalClose} onPress={() => setPrizePopupPrize(null)}>
-                    <Text style={styles.prizeModalCloseText}>Close</Text>
-                  </Pressable>
-                </View>
-              </Pressable>
-            </Modal>
-          )}
+                      <Pressable
+                        onPress={() => setPrizePopupPrize(null)}
+                        style={styles.rewardModalCloseBtn}
+                        hitSlop={12}
+                      >
+                        <Ionicons name="close" size={28} color={theme.colors.text} />
+                      </Pressable>
+                    </View>
+                    <ScrollView
+                      style={styles.rewardModalScroll}
+                      showsVerticalScrollIndicator={false}
+                      nestedScrollEnabled
+                    >
+                      <View style={styles.rewardModalImageWrap}>
+                        {(() => {
+                          const urls = prizePopupPrize.imageUrl
+                            ? [resolveUrl(prizePopupPrize.imageUrl)!].filter(Boolean)
+                            : [];
+                          if (urls.length === 0) {
+                            return (
+                              <View style={styles.rewardModalImagePlaceholder}>
+                                <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
+                                <Text style={styles.rewardModalPlaceholderText}>No image</Text>
+                              </View>
+                            );
+                          }
+                          return (
+                            <FlatList
+                              horizontal
+                              data={urls}
+                              keyExtractor={(u, i) => `${i}-${u}`}
+                              showsHorizontalScrollIndicator={urls.length > 1}
+                              contentContainerStyle={styles.rewardPreviewListSingle}
+                              ItemSeparatorComponent={() => <View style={{ width: 10 }} />}
+                              renderItem={({ item, index }) => (
+                                <Pressable
+                                  onPress={() => openPrizeFullGallery([item], index)}
+                                  style={styles.rewardPreviewThumbPress}
+                                >
+                                  <Image
+                                    source={{ uri: item }}
+                                    style={styles.rewardPreviewThumb}
+                                    resizeMode="cover"
+                                  />
+                                </Pressable>
+                              )}
+                            />
+                          );
+                        })()}
+                      </View>
+                      {prizePopupPrize.business && (
+                        <Pressable
+                          onPress={() => {
+                            setPrizePopupPrize(null);
+                            openBusiness(prizePopupPrize.business!.slug);
+                          }}
+                          style={({ pressed }) => [styles.rewardModalBusiness, pressed && { opacity: 0.8 }]}
+                        >
+                          <Text style={[styles.rewardModalBusinessText, { color: theme.colors.primary }]}>
+                            {prizePopupPrize.business.name}
+                          </Text>
+                          <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
+                        </Pressable>
+                      )}
+                      {prizePopupPrize.description ? (
+                        <Text style={styles.rewardModalDescription}>{prizePopupPrize.description}</Text>
+                      ) : null}
+                    </ScrollView>
+                  </>
+                )}
+              </View>
+            </View>
+          </Modal>
 
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
@@ -636,14 +673,12 @@ export default function RewardsScreen() {
                                   style={[
                                     styles.redeemBtnGrid,
                                     { backgroundColor: theme.colors.primary },
-                                    (!canRedeem || redeeming === r.id) && styles.redeemBtnDisabled,
+                                    !canRedeem && styles.redeemBtnDisabled,
                                   ]}
-                                  onPress={() => handleRedeem(r.id)}
-                                  disabled={!canRedeem || redeeming === r.id}
+                                  onPress={() => openRedeemForm(r)}
+                                  disabled={!canRedeem}
                                 >
-                                  {redeeming === r.id ? (
-                                    <ActivityIndicator size="small" color="#fff" />
-                                  ) : canRedeem ? (
+                                  {canRedeem ? (
                                     <Text style={styles.redeemBtnText}>Redeem</Text>
                                   ) : (
                                     <Text style={styles.redeemBtnText}>
@@ -673,24 +708,25 @@ export default function RewardsScreen() {
         </ScrollView>
       )}
 
-      {/* Reward detail modal: photo at natural aspect ratio so full photo is visible */}
+      {/* Reward detail modal: 1:1 preview strip; tap opens full gallery (ImageGalleryViewer). */}
       <Modal
-        visible={!!selectedRewardForModal}
+        visible={!!selectedRewardForModal && !rewardGalleryOpen}
         animationType="slide"
         transparent
         onRequestClose={() => {
           setSelectedRewardForModal(null);
-          setRewardModalImageSize(null);
         }}
       >
-        <Pressable
-          style={styles.rewardModalOverlay}
-          onPress={() => {
-            setSelectedRewardForModal(null);
-            setRewardModalImageSize(null);
-          }}
-        >
-          <View style={styles.rewardModalContent} onStartShouldSetResponder={() => true}>
+        <View style={styles.rewardModalOverlay}>
+          <Pressable
+            style={styles.rewardModalBackdrop}
+            onPress={() => {
+              setSelectedRewardForModal(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+          />
+          <View style={styles.rewardModalContent}>
             {selectedRewardForModal && (
               <>
                 <View style={styles.rewardModalHeader}>
@@ -700,7 +736,6 @@ export default function RewardsScreen() {
                   <Pressable
                     onPress={() => {
                       setSelectedRewardForModal(null);
-                      setRewardModalImageSize(null);
                     }}
                     style={styles.rewardModalCloseBtn}
                     hitSlop={12}
@@ -714,18 +749,49 @@ export default function RewardsScreen() {
                   nestedScrollEnabled
                 >
                   <View style={styles.rewardModalImageWrap}>
-                    {selectedRewardForModal.imageUrl ? (
-                      <RewardModalImage
-                        uri={resolveUrl(selectedRewardForModal.imageUrl)}
-                        setImageSize={setRewardModalImageSize}
-                        imageSize={rewardModalImageSize}
-                      />
-                    ) : (
-                      <View style={styles.rewardModalImagePlaceholder}>
-                        <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
-                        <Text style={styles.rewardModalPlaceholderText}>No image</Text>
-                      </View>
-                    )}
+                    {(() => {
+                      const urls = selectedRewardForModal.imageUrl
+                        ? [resolveUrl(selectedRewardForModal.imageUrl)!].filter(Boolean)
+                        : [];
+                      if (urls.length === 0) {
+                        return (
+                          <View style={styles.rewardModalImagePlaceholder}>
+                            <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
+                            <Text style={styles.rewardModalPlaceholderText}>No image</Text>
+                          </View>
+                        );
+                      }
+                      return (
+                        <FlatList
+                          horizontal
+                          data={urls}
+                          keyExtractor={(u, i) => `${i}-${u}`}
+                          showsHorizontalScrollIndicator={urls.length > 1}
+                          pagingEnabled={false}
+                          contentContainerStyle={
+                            urls.length === 1
+                              ? styles.rewardPreviewListSingle
+                              : styles.rewardPreviewListMulti
+                          }
+                          ItemSeparatorComponent={() => <View style={{ width: 10 }} />}
+                          renderItem={({ item, index }) => (
+                            <Pressable
+                              onPress={() => {
+                                setRewardGalleryIndex(index);
+                                setRewardGalleryOpen(true);
+                              }}
+                              style={styles.rewardPreviewThumbPress}
+                            >
+                              <Image
+                                source={{ uri: item }}
+                                style={styles.rewardPreviewThumb}
+                                resizeMode="cover"
+                              />
+                            </Pressable>
+                          )}
+                        />
+                      );
+                    })()}
                   </View>
                   {selectedRewardForModal.business && (
                     <Pressable
@@ -799,8 +865,8 @@ export default function RewardsScreen() {
                     style={[
                       styles.rewardModalRedeemBtn,
                       { backgroundColor: theme.colors.primary },
-                      (!(signedIn && points !== null && points >= selectedRewardForModal.pointsRequired) ||
-                        redeeming === selectedRewardForModal.id) && styles.rewardModalRedeemBtnDisabled,
+                      (!(signedIn && points !== null && points >= selectedRewardForModal.pointsRequired)) &&
+                        styles.rewardModalRedeemBtnDisabled,
                     ]}
                     onPress={() => {
                       if (!signedIn || points === null) {
@@ -808,16 +874,13 @@ export default function RewardsScreen() {
                         router.push("/(tabs)/my-community");
                         return;
                       }
-                      handleRedeem(selectedRewardForModal.id);
+                      openRedeemForm(selectedRewardForModal);
                     }}
                     disabled={
-                      redeeming === selectedRewardForModal.id ||
                       !(signedIn && points !== null && points >= selectedRewardForModal.pointsRequired)
                     }
                   >
-                    {redeeming === selectedRewardForModal.id ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : signedIn && points !== null && points >= selectedRewardForModal.pointsRequired ? (
+                    {signedIn && points !== null && points >= selectedRewardForModal.pointsRequired ? (
                       <Text style={styles.rewardModalRedeemBtnText}>
                         Redeem {selectedRewardForModal.pointsRequired} pts
                       </Text>
@@ -833,8 +896,46 @@ export default function RewardsScreen() {
               </>
             )}
           </View>
-        </Pressable>
+        </View>
       </Modal>
+      <ImageGalleryViewer
+        key={
+          rewardGalleryOpen && selectedRewardForModal?.imageUrl
+            ? `reward-${rewardGalleryIndex}-${selectedRewardForModal.imageUrl}`
+            : "reward-gallery-closed"
+        }
+        visible={
+          rewardGalleryOpen &&
+          !!selectedRewardForModal?.imageUrl &&
+          !!resolveUrl(selectedRewardForModal.imageUrl)
+        }
+        images={
+          selectedRewardForModal?.imageUrl
+            ? [resolveUrl(selectedRewardForModal.imageUrl)!].filter((u): u is string => !!u)
+            : []
+        }
+        initialIndex={rewardGalleryIndex}
+        onClose={() => setRewardGalleryOpen(false)}
+      />
+
+      <ImageGalleryViewer
+        key={
+          prizeFullGalleryOpen ? `prize-${prizeFullGalleryIndex}-${prizeFullGalleryImages.join("|")}` : "prize-gallery-closed"
+        }
+        visible={prizeFullGalleryOpen && prizeFullGalleryImages.length > 0}
+        images={prizeFullGalleryImages}
+        initialIndex={prizeFullGalleryIndex}
+        onClose={() => setPrizeFullGalleryOpen(false)}
+      />
+
+      <RedeemRewardFormModal
+        visible={!!redeemFormReward}
+        reward={redeemFormReward}
+        onClose={() => setRedeemFormReward(null)}
+        onSuccess={(rewardId, pointsSpent) => {
+          applyRedeemSuccess(rewardId, pointsSpent);
+        }}
+      />
     </View>
   );
 }
@@ -996,9 +1097,10 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f0f0f0",
     gap: 8,
   },
-  prizeThumb: { width: 40, height: 40, borderRadius: 6 },
+  prizeRowDetails: { flex: 1, minWidth: 0, justifyContent: "center" },
+  prizeThumb: { width: 44, height: 44, borderRadius: 8 },
   prizeThumbPlaceholder: { backgroundColor: "#f0f0f0" },
-  prizeBusiness: { fontSize: 12, color: "#666", flex: 1 },
+  prizeBusiness: { fontSize: 12, color: "#666" },
   prizeDetailsBtn: { padding: 4 },
   prizeEmpty: { fontSize: 14, color: "#999", flex: 1 },
   leaderboardList: { maxHeight: 320, marginTop: 12 },
@@ -1019,34 +1121,15 @@ const styles = StyleSheet.create({
   leaderName: { flex: 1, fontSize: 14, fontWeight: "500" },
   leaderEmpty: { flex: 1, fontSize: 14, color: "#999" },
   leaderPoints: { fontWeight: "600", fontSize: 14 },
-  prizeModalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  prizeModalPanel: {
-    width: "100%",
-    maxWidth: 360,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 20,
-    alignItems: "center",
-  },
-  prizeModalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 12, textAlign: "center" },
-  prizeModalImage: { width: "100%", aspectRatio: 1, borderRadius: 8, marginBottom: 12 },
-  prizeImagePlaceholder: { backgroundColor: "#f0f0f0", alignItems: "center", justifyContent: "center" },
-  prizeModalDesc: { fontSize: 14, color: "#444", marginBottom: 8, textAlign: "center" },
-  prizeModalBusiness: { fontSize: 14, marginBottom: 16, textDecorationLine: "underline" },
-  prizeModalClose: { paddingVertical: 10, paddingHorizontal: 24, borderRadius: 8, backgroundColor: "#eee" },
-  prizeModalCloseText: { fontSize: 16, fontWeight: "600", color: "#333" },
   rewardModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
+  },
+  rewardModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
   },
   rewardModalContent: {
     width: "100%",
@@ -1073,6 +1156,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 12,
     backgroundColor: "#f5f5f5",
+  },
+  rewardPreviewListSingle: {
+    alignSelf: "center",
+    paddingHorizontal: 16,
+  },
+  rewardPreviewListMulti: {
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  rewardPreviewThumbPress: {
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#ddd",
+  },
+  rewardPreviewThumb: {
+    width: REWARD_PREVIEW_SIZE,
+    height: REWARD_PREVIEW_SIZE,
+    backgroundColor: "#e8e8e8",
   },
   rewardModalImagePlaceholder: {
     width: "100%",

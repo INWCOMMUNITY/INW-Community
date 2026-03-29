@@ -4,6 +4,12 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { expireStaleResaleOffers } from "@/lib/expire-stale-resale-offers";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
+import {
+  validateRequestedFulfillment,
+  validateLocalDeliveryDetails,
+  storeItemHasLocalDeliveryPolicy,
+  type LocalDeliveryDetailsJson,
+} from "@/lib/pickup-delivery-checkout";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -16,7 +22,9 @@ const localDeliveryDetailsSchema = z.object({
   firstName: z.string(),
   lastName: z.string(),
   phone: z.string(),
+  email: z.string().optional(),
   deliveryAddress: deliveryAddressSchema,
+  availableDropOffTimes: z.string().optional(),
   note: z.string().optional(),
   termsAcceptedAt: z.string().optional(),
 });
@@ -25,6 +33,7 @@ const pickupDetailsSchema = z.object({
   lastName: z.string(),
   phone: z.string(),
   email: z.string().optional(),
+  preferredPickupDate: z.string().optional(),
   preferredPickupTime: z.string().optional(),
   note: z.string().optional(),
   termsAcceptedAt: z.string().optional(),
@@ -70,6 +79,7 @@ export async function GET(req: NextRequest) {
           inStorePickupAvailable: true,
           shippingDisabled: true,
           pickupTerms: true,
+          localDeliveryTerms: true,
           member: {
             select: {
               acceptCashForPickupDelivery: true,
@@ -145,7 +155,7 @@ export async function POST(req: NextRequest) {
 
   const storeItem = await prisma.storeItem.findUnique({
     where: { id: body.storeItemId, status: "active" },
-    include: { member: { select: { stripeConnectAccountId: true } } },
+    include: { member: { select: { stripeConnectAccountId: true, sellerLocalDeliveryPolicy: true } } },
   });
   if (!storeItem || storeItem.quantity < 1) {
     return NextResponse.json({ error: "Item not available" }, { status: 400 });
@@ -165,6 +175,10 @@ export async function POST(req: NextRequest) {
   }
 
   const fulfillmentType = body.fulfillmentType ?? "ship";
+  const fulfillmentCheck = validateRequestedFulfillment(storeItem, fulfillmentType);
+  if (!fulfillmentCheck.ok) {
+    return NextResponse.json({ error: fulfillmentCheck.error }, { status: 400 });
+  }
   let localDeliveryDetails: object | null = null;
   let pickupDetails: object | null = null;
   if (fulfillmentType === "local_delivery") {
@@ -188,6 +202,14 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+    }
+  }
+  if (fulfillmentType === "local_delivery" && localDeliveryDetails) {
+    const ldCheck = validateLocalDeliveryDetails(localDeliveryDetails as LocalDeliveryDetailsJson, {
+      requirePolicyAcceptance: storeItemHasLocalDeliveryPolicy(storeItem),
+    });
+    if (!ldCheck.ok) {
+      return NextResponse.json({ error: ldCheck.error }, { status: 400 });
     }
   }
   if (fulfillmentType === "pickup" && body.pickupDetails) {

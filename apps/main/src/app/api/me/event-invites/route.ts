@@ -11,10 +11,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const scope = new URL(req.url).searchParams.get("scope") ?? "all";
+  const whereStatus =
+    scope === "pending"
+      ? { status: "pending" as const }
+      : scope === "responded"
+        ? { status: { in: ["accepted", "declined", "maybe"] } }
+        : {};
+
   const invites = await prisma.eventInvite.findMany({
     where: {
       inviteeId: session.user.id,
-      status: "pending",
+      ...whereStatus,
     },
     include: {
       event: {
@@ -42,6 +50,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     invites: invites.map((inv) => ({
       id: inv.id,
+      status: inv.status,
       event: inv.event,
       inviter: inv.inviter,
       createdAt: inv.createdAt,

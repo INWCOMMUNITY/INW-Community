@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -46,6 +46,7 @@ interface StoreItem {
   id: string;
   title: string;
   slug: string;
+  status?: string;
   description: string | null;
   photos: string[];
   category: string | null;
@@ -89,6 +90,19 @@ type FulfillmentType = "ship" | "local_delivery" | "pickup";
 
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** Decimal pad UX: treat input as cents digits only (e.g. 2250 → "22.50"). */
+function formatOfferDollarInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+  const cents = Math.min(parseInt(digits, 10), 99_999_999);
+  return (cents / 100).toFixed(2);
+}
+
+function offerDollarsToCents(formatted: string): number {
+  const n = parseFloat(formatted);
+  return Number.isFinite(n) ? Math.round(n * 100) : NaN;
 }
 
 function resolvePhotoUrl(path: string | undefined): string | undefined {
@@ -243,6 +257,35 @@ export default function ProductScreen() {
     (fulfillmentType !== "local_delivery" || localDeliveryDetailsSaved) &&
     (fulfillmentType !== "pickup" || pickupDetailsSaved);
 
+  const localDeliveryModalInitial = useMemo(
+    (): Partial<LocalDeliveryDetails> => ({
+      firstName: localDeliveryForm.firstName ?? "",
+      lastName: localDeliveryForm.lastName ?? "",
+      phone: localDeliveryForm.phone ?? "",
+      email: localDeliveryForm.email ?? "",
+      deliveryAddress: {
+        street: localDeliveryForm.deliveryAddress?.street ?? "",
+        city: localDeliveryForm.deliveryAddress?.city ?? "",
+        state: localDeliveryForm.deliveryAddress?.state ?? "",
+        zip: localDeliveryForm.deliveryAddress?.zip ?? "",
+      },
+      availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
+      note: localDeliveryForm.note ?? "",
+    }),
+    [
+      localDeliveryForm.firstName,
+      localDeliveryForm.lastName,
+      localDeliveryForm.phone,
+      localDeliveryForm.email,
+      localDeliveryForm.deliveryAddress?.street,
+      localDeliveryForm.deliveryAddress?.city,
+      localDeliveryForm.deliveryAddress?.state,
+      localDeliveryForm.deliveryAddress?.zip,
+      localDeliveryForm.availableDropOffTimes,
+      localDeliveryForm.note,
+    ]
+  );
+
   const messageSeller = async () => {
     if (!item || !messageSellerText.trim()) return;
     const token = await getToken();
@@ -283,9 +326,14 @@ export default function ProductScreen() {
 
   const submitMakeOffer = async () => {
     if (!item) return;
-    const amountCents = Math.round(parseFloat(offerAmountDollars) * 100);
-    if (isNaN(amountCents) || amountCents < 1) {
+    const amountCents = offerDollarsToCents(offerAmountDollars);
+    if (!Number.isFinite(amountCents) || amountCents < 1) {
       setOfferError("Enter a valid amount");
+      return;
+    }
+    const minC = item.minOfferCents;
+    if (minC != null && minC > 0 && amountCents < minC) {
+      setOfferError(`Offer must be at least ${formatPrice(minC)}`);
       return;
     }
     const token = await getToken();
@@ -400,7 +448,7 @@ export default function ProductScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <ActivityIndicator size="large" color={theme.colors.cream} />
       </View>
     );
   }
@@ -475,12 +523,16 @@ export default function ProductScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {itemUnavailable && (
+        {itemUnavailable && item && (
           <View style={styles.soldBanner}>
             <Text style={styles.soldBannerText}>
-              {item?.soldAt
-                ? `This item was sold on ${new Date(item.soldAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`
-                : "This item was sold."}
+              {item.status === "sold_out" || item.soldAt
+                ? item.soldAt
+                  ? `This item was sold on ${new Date(item.soldAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`
+                  : "This item was sold."
+                : item.status === "inactive"
+                  ? "This listing has ended."
+                  : "This listing is not available for purchase right now."}
             </Text>
           </View>
         )}
@@ -752,7 +804,7 @@ export default function ProductScreen() {
                       setMakeOfferModalOpen(true);
                     }}
                   >
-                    <Ionicons name="pricetag-outline" size={18} color="#fff" />
+                    <Ionicons name="pricetag-outline" size={18} color={theme.colors.primary} />
                     <Text style={styles.makeOfferBtnText}>Make Offer</Text>
                   </Pressable>
                 )}
@@ -887,18 +939,7 @@ export default function ProductScreen() {
             visible={localDeliveryModalOpen}
             onClose={() => setLocalDeliveryModalOpen(false)}
             policyText={effectiveLocalDeliveryPolicy ?? undefined}
-            initialForm={{
-              firstName: localDeliveryForm.firstName ?? "",
-              lastName: localDeliveryForm.lastName ?? "",
-              phone: localDeliveryForm.phone ?? "",
-              deliveryAddress: {
-                street: localDeliveryForm.deliveryAddress?.street ?? "",
-                city: localDeliveryForm.deliveryAddress?.city ?? "",
-                state: localDeliveryForm.deliveryAddress?.state ?? "",
-                zip: localDeliveryForm.deliveryAddress?.zip ?? "",
-              },
-              note: localDeliveryForm.note ?? "",
-            }}
+            initialForm={localDeliveryModalInitial}
             onSave={(form) => {
               setLocalDeliveryForm(form);
               setLocalDeliveryDetailsSaved(true);
@@ -914,8 +955,10 @@ export default function ProductScreen() {
               lastName: pickupForm.lastName ?? "",
               phone: pickupForm.phone ?? "",
               email: pickupForm.email ?? "",
+              preferredPickupDate: pickupForm.preferredPickupDate ?? "",
               preferredPickupTime: pickupForm.preferredPickupTime ?? "",
               note: pickupForm.note ?? "",
+              termsAcceptedAt: pickupForm.termsAcceptedAt,
             }}
             onSave={(form) => {
               setPickupForm(form);
@@ -1010,23 +1053,23 @@ export default function ProductScreen() {
                     </Text>
                   )}
                   <TextInput
-                    style={styles.messageSellerInput}
-                    placeholder="Your offer ($)"
+                    style={styles.makeOfferAmountInput}
+                    placeholder="0.00"
                     placeholderTextColor="#999"
                     keyboardType="decimal-pad"
                     value={offerAmountDollars}
                     onChangeText={(t) => {
-                      setOfferAmountDollars(t);
+                      setOfferAmountDollars(formatOfferDollarInput(t));
                       setOfferError("");
                     }}
                     editable={!offerSubmitting}
                   />
                   <TextInput
-                    style={[styles.messageSellerInput, { minHeight: 60 }]}
+                    style={styles.makeOfferMessageInput}
                     placeholder="Message (optional)"
                     placeholderTextColor="#999"
                     multiline
-                    numberOfLines={2}
+                    numberOfLines={3}
                     value={offerMessage}
                     onChangeText={setOfferMessage}
                     editable={!offerSubmitting}
@@ -1396,12 +1439,36 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: "#92400e",
+    backgroundColor: theme.colors.cream,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
   },
   makeOfferBtnText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#fff",
+    color: theme.colors.heading,
+  },
+  makeOfferAmountInput: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    color: theme.colors.text,
+    minHeight: 44,
+    maxHeight: 44,
+    marginBottom: 16,
+  },
+  makeOfferMessageInput: {
+    borderWidth: 2,
+    borderColor: theme.colors.cream,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: theme.colors.text,
+    minHeight: 72,
+    textAlignVertical: "top",
   },
   makeOfferMinHint: {
     fontSize: 12,

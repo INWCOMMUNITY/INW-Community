@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { apiPost, apiDelete, getToken } from "@/lib/api";
 
@@ -47,8 +47,13 @@ export function HeartSaveButton({
         setSaved(true);
         onSavedChange?.(true);
       }
-    } catch {
-      // ignore
+    } catch (e) {
+      const err = e as { error?: string; status?: number };
+      const msg =
+        typeof err?.error === "string" && err.error.trim()
+          ? err.error
+          : "Could not update saved items. Try again.";
+      Alert.alert("Save failed", msg);
     } finally {
       setLoading(false);
     }

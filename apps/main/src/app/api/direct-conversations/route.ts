@@ -79,7 +79,9 @@ export async function GET(req: NextRequest) {
 const postBodySchema = z.object({
   addresseeId: z.string().min(1),
   content: z.string().max(5000).optional(),
-  sharedContentType: z.enum(["post", "blog", "store_item", "business", "coupon", "reward", "photo"]).optional(),
+  sharedContentType: z
+    .enum(["post", "blog", "store_item", "business", "coupon", "reward", "photo", "event"])
+    .optional(),
   sharedContentId: z.string().optional(),
   sharedContentSlug: z.string().optional(),
 });

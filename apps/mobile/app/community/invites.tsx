@@ -7,7 +7,11 @@ import {
   Pressable,
   ActivityIndicator,
   RefreshControl,
+  Alert,
+  Platform,
+  ActionSheetIOS,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
@@ -16,6 +20,7 @@ import { formatTime12h } from "@/lib/format-time";
 
 interface EventInvite {
   id: string;
+  status: string;
   event: {
     id: string;
     title: string;
@@ -30,7 +35,13 @@ interface EventInvite {
     lastName: string;
   };
   createdAt: string;
-  status?: string;
+}
+
+function statusLabel(status: string): string {
+  if (status === "accepted") return "Going";
+  if (status === "maybe") return "Maybe";
+  if (status === "declined") return "Can't make it";
+  return status;
 }
 
 export default function InvitesScreen() {
@@ -42,7 +53,7 @@ export default function InvitesScreen() {
 
   const load = useCallback(async () => {
     try {
-      const data = await apiGet<{ invites: EventInvite[] }>("/api/me/event-invites");
+      const data = await apiGet<{ invites: EventInvite[] }>("/api/me/event-invites?scope=all");
       setInvites(data?.invites ?? []);
     } catch {
       setInvites([]);
@@ -54,31 +65,121 @@ export default function InvitesScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const respond = async (inviteId: string, status: "accepted" | "declined") => {
-    setResponding(inviteId);
-    try {
-      await apiPatch(`/api/event-invites/${inviteId}`, { status });
-      setInvites((prev) => prev.filter((i) => i.id !== inviteId));
-    } catch {
-      // keep invite on error
-    } finally {
-      setResponding(null);
-    }
-  };
-
   const setRsvp = async (inviteId: string, status: "accepted" | "declined" | "maybe") => {
     setResponding(inviteId);
     try {
       await apiPatch(`/api/event-invites/${inviteId}`, { status });
-      setInvites((prev) => prev.filter((i) => i.id !== inviteId));
-    } catch {
-      // keep invite on error
+      setInvites((prev) =>
+        prev.map((i) => (i.id === inviteId ? { ...i, status } : i))
+      );
+    } catch (e) {
+      const err = e as { error?: string };
+      Alert.alert("Could not update RSVP", err?.error ?? "Try again.");
     } finally {
       setResponding(null);
     }
   };
 
-  const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
+  const openChangeRsvpMenu = (inv: EventInvite) => {
+    const run = (status: "accepted" | "declined" | "maybe") => {
+      void setRsvp(inv.id, status);
+    };
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Cancel", "Going", "Maybe", "Can't make it"],
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: 3,
+        },
+        (i) => {
+          if (i === 1) run("accepted");
+          if (i === 2) run("maybe");
+          if (i === 3) run("declined");
+        }
+      );
+    } else {
+      Alert.alert("Change RSVP", "Update how you’ll attend.", [
+        { text: "Going", onPress: () => run("accepted") },
+        { text: "Maybe", onPress: () => run("maybe") },
+        { text: "Can't make it", style: "destructive", onPress: () => run("declined") },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    }
+  };
+
+  const pending = invites.filter((i) => i.status === "pending");
+  const responded = invites.filter((i) => i.status !== "pending");
+
+  const renderCard = (inv: EventInvite, showActions: boolean) => (
+    <View key={inv.id} style={styles.card}>
+      <View style={styles.cardTopRow}>
+        <Pressable
+          style={styles.cardMainPressable}
+          onPress={() => (router.push as (href: string) => void)(`/event/${inv.event.slug}`)}
+        >
+          <Text style={styles.eventTitle}>{inv.event.title}</Text>
+          <Text style={styles.eventDate}>
+            {new Date(inv.event.date).toLocaleDateString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            })}
+            {inv.event.time ? ` · ${formatTime12h(inv.event.time)}` : ""}
+          </Text>
+          {inv.event.location && (
+            <Text style={styles.eventLocation}>{inv.event.location}</Text>
+          )}
+          <Text style={styles.inviter}>
+            Invited by {inv.inviter.firstName} {inv.inviter.lastName}
+          </Text>
+          {!showActions && (
+            <View style={styles.statusPill}>
+              <Text style={styles.statusPillText}>{statusLabel(inv.status)}</Text>
+            </View>
+          )}
+        </Pressable>
+        {!showActions ? (
+          <Pressable
+            style={({ pressed }) => [styles.cardMenuBtn, pressed && { opacity: 0.7 }]}
+            onPress={() => openChangeRsvpMenu(inv)}
+            hitSlop={12}
+            accessibilityLabel="Change RSVP"
+          >
+            <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
+          </Pressable>
+        ) : null}
+      </View>
+      {showActions ? (
+        <View style={styles.actions}>
+          <Pressable
+            style={({ pressed }) => [styles.attendingBtn, pressed && styles.buttonPressed]}
+            onPress={() => setRsvp(inv.id, "accepted")}
+            disabled={responding === inv.id}
+          >
+            {responding === inv.id ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.attendingBtnText}>Accept</Text>
+            )}
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.maybeBtn, pressed && styles.buttonPressed]}
+            onPress={() => setRsvp(inv.id, "maybe")}
+            disabled={responding === inv.id}
+          >
+            <Text style={styles.maybeBtnText}>Maybe</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.declineBtn, pressed && styles.buttonPressed]}
+            onPress={() => setRsvp(inv.id, "declined")}
+            disabled={responding === inv.id}
+          >
+            <Text style={styles.declineBtnText}>Decline</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
 
   return (
     <ScrollView
@@ -88,9 +189,9 @@ export default function InvitesScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} colors={[theme.colors.primary]} />
       }
     >
-      <Text style={styles.title}>Event Invites</Text>
+      <Text style={styles.title}>Local Event Invites</Text>
       <Text style={styles.hint}>
-        When a friend sends you an event via messaging, it appears here. You can mark your response.
+        Invitations and your responses stay here so you can open the event anytime.
       </Text>
 
       {loading ? (
@@ -98,58 +199,24 @@ export default function InvitesScreen() {
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : invites.length === 0 ? (
-        <Text style={styles.emptyText}>No pending event invites.</Text>
+        <Text style={styles.emptyText}>No event invites yet.</Text>
       ) : (
-        invites.map((inv) => (
-          <View key={inv.id} style={styles.card}>
-            <Pressable
-              onPress={() => (router.push as (href: string) => void)(`/event/${inv.event.slug}`)}
-            >
-              <Text style={styles.eventTitle}>{inv.event.title}</Text>
-              <Text style={styles.eventDate}>
-                {new Date(inv.event.date).toLocaleDateString("en-US", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })}
-                {inv.event.time ? ` · ${formatTime12h(inv.event.time)}` : ""}
+        <>
+          {pending.length > 0 ? (
+            <>
+              <Text style={styles.sectionTitle}>Needs your response</Text>
+              {pending.map((inv) => renderCard(inv, true))}
+            </>
+          ) : null}
+          {responded.length > 0 ? (
+            <>
+              <Text style={[styles.sectionTitle, pending.length > 0 ? styles.sectionSpaced : null]}>
+                Your responses
               </Text>
-              {inv.event.location && (
-                <Text style={styles.eventLocation}>{inv.event.location}</Text>
-              )}
-              <Text style={styles.inviter}>
-                Invited by {inv.inviter.firstName} {inv.inviter.lastName}
-              </Text>
-            </Pressable>
-            <View style={styles.actions}>
-              <Pressable
-                style={({ pressed }) => [styles.attendingBtn, pressed && styles.buttonPressed]}
-                onPress={() => setRsvp(inv.id, "accepted")}
-                disabled={responding === inv.id}
-              >
-                {responding === inv.id ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.attendingBtnText}>Attending</Text>
-                )}
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.maybeBtn, pressed && styles.buttonPressed]}
-                onPress={() => setRsvp(inv.id, "maybe")}
-                disabled={responding === inv.id}
-              >
-                <Text style={styles.maybeBtnText}>Maybe</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.declineBtn, pressed && styles.buttonPressed]}
-                onPress={() => setRsvp(inv.id, "declined")}
-                disabled={responding === inv.id}
-              >
-                <Text style={styles.declineBtnText}>Can&apos;t make it</Text>
-              </Pressable>
-            </View>
-          </View>
-        ))
+              {responded.map((inv) => renderCard(inv, false))}
+            </>
+          ) : null}
+        </>
       )}
     </ScrollView>
   );
@@ -161,6 +228,13 @@ const styles = StyleSheet.create({
   center: { paddingVertical: 48, alignItems: "center" },
   title: { fontSize: 20, fontWeight: "700", color: theme.colors.heading, marginBottom: 8 },
   hint: { fontSize: 14, color: "#666", marginBottom: 24 },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 12,
+  },
+  sectionSpaced: { marginTop: 24 },
   emptyText: { fontSize: 16, color: "#888", textAlign: "center" },
   card: {
     backgroundColor: "#f9f9f9",
@@ -170,10 +244,30 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: theme.colors.primary,
   },
+  cardTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  cardMainPressable: { flex: 1, minWidth: 0 },
+  cardMenuBtn: { padding: 4, marginTop: -4 },
   eventTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
   eventDate: { fontSize: 14, color: "#666", marginTop: 4 },
   eventLocation: { fontSize: 13, color: "#888", marginTop: 2 },
   inviter: { fontSize: 13, color: theme.colors.primary, marginTop: 8 },
+  statusPill: {
+    alignSelf: "flex-start",
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: `${theme.colors.primary}18`,
+  },
+  statusPillText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.colors.primary,
+  },
   actions: { flexDirection: "row", gap: 8, marginTop: 12 },
   attendingBtn: {
     flex: 1,

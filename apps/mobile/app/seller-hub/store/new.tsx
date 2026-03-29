@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -17,10 +17,17 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
-import { theme as defaultTheme } from "@/lib/theme";
+import {
+  theme as defaultTheme,
+  switchIosBackgroundColor,
+  switchThumbColor,
+  switchTrackColor,
+} from "@/lib/theme";
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+import type { EarnedBadgePayload } from "@/lib/share-utils";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -52,6 +59,7 @@ interface PoliciesResponse {
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
   offerLocalPickup?: boolean;
+  acceptCashForPickupDelivery?: boolean;
 }
 
 type VariantOption = { value: string; quantity: number };
@@ -76,6 +84,8 @@ function normalizeVariants(raw: unknown): Variant[] {
 }
 
 const PLACEHOLDER_COLOR = "#888888";
+/** Must stay in sync with server [/api/upload] max size for listing photos. */
+const MAX_LISTING_PHOTO_BYTES = 160 * 1024 * 1024;
 
 export default function ListItemScreen() {
   const theme = useTheme();
@@ -102,6 +112,7 @@ export default function ListItemScreen() {
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
+  const [acceptCashForPickupDelivery, setAcceptCashForPickupDelivery] = useState(true);
   const [useSellerProfilePickup, setUseSellerProfilePickup] = useState(true);
   const [useSellerProfileLocalDelivery, setUseSellerProfileLocalDelivery] = useState(true);
   const [pickupTerms, setPickupTerms] = useState("");
@@ -113,6 +124,7 @@ export default function ListItemScreen() {
   const [category, setCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
   const [useCustomCategory, setUseCustomCategory] = useState(false);
+  const [categorySearch, setCategorySearch] = useState("");
   const [priceCents, setPriceCents] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [listingType, setListingType] = useState<"new" | "resale">(listingTypeParam);
@@ -128,16 +140,38 @@ export default function ListItemScreen() {
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [variants, setVariants] = useState<Variant[]>([]);
   const [optionsEnabled, setOptionsEnabled] = useState(false);
+  const [acceptOffers, setAcceptOffers] = useState(true);
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [loadedDraft, setLoadedDraft] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [showListingSuccessModal, setShowListingSuccessModal] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
+  const [listingEarnedBadges, setListingEarnedBadges] = useState<EarnedBadgePayload[]>([]);
+  const [listingBadgePopupIndex, setListingBadgePopupIndex] = useState(-1);
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
+
+  const filteredStoreCategories = useMemo(() => {
+    const q = categorySearch.trim().toLowerCase();
+    if (!q) return storeCategories;
+    return storeCategories.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.subcategories.some((s) => s.toLowerCase().includes(q))
+    );
+  }, [storeCategories, categorySearch]);
+
+  const filteredSubcategoriesForCategory = useMemo(() => {
+    const sel = storeCategories.find((c) => c.label === category);
+    if (!sel?.subcategories?.length) return [];
+    const q = categorySearch.trim().toLowerCase();
+    if (!q) return sel.subcategories;
+    return sel.subcategories.filter((s) => s.toLowerCase().includes(q));
+  }, [storeCategories, category, categorySearch]);
 
   const hasVariantsWithOptions =
     optionsEnabled && variants.some((v) => v.name.trim() && v.options.length > 0);
@@ -234,6 +268,7 @@ export default function ListItemScreen() {
         businessId: string | null;
         variants: unknown;
         listingType?: "new" | "resale";
+        acceptOffers?: boolean;
         useSellerProfileShipping?: boolean;
         useSellerProfileLocalDelivery?: boolean;
         useSellerProfilePickup?: boolean;
@@ -268,6 +303,7 @@ export default function ListItemScreen() {
           setVariants(normalized);
           setOptionsEnabled(normalized.some((v) => v.name.trim() && v.options.length > 0));
           if (item.listingType === "resale" || item.listingType === "new") setListingType(item.listingType);
+          if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
@@ -311,6 +347,17 @@ export default function ListItemScreen() {
       setLoadedDraft(true);
     }
   }, [draftId, editId, loadedDraft]);
+
+  useEffect(() => {
+    if (editId) return;
+    apiGet<{ member?: { acceptOffersOnResale?: boolean } } | { error?: string }>("/api/seller-profile")
+      .then((data) => {
+        if (data && "member" in data && data.member && typeof data.member.acceptOffersOnResale === "boolean") {
+          setAcceptOffers(data.member.acceptOffersOnResale);
+        }
+      })
+      .catch(() => {});
+  }, [editId]);
 
   useEffect(() => {
     if (editId && category && storeCategories.length > 0 && !storeCategories.some((c) => c.label === category)) {
@@ -374,6 +421,9 @@ export default function ListItemScreen() {
         if (pol.offerLocalDelivery === false) setLocalDeliveryAvailable(false);
         if (pol.offerLocalPickup === false) setInStorePickupAvailable(false);
         if (pol.offerLocalDelivery === false && pol.offerLocalPickup === false) setShippingDisabled(false);
+        if (pol.acceptCashForPickupDelivery !== undefined) {
+          setAcceptCashForPickupDelivery(pol.acceptCashForPickupDelivery !== false);
+        }
       })
       .catch(() => {})
       .finally(() => setPoliciesLoaded(true));
@@ -425,16 +475,25 @@ export default function ListItemScreen() {
     });
     if (result.canceled) return;
     setUploading(true);
-    setError(null);
+    setPhotoError(null);
     const urls: string[] = [];
     try {
       const token = await getToken();
       if (!token) {
-        setError("Sign in to upload photos.");
+        setPhotoError("Sign in to upload photos.");
         return;
       }
       for (let i = 0; i < result.assets.length; i++) {
         const asset = result.assets[i];
+        if (
+          typeof asset.fileSize === "number" &&
+          asset.fileSize > MAX_LISTING_PHOTO_BYTES
+        ) {
+          setPhotoError(
+            `Each photo must be under ${MAX_LISTING_PHOTO_BYTES / (1024 * 1024)}MB. Skip very large originals or compress them.`
+          );
+          continue;
+        }
         const formData = new FormData();
         formData.append("file", {
           uri: asset.uri,
@@ -451,8 +510,9 @@ export default function ListItemScreen() {
         }
         return next;
       });
+      if (urls.length > 0) setPhotoError(null);
     } catch (e) {
-      setError((e as { error?: string })?.error ?? "Photo upload failed.");
+      setPhotoError((e as { error?: string })?.error ?? "Photo upload failed.");
       if (urls.length > 0) {
         setPhotos((p) => {
           const next = [...p];
@@ -592,6 +652,7 @@ export default function ListItemScreen() {
 
     setSubmitting(true);
     setError(null);
+    setPhotoError(null);
     submittedRef.current = true;
     const payload = {
       title: title.trim(),
@@ -601,7 +662,7 @@ export default function ListItemScreen() {
       subcategory: subcategory.trim() || null,
       priceCents: price,
       quantity: payloadQuantity,
-      listingType: editId ? ("new" as const) : listingType,
+      listingType,
       shippingDisabled,
       localDeliveryAvailable,
       inStorePickupAvailable,
@@ -622,17 +683,32 @@ export default function ListItemScreen() {
           : null,
       localDeliveryFeeCents: localFee,
       variants: variantPayload,
+      ...(listingType === "resale" ? { acceptOffers } : {}),
     };
     try {
       isExitingRef.current = true;
       if (editId) {
         await apiPatch(`/api/store-items/${editId}`, payload);
         setEditSuccess(true);
+        isExitingRef.current = true;
+        setShowListingSuccessModal(true);
       } else {
-        await apiPost("/api/store-items", payload);
+        const res = await apiPost<{ earnedBadges?: EarnedBadgePayload[] }>(
+          "/api/store-items",
+          payload
+        );
+        isExitingRef.current = true;
+        const badges = (res?.earnedBadges ?? []).filter(
+          (b): b is EarnedBadgePayload =>
+            !!b && typeof b.slug === "string" && typeof b.name === "string"
+        );
+        if (badges.length > 0) {
+          setListingEarnedBadges(badges);
+          setListingBadgePopupIndex(0);
+        } else {
+          setShowListingSuccessModal(true);
+        }
       }
-      isExitingRef.current = true;
-      setShowListingSuccessModal(true);
     } catch (e) {
       setError((e as { error?: string })?.error ?? (editId ? "Failed to update listing" : "Failed to create listing"));
       submittedRef.current = false;
@@ -642,8 +718,28 @@ export default function ListItemScreen() {
     }
   };
 
+  const handleCloseListingBadgePopup = () => {
+    const next = listingBadgePopupIndex + 1;
+    if (next < listingEarnedBadges.length) {
+      setListingBadgePopupIndex(next);
+    } else {
+      setListingBadgePopupIndex(-1);
+      setListingEarnedBadges([]);
+      setShowListingSuccessModal(true);
+    }
+  };
+
   return (
     <View style={styles.screenWrapper}>
+    {listingBadgePopupIndex >= 0 && listingBadgePopupIndex < listingEarnedBadges.length && (
+      <BadgeEarnedPopup
+        visible
+        onClose={handleCloseListingBadgePopup}
+        badgeName={listingEarnedBadges[listingBadgePopupIndex].name}
+        badgeSlug={listingEarnedBadges[listingBadgePopupIndex].slug}
+        badgeDescription={listingEarnedBadges[listingBadgePopupIndex].description}
+      />
+    )}
     <Modal visible={showListingSuccessModal} transparent animationType="fade">
       <View style={styles.successModalOverlay}>
         <View style={styles.successModalCard}>
@@ -731,6 +827,19 @@ export default function ListItemScreen() {
         </View>
       </View>
 
+      {listingType === "resale" && (
+        <View style={styles.switchRow}>
+          <Text style={styles.switchLabel}>Accept offers on this listing</Text>
+          <Switch
+            value={acceptOffers}
+            onValueChange={setAcceptOffers}
+            trackColor={switchTrackColor()}
+            thumbColor={switchThumbColor(acceptOffers)}
+            ios_backgroundColor={switchIosBackgroundColor}
+          />
+        </View>
+      )}
+
       <Text style={styles.label}>Photos *</Text>
       <View style={styles.photoRow}>
         {photos.map((url) => (
@@ -753,6 +862,9 @@ export default function ListItemScreen() {
           )}
         </Pressable>
       </View>
+      {photoError ? (
+        <Text style={styles.photoErr}>{photoError}</Text>
+      ) : null}
 
       <Text style={styles.label}>Title *</Text>
       <TextInput
@@ -918,10 +1030,20 @@ export default function ListItemScreen() {
         <>
           {storeCategories.length > 0 && (
             <>
+              <Text style={styles.hint}>Search categories</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Filter by name…"
+                placeholderTextColor={placeholderColor}
+                value={categorySearch}
+                onChangeText={setCategorySearch}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
               <Text style={styles.hint}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
                 <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                  {storeCategories.map((c) => (
+                  {filteredStoreCategories.map((c) => (
                     <Pressable
                       key={c.label}
                       style={[
@@ -937,12 +1059,12 @@ export default function ListItemScreen() {
                   ))}
                 </View>
               </ScrollView>
-              {category && storeCategories.find((c) => c.label === category)?.subcategories?.length ? (
+              {category && filteredSubcategoriesForCategory.length ? (
                 <>
                   <Text style={styles.hint}>Subcategory (optional)</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
                     <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                      {storeCategories.find((c) => c.label === category)!.subcategories.map((s) => (
+                      {filteredSubcategoriesForCategory.map((s) => (
                         <Pressable
                           key={s}
                           style={[styles.typeBtn, subcategory === s && styles.typeBtnActive]}
@@ -995,8 +1117,9 @@ export default function ListItemScreen() {
                   }
                   setShippingDisabled(nextDisabled);
                 }}
-                trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                thumbColor={theme.colors.primary}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(!shippingDisabled)}
+                ios_backgroundColor={switchIosBackgroundColor}
               />
             </View>
             {!shippingDisabled && (
@@ -1084,8 +1207,9 @@ export default function ListItemScreen() {
                       setUseSellerProfileShipping(v);
                       if (v) setShippingPolicy("");
                     }}
-                    trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                    thumbColor={theme.colors.primary}
+                    trackColor={switchTrackColor()}
+                    thumbColor={switchThumbColor(useSellerProfileShipping)}
+                    ios_backgroundColor={switchIosBackgroundColor}
                   />
                 </View>
                 <Text style={styles.hint}>
@@ -1108,8 +1232,9 @@ export default function ListItemScreen() {
                   if (!v && shippingDisabled && !inStorePickupAvailable) return;
                   setLocalDeliveryAvailable(v);
                 }}
-                trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                thumbColor={theme.colors.primary}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(localDeliveryAvailable)}
+                ios_backgroundColor={switchIosBackgroundColor}
               />
             </View>
             {localDeliveryAvailable && (
@@ -1162,8 +1287,9 @@ export default function ListItemScreen() {
                       setUseSellerProfileLocalDelivery(v);
                       if (v) setLocalDeliveryTerms("");
                     }}
-                    trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                    thumbColor={theme.colors.primary}
+                    trackColor={switchTrackColor()}
+                    thumbColor={switchThumbColor(useSellerProfileLocalDelivery)}
+                    ios_backgroundColor={switchIosBackgroundColor}
                   />
                 </View>
                 <Text style={styles.hint}>
@@ -1186,8 +1312,9 @@ export default function ListItemScreen() {
                   if (!v && shippingDisabled && !localDeliveryAvailable) return;
                   setInStorePickupAvailable(v);
                 }}
-                trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                thumbColor={theme.colors.primary}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(inStorePickupAvailable)}
+                ios_backgroundColor={switchIosBackgroundColor}
               />
             </View>
             {inStorePickupAvailable && (
@@ -1231,8 +1358,9 @@ export default function ListItemScreen() {
                       setUseSellerProfilePickup(v);
                       if (v) setPickupTerms("");
                     }}
-                    trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                    thumbColor={theme.colors.primary}
+                    trackColor={switchTrackColor()}
+                    thumbColor={switchThumbColor(useSellerProfilePickup)}
+                    ios_backgroundColor={switchIosBackgroundColor}
                   />
                 </View>
                 <Text style={styles.hint}>
@@ -1242,6 +1370,27 @@ export default function ListItemScreen() {
                 </Text>
               </>
             )}
+          </>
+        )}
+
+        {(offerLocalDelivery || offerLocalPickup) && (
+          <>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Accept cash for pickup and local delivery</Text>
+              <Switch
+                value={acceptCashForPickupDelivery}
+                onValueChange={(v) => {
+                  setAcceptCashForPickupDelivery(v);
+                  apiPatch("/api/me", { acceptCashForPickupDelivery: v }).catch(() => {});
+                }}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(acceptCashForPickupDelivery)}
+                ios_backgroundColor={switchIosBackgroundColor}
+              />
+            </View>
+            <Text style={styles.hint}>
+              If on, buyers can choose Pay in Cash at checkout for pickup or local delivery (not for shipped orders).
+            </Text>
           </>
         )}
       </View>
@@ -1449,7 +1598,13 @@ const styles = StyleSheet.create({
   inputReadonly: { backgroundColor: "#f5f5f5" },
   textArea: { minHeight: 80, textAlignVertical: "top" },
   textAreaSmall: { minHeight: 60, textAlignVertical: "top" },
-  photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 16 },
+  photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 8 },
+  photoErr: {
+    fontSize: 14,
+    color: defaultTheme.colors.primary,
+    marginBottom: 12,
+    lineHeight: 20,
+  },
   photoWrap: { position: "relative" },
   photo: { width: 80, height: 80, borderRadius: 8 },
   removePhoto: {

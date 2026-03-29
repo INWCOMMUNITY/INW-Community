@@ -26,6 +26,12 @@ const PLAN_DISPLAY_NAMES: Record<Plan, string> = {
   seller: "Seller",
 };
 
+function signUpHrefForPlan(plan: Plan | null): string {
+  if (plan === "sponsor") return "/signup/business";
+  if (plan === "seller") return "/signup/seller";
+  return "/signup";
+}
+
 function LoginForm() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams?.get("callbackUrl") ?? "/my-community";
@@ -38,6 +44,8 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  /** Set when credentials sign-in fails (distinct from network `error`). */
+  const [loginError, setLoginError] = useState<"unknown_email" | "wrong_password" | "generic" | null>(null);
 
   function handleChoose(plan: Plan) {
     if (isSignUp) {
@@ -59,6 +67,7 @@ function LoginForm() {
   async function handleSignInSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setLoginError(null);
     try {
       const res = await signIn("credentials", {
         email,
@@ -66,15 +75,34 @@ function LoginForm() {
         redirect: false,
       });
       if (res?.error) {
-        setError("Invalid email or password. Don't have an account? Sign up first.");
+        const trimmed = email.trim().toLowerCase();
+        const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+        if (looksLikeEmail) {
+          const hintRes = await fetch("/api/auth/login-hint", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: trimmed }),
+          });
+          const hintData = (await hintRes.json().catch(() => ({}))) as { exists?: boolean };
+          if (hintRes.ok && hintData.exists === false) {
+            setLoginError("unknown_email");
+            return;
+          }
+          if (hintRes.ok && hintData.exists === true) {
+            setLoginError("wrong_password");
+            return;
+          }
+        }
+        setLoginError("generic");
         return;
       }
       if (res?.ok) {
         window.location.href = callbackUrl;
         return;
       }
-      setError("Something went wrong. Please try again.");
+      setLoginError("generic");
     } catch {
+      setLoginError(null);
       setError("Could not connect. Check your connection and try again.");
     }
   }
@@ -107,7 +135,7 @@ function LoginForm() {
             <p className="text-sm text-center mt-1" style={{ color: "var(--color-text)" }}>
               Welcome Residents of Eastern Washington & North Idaho
             </p>
-            <p className="text-base mt-3" style={{ color: "var(--color-text)" }}>
+            <p className="text-base mt-3 text-center w-full" style={{ color: "var(--color-text)" }}>
               {isSignUp ? "Create an account" : "Sign in to continue"}
             </p>
           </div>
@@ -118,7 +146,7 @@ function LoginForm() {
             <button
               type="button"
               onClick={() => setIsSignUp(false)}
-              className={`flex-1 py-2.5 px-6 rounded-md text-base font-semibold transition-colors ${
+              className={`flex-1 py-2.5 px-6 rounded-md text-base font-semibold text-center transition-colors ${
                 !isSignUp ? "text-white" : ""
               }`}
               style={{
@@ -131,7 +159,7 @@ function LoginForm() {
             <button
               type="button"
               onClick={() => setIsSignUp(true)}
-              className={`flex-1 py-2.5 px-6 rounded-md text-base font-semibold transition-colors ${
+              className={`flex-1 py-2.5 px-6 rounded-md text-base font-semibold text-center transition-colors ${
                 isSignUp ? "text-white" : ""
               }`}
               style={{
@@ -177,7 +205,7 @@ function LoginForm() {
         <>
           <button
             type="button"
-            onClick={() => { setShowSignInForm(false); setSelectedPlan(null); setError(""); }}
+            onClick={() => { setShowSignInForm(false); setSelectedPlan(null); setError(""); setLoginError(null); }}
             className="self-start flex items-center gap-2 text-sm font-medium mb-6"
             style={{ color: "var(--color-primary)" }}
           >
@@ -216,14 +244,27 @@ function LoginForm() {
                 className="w-full border rounded px-3 py-2 border-gray-300"
               />
             </div>
-            {error && (
-              <p className="text-red-600 text-sm">
-                {error}
-                {error.includes("Sign up first") && (
-                  <> <Link href="/signup" className="underline">Sign up</Link></>
-                )}
-              </p>
-            )}
+            {loginError === "unknown_email" ? (
+              <div className="text-red-600 text-sm space-y-1">
+                <p>Email not recognized. New to NWC?</p>
+                <p>
+                  <Link
+                    href={signUpHrefForPlan(selectedPlan)}
+                    className="font-semibold no-underline hover:opacity-90"
+                    style={{ color: "var(--color-primary)" }}
+                  >
+                    Sign Up!
+                  </Link>
+                </p>
+              </div>
+            ) : null}
+            {loginError === "wrong_password" ? (
+              <p className="text-red-600 text-sm">Incorrect password.</p>
+            ) : null}
+            {loginError === "generic" ? (
+              <p className="text-red-600 text-sm">Something went wrong. Please try again.</p>
+            ) : null}
+            {error ? <p className="text-red-600 text-sm">{error}</p> : null}
             <button type="submit" className="btn w-full">Log in</button>
           </form>
           <p className="mt-4 text-center text-sm w-full">

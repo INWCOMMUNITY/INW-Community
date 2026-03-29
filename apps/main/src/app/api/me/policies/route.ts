@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
         sellerLocalDeliveryPolicy: true,
         sellerPickupPolicy: true,
         sellerReturnPolicy: true,
+        acceptCashForPickupDelivery: true,
       },
     });
     if (!member) {
@@ -49,6 +50,7 @@ export async function GET(req: NextRequest) {
       offerShipping,
       offerLocalDelivery,
       offerLocalPickup,
+      acceptCashForPickupDelivery: member.acceptCashForPickupDelivery !== false,
     });
   } catch (e) {
     const err = e as Error;

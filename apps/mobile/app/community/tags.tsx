@@ -8,6 +8,7 @@ import {
   Pressable,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,11 +31,15 @@ export default function TagsScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [followed, all] = await Promise.all([
-        apiGet<{ tags: Tag[] }>("/api/me/followed-tags"),
-        apiGet<{ tags: Tag[] }>("/api/tags?limit=100"),
-      ]);
-      setFollowedTags(followed?.tags ?? []);
+      let followed: Tag[] = [];
+      try {
+        const f = await apiGet<{ tags: Tag[] }>("/api/me/followed-tags");
+        followed = f?.tags ?? [];
+      } catch {
+        followed = [];
+      }
+      const all = await apiGet<{ tags: Tag[] }>("/api/tags?limit=100");
+      setFollowedTags(followed);
       setAllTags(all?.tags ?? []);
     } catch {
       setFollowedTags([]);
@@ -69,7 +74,14 @@ export default function TagsScreen() {
       } else {
         setFollowedTags((prev) => prev.filter((t) => t.id !== tagId));
       }
-    } catch {}
+    } catch (e) {
+      if (__DEV__) console.warn("[tags] follow toggle", e);
+      const msg =
+        e && typeof e === "object" && "error" in e && typeof (e as { error: unknown }).error === "string"
+          ? (e as { error: string }).error
+          : "Could not update this tag. Try again.";
+      Alert.alert("Something went wrong", msg);
+    }
     setToggling((prev) => {
       const next = new Set(prev);
       next.delete(tagId);

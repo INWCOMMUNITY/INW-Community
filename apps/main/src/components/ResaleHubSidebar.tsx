@@ -14,11 +14,13 @@ const SIDEBAR_WIDTH = 200;
 
 const RESALE_HUB_ITEMS: NavItem[] = [
   { href: "/resale-hub/list", label: "List Item" },
+  { href: "/resale-hub/listings", label: "My Listings" },
   { href: "/resale-hub/orders", label: "Orders / To Ship" },
   { href: "/resale-hub/deliveries", label: "Deliveries" },
   { href: "/resale-hub/pickups", label: "Pickups" },
   { href: "/resale-hub/offers", label: "Offers" },
   { href: "/resale-hub/messages", label: "Messages" },
+  { href: "/resale-hub/cancellations", label: "Cancellations" },
   { href: "/seller-hub/time-away", label: "Time Away" },
   { href: "/resale-hub/payouts", label: "Payouts" },
   { href: "/resale-hub/before-you-start", label: "Before You Start" },

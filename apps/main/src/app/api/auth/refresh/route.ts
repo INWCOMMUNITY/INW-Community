@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { jwtVerify } from "jose";
-import { signMobileToken, getBearerToken, type SubscriptionPlan } from "@/lib/mobile-auth";
+import { signMobileToken, getBearerToken } from "@/lib/mobile-auth";
+import {
+  prismaWhereMemberSubscribePlanAccess,
+  prismaWhereMemberSubscribeTierPerksAccess,
+} from "@/lib/subscribe-plan-access";
+import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 
 const JWT_ISSUER = "nwc-mobile";
 const GRACE_DAYS = 30; // Accept expired tokens up to 30 days for refresh
@@ -27,8 +32,6 @@ export async function POST(req: NextRequest) {
     const id = payload.id as string;
     const email = payload.email as string;
     const name = payload.name as string;
-    const isSubscriber = Boolean(payload.isSubscriber);
-    const subscriptionPlan = payload.subscriptionPlan as SubscriptionPlan | undefined;
     if (!id || !email) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
@@ -52,18 +55,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Only update lastLogin; never overwrite profile fields
-    await prisma.member.update({
+    // Only update lastLogin; never overwrite profile fields (updateMany avoids P2025 if row vanished)
+    const { count } = await prisma.member.updateMany({
       where: { id },
       data: { lastLogin: new Date() },
     });
+    if (count === 0) {
+      return NextResponse.json({ error: "Account not found or suspended" }, { status: 401 });
+    }
+
+    const [subTier, subResaleHub, effectivePlan] = await Promise.all([
+      prisma.subscription.findFirst({
+        where: prismaWhereMemberSubscribeTierPerksAccess(member.id),
+        select: { id: true },
+      }),
+      prisma.subscription.findFirst({
+        where: prismaWhereMemberSubscribePlanAccess(member.id),
+        select: { id: true },
+      }),
+      resolveEffectiveNwcPlan(member.id),
+    ]);
 
     const token = await signMobileToken({
       id: member.id,
       email,
       name,
-      isSubscriber,
-      subscriptionPlan,
+      isSubscriber: !!subTier,
+      hasResaleHubAccess: !!subResaleHub,
+      subscriptionPlan: effectivePlan ?? undefined,
     });
 
     return NextResponse.json({ token });

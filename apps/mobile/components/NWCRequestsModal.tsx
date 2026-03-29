@@ -14,6 +14,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+
+type EarnedBadgeItem = { slug: string; name: string; description: string };
 
 interface NWCRequestsModalProps {
   visible: boolean;
@@ -22,36 +26,61 @@ interface NWCRequestsModalProps {
 
 export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
   const insets = useSafeAreaInsets();
+  const { member } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeItem[]>([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
   useEffect(() => {
-    if (visible) {
-      setError(null);
-      setSent(false);
-      getToken().then((t) => {
-        if (t) {
-          apiGet<{ firstName?: string; lastName?: string; email?: string }>("/api/me")
-            .then((me) => {
-              if (me?.firstName || me?.lastName) {
-                setName([me.firstName, me.lastName].filter(Boolean).join(" "));
-              }
-              if (me?.email) setEmail(me.email);
-            })
-            .catch(() => {});
+    if (!visible) return;
+    setError(null);
+    setSent(false);
+    setEarnedBadges([]);
+    setBadgePopupIndex(-1);
+    let cancelled = false;
+    (async () => {
+      const token = await getToken();
+      if (cancelled || !token) {
+        if (member?.firstName || member?.lastName) {
+          setName([member.firstName, member.lastName].filter(Boolean).join(" "));
         }
-      });
-    }
-  }, [visible]);
+        if (member?.email) setEmail(member.email);
+        return;
+      }
+      try {
+        const me = await apiGet<{ firstName?: string; lastName?: string; email?: string }>("/api/me");
+        if (cancelled) return;
+        if (me?.firstName || me?.lastName) {
+          setName([me.firstName, me.lastName].filter(Boolean).join(" "));
+        }
+        if (me?.email?.trim()) {
+          setEmail(me.email);
+        } else if (member?.email) {
+          setEmail(member.email);
+        }
+      } catch {
+        if (!cancelled && member?.firstName) {
+          setName([member.firstName, member.lastName].filter(Boolean).join(" "));
+        }
+        if (!cancelled && member?.email) setEmail(member.email);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, member?.email, member?.firstName, member?.lastName]);
 
   async function handleSubmit() {
     setError(null);
     const submitName = name.trim();
     const submitEmail = email.trim();
+    const submitPhone = phone.trim();
     const submitMessage = message.trim();
     if (!submitName || !submitEmail || !submitMessage) {
       setError("Please fill in name, email, and message.");
@@ -59,17 +88,27 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     }
     setLoading(true);
     try {
-      await apiPost("/api/nwc-requests", {
-        name: submitName,
-        email: submitEmail,
-        message: submitMessage,
-      });
-      setSent(true);
+      const data = await apiPost<{ ok?: boolean; earnedBadges?: EarnedBadgeItem[] }>(
+        "/api/nwc-requests",
+        {
+          name: submitName,
+          email: submitEmail,
+          ...(submitPhone ? { phone: submitPhone } : {}),
+          message: submitMessage,
+        }
+      );
+      const badges = (data?.earnedBadges ?? []).filter(Boolean);
       setMessage("");
-      setTimeout(() => {
-        setSent(false);
-        onClose();
-      }, 1800);
+      if (badges.length > 0) {
+        setEarnedBadges(badges);
+        setBadgePopupIndex(0);
+      } else {
+        setSent(true);
+        setTimeout(() => {
+          setSent(false);
+          onClose();
+        }, 1800);
+      }
     } catch (e) {
       setError((e as { error?: string }).error ?? "Failed to send. Please try again.");
     } finally {
@@ -77,9 +116,28 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     }
   }
 
+  const finishAfterBadges = () => {
+    setEarnedBadges([]);
+    setBadgePopupIndex(-1);
+    setSent(true);
+    setTimeout(() => {
+      setSent(false);
+      onClose();
+    }, 1800);
+  };
+
+  const handleCloseBadgePopup = () => {
+    if (badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length - 1) {
+      setBadgePopupIndex((i) => i + 1);
+    } else {
+      finishAfterBadges();
+    }
+  };
+
   if (!visible) return null;
 
   return (
+    <>
     <Modal
       visible={visible}
       animationType="slide"
@@ -87,8 +145,8 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     >
       <KeyboardAvoidingView
         style={styles.modal}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(insets.top, 20) : 0}
       >
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
           <Text style={styles.title}>NWC Requests</Text>
@@ -102,7 +160,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
           </Text>
           <View style={styles.note}>
             <Text style={styles.noteText}>
-              Your email is included with your request so the NWC team can reach out to you if needed.
+              Your email is included with your request so the NWC team can reach out to you if needed. Phone is optional.
             </Text>
           </View>
           {sent ? (
@@ -129,6 +187,16 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={true}
+              />
+              <Text style={styles.label}>Phone (optional)</Text>
+              <TextInput
+                style={styles.input}
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="e.g. (555) 123-4567"
+                placeholderTextColor={theme.colors.placeholder}
+                keyboardType="phone-pad"
+                autoCorrect={false}
               />
               <Text style={styles.label}>Message</Text>
               <TextInput
@@ -166,6 +234,17 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
+
+      {visible && badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? (
+        <BadgeEarnedPopup
+          visible
+          onClose={handleCloseBadgePopup}
+          badgeName={earnedBadges[badgePopupIndex].name}
+          badgeSlug={earnedBadges[badgePopupIndex].slug}
+          badgeDescription={earnedBadges[badgePopupIndex].description}
+        />
+      ) : null}
+    </>
   );
 }
 

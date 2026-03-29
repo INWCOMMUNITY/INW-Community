@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "March 21, 2026";
+export const TERMS_LAST_UPDATED = "March 25, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -32,6 +32,7 @@ Businesses and Sellers must:
 3. USER-GENERATED CONTENT (UGC) POLICY
 3.1 Your Content
 Users may post blogs, listings, messages, feed posts, group posts, and event information.
+Uploads (such as images for listings, logos, business gallery photos, or calendar/event photos) are subject to technical limits posted in the app or on the website, including a maximum of 120MB per file and, for business profiles, up to 12 gallery photos in addition to a logo; accepted image types are JPEG, PNG, WebP, GIF, and HEIC/HEIF where our upload endpoints support them, unless we state otherwise.
 By submitting content, you grant NWC a non-exclusive, worldwide, royalty-free license to:
 ● Display, distribute, share, and promote your content
 ● Modify content only for formatting or minor grammatical corrections. You retain ownership of your content.
@@ -54,6 +55,13 @@ Users may report content they believe violates these rules; NWC will review repo
 Any admission of, or reasonable suspicion of, criminal behavior will be reported to the authorities.
 NWC is not responsible for verifying the accuracy of user-submitted information and is not liable for any harm or damage resulting from inaccurate or misleading user content. Such behavior, however, will be removed from our site immediately, and NWC will do all it can to return any such funds to the victim.
 NWC will do its utmost to prevent scams, misinformation, and fraudulent businesses within its power.
+
+3.4 Member blocking and safety tools
+Signed-in members may block other members using controls we provide on the website or in the mobile app (for example, on feed posts, group posts, member profiles, comments, or messages, where available).
+When you block someone, their posts are generally removed from your personalized community feed and their content may be hidden in other areas where blocking applies (such as certain messaging or conversation lists).
+NWC also receives an associated internal report for moderation and safety review when you use block as implemented in the app.
+Blocking changes what you see and certain interactions; it does not delete the other member's account and does not remove their content for other users.
+You should continue to use reporting tools to flag specific posts, comments, or conversations that violate these Terms.
 
 4. COMMUNITY FEED, POSTS, AND MESSAGING
 4.1 Purpose
@@ -132,8 +140,20 @@ Upon request, the seller must issue refunds in accordance with its policy. Pleas
 7.7 Resale Listings
 Seller's listing resale items must accurately describe the condition. Make-offer negotiations are between buyer and seller; NWC is not a party. The same prohibited items apply to resale listings. NWC may remove listings that violate these policies.
 
+7.7.1 Live listings and seller payout setup
+Items generally cannot be published or kept live on the public storefront or Community Resale browse experience unless the selling member has completed required seller payout setup (for example, Stripe Connect) and meets the subscription and policy requirements described elsewhere in these Terms. NWC may deactivate or hide listings that do not meet those requirements.
+
 7.8 Local Delivery & Pickup
-For local delivery and pickup orders, the transaction and all related arrangements are entirely between the seller and the consumer. NWC is merely a platform for setting up transactions and has no responsibility for these in-person transactions. Sellers and buyers should arrange delivery and pickup at their own discretion.
+For local delivery and pickup orders, the transaction and all related arrangements are primarily between the seller and the consumer. NWC provides checkout forms and order tools on the website and mobile app; NWC is not a party to handoffs or drop-offs and does not guarantee timing, safety, or outcomes of in-person meetings.
+
+7.8.1 Information you provide at checkout
+Before you can complete checkout for an item offered with local pickup or local delivery, you must complete the applicable form. You agree to provide accurate information. Depending on the options you choose, this may include your name, email address, phone number, optional notes, agreement to the seller's stated pickup or delivery terms where presented, and for pickup your estimated pickup date and time; for local delivery your delivery address, when you are available to receive delivery (available drop-off or receipt windows), and the same contact fields. That information is stored with your order and provided to the seller so they can fulfill the order.
+
+7.8.2 Tickets and confirmations in the app
+The mobile app may show a "Pick Up Ticket" or "Delivery Ticket" for eligible orders. These screens summarize order and payment status (for example, paid online versus cash due at pickup or delivery) to help buyers and sellers coordinate. Buyers and sellers may each mark pickup or delivery as completed in the app where those actions are offered. Where the platform requires both a buyer action and a seller action to treat fulfillment as complete for a given order, you agree to use those controls honestly and only after the underlying pickup or delivery has actually occurred.
+
+7.8.3 Responsibility
+Sellers and buyers should arrange delivery and pickup at their own discretion and follow applicable laws and safety practices. NWC is merely a platform for setting up transactions and has no responsibility for in-person transactions, delivery timing, or disputes over whether an item was picked up or delivered, except where a website or app error or system issue is clearly the cause (see 7.4).
 
 8. SUBSCRIPTION PLANS
 8.0 Paid plan benefits (Subscribe, Business, Seller)
@@ -146,7 +166,7 @@ The Resident plan ($10/month or yearly equivalent) also provides:
 ● List items on the Community Resale Hub (member resale experience)
 ● Exclusive hints in NWC scavenger hunts
 ● Support for the NWC mission
-Subscriptions renew automatically until canceled. You may manage or cancel your subscription at any time through the self-service billing portal (link in Inland Northwest Community) or by contacting NWC.
+Subscriptions renew automatically until canceled. You may manage, change plans, or cancel your subscription through account tools we provide (including the in-app subscription management screen and Stripe's self-service billing portal where we link to it), or by contacting NWC.
 
 8.2 Business & Seller Plans - Tax Responsibility
 Business subscribers are responsible for their own taxes, reporting, EIN requirements, and legal compliance.
@@ -169,21 +189,24 @@ NWC remains impartial in promotions, except for two acknowledged personal affili
 ● Helmszz Deep Ink
 ● DJ's Coins & Collectibles
 
-8.5 Payment, Billing, & Cancellation
+8.5 Payment, Billing, Plan Changes & Cancellation
 ● The following subscription plans and prices apply (monthly or yearly, as offered in Stripe):
 ● $10/month (Resident/Subscriber)
 ● $25/month (Business)
 ● $30/month (Seller)
 ● Yearly subscriptions are available at equivalent annual rates (e.g., $100/year Resident, $250/year Business, $325/year Seller) when configured in Stripe.
 ● Payment information is required at signup. Automatic renewal continues until canceled.
-● Cancellation: You may cancel at any time via the self-service billing portal (Edit profile → Manage subscriptions) or by contacting NWC via phone or email.
+● Managing your membership: You may update your payment method, view invoices, cancel, and (where we offer it) switch between eligible paid plans using the subscription management options in the mobile app and/or Stripe's customer billing portal, or by contacting NWC via phone or email.
+● Plan changes: When you switch from one paid NWC plan to another through our supported flow (for example, updating the same Stripe subscription to a different NWC price), we aim to charge only one membership for the same period—your saved payment method stays on file with Stripe, and any new recurring rate typically takes effect starting your next billing cycle (see checkout and portal disclosures for the exact behavior Stripe applies). You may receive access to the new plan's app and website features according to how NWC configures access after the change. Downgrades, upgrades, and billing timing remain subject to Stripe's subscription settings and any confirmation we show you at checkout or in the portal.
+● Plan switch limits: To reduce abuse, NWC may limit how often you can change paid plans (for example, at most two plan switches per rolling 30-day period). If you hit that limit, you may need to wait or contact NWC for an exception. Moving to a lower-priced plan may keep your current plan’s perks until the end of your current billing period, with the new rate applying from the next cycle, as implemented in Stripe.
+● Cancellation: You may cancel at any time through the same subscription management paths or by contacting NWC.
 ● Up to 1 month may be refunded for dissatisfaction.
-● Upon cancellation, all business information will be removed from NWC unless a Business or Seller requests to cancel at the time of their next payment period. It will be canceled when the service is no longer paid for.
+● Effect when paid membership ends: If you cancel or your paid membership ends and you have no remaining active paid NWC plan in good standing, subscription-based perks generally end. NWC may automatically deactivate your active marketplace listings (including new and resale listings tied to that membership), remove coupons and rewards offered through your subscription-tied business profiles, and remove business directory profiles and related subscription-tied business content from public display, except where NWC has separately maintained a business profile for you independent of a paid membership (for example, certain admin-assigned or specially approved directory entries), which may be handled differently. This does not override NWC's separate rights to remove content for policy violations. Historical orders, accounting, fraud-prevention, and legal-hold records may be retained as described in our Privacy Policy.
 ● Subscribers are responsible for maintaining up-to-date payment information to avoid unintended service interruptions.
 In compliance with Idaho and federal automatic-renewal rules, NWC provides:
 ● A clear disclosure of recurring billing before checkout
 ● Email notification approximately 2 days before each renewal with renewal terms and cancellation instructions
-● Access to the self-service billing portal for cancellation and payment method updates
+● Access to self-service tools (including the billing portal and, where available, in-app management) for cancellation and payment method updates
 
 8.6 Locally Owned Business Requirement
 Business subscribers must be locally owned within:
@@ -240,7 +263,9 @@ Users may not:
 Unauthorized scraping, data-mining, automated harvesting, or downloading of NWC content is strictly prohibited.
 
 11. MOBILE APP
-The Northwest Community mobile app is part of our services. These Terms apply to the use of the app. Your account may be terminated or access revoked in accordance with Section 14. The same rules for content, conduct, and eligibility apply when using the app.
+The Northwest Community mobile app is part of our services. These Terms apply to the use of the app. The same rules for content, conduct, and eligibility apply when using the app. Your account may be terminated or access revoked in accordance with Section 15.
+
+Before you browse the community feed in the mobile app for the first time on a given device, we present a short introduction explaining that the feed contains user-generated content, that you may report objectionable material, and that signed-in members may block others, with links to this Terms of Service and our Privacy Policy. You must acknowledge that screen to continue to the feed on that device. That acknowledgment is stored locally on your device (for example in on-device app storage) so you are not repeatedly prompted on the same device; we do not use it for advertising. When we materially update that introduction, we may use a new storage key so existing users see the summary again once; new accounts are also asked to acknowledge before using the feed.
 
 12. LIMITATION OF LIABILITY (IMPORTANT)
 To the fullest extent permitted by Idaho law, NWC is not liable for:

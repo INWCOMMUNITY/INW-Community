@@ -5,10 +5,17 @@ import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { CityPicker } from "@/components/CityPicker";
 import {
+  BUSINESS_CATEGORIES,
   getSubcategoriesForBusinessCategory,
   normalizeSubcategoriesByPrimary,
   parseSubcategoriesByPrimary,
 } from "@/lib/business-categories";
+import { BusinessCategoryPrimaryPicker } from "@/components/BusinessCategoryPrimaryPicker";
+import {
+  MAX_BUSINESS_GALLERY_PHOTOS,
+  MAX_UPLOAD_FILE_BYTES,
+  formatMaxUploadSizeLabel,
+} from "@/lib/upload-limits";
 import type { Business } from "database";
 
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
@@ -142,7 +149,9 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
       return next;
     });
   }
-  const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
+  const [photos, setPhotos] = useState<string[]>(
+    () => (existing?.photos ?? []).slice(0, MAX_BUSINESS_GALLERY_PHOTOS)
+  );
   const [hours, setHours] = useState<HoursRecord>(() => parseHours(existing?.hoursOfOperation ?? null));
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -165,6 +174,11 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > MAX_UPLOAD_FILE_BYTES) {
+      setError(`Image is too large (max ${formatMaxUploadSizeLabel()}).`);
+      e.target.value = "";
+      return;
+    }
     setUploadingLogo(true);
     try {
       const url = await uploadFile(file);
@@ -195,15 +209,38 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
   async function handlePhotosChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files?.length) return;
+    const remaining = MAX_BUSINESS_GALLERY_PHOTOS - photos.length;
+    if (remaining <= 0) {
+      setError(`Maximum ${MAX_BUSINESS_GALLERY_PHOTOS} gallery photos. Remove one to add another.`);
+      e.target.value = "";
+      return;
+    }
     setUploadingPhotos(true);
     setError("");
+    const list = Array.from(files).slice(0, remaining);
+    let added = 0;
+    let lastErr = "";
     try {
-      for (let i = 0; i < files.length; i++) {
-        const url = await uploadFile(files[i]);
-        setPhotos((prev) => (prev.includes(url) ? prev : [...prev, url]));
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i];
+        if (file.size > MAX_UPLOAD_FILE_BYTES) {
+          lastErr = `A photo exceeds ${formatMaxUploadSizeLabel()}.`;
+          continue;
+        }
+        try {
+          const url = await uploadFile(file);
+          setPhotos((prev) => {
+            if (prev.length >= MAX_BUSINESS_GALLERY_PHOTOS) return prev;
+            return prev.includes(url) ? prev : [...prev, url];
+          });
+          added += 1;
+        } catch (err) {
+          lastErr = err instanceof Error ? err.message : "Photo upload failed";
+        }
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Photo upload failed");
+      if (added < list.length && lastErr) {
+        setError(added > 0 ? `Uploaded ${added} of ${list.length}. ${lastErr}` : lastErr);
+      }
     } finally {
       setUploadingPhotos(false);
       e.target.value = "";
@@ -251,7 +288,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
       city: city.trim(),
       categories: cats,
       subcategoriesByPrimary: normalizeSubcategoriesByPrimary(cats, map),
-      photos,
+      photos: photos.slice(0, MAX_BUSINESS_GALLERY_PHOTOS),
       hoursOfOperation: Object.keys(hoursFiltered).length ? hoursFiltered : null,
     };
   }
@@ -381,7 +418,9 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
             />
           </label>
         </div>
-        <p className="text-xs text-gray-500 mt-1">Upload from your device or camera. Max 40MB. JPEG, PNG, WebP, GIF.</p>
+        <p className="text-xs text-gray-500 mt-1">
+          Upload from your device or camera. Max {formatMaxUploadSizeLabel()}. JPEG, PNG, WebP, GIF.
+        </p>
       </div>
       {existing && (
         <div>
@@ -451,36 +490,25 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
           const selected = subsPerSlot[i] ?? [];
           return (
             <div key={i} className="mt-3 space-y-2 border rounded p-3 bg-gray-50/50">
-              <input
-                type="text"
+              <BusinessCategoryPrimaryPicker
                 value={categories[i] ?? ""}
-                onChange={(e) => {
+                onChange={(v) => {
                   const next = [...categories];
-                  next[i] = e.target.value;
-                  if (i === 0 && next.length === 1 && e.target.value) next.push("");
+                  next[i] = v;
+                  if (i === 0 && next.length === 1 && v.trim()) next.push("");
                   setCategories(next.slice(0, 2));
-                  if (!e.target.value.trim()) {
-                    setSubsPerSlot((sp) => {
-                      const n = sp.map((a) => [...a]);
-                      n[i] = [];
-                      return n;
-                    });
-                  }
+                  primaryCommittedRef.current[i] = v.trim();
+                  setSubsPerSlot((sp) => {
+                    const n = sp.map((a) => [...a]);
+                    n[i] = [];
+                    return n;
+                  });
                 }}
-                onBlur={() => {
-                  const t = (categories[i] ?? "").trim();
-                  if (t !== primaryCommittedRef.current[i]) {
-                    primaryCommittedRef.current[i] = t;
-                    setSubsPerSlot((sp) => {
-                      const n = sp.map((a) => [...a]);
-                      n[i] = [];
-                      return n;
-                    });
-                  }
-                }}
+                shortDescription={shortDescription}
+                fullDescription={fullDescription}
+                presets={BUSINESS_CATEGORIES}
                 required={i === 0}
-                placeholder={i === 0 ? "Primary category (e.g. Coffee Shop)" : "Second primary (optional)"}
-                className="w-full border rounded px-3 py-2 bg-white"
+                placeholder="Search categories…"
               />
               {primaryTrim ? (
                 <div className="space-y-2">
@@ -563,7 +591,9 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
             className="sr-only"
           />
         </label>
-        <p className="text-xs text-gray-500 mt-1">Upload from your device or camera. Max 40MB each. JPEG, PNG, WebP, GIF.</p>
+        <p className="text-xs text-gray-500 mt-1">
+          Up to {MAX_BUSINESS_GALLERY_PHOTOS} photos, {formatMaxUploadSizeLabel()} each. JPEG, PNG, WebP, GIF.
+        </p>
         {photos.length > 0 && (
           <div className="mt-3">
             <div className="flex flex-wrap gap-2">

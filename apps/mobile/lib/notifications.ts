@@ -76,6 +76,8 @@ export type NotificationData = {
   conversationId?: string;
   orderId?: string;
   eventSlug?: string;
+  eventTitle?: string;
+  inviteId?: string;
 };
 
 /** Map notification data to app route for navigation */
@@ -100,6 +102,12 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
       return "/community/my-friends";
     case "event":
       return data.eventSlug ? `/event/${data.eventSlug}` : "/calendars/fun_events";
+    case "event_invite":
+      return data.inviteId
+        ? `/community/invites?highlightInvite=${encodeURIComponent(data.inviteId)}`
+        : "/community/invites";
+    case "event_rsvp":
+      return data.eventSlug ? `/event/${data.eventSlug}` : "/community/invites";
     default:
       return null;
   }

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSessionForApi } from "@/lib/mobile-auth";
 import { z } from "zod";
 
 function slugify(s: string): string {
@@ -24,7 +23,7 @@ const postSchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getSessionForApi(req);
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") ?? "").trim();
   const category = searchParams.get("category") ?? undefined;
@@ -46,11 +45,24 @@ export async function GET(req: NextRequest) {
     take: limit,
   });
 
+  const groupIds = groups.map((g) => g.id);
+  const feedPostCounts =
+    groupIds.length > 0
+      ? await prisma.post.groupBy({
+          by: ["groupId"],
+          where: { groupId: { in: groupIds } },
+          _count: { _all: true },
+        })
+      : [];
+  const feedPostCountByGroupId = Object.fromEntries(
+    feedPostCounts.map((row) => [row.groupId, row._count._all])
+  );
+
   let membershipMap: Record<string, { role: string }> = {};
   if (session?.user?.id && groups.length > 0) {
     const memberships = await prisma.groupMember.findMany({
       where: {
-        groupId: { in: groups.map((g) => g.id) },
+        groupId: { in: groupIds },
         memberId: session.user.id,
       },
       select: { groupId: true, role: true },
@@ -62,6 +74,11 @@ export async function GET(req: NextRequest) {
     const membership = membershipMap[g.id];
     return {
       ...g,
+      _count: {
+        members: g._count.members,
+        /** Unified feed posts (`Post.groupId`), not legacy `GroupPost` rows */
+        groupPosts: feedPostCountByGroupId[g.id] ?? 0,
+      },
       isMember: !!membership,
       memberRole: membership?.role ?? null,
     };
@@ -71,7 +88,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -115,9 +132,14 @@ export async function POST(req: NextRequest) {
     });
 
     const { awardAdminBadge } = await import("@/lib/badge-award");
-    awardAdminBadge(session.user.id).catch(() => {});
+    let earnedBadges: { slug: string; name: string; description: string }[] = [];
+    try {
+      earnedBadges = await awardAdminBadge(session.user.id);
+    } catch {
+      /* badge award is best-effort */
+    }
 
-    return NextResponse.json({ group });
+    return NextResponse.json({ group, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });

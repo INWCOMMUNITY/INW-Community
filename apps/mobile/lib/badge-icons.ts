@@ -33,6 +33,7 @@ const SLUG_TO_ICON: Record<string, IconName> = {
   community_point_giver: "leaf-outline",
   local_deliverer: "bicycle-outline",
   here_in_town: "location-outline",
+  nwc_feedback: "chatbubbles-outline",
 };
 
 /** Returns an Ionicons name that fits the badge slug/name. Falls back to ribbon-outline. */

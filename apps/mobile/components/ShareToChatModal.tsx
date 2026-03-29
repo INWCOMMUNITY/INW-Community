@@ -28,8 +28,10 @@ import {
   buildShareUrl,
   shareToFeed,
   shareToGroup,
+  type EarnedBadgePayload,
   type ShareContent,
 } from "@/lib/share-utils";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -75,6 +77,10 @@ interface ShareToChatModalProps {
   visible: boolean;
   onClose: () => void;
   sharedContent: ShareToChatSharedContent;
+  /** When set, “Share to feed” creates the reshare in this community group (Post.groupId). */
+  defaultFeedGroupId?: string | null;
+  /** Called after a successful “Share to feed” (e.g. refresh group feed). */
+  onShareToFeedComplete?: () => void;
 }
 
 const SHARE_TITLE = "Check this out";
@@ -83,6 +89,8 @@ export function ShareToChatModal({
   visible,
   onClose,
   sharedContent,
+  defaultFeedGroupId = null,
+  onShareToFeedComplete,
 }: ShareToChatModalProps) {
   const router = useRouter();
   const { member } = useAuth();
@@ -95,6 +103,8 @@ export function ShareToChatModal({
   const [composing, setComposing] = useState(false);
   const [shareToGroupPicker, setShareToGroupPicker] = useState(false);
   const [shareToGroupLoading, setShareToGroupLoading] = useState<string | null>(null);
+  const [feedEarnedBadges, setFeedEarnedBadges] = useState<EarnedBadgePayload[]>([]);
+  const [feedBadgePopupIndex, setFeedBadgePopupIndex] = useState(-1);
 
   const content: ShareContent = {
     type: sharedContent.type,
@@ -133,6 +143,8 @@ export function ShareToChatModal({
       setComposing(false);
       setShareToFeedText("");
       setShareToGroupPicker(false);
+      setFeedEarnedBadges([]);
+      setFeedBadgePopupIndex(-1);
     }
   }, [visible]);
 
@@ -158,14 +170,37 @@ export function ShareToChatModal({
   const handleShareToFeed = async () => {
     setShareToFeedLoading(true);
     try {
-      await shareToFeed(content, shareToFeedText);
+      const res = await shareToFeed(content, shareToFeedText, {
+        groupId: defaultFeedGroupId ?? undefined,
+      });
+      const earned = (res?.earnedBadges ?? []).filter(
+        (b): b is EarnedBadgePayload =>
+          !!b && typeof b.slug === "string" && typeof b.name === "string"
+      );
       setShareToFeedText("");
       setComposing(false);
-      onClose();
+      onShareToFeedComplete?.();
+      if (earned.length > 0) {
+        setFeedEarnedBadges(earned);
+        setFeedBadgePopupIndex(0);
+      } else {
+        onClose();
+      }
     } catch {
       Alert.alert("Error", "Could not share to feed. Try again.");
     } finally {
       setShareToFeedLoading(false);
+    }
+  };
+
+  const handleCloseFeedBadgePopup = () => {
+    const next = feedBadgePopupIndex + 1;
+    if (next < feedEarnedBadges.length) {
+      setFeedBadgePopupIndex(next);
+    } else {
+      setFeedBadgePopupIndex(-1);
+      setFeedEarnedBadges([]);
+      onClose();
     }
   };
 
@@ -285,6 +320,7 @@ export function ShareToChatModal({
   }
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
@@ -432,6 +468,16 @@ export function ShareToChatModal({
         </Pressable>
       </Pressable>
     </Modal>
+    {feedBadgePopupIndex >= 0 && feedBadgePopupIndex < feedEarnedBadges.length && (
+      <BadgeEarnedPopup
+        visible
+        onClose={handleCloseFeedBadgePopup}
+        badgeName={feedEarnedBadges[feedBadgePopupIndex].name}
+        badgeSlug={feedEarnedBadges[feedBadgePopupIndex].slug}
+        badgeDescription={feedEarnedBadges[feedBadgePopupIndex].description}
+      />
+    )}
+    </>
   );
 }
 

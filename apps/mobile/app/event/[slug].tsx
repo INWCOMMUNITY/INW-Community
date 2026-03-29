@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -11,6 +11,9 @@ import {
   useWindowDimensions,
   Share,
   Modal,
+  FlatList,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,8 +21,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { fetchEventBySlug, type EventDetail } from "@/lib/events-api";
+import { EventInviteStatsBlocks } from "@/components/EventInviteStatsBlocks";
 import { formatTime12h } from "@/lib/format-time";
 import { useAuth } from "@/contexts/AuthContext";
+import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+import type { EarnedBadgePayload } from "@/lib/share-utils";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -48,9 +55,15 @@ export default function EventDetailScreen() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const heroPagerRef = useRef<FlatList<string> | null>(null);
   const [friends, setFriends] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [inviting, setInviting] = useState(false);
+  const [inviteEarnedBadges, setInviteEarnedBadges] = useState<EarnedBadgePayload[]>([]);
+  const [inviteBadgePopupIndex, setInviteBadgePopupIndex] = useState(-1);
+  const [pendingInviteAlertBody, setPendingInviteAlertBody] = useState<string | null>(null);
 
   const loadEvent = useCallback(async () => {
     if (!slug) return;
@@ -159,11 +172,6 @@ export default function EventDetailScreen() {
   const eventUrl = event
     ? `${siteBase}/events/${typeof slug === "string" ? slug : event.slug ?? event.id}`
     : "";
-  const isCreator =
-    !!member?.id &&
-    (event?.memberId === member.id ||
-      (!!event?.businessId && event?.business?.memberId === member.id));
-
   const handleShareEvent = async () => {
     if (!event) return;
     const url = eventUrl || `${siteBase}/events/${event.slug ?? event.id}`;
@@ -203,17 +211,47 @@ export default function EventDetailScreen() {
     if (!event || selectedFriendIds.size === 0) return;
     setInviting(true);
     try {
-      const res = await apiPost<{ invited?: number }>(`/api/events/${event.id}/invite`, {
+      const res = await apiPost<{
+        invited?: number;
+        earnedBadges?: EarnedBadgePayload[];
+      }>(`/api/events/${event.id}/invite`, {
         friendIds: Array.from(selectedFriendIds),
       });
-      const invited = (res as { invited?: number })?.invited ?? selectedFriendIds.size;
+      const invited = res?.invited ?? selectedFriendIds.size;
+      const body = `Invited ${invited} friend(s) to this event.`;
+      const badges = (res?.earnedBadges ?? []).filter(
+        (b): b is EarnedBadgePayload =>
+          !!b && typeof b.slug === "string" && typeof b.name === "string"
+      );
       setInviteModalOpen(false);
-      Alert.alert("Invited", `Invited ${invited} friend(s) to this event.`);
+      setSelectedFriendIds(new Set());
+      if (badges.length > 0) {
+        setPendingInviteAlertBody(body);
+        setInviteEarnedBadges(badges);
+        setInviteBadgePopupIndex(0);
+      } else {
+        Alert.alert("Invited", body);
+      }
     } catch (e: unknown) {
       const err = e as { error?: string };
       Alert.alert("Error", err?.error ?? "Could not send invites.");
     } finally {
       setInviting(false);
+    }
+  };
+
+  const handleCloseInviteBadgePopup = () => {
+    const next = inviteBadgePopupIndex + 1;
+    if (next < inviteEarnedBadges.length) {
+      setInviteBadgePopupIndex(next);
+    } else {
+      setInviteBadgePopupIndex(-1);
+      setInviteEarnedBadges([]);
+      const msg = pendingInviteAlertBody;
+      setPendingInviteAlertBody(null);
+      if (msg) {
+        Alert.alert("Invited", msg);
+      }
     }
   };
 
@@ -234,7 +272,32 @@ export default function EventDetailScreen() {
 
   const photos = event?.photos ?? [];
   const photoUrl = resolvePhotoUrl(photos[0]);
+  const galleryUrls = photos.map((p) => resolvePhotoUrl(p)).filter(Boolean) as string[];
   const imageHeight = width * 0.65;
+
+  const onHeroMomentumEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = e.nativeEvent.contentOffset.x;
+      const idx = Math.round(x / width);
+      setGalleryIndex(Math.max(0, Math.min(galleryUrls.length - 1, idx)));
+    },
+    [width, galleryUrls.length]
+  );
+
+  const openGalleryAt = useCallback((index: number) => {
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  }, []);
+
+  const scrollHeroTo = useCallback(
+    (index: number) => {
+      heroPagerRef.current?.scrollToOffset({
+        offset: index * width,
+        animated: true,
+      });
+    },
+    [width]
+  );
 
   if (loading) {
     return (
@@ -276,38 +339,114 @@ export default function EventDetailScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
       >
-        <View style={[styles.photoSection, { height: imageHeight }]}>
-          {photoUrl ? (
-            <Image
-              source={{ uri: photoUrl }}
-              style={styles.photo}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.photoPlaceholder}>
+        <View style={styles.photoSectionOuter}>
+          <View style={[styles.photoSection, { height: imageHeight }]}>
+            {galleryUrls.length > 1 ? (
+              <>
+                <FlatList
+                  ref={heroPagerRef}
+                  data={galleryUrls}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  keyExtractor={(uri, i) => `hero-${i}-${uri}`}
+                  style={{ width, height: imageHeight }}
+                  getItemLayout={(_, index) => ({
+                    length: width,
+                    offset: width * index,
+                    index,
+                  })}
+                  onMomentumScrollEnd={onHeroMomentumEnd}
+                  renderItem={({ item: uri, index }) => (
+                    <Pressable
+                      style={{ width, height: imageHeight }}
+                      onPress={() => openGalleryAt(index)}
+                    >
+                      <Image
+                        source={{ uri }}
+                        style={styles.photo}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  )}
+                />
+                <View style={styles.heroDots} pointerEvents="none">
+                  {galleryUrls.map((_, i) => (
+                    <View
+                      key={`dot-${i}`}
+                      style={[
+                        styles.heroDot,
+                        i === galleryIndex && styles.heroDotActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : photoUrl ? (
+              <Pressable
+                style={styles.photoTouchable}
+                onPress={() => openGalleryAt(0)}
+              >
+                <Image
+                  source={{ uri: photoUrl }}
+                  style={styles.photo}
+                  resizeMode="cover"
+                />
+              </Pressable>
+            ) : (
+              <View style={styles.photoPlaceholder}>
+                <Ionicons
+                  name="calendar-outline"
+                  size={64}
+                  color={theme.colors.primary}
+                />
+                <Text style={styles.photoPlaceholderText}>Event photo</Text>
+              </View>
+            )}
+            <Pressable
+              style={({ pressed }) => [
+                styles.favoriteBtn,
+                pressed && styles.pressed,
+              ]}
+              onPress={toggleFavorite}
+              disabled={saving}
+            >
               <Ionicons
-                name="calendar-outline"
-                size={64}
-                color={theme.colors.primary}
+                name={saved ? "heart" : "heart-outline"}
+                size={28}
+                color={saved ? "#e74c3c" : "#fff"}
               />
-              <Text style={styles.photoPlaceholderText}>Event photo</Text>
-            </View>
-          )}
-          <Pressable
-            style={({ pressed }) => [
-              styles.favoriteBtn,
-              pressed && styles.pressed,
-            ]}
-            onPress={toggleFavorite}
-            disabled={saving}
-          >
-            <Ionicons
-              name={saved ? "heart" : "heart-outline"}
-              size={28}
-              color={saved ? "#e74c3c" : "#fff"}
-            />
-          </Pressable>
+            </Pressable>
+          </View>
+          {galleryUrls.length > 1 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.galleryStrip}
+              contentContainerStyle={styles.galleryStripContent}
+            >
+              {galleryUrls.map((uri, i) => (
+                <Pressable
+                  key={`${i}-${uri}`}
+                  onPress={() => {
+                    scrollHeroTo(i);
+                    setGalleryIndex(i);
+                    setGalleryOpen(true);
+                  }}
+                >
+                  <Image source={{ uri }} style={styles.galleryThumb} resizeMode="cover" />
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
+          <ImageGalleryViewer
+            visible={galleryOpen}
+            images={galleryUrls}
+            initialIndex={galleryIndex}
+            onClose={() => setGalleryOpen(false)}
+          />
         </View>
 
         <View style={styles.shareInviteRow}>
@@ -318,7 +457,7 @@ export default function EventDetailScreen() {
             <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
             <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Share</Text>
           </Pressable>
-          {isCreator && (
+          {member?.id ? (
             <Pressable
               style={({ pressed }) => [styles.shareInviteBtn, pressed && styles.pressed]}
               onPress={openInviteModal}
@@ -326,8 +465,15 @@ export default function EventDetailScreen() {
               <Ionicons name="people-outline" size={20} color={theme.colors.primary} />
               <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Invite Friends</Text>
             </Pressable>
-          )}
+          ) : null}
         </View>
+
+        {event.inviteStats ? (
+          <View style={styles.inviteStatsSection}>
+            <Text style={styles.inviteStatsLabel}>Your invite activity</Text>
+            <EventInviteStatsBlocks stats={event.inviteStats} />
+          </View>
+        ) : null}
 
         <View style={styles.divider} />
 
@@ -368,13 +514,16 @@ export default function EventDetailScreen() {
         ) : null}
 
         {event.business ? (
-          <Pressable
-            style={({ pressed }) => [styles.businessLink, pressed && styles.pressed]}
-            onPress={() => router.push(`/business/${event.business!.slug}`)}
-          >
-            <Text style={styles.businessLinkText}>{event.business.name}</Text>
-            <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
-          </Pressable>
+          <View style={styles.eventByRow}>
+            <Text style={styles.eventByLabel}>Event by </Text>
+            <Pressable
+              onPress={() => router.push(`/business/${event.business!.slug}`)}
+              style={({ pressed }) => [styles.businessLinkInline, pressed && styles.pressed]}
+            >
+              <Text style={styles.businessLinkText}>{event.business.name}</Text>
+              <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
+            </Pressable>
+          </View>
         ) : null}
       </ScrollView>
 
@@ -432,6 +581,15 @@ export default function EventDetailScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      {inviteBadgePopupIndex >= 0 && inviteBadgePopupIndex < inviteEarnedBadges.length && (
+        <BadgeEarnedPopup
+          visible
+          onClose={handleCloseInviteBadgePopup}
+          badgeName={inviteEarnedBadges[inviteBadgePopupIndex].name}
+          badgeSlug={inviteEarnedBadges[inviteBadgePopupIndex].slug}
+          badgeDescription={inviteEarnedBadges[inviteBadgePopupIndex].description}
+        />
+      )}
     </View>
   );
 }
@@ -480,14 +638,60 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 32,
   },
+  photoSectionOuter: {
+    width: "100%",
+    backgroundColor: "#f5f5f5",
+  },
   photoSection: {
     width: "100%",
     backgroundColor: "#f5f5f5",
     position: "relative",
   },
+  heroDots: {
+    position: "absolute",
+    bottom: 12,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+  heroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+  heroDotActive: {
+    backgroundColor: "#fff",
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  photoTouchable: {
+    width: "100%",
+    height: "100%",
+  },
   photo: {
     width: "100%",
     height: "100%",
+  },
+  galleryStrip: {
+    maxHeight: 88,
+  },
+  galleryStripContent: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  galleryThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    backgroundColor: "#e5e5e5",
+    marginRight: 8,
   },
   photoPlaceholder: {
     flex: 1,
@@ -570,6 +774,18 @@ const styles = StyleSheet.create({
   },
   inviteSubmitDisabled: { opacity: 0.6 },
   inviteSubmitText: { fontSize: 16, fontWeight: "600", color: "#fff" },
+  inviteStatsSection: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  inviteStatsLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#5a6570",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
   divider: {
     height: 2,
     backgroundColor: theme.colors.primary,
@@ -629,6 +845,23 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: theme.colors.primary,
     borderRadius: 8,
+  },
+  eventByRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 4,
+  },
+  eventByLabel: {
+    fontSize: 14,
+    color: theme.colors.text,
+  },
+  businessLinkInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   businessLinkText: {
     fontSize: 14,

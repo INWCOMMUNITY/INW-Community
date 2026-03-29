@@ -1,6 +1,6 @@
 /**
  * Generic app navigation menu - shown when on tabs other than my-community.
- * Links to Profile, Seller Hub (if hasSeller), Business Hub (if hasSponsor), Resale Hub (if hasSubscriber).
+ * Links to Profile, Seller Hub (if hasSeller), Business Hub (if sponsor or seller), Resale Hub (if hasSubscriber).
  */
 import {
   Modal,
@@ -24,16 +24,15 @@ const NAV_HEADER_HEIGHT = 44;
 interface AppNavMenuProps {
   visible: boolean;
   onClose: () => void;
-  hasSponsor: boolean;
   hasSeller: boolean;
   hasSubscriber?: boolean;
 }
 
-export function AppNavMenu({ visible, onClose, hasSponsor, hasSeller, hasSubscriber }: AppNavMenuProps) {
+export function AppNavMenu({ visible, onClose, hasSeller, hasSubscriber }: AppNavMenuProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
-  const { setProfileView } = useProfileView();
+  const { setProfileView, hasBusinessHub } = useProfileView();
 
   const handleNav = (view: "profile" | "business_hub" | "seller_hub" | "resale_hub") => {
     onClose();
@@ -65,7 +64,7 @@ export function AppNavMenu({ visible, onClose, hasSponsor, hasSeller, hasSubscri
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Go to</Text>
               <View style={styles.divider} />
-              {hasSponsor && (
+              {hasBusinessHub && (
                 <Pressable
                   onPress={() => handleNav("business_hub")}
                   style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}

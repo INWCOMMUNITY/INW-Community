@@ -1,7 +1,17 @@
 import { useEffect, useState, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, View, Text, Modal } from "react-native";
+import {
+  Pressable,
+  View,
+  Text,
+  Modal,
+  Platform,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
+import type { PressableStateCallbackType } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Tabs, useRouter, usePathname } from "expo-router";
 
 import { useClientOnlyValue } from "@/components/useClientOnlyValue";
@@ -23,8 +33,7 @@ import { ResaleHubSideMenu } from "@/components/ResaleHubSideMenu";
 import { ProfileSideMenu } from "@/components/ProfileSideMenu";
 import { AppNavMenu } from "@/components/AppNavMenu";
 import { CommunitySideMenu } from "@/components/CommunitySideMenu";
-import { CreatePostModal } from "@/components/CreatePostModal";
-import { CreatePostProvider, useCreatePost } from "@/contexts/CreatePostContext";
+import { useCreatePost } from "@/contexts/CreatePostContext";
 
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof Ionicons>["name"];
@@ -64,13 +73,19 @@ function ProfileTabButton(props: {
   children?: React.ReactNode;
   onPress?: () => void;
   switcherShownOnceRef?: { current: boolean };
+  style?: StyleProp<ViewStyle> | ((state: PressableStateCallbackType) => StyleProp<ViewStyle>);
   [key: string]: unknown;
 }) {
   const { openSwitcher } = useProfileView();
-  const { onPress, children, switcherShownOnceRef, ...rest } = props;
+  const { onPress, children, switcherShownOnceRef, style, ...rest } = props;
   return (
     <Pressable
       {...rest}
+      style={(state) => {
+        const base = typeof style === "function" ? style(state) : style;
+        if (Platform.OS !== "ios") return base;
+        return [base, { backgroundColor: "transparent" }];
+      }}
       onPress={() => {
         if (switcherShownOnceRef && !switcherShownOnceRef.current) {
           switcherShownOnceRef.current = true;
@@ -84,13 +99,42 @@ function ProfileTabButton(props: {
   );
 }
 
-function ProfileSwitcherModal() {
+function HubAttentionBadge() {
+  const theme = useTheme();
+  return (
+    <View
+      style={{
+        minWidth: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: theme.colors.cream,
+        borderWidth: 2,
+        borderColor: theme.colors.primary,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 6,
+      }}
+    >
+      <Text style={{ fontSize: 14, fontWeight: "800", color: theme.colors.primary }}>!</Text>
+    </View>
+  );
+}
+
+function ProfileSwitcherModal({
+  businessHubAttention,
+  sellerHubAttention,
+  resaleHubAttention,
+}: {
+  businessHubAttention: boolean;
+  sellerHubAttention: boolean;
+  resaleHubAttention: boolean;
+}) {
   const theme = useTheme();
   const {
     switcherVisible,
     closeSwitcher,
     setProfileView,
-    hasSponsor,
+    hasBusinessHub,
     hasSeller,
     hasSubscriber,
   } = useProfileView();
@@ -123,13 +167,17 @@ function ProfileSwitcherModal() {
             backgroundColor: "#ffffff",
           }}
         >
-          {hasSponsor && (
+          {hasBusinessHub && (
             <Pressable
               style={{
                 paddingVertical: 14,
                 paddingHorizontal: 20,
                 borderBottomWidth: 1,
                 borderBottomColor: "#eee",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
               onPress={() => {
                 setProfileView("business_hub");
@@ -141,10 +189,12 @@ function ProfileSwitcherModal() {
                   fontSize: 16,
                   fontWeight: "600",
                   color: theme.colors.heading,
+                  flex: 1,
                 }}
               >
                 Business Hub
               </Text>
+              {businessHubAttention ? <HubAttentionBadge /> : null}
             </Pressable>
           )}
           {hasSeller && (
@@ -154,6 +204,10 @@ function ProfileSwitcherModal() {
                 paddingHorizontal: 20,
                 borderBottomWidth: 1,
                 borderBottomColor: "#eee",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
               onPress={() => {
                 setProfileView("seller_hub");
@@ -165,10 +219,12 @@ function ProfileSwitcherModal() {
                   fontSize: 16,
                   fontWeight: "600",
                   color: theme.colors.heading,
+                  flex: 1,
                 }}
               >
                 Seller Hub
               </Text>
+              {sellerHubAttention ? <HubAttentionBadge /> : null}
             </Pressable>
           )}
           {hasSubscriber && (
@@ -178,6 +234,10 @@ function ProfileSwitcherModal() {
                 paddingHorizontal: 20,
                 borderBottomWidth: 1,
                 borderBottomColor: "#eee",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
               onPress={() => {
                 setProfileView("resale_hub");
@@ -189,10 +249,12 @@ function ProfileSwitcherModal() {
                   fontSize: 16,
                   fontWeight: "600",
                   color: theme.colors.heading,
+                  flex: 1,
                 }}
               >
                 Resale Hub
               </Text>
+              {resaleHubAttention ? <HubAttentionBadge /> : null}
             </Pressable>
           )}
           <Pressable
@@ -229,18 +291,50 @@ function TabLayoutInner() {
   const theme = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  const { member, subscriptionPlan, loading } = useAuth();
-  const { profileView, showSwitcher, openSwitcher, hasSponsor, hasSeller, hasSubscriber } = useProfileView();
+  const { profileSyncError, clearProfileSyncError, refreshMember } = useAuth();
+  const tabSafeInsets = useSafeAreaInsets();
+  const { profileView, showSwitcher, openSwitcher, hasSeller, hasSubscriber } = useProfileView();
   const [sideMenuType, setSideMenuType] = useState<SideMenuType>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [hubAlerts, setHubAlerts] = useState({
+    sellerOffersPending: false,
+    buyerOffersAction: false,
+    sellerFulfillmentPending: false,
+  });
 
   useFocusEffect(
     useCallback(() => {
       apiGet<{ unreadMessages?: number }>("/api/me/sidebar-alerts")
         .then((d) => setUnreadMessages(Number(d?.unreadMessages) || 0))
         .catch(() => {});
+      apiGet<{
+        sellerOffersPending?: boolean;
+        buyerOffersAction?: boolean;
+        sellerFulfillmentPending?: boolean;
+      }>("/api/me/hub-alerts")
+        .then((d) =>
+          setHubAlerts({
+            sellerOffersPending: !!d?.sellerOffersPending,
+            buyerOffersAction: !!d?.buyerOffersAction,
+            sellerFulfillmentPending: !!d?.sellerFulfillmentPending,
+          })
+        )
+        .catch(() =>
+          setHubAlerts({
+            sellerOffersPending: false,
+            buyerOffersAction: false,
+            sellerFulfillmentPending: false,
+          })
+        );
     }, [])
   );
+
+  const sellerWorkPending =
+    hubAlerts.sellerOffersPending || hubAlerts.sellerFulfillmentPending;
+  const sellerHubAttention = hasSeller && sellerWorkPending;
+  const resaleHubAttention =
+    hasSubscriber && (hubAlerts.buyerOffersAction || sellerWorkPending);
+  const businessHubAttention = false;
 
   const isProfileTab = typeof pathname === "string" && pathname.includes("my-community");
   useEffect(() => {
@@ -281,13 +375,51 @@ function TabLayoutInner() {
 
   return (
     <>
+    {profileSyncError ? (
+      <View
+        style={{
+          paddingTop: tabSafeInsets.top > 0 ? 4 : 8,
+          paddingHorizontal: 12,
+          paddingBottom: 8,
+          backgroundColor: "#fef3c7",
+          borderBottomWidth: 1,
+          borderBottomColor: "#fcd34d",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <Text style={{ flex: 1, fontSize: 13, color: "#78350f" }}>{profileSyncError}</Text>
+        <Pressable
+          onPress={() => refreshMember()}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 4, paddingHorizontal: 8 })}
+        >
+          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.primary }}>Retry</Text>
+        </Pressable>
+        <Pressable
+          onPress={clearProfileSyncError}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 4, paddingHorizontal: 8 })}
+        >
+          <Text style={{ fontSize: 13, fontWeight: "600", color: "#78350f" }}>Dismiss</Text>
+        </Pressable>
+      </View>
+    ) : null}
     <Tabs
       initialRouteName="home"
       screenOptions={({ route }) => ({
-        tabBarActiveTintColor: theme.colors.primary,
+        tabBarActiveTintColor:
+          Platform.OS === "ios" ? theme.colors.cream : theme.colors.primary,
         tabBarInactiveTintColor: "#ffffff",
-        tabBarActiveBackgroundColor: theme.colors.cream,
-        tabBarInactiveBackgroundColor: theme.colors.primary,
+        // iOS draws a rounded "bubble" behind the active tab when this is set; use transparent + cream tint instead.
+        tabBarActiveBackgroundColor:
+          Platform.OS === "ios" ? "transparent" : theme.colors.cream,
+        tabBarInactiveBackgroundColor:
+          Platform.OS === "ios" ? "transparent" : theme.colors.primary,
+        ...(Platform.OS === "ios"
+          ? {
+              tabBarItemStyle: { backgroundColor: "transparent" },
+            }
+          : {}),
         tabBarStyle: {
           backgroundColor: theme.colors.primary,
           borderTopColor: theme.colors.primary,
@@ -470,12 +602,10 @@ function TabLayoutInner() {
       visible={sideMenuType === "profile"}
       onClose={() => setSideMenuType(null)}
       hasSubscriber={hasSubscriber}
-      hasSponsor={hasSponsor}
     />
     <AppNavMenu
       visible={sideMenuType === "app"}
       onClose={() => setSideMenuType(null)}
-      hasSponsor={hasSponsor}
       hasSeller={hasSeller}
       hasSubscriber={hasSubscriber}
     />
@@ -484,28 +614,13 @@ function TabLayoutInner() {
       onClose={() => setSideMenuType(null)}
     />
 
-    <CreatePostModalInLayout />
-    </>
-  );
-}
-
-function CreatePostModalInLayout() {
-  const createPostCtx = useCreatePost();
-  const createPostVisible = createPostCtx?.createPostVisible ?? false;
-  const setCreatePostVisible = createPostCtx?.setCreatePostVisible ?? (() => {});
-  return (
-    <CreatePostModal
-      visible={createPostVisible}
-      onClose={() => {
-        setCreatePostVisible(false);
-        createPostCtx?.setInitialBusinessForPost(null);
-      }}
-      onSuccess={() => {
-        setCreatePostVisible(false);
-        createPostCtx?.setInitialBusinessForPost(null);
-      }}
-      initialBusinessForPost={createPostCtx?.initialBusinessForPost ?? undefined}
+    <ProfileSwitcherModal
+      businessHubAttention={businessHubAttention}
+      sellerHubAttention={sellerHubAttention}
+      resaleHubAttention={resaleHubAttention}
     />
+
+    </>
   );
 }
 
@@ -527,10 +642,5 @@ function CommunitySideMenuWithContext({
 }
 
 export default function TabLayout() {
-  return (
-    <CreatePostProvider>
-      <TabLayoutInner />
-      <ProfileSwitcherModal />
-    </CreatePostProvider>
-  );
+  return <TabLayoutInner />;
 }

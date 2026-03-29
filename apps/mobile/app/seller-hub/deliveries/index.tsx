@@ -17,7 +17,9 @@ interface LocalDeliveryDetails {
   firstName?: string;
   lastName?: string;
   phone?: string;
+  email?: string;
   deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string };
+  availableDropOffTimes?: string;
   note?: string;
 }
 
@@ -35,6 +37,7 @@ interface OrderWithDelivery {
   totalCents: number;
   localDeliveryDetails: LocalDeliveryDetails | null;
   deliveryConfirmedAt: string | null;
+  deliveryBuyerConfirmedAt?: string | null;
   items: { id?: string; storeItem: { title: string; photos?: string[] }; quantity: number }[];
 }
 
@@ -80,7 +83,9 @@ export default function DeliveriesScreen() {
       }>(`/api/store-orders/${orderId}`, { deliveryConfirmed: true });
       setOrders((prev) =>
         prev.map((o) =>
-          o.id === orderId ? { ...o, deliveryConfirmedAt: new Date().toISOString() } : o
+          o.id === orderId
+            ? { ...o, deliveryConfirmedAt: new Date().toISOString(), deliveryBuyerConfirmedAt: o.deliveryBuyerConfirmedAt ?? null }
+            : o
         )
       );
       if (res?.earnedBadges?.length) {
@@ -94,8 +99,12 @@ export default function DeliveriesScreen() {
     }
   };
 
-  const pending = orders.filter((o) => !o.deliveryConfirmedAt);
-  const completed = orders.filter((o) => o.deliveryConfirmedAt);
+  const pending = orders.filter(
+    (o) => !(o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt)
+  );
+  const completed = orders.filter(
+    (o) => o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt
+  );
 
   if (loading && orders.length === 0) {
     return (
@@ -142,6 +151,23 @@ export default function DeliveriesScreen() {
                         <Text style={styles.value}>{d.phone}</Text>
                       </>
                     )}
+                    {d.email ? (
+                      <>
+                        <Text style={styles.label}>Email</Text>
+                        <Text style={styles.value}>{d.email}</Text>
+                      </>
+                    ) : null}
+                    {d.availableDropOffTimes ? (
+                      <>
+                        <Text style={styles.label}>Available drop-off times</Text>
+                        <Text style={styles.value}>{d.availableDropOffTimes}</Text>
+                      </>
+                    ) : null}
+                    <Text style={styles.label}>Confirmation</Text>
+                    <Text style={styles.value}>
+                      Seller delivered: {o.deliveryConfirmedAt ? "Yes" : "No"} · Buyer received:{" "}
+                      {o.deliveryBuyerConfirmedAt ? "Yes" : "No"}
+                    </Text>
                     <Text style={styles.label}>Items</Text>
                     <View style={styles.itemsRow}>
                       {o.items.map((i, idx) => {
@@ -160,17 +186,21 @@ export default function DeliveriesScreen() {
                         );
                       })}
                     </View>
-                    <Pressable
-                      style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
-                      onPress={() => markDelivered(o.id)}
-                      disabled={confirmingId === o.id}
-                    >
-                      {confirmingId === o.id ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <Text style={styles.btnText}>Order Delivered</Text>
-                      )}
-                    </Pressable>
+                    {!o.deliveryConfirmedAt ? (
+                      <Pressable
+                        style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
+                        onPress={() => markDelivered(o.id)}
+                        disabled={confirmingId === o.id}
+                      >
+                        {confirmingId === o.id ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Text style={styles.btnText}>Mark delivered (seller)</Text>
+                        )}
+                      </Pressable>
+                    ) : !o.deliveryBuyerConfirmedAt ? (
+                      <Text style={styles.waiting}>Waiting for buyer to confirm receipt.</Text>
+                    ) : null}
                   </View>
                 );
               })}
@@ -254,6 +284,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   btnText: { color: "#fff", fontWeight: "600" },
+  waiting: { fontSize: 14, color: "#92400e", marginTop: 12, fontStyle: "italic" },
   toggle: { marginBottom: 12 },
   toggleText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },
   itemsRow: { marginTop: 4 },

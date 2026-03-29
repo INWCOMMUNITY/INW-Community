@@ -26,7 +26,7 @@ export function ProfileForm() {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    fetch("/api/me")
+    fetch("/api/me", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (d?.profilePhotoUrl) setProfilePhotoUrl(d.profilePhotoUrl);

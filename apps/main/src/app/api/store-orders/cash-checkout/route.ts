@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { awardPoints } from "@/lib/award-points";
 import { getBaseUrl } from "@/lib/get-base-url";
 import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
+import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
+import {
+  validateLocalDeliveryDetails,
+  validatePickupLine,
+  validateRequestedFulfillment,
+  storeItemHasLocalDeliveryPolicy,
+  type LocalDeliveryDetailsJson,
+} from "@/lib/pickup-delivery-checkout";
+import {
+  cancelPendingOrdersForSoldOutItems,
+  cleanupOtherBuyersCartsForStoreItems,
+} from "@/lib/post-sale-inventory-cleanup";
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -18,9 +29,11 @@ export async function POST(req: NextRequest) {
       firstName: string;
       lastName: string;
       phone: string;
+      email?: string;
       deliveryAddress: { street?: string; city?: string; state?: string; zip?: string };
       note?: string;
       termsAcceptedAt?: string;
+      availableDropOffTimes?: string;
     };
   };
   try {
@@ -39,34 +52,24 @@ export async function POST(req: NextRequest) {
   );
   if (!allPickupOrLocal) {
     return NextResponse.json(
-      { error: "Pay in cash is only available when all items are Pickup or Local Delivery." },
+      { error: "Pay in Cash is only available when all items are Pickup or Local Delivery." },
       { status: 400 }
     );
   }
 
   const hasLocalDelivery = items.some((i) => (i.fulfillmentType ?? "ship") === "local_delivery");
-  if (hasLocalDelivery) {
-    if (
-      !localDeliveryDetails ||
-      !localDeliveryDetails.firstName?.trim() ||
-      !localDeliveryDetails.lastName?.trim() ||
-      !localDeliveryDetails.phone?.trim() ||
-      !localDeliveryDetails.deliveryAddress ||
-      !localDeliveryDetails.deliveryAddress.street?.trim() ||
-      !localDeliveryDetails.deliveryAddress.city?.trim() ||
-      !localDeliveryDetails.deliveryAddress.state?.trim() ||
-      !localDeliveryDetails.deliveryAddress.zip?.trim()
-    ) {
-      return NextResponse.json(
-        { error: "Local Delivery requires complete delivery details (name, phone, full address)." },
-        { status: 400 }
-      );
-    }
-  }
 
   const storeItems = await prisma.storeItem.findMany({
     where: { id: { in: items.map((i) => i.storeItemId) }, status: "active" },
-    include: { member: { select: { acceptCashForPickupDelivery: true } } },
+    include: {
+      member: {
+        select: {
+          acceptCashForPickupDelivery: true,
+          sellerPickupPolicy: true,
+          sellerLocalDeliveryPolicy: true,
+        },
+      },
+    },
   });
 
   if (storeItems.length !== items.length) {
@@ -75,7 +78,51 @@ export async function POST(req: NextRequest) {
 
   const itemMap = new Map(storeItems.map((s) => [s.id, s]));
 
-  // Group cart items by seller (each seller gets a separate order; funds go to that seller).
+  for (const line of items) {
+    const si = itemMap.get(line.storeItemId);
+    if (!si) continue;
+    const fv = validateRequestedFulfillment(si, line.fulfillmentType);
+    if (!fv.ok) {
+      return NextResponse.json({ error: fv.error }, { status: 400 });
+    }
+  }
+
+  let normalizedLocalDelivery: LocalDeliveryDetailsJson | undefined;
+  if (hasLocalDelivery) {
+    const requireLocalPolicy = items.some(
+      (i) =>
+        (i.fulfillmentType ?? "ship") === "local_delivery" &&
+        storeItemHasLocalDeliveryPolicy(itemMap.get(i.storeItemId)!)
+    );
+    const ld = validateLocalDeliveryDetails(localDeliveryDetails, {
+      requirePolicyAcceptance: requireLocalPolicy,
+    });
+    if (!ld.ok) {
+      return NextResponse.json({ error: ld.error }, { status: 400 });
+    }
+    normalizedLocalDelivery = ld.details;
+  }
+
+  const cartDbItems = await prisma.cartItem.findMany({
+    where: {
+      memberId: session.user.id,
+      storeItemId: { in: items.map((i) => i.storeItemId) },
+    },
+    include: { resaleOffer: true },
+  });
+  const cartByStoreItem = new Map(cartDbItems.map((c) => [c.storeItemId, c]));
+
+  for (const item of items) {
+    if ((item.fulfillmentType ?? "ship") !== "pickup") continue;
+    const storeItem = itemMap.get(item.storeItemId);
+    const cartRow = cartByStoreItem.get(item.storeItemId);
+    if (!storeItem) continue;
+    const v = validatePickupLine(cartRow, storeItem);
+    if (!v.ok) {
+      return NextResponse.json({ error: v.error }, { status: 400 });
+    }
+  }
+
   const bySeller = new Map<string, typeof items>();
   for (const item of items) {
     const storeItem = itemMap.get(item.storeItemId);
@@ -99,6 +146,9 @@ export async function POST(req: NextRequest) {
     where: prismaWhereActivePaidNwcPlan(buyerId),
   });
   const orderIds: string[] = [];
+  const resaleOfferIdsToComplete = new Set<string>();
+  const purchasedStoreItemIds = new Set<string>();
+  const soldOutStoreItemIds = new Set<string>();
 
   for (const [sellerId, sellerItems] of bySeller) {
     let subtotalCents = 0;
@@ -109,11 +159,20 @@ export async function POST(req: NextRequest) {
       priceCentsAtPurchase: number;
       variant?: unknown;
       fulfillmentType?: string;
+      pickupDetails?: object;
     }[] = [];
+    const hasLocalDeliveryInThisOrder = sellerItems.some((i) => (i.fulfillmentType ?? "ship") === "local_delivery");
 
     for (const item of sellerItems) {
       const storeItem = itemMap.get(item.storeItemId)!;
-      const priceCents = storeItem.priceCents;
+      const cartRow = cartByStoreItem.get(item.storeItemId);
+      const { unitPriceCents: priceCents, resaleOfferId } = resolvedPriceForCartLine(
+        storeItem,
+        cartRow,
+        session.user.id
+      );
+      if (resaleOfferId) resaleOfferIdsToComplete.add(resaleOfferId);
+      purchasedStoreItemIds.add(storeItem.id);
       subtotalCents += priceCents * item.quantity;
       const fulfillmentType = item.fulfillmentType ?? "pickup";
       if (fulfillmentType === "local_delivery" && storeItem.localDeliveryFeeCents != null && storeItem.localDeliveryFeeCents > 0) {
@@ -125,6 +184,10 @@ export async function POST(req: NextRequest) {
         priceCentsAtPurchase: priceCents,
         variant: item.variant ?? undefined,
         fulfillmentType,
+        pickupDetails:
+          fulfillmentType === "pickup" && cartRow?.pickupDetails
+            ? (cartRow.pickupDetails as object)
+            : undefined,
       });
     }
 
@@ -142,14 +205,14 @@ export async function POST(req: NextRequest) {
         status: "paid",
         shippingAddress: Prisma.JsonNull,
         localDeliveryDetails:
-          hasLocalDelivery && localDeliveryDetails
-            ? (localDeliveryDetails as object)
+          normalizedLocalDelivery && hasLocalDeliveryInThisOrder
+            ? (normalizedLocalDelivery as object)
             : Prisma.JsonNull,
         pointsAwarded,
       },
     });
     orderIds.push(order.id);
-    await awardPoints(buyerId, pointsAwarded);
+    // Buyer points for pickup/local delivery are deferred until both parties confirm (see tryReleaseBuyerPointsForOrder).
 
     const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
     awardLocalBusinessProBadge(buyerId).catch(() => {});
@@ -163,6 +226,7 @@ export async function POST(req: NextRequest) {
           priceCentsAtPurchase: oi.priceCentsAtPurchase,
           variant: oi.variant === undefined ? Prisma.JsonNull : (oi.variant as object),
           fulfillmentType: oi.fulfillmentType ?? null,
+          pickupDetails: oi.pickupDetails ? (oi.pickupDetails as object) : Prisma.JsonNull,
         },
       });
       const storeItem = itemMap.get(oi.storeItemId)!;
@@ -194,6 +258,7 @@ export async function POST(req: NextRequest) {
           where: { id: oi.storeItemId },
           data: { status: "sold_out" },
         });
+        soldOutStoreItemIds.add(oi.storeItemId);
         const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
         deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
       }
@@ -206,8 +271,33 @@ export async function POST(req: NextRequest) {
     }).catch(() => {});
   }
 
+  if (resaleOfferIdsToComplete.size > 0) {
+    await prisma.resaleOffer.updateMany({
+      where: { id: { in: [...resaleOfferIdsToComplete] }, status: "accepted" },
+      data: { status: "completed" },
+    });
+  }
+
+  await cleanupOtherBuyersCartsForStoreItems({
+    winningBuyerId: buyerId,
+    purchasedStoreItemIds: [...purchasedStoreItemIds],
+  });
+
+  if (soldOutStoreItemIds.size > 0) {
+    const titleByItemId = new Map<string, string>();
+    for (const id of soldOutStoreItemIds) {
+      titleByItemId.set(id, itemMap.get(id)?.title ?? "Item");
+    }
+    await cancelPendingOrdersForSoldOutItems({
+      soldOutStoreItemIds: [...soldOutStoreItemIds],
+      excludeBuyerId: buyerId,
+      titleByItemId,
+    });
+  }
+
+  const purchasedIds = [...new Set(items.map((i) => i.storeItemId))];
   await prisma.cartItem.deleteMany({
-    where: { memberId: session.user.id },
+    where: { memberId: session.user.id, storeItemId: { in: purchasedIds } },
   });
 
   const orderIdsParam = orderIds.join(",");

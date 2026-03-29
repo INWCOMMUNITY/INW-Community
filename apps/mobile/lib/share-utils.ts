@@ -25,6 +25,13 @@ export interface ShareContent {
   listingType?: "new" | "resale";
 }
 
+/** Member badges returned by some share/create APIs (e.g. blog share → Community Writer). */
+export interface EarnedBadgePayload {
+  slug: string;
+  name: string;
+  description?: string;
+}
+
 /**
  * Build shareable web URL for content.
  */
@@ -66,15 +73,21 @@ const SHARE_API_PATH: Record<Exclude<SharedContentType, "photo">, string> = {
  */
 export async function shareToFeed(
   content: ShareContent,
-  text?: string
-): Promise<{ post?: unknown }> {
+  text?: string,
+  opts?: { groupId?: string | null }
+): Promise<{ post?: unknown; earnedBadges?: EarnedBadgePayload[] }> {
   if (content.type === "photo") {
     throw new Error("Photo sharing to feed not supported");
   }
   const path = SHARE_API_PATH[content.type];
-  return apiPost<{ post?: unknown }>(`${path}/${content.id}/share`, {
-    ...(text?.trim() ? { content: text.trim() } : {}),
-  });
+  const groupId = opts?.groupId?.trim() || null;
+  return apiPost<{ post?: unknown; earnedBadges?: EarnedBadgePayload[] }>(
+    `${path}/${content.id}/share`,
+    {
+      ...(text?.trim() ? { content: text.trim() } : {}),
+      ...(groupId ? { groupId } : {}),
+    }
+  );
 }
 
 /**
@@ -84,11 +97,14 @@ export async function shareToFeed(
 export async function shareToGroup(
   content: ShareContent,
   groupId: string
-): Promise<{ post?: unknown }> {
+): Promise<{ post?: unknown; earnedBadges?: EarnedBadgePayload[] }> {
   if (content.type !== "post") {
     throw new Error("Share to group is only supported for posts");
   }
-  return apiPost<{ post?: unknown }>(`/api/posts/${content.id}/share`, {
-    groupId,
-  });
+  return apiPost<{ post?: unknown; earnedBadges?: EarnedBadgePayload[] }>(
+    `/api/posts/${content.id}/share`,
+    {
+      groupId,
+    }
+  );
 }

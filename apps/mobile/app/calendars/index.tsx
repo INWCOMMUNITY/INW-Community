@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Pressable, Image, Dimensions, Text } from "react-native";
 import { View } from "@/components/Themed";
 import { theme } from "@/lib/theme";
@@ -6,7 +6,10 @@ import { CALENDAR_TYPES, getCalendarImage, type CalendarType } from "@/lib/calen
 import { fetchEvents } from "@/lib/events-api";
 import { useRouter } from "expo-router";
 import { PopupModal } from "@/components/PopupModal";
-import { PostEventForm } from "@/components/PostEventForm";
+import { PostEventForm, type PostEventAsContext } from "@/components/PostEventForm";
+import { PostEventAsPickerModal } from "@/components/PostEventAsPickerModal";
+import { getToken, apiGet } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 const { width } = Dimensions.get("window");
 const gap = 12;
@@ -21,9 +24,24 @@ function endOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
 }
 
+function profileDisplayNameFromMember(
+  member: { firstName?: string; lastName?: string } | null
+): string {
+  if (!member) return "Your profile";
+  const n = `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim();
+  return n || "Your profile";
+}
+
 export default function CalendarsScreen() {
   const router = useRouter();
+  const { member } = useAuth();
   const [postEventModalVisible, setPostEventModalVisible] = useState(false);
+  const [postAsPickerVisible, setPostAsPickerVisible] = useState(false);
+  const [postAsPickerBusinesses, setPostAsPickerBusinesses] = useState<
+    { id: string; name: string; slug: string }[]
+  >([]);
+  const [postEventAs, setPostEventAs] = useState<PostEventAsContext | null>(null);
+  const [postEventFormSeed, setPostEventFormSeed] = useState(0);
 
   // Prefetch current month for first calendar so it loads instantly when tapped
   useEffect(() => {
@@ -31,6 +49,43 @@ export default function CalendarsScreen() {
     const firstType = CALENDAR_TYPES[0]?.value as CalendarType;
     if (firstType) {
       fetchEvents(firstType, startOfMonth(now), endOfMonth(now)).catch(() => {});
+    }
+  }, []);
+
+  const profileName = profileDisplayNameFromMember(member);
+
+  const closePostEventModal = useCallback(() => {
+    setPostEventModalVisible(false);
+    setPostEventAs(null);
+  }, []);
+
+  const closePostAsPicker = useCallback(() => {
+    setPostAsPickerVisible(false);
+    setPostAsPickerBusinesses([]);
+  }, []);
+
+  const openPostEventFlow = useCallback(async () => {
+    setPostEventFormSeed((s) => s + 1);
+    setPostEventAs(null);
+
+    const token = await getToken();
+    let businesses: { id: string; name: string; slug: string }[] = [];
+    if (token) {
+      try {
+        const data = await apiGet<{ id: string; name: string; slug: string }[]>(
+          "/api/businesses?mine=1"
+        );
+        businesses = Array.isArray(data) ? data : [];
+      } catch {
+        businesses = [];
+      }
+    }
+
+    if (businesses.length > 0) {
+      setPostAsPickerBusinesses(businesses);
+      setPostAsPickerVisible(true);
+    } else {
+      setPostEventModalVisible(true);
     }
   }, []);
 
@@ -43,7 +98,7 @@ export default function CalendarsScreen() {
         </Text>
         <Pressable
           style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
-          onPress={() => setPostEventModalVisible(true)}
+          onPress={() => void openPostEventFlow()}
         >
           <Text style={styles.postEventButtonText}>Post Event</Text>
         </Pressable>
@@ -77,14 +132,33 @@ export default function CalendarsScreen() {
         })}
       </View>
 
+      <PostEventAsPickerModal
+        visible={postAsPickerVisible}
+        onClose={closePostAsPicker}
+        profileDisplayName={profileName}
+        businesses={postAsPickerBusinesses}
+        onSelectPersonal={() => {
+          closePostAsPicker();
+          setPostEventAs({ businessId: null, displayName: profileName });
+          setPostEventModalVisible(true);
+        }}
+        onSelectBusiness={(b) => {
+          closePostAsPicker();
+          setPostEventAs({ businessId: b.id, displayName: b.name });
+          setPostEventModalVisible(true);
+        }}
+      />
+
       <PopupModal
         visible={postEventModalVisible}
-        onClose={() => setPostEventModalVisible(false)}
+        onClose={closePostEventModal}
         title="Post Event"
         scrollable={false}
       >
         <PostEventForm
-          onSuccess={() => setPostEventModalVisible(false)}
+          key={postEventFormSeed}
+          postEventAs={postEventAs ?? undefined}
+          onSuccess={closePostEventModal}
         />
       </PopupModal>
     </ScrollView>

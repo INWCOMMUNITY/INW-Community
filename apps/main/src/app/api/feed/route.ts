@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getBlockedMemberIds } from "@/lib/member-block";
+import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 import { isFeedPostRenderable } from "@/lib/feed-post-visible";
 
 export async function GET(req: NextRequest) {
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         author: {
-          select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
+          select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
         },
         postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
       },
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
     const hasMore = posts.length > limit;
-    const items = hasMore ? posts.slice(0, limit) : posts;
+    const items = (hasMore ? posts.slice(0, limit) : posts).filter((p) => p.author?.privacyLevel === "public");
     const nextCursor = hasMore ? items[items.length - 1]?.id : null;
     const postIds = items.map((p) => p.id);
     const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
@@ -54,13 +54,13 @@ export async function GET(req: NextRequest) {
       sourceCouponIds.length > 0
         ? prisma.coupon.findMany({
             where: { id: { in: sourceCouponIds } },
-            include: { business: { select: { name: true, slug: true } } },
+            include: { business: { select: { id: true, name: true, slug: true } } },
           })
         : [],
       sourceRewardIds.length > 0
         ? prisma.reward.findMany({
             where: { id: { in: sourceRewardIds } },
-            include: { business: { select: { name: true, slug: true } } },
+            include: { business: { select: { id: true, name: true, slug: true } } },
           })
         : [],
       sourceStoreItemIds.length > 0
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
             where: { id: { in: sourcePostIds } },
             include: {
               author: {
-                select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
+                select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
               },
               postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
             },
@@ -129,11 +129,12 @@ export async function GET(req: NextRequest) {
         likeCount: likeCountMap[p.id] ?? 0,
         commentCount: commentCountMap[p.id] ?? 0,
       }))
-      .filter(isFeedPostRenderable);
+      .filter(isFeedPostRenderable)
+      .filter((p) => p.type !== "shared_post" || p.sourcePost?.author?.privacyLevel === "public");
     return NextResponse.json({ posts: feedItems, nextCursor });
   }
 
-  const [followBusinesses, friendships, myGroups, followedTags, blockedIdSet] = await Promise.all([
+  const [followBusinesses, friendships, myGroups, followedTags, excludedAuthors] = await Promise.all([
     prisma.followBusiness.findMany({
       where: { memberId: session.user.id },
       select: { business: { select: { memberId: true } } },
@@ -155,9 +156,9 @@ export async function GET(req: NextRequest) {
       where: { memberId: session.user.id },
       select: { tagId: true },
     }),
-    getBlockedMemberIds(session.user.id),
+    getFeedExcludedAuthorIds(session.user.id),
   ]);
-  const blockedIds = Array.from(blockedIdSet);
+  const blockedIds = excludedAuthors;
 
   const followBusinessAuthorIds = followBusinesses
     .map((fb) => fb.business?.memberId)
@@ -168,6 +169,8 @@ export async function GET(req: NextRequest) {
     )
   )];
   const groupIds = myGroups.map((g) => g.groupId);
+  const viewerFriendIdSet = new Set(friendIds);
+  const viewerGroupIdSet = new Set(groupIds);
   const authorIds = new Set([session.user.id, ...friendIds, ...followBusinessAuthorIds]);
   const followedTagIds = followedTags.map((f) => f.tagId);
 
@@ -202,7 +205,7 @@ export async function GET(req: NextRequest) {
     where,
     include: {
       author: {
-        select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
+        select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
       },
       postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
     },
@@ -213,7 +216,7 @@ export async function GET(req: NextRequest) {
 
   const hasMore = posts.length > limit;
   const items = hasMore ? posts.slice(0, limit) : posts;
-  const nextCursor = hasMore ? items[items.length - 1]?.id : null;
+  // Cursor is computed after privacy filtering.
 
   const postIds = items.map((p) => p.id);
   const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
@@ -244,13 +247,13 @@ export async function GET(req: NextRequest) {
     sourceCouponIds.length > 0
       ? prisma.coupon.findMany({
           where: { id: { in: sourceCouponIds } },
-          include: { business: { select: { name: true, slug: true } } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
     sourceRewardIds.length > 0
       ? prisma.reward.findMany({
           where: { id: { in: sourceRewardIds } },
-          include: { business: { select: { name: true, slug: true } } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
     sourceStoreItemIds.length > 0
@@ -264,7 +267,7 @@ export async function GET(req: NextRequest) {
           where: { id: { in: sourcePostIds } },
           include: {
             author: {
-              select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
+              select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
             },
             postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
           },
@@ -311,13 +314,13 @@ export async function GET(req: NextRequest) {
     sourcePostCouponIds.length > 0
       ? prisma.coupon.findMany({
           where: { id: { in: sourcePostCouponIds } },
-          include: { business: { select: { name: true, slug: true } } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
     sourcePostRewardIds.length > 0
       ? prisma.reward.findMany({
           where: { id: { in: sourcePostRewardIds } },
-          include: { business: { select: { name: true, slug: true } } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
     sourcePostStoreItemIds.length > 0
@@ -386,8 +389,55 @@ export async function GET(req: NextRequest) {
     }))
     .filter(isFeedPostRenderable);
 
+  const feedItemsVisible = feedItems.filter((p) => {
+    if (!p.author?.id) return false;
+
+    // Shared post visibility is driven by the *source post author privacy*,
+    // not by the sharer's feed-post metadata.
+    if (p.type === "shared_post") {
+      const sourcePost = p.sourcePost;
+      if (!sourcePost?.author?.id) return false;
+
+      const viewerId = session.user.id;
+      const sourceAuthorId = sourcePost.author.id as string;
+      const sourcePrivacyLevel = sourcePost.author.privacyLevel as string;
+      const sourceGroupId = (sourcePost.groupId as string | null) ?? null;
+
+      // Posts originating from a group are visible to members of that group.
+      if (sourceGroupId && viewerGroupIdSet.has(sourceGroupId)) return true;
+
+      if (sourcePrivacyLevel === "public") return true;
+      if (sourcePrivacyLevel === "friends_only") {
+        return sourceAuthorId === viewerId || viewerFriendIdSet.has(sourceAuthorId);
+      }
+      if (sourcePrivacyLevel === "completely_private") {
+        return sourceAuthorId === viewerId;
+      }
+      return false;
+    }
+
+    // Normal (non-shared) posts: group posts are visible to members of that group.
+    const postGroupId = (p.groupId as string | null) ?? null;
+    if (postGroupId && viewerGroupIdSet.has(postGroupId)) return true;
+
+    const viewerId = session.user.id;
+    const authorId = p.author.id as string;
+    const privacyLevel = (p.author.privacyLevel as string) ?? "public";
+
+    if (privacyLevel === "public") return true;
+    if (privacyLevel === "friends_only") {
+      return authorId === viewerId || viewerFriendIdSet.has(authorId);
+    }
+    if (privacyLevel === "completely_private") {
+      return authorId === viewerId;
+    }
+    return false;
+  });
+
+  const nextCursor = hasMore ? feedItemsVisible[feedItemsVisible.length - 1]?.id : null;
+
   return NextResponse.json({
-    posts: feedItems,
+    posts: feedItemsVisible,
     nextCursor,
   });
 }

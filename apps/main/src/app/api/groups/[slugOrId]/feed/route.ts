@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getBlockedMemberIds } from "@/lib/member-block";
+import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -28,19 +28,19 @@ export async function GET(
     return NextResponse.json({ error: "Group not found" }, { status: 404 });
   }
 
-  const [membership, blockedIdSet] = await Promise.all([
+  const [membership, excludedAuthors] = await Promise.all([
     prisma.groupMember.findUnique({
       where: {
         groupId_memberId: { groupId: group.id, memberId: session.user.id },
       },
     }),
-    getBlockedMemberIds(session.user.id),
+    getFeedExcludedAuthorIds(session.user.id),
   ]);
   if (!membership) {
     return NextResponse.json({ error: "Not a member of this group" }, { status: 403 });
   }
 
-  const blockedIds = Array.from(blockedIdSet);
+  const blockedIds = excludedAuthors;
   const where = {
     groupId: group.id,
     ...(blockedIds.length > 0 ? { authorId: { notIn: blockedIds } } : {}),
@@ -91,13 +91,13 @@ export async function GET(
     sourceCouponIds.length > 0
       ? prisma.coupon.findMany({
           where: { id: { in: sourceCouponIds } },
-          include: { business: { select: { name: true, slug: true } } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
     sourceRewardIds.length > 0
       ? prisma.reward.findMany({
           where: { id: { in: sourceRewardIds } },
-          include: { business: { select: { name: true, slug: true } } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
     sourceStoreItemIds.length > 0
@@ -165,13 +165,13 @@ export async function GET(
     sourcePostCouponIds.length > 0
       ? prisma.coupon.findMany({
           where: { id: { in: sourcePostCouponIds } },
-          include: { business: { select: { name: true, slug: true } } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
     sourcePostRewardIds.length > 0
       ? prisma.reward.findMany({
           where: { id: { in: sourcePostRewardIds } },
-          include: { business: { select: { name: true, slug: true } } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
     sourcePostStoreItemIds.length > 0

@@ -19,7 +19,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, getToken } from "@/lib/api";
+import { apiGet, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 
@@ -42,7 +42,6 @@ interface ProfileSideMenuProps {
   visible: boolean;
   onClose: () => void;
   hasSubscriber?: boolean;
-  hasSponsor?: boolean;
 }
 
 function NavLink({ item, onPress }: { item: NavItem; onPress: () => void }) {
@@ -95,12 +94,12 @@ const SUPPORT_EMAIL = "donivan@pnwcommunity.com";
 
 const LEGAL_ITEMS: NavItem[] = [
   { href: `mailto:${SUPPORT_EMAIL}`, label: "Email support", icon: "mail-outline" },
-  { href: `/web?url=${encodeURIComponent(siteBase + "/support-nwc")}&title=${encodeURIComponent("Support & Contact")}`, label: "Support & Contact", icon: "help-circle-outline" },
+  { href: "/support-request", label: "Support & Contact", icon: "help-circle-outline" },
   { href: `/web?url=${encodeURIComponent(siteBase + "/terms")}&title=${encodeURIComponent("Terms of Service")}`, label: "Terms of Service", icon: "document-text-outline" },
   { href: `/web?url=${encodeURIComponent(siteBase + "/privacy")}&title=${encodeURIComponent("Privacy Policy")}`, label: "Privacy Policy", icon: "shield-checkmark-outline" },
 ];
 
-export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }: ProfileSideMenuProps) {
+export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSideMenuProps) {
   const router = useRouter();
   const { setProfileView } = useProfileView();
   const insets = useSafeAreaInsets();
@@ -108,11 +107,12 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
   const showResaleHub = hasSubscriber;
   const { member, signOut } = useAuth();
 
-  const hasActiveSubscription =
-    member?.subscriptions?.some((s) => s.status === "active") ?? false;
+  const hasManageablePaidPlan =
+    member?.subscriptions?.some((s) =>
+      ["active", "trialing", "past_due"].includes(s.status)
+    ) ?? false;
 
   const [inviteLoading, setInviteLoading] = useState(false);
-  const [billingLoading, setBillingLoading] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [incomingFriendRequests, setIncomingFriendRequests] = useState(0);
 
@@ -140,32 +140,9 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     }
   };
 
-  const handleManageSubscription = async () => {
-    setBillingLoading(true);
-    try {
-      const res = await apiPost<{ url?: string; error?: string }>(
-        "/api/stripe/billing-portal",
-        { returnBaseUrl: siteBase }
-      );
-      if (res?.url) {
-        onClose();
-        const webUrl =
-          `/web?url=${encodeURIComponent(res.url)}&title=Manage subscriptions` +
-          `&successPattern=${encodeURIComponent("my-community/subscriptions")}` +
-          `&successRoute=${encodeURIComponent("/(tabs)/my-community")}` +
-          "&refreshOnSuccess=1";
-        router.push(webUrl as any);
-      } else {
-        Alert.alert("Error", res?.error ?? "Could not open subscription management.");
-      }
-    } catch (e) {
-      Alert.alert(
-        "Error",
-        (e as { error?: string })?.error ?? "Could not open subscription management."
-      );
-    } finally {
-      setBillingLoading(false);
-    }
+  const handleManageSubscription = () => {
+    onClose();
+    router.push("/manage-subscription" as never);
   };
 
   useEffect(() => {
@@ -190,6 +167,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     },
     { href: "/community/invites", label: "My Invites", icon: "calendar-outline" },
     { href: "/saved-posts", label: "My Saved Posts", icon: "bookmark-outline" },
+    { href: "/blocked-members", label: "Blocked Members", icon: "ban-outline" },
     { href: "/community/groups", label: "My Groups", icon: "people-circle-outline" },
     { href: "invite:friends", label: "Share App", icon: "share-social-outline" },
   ];
@@ -203,7 +181,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
   ];
 
   const profileItems: NavItem[] = [
-    ...(hasActiveSubscription
+    ...(hasManageablePaidPlan
       ? [{ href: "action:manage-subscription", label: "Manage subscriptions", icon: "card-outline" as const }]
       : []),
     { href: "/profile-edit", label: "Delete account", icon: "trash-outline" },
@@ -221,7 +199,13 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber, hasSponsor }:
     }
     if (href === "action:logout") {
       onClose();
-      signOut?.().then(() => router.replace("/(auth)/login" as any));
+      signOut
+        ?.()
+        .then(() => router.replace("/(auth)/login" as any))
+        .catch((e) => {
+          if (__DEV__) console.warn("[ProfileSideMenu] signOut", e);
+          router.replace("/(auth)/login" as any);
+        });
       return;
     }
     if (href === "action:resale-hub") {

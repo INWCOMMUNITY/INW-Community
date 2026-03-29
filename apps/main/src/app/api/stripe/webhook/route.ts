@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
+import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-points";
 import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
 import {
   cancelPendingOrdersForSoldOutItems,
@@ -13,6 +14,9 @@ import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { stripeSubscriptionStatusToDb } from "@/lib/stripe-subscription-db-status";
 import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
+import { removeNwcMemberPerksAfterSubscriptionEnd } from "@/lib/nwc-subscription-perk-cleanup";
+import { migrateResaleItemsForSellerMember } from "@/lib/migrate-resale-items-for-seller-plan";
+import type { Plan } from "database";
 
 /**
  * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
@@ -77,7 +81,8 @@ function slugify(s: string): string {
 
 async function createBusinessFromMetadata(
   memberId: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  ctx?: { planId?: "subscribe" | "sponsor" | "seller" }
 ): Promise<void> {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const city = typeof data.city === "string" ? data.city.trim() : "";
@@ -88,6 +93,15 @@ async function createBusinessFromMetadata(
     : [];
 
   if (!name || !city || categories.length === 0) return;
+
+  // Business → Seller: keep existing Business Hub row; do not duplicate from subscription metadata.
+  if (ctx?.planId === "seller") {
+    const existingAny = await prisma.business.findFirst({
+      where: { memberId },
+      select: { id: true },
+    });
+    if (existingAny) return;
+  }
 
   const website = typeof data.website === "string" && data.website.trim()
     ? (data.website.startsWith("http") ? data.website : `https://${data.website}`)
@@ -345,6 +359,11 @@ export async function POST(req: NextRequest) {
       } else if ((planId === "sponsor" || planId === "seller") && businessIdFromMeta) {
         if (process.env.NODE_ENV === "development") console.log("[webhook] Business already created as draft:", businessIdFromMeta);
       }
+      if (planId === "seller") {
+        migrateResaleItemsForSellerMember(memberId).catch((err) =>
+          console.error("[stripe/webhook] migrate resale items for seller", memberId, err)
+        );
+      }
     }
 
     const meta = session.metadata ?? {};
@@ -503,7 +522,9 @@ export async function POST(req: NextRequest) {
               });
             }
 
-            await awardPoints(order.buyerId, pointsAwarded);
+            if (!orderQualifiesForDeferredBuyerPoints(order.items)) {
+              await awardPoints(order.buyerId, pointsAwarded);
+            }
 
             const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
             awardLocalBusinessProBadge(order.buyerId).catch(() => {});
@@ -702,7 +723,9 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        await awardPoints(buyerId, pointsAwarded);
+        if (!orderQualifiesForDeferredBuyerPoints(orderItems)) {
+          await awardPoints(buyerId, pointsAwarded);
+        }
 
         const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
         awardLocalBusinessProBadge(buyerId).catch(() => {});
@@ -959,7 +982,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      await awardPoints(order.buyerId, pointsAwarded);
+      if (!orderQualifiesForDeferredBuyerPoints(order.items)) {
+        await awardPoints(order.buyerId, pointsAwarded);
+      }
 
       if (!isConnectEvent) {
         const platformFeeCents = Math.max(50, Math.floor(totalCents * 0.05));
@@ -1067,7 +1092,7 @@ export async function POST(req: NextRequest) {
             ) {
               try {
                 const businessData = JSON.parse(businessDataRaw) as Record<string, unknown>;
-                await createBusinessFromMetadata(memberId, businessData);
+                await createBusinessFromMetadata(memberId, businessData, { planId });
               } catch (bErr) {
                 console.error("[webhook] business create from invoice metadata:", bErr);
               }
@@ -1092,14 +1117,63 @@ export async function POST(req: NextRequest) {
     const sub = event.data.object as Stripe.Subscription;
     const mapped = stripeSubscriptionStatusToDb(sub.status);
     const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
+
+    const affectedRows = await prisma.subscription.findMany({
+      where: { stripeSubscriptionId: sub.id },
+      select: { memberId: true },
+    });
+
+    const metaPlan = sub.metadata?.planId?.trim();
+    const rawPrice = sub.items.data[0]?.price;
+    const priceId = typeof rawPrice === "string" ? rawPrice : rawPrice?.id ?? null;
+    const planFromPrice = planFromStripePriceId(priceId);
+    const planResolved: Plan | undefined =
+      metaPlan === "subscribe" || metaPlan === "sponsor" || metaPlan === "seller"
+        ? (metaPlan as Plan)
+        : planFromPrice ?? undefined;
+
     const data: Prisma.SubscriptionUpdateManyMutationInput = {
       currentPeriodEnd: periodEnd,
       ...(mapped !== null ? { status: mapped } : {}),
+      ...(planResolved ? { plan: planResolved } : {}),
     };
     await prisma.subscription.updateMany({
       where: { stripeSubscriptionId: sub.id },
       data,
     });
+
+    const sellerStripeActive =
+      planResolved === "seller" &&
+      (sub.status === "active" || sub.status === "trialing" || sub.status === "past_due");
+    if (sellerStripeActive) {
+      const memberRows = await prisma.subscription.findMany({
+        where: { stripeSubscriptionId: sub.id },
+        select: { memberId: true },
+      });
+      const memberIds = [...new Set(memberRows.map((r) => r.memberId))];
+      const metaMember = sub.metadata?.memberId?.trim();
+      if (memberIds.length === 0 && metaMember) memberIds.push(metaMember);
+      for (const mid of memberIds) {
+        migrateResaleItemsForSellerMember(mid).catch((err) =>
+          console.error("[stripe/webhook] migrate resale items for seller (subscription event)", mid, err)
+        );
+      }
+    }
+
+    const subscriptionEnded =
+      event.type === "customer.subscription.deleted" ||
+      sub.status === "canceled" ||
+      sub.status === "unpaid" ||
+      sub.status === "incomplete_expired";
+
+    if (subscriptionEnded) {
+      const uniqueMembers = [...new Set(affectedRows.map((r) => r.memberId))];
+      for (const memberId of uniqueMembers) {
+        await removeNwcMemberPerksAfterSubscriptionEnd(memberId).catch((err) =>
+          console.error("[stripe/webhook] perk cleanup", memberId, err)
+        );
+      }
+    }
   }
   return NextResponse.json({ received: true });
 }

@@ -14,6 +14,8 @@ import {
   Animated,
   Dimensions,
   Alert,
+  Linking,
+  useWindowDimensions,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,6 +25,7 @@ import type { FeedPost } from "@/lib/feed-api";
 import { apiPost, apiDelete, apiUploadFile, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { GifPickerModal } from "@/components/GifPickerModal";
+import { ScaledImageFit } from "@/components/ScaledImageFit";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -50,6 +53,16 @@ function stripHtml(html: string): string {
 }
 
 function PostPreview({ post }: { post: FeedPost }) {
+  const { width: windowW } = useWindowDimensions();
+  /** Measured row width inside the preview card (avoid using screen width — clips in modal). */
+  const [previewImgRowW, setPreviewImgRowW] = useState(0);
+  /** Max preview size; image scales down uniformly to fit inside (full photo visible) */
+  const previewImageMaxH = Math.min(Math.round(windowW * 0.55), 300);
+
+  useEffect(() => {
+    setPreviewImgRowW(0);
+  }, [post.id]);
+
   const authorName = `${post.author.firstName ?? ""} ${post.author.lastName ?? ""}`.trim() || "Someone";
   const initials = [post.author.firstName?.[0], post.author.lastName?.[0]]
     .filter(Boolean)
@@ -76,29 +89,44 @@ function PostPreview({ post }: { post: FeedPost }) {
 
   return (
     <View style={styles.postPreview}>
-      {post.author.profilePhotoUrl ? (
-        <Image
-          source={{ uri: resolveUri(post.author.profilePhotoUrl) }}
-          style={styles.previewAvatar}
-        />
-      ) : (
-        <View style={styles.previewAvatarPlaceholder}>
-          <Text style={styles.previewAvatarInitials}>{initials}</Text>
+      <View style={styles.postPreviewHeader}>
+        {post.author.profilePhotoUrl ? (
+          <Image
+            source={{ uri: resolveUri(post.author.profilePhotoUrl) }}
+            style={styles.previewAvatar}
+          />
+        ) : (
+          <View style={styles.previewAvatarPlaceholder}>
+            <Text style={styles.previewAvatarInitials}>{initials}</Text>
+          </View>
+        )}
+        <View style={styles.previewContent}>
+          <Text style={styles.previewAuthor}>{authorName}</Text>
+          <Text style={styles.previewText} numberOfLines={2}>
+            {stripHtml(previewText).slice(0, 100)}
+            {previewText.length > 100 ? "…" : ""}
+          </Text>
         </View>
-      )}
-      <View style={styles.previewContent}>
-        <Text style={styles.previewAuthor}>{authorName}</Text>
-        <Text style={styles.previewText} numberOfLines={2}>
-          {stripHtml(previewText).slice(0, 100)}
-          {previewText.length > 100 ? "…" : ""}
-        </Text>
       </View>
       {previewImg ? (
-        <Image
-          source={{ uri: resolveUri(previewImg) }}
-          style={styles.previewThumb}
-          resizeMode="cover"
-        />
+        <View
+          style={styles.postPreviewImageRow}
+          onLayout={(e) => {
+            const w = Math.round(e.nativeEvent.layout.width);
+            if (w > 0 && w !== previewImgRowW) setPreviewImgRowW(w);
+          }}
+        >
+          {previewImgRowW > 0 ? (
+            <ScaledImageFit
+              uri={resolveUri(previewImg)}
+              maxWidth={previewImgRowW}
+              maxHeight={previewImageMaxH}
+              style={styles.postPreviewImageFit}
+            />
+          ) : (
+            <View style={{ height: previewImageMaxH, backgroundColor: "#eee" }} />
+          )}
+        </View>
       ) : null}
     </View>
   );
@@ -111,11 +139,10 @@ interface CommentRowProps {
   onLike: (commentId: string) => void;
   onReply: (comment: FeedComment) => void;
   onReportComment?: (commentId: string) => void;
-  onBlockUser?: (memberId: string, commentId: string) => void;
   onDeleteComment?: (commentId: string) => void;
 }
 
-function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment, onBlockUser, onDeleteComment }: CommentRowProps) {
+function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment, onDeleteComment }: CommentRowProps) {
   const name = `${comment.member.firstName ?? ""} ${comment.member.lastName ?? ""}`.trim() || "Member";
   const initials = [comment.member.firstName?.[0], comment.member.lastName?.[0]]
     .filter(Boolean)
@@ -139,12 +166,22 @@ function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment
       )}
       <View style={styles.commentContent}>
         <View style={styles.commentMain}>
-          <Text style={styles.commentAuthor}>
-            {name}
-            {comment.parentAuthorName ? (
-              <Text style={styles.commentReplyTo}> replying to {comment.parentAuthorName}</Text>
-            ) : null}
-          </Text>
+          <Pressable
+            onPress={() => {
+              // The modal doesn't have a router; open profile in web fallback.
+              // (Native profile navigation is handled in the feed card; this keeps comments lightweight.)
+              // eslint-disable-next-line @typescript-eslint/no-floating-promises
+              Linking.openURL(`${siteBase}/members/${comment.member.id}`).catch(() => {});
+            }}
+            style={({ pressed }) => pressed && { opacity: 0.7 }}
+          >
+            <Text style={styles.commentAuthor}>
+              {name}
+              {comment.parentAuthorName ? (
+                <Text style={styles.commentReplyTo}> replying to {comment.parentAuthorName}</Text>
+              ) : null}
+            </Text>
+          </Pressable>
           {comment.content.trim() ? (
             <Text style={styles.commentBody}>{comment.content}</Text>
           ) : null}
@@ -176,14 +213,6 @@ function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment
                 style={({ pressed }) => [styles.commentActionBtn, pressed && { opacity: 0.7 }]}
               >
                 <Text style={styles.commentActionText}>Report</Text>
-              </Pressable>
-            )}
-            {onBlockUser && (
-              <Pressable
-                onPress={() => onBlockUser(comment.member.id, comment.id)}
-                style={({ pressed }) => [styles.commentActionBtn, pressed && { opacity: 0.7 }]}
-              >
-                <Text style={[styles.commentActionText, { color: "#c00" }]}>Block user</Text>
               </Pressable>
             )}
             {onDeleteComment && (
@@ -433,36 +462,6 @@ export function FeedCommentsModal({
     );
   };
 
-  const handleBlockUser = (memberId: string, commentId: string) => {
-    if (member?.id === memberId) return;
-    Alert.alert(
-      "Block user",
-      "This user will be blocked. Their comments will be hidden and they will not be able to message you.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Block",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await apiPost("/api/members/block", { memberId });
-              await apiPost("/api/reports", {
-                contentType: "comment",
-                contentId: commentId,
-                reason: "other",
-                details: "User blocked by viewer",
-              }).catch(() => {});
-              setComments((prev) => prev.filter((c) => c.member.id !== memberId));
-              Alert.alert("User blocked", "They have been blocked.");
-            } catch (e) {
-              Alert.alert("Error", (e as { error?: string }).error ?? "Could not block user.");
-            }
-          },
-        },
-      ]
-    );
-  };
-
   const canSubmit = (input.trim().length > 0 || photos.length > 0) && !submitting;
 
   // Build tree: top-level comments + nested replies
@@ -535,7 +534,6 @@ export function FeedCommentsModal({
                       onLike={handleLike}
                       onReply={handleReply}
                       onReportComment={handleReportComment}
-                      onBlockUser={member ? handleBlockUser : undefined}
                       onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
                     />
                     {getReplies(c.id).map((r) => (
@@ -547,7 +545,6 @@ export function FeedCommentsModal({
                         onLike={handleLike}
                         onReply={handleReply}
                         onReportComment={handleReportComment}
-                        onBlockUser={member ? handleBlockUser : undefined}
                         onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
                       />
                     ))}
@@ -711,8 +708,6 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 8 },
   postPreview: {
-    flexDirection: "row",
-    alignItems: "center",
     padding: 12,
     marginHorizontal: 16,
     marginTop: 8,
@@ -721,7 +716,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderLeftWidth: 4,
     borderLeftColor: theme.colors.primary,
+  },
+  postPreviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
+  },
+  postPreviewImageRow: {
+    width: "100%",
+    marginTop: 10,
+  },
+  postPreviewImageFit: {
+    alignSelf: "center",
+    borderRadius: 8,
+    overflow: "hidden",
   },
   previewAvatar: {
     width: 40,
@@ -751,12 +759,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#666",
     marginTop: 2,
-  },
-  previewThumb: {
-    width: 44,
-    height: 44,
-    borderRadius: 6,
-    backgroundColor: "#e0e0e0",
   },
   commentsSection: { paddingHorizontal: 16, paddingTop: 4 },
   commentsLabel: {

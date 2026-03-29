@@ -37,6 +37,8 @@ model Member {
   offerShipping              Boolean @default(true) @map("offer_shipping")
   offerLocalDelivery         Boolean @default(true) @map("offer_local_delivery")
   offerLocalPickup           Boolean @default(true) @map("offer_local_pickup")
+  // Default for new resale listings; per-listing StoreItem.acceptOffers can override.
+  acceptOffersOnResale       Boolean  @default(true) @map("accept_offers_on_resale")
   status            String   @default("active") // active | suspended
   privacyLevel      String   @default("public") @map("privacy_level") // public | friends_only | completely_private
   signupIntent      String?  @map("signup_intent") // resident | business | seller
@@ -104,6 +106,7 @@ model Member {
   reports                  Report[]
   pushTokens               MemberPushToken[]
   webviewBridgeTokens      WebviewBridgeToken[]
+  planSwitchLogs           PlanSwitchLog[]
 }
 
 model WebviewBridgeToken {
@@ -207,6 +210,20 @@ model Subscription {
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+
+// Audit + rate limit for change-plan API (max 2 per rolling 30 days unless admin).
+model PlanSwitchLog {
+  id        String   @id @default(cuid())
+  memberId  String   @map("member_id")
+  fromPlan  Plan     @map("from_plan")
+  toPlan    Plan     @map("to_plan")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, createdAt])
+  @@map("plan_switch_log")
 }
 
 enum Plan {
@@ -762,8 +779,11 @@ model RewardRedemption {
   createdAt  DateTime @default(now()) @map("created_at")
   storeOrderId String? @unique @map("store_order_id")
   fulfillmentStatus String? @map("fulfillment_status") // pending_checkout | paid | shipped | fulfilled | canceled
+  contactName String? @map("contact_name")
   contactPhone String? @map("contact_phone")
   contactEmail String? @map("contact_email")
+  notesToBusiness String? @map("notes_to_business") @db.Text
+  shippingAddress Json? @map("shipping_address")
 
   member  Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
   reward  Reward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
@@ -818,11 +838,15 @@ model StoreOrder {
   taxCents                Int      @default(0) @map("tax_cents")
   status                  String   @default("pending") // pending | paid | shipped | delivered | refunded | canceled
   shippingAddress         Json?    @map("shipping_address") // { street, city, state, zip }
-  localDeliveryDetails    Json?    @map("local_delivery_details") // { firstName, lastName, phone, deliveryAddress, note, termsAcceptedAt }
-  deliveryConfirmedAt     DateTime? @map("delivery_confirmed_at")
+  localDeliveryDetails    Json?    @map("local_delivery_details") // { firstName, lastName, phone, email?, deliveryAddress, note, termsAcceptedAt, availableDropOffTimes? }
+  deliveryConfirmedAt     DateTime? @map("delivery_confirmed_at") // seller marked delivered (local delivery)
+  deliveryBuyerConfirmedAt DateTime? @map("delivery_buyer_confirmed_at")
+  pickupSellerConfirmedAt DateTime? @map("pickup_seller_confirmed_at")
+  pickupBuyerConfirmedAt  DateTime? @map("pickup_buyer_confirmed_at")
   stripePaymentIntentId   String?  @map("stripe_payment_intent_id")
   stripeCheckoutSessionId String?  @map("stripe_checkout_session_id")
   pointsAwarded           Int      @default(0) @map("points_awarded")
+  buyerPointsReleasedAt   DateTime? @map("buyer_points_released_at") // When deferred pickup/delivery buyer points were credited
   refundRequestedAt       DateTime? @map("refund_requested_at")
   refundReason            String?   @map("refund_reason")
   cancelReason            String?   @map("cancel_reason") // Changed my mind | Didn't mean to order | Order Arrived Damaged | Wrong Item Delivered | Other
@@ -873,6 +897,7 @@ model OrderItem {
   priceCentsAtPurchase Int      @map("price_cents_at_purchase")
   variant              Json?    // selected variant if applicable
   fulfillmentType      String?  @map("fulfillment_type") // ship | local_delivery | pickup
+  pickupDetails        Json?    @map("pickup_details") // snapshot at checkout from cart
   createdAt            DateTime @default(now()) @map("created_at")
 
   order     StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -968,7 +993,7 @@ model DirectMessage {
   conversationId    String   @map("conversation_id")
   senderId          String   @map("sender_id")
   content           String   @db.Text
-  sharedContentType String?  @map("shared_content_type") // post | blog | store_item | business | coupon | photo
+  sharedContentType String?  @map("shared_content_type") // post | blog | store_item | business | coupon | reward | photo | event
   sharedContentId   String?  @map("shared_content_id")
   sharedContentSlug String?  @map("shared_content_slug") // for blog, business, store_item URL
   createdAt         DateTime @default(now()) @map("created_at")
@@ -1184,17 +1209,20 @@ model ReferralSignup {
   @@map("referral_signup")
 }
 
-// Messages/requests from users to admin (NWC Requests form)
+// Messages/requests from users to admin (NWC Requests form, app Support & contact)
 model NwcRequest {
   id        String   @id @default(cuid())
   memberId  String?  @map("member_id")
   name      String   // sender name (from member or form)
   email     String
+  phone     String   @default("") // optional; user may leave blank
+  subject   String   @default("")
   message   String   @db.Text
   createdAt DateTime @default(now()) @map("created_at")
 
   member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
 
+  @@index([createdAt])
   @@map("nwc_request")
 }
 

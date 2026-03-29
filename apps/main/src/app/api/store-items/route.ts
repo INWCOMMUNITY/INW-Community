@@ -4,9 +4,10 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
+import { REWARD_PLACEHOLDER_TITLE } from "@/lib/reward-fulfillment-store-item";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
-import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -47,8 +48,12 @@ function passesPublicStorefrontSlugFilter(item: { slug: string }): boolean {
   return !s.includes("trial") && !s.includes("test-resale");
 }
 
-const MAX_ALLOW_SALES_DAYS = 14;
+/** Public browse: include uncategorized items; PostgreSQL `<> 'Test'` excludes NULL. */
+const publicBrowseCategoryWhere: Prisma.StoreItemWhereInput = {
+  OR: [{ category: null }, { category: { not: "Test" } }],
+};
 
+/** While seller time away is active, hide listings from public storefront browse/checkout. */
 function passesSellerTimeAwayForPurchases(item: {
   member?: { sellerTimeAway?: { startAt: Date; endAt: Date } | null } | null;
 }): boolean {
@@ -58,10 +63,6 @@ function passesSellerTimeAwayForPurchases(item: {
   const start = new Date(ta.startAt);
   const end = new Date(ta.endAt);
   if (now < start || now > end) return true;
-  const allowThrough = new Date(start);
-  allowThrough.setDate(allowThrough.getDate() + MAX_ALLOW_SALES_DAYS);
-  const effectiveAllow = allowThrough <= end ? allowThrough : end;
-  if (now <= effectiveAllow) return true;
   return false;
 }
 
@@ -114,7 +115,7 @@ export async function GET(req: NextRequest) {
               quantity: { gt: 0 },
               ...listingWhere,
               ...sellerCanReceivePayment,
-              AND: [{ category: { not: "Test" } }, { category: { not: null } }],
+              AND: [publicBrowseCategoryWhere],
             },
             select: {
               category: true,
@@ -129,7 +130,7 @@ export async function GET(req: NextRequest) {
               quantity: { gt: 0 },
               variants: { not: Prisma.JsonNull },
               ...listingWhere,
-              category: { not: "Test" },
+              AND: [publicBrowseCategoryWhere],
               ...sellerCanReceivePayment,
             },
             select: { variants: true, slug: true, member: { select: { sellerTimeAway: true } } },
@@ -160,20 +161,27 @@ export async function GET(req: NextRequest) {
 
   if (slug) {
     const slugListingType = searchParams.get("listingType");
+    // Keep resale and new consistent with public browse: active, quantity > 0, Connect on seller.
     const slugWhere =
       slugListingType === "resale"
-        ? { slug, status: "active" as const, listingType: "resale" as const, member: { stripeConnectAccountId: { not: null } } }
-        : { slug, status: "active" as const, quantity: { gt: 0 } as const, member: { stripeConnectAccountId: { not: null } } };
-    const reservedForSlug = await prisma.orderItem.findMany({
-      where: { order: { status: "pending" } },
-      select: { storeItemId: true },
-      distinct: ["storeItemId"],
-    });
-    const reservedIds = reservedForSlug.map((r) => r.storeItemId);
+        ? {
+            slug,
+            status: "active" as const,
+            listingType: "resale" as const,
+            quantity: { gt: 0 } as const,
+            member: { stripeConnectAccountId: { not: null } },
+          }
+        : {
+            slug,
+            status: "active" as const,
+            quantity: { gt: 0 } as const,
+            member: { stripeConnectAccountId: { not: null } },
+          };
+    // Do not hide listings while another buyer has only started checkout (pending order).
+    // Inventory is decremented and status becomes sold_out only after payment succeeds (webhook / cash flow).
     const item = await prisma.storeItem.findFirst({
       where: {
         ...slugWhere,
-        ...(reservedIds.length > 0 ? { id: { notIn: reservedIds } } : {}),
       },
       include: {
         member: {
@@ -309,7 +317,7 @@ export async function GET(req: NextRequest) {
     const listingTypeFilter = listingTypeParam === "resale" ? "resale" : listingTypeParam === "new" ? "new" : null;
     if (listingTypeFilter === "resale") {
       const subscribeSub = await prisma.subscription.findFirst({
-        where: prismaWhereMemberSubscribePlanAccess(userId),
+        where: prismaWhereMemberSubscribeTierPerksAccess(userId),
       });
       const sellerSub = await prisma.subscription.findFirst({
         where: prismaWhereMemberSellerPlanAccess(userId),
@@ -330,7 +338,8 @@ export async function GET(req: NextRequest) {
       listingType?: string;
       status?: string;
       quantity?: { gt: number };
-    } = { memberId: userId };
+      NOT?: { title: string };
+    } = { memberId: userId, NOT: { title: REWARD_PLACEHOLDER_TITLE } };
     if (listingTypeFilter) where.listingType = listingTypeFilter;
     // My Items tabs: active (live), ended (inactive), sold (sold_out). No filter = all.
     const soldOnly = searchParams.get("sold") === "1";
@@ -387,6 +396,8 @@ export async function GET(req: NextRequest) {
 
   try {
     // Only list items from sellers who have Stripe Connect set up (payment/redirect can function).
+    // Note: `listingType` is either "new" or "resale" per request — the same seller can have both;
+    // mobile/web tabs use separate calls, so one item can appear in one tab and not the other.
     const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
     // Exclude Test category in DB. Trial/test-resale slugs excluded in-memory below (Neon adapter does not support mode in nested slug filter).
     let items = await prisma.storeItem.findMany({
@@ -395,7 +406,7 @@ export async function GET(req: NextRequest) {
         quantity: { gt: 0 },
         ...listingWhere,
         ...sellerCanReceivePayment,
-        AND: [{ category: { not: "Test" } }],
+        AND: [publicBrowseCategoryWhere],
         // Main category filter alone returns all items in that category; subcategory only narrows further.
         ...(categoryTrim ? { category: categoryTrim } : {}),
         ...(categoryTrim && subcategoryTrim ? { subcategory: subcategoryTrim } : {}),
@@ -496,7 +507,7 @@ export async function POST(req: NextRequest) {
     where: prismaWhereMemberSellerPlanAccess(userId),
   });
   const subscribeSub = await prisma.subscription.findFirst({
-    where: prismaWhereMemberSubscribePlanAccess(userId),
+    where: prismaWhereMemberSubscribeTierPerksAccess(userId),
   });
   const canListResale = Boolean(sellerSub || subscribeSub);
   if (listingType === "new") {
@@ -522,6 +533,7 @@ export async function POST(req: NextRequest) {
       shippoApiKeyEncrypted: true,
       shippoOAuthTokenEncrypted: true,
       sellerShippingPolicy: true,
+      acceptOffersOnResale: true,
     },
   });
 
@@ -658,13 +670,23 @@ export async function POST(req: NextRequest) {
         localDeliveryTerms: data.localDeliveryTerms?.trim() || null,
         pickupTerms: data.pickupTerms?.trim() || null,
         listingType: data.listingType,
-        acceptOffers: data.acceptOffers ?? true,
+        acceptOffers:
+          data.acceptOffers !== undefined
+            ? data.acceptOffers
+            : data.listingType === "resale"
+              ? member!.acceptOffersOnResale
+              : true,
         minOfferCents: data.minOfferCents ?? null,
         slug,
       },
     });
     const { awardNwcSellerBadge } = await import("@/lib/badge-award");
-    awardNwcSellerBadge(item.memberId).catch(() => {});
+    let earnedBadges: { slug: string; name: string; description: string }[] = [];
+    try {
+      earnedBadges = await awardNwcSellerBadge(item.memberId);
+    } catch {
+      /* best-effort */
+    }
     // Auto-post to feed so followers of seller see new listings
     prisma.post
       .create({
@@ -675,7 +697,7 @@ export async function POST(req: NextRequest) {
         },
       })
       .catch((err) => console.error("[store-items] Auto-post failed:", err));
-    return NextResponse.json(item);
+    return NextResponse.json({ ...item, earnedBadges });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const isConn = /P1001|ECONNREFUSED|connect/i.test(msg);

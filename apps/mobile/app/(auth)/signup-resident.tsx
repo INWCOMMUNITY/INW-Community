@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
   View,
@@ -13,11 +14,19 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "@/lib/theme";
+import {
+  signupAgeSwitchOutline,
+  switchIosBackgroundColor,
+  switchThumbColor,
+  switchTrackColor,
+  theme,
+} from "@/lib/theme";
 import { apiPost } from "@/lib/api";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+import { PREBUILT_CITIES } from "@/lib/prebuilt-cities";
+import { normalizeResidentCity } from "@/lib/city-utils";
 
 interface EarnedBadge {
   slug: string;
@@ -33,7 +42,9 @@ export default function SignupResidentScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [retypePassword, setRetypePassword] = useState("");
-  const [city, setCity] = useState("");
+  /** Selected prebuilt city, "Other", or "" (optional). */
+  const [cityPicker, setCityPicker] = useState("");
+  const [customCity, setCustomCity] = useState("");
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,6 +53,10 @@ export default function SignupResidentScreen() {
 
   const finishSignup = async () => {
     try {
+      await AsyncStorage.multiRemove([
+        "nwc_community_ugc_terms_v1",
+        "nwc_community_ugc_terms_v2",
+      ]).catch(() => {});
       await signIn(email.trim(), password, "subscribe");
       await refreshMember?.();
       router.replace("/(tabs)");
@@ -76,6 +91,14 @@ export default function SignupResidentScreen() {
       setError("Passwords do not match.");
       return;
     }
+    let cityOut: string | undefined;
+    if (cityPicker === "Other") {
+      const n = normalizeResidentCity(customCity);
+      cityOut = n.trim() || undefined;
+    } else if (cityPicker) {
+      cityOut = cityPicker;
+    }
+
     setLoading(true);
     try {
       const res = await apiPost<{ ok?: boolean; earnedBadges?: EarnedBadge[] }>("/api/auth/signup", {
@@ -83,7 +106,7 @@ export default function SignupResidentScreen() {
         password,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
-        city: city.trim() || undefined,
+        city: cityOut,
         signupIntent: "resident",
       });
       if (res?.earnedBadges?.length) {
@@ -176,23 +199,59 @@ export default function SignupResidentScreen() {
             autoCorrect={true}
           />
           <View style={styles.ageRow}>
-            <Switch
-              value={ageConfirmed}
-              onValueChange={setAgeConfirmed}
-              trackColor={{ false: "#fff", true: "#d2b48c" }}
-              thumbColor="#fff"
-            />
+            <View style={signupAgeSwitchOutline}>
+              <Switch
+                value={ageConfirmed}
+                onValueChange={setAgeConfirmed}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(ageConfirmed)}
+                ios_backgroundColor={switchIosBackgroundColor}
+              />
+            </View>
             <Text style={styles.ageLabel}>I confirm I am 16 years or older (users under 18 need parent/guardian permission)</Text>
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="City of residence"
-            value={city}
-            onChangeText={setCity}
-            placeholderTextColor={theme.colors.placeholder}
-            autoCapitalize="words"
-            autoCorrect={true}
-          />
+          <Text style={styles.cityLabel}>City of residence (optional)</Text>
+          <Text style={styles.cityHint}>
+            Same list as business profiles. Choose Other if your city is not listed.
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.pickerScroll}
+            contentContainerStyle={styles.pickerRow}
+          >
+            {[...PREBUILT_CITIES, "Other"].map((c) => (
+              <Pressable
+                key={c}
+                style={[
+                  styles.pickerOption,
+                  cityPicker === c && styles.pickerOptionSelected,
+                ]}
+                onPress={() => setCityPicker((prev) => (prev === c ? "" : c))}
+              >
+                <Text
+                  style={[
+                    styles.pickerOptionText,
+                    cityPicker === c && styles.pickerOptionTextSelected,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {c}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          {cityPicker === "Other" ? (
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your city (e.g. CDA → Coeur d'Alene)"
+              value={customCity}
+              onChangeText={setCustomCity}
+              placeholderTextColor={theme.colors.placeholder}
+              autoCapitalize="words"
+              autoCorrect={true}
+            />
+          ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Text style={styles.termsText}>
             By signing up, you agree to our{" "}
@@ -327,6 +386,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#fff",
   },
+  cityLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+    marginBottom: 4,
+  },
+  cityHint: {
+    fontSize: 12,
+    color: "#fff",
+    opacity: 0.9,
+    marginBottom: 8,
+    lineHeight: 17,
+  },
+  pickerScroll: { marginBottom: 12, marginHorizontal: -4 },
+  pickerRow: { flexDirection: "row", gap: 8, paddingHorizontal: 4, flexWrap: "wrap" },
+  pickerOption: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  pickerOptionSelected: { backgroundColor: "#fff" },
+  pickerOptionText: { fontSize: 13, color: "#fff" },
+  pickerOptionTextSelected: { color: theme.colors.primary },
   button: {
     backgroundColor: "#fff",
     paddingVertical: 12,

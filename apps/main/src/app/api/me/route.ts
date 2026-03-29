@@ -3,7 +3,11 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getCurrentSeasonId } from "@/lib/award-points";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, NWC_PAID_PLAN_SLUGS } from "@/lib/nwc-paid-subscription";
-import { prismaWhereMemberSubscribePlanAccess } from "@/lib/subscribe-plan-access";
+import {
+  prismaWhereMemberSubscribePlanAccess,
+  prismaWhereMemberSubscribeTierPerksAccess,
+} from "@/lib/subscribe-plan-access";
+import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -83,7 +87,11 @@ export async function GET(req: NextRequest) {
       seasonPointsEarned = msp?.pointsEarned ?? 0;
     }
   }
-  const [sub, subscriptions] = await Promise.all([
+  const [subTier, subResaleHub, subscriptions, subscriptionPlan] = await Promise.all([
+    prisma.subscription.findFirst({
+      where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
+      select: { id: true },
+    }),
     prisma.subscription.findFirst({
       where: prismaWhereMemberSubscribePlanAccess(session.user.id),
       select: { id: true },
@@ -92,15 +100,17 @@ export async function GET(req: NextRequest) {
       where: { memberId: session.user.id, status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
       select: { plan: true, status: true },
     }),
+    resolveEffectiveNwcPlan(session.user.id),
   ]);
-  const subscriptionPlan = session.user.subscriptionPlan ?? subscriptions[0]?.plan ?? null;
   const paidSlugSet = new Set<string>(NWC_PAID_PLAN_SLUGS);
   const hasPaidSubscription = subscriptions.some((s) => paidSlugSet.has(s.plan));
   return NextResponse.json({
     ...member,
     seasonPointsEarned,
     currentSeason,
-    isSubscriber: !!sub,
+    isSubscriber: !!subTier,
+    /** Resident Subscribe ($10/mo) only — NWC Resale Hub; Business/Seller use Seller Hub for resale listings. */
+    hasResaleHubAccess: !!subResaleHub,
     hasPaidSubscription,
     subscriptionPlan,
     subscriptions: subscriptions.map((s) => ({ plan: s.plan, status: s.status })),
@@ -127,7 +137,7 @@ export async function PATCH(req: NextRequest) {
       ...body,
       profilePhotoUrl: body.profilePhotoUrl ?? null,
     });
-    await prisma.member.update({
+    const { count } = await prisma.member.updateMany({
       where: { id: session.user.id },
       data: {
         ...(data.profilePhotoUrl !== undefined && {
@@ -161,6 +171,9 @@ export async function PATCH(req: NextRequest) {
         }),
       },
     });
+    if (count === 0) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     // Update offer columns if present (may fail if db:push not run - ignore)
     if (data.offerShipping !== undefined || data.offerLocalDelivery !== undefined || data.offerLocalPickup !== undefined) {
       try {

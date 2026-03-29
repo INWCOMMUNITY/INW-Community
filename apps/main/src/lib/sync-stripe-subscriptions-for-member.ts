@@ -51,14 +51,15 @@ async function upsertSubscriptionRow(
     }
   }
 
-  let plan: Plan | null = null;
-  const metaPlan = sub.metadata?.planId?.trim();
-  if (metaPlan === "subscribe" || metaPlan === "sponsor" || metaPlan === "seller") {
-    plan = metaPlan as Plan;
-  } else {
-    const rawPrice = sub.items.data[0]?.price;
-    const priceId = typeof rawPrice === "string" ? rawPrice : rawPrice?.id ?? null;
-    plan = planFromStripePriceId(priceId);
+  const rawPrice = sub.items.data[0]?.price;
+  const priceId = typeof rawPrice === "string" ? rawPrice : rawPrice?.id ?? null;
+  // Prefer line-item price (source of truth after Stripe applies changes); metadata can lag after scheduled downgrades.
+  let plan: Plan | null = planFromStripePriceId(priceId);
+  if (!plan) {
+    const metaPlan = sub.metadata?.planId?.trim();
+    if (metaPlan === "subscribe" || metaPlan === "sponsor" || metaPlan === "seller") {
+      plan = metaPlan as Plan;
+    }
   }
   if (!plan) {
     return 0;
@@ -145,15 +146,26 @@ export async function syncStripeSubscriptionsForMember(
   let fromCustomerLists = 0;
 
   try {
-    for await (const sub of stripe.subscriptions.search({
-      query: `metadata['memberId']:'${memberId}'`,
-      limit: 100,
-    })) {
-      if (seen.has(sub.id)) continue;
-      seen.add(sub.id);
-      const n = await upsertSubscriptionRow(memberId, sub, memberEmail, stripe);
-      synced += n;
-      fromMetadataSearch += n;
+    let searchPage: string | undefined;
+    for (;;) {
+      const res = await stripe.subscriptions.search({
+        query: `metadata['memberId']:'${memberId}'`,
+        limit: 100,
+        ...(searchPage ? { page: searchPage } : {}),
+      });
+      for (const sub of res.data) {
+        if (seen.has(sub.id)) continue;
+        seen.add(sub.id);
+        const n = await upsertSubscriptionRow(memberId, sub, memberEmail, stripe);
+        synced += n;
+        fromMetadataSearch += n;
+      }
+      const next =
+        res.has_more && "next_page" in res && typeof (res as { next_page?: string }).next_page === "string"
+          ? (res as { next_page: string }).next_page
+          : undefined;
+      if (!next) break;
+      searchPage = next;
     }
   } catch (e) {
     console.warn("[syncStripeSubscriptionsForMember] subscriptions.search failed (falling back to customers)", e);
@@ -167,12 +179,21 @@ export async function syncStripeSubscriptionsForMember(
 
   let emailCustomers: Stripe.Customer[] = [];
   try {
-    const found = await stripe.customers.list({ email: member.email.trim(), limit: 100 });
-    emailCustomers = found.data;
-    for (const c of found.data) {
-      if (!customerIds.includes(c.id)) {
-        customerIds.push(c.id);
+    let custCursor: string | undefined;
+    for (;;) {
+      const found = await stripe.customers.list({
+        email: member.email.trim(),
+        limit: 100,
+        ...(custCursor ? { starting_after: custCursor } : {}),
+      });
+      emailCustomers.push(...found.data);
+      for (const c of found.data) {
+        if (!customerIds.includes(c.id)) {
+          customerIds.push(c.id);
+        }
       }
+      if (!found.has_more || found.data.length === 0) break;
+      custCursor = found.data[found.data.length - 1].id;
     }
   } catch (e) {
     console.warn("[syncStripeSubscriptionsForMember] customers.list failed", e);
@@ -187,27 +208,33 @@ export async function syncStripeSubscriptionsForMember(
 
   for (const custId of customerIds) {
     try {
-      const list = await stripe.subscriptions.list({
-        customer: custId,
-        status: "all",
-        limit: 100,
-      });
-      for (const sub of list.data) {
-        if (seen.has(sub.id)) continue;
-        const metaMember = sub.metadata?.memberId?.trim();
-        if (metaMember && metaMember !== memberId) {
-          continue;
-        }
-        if (!metaMember) {
-          const custEmail = await resolveCustomerEmail(sub.customer, stripe);
-          if (custEmail !== memberEmail) {
+      let subCursor: string | undefined;
+      for (;;) {
+        const list = await stripe.subscriptions.list({
+          customer: custId,
+          status: "all",
+          limit: 100,
+          ...(subCursor ? { starting_after: subCursor } : {}),
+        });
+        for (const sub of list.data) {
+          if (seen.has(sub.id)) continue;
+          const metaMember = sub.metadata?.memberId?.trim();
+          if (metaMember && metaMember !== memberId) {
             continue;
           }
+          if (!metaMember) {
+            const custEmail = await resolveCustomerEmail(sub.customer, stripe);
+            if (custEmail !== memberEmail) {
+              continue;
+            }
+          }
+          seen.add(sub.id);
+          const n = await upsertSubscriptionRow(memberId, sub, memberEmail, stripe);
+          synced += n;
+          fromCustomerLists += n;
         }
-        seen.add(sub.id);
-        const n = await upsertSubscriptionRow(memberId, sub, memberEmail, stripe);
-        synced += n;
-        fromCustomerLists += n;
+        if (!list.has_more || list.data.length === 0) break;
+        subCursor = list.data[list.data.length - 1].id;
       }
     } catch (e) {
       console.warn("[syncStripeSubscriptionsForMember] subscriptions.list failed for customer", custId, e);

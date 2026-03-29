@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   StyleSheet,
@@ -56,20 +56,72 @@ function SellerHubContent() {
   const { setProfileView } = useProfileView();
   const openSellerMenu = useOpenSellerMenu();
   const [pendingShip, setPendingShip] = useState(0);
+  const [pendingDeliveries, setPendingDeliveries] = useState(0);
+  const [pendingPickups, setPendingPickups] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
+  const [sellerSetupComplete, setSellerSetupComplete] = useState(false);
 
   const hasSeller = member?.subscriptions?.some((s) => s.plan === "seller") ?? false;
 
   useFocusEffect(
     useCallback(() => {
       if (hasSeller) {
-        apiGet<{ pendingShip?: number; pendingReturns?: number }>("/api/seller-hub/pending-actions")
+        apiGet<{
+          pendingShip?: number;
+          pendingDeliveries?: number;
+          pendingPickups?: number;
+          pendingReturns?: number;
+        }>("/api/seller-hub/pending-actions")
           .then((data) => {
             setPendingShip(Number(data.pendingShip) || 0);
+            setPendingDeliveries(Number(data.pendingDeliveries) || 0);
+            setPendingPickups(Number(data.pendingPickups) || 0);
             setPendingReturns(Number(data.pendingReturns) || 0);
           })
           .catch(() => {});
       }
+    }, [hasSeller])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasSeller) return;
+      let cancelled = false;
+      (async () => {
+        try {
+          const [funds, shipping, me] = await Promise.all([
+            apiGet<{ hasStripeConnect?: boolean } | { error?: string }>("/api/seller-funds"),
+            apiGet<{ connected?: boolean } | { error?: string }>("/api/shipping/status"),
+            apiGet<{
+              sellerShippingPolicy?: string | null;
+              sellerLocalDeliveryPolicy?: string | null;
+              sellerPickupPolicy?: string | null;
+              sellerReturnPolicy?: string | null;
+            }>("/api/me"),
+          ]);
+          if (cancelled) return;
+          const stripe = Boolean((funds as { hasStripeConnect?: boolean }).hasStripeConnect);
+          const shippo = Boolean((shipping as { connected?: boolean }).connected);
+          const p = me as {
+            sellerShippingPolicy?: string | null;
+            sellerLocalDeliveryPolicy?: string | null;
+            sellerPickupPolicy?: string | null;
+            sellerReturnPolicy?: string | null;
+          };
+          const anyPolicy = [
+            p?.sellerShippingPolicy,
+            p?.sellerLocalDeliveryPolicy,
+            p?.sellerPickupPolicy,
+            p?.sellerReturnPolicy,
+          ].some((v) => typeof v === "string" && v.trim().length > 0);
+          setSellerSetupComplete(stripe && shippo && anyPolicy);
+        } catch {
+          if (!cancelled) setSellerSetupComplete(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
     }, [hasSeller])
   );
 
@@ -107,16 +159,33 @@ function SellerHubContent() {
     href?: string;
     onPress?: () => void;
     icon: keyof typeof Ionicons.glyphMap;
-  }[] = [
-    { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
-    { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
-    { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
-    { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
-    { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
-    { label: "Pick Up", href: "/seller-hub/pickups", icon: "hand-left-outline" },
-    { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
-    { label: "Before You Start", href: "/seller-hub/before-you-start", icon: "checkbox-outline" },
-  ];
+  }[] = useMemo(
+    () => [
+      { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
+      { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
+      { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
+      { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
+      { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
+      { label: "Pick Up", href: "/seller-hub/pickups", icon: "hand-left-outline" },
+      { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
+      {
+        label: sellerSetupComplete ? "Seller Variables" : "Before You Start",
+        href: "/seller-hub/before-you-start",
+        icon: "checkbox-outline",
+      },
+    ],
+    [sellerSetupComplete]
+  );
+
+  const hubBadgeForLabel = useCallback(
+    (label: string) => {
+      if (label === "Orders / To Ship") return pendingShip > 0;
+      if (label === "Deliveries") return pendingDeliveries > 0;
+      if (label === "Pick Up") return pendingPickups > 0;
+      return false;
+    },
+    [pendingDeliveries, pendingPickups, pendingShip]
+  );
 
   return (
     <View style={styles.container}>
@@ -138,11 +207,10 @@ function SellerHubContent() {
 
         <RNView style={styles.sellerHubGrid}>
           {gridActions.map((action) => {
-            const needsAction =
-              action.label === "Orders / To Ship" && pendingShip > 0;
+            const needsAction = hubBadgeForLabel(action.label);
             return (
               <Pressable
-                key={action.label}
+                key={action.href ?? action.label}
                 style={({ pressed }) => [
                   styles.sellerHubGridButton,
                   pressed && styles.buttonPressed,
@@ -182,8 +250,73 @@ function ResaleHubContent() {
   const router = useRouter();
   const { member } = useAuth();
   const { setProfileView } = useProfileView();
-  const isSubscriber = member?.isSubscriber ?? false;
-  const canAccessResaleHub = isSubscriber;
+  const canAccessResaleHub = member?.hasResaleHubAccess ?? false;
+  const [resaleSetupComplete, setResaleSetupComplete] = useState(false);
+  const [pendingShip, setPendingShip] = useState(0);
+  const [pendingDeliveries, setPendingDeliveries] = useState(0);
+  const [pendingPickups, setPendingPickups] = useState(0);
+  const [sellerOffersPending, setSellerOffersPending] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (canAccessResaleHub) {
+        apiGet<{
+          pendingShip?: number;
+          pendingDeliveries?: number;
+          pendingPickups?: number;
+          sellerOffersPending?: number;
+        }>("/api/seller-hub/pending-actions")
+          .then((data) => {
+            setPendingShip(Number(data.pendingShip) || 0);
+            setPendingDeliveries(Number(data.pendingDeliveries) || 0);
+            setPendingPickups(Number(data.pendingPickups) || 0);
+            setSellerOffersPending(Number(data.sellerOffersPending) || 0);
+          })
+          .catch(() => {});
+      }
+    }, [canAccessResaleHub])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const [funds, shipping, me] = await Promise.all([
+            apiGet<{ hasStripeConnect?: boolean } | { error?: string }>("/api/seller-funds"),
+            apiGet<{ connected?: boolean } | { error?: string }>("/api/shipping/status"),
+            apiGet<{
+              sellerShippingPolicy?: string | null;
+              sellerLocalDeliveryPolicy?: string | null;
+              sellerPickupPolicy?: string | null;
+              sellerReturnPolicy?: string | null;
+            }>("/api/me"),
+          ]);
+          if (cancelled) return;
+          const stripe = Boolean((funds as { hasStripeConnect?: boolean }).hasStripeConnect);
+          const shippo = Boolean((shipping as { connected?: boolean }).connected);
+          const p = me as {
+            sellerShippingPolicy?: string | null;
+            sellerLocalDeliveryPolicy?: string | null;
+            sellerPickupPolicy?: string | null;
+            sellerReturnPolicy?: string | null;
+          };
+          const anyPolicy = [
+            p?.sellerShippingPolicy,
+            p?.sellerLocalDeliveryPolicy,
+            p?.sellerPickupPolicy,
+            p?.sellerReturnPolicy,
+          ].some((v) => typeof v === "string" && v.trim().length > 0);
+          setResaleSetupComplete(stripe && shippo && anyPolicy);
+        } catch {
+          if (!cancelled) setResaleSetupComplete(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
 
   if (!canAccessResaleHub) {
     return (
@@ -220,18 +353,30 @@ function ResaleHubContent() {
     icon: keyof typeof Ionicons.glyphMap;
   }[] = [
     { label: "List Item", href: "/resale-hub/list", icon: "add-circle" },
-    { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
-    { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
-    { label: "Pickups", href: "/resale-hub/pickups", icon: "hand-left-outline" },
-    { label: "Offers", href: "/resale-hub/offers", icon: "pricetag-outline" },
     {
-      label: "Messages",
-      onPress: () => (router.push as (href: string) => void)("/messages?tab=resale"),
-      icon: "chatbubbles",
+      label: "My Listings",
+      href: "/seller-hub/store/items?listingType=resale",
+      icon: "list-outline",
     },
+    { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
+    { label: "Offers", href: "/resale-hub/offers", icon: "pricetag-outline" },
+    { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
+    { label: "Pick Ups", href: "/resale-hub/pickups", icon: "hand-left-outline" },
     { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
-    { label: "Before You Start", href: "/resale-hub/before-you-start", icon: "checkbox-outline" },
+    {
+      label: resaleSetupComplete ? "Store Variables" : "Before You Start",
+      href: "/resale-hub/before-you-start",
+      icon: "checkbox-outline",
+    },
   ];
+
+  const resaleHubBadgeForLabel = (label: string) => {
+    if (label === "Orders / To Ship") return pendingShip > 0;
+    if (label === "Offers") return sellerOffersPending > 0;
+    if (label === "Deliveries") return pendingDeliveries > 0;
+    if (label === "Pick Ups") return pendingPickups > 0;
+    return false;
+  };
 
   return (
     <View style={styles.container}>
@@ -252,9 +397,11 @@ function ResaleHubContent() {
         </RNView>
 
         <RNView style={styles.sellerHubGrid}>
-          {gridActions.map((action) => (
+          {gridActions.map((action) => {
+            const needsAction = resaleHubBadgeForLabel(action.label);
+            return (
             <Pressable
-              key={action.label}
+              key={action.href ?? action.label}
               style={({ pressed }) => [
                 styles.sellerHubGridButton,
                 pressed && styles.buttonPressed,
@@ -265,22 +412,16 @@ function ResaleHubContent() {
                   : () => action.href && (router.push as (href: string) => void)(action.href)
               }
             >
+              {needsAction && (
+                <RNView style={styles.hubAlertBadge}>
+                  <Text style={styles.hubAlertBadgeText}>!</Text>
+                </RNView>
+              )}
               <Ionicons name={action.icon} size={28} color={theme.colors.primary} />
               <ThemedText style={styles.sellerHubGridLabel}>{action.label}</ThemedText>
             </Pressable>
-          ))}
-        </RNView>
-
-        <RNView style={styles.sellerHubExtra}>
-          <Pressable
-            style={({ pressed }) => [styles.sellerHubExtraButton, pressed && styles.buttonPressed]}
-            onPress={() =>
-              (router.push as (href: string) => void)("/(tabs)/store?listingType=resale")
-            }
-          >
-            <Ionicons name="bag" size={20} color="#fff" />
-            <Text style={styles.sellerHubExtraText}>Browse Resale Store</Text>
-          </Pressable>
+            );
+          })}
         </RNView>
 
         <RNView style={styles.sellerHubFooter}>
@@ -557,21 +698,6 @@ export default function MyCommunityScreen() {
         icon: "business",
         onPress: () => (router.push as (href: string) => void)("/sponsor-business"),
       },
-      {
-        label: "Offer a Coupon",
-        icon: "pricetag",
-        onPress: () => setCouponModalVisible(true),
-      },
-      {
-        label: "Offer a Reward",
-        icon: "gift",
-        onPress: () => setRewardModalVisible(true),
-      },
-      {
-        label: "Post Event",
-        icon: "calendar",
-        onPress: () => setEventModalVisible(true),
-      },
       ...(openCreatePostAsBusiness && businesses.length > 0
         ? [
             {
@@ -582,7 +708,7 @@ export default function MyCommunityScreen() {
                   openCreatePostAsBusiness({ id: businesses[0].id, name: businesses[0].name });
                 } else {
                   Alert.alert(
-                    "Create post as",
+                    "Create Post as",
                     "Choose which business to post as (Business Post).",
                     [
                       ...businesses.map((b) => ({
@@ -597,6 +723,26 @@ export default function MyCommunityScreen() {
             },
           ]
         : []),
+      {
+        label: "Post Event",
+        icon: "calendar",
+        onPress: () => setEventModalVisible(true),
+      },
+      {
+        label: "Create Coupon",
+        icon: "pricetag",
+        onPress: () => setCouponModalVisible(true),
+      },
+      {
+        label: "Offer a Reward",
+        icon: "gift",
+        onPress: () => setRewardModalVisible(true),
+      },
+      {
+        label: "Redeemed Rewards",
+        icon: "receipt-outline",
+        onPress: () => (router.push as (href: string) => void)("/redeemed-rewards"),
+      },
     ];
 
     return (
@@ -631,6 +777,20 @@ export default function MyCommunityScreen() {
                 <ThemedText style={styles.sellerHubGridLabel}>{action.label}</ThemedText>
               </Pressable>
             ))}
+          </RNView>
+
+          <RNView style={styles.businessHubDownloadSection}>
+            <Text style={styles.downloadSectionTitle}>Manage</Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.showQRButton,
+                pressed && { opacity: 0.85 },
+              ]}
+              onPress={() => (router.push as (href: string) => void)("/business-hub-manage")}
+            >
+              <Ionicons name="folder-outline" size={28} color="#fff" />
+              <Text style={styles.showQRButtonText}>My Posts, Coupons, and Rewards</Text>
+            </Pressable>
           </RNView>
 
           {businesses.length > 0 && (
@@ -923,7 +1083,7 @@ export default function MyCommunityScreen() {
           style={({ pressed }) => [styles.postsBox, pressed && { opacity: 0.9 }]}
           onPress={() => (router.push as (href: string) => void)("/community/posts-photos")}
         >
-          <ThemedText style={styles.postsBoxText}>Posted Photos</ThemedText>
+          <ThemedText style={styles.postsBoxText}>Posted Photos / Posts</ThemedText>
           <Ionicons name="chevron-forward" size={20} color="#000" />
         </Pressable>
 
@@ -991,13 +1151,6 @@ export default function MyCommunityScreen() {
           >
             <Ionicons name="heart" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Wishlist</ThemedText>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
-            onPress={() => (router.push as (href: string) => void)("/community/my-orders")}
-          >
-            <Ionicons name="receipt" size={22} color="#fff" style={styles.tanButtonIcon} />
-            <ThemedText style={styles.tanButtonText}>My Orders</ThemedText>
           </Pressable>
         </RNView>
       </RNView>
@@ -1331,21 +1484,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 10,
     backgroundColor: theme.colors.primary,
     borderWidth: 1,
     borderColor: theme.colors.primary,
-    borderRadius: 6,
-    padding: 10,
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    minHeight: 52,
   },
-  tanButtonIcon: {
-    marginRight: 0,
-  },
+  tanButtonIcon: {},
   tanButtonText: {
     fontSize: 16,
     fontWeight: "600",
     color: "#ffffff",
-    textAlign: "center",
+    textAlign: "left",
+    flexShrink: 1,
   },
   businessHubScroll: {
     flex: 1,
@@ -1531,6 +1685,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
     borderRadius: 10,
     padding: 16,
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
@@ -1557,24 +1712,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: theme.colors.heading,
     textAlign: "center",
-  },
-  sellerHubExtra: {
-    marginTop: 16,
-  },
-  sellerHubExtraButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  sellerHubExtraText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
   },
   sellerHubFooter: {
     marginTop: 24,

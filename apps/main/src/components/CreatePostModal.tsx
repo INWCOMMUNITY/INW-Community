@@ -5,6 +5,17 @@ import { useRouter } from "next/navigation";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { CreatePostForm } from "@/components/CreatePostForm";
 
+export type EditFeedPostPayload = {
+  id: string;
+  content: string | null;
+  photos: string[];
+  videos?: string[];
+  tags?: { id: string; name: string; slug: string }[];
+  groupId?: string | null;
+  type?: string;
+  sourceBusiness?: { id: string; name: string } | null;
+};
+
 interface CreatePostModalProps {
   open: boolean;
   onClose: () => void;
@@ -18,6 +29,10 @@ interface CreatePostModalProps {
   noBusinessMessage?: string;
   /** Not used when onSuccess is used; kept for form internal use if needed. */
   returnTo?: string;
+  /** When set, form updates this post instead of creating. */
+  editPost?: EditFeedPostPayload | null;
+  /** Optional hook after create/update succeeds (e.g. refetch client-side feed). Runs before onClose and router.refresh. */
+  onAfterSuccess?: () => void;
 }
 
 const backdropClass =
@@ -25,7 +40,17 @@ const backdropClass =
 const panelClass =
   "relative rounded-xl shadow-xl bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto border-2 border-[var(--color-primary)]";
 
-export function CreatePostModal({ open, onClose, groupId, sharedBusinessId, sharedBusinessName, noBusinessMessage, returnTo }: CreatePostModalProps) {
+export function CreatePostModal({
+  open,
+  onClose,
+  groupId,
+  sharedBusinessId,
+  sharedBusinessName,
+  noBusinessMessage,
+  returnTo,
+  editPost,
+  onAfterSuccess,
+}: CreatePostModalProps) {
   const router = useRouter();
 
   useLockBodyScroll(open);
@@ -33,6 +58,7 @@ export function CreatePostModal({ open, onClose, groupId, sharedBusinessId, shar
   if (!open) return null;
 
   function handleSuccess() {
+    onAfterSuccess?.();
     onClose();
     router.refresh();
   }
@@ -48,7 +74,7 @@ export function CreatePostModal({ open, onClose, groupId, sharedBusinessId, shar
       <div className={panelClass} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between gap-4 z-10">
           <h2 id="create-post-modal-title" className="text-xl font-bold">
-            Create post
+            {editPost ? "Edit post" : "Create Post"}
           </h2>
           <button
             type="button"
@@ -60,7 +86,7 @@ export function CreatePostModal({ open, onClose, groupId, sharedBusinessId, shar
           </button>
         </div>
         <div className="p-6">
-          {noBusinessMessage && !sharedBusinessId ? (
+          {noBusinessMessage && !sharedBusinessId && !editPost ? (
             <>
               <p className="text-gray-700 mb-4">{noBusinessMessage}</p>
               <Link
@@ -73,12 +99,26 @@ export function CreatePostModal({ open, onClose, groupId, sharedBusinessId, shar
             </>
           ) : (
             <CreatePostForm
-              initialGroupId={groupId}
-              initialSharedBusinessId={sharedBusinessId}
-              initialSharedBusinessName={sharedBusinessName}
+              key={editPost?.id ?? "create"}
+              initialGroupId={editPost ? (editPost.groupId ?? "") : groupId}
+              initialSharedBusinessId={
+                editPost?.type === "shared_business" && editPost.sourceBusiness?.id
+                  ? editPost.sourceBusiness.id
+                  : sharedBusinessId
+              }
+              initialSharedBusinessName={
+                editPost?.type === "shared_business" && editPost.sourceBusiness
+                  ? editPost.sourceBusiness.name
+                  : sharedBusinessName
+              }
               returnTo={returnTo ?? "/my-community/feed"}
               onSuccess={handleSuccess}
               onCancel={onClose}
+              editPostId={editPost?.id}
+              initialContent={editPost?.content}
+              initialPhotos={editPost?.photos}
+              initialVideos={editPost?.videos}
+              initialTags={editPost?.tags?.map((t) => t.name)}
             />
           )}
         </div>

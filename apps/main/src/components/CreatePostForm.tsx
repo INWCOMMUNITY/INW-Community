@@ -31,6 +31,13 @@ interface CreatePostFormProps {
   initialSharedBusinessName?: string;
   /** Where to navigate after submit when onSuccess is not provided. */
   returnTo?: string;
+  /** Set to update an existing post (author only); locks group / business context. */
+  editPostId?: string;
+  initialContent?: string | null;
+  initialPhotos?: string[];
+  initialVideos?: string[];
+  initialLinks?: { url: string; title: string }[];
+  initialTags?: string[];
 }
 
 export function CreatePostForm({
@@ -40,6 +47,12 @@ export function CreatePostForm({
   initialSharedBusinessId,
   initialSharedBusinessName,
   returnTo = "",
+  editPostId,
+  initialContent,
+  initialPhotos,
+  initialVideos,
+  initialLinks,
+  initialTags,
 }: CreatePostFormProps) {
   const router = useRouter();
   const [content, setContent] = useState("");
@@ -57,6 +70,25 @@ export function CreatePostForm({
   const [taggedFriendIds, setTaggedFriendIds] = useState<Set<string>>(new Set());
   const [tagFriendsOpen, setTagFriendsOpen] = useState(false);
   const mediaInputRef = useRef<HTMLInputElement>(null);
+  const lockPostingContext = !!editPostId;
+
+  useEffect(() => {
+    if (!editPostId) return;
+    if (initialContent !== undefined) setContent(initialContent ?? "");
+    if (initialPhotos !== undefined) setPhotos(initialPhotos);
+    if (initialVideos !== undefined) setVideos(initialVideos);
+    if (initialLinks !== undefined) setLinks(initialLinks);
+    if (initialTags !== undefined) setTags(initialTags);
+    if (initialGroupId !== undefined) setGroupId(initialGroupId || "");
+  }, [
+    editPostId,
+    initialContent,
+    initialPhotos,
+    initialVideos,
+    initialLinks,
+    initialTags,
+    initialGroupId,
+  ]);
 
   useEffect(() => {
     fetch("/api/me/groups?scope=member")
@@ -102,7 +134,11 @@ export function CreatePostForm({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("type", type);
-      const res = await fetch("/api/upload/post", { method: "POST", body: formData });
+      const res = await fetch("/api/upload/post", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
       const data = await res.json();
       if (res.ok && data.url) {
         if (type === "image") setPhotos((prev) => [...prev, data.url]);
@@ -141,9 +177,37 @@ export function CreatePostForm({
     setLoading(true);
     setError("");
     try {
+      if (editPostId) {
+        const res = await fetch(`/api/posts/${editPostId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            content: content.trim() || null,
+            photos: photos.filter((p) => p.trim()),
+            videos: videos.filter((v) => v.trim()),
+            links: links.filter((l) => l.url?.trim()).length ? links.filter((l) => l.url?.trim()) : undefined,
+            tags: tags.length ? tags : undefined,
+            taggedMemberIds: taggedFriendIds.size ? Array.from(taggedFriendIds) : undefined,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          if (onSuccess) onSuccess();
+          else {
+            router.push(returnTo && returnTo.startsWith("/") ? returnTo : "/my-community/feed");
+            router.refresh();
+          }
+        } else {
+          setError(getErrorMessage(data.error, "Failed to update post"));
+        }
+        return;
+      }
+
       const res = await fetch("/api/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           content: content.trim() || null,
           photos: photos.filter((p) => p.trim()),
@@ -169,7 +233,7 @@ export function CreatePostForm({
         setError(getErrorMessage(data.error, "Failed to create post"));
       }
     } catch {
-      setError("Failed to create post");
+      setError(editPostId ? "Failed to update post" : "Failed to create post");
     } finally {
       setLoading(false);
     }
@@ -182,7 +246,7 @@ export function CreatePostForm({
           <Link href="/my-community/feed" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
             ← Back to feed
           </Link>
-          <h1 className="text-2xl font-bold mb-6">Create post</h1>
+          <h1 className="text-2xl font-bold mb-6">{editPostId ? "Edit post" : "Create Post"}</h1>
         </>
       )}
       <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
@@ -199,7 +263,8 @@ export function CreatePostForm({
               id="group"
               value={groupId}
               onChange={(e) => setGroupId(e.target.value)}
-              className="border rounded px-3 py-2 w-full"
+              disabled={lockPostingContext}
+              className="border rounded px-3 py-2 w-full disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               <option value="">Personal (your feed)</option>
               {groups.map((g) => (
@@ -369,7 +434,7 @@ export function CreatePostForm({
         </div>
         <div className="flex gap-3">
           <button type="submit" disabled={loading} className="btn">
-            {loading ? "Posting…" : "Post"}
+            {loading ? (editPostId ? "Saving…" : "Posting…") : editPostId ? "Save changes" : "Post"}
           </button>
           {onCancel ? (
             <button type="button" onClick={onCancel} className="btn border">

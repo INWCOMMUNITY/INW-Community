@@ -30,8 +30,9 @@ export default async function ResaleHubLayout({
         <div className="max-w-[var(--max-width)] mx-auto text-center">
           <h1 className="text-2xl font-bold mb-4">NWC Resale Hub</h1>
           <p className="mb-6">
-            The Resident Subscribe plan ($10/mo) includes Resale Hub, the coupon book, and 2× rewards points.
-            To sell new items on the storefront, use the Seller plan and Seller Hub.
+            NWC Resale Hub is included with the Resident Subscribe plan. Business and Seller plans include the coupon
+            book and 2× rewards points, and use Business Hub / Seller Hub to sell; add Subscribe if you also want the
+            member resale experience.
           </p>
           <a href="/support-nwc" className="btn">
             View plans

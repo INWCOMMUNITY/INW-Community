@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useLayoutEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -16,7 +16,13 @@ import {
 import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "@/lib/theme";
+import {
+  signupAgeSwitchOutline,
+  switchIosBackgroundColor,
+  switchThumbColor,
+  switchTrackColor,
+  theme,
+} from "@/lib/theme";
 import { apiPost, apiPatch } from "@/lib/api";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
@@ -63,31 +69,53 @@ export default function SignupSellerScreen() {
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const isExitingRef = useRef(false);
+  const [allowRemoveWithoutPrompt, setAllowRemoveWithoutPrompt] = useState(false);
 
-  usePreventRemove(!isExitingRef.current, ({ data }) => {
-    const idx = STEP_ORDER.indexOf(step);
-    if (idx > 0) {
-      setStep(STEP_ORDER[idx - 1]);
-    } else {
-      Alert.alert(
-        "Leave Sign Up?",
-        "Are you sure you want to leave Seller sign up? Progress will not be saved.",
-        [
+  useLayoutEffect(() => {
+    navigation.setOptions({ gestureEnabled: false });
+  }, [navigation]);
+
+  const onPreventRemove = useCallback(
+    ({ data }: { data: { action: object } }) => {
+      const idx = STEP_ORDER.indexOf(step);
+      if (idx > 0) {
+        const msg =
+          step === "business"
+            ? "Going back will discard the business details you entered on this step."
+            : step === "contact"
+              ? "Going back will discard the name and mailing address you entered on this step."
+              : "Going back may lose your place in checkout.";
+        Alert.alert("Leave this step?", msg, [
           { text: "Stay", style: "cancel" },
           {
-            text: "Leave",
+            text: "Leave step",
             style: "destructive",
-            onPress: async () => {
-              await signOut();
-              isExitingRef.current = true;
-              navigation.dispatch(data.action);
-            },
+            onPress: () => setStep(STEP_ORDER[idx - 1]),
           },
-        ]
-      );
-    }
-  });
+        ]);
+      } else {
+        Alert.alert(
+          "Leave Sign Up?",
+          "Are you sure you want to leave Seller sign up? Progress will not be saved.",
+          [
+            { text: "Stay", style: "cancel" },
+            {
+              text: "Leave",
+              style: "destructive",
+              onPress: async () => {
+                await signOut();
+                setAllowRemoveWithoutPrompt(true);
+                setTimeout(() => navigation.dispatch(data.action as never), 0);
+              },
+            },
+          ]
+        );
+      }
+    },
+    [step, navigation, signOut]
+  );
+
+  usePreventRemove(!allowRemoveWithoutPrompt, onPreventRemove);
 
   const handleAccountSubmit = async () => {
     setError("");
@@ -194,12 +222,15 @@ export default function SignupSellerScreen() {
   };
 
   const handleCheckoutSuccess = () => {
-    refreshMember()
-      .then(() => router.replace("/(tabs)/my-community"))
-      .catch((e) => {
-        if (__DEV__) console.warn("[handleCheckoutSuccess]", e);
-        router.replace("/(tabs)/my-community");
-      });
+    setAllowRemoveWithoutPrompt(true);
+    setTimeout(() => {
+      refreshMember()
+        .then(() => router.replace("/(tabs)/my-community"))
+        .catch((e) => {
+          if (__DEV__) console.warn("[handleCheckoutSuccess]", e);
+          router.replace("/(tabs)/my-community");
+        });
+    }, 0);
   };
 
   if (step === "account") {
@@ -228,12 +259,15 @@ export default function SignupSellerScreen() {
           </Text>
           <View style={styles.form}>
             <View style={styles.ageRow}>
-              <Switch
-                value={ageConfirmed}
-                onValueChange={setAgeConfirmed}
-                trackColor={{ false: "#fff", true: "#d2b48c" }}
-                thumbColor="#fff"
-              />
+              <View style={signupAgeSwitchOutline}>
+                <Switch
+                  value={ageConfirmed}
+                  onValueChange={setAgeConfirmed}
+                  trackColor={switchTrackColor()}
+                  thumbColor={switchThumbColor(ageConfirmed)}
+                  ios_backgroundColor={switchIosBackgroundColor}
+                />
+              </View>
               <Text style={styles.ageLabel}>I confirm I am 16 years or older</Text>
             </View>
             <TextInput
@@ -489,6 +523,7 @@ export default function SignupSellerScreen() {
           interval={billingInterval}
           onSuccess={handleCheckoutSuccess}
           refreshMember={refreshMember}
+          onExternalCheckoutStart={() => setAllowRemoveWithoutPrompt(true)}
         />
         </View>
       </View>

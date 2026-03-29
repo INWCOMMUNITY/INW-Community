@@ -17,7 +17,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
 
@@ -28,6 +28,8 @@ interface OrderItemRow {
   id: string;
   quantity: number;
   priceCentsAtPurchase: number;
+  fulfillmentType?: string | null;
+  pickupDetails?: Record<string, unknown> | null;
   storeItem?: { id: string; title: string; slug: string; photos: string[] };
 }
 
@@ -38,11 +40,19 @@ interface StoreOrder {
   shippingCostCents?: number;
   createdAt: string;
   shippingAddress?: unknown;
+  localDeliveryDetails?: Record<string, unknown> | null;
+  pickupSellerConfirmedAt?: string | null;
+  pickupBuyerConfirmedAt?: string | null;
+  deliveryConfirmedAt?: string | null;
+  deliveryBuyerConfirmedAt?: string | null;
   refundRequestedAt?: string | null;
   refundReason?: string | null;
   cancelReason?: string | null;
   cancelNote?: string | null;
   isCashOrder?: boolean;
+  orderNumber?: string;
+  paymentLabel?: string;
+  buyer?: { firstName: string; lastName: string; email?: string | null };
   seller?: {
     firstName: string;
     lastName: string;
@@ -88,6 +98,12 @@ function getTrackingUrl(carrier: string | undefined | null, trackingNumber: stri
   return `https://www.google.com/search?q=track+${encodeURIComponent(n)}`;
 }
 
+function formatFulfillmentName(details: Record<string, unknown> | null | undefined): string {
+  const fn = String(details?.firstName ?? "").trim();
+  const ln = String(details?.lastName ?? "").trim();
+  return [fn, ln].filter(Boolean).join(" ") || "Customer";
+}
+
 export default function MyOrderDetailScreen() {
   const { id: idParam } = useLocalSearchParams<{ id: string }>();
   const orderId = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? idParam[0] : undefined;
@@ -106,6 +122,10 @@ export default function MyOrderDetailScreen() {
   const [cancelNote, setCancelNote] = useState("");
   const [canceling, setCanceling] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [ticketModal, setTicketModal] = useState<
+    { kind: "pickup"; item: OrderItemRow } | { kind: "delivery" } | null
+  >(null);
+  const [confirmingTicket, setConfirmingTicket] = useState(false);
 
   const load = useCallback(() => {
     if (!orderId) {
@@ -195,6 +215,34 @@ export default function MyOrderDetailScreen() {
     load().finally(() => setRefreshing(false));
   }, [load]);
 
+  const confirmPickupReceived = useCallback(async () => {
+    if (!orderId) return;
+    setConfirmingTicket(true);
+    try {
+      await apiPatch(`/api/store-orders/${orderId}`, { pickupBuyerConfirmed: true });
+      setTicketModal(null);
+      load();
+    } catch {
+      Alert.alert("Could not update", "Please try again.");
+    } finally {
+      setConfirmingTicket(false);
+    }
+  }, [orderId, load]);
+
+  const confirmDeliveryReceived = useCallback(async () => {
+    if (!orderId) return;
+    setConfirmingTicket(true);
+    try {
+      await apiPatch(`/api/store-orders/${orderId}`, { deliveryBuyerConfirmed: true });
+      setTicketModal(null);
+      load();
+    } catch {
+      Alert.alert("Could not update", "Please try again.");
+    } finally {
+      setConfirmingTicket(false);
+    }
+  }, [orderId, load]);
+
   const viewMode: "loading" | "error" | "content" =
     loading && !order ? "loading" : error || !order ? "error" : "content";
   const sellerName = order
@@ -208,6 +256,11 @@ export default function MyOrderDetailScreen() {
   const trackingUrl = trackingNumber
     ? getTrackingUrl(order?.shipment?.carrier ?? null, trackingNumber)
     : null;
+  const hasLocalDelivery =
+    order?.items?.some((i) => (i.fulfillmentType ?? "") === "local_delivery") ?? false;
+  const orderNumberDisplay = order?.orderNumber ?? order?.id.slice(-8).toUpperCase();
+  const paymentLabelText =
+    order?.paymentLabel ?? (order?.isCashOrder ? "Cash due" : "Paid online");
 
   return viewMode === "loading" ? (
     <View style={styles.center}>
@@ -252,7 +305,7 @@ export default function MyOrderDetailScreen() {
       <View style={styles.section}>
         <Text style={styles.label}>Payment</Text>
         <Text style={[styles.value, order.isCashOrder && { color: "#92400e" }]}>
-          {order.isCashOrder ? "Awaiting Payment: Cash" : "Paid: Online NWC"}
+          {paymentLabelText}
         </Text>
         {order.isCashOrder && (
           <Text style={styles.paymentHint}>Pay when you pick up or receive delivery. No payment button needed.</Text>
@@ -308,10 +361,30 @@ export default function MyOrderDetailScreen() {
                   <Text style={styles.itemPrice}>
                     {formatPrice(oi.priceCentsAtPurchase * oi.quantity)}
                   </Text>
+                  {(oi.fulfillmentType ?? "") === "pickup" &&
+                    (order.status === "paid" || order.status === "shipped" || order.status === "delivered") && (
+                    <Pressable
+                      style={({ pressed }) => [styles.ticketBtn, pressed && { opacity: 0.85 }]}
+                      onPress={() => setTicketModal({ kind: "pickup", item: oi })}
+                    >
+                      <Ionicons name="hand-left-outline" size={16} color={theme.colors.primary} />
+                      <Text style={styles.ticketBtnText}>Pick Up Ticket</Text>
+                    </Pressable>
+                  )}
                 </View>
               </View>
             );
           })}
+          {hasLocalDelivery &&
+            (order.status === "paid" || order.status === "shipped" || order.status === "delivered") && (
+            <Pressable
+              style={({ pressed }) => [styles.ticketBtnWide, pressed && { opacity: 0.85 }]}
+              onPress={() => setTicketModal({ kind: "delivery" })}
+            >
+              <Ionicons name="car-outline" size={18} color={theme.colors.primary} />
+              <Text style={styles.ticketBtnText}>Delivery Ticket</Text>
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -497,6 +570,148 @@ export default function MyOrderDetailScreen() {
         </Pressable>
       </Modal>
 
+      <Modal visible={!!ticketModal && !!order} transparent animationType="fade">
+        <Pressable style={styles.modalBackdrop} onPress={() => !confirmingTicket && setTicketModal(null)}>
+          <View style={styles.ticketModalPanel} onStartShouldSetResponder={() => true}>
+            {ticketModal?.kind === "pickup" && order && (
+              <>
+                <View style={styles.ticketHeader}>
+                  <View style={styles.ticketIconRing}>
+                    <Ionicons name="hand-left-outline" size={40} color={theme.colors.primary} />
+                  </View>
+                  <Text style={styles.modalTitleTicket}>Pick Up Ticket</Text>
+                </View>
+                {(() => {
+                  const oi = ticketModal.item;
+                  const name = formatFulfillmentName(oi.pickupDetails as Record<string, unknown> | null | undefined);
+                  const photos = (oi.storeItem?.photos ?? []).filter(Boolean);
+                  const photoUrl = photos[0] ? resolvePhotoUrl(photos[0]) : undefined;
+                  const pickupComplete =
+                    !!(order.pickupSellerConfirmedAt && order.pickupBuyerConfirmedAt);
+                  return (
+                    <>
+                      {photoUrl ? <Image source={{ uri: photoUrl }} style={styles.ticketPhoto} /> : null}
+                      <Text style={styles.ticketName}>{name}</Text>
+                      <Text style={styles.ticketMeta}>Order #{orderNumberDisplay}</Text>
+                      <Text style={styles.ticketMeta}>Payment: {paymentLabelText}</Text>
+                      {pickupComplete ? (
+                        <Text style={styles.ticketDone}>
+                          Pickup is complete — you and the seller have both confirmed.
+                        </Text>
+                      ) : order.pickupBuyerConfirmedAt ? (
+                        <Text style={styles.ticketPending}>
+                          You marked received. Pickup finishes when the seller confirms too.
+                        </Text>
+                      ) : order.pickupSellerConfirmedAt ? (
+                        <>
+                          <Text style={styles.ticketPending}>
+                            The seller confirmed pickup. Mark received when you have your items.
+                          </Text>
+                          <Pressable
+                            style={({ pressed }) => [styles.ticketConfirmBtn, pressed && { opacity: 0.85 }]}
+                            onPress={confirmPickupReceived}
+                            disabled={confirmingTicket}
+                          >
+                            {confirmingTicket ? (
+                              <ActivityIndicator color="#fff" />
+                            ) : (
+                              <Text style={styles.ticketConfirmBtnText}>Mark received</Text>
+                            )}
+                          </Pressable>
+                        </>
+                      ) : (
+                        <Pressable
+                          style={({ pressed }) => [styles.ticketConfirmBtn, pressed && { opacity: 0.85 }]}
+                          onPress={confirmPickupReceived}
+                          disabled={confirmingTicket}
+                        >
+                          {confirmingTicket ? (
+                            <ActivityIndicator color="#fff" />
+                          ) : (
+                            <Text style={styles.ticketConfirmBtnText}>Mark received</Text>
+                          )}
+                        </Pressable>
+                      )}
+                    </>
+                  );
+                })()}
+                <Pressable style={styles.ticketCloseBtn} onPress={() => setTicketModal(null)} disabled={confirmingTicket}>
+                  <Text style={styles.ticketCloseBtnText}>Close</Text>
+                </Pressable>
+              </>
+            )}
+            {ticketModal?.kind === "delivery" && order && (
+              <>
+                <View style={styles.ticketHeader}>
+                  <View style={styles.ticketIconRing}>
+                    <Ionicons name="car-outline" size={40} color={theme.colors.primary} />
+                  </View>
+                  <Text style={styles.modalTitleTicket}>Delivery Ticket</Text>
+                </View>
+                {(() => {
+                  const d = order.localDeliveryDetails as Record<string, unknown> | null | undefined;
+                  const name = formatFulfillmentName(d);
+                  const ldItem = order.items?.find((i) => (i.fulfillmentType ?? "") === "local_delivery");
+                  const photos = (ldItem?.storeItem?.photos ?? []).filter(Boolean);
+                  const photoUrl = photos[0] ? resolvePhotoUrl(photos[0]) : undefined;
+                  const deliveryComplete =
+                    !!(order.deliveryConfirmedAt && order.deliveryBuyerConfirmedAt);
+                  return (
+                    <>
+                      {photoUrl ? <Image source={{ uri: photoUrl }} style={styles.ticketPhoto} /> : null}
+                      <Text style={styles.ticketName}>{name}</Text>
+                      <Text style={styles.ticketMeta}>Order #{orderNumberDisplay}</Text>
+                      <Text style={styles.ticketMeta}>Payment: {paymentLabelText}</Text>
+                      {deliveryComplete ? (
+                        <Text style={styles.ticketDone}>
+                          Delivery is complete — the seller marked delivered and you confirmed receipt.
+                        </Text>
+                      ) : order.deliveryBuyerConfirmedAt ? (
+                        <Text style={styles.ticketPending}>
+                          You marked received. Delivery finishes when the seller confirms they delivered.
+                        </Text>
+                      ) : order.deliveryConfirmedAt ? (
+                        <>
+                          <Text style={styles.ticketPending}>
+                            The seller marked this delivered. Mark received when you have your order.
+                          </Text>
+                          <Pressable
+                            style={({ pressed }) => [styles.ticketConfirmBtn, pressed && { opacity: 0.85 }]}
+                            onPress={confirmDeliveryReceived}
+                            disabled={confirmingTicket}
+                          >
+                            {confirmingTicket ? (
+                              <ActivityIndicator color="#fff" />
+                            ) : (
+                              <Text style={styles.ticketConfirmBtnText}>Mark received</Text>
+                            )}
+                          </Pressable>
+                        </>
+                      ) : (
+                        <Pressable
+                          style={({ pressed }) => [styles.ticketConfirmBtn, pressed && { opacity: 0.85 }]}
+                          onPress={confirmDeliveryReceived}
+                          disabled={confirmingTicket}
+                        >
+                          {confirmingTicket ? (
+                            <ActivityIndicator color="#fff" />
+                          ) : (
+                            <Text style={styles.ticketConfirmBtnText}>Mark received</Text>
+                          )}
+                        </Pressable>
+                      )}
+                    </>
+                  );
+                })()}
+                <Pressable style={styles.ticketCloseBtn} onPress={() => setTicketModal(null)} disabled={confirmingTicket}>
+                  <Text style={styles.ticketCloseBtnText}>Close</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
+
       <View style={{ height: 32 }} />
     </ScrollView>
   ) : null;
@@ -544,6 +759,84 @@ const styles = StyleSheet.create({
   itemBody: { flex: 1, minWidth: 0 },
   itemTitle: { fontSize: 15, color: "#333" },
   itemPrice: { fontSize: 15, fontWeight: "600", color: theme.colors.primary, marginTop: 2 },
+  ticketBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+  },
+  ticketBtnWide: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.creamAlt ?? "#faf8f5",
+  },
+  ticketBtnText: { fontSize: 14, fontWeight: "600", color: theme.colors.primary },
+  ticketModalPanel: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 360,
+  },
+  ticketHeader: { alignItems: "center", marginBottom: 16, width: "100%" },
+  ticketIconRing: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  modalTitleTicket: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#333",
+    textAlign: "center",
+  },
+  ticketPhoto: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 12,
+    marginBottom: 16,
+    resizeMode: "cover",
+  },
+  ticketName: { fontSize: 20, fontWeight: "700", color: "#333", marginBottom: 8 },
+  ticketMeta: { fontSize: 14, color: "#666", marginBottom: 4 },
+  ticketDone: { fontSize: 14, color: "#2e7d32", marginTop: 12, fontWeight: "600", textAlign: "center" },
+  ticketPending: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 12,
+    fontWeight: "500",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  ticketConfirmBtn: {
+    marginTop: 16,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  ticketConfirmBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  ticketCloseBtn: { marginTop: 12, paddingVertical: 10, alignItems: "center" },
+  ticketCloseBtnText: { fontSize: 16, color: "#666", fontWeight: "600" },
   totalValue: { fontSize: 18, fontWeight: "700", color: theme.colors.primary },
   trackBtn: {
     flexDirection: "row",

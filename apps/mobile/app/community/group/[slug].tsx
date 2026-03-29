@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import {
   View,
   Text,
@@ -10,16 +10,21 @@ import {
   Alert,
   Modal,
   RefreshControl,
+  FlatList,
+  Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
-import { fetchGroupFeed, toggleLike, type FeedPost } from "@/lib/feed-api";
+import { fetchGroupFeed, toggleLike, deletePost, type FeedPost } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCreatePost } from "@/contexts/CreatePostContext";
+import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { ShareToChatModal } from "@/components/ShareToChatModal";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
 function toFullUrl(url: string | null | undefined): string | undefined {
@@ -46,6 +51,10 @@ export default function GroupDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const { member } = useAuth();
+  const createPostMenu = useCreatePost();
+  const openEditPost = createPostMenu?.openEditPost;
+  const openCreatePostInGroup = createPostMenu?.openCreatePostInGroup;
+  const createPostVisible = createPostMenu?.createPostVisible;
   const signedIn = !!member;
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,6 +67,40 @@ export default function GroupDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
+  const [coverGalleryOpen, setCoverGalleryOpen] = useState(false);
+  const [coverGalleryIndex, setCoverGalleryIndex] = useState(0);
+  const [shareToChatPost, setShareToChatPost] = useState<{ id: string } | null>(null);
+  const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!member) {
+      setViewerManagedBusinessIds([]);
+      return;
+    }
+    apiGet<{ id: string }[]>("/api/businesses?mine=1")
+      .then((rows) =>
+        setViewerManagedBusinessIds(Array.isArray(rows) ? rows.map((r) => r.id) : [])
+      )
+      .catch(() => setViewerManagedBusinessIds([]));
+  }, [member?.id]);
+
+  const groupGalleryUrls = useMemo(() => {
+    if (!group) return [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const add = (u?: string | null) => {
+      if (!u || seen.has(u)) return;
+      seen.add(u);
+      out.push(u);
+    };
+    add(toFullUrl(group.coverImageUrl));
+    for (const p of posts) {
+      for (const ph of p.photos ?? []) {
+        add(toFullUrl(ph));
+      }
+    }
+    return out;
+  }, [group, posts]);
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -93,7 +136,7 @@ export default function GroupDetailScreen() {
   );
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (group?.name) {
       navigation.setOptions({ title: group.name });
     }
@@ -102,6 +145,64 @@ export default function GroupDetailScreen() {
   useEffect(() => {
     if (group?.isMember && slug) loadFeed(undefined, true);
   }, [group?.id, group?.isMember, slug, loadFeed]);
+
+  const wasCreatePostOpenRef = useRef(false);
+  useEffect(() => {
+    // Refresh the group feed after the create-post modal closes.
+    if (wasCreatePostOpenRef.current && !createPostVisible && group?.isMember && slug) {
+      void loadFeed(undefined, true);
+    }
+    wasCreatePostOpenRef.current = !!createPostVisible;
+  }, [createPostVisible, group?.isMember, loadFeed, slug]);
+
+  useLayoutEffect(() => {
+    if (!group?.isMember || !openCreatePostInGroup || !group) {
+      navigation.setOptions({
+        headerRight: undefined,
+        ...(Platform.OS === "ios" ? { unstable_headerRightItems: undefined } : {}),
+      });
+      return;
+    }
+
+    const groupIdForPost = group.id;
+    if (Platform.OS === "ios") {
+      navigation.setOptions({
+        headerRight: undefined,
+        unstable_headerRightItems: () => [
+          {
+            type: "custom",
+            element: (
+              <Pressable
+                onPress={() => openCreatePostInGroup(groupIdForPost)}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Create Post in this group"
+              >
+                <Ionicons name="add" size={26} color="#fff" />
+              </Pressable>
+            ),
+            hidesSharedBackground: true,
+          },
+        ],
+      });
+    } else {
+      navigation.setOptions({
+        unstable_headerRightItems: undefined,
+        headerRight: () => (
+          <Pressable
+            onPress={() => openCreatePostInGroup(groupIdForPost)}
+            style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+            android_ripple={{ color: "rgba(255,255,255,0.2)", borderless: true }}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Create Post in this group"
+          >
+            <Ionicons name="add" size={26} color="#fff" />
+          </Pressable>
+        ),
+      });
+    }
+  }, [group?.id, group?.isMember, navigation, openCreatePostInGroup]);
 
   const handleJoin = async (agreedToRules = false) => {
     if (!group || joining) return;
@@ -167,9 +268,33 @@ export default function GroupDetailScreen() {
     );
   }, [commentPostId]);
 
-  const handleShare = useCallback((_postId: string) => {
-    Alert.alert("Share", "Sharing from group feed can be added here.");
+  const handleDeletePost = useCallback((postId: string) => {
+    Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void deletePost(postId)
+            .then(() => {
+              setPosts((prev) => prev.filter((p) => p.id !== postId));
+              setCommentPostId((id) => (id === postId ? null : id));
+            })
+            .catch((e) =>
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
+            );
+        },
+      },
+    ]);
   }, []);
+
+  const handleShare = useCallback((postId: string) => {
+    setShareToChatPost({ id: postId });
+  }, []);
+
+  const refreshGroupFeed = useCallback(() => {
+    if (group?.isMember && slug) void loadFeed(undefined, true);
+  }, [group?.isMember, slug, loadFeed]);
 
   const handleSave = useCallback(
     async (postId: string) => {
@@ -212,10 +337,17 @@ export default function GroupDetailScreen() {
   }, []);
 
   const handleBlockUser = useCallback(
-    async (memberId: string, postId: string) => {
+    (memberId: string, postId: string) => {
+      if (member?.id === memberId) {
+        Alert.alert(
+          "Cannot block yourself",
+          "Blocking is for other members. It removes their posts from your feed and stops them from messaging you."
+        );
+        return;
+      }
       Alert.alert(
         "Block user",
-        "This user will be blocked. Their posts will be removed from your feed.",
+        "This user will be blocked. Their posts will be removed from your feed and they will not be able to message you.",
         [
           { text: "Cancel", style: "cancel" },
           {
@@ -224,20 +356,24 @@ export default function GroupDetailScreen() {
             onPress: async () => {
               try {
                 const { apiPost: postApi } = await import("@/lib/api");
+                await postApi("/api/members/block", { memberId });
                 await postApi("/api/reports", {
-                  contentType: "member",
-                  contentId: memberId,
+                  contentType: "post",
+                  contentId: postId,
                   reason: "other",
                   details: "User blocked by viewer",
-                });
+                }).catch(() => {});
                 setPosts((prev) => prev.filter((p) => p.author?.id !== memberId));
-              } catch (_) {}
+                Alert.alert("User blocked", "They have been blocked and their posts removed from this list.");
+              } catch (e) {
+                Alert.alert("Error", (e as { error?: string }).error ?? "Could not block user.");
+              }
             },
           },
         ]
       );
     },
-    []
+    [member?.id]
   );
 
   if (loading || !group) {
@@ -251,22 +387,20 @@ export default function GroupDetailScreen() {
 
   const coverUri = toFullUrl(group.coverImageUrl);
 
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        group.isMember && slug ? (
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => loadFeed(undefined, true)}
-            colors={[theme.colors.primary]}
-          />
-        ) : undefined
-      }
-    >
+  const listHeader = (
+    <>
       {coverUri ? (
-        <Image source={{ uri: coverUri }} style={styles.cover} resizeMode="cover" />
+        <Pressable
+          onPress={() => {
+            if (groupGalleryUrls.length === 0) return;
+            setCoverGalleryIndex(0);
+            setCoverGalleryOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="View group photos"
+        >
+          <Image source={{ uri: coverUri }} style={styles.cover} resizeMode="cover" />
+        </Pressable>
       ) : (
         <View style={styles.coverPlaceholder}>
           <Ionicons name="people" size={48} color={theme.colors.primary} />
@@ -308,50 +442,86 @@ export default function GroupDetailScreen() {
           <Text style={styles.adminBadge}>Admin</Text>
         )}
       </View>
-
-      {group.isMember && (
-        <View style={styles.feedSection}>
+      {group.isMember ? (
+        <View style={styles.feedSectionHeader}>
           <Text style={styles.feedSectionTitle}>Group feed</Text>
           {feedLoading && posts.length === 0 ? (
             <View style={styles.feedLoading}>
               <ActivityIndicator size="large" color={theme.colors.primary} />
             </View>
-          ) : posts.length === 0 ? (
-            <Text style={styles.feedEmpty}>No posts in this group yet. Be the first to post!</Text>
+          ) : null}
+        </View>
+      ) : null}
+    </>
+  );
+
+  const listFooter =
+    group.isMember && nextCursor ? (
+      <View style={styles.feedPostWrap}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.loadMoreBtn,
+            (loadingMore || pressed) && styles.buttonPressed,
+          ]}
+          onPress={() => loadFeed(nextCursor)}
+          disabled={loadingMore}
+        >
+          {loadingMore ? (
+            <ActivityIndicator size="small" color={theme.colors.primary} />
           ) : (
-            <>
-              {posts.map((post) => (
-                <FeedPostCard
-                  key={post.id}
-                  post={post}
-                  onLike={handleLike}
-                  onComment={handleComment}
-                  onShare={handleShare}
-                  onReport={handleReport}
-                  onBlockUser={signedIn ? handleBlockUser : undefined}
-                  onSave={handleSave}
-                />
-              ))}
-              {nextCursor ? (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.loadMoreBtn,
-                    (loadingMore || pressed) && styles.buttonPressed,
-                  ]}
-                  onPress={() => loadFeed(nextCursor)}
-                  disabled={loadingMore}
-                >
-                  {loadingMore ? (
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                  ) : (
-                    <Text style={styles.loadMoreText}>Load more</Text>
-                  )}
-                </Pressable>
-              ) : null}
-            </>
+            <Text style={styles.loadMoreText}>Load more</Text>
           )}
+        </Pressable>
+      </View>
+    ) : null;
+
+  const renderFeedEmpty = () => {
+    if (!group.isMember || feedLoading || posts.length > 0) return null;
+    return (
+      <View style={styles.feedPostWrap}>
+        <Text style={styles.feedEmpty}>No posts in this group yet. Be the first to post!</Text>
+      </View>
+    );
+  };
+
+  return (
+    <>
+    <FlatList
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      data={group.isMember ? posts : []}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => (
+        <View style={styles.feedPostWrap}>
+          <FeedPostCard
+            post={item}
+            onLike={handleLike}
+            onComment={handleComment}
+            onShare={handleShare}
+            onReport={handleReport}
+            onBlockUser={signedIn ? handleBlockUser : undefined}
+            onSave={handleSave}
+            onEditPost={openEditPost}
+            onDeletePost={handleDeletePost}
+            viewerManagedBusinessIds={
+              viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+            }
+          />
         </View>
       )}
+      ListHeaderComponent={listHeader}
+      ListFooterComponent={listFooter}
+      ListEmptyComponent={group.isMember ? renderFeedEmpty : undefined}
+      refreshControl={
+        group.isMember && slug ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadFeed(undefined, true)}
+            colors={[theme.colors.primary]}
+          />
+        ) : undefined
+      }
+    />
 
       {commentPostId && (
         <FeedCommentsModal
@@ -363,6 +533,16 @@ export default function GroupDetailScreen() {
           }
           onClose={() => setCommentPostId(null)}
           onCommentAdded={handleCommentAdded}
+        />
+      )}
+
+      {shareToChatPost && group && (
+        <ShareToChatModal
+          visible={!!shareToChatPost}
+          onClose={() => setShareToChatPost(null)}
+          sharedContent={{ type: "post", id: shareToChatPost.id }}
+          defaultFeedGroupId={group.id}
+          onShareToFeedComplete={refreshGroupFeed}
         />
       )}
 
@@ -395,7 +575,15 @@ export default function GroupDetailScreen() {
           </Pressable>
         </Modal>
       )}
-    </ScrollView>
+
+      <ImageGalleryViewer
+        key={coverGalleryOpen ? groupGalleryUrls.join("|") : "closed"}
+        visible={coverGalleryOpen && groupGalleryUrls.length > 0}
+        images={groupGalleryUrls}
+        initialIndex={coverGalleryIndex}
+        onClose={() => setCoverGalleryOpen(false)}
+      />
+    </>
   );
 }
 
@@ -404,10 +592,10 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 40 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   notFound: { marginTop: 12, fontSize: 16, color: theme.colors.placeholder },
-  cover: { width: "100%", height: 200, backgroundColor: theme.colors.cream },
+  cover: { width: "100%", height: 360, backgroundColor: theme.colors.cream },
   coverPlaceholder: {
     width: "100%",
-    height: 200,
+    height: 360,
     backgroundColor: theme.colors.cream,
     alignItems: "center",
     justifyContent: "center",
@@ -440,12 +628,14 @@ const styles = StyleSheet.create({
   modalCancelText: { fontSize: 16, color: theme.colors.placeholder },
   modalAgreeBtn: { backgroundColor: theme.colors.primary, paddingVertical: 10, paddingHorizontal: 24, borderRadius: 8 },
   modalAgreeText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  feedSection: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 40 },
+  feedSectionHeader: { paddingHorizontal: 16, paddingTop: 24 },
+  feedPostWrap: { paddingHorizontal: 16 },
   feedSectionTitle: { fontSize: 18, fontWeight: "700", color: theme.colors.heading, marginBottom: 16 },
   feedLoading: { paddingVertical: 32, alignItems: "center" },
   feedEmpty: { fontSize: 15, color: theme.colors.placeholder, textAlign: "center", paddingVertical: 24 },
   loadMoreBtn: {
     marginTop: 16,
+    marginBottom: 24,
     paddingVertical: 12,
     alignItems: "center",
     borderRadius: 8,

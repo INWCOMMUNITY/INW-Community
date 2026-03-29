@@ -6,6 +6,7 @@ import { createFlaggedContent } from "@/lib/flag-content";
 import { normalizeSubcategoriesByPrimary, parseSubcategoriesByPrimary } from "@/lib/business-categories";
 import { photosExcludingLogo } from "@/lib/business-photos";
 import { z } from "zod";
+import { normalizeResidentCity } from "@/lib/city-utils";
 
 const hoursSchema = z.record(z.string()).nullable().optional();
 const bodySchema = z.object({
@@ -21,7 +22,7 @@ const bodySchema = z.object({
   city: z.string().nullable().optional(),
   categories: z.array(z.string()).max(2).optional(),
   subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
-  photos: z.array(z.string()).optional(),
+  photos: z.array(z.string()).max(12, "Maximum 12 gallery photos").optional(),
   hoursOfOperation: hoursSchema,
 });
 
@@ -114,7 +115,9 @@ export async function PATCH(
         ...(parsed.logoUrl !== undefined && { logoUrl: parsed.logoUrl }),
         ...(parsed.coverPhotoUrl !== undefined && { coverPhotoUrl: parsed.coverPhotoUrl }),
         ...(parsed.address !== undefined && { address: parsed.address }),
-        ...(parsed.city !== undefined && { city: parsed.city }),
+        ...(parsed.city !== undefined && {
+          city: parsed.city == null ? null : normalizeResidentCity(parsed.city.trim()),
+        }),
         ...(parsed.categories !== undefined && { categories: parsed.categories }),
         ...((parsed.categories !== undefined || parsed.subcategoriesByPrimary !== undefined) && {
           subcategoriesByPrimary: normalizeSubcategoriesByPrimary(

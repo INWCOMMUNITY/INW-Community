@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import {
+  validateRequestedFulfillment,
+  validateLocalDeliveryDetails,
+  storeItemHasLocalDeliveryPolicy,
+  type LocalDeliveryDetailsJson,
+} from "@/lib/pickup-delivery-checkout";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -13,7 +19,9 @@ const localDeliveryDetailsSchema = z.object({
   firstName: z.string(),
   lastName: z.string(),
   phone: z.string(),
+  email: z.string().optional(),
   deliveryAddress: deliveryAddressSchema,
+  availableDropOffTimes: z.string().optional(),
   note: z.string().optional(),
   termsAcceptedAt: z.string().optional(),
 });
@@ -22,6 +30,7 @@ const pickupDetailsSchema = z.object({
   lastName: z.string(),
   phone: z.string(),
   email: z.string().optional(),
+  preferredPickupDate: z.string().optional(),
   preferredPickupTime: z.string().optional(),
   note: z.string().optional(),
   termsAcceptedAt: z.string().optional(),
@@ -68,7 +77,13 @@ export async function PATCH(
 
   const item = await prisma.cartItem.findFirst({
     where: { id: params.itemId, memberId: session.user.id },
-    include: { storeItem: true },
+    include: {
+      storeItem: {
+        include: {
+          member: { select: { sellerLocalDeliveryPolicy: true, sellerPickupPolicy: true } },
+        },
+      },
+    },
   });
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -79,6 +94,12 @@ export async function PATCH(
     localDeliveryAvailable?: boolean;
     inStorePickupAvailable?: boolean;
     shippingDisabled?: boolean;
+    localDeliveryTerms?: string | null;
+    pickupTerms?: string | null;
+    member?: {
+      sellerLocalDeliveryPolicy?: string | null;
+      sellerPickupPolicy?: string | null;
+    } | null;
   };
 
   let body: z.infer<typeof patchSchema>;
@@ -89,13 +110,11 @@ export async function PATCH(
   }
 
   const requestedFulfillment = body.fulfillmentType ?? item.fulfillmentType ?? "ship";
+  const fulfillmentCheck = validateRequestedFulfillment(storeItem, requestedFulfillment);
+  if (!fulfillmentCheck.ok) {
+    return NextResponse.json({ error: fulfillmentCheck.error }, { status: 400 });
+  }
   if (requestedFulfillment === "local_delivery") {
-    if (!storeItem.localDeliveryAvailable) {
-      return NextResponse.json(
-        { error: "This item does not offer local delivery." },
-        { status: 400 }
-      );
-    }
     if (!body.localDeliveryDetails && !item.localDeliveryDetails) {
       return NextResponse.json(
         { error: "Local delivery requires delivery details. Please complete the delivery form." },
@@ -144,6 +163,15 @@ export async function PATCH(
     updateData.pickupDetails = body.pickupDetails as object;
     if (requestedFulfillment === "pickup") {
       updateData.fulfillmentType = "pickup";
+    }
+  }
+
+  if (body.localDeliveryDetails !== undefined && requestedFulfillment === "local_delivery") {
+    const ldCheck = validateLocalDeliveryDetails(body.localDeliveryDetails as LocalDeliveryDetailsJson, {
+      requirePolicyAcceptance: storeItemHasLocalDeliveryPolicy(storeItem),
+    });
+    if (!ldCheck.ok) {
+      return NextResponse.json({ error: ldCheck.error }, { status: 400 });
     }
   }
 

@@ -9,11 +9,12 @@ import {
   RefreshControl,
   useWindowDimensions,
   Pressable,
+  Alert,
 } from "react-native";
 import { useNavigation, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "@/lib/theme";
+import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { getBadgeIcon } from "@/lib/badge-icons";
 import { apiGet, apiPatch, getToken } from "@/lib/api";
 
@@ -104,7 +105,14 @@ export default function MyBadgesScreen() {
           mb.badgeId === badgeId ? { ...mb, displayOnProfile } : mb
         )
       );
-    } catch {}
+    } catch (e) {
+      if (__DEV__) console.warn("[my-badges] toggle display", e);
+      const msg =
+        e && typeof e === "object" && "error" in e && typeof (e as { error: unknown }).error === "string"
+          ? (e as { error: string }).error
+          : "Could not update this badge. Try again.";
+      Alert.alert("Update failed", msg);
+    }
   };
 
   if (loading && !refreshing) {
@@ -170,8 +178,9 @@ export default function MyBadgesScreen() {
                   <Switch
                     value={mb.displayOnProfile}
                     onValueChange={(v) => toggleMemberDisplay(mb.badgeId, v)}
-                    trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                    thumbColor={theme.colors.primary}
+                    trackColor={switchTrackColor()}
+                    thumbColor={switchThumbColor(mb.displayOnProfile)}
+                    ios_backgroundColor={switchIosBackgroundColor}
                   />
                 </View>
               </View>

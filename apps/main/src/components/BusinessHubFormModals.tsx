@@ -334,7 +334,7 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
           className={hubCardClass + " text-left max-md:text-center"}
         >
           <IonIcon name="cube-outline" size={28} className="text-[var(--color-primary)] mb-2" />
-          <h2 className="text-xl font-bold mb-2">Reward Redemptions</h2>
+          <h2 className="text-xl font-bold mb-2">Redeemed Rewards</h2>
           <p className="text-sm text-gray-600">
             See who redeemed your rewards, contact info for shipped items, and links to fulfillment orders. Shipping is never charged to members for rewards.
           </p>
@@ -379,6 +379,20 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
         sharedBusinessId={createPostBusiness?.id}
         sharedBusinessName={createPostBusiness?.name}
       />
+
+      <div className="mb-8 flex flex-col items-stretch max-w-2xl mx-auto w-full text-center">
+        <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
+          Manage
+        </h2>
+        <Link
+          href="/business-hub/manage"
+          className="inline-flex items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-white font-semibold transition opacity-90 hover:opacity-100 mb-2 w-full no-underline"
+          style={{ backgroundColor: "var(--color-primary)" }}
+        >
+          <IonIcon name="folder-outline" size={28} className="text-white shrink-0" />
+          My Posts, Coupons, and Rewards
+        </Link>
+      </div>
 
       {businesses.length > 0 && (
         <div className="mb-8 flex flex-col items-center text-center">
@@ -487,7 +501,7 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
       )}
       {openModal === "event" && (
         <Modal title="Post Event" onClose={closeModal}>
-          <EventForm onSuccess={closeModal} />
+          <EventForm onSuccess={closeModal} businesses={businesses} />
         </Modal>
       )}
       {openModal === "reward" && (
@@ -560,7 +574,7 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
       )}
 
       {openModal === "create-post-picker" && (
-        <Modal title="Create post as" onClose={closeModal}>
+        <Modal title="Create Post as" onClose={closeModal}>
           <div className="flex flex-col gap-3">
             {businesses.map((b) => (
               <button

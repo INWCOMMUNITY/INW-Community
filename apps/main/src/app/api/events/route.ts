@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import {
+  getEventInviteStatsByEventIds,
+  isEventOwner,
+} from "@/lib/event-invite-stats";
 import { validateText } from "@/lib/content-moderation";
 import { containsProhibitedCategory } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
@@ -26,6 +30,8 @@ const bodySchema = z.object({
   description: z.string().nullable().optional(),
   calendarType: z.enum(calendarTypes as unknown as [string, ...string[]]),
   photos: z.array(z.string()).optional(),
+  /** When posting on behalf of a business; must be owned by the authenticated member. */
+  businessId: z.string().min(1).optional(),
 });
 
 function slugify(s: string): string {
@@ -71,10 +77,23 @@ export async function POST(req: NextRequest) {
       flagReason = "prohibited_category";
     }
 
+    let businessId: string | null = null;
+    if (data.businessId) {
+      const owned = await prisma.business.findFirst({
+        where: { id: data.businessId, memberId: session.user.id },
+        select: { id: true },
+      });
+      if (!owned) {
+        return NextResponse.json({ error: "Invalid business" }, { status: 400 });
+      }
+      businessId = owned.id;
+    }
+
     // All events are saved unless explicitly deleted (admin delete or flagged content removed).
     const event = await prisma.event.create({
       data: {
         memberId: session.user.id,
+        businessId,
         calendarType: data.calendarType as CalendarType,
         title: data.title,
         date,
@@ -99,8 +118,13 @@ export async function POST(req: NextRequest) {
       });
     }
     const { awardCommunityPlannerBadge } = await import("@/lib/badge-award");
-    awardCommunityPlannerBadge(session.user.id).catch(() => {});
-    return NextResponse.json({ ok: true });
+    let earnedBadges: { slug: string; name: string; description: string }[] = [];
+    try {
+      earnedBadges = await awardCommunityPlannerBadge(session.user.id);
+    } catch {
+      /* best-effort */
+    }
+    return NextResponse.json({ ok: true, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
@@ -128,7 +152,19 @@ export async function GET(req: NextRequest) {
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-    return NextResponse.json(event);
+    const session = await getSessionForApi(req);
+    if (session?.user?.id && isEventOwner(event, session.user.id)) {
+      const statsMap = await getEventInviteStatsByEventIds([event.id]);
+      return NextResponse.json({
+        ...event,
+        inviteStats: statsMap.get(event.id)!,
+      });
+    }
+    const { business, ...rest } = event;
+    const businessPublic = business
+      ? { name: business.name, slug: business.slug }
+      : null;
+    return NextResponse.json({ ...rest, business: businessPublic });
   }
 
   const calendarType = searchParams.get("calendarType") as CalendarType | null;
@@ -155,5 +191,34 @@ export async function GET(req: NextRequest) {
     },
     orderBy: { date: "asc" },
   });
-  return NextResponse.json(events);
+  const session = await getSessionForApi(req);
+  if (!session?.user?.id) {
+    return NextResponse.json(events);
+  }
+  const myBusinessIds = new Set(
+    (
+      await prisma.business.findMany({
+        where: { memberId: session.user.id },
+        select: { id: true },
+      })
+    ).map((b) => b.id)
+  );
+  const ownedIds = events
+    .filter(
+      (e) =>
+        e.memberId === session.user.id ||
+        (!!e.businessId && myBusinessIds.has(e.businessId))
+    )
+    .map((e) => e.id);
+  if (ownedIds.length === 0) {
+    return NextResponse.json(events);
+  }
+  const statsMap = await getEventInviteStatsByEventIds(ownedIds);
+  const ownedSet = new Set(ownedIds);
+  const withStats = events.map((e) =>
+    ownedSet.has(e.id)
+      ? { ...e, inviteStats: statsMap.get(e.id)! }
+      : e
+  );
+  return NextResponse.json(withStats);
 }

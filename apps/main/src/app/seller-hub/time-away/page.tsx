@@ -99,8 +99,8 @@ export default function TimeAwayPage() {
         Time Away
       </h1>
       <p className="text-gray-600 mb-6">
-        Set dates when you’re away. Your storefront can still allow sales for up to 14 days after your start date.
-        If your time away is longer than that, your items will be temporarily hidden from the storefront until your return date.
+        Set dates when you’re away. While time away is active, your storefront listings are hidden from buyers until your
+        end date.
       </p>
 
       {t && (
@@ -113,9 +113,9 @@ export default function TimeAwayPage() {
             {new Date(t.startAt).toLocaleDateString()} – {new Date(t.endAt).toLocaleDateString()}
           </p>
           <p className="text-sm text-gray-600 mt-1">
-            Sales allowed through {new Date(t.allowSalesThrough).toLocaleDateString()}.
-            {t.itemsHidden && " Your items are temporarily hidden from the storefront."}
-            {t.isActive && !t.itemsHidden && " Your storefront shows you’re away but items are still for sale."}
+            {t.itemsHidden || t.isActive
+              ? "Your items are temporarily hidden from the storefront until your return date."
+              : "Time away is scheduled; listings stay visible until the start date."}
           </p>
         </div>
       )}

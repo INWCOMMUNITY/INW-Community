@@ -113,6 +113,16 @@ export default function MessagesInboxScreen() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const t: Tab =
+      params.tab === "resale"
+        ? "resale"
+        : params.tab === "groups"
+          ? "groups"
+          : "direct";
+    setTab(t);
+  }, [params.tab]);
+
   const onRefresh = () => {
     setRefreshing(true);
     load();

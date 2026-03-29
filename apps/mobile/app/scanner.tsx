@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiPost, apiGet, API_BASE } from "@/lib/api";
 import { PointsEarnedPopup } from "@/components/PointsEarnedPopup";
+import { useAuth } from "@/contexts/AuthContext";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 const PENDING_SCAN_KEY = "nwc_pending_scan_business_id";
@@ -49,11 +50,11 @@ function extractBusinessId(data: string): string | null {
   return null;
 }
 
-export default function ScannerScreen() {
+function ScannerWithExpoCamera() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const permHook = cameraAvailable ? useCameraPermissions() : [null, () => {}];
-  const [permission, requestPermission] = permHook;
+  const { member } = useAuth();
+  const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -102,8 +103,8 @@ export default function ScannerScreen() {
         previousTotal,
         newTotal: result.totalPoints ?? previousTotal,
       });
-    } catch {
-      // Ignore
+    } catch (e) {
+      if (__DEV__) console.warn("[scanner] pending scan claim failed", e);
     }
   }, []);
 
@@ -238,21 +239,6 @@ export default function ScannerScreen() {
     }
   };
 
-  if (!cameraAvailable) {
-    return (
-      <View style={styles.center}>
-        <Ionicons name="camera-outline" size={64} color={theme.colors.primary} style={{ marginBottom: 16 }} />
-        <Text style={styles.permTitle}>Camera Not Available</Text>
-        <Text style={styles.permDesc}>
-          The QR scanner requires a custom build and is not available in Expo Go. Please use a development or production build.
-        </Text>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backBtnText}>Go Back</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   if (!permission) {
     return (
       <View style={styles.center}>
@@ -327,6 +313,7 @@ export default function ScannerScreen() {
           previousTotal={popupData.previousTotal}
           newTotal={popupData.newTotal}
           category="qr"
+          applyDoubleMultiplierAnimation={member?.hasPaidSubscription === true}
         />
       )}
 
@@ -567,3 +554,27 @@ const styles = StyleSheet.create({
   },
   guestModalCancelText: { color: theme.colors.placeholder, fontSize: 15 },
 });
+
+function ScannerNoExpoCamera() {
+  const router = useRouter();
+  return (
+    <View style={styles.center}>
+      <Ionicons name="camera-outline" size={64} color={theme.colors.primary} style={{ marginBottom: 16 }} />
+      <Text style={styles.permTitle}>Camera Not Available</Text>
+      <Text style={styles.permDesc}>
+        The QR scanner requires a custom build and is not available in Expo Go. Please use a development or production
+        build.
+      </Text>
+      <Pressable style={styles.backBtn} onPress={() => router.back()}>
+        <Text style={styles.backBtnText}>Go Back</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export default function ScannerScreen() {
+  if (!cameraAvailable) {
+    return <ScannerNoExpoCamera />;
+  }
+  return <ScannerWithExpoCamera />;
+}
