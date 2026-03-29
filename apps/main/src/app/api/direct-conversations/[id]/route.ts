@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { publishDirectConversationMessage } from "@/lib/realtime-publish";
+import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 
 function liveDirectPayload(
@@ -279,9 +280,9 @@ export async function POST(
     }
   }
 
-  await publishDirectConversationMessage(id, liveDirectPayload(id, message));
+  scheduleRealtimePublish(publishDirectConversationMessage(id, liveDirectPayload(id, message)));
   if (botReply) {
-    await publishDirectConversationMessage(id, liveDirectPayload(id, botReply));
+    scheduleRealtimePublish(publishDirectConversationMessage(id, liveDirectPayload(id, botReply)));
   }
 
   return NextResponse.json(botReply ? { ...message, botReply } : message);

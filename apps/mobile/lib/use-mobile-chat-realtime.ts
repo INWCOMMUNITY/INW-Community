@@ -158,11 +158,13 @@ export function useMobileChatRealtime(
         });
       });
 
-      socket.on(cfg.readListen, (payload: { conversationId?: string } | undefined) => {
-        const cid = conversationIdRef.current;
-        if (payload?.conversationId && cid && payload.conversationId !== cid) return;
-        void loadRef.current();
-      });
+      if (kind !== "group") {
+        socket.on(cfg.readListen, (payload: { conversationId?: string } | undefined) => {
+          const cid = conversationIdRef.current;
+          if (payload?.conversationId && cid && payload.conversationId !== cid) return;
+          void loadRef.current();
+        });
+      }
 
       socket.on(cfg.typingListen, (data: { memberId?: string; active?: boolean }) => {
         if (!data?.memberId || data.memberId === memberIdRef.current) return;

@@ -26,7 +26,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPostWithRetry, apiPatch, apiUploadFile } from "@/lib/api";
 import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
-import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import {
+  type LiveSocketMessagePayload,
+  OPTIMISTIC_MSG_ID_PREFIX,
+  newOptimisticMessageId,
+} from "@/lib/chat-live-types";
 import { useAuth } from "@/contexts/AuthContext";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
@@ -191,10 +195,18 @@ export default function DirectConversationScreen() {
     setConv((prev) => {
       if (!prev) return prev;
       if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      const messages = prev.messages.filter(
+        (m) =>
+          !(
+            m.id.startsWith(OPTIMISTIC_MSG_ID_PREFIX) &&
+            m.senderId === p.senderId &&
+            m.content === p.content
+          )
+      );
       return {
         ...prev,
         messages: [
-          ...prev.messages,
+          ...messages,
           {
             id: p.messageId,
             content: p.content,
@@ -500,10 +512,32 @@ export default function DirectConversationScreen() {
   };
 
   const send = async () => {
-    if (!conv || !message.trim() || sending) return;
+    if (!conv || !message.trim() || sending || !member?.id) return;
     const text = message.trim();
+    const tempId = newOptimisticMessageId();
     stopComposerTyping();
     setMessage("");
+    const selfFirst = member.firstName ?? "You";
+    setConv((prev) =>
+      (prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: tempId,
+                content: text,
+                createdAt: new Date().toISOString(),
+                senderId: member.id,
+                sender: { id: member.id, firstName: selfFirst, lastName: member.lastName ?? "" },
+                likeCount: 0,
+                liked: false,
+              },
+            ],
+          }
+        : null) as DirectConversation | null
+    );
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
     setSending(true);
     try {
       const res = await apiPostWithRetry<{ id: string; content: string; createdAt: string; senderId: string; sender: { firstName: string; lastName: string }; botReply?: { id: string; content: string; createdAt: string; senderId: string; sender: { id: string; firstName: string; lastName: string } } }>(
@@ -532,11 +566,16 @@ export default function DirectConversationScreen() {
           liked: false,
         });
       }
-      setConv((prev) =>
-        (prev ? { ...prev, messages: [...prev.messages, ...newMessages] } : null) as DirectConversation | null
-      );
+      setConv((prev) => {
+        if (!prev) return null;
+        const rest = prev.messages.filter((m) => m.id !== tempId);
+        return { ...prev, messages: [...rest, ...newMessages] };
+      });
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (e) {
+      setConv((prev) =>
+        (prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) } : null) as DirectConversation | null
+      );
       setMessage(text);
       const err = e as { error?: string };
       Alert.alert("Message not sent", err.error ?? "Please try again.");

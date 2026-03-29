@@ -125,6 +125,8 @@ export function useMessagesPageRealtime(options: {
   refreshResale: () => void;
   /** Refetch conversation lists (sidebar) when any thread gets activity */
   refreshSidebar?: () => void;
+  /** Update sidebar row preview without full list fetch when a live message is applied to the open thread. */
+  patchSidebarFromLive?: (p: LiveSocketMessagePayload, channel: "direct" | "group" | "resale") => void;
   /** Append incoming message instantly when server sends a live payload (same thread only). */
   applyLiveDirect?: (p: LiveSocketMessagePayload) => void;
   applyLiveGroup?: (p: LiveSocketMessagePayload) => void;
@@ -146,6 +148,7 @@ export function useMessagesPageRealtime(options: {
     refreshGroup,
     refreshResale,
     refreshSidebar,
+    patchSidebarFromLive,
     applyLiveDirect,
     applyLiveGroup,
     applyLiveResale,
@@ -174,6 +177,9 @@ export function useMessagesPageRealtime(options: {
   refreshResaleRef.current = refreshResale;
   refreshSidebarRef.current = refreshSidebar;
 
+  const patchSidebarFromLiveRef = useRef(patchSidebarFromLive);
+  patchSidebarFromLiveRef.current = patchSidebarFromLive;
+
   const applyLiveDirectRef = useRef(applyLiveDirect);
   const applyLiveGroupRef = useRef(applyLiveGroup);
   const applyLiveResaleRef = useRef(applyLiveResale);
@@ -193,6 +199,7 @@ export function useMessagesPageRealtime(options: {
 
   const typingIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peerTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const sidebarDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const typingPeerIds = useMemo(() => {
     const self = sessionUserId;
@@ -330,8 +337,16 @@ export function useMessagesPageRealtime(options: {
         console.warn("[messages realtime] connect_error", err?.message ?? err);
       });
 
+      const scheduleSidebarRefresh = () => {
+        if (!refreshSidebarRef.current) return;
+        if (sidebarDebounceTimerRef.current) clearTimeout(sidebarDebounceTimerRef.current);
+        sidebarDebounceTimerRef.current = setTimeout(() => {
+          sidebarDebounceTimerRef.current = null;
+          refreshSidebarRef.current?.();
+        }, 320);
+      };
+
       const onDirectMessage = (p: unknown) => {
-        refreshSidebarRef.current?.();
         const cid = directIdRef.current;
         if (
           cid &&
@@ -340,8 +355,10 @@ export function useMessagesPageRealtime(options: {
           applyLiveDirectRef.current
         ) {
           applyLiveDirectRef.current(p);
+          patchSidebarFromLiveRef.current?.(p, "direct");
           return;
         }
+        scheduleSidebarRefresh();
         const convId =
           p && typeof p === "object" && typeof (p as { conversationId?: string }).conversationId === "string"
             ? (p as { conversationId: string }).conversationId
@@ -351,7 +368,6 @@ export function useMessagesPageRealtime(options: {
         }
       };
       const onGroupMessage = (p: unknown) => {
-        refreshSidebarRef.current?.();
         const gid = groupIdRef.current;
         if (
           gid &&
@@ -360,8 +376,10 @@ export function useMessagesPageRealtime(options: {
           applyLiveGroupRef.current
         ) {
           applyLiveGroupRef.current(p);
+          patchSidebarFromLiveRef.current?.(p, "group");
           return;
         }
+        scheduleSidebarRefresh();
         const convId =
           p && typeof p === "object" && typeof (p as { conversationId?: string }).conversationId === "string"
             ? (p as { conversationId: string }).conversationId
@@ -371,7 +389,6 @@ export function useMessagesPageRealtime(options: {
         }
       };
       const onResaleMessage = (p: unknown) => {
-        refreshSidebarRef.current?.();
         const rid = resaleIdRef.current;
         if (
           rid &&
@@ -380,8 +397,10 @@ export function useMessagesPageRealtime(options: {
           applyLiveResaleRef.current
         ) {
           applyLiveResaleRef.current(p);
+          patchSidebarFromLiveRef.current?.(p, "resale");
           return;
         }
+        scheduleSidebarRefresh();
         const convId =
           p && typeof p === "object" && typeof (p as { conversationId?: string }).conversationId === "string"
             ? (p as { conversationId: string }).conversationId
@@ -392,20 +411,22 @@ export function useMessagesPageRealtime(options: {
       };
 
       const onDirectRead = (p: { conversationId?: string }) => {
-        refreshSidebarRef.current?.();
-        if (!p?.conversationId || p.conversationId === directIdRef.current) {
+        const open = directIdRef.current;
+        const target = p?.conversationId;
+        if (!(target && open && target === open)) {
+          scheduleSidebarRefresh();
+        }
+        if (!target || target === open) {
           refreshDirectRef.current();
         }
       };
-      const onGroupRead = (p: { conversationId?: string }) => {
-        refreshSidebarRef.current?.();
-        if (!p?.conversationId || p.conversationId === groupIdRef.current) {
-          refreshGroupRef.current();
-        }
-      };
       const onResaleRead = (p: { conversationId?: string }) => {
-        refreshSidebarRef.current?.();
-        if (!p?.conversationId || p.conversationId === resaleIdRef.current) {
+        const open = resaleIdRef.current;
+        const target = p?.conversationId;
+        if (!(target && open && target === open)) {
+          scheduleSidebarRefresh();
+        }
+        if (!target || target === open) {
           refreshResaleRef.current();
         }
       };
@@ -415,7 +436,6 @@ export function useMessagesPageRealtime(options: {
       socket.on("resale:message", onResaleMessage);
 
       socket.on("direct:read", onDirectRead);
-      socket.on("group:read", onGroupRead);
       socket.on("resale:read", onResaleRead);
 
       socket.on("direct:typing", onTyping);
@@ -451,6 +471,10 @@ export function useMessagesPageRealtime(options: {
       socketRef.current = null;
       joinedRef.current = null;
       if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
+      if (sidebarDebounceTimerRef.current) {
+        clearTimeout(sidebarDebounceTimerRef.current);
+        sidebarDebounceTimerRef.current = null;
+      }
       Object.values(peerTimeoutsRef.current).forEach((t) => clearTimeout(t));
       peerTimeoutsRef.current = {};
       if (socket) {

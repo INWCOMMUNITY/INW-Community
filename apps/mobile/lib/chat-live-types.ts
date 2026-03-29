@@ -26,3 +26,9 @@ export function isLiveSocketMessagePayload(p: unknown): p is LiveSocketMessagePa
     typeof o.createdAt === "string"
   );
 }
+
+/** Matches web `messages/page.tsx` — pending row until API/socket confirms. */
+export const OPTIMISTIC_MSG_ID_PREFIX = "__optimistic__";
+export function newOptimisticMessageId(): string {
+  return `${OPTIMISTIC_MSG_ID_PREFIX}${Date.now()}`;
+}

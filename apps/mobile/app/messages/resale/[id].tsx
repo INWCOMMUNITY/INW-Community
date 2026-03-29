@@ -19,7 +19,11 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost, apiPostWithRetry } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
-import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import {
+  type LiveSocketMessagePayload,
+  OPTIMISTIC_MSG_ID_PREFIX,
+  newOptimisticMessageId,
+} from "@/lib/chat-live-types";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
@@ -89,10 +93,18 @@ export default function ResaleConversationScreen() {
     setConv((prev) => {
       if (!prev) return prev;
       if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      const messages = prev.messages.filter(
+        (m) =>
+          !(
+            m.id.startsWith(OPTIMISTIC_MSG_ID_PREFIX) &&
+            m.senderId === p.senderId &&
+            m.content === p.content
+          )
+      );
       return {
         ...prev,
         messages: [
-          ...prev.messages,
+          ...messages,
           {
             id: p.messageId,
             content: p.content,
@@ -224,35 +236,59 @@ export default function ResaleConversationScreen() {
   };
 
   const send = async () => {
-    if (!conv || !message.trim() || sending) return;
+    if (!conv || !message.trim() || sending || !member?.id) return;
+    const memberId = member.id;
     const text = message.trim();
+    const tempId = newOptimisticMessageId();
     stopComposerTyping();
     setMessage("");
+    const selfFirst = member.firstName ?? "You";
+    setConv((prev) =>
+      prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: tempId,
+                content: text,
+                createdAt: new Date().toISOString(),
+                senderId: memberId,
+                sender: { id: memberId, firstName: selfFirst, lastName: member.lastName ?? "" },
+              },
+            ],
+          }
+        : null
+    );
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
     setSending(true);
     try {
       const msg = await apiPostWithRetry<{ id: string; content: string; createdAt: string; senderId: string; sender: { firstName: string; lastName: string } }>(
         `/api/resale-conversations/${convId}`,
         { content: text }
       );
-      setConv((prev) =>
-        prev
-          ? {
-              ...prev,
-              messages: [
-                ...prev.messages,
-                {
-                  id: msg.id,
-                  content: msg.content,
-                  createdAt: msg.createdAt,
-                  senderId: msg.senderId,
-                  sender: msg.sender ? { id: msg.senderId, ...msg.sender } : undefined,
-                },
-              ],
-            }
-          : null
-      );
+      setConv((prev) => {
+        if (!prev) return null;
+        const rest = prev.messages.filter((m) => m.id !== tempId);
+        return {
+          ...prev,
+          messages: [
+            ...rest,
+            {
+              id: msg.id,
+              content: msg.content,
+              createdAt: msg.createdAt,
+              senderId: msg.senderId,
+              sender: msg.sender ? { ...msg.sender, id: msg.senderId } : undefined,
+            },
+          ],
+        };
+      });
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch {
+      setConv((prev) =>
+        prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) } : null
+      );
       setMessage(text);
     } finally {
       setSending(false);

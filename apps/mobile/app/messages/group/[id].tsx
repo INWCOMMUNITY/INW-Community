@@ -20,7 +20,11 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPostWithRetry, apiUploadFile } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
-import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import {
+  type LiveSocketMessagePayload,
+  OPTIMISTIC_MSG_ID_PREFIX,
+  newOptimisticMessageId,
+} from "@/lib/chat-live-types";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
@@ -122,10 +126,18 @@ export default function GroupConversationScreen() {
     setConv((prev) => {
       if (!prev) return prev;
       if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      const messages = prev.messages.filter(
+        (m) =>
+          !(
+            m.id.startsWith(OPTIMISTIC_MSG_ID_PREFIX) &&
+            m.senderId === p.senderId &&
+            m.content === p.content
+          )
+      );
       return {
         ...prev,
         messages: [
-          ...prev.messages,
+          ...messages,
           {
             id: p.messageId,
             content: p.content,
@@ -311,10 +323,35 @@ export default function GroupConversationScreen() {
   };
 
   const send = async () => {
-    if (!conv || !message.trim() || sending) return;
+    if (!conv || !message.trim() || sending || !member?.id) return;
     const text = message.trim();
+    const tempId = newOptimisticMessageId();
     stopComposerTyping();
     setMessage("");
+    const selfFirst = member.firstName ?? "You";
+    setConv((prev) =>
+      (prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: tempId,
+                content: text,
+                createdAt: new Date().toISOString(),
+                senderId: member.id,
+                sender: {
+                  id: member.id,
+                  firstName: selfFirst,
+                  lastName: member.lastName ?? "",
+                  profilePhotoUrl: member.profilePhotoUrl ?? null,
+                },
+              },
+            ],
+          }
+        : null) as GroupConversation | null
+    );
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
     setSending(true);
     try {
       const msg = await apiPostWithRetry<{
@@ -324,25 +361,28 @@ export default function GroupConversationScreen() {
         senderId: string;
         sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
       }>(`/api/group-conversations/${convId}`, { content: text });
-      setConv((prev) =>
-        (prev
-          ? {
-              ...prev,
-              messages: [
-                ...prev.messages,
-                {
-                  id: msg.id,
-                  content: msg.content,
-                  createdAt: msg.createdAt,
-                  senderId: msg.senderId,
-                  sender: msg.sender,
-                },
-              ],
-            }
-          : null) as GroupConversation | null
-      );
+      setConv((prev) => {
+        if (!prev) return null;
+        const rest = prev.messages.filter((m) => m.id !== tempId);
+        return {
+          ...prev,
+          messages: [
+            ...rest,
+            {
+              id: msg.id,
+              content: msg.content,
+              createdAt: msg.createdAt,
+              senderId: msg.senderId,
+              sender: msg.sender,
+            },
+          ],
+        };
+      });
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch {
+      setConv((prev) =>
+        (prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) } : null) as GroupConversation | null
+      );
       setMessage(text);
     } finally {
       setSending(false);

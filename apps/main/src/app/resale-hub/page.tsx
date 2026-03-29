@@ -42,7 +42,7 @@ export default async function ResaleHubPage() {
     { href: "/resale-hub/deliveries", label: "Deliveries", icon: "car-outline" as const, desc: "View and confirm local delivery orders. Mark as delivered when complete.", badge: false },
     { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" as const, desc: "View pickup orders. Mark as picked up when the buyer collects.", badge: false },
     { href: "/resale-hub/offers", label: "Offers", icon: "pricetag-outline" as const, desc: "Review and accept or decline offers from buyers.", badge: pendingOffersResaleCount > 0 },
-    { href: "/resale-hub/messages", label: "Messages", icon: "chatbubbles" as const, desc: "Chat with buyers about your listings.", badge: false },
+    { href: "/my-community/messages?tab=resale", label: "Messages", icon: "chatbubbles" as const, desc: "Chat with buyers about your listings.", badge: false },
     { href: "/resale-hub/cancellations", label: "Cancellations", icon: "close-circle" as const, desc: "Review canceled orders and next steps.", badge: false },
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" as const, desc: "Let buyers know when you are not shipping or fulfilling orders.", badge: false },
     { href: "/resale-hub/payouts", label: "Payouts", icon: "wallet" as const, desc: "View your balance and payout setup.", badge: false },

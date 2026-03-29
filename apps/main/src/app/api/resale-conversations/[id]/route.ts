@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { publishResaleConversationMessage } from "@/lib/realtime-publish";
+import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 import { isBlocked } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
@@ -131,7 +132,7 @@ export async function POST(
       lastName: message.sender.lastName,
     },
   };
-  await publishResaleConversationMessage(id, live);
+  scheduleRealtimePublish(publishResaleConversationMessage(id, live));
 
   return NextResponse.json(message);
 }

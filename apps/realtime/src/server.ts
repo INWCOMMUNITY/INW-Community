@@ -316,7 +316,6 @@ app.post("/internal/publish", (req, res) => {
     ["group:message", `group:${cid}`],
     ["resale:message", `resale:${cid}`],
     ["direct:read", `direct:${cid}`],
-    ["group:read", `group:${cid}`],
     ["resale:read", `resale:${cid}`],
   ];
   const eventByType: Record<string, string> = {
@@ -324,7 +323,6 @@ app.post("/internal/publish", (req, res) => {
     "group:message": "group:message",
     "resale:message": "resale:message",
     "direct:read": "direct:read",
-    "group:read": "group:read",
     "resale:read": "resale:read",
   };
   const t = body.type;

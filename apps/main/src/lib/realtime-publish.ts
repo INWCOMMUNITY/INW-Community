@@ -11,7 +11,6 @@ export type ChatPublishType =
   | "group:message"
   | "resale:message"
   | "direct:read"
-  | "group:read"
   | "resale:read";
 
 let publishDisabledDevWarned = false;

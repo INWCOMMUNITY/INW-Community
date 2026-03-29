@@ -97,6 +97,12 @@ function sharedContentLink(msg: { sharedContentType?: string | null; sharedConte
 
 const fetchOpts: RequestInit = { credentials: "include", cache: "no-store" };
 
+/** Pending row shown immediately on send; removed when the server/socket echoes the real message. */
+const OPTIMISTIC_MSG_ID_PREFIX = "__optimistic__";
+function newOptimisticMessageId(): string {
+  return `${OPTIMISTIC_MSG_ID_PREFIX}${Date.now()}`;
+}
+
 export default function MyCommunityMessagesPage() {
   const { data: session, status: sessionStatus } = useSession();
   const searchParams = useSearchParams();
@@ -173,10 +179,18 @@ export default function MyCommunityMessagesPage() {
     setOpenDirect((prev) => {
       if (!prev || prev.id !== p.conversationId) return prev;
       if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      const messages = prev.messages.filter(
+        (m) =>
+          !(
+            m.id.startsWith(OPTIMISTIC_MSG_ID_PREFIX) &&
+            m.senderId === p.senderId &&
+            m.content === p.content
+          )
+      );
       return {
         ...prev,
         messages: [
-          ...prev.messages,
+          ...messages,
           {
             id: p.messageId,
             content: p.content,
@@ -196,10 +210,18 @@ export default function MyCommunityMessagesPage() {
     setOpenGroup((prev) => {
       if (!prev || prev.id !== p.conversationId) return prev;
       if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      const messages = prev.messages.filter(
+        (m) =>
+          !(
+            m.id.startsWith(OPTIMISTIC_MSG_ID_PREFIX) &&
+            m.senderId === p.senderId &&
+            m.content === p.content
+          )
+      );
       return {
         ...prev,
         messages: [
-          ...prev.messages,
+          ...messages,
           {
             id: p.messageId,
             content: p.content,
@@ -225,10 +247,18 @@ export default function MyCommunityMessagesPage() {
     setOpenResale((prev) => {
       if (!prev || prev.id !== p.conversationId) return prev;
       if (prev.messages.some((m) => (m as { id?: string }).id === p.messageId)) return prev;
+      const messages = prev.messages.filter(
+        (m) =>
+          !(
+            String((m as { id?: string }).id ?? "").startsWith(OPTIMISTIC_MSG_ID_PREFIX) &&
+            m.senderId === p.senderId &&
+            m.content === p.content
+          )
+      );
       return {
         ...prev,
         messages: [
-          ...prev.messages,
+          ...messages,
           {
             id: p.messageId,
             content: p.content,
@@ -239,6 +269,37 @@ export default function MyCommunityMessagesPage() {
         ],
       };
     });
+  }, []);
+
+  const patchSidebarFromLive = useCallback((p: LiveSocketMessagePayload, channel: "direct" | "group" | "resale") => {
+    const row = {
+      id: p.messageId,
+      content: p.content,
+      createdAt: p.createdAt,
+      senderId: p.senderId,
+    };
+    const bump = <
+      C extends {
+        id: string;
+        messages: Array<{ id?: string; content: string; createdAt: string; senderId: string }>;
+      },
+    >(
+      prev: C[]
+    ): C[] =>
+      prev.map((c) => {
+        if (c.id !== p.conversationId) return c;
+        const tail = c.messages.filter((m) => m.id !== p.messageId);
+        return { ...c, messages: [row, ...tail] };
+      });
+
+    if (channel === "direct") {
+      setDirectConversations(bump);
+      setMessageRequests(bump);
+    } else if (channel === "group") {
+      setGroupConversations(bump);
+    } else {
+      setResaleConversations(bump);
+    }
   }, []);
 
   const load = useCallback(() => {
@@ -272,6 +333,7 @@ export default function MyCommunityMessagesPage() {
     refreshGroup: refreshOpenGroup,
     refreshResale: refreshOpenResale,
     refreshSidebar: load,
+    patchSidebarFromLive,
     applyLiveDirect,
     applyLiveGroup,
     applyLiveResale,
@@ -520,35 +582,68 @@ export default function MyCommunityMessagesPage() {
 
   async function sendResaleReply() {
     if (!openResale || !reply.trim()) return;
+    const text = reply.trim();
+    const tempId = newOptimisticMessageId();
+    const uid = session?.user?.id ?? "";
+    const selfFirst = session?.user?.name?.split(/\s+/)[0] ?? "You";
     stopComposerTyping();
+    setReply("");
+    setOpenResale((prev) =>
+      prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: tempId,
+                content: text,
+                createdAt: new Date().toISOString(),
+                senderId: uid,
+                sender: { id: uid, firstName: selfFirst, lastName: "" },
+              },
+            ],
+          }
+        : null
+    );
     setSending(true);
     try {
       const res = await fetchWithRetry(`/api/resale-conversations/${openResale.id}`, {
         ...fetchOpts,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: reply.trim() }),
+        body: JSON.stringify({ content: text }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.id) {
-        setReply("");
+        setOpenResale((prev) => {
+          if (!prev) return null;
+          const rest = prev.messages.filter((m) => (m as { id?: string }).id !== tempId);
+          return {
+            ...prev,
+            messages: [
+              ...rest,
+              {
+                id: data.id,
+                content: data.content ?? text,
+                createdAt: data.createdAt ?? new Date().toISOString(),
+                senderId: data.senderId ?? uid,
+                sender: data.sender ?? { id: uid, firstName: selfFirst, lastName: "" },
+              },
+            ],
+          };
+        });
+      } else {
         setOpenResale((prev) =>
-          prev
-            ? {
-                ...prev,
-                messages: [
-                  ...prev.messages,
-                  {
-                    content: reply.trim(),
-                    createdAt: data.createdAt ?? new Date().toISOString(),
-                    senderId: session?.user?.id,
-                    sender: { id: session?.user?.id ?? "", firstName: "You", lastName: "" },
-                  },
-                ],
-              }
-            : null
+          prev ? { ...prev, messages: prev.messages.filter((m) => (m as { id?: string }).id !== tempId) } : null
         );
+        setReply(text);
+        alert(data.error ?? "Failed to send");
       }
+    } catch {
+      setOpenResale((prev) =>
+        prev ? { ...prev, messages: prev.messages.filter((m) => (m as { id?: string }).id !== tempId) } : null
+      );
+      setReply(text);
     } finally {
       setSending(false);
     }
@@ -556,36 +651,78 @@ export default function MyCommunityMessagesPage() {
 
   async function sendDirectReply() {
     if (!openDirect || !reply.trim()) return;
+    const text = reply.trim();
+    const tempId = newOptimisticMessageId();
+    const uid = session?.user?.id ?? "";
+    const selfFirst = session?.user?.name?.split(/\s+/)[0] ?? "You";
     stopComposerTyping();
+    setReply("");
+    setOpenDirect((prev) =>
+      prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: tempId,
+                content: text,
+                createdAt: new Date().toISOString(),
+                senderId: uid,
+                sender: { id: uid, firstName: selfFirst, lastName: "" },
+              },
+            ],
+          }
+        : null
+    );
     setSending(true);
     try {
       const res = await fetchWithRetry(`/api/direct-conversations/${openDirect.id}`, {
         ...fetchOpts,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: reply.trim() }),
+        body: JSON.stringify({ content: text }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.id) {
-        setReply("");
+        setOpenDirect((prev) => {
+          if (!prev) return null;
+          const rest = prev.messages.filter((m) => m.id !== tempId);
+          const next: DirectConversation["messages"] = [
+            {
+              id: data.id,
+              content: data.content,
+              createdAt: data.createdAt ?? new Date().toISOString(),
+              senderId: uid,
+              sender: { id: uid, firstName: selfFirst, lastName: "" },
+            },
+          ];
+          if (data.botReply) {
+            next.push({
+              id: data.botReply.id,
+              content: data.botReply.content,
+              createdAt: data.botReply.createdAt,
+              senderId: data.botReply.senderId,
+              sender: data.botReply.sender ?? {
+                id: data.botReply.senderId,
+                firstName: "",
+                lastName: "",
+              },
+            });
+          }
+          return { ...prev, messages: [...rest, ...next] };
+        });
+      } else {
         setOpenDirect((prev) =>
-          prev
-            ? {
-                ...prev,
-                messages: [
-                  ...prev.messages,
-                  {
-                    id: data.id,
-                    content: data.content,
-                    createdAt: data.createdAt ?? new Date().toISOString(),
-                    senderId: session?.user?.id ?? "",
-                    sender: { id: session?.user?.id ?? "", firstName: "You", lastName: "" },
-                  },
-                ],
-              }
-            : null
+          prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) } : null
         );
+        setReply(text);
+        alert(data.error ?? "Failed to send");
       }
+    } catch {
+      setOpenDirect((prev) =>
+        prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) } : null
+      );
+      setReply(text);
     } finally {
       setSending(false);
     }
@@ -593,38 +730,68 @@ export default function MyCommunityMessagesPage() {
 
   async function sendGroupReply() {
     if (!openGroup || !reply.trim()) return;
+    const text = reply.trim();
+    const tempId = newOptimisticMessageId();
+    const uid = session?.user?.id ?? "";
+    const selfFirst = session?.user?.name?.split(/\s+/)[0] ?? "You";
     stopComposerTyping();
+    setReply("");
+    setOpenGroup((prev) =>
+      prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: tempId,
+                content: text,
+                createdAt: new Date().toISOString(),
+                senderId: uid,
+                sender: { id: uid, firstName: selfFirst, lastName: "" },
+              },
+            ],
+          }
+        : null
+    );
     setSending(true);
     try {
       const res = await fetchWithRetry(`/api/group-conversations/${openGroup.id}`, {
         ...fetchOpts,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: reply.trim() }),
+        body: JSON.stringify({ content: text }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.id) {
-        setReply("");
-        setOpenGroup((prev) =>
-          prev
-            ? {
-                ...prev,
-                messages: [
-                  ...prev.messages,
-                  {
-                    id: data.id,
-                    content: data.content ?? reply.trim(),
-                    createdAt: data.createdAt ?? new Date().toISOString(),
-                    senderId: session?.user?.id ?? "",
-                    sender: { id: session?.user?.id ?? "", firstName: "You", lastName: "" },
-                  },
-                ],
-              }
-            : null
-        );
+        setOpenGroup((prev) => {
+          if (!prev) return null;
+          const rest = prev.messages.filter((m) => m.id !== tempId);
+          return {
+            ...prev,
+            messages: [
+              ...rest,
+              {
+                id: data.id,
+                content: data.content ?? text,
+                createdAt: data.createdAt ?? new Date().toISOString(),
+                senderId: data.senderId ?? uid,
+                sender: data.sender ?? { id: uid, firstName: selfFirst, lastName: "" },
+              },
+            ],
+          };
+        });
       } else {
+        setOpenGroup((prev) =>
+          prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) } : null
+        );
+        setReply(text);
         alert(data.error ?? "Failed to send");
       }
+    } catch {
+      setOpenGroup((prev) =>
+        prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) } : null
+      );
+      setReply(text);
     } finally {
       setSending(false);
     }

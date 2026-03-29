@@ -19,7 +19,7 @@ const RESALE_HUB_ITEMS: NavItem[] = [
   { href: "/resale-hub/deliveries", label: "Deliveries" },
   { href: "/resale-hub/pickups", label: "Pickups" },
   { href: "/resale-hub/offers", label: "Offers" },
-  { href: "/resale-hub/messages", label: "Messages" },
+  { href: "/my-community/messages?tab=resale", label: "Messages" },
   { href: "/resale-hub/cancellations", label: "Cancellations" },
   { href: "/seller-hub/time-away", label: "Time Away" },
   { href: "/resale-hub/payouts", label: "Payouts" },
