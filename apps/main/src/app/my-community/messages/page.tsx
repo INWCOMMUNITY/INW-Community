@@ -21,8 +21,8 @@ interface ResaleConversation {
   buyerLastReadAt?: string | null;
   sellerLastReadAt?: string | null;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
-  buyer: { id: string; firstName: string; lastName: string };
-  seller: { id: string; firstName: string; lastName: string };
+  buyer: { id: string; firstName: string; lastName: string; profilePhotoUrl?: string | null };
+  seller: { id: string; firstName: string; lastName: string; profilePhotoUrl?: string | null };
   messages: { content: string; createdAt: string; senderId: string }[];
 }
 
@@ -129,8 +129,8 @@ export default function MyCommunityMessagesPage() {
     buyerLastReadAt?: string | null;
     sellerLastReadAt?: string | null;
     storeItem: { title: string; slug: string };
-    buyer: { id: string; firstName: string; lastName: string };
-    seller: { id: string; firstName: string; lastName: string };
+    buyer: { id: string; firstName: string; lastName: string; profilePhotoUrl?: string | null };
+    seller: { id: string; firstName: string; lastName: string; profilePhotoUrl?: string | null };
     messages: Array<{ content: string; createdAt: string; senderId?: string; sender?: { id: string; firstName: string; lastName: string } }>;
   } | null>(null);
   const [openDirect, setOpenDirect] = useState<DirectConversation | null>(null);
@@ -385,7 +385,7 @@ export default function MyCommunityMessagesPage() {
         return {
           id,
           name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member",
-          photoUrl: null,
+          photoUrl: m ? abs(m.profilePhotoUrl) : null,
         };
       });
     }
@@ -424,7 +424,7 @@ export default function MyCommunityMessagesPage() {
         const m =
           id === openResale.buyer.id ? openResale.buyer : id === openResale.seller.id ? openResale.seller : null;
         const name = m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member";
-        return { id, name, photoUrl: null };
+        return { id, name, photoUrl: m ? abs(m.profilePhotoUrl) : null };
       });
     }
     return [];

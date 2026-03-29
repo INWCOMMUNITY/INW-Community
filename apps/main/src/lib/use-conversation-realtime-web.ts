@@ -241,25 +241,43 @@ export function useMessagesPageRealtime(options: {
 
   useEffect(() => {
     if (!sessionUserId) return;
-    const base = getBrowserRealtimeUrl();
-    if (!base) {
-      if (typeof window !== "undefined") {
-        const prod = process.env.NODE_ENV === "production";
-        console.warn(
-          "[messages realtime] No Socket.IO URL." +
-            (prod
-              ? " Add NEXT_PUBLIC_REALTIME_URL on Vercel and redeploy (https://your-realtime-host, no trailing slash)."
-              : " Set NEXT_PUBLIC_REALTIME_URL or run realtime on port 3007.")
-        );
-      }
-      return;
-    }
 
     let cancelled = false;
     let socket: Socket | null = null;
     let managerReconnectHandler: (() => void) | null = null;
 
     void (async () => {
+      let base = getBrowserRealtimeUrl();
+      if (!base && typeof window !== "undefined") {
+        try {
+          const sur = await fetch("/api/realtime/socket-url", {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (sur.ok) {
+            const body = (await sur.json()) as { url?: string | null };
+            if (typeof body.url === "string" && body.url.trim()) {
+              base = normalizeSocketIoHttpUrl(body.url);
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!base) {
+        if (typeof window !== "undefined") {
+          const prod = process.env.NODE_ENV === "production";
+          console.warn(
+            "[messages realtime] No Socket.IO URL." +
+              (prod
+                ? " Set NEXT_PUBLIC_REALTIME_URL on Vercel, or ensure REALTIME_PUBLISH_URL is set (browser loads socket host from /api/realtime/socket-url)."
+                : " Set NEXT_PUBLIC_REALTIME_URL or run realtime on port 3007.")
+          );
+        }
+        return;
+      }
+      if (cancelled) return;
+
       const res = await fetch("/api/realtime/token", { credentials: "include" });
       if (cancelled) return;
       if (!res.ok) {

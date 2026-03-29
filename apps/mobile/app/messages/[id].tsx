@@ -256,13 +256,17 @@ export default function DirectConversationScreen() {
   const typingPeersResolved = useMemo((): ChatTypingPeer[] => {
     if (!conv || !member?.id || typingPeerIds.length === 0) return [];
     const other = conv.memberA.id === member.id ? conv.memberB : conv.memberA;
-    return typingPeerIds
-      .filter((tid) => tid === other.id)
-      .map(() => ({
-        id: other.id,
-        name: `${other.firstName ?? ""} ${other.lastName ?? ""}`.trim() || "Member",
-        photoUrl: resolvePhotoUrl(other.profilePhotoUrl ?? undefined) ?? null,
-      }));
+    const peerTyping = typingPeerIds.filter((tid) => tid && tid !== member.id);
+    if (peerTyping.length === 0) return [];
+    return peerTyping.map((tid) => {
+      const m =
+        conv.memberA.id === tid ? conv.memberA : conv.memberB.id === tid ? conv.memberB : other;
+      return {
+        id: tid,
+        name: `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member",
+        photoUrl: resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null,
+      };
+    });
   }, [conv, member?.id, typingPeerIds]);
 
   const chatPresencePeers = useMemo((): ChatTypingPeer[] => {

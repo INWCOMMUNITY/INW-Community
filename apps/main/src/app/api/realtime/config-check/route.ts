@@ -18,6 +18,6 @@ export async function GET(req: NextRequest) {
     ...status,
     publishPipelineLikelyWorks: publishPipelineLikelyWorks(),
     note:
-      "Mobile: set EXPO_PUBLIC_REALTIME_URL to match NEXT_PUBLIC_REALTIME_URL. Realtime service: set REDIS_URL when running multiple instances.",
+      "Web messages page uses NEXT_PUBLIC_REALTIME_URL, or REALTIME_PUBLISH_URL via GET /api/realtime/socket-url. Mobile: EXPO_PUBLIC_REALTIME_URL. Realtime: REDIS_URL if multiple instances.",
   });
 }

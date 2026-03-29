@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
-import { View, Image, Text, StyleSheet, Animated } from "react-native";
+import { View, Image, Text, StyleSheet, Animated, Platform } from "react-native";
 import { theme } from "@/lib/theme";
 
 export type ChatTypingPeer = { id: string; name: string; photoUrl: string | null };
 
 function BouncingDot({ delayMs }: { delayMs: number }) {
   const translateY = useRef(new Animated.Value(0)).current;
+  const useNativeDriver = Platform.OS !== "web";
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
@@ -13,18 +14,18 @@ function BouncingDot({ delayMs }: { delayMs: number }) {
           toValue: -5,
           duration: 380,
           delay: delayMs,
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(translateY, {
           toValue: 0,
           duration: 380,
-          useNativeDriver: true,
+          useNativeDriver,
         }),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [delayMs, translateY]);
+  }, [delayMs, translateY, useNativeDriver]);
   return (
     <Animated.View
       style={[

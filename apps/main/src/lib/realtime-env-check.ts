@@ -1,3 +1,5 @@
+import { resolvePublicRealtimeSocketUrl } from "@/lib/realtime-socket-url";
+
 /**
  * Non-secret flags for verifying live-chat env wiring (dev or admin-only API).
  */
@@ -7,6 +9,8 @@ export function getRealtimeEnvStatus(): {
   realtimePublishSecret: boolean;
   nextAuthSecretForDevFallback: boolean;
   vercel: boolean;
+  /** True if the site can tell the browser where Socket.IO lives (public var or publish URL fallback). */
+  socketUrlForBrowser: boolean;
 } {
   return {
     nextPublicRealtimeUrl: Boolean(process.env.NEXT_PUBLIC_REALTIME_URL?.trim()),
@@ -14,6 +18,7 @@ export function getRealtimeEnvStatus(): {
     realtimePublishSecret: Boolean(process.env.REALTIME_PUBLISH_SECRET?.trim()),
     nextAuthSecretForDevFallback: Boolean(process.env.NEXTAUTH_SECRET?.trim()),
     vercel: Boolean(process.env.VERCEL),
+    socketUrlForBrowser: Boolean(resolvePublicRealtimeSocketUrl()),
   };
 }
 

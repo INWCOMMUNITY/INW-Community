@@ -158,16 +158,19 @@ export default function ResaleConversationScreen() {
   );
 
   const typingPeersResolved = useMemo((): ChatTypingPeer[] => {
-    if (!conv || typingPeerIds.length === 0) return [];
-    return typingPeerIds.map((tid) => {
-      const m = tid === conv.buyer.id ? conv.buyer : tid === conv.seller.id ? conv.seller : null;
+    if (!conv || !member?.id || typingPeerIds.length === 0) return [];
+    const other = conv.buyer.id === member.id ? conv.seller : conv.buyer;
+    const peerTyping = typingPeerIds.filter((tid) => tid && tid !== member.id);
+    if (peerTyping.length === 0) return [];
+    return peerTyping.map((tid) => {
+      const m = tid === conv.buyer.id ? conv.buyer : tid === conv.seller.id ? conv.seller : other;
       return {
         id: tid,
-        name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member",
-        photoUrl: m ? resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null : null,
+        name: `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member",
+        photoUrl: resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null,
       };
     });
-  }, [conv, typingPeerIds]);
+  }, [conv, member?.id, typingPeerIds]);
 
   const chatPresencePeers = useMemo((): ChatTypingPeer[] => {
     if (!conv || peerPresenceIds.length === 0) return [];
