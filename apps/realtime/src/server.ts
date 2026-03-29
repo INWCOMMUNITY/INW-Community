@@ -82,12 +82,24 @@ function parseCorsOrigins(): string[] {
 
 const allowedOrigins = parseCorsOrigins();
 
-/** Production: allow NWC sites + opaque "null" origins (some native WebViews). Native apps often send no Origin — handled by !origin above. */
+function isVercelPreviewOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    return u.protocol === "https:" && u.hostname.endsWith(".vercel.app") && u.hostname.length > ".vercel.app".length;
+  } catch {
+    return false;
+  }
+}
+
+/** Production: allow NWC sites + Vercel previews + opaque "null" origins (some native WebViews). Native apps often send no Origin — handled by !origin above. */
 function corsAllowsOrigin(origin: string | undefined): boolean {
   if (!origin || origin === "null") return true;
   if (allowedOrigins.includes(origin)) return true;
   if (process.env.NODE_ENV !== "production") return true;
-  return /^https:\/\/([a-z0-9-]+\.)*inwcommunity\.com$/i.test(origin);
+  if (isVercelPreviewOrigin(origin)) return true;
+  if (/^https:\/\/([a-z0-9-]+\.)*inwcommunity\.com$/i.test(origin)) return true;
+  if (/^https:\/\/([a-z0-9-]+\.)*northwestcommunity\.com$/i.test(origin)) return true;
+  return false;
 }
 
 const app = express();

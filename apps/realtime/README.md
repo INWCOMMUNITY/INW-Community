@@ -60,3 +60,11 @@ Main app `.env`: `REALTIME_PUBLISH_URL=http://127.0.0.1:3007` and `REALTIME_PUBL
 ### Mobile / web: `connect_error invalid token`
 
 JWTs for Socket.IO are verified with `NEXTAUTH_SECRET`. That value must match the secret used by the Next.js app that issued the mobile Bearer token. In local dev, `pnpm dev:realtime` loads `NEXTAUTH_SECRET` from the monorepo root `.env` and, when present, from `apps/main/.env` and `apps/main/.env.local` (same order as Next). If you still see this error, confirm there is only one secret in play (no stale shell `export`) and restart both `dev:main` and `dev:realtime`.
+
+### Website: no live messages / typing / presence
+
+1. **Vercel:** Set `NEXT_PUBLIC_REALTIME_URL` (and publish vars) and **redeploy** so the client bundle includes the URL.
+2. Open the site, go to Messages, open DevTools **Console**. Look for `[messages realtime]` warnings (missing URL, token 401, etc.).
+3. **CORS:** Production allows `*.inwcommunity.com`, `*.northwestcommunity.com`, and `https://*.vercel.app`. Any other origin must be listed in `REALTIME_CORS_ORIGINS` on the realtime service (comma-separated).
+4. **HTTPS:** The page must use `https://` if the realtime URL is `https://` (mixed content blocks `ws:` from secure pages).
+5. **Socket.IO URL:** Use `https://…` in env (not `wss://`; the client normalizes either). No trailing slash.

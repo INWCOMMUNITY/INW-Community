@@ -18,6 +18,15 @@ function isPrivateOrLocalHost(h: string): boolean {
   return h.endsWith(".local");
 }
 
+/** Socket.IO client expects http(s) origin; env sometimes uses ws(s). Host-only values default to http (local). */
+function normalizeSocketIoHttpUrl(input: string): string {
+  const s = input.trim().replace(/\/+$/, "");
+  if (s.startsWith("wss://")) return `https://${s.slice(6)}`;
+  if (s.startsWith("ws://")) return `http://${s.slice(5)}`;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  return `http://${s}`;
+}
+
 /**
  * Realtime URL for the browser. Never use 127.0.0.1/localhost from env when the page is opened
  * at a LAN IP (Expo phone, another PC) — the socket would target the wrong machine.
@@ -28,8 +37,9 @@ function getBrowserRealtimeUrl(): string | null {
   const raw = process.env.NEXT_PUBLIC_REALTIME_URL?.trim().replace(/\/+$/, "");
 
   if (raw) {
+    const normalized = normalizeSocketIoHttpUrl(raw);
     try {
-      const url = new URL(raw.startsWith("http") ? raw : `http://${raw}`);
+      const url = new URL(normalized);
       const loopback =
         url.hostname === "127.0.0.1" ||
         url.hostname === "localhost" ||
@@ -44,9 +54,9 @@ function getBrowserRealtimeUrl(): string | null {
         return `${url.protocol}//${h}:${port}`;
       }
     } catch {
-      /* use raw */
+      /* use normalized */
     }
-    return raw;
+    return normalized;
   }
 
   if (process.env.NODE_ENV === "development" || isPrivateOrLocalHost(h)) {
@@ -217,7 +227,18 @@ export function useMessagesPageRealtime(options: {
   useEffect(() => {
     if (!sessionUserId) return;
     const base = getBrowserRealtimeUrl();
-    if (!base) return;
+    if (!base) {
+      if (typeof window !== "undefined") {
+        const prod = process.env.NODE_ENV === "production";
+        console.warn(
+          "[messages realtime] No Socket.IO URL." +
+            (prod
+              ? " Add NEXT_PUBLIC_REALTIME_URL on Vercel and redeploy (https://your-realtime-host, no trailing slash)."
+              : " Set NEXT_PUBLIC_REALTIME_URL or run realtime on port 3007.")
+        );
+      }
+      return;
+    }
 
     let cancelled = false;
     let socket: Socket | null = null;
@@ -225,9 +246,17 @@ export function useMessagesPageRealtime(options: {
 
     void (async () => {
       const res = await fetch("/api/realtime/token", { credentials: "include" });
-      if (!res.ok || cancelled) return;
+      if (cancelled) return;
+      if (!res.ok) {
+        console.warn("[messages realtime] /api/realtime/token failed:", res.status, res.statusText);
+        return;
+      }
       const data = (await res.json()) as { token?: string };
-      if (!data.token || cancelled) return;
+      if (!data.token) {
+        console.warn("[messages realtime] /api/realtime/token returned no token");
+        return;
+      }
+      if (cancelled) return;
 
       socket = io(base, {
         transports: ["websocket", "polling"],
