@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { publishResaleConversationMessage } from "@/lib/realtime-publish";
+import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 import { isBlocked } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
@@ -25,11 +26,11 @@ export async function GET(
     where: { id },
     include: {
       storeItem: { select: { id: true, title: true, slug: true } },
-      buyer: { select: { id: true, firstName: true, lastName: true } },
-      seller: { select: { id: true, firstName: true, lastName: true } },
+      buyer: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+      seller: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
       messages: {
         orderBy: { createdAt: "asc" },
-        include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+        include: { sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
       },
     },
   });
@@ -98,7 +99,7 @@ export async function POST(
       senderId: session.user.id,
       content: contentTrimmed,
     },
-    include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+    include: { sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
   });
 
   await prisma.resaleConversation.update({
@@ -129,9 +130,10 @@ export async function POST(
       id: message.sender.id,
       firstName: message.sender.firstName,
       lastName: message.sender.lastName,
+      profilePhotoUrl: message.sender.profilePhotoUrl,
     },
   };
-  void publishResaleConversationMessage(id, live);
+  scheduleRealtimePublish(publishResaleConversationMessage(id, live));
 
   return NextResponse.json(message);
 }

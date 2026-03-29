@@ -2,6 +2,15 @@ import { API_BASE } from "./api";
 
 let warnedMissingRealtimeUrl = false;
 
+/** Socket.IO expects http(s); env sometimes uses ws(s). */
+function normalizeSocketIoBaseUrl(input: string): string {
+  const s = input.trim().replace(/\/+$/, "");
+  if (s.startsWith("wss://")) return `https://${s.slice(6)}`;
+  if (s.startsWith("ws://")) return `http://${s.slice(5)}`;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  return `http://${s}`;
+}
+
 function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "[::1]";
 }
@@ -49,18 +58,20 @@ export function getDirectRealtimeUrl(): string | null {
         return `${u.protocol}//${apiHostname}:${port}`;
       }
     } catch {
-      /* use raw */
+      /* use normalized */
     }
-    return explicitRaw;
+    return normalizeSocketIoBaseUrl(explicitRaw);
   }
 
   try {
     const u = new URL(API_BASE);
     if (u.hostname === "www.inwcommunity.com" || u.hostname === "inwcommunity.com") {
-      if (typeof __DEV__ !== "undefined" && __DEV__ && !warnedMissingRealtimeUrl) {
+      if (!warnedMissingRealtimeUrl) {
         warnedMissingRealtimeUrl = true;
         console.warn(
-          "[chat] Set EXPO_PUBLIC_REALTIME_URL to your deployed Socket.IO origin (wss://…). Live messaging is disabled until then."
+          "[chat] EXPO_PUBLIC_REALTIME_URL is not set. Socket.IO (typing, presence, live messages) is disabled. " +
+            "Set it to the same value as NEXT_PUBLIC_REALTIME_URL on the main site, then restart Metro or create a new EAS build. " +
+            "EAS: add EXPO_PUBLIC_REALTIME_URL under build.env in eas.json or in EAS project environment variables."
         );
       }
       return null;

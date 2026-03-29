@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { publishDirectConversationMessage } from "@/lib/realtime-publish";
+import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 
 function liveDirectPayload(
@@ -14,7 +15,7 @@ function liveDirectPayload(
     sharedContentType?: string | null;
     sharedContentId?: string | null;
     sharedContentSlug?: string | null;
-    sender: { id: string; firstName: string; lastName: string };
+    sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   }
 ): LiveSocketMessagePayload {
   return {
@@ -23,7 +24,12 @@ function liveDirectPayload(
     senderId: m.senderId,
     content: m.content,
     createdAt: m.createdAt.toISOString(),
-    sender: m.sender,
+    sender: {
+      id: m.sender.id,
+      firstName: m.sender.firstName,
+      lastName: m.sender.lastName,
+      profilePhotoUrl: m.sender.profilePhotoUrl,
+    },
     sharedContentType: m.sharedContentType ?? null,
     sharedContentId: m.sharedContentId ?? null,
     sharedContentSlug: m.sharedContentSlug ?? null,
@@ -59,7 +65,7 @@ export async function GET(
         memberB: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
         messages: {
           orderBy: { createdAt: "asc" },
-          include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+          include: { sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
         },
       },
     });
@@ -221,7 +227,7 @@ export async function POST(
       sharedContentId: data.sharedContentId ?? null,
       sharedContentSlug: data.sharedContentSlug ?? null,
     },
-    include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+    include: { sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
   });
 
   try {
@@ -250,7 +256,13 @@ export async function POST(
   }).catch(() => {});
 
   // Test Friend bot: when you message testfriend@nwc.local, they auto-reply " :)"
-  let botReply: { id: string; content: string; createdAt: Date; senderId: string; sender: { id: string; firstName: string; lastName: string } } | null = null;
+  let botReply: {
+    id: string;
+    content: string;
+    createdAt: Date;
+    senderId: string;
+    sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
+  } | null = null;
   const testFriend = await prisma.member.findUnique({
     where: { email: "testfriend@nwc.local" },
     select: { id: true },
@@ -262,7 +274,7 @@ export async function POST(
         senderId: testFriend.id,
         content: " :)",
       },
-      include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+      include: { sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
     });
     botReply = reply;
     try {
@@ -279,9 +291,9 @@ export async function POST(
     }
   }
 
-  void publishDirectConversationMessage(id, liveDirectPayload(id, message));
+  scheduleRealtimePublish(publishDirectConversationMessage(id, liveDirectPayload(id, message)));
   if (botReply) {
-    void publishDirectConversationMessage(id, liveDirectPayload(id, botReply));
+    scheduleRealtimePublish(publishDirectConversationMessage(id, liveDirectPayload(id, botReply)));
   }
 
   return NextResponse.json(botReply ? { ...message, botReply } : message);

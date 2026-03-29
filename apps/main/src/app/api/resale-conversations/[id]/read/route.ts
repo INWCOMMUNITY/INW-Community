@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { publishResaleConversationRead } from "@/lib/realtime-publish";
+import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import { isBlocked } from "@/lib/member-block";
 
 /**
@@ -56,7 +57,7 @@ export async function PATCH(
     throw e;
   }
 
-  void publishResaleConversationRead(id, session.user.id);
+  scheduleRealtimePublish(publishResaleConversationRead(id, session.user.id));
 
   return NextResponse.json({ ok: true });
 }

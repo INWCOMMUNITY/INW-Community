@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { publishDirectConversationRead } from "@/lib/realtime-publish";
+import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import { isBlocked } from "@/lib/member-block";
 
 /**
@@ -59,7 +60,7 @@ export async function PATCH(
     throw e;
   }
 
-  void publishDirectConversationRead(id, session.user.id);
+  scheduleRealtimePublish(publishDirectConversationRead(id, session.user.id));
 
   return NextResponse.json({ ok: true });
 }

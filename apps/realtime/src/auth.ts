@@ -12,13 +12,17 @@ function getSecret(): Uint8Array {
 /** Resolve member id from mobile session JWT or short-lived realtime socket token. */
 export async function verifySocketAuthToken(token: string): Promise<string | null> {
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getSecret(), {
+      clockTolerance: 120,
+    });
     const iss = String(payload.iss ?? "");
     if (iss === JWT_ISSUER_REALTIME && typeof payload.sub === "string" && payload.sub) {
       return payload.sub;
     }
     if (iss === JWT_ISSUER_MOBILE) {
-      const id = payload.id as string | undefined;
+      const id =
+        (payload.id as string | undefined) ||
+        (typeof payload.sub === "string" ? payload.sub : undefined);
       if (id) return id;
     }
     return null;

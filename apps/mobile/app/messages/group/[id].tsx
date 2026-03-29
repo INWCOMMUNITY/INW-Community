@@ -20,8 +20,13 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPostWithRetry, apiUploadFile } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
-import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import {
+  type LiveSocketMessagePayload,
+  OPTIMISTIC_MSG_ID_PREFIX,
+  newOptimisticMessageId,
+} from "@/lib/chat-live-types";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
+import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
 
@@ -64,6 +69,7 @@ export default function GroupConversationScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [listRefreshing, setListRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
@@ -79,6 +85,20 @@ export default function GroupConversationScreen() {
       setLoading(false);
     }
   }, [convId]);
+
+  const onListRefresh = useCallback(async () => {
+    setListRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setListRefreshing(false);
+    }
+  }, [load]);
+
+  const { onScroll: onBottomPullScroll, scrollEventThrottle } = useChatBottomPullRefresh(
+    onListRefresh,
+    listRefreshing
+  );
 
   const loadMore = useCallback(async () => {
     if (!convId || !nextCursor || loadingMore) return;
@@ -122,10 +142,18 @@ export default function GroupConversationScreen() {
     setConv((prev) => {
       if (!prev) return prev;
       if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      const messages = prev.messages.filter(
+        (m) =>
+          !(
+            m.id.startsWith(OPTIMISTIC_MSG_ID_PREFIX) &&
+            m.senderId === p.senderId &&
+            m.content === p.content
+          )
+      );
       return {
         ...prev,
         messages: [
-          ...prev.messages,
+          ...messages,
           {
             id: p.messageId,
             content: p.content,
@@ -311,10 +339,35 @@ export default function GroupConversationScreen() {
   };
 
   const send = async () => {
-    if (!conv || !message.trim() || sending) return;
+    if (!conv || !message.trim() || sending || !member?.id) return;
     const text = message.trim();
+    const tempId = newOptimisticMessageId();
     stopComposerTyping();
     setMessage("");
+    const selfFirst = member.firstName ?? "You";
+    setConv((prev) =>
+      (prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: tempId,
+                content: text,
+                createdAt: new Date().toISOString(),
+                senderId: member.id,
+                sender: {
+                  id: member.id,
+                  firstName: selfFirst,
+                  lastName: member.lastName ?? "",
+                  profilePhotoUrl: member.profilePhotoUrl ?? null,
+                },
+              },
+            ],
+          }
+        : null) as GroupConversation | null
+    );
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
     setSending(true);
     try {
       const msg = await apiPostWithRetry<{
@@ -324,25 +377,28 @@ export default function GroupConversationScreen() {
         senderId: string;
         sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
       }>(`/api/group-conversations/${convId}`, { content: text });
-      setConv((prev) =>
-        (prev
-          ? {
-              ...prev,
-              messages: [
-                ...prev.messages,
-                {
-                  id: msg.id,
-                  content: msg.content,
-                  createdAt: msg.createdAt,
-                  senderId: msg.senderId,
-                  sender: msg.sender,
-                },
-              ],
-            }
-          : null) as GroupConversation | null
-      );
+      setConv((prev) => {
+        if (!prev) return null;
+        const rest = prev.messages.filter((m) => m.id !== tempId);
+        return {
+          ...prev,
+          messages: [
+            ...rest,
+            {
+              id: msg.id,
+              content: msg.content,
+              createdAt: msg.createdAt,
+              senderId: msg.senderId,
+              sender: msg.sender,
+            },
+          ],
+        };
+      });
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch {
+      setConv((prev) =>
+        (prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) } : null) as GroupConversation | null
+      );
       setMessage(text);
     } finally {
       setSending(false);
@@ -409,7 +465,12 @@ export default function GroupConversationScreen() {
       <FlatList
         ref={flatListRef}
         data={conv.messages ?? []}
+        extraData={conv.messages?.length ?? 0}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
+        onScroll={onBottomPullScroll}
+        scrollEventThrottle={scrollEventThrottle}
+        bounces
+        overScrollMode="always"
         onEndReached={() => void loadMore()}
         onEndReachedThreshold={0.3}
         ListFooterComponent={
@@ -449,6 +510,12 @@ export default function GroupConversationScreen() {
           );
         }}
       />
+
+      {listRefreshing ? (
+        <View style={styles.chatRefreshingStrip} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+        </View>
+      ) : null}
 
       <View style={styles.inputRow}>
         <Pressable
@@ -511,9 +578,16 @@ const styles = StyleSheet.create({
   menuItemText: { fontSize: 16, color: theme.colors.heading },
   loadMorePad: { paddingVertical: 16, alignItems: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  messageList: { padding: 16, paddingBottom: 8 },
+  messageList: { padding: 16, paddingBottom: 8, flexGrow: 1, justifyContent: "flex-end" },
   bubbleWrap: { marginBottom: 12, alignItems: "flex-start" },
   bubbleWrapMe: { alignItems: "flex-end" },
+  chatRefreshingStrip: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(0,0,0,0.1)",
+    paddingVertical: 8,
+    alignItems: "center",
+    backgroundColor: "#fafafa",
+  },
   senderLabel: {
     fontSize: 12,
     color: theme.colors.placeholder,

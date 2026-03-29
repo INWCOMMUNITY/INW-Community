@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FlatList } from "react-native";
+import { Platform, type FlatList } from "react-native";
 import { io, type Socket } from "socket.io-client";
-import { getToken } from "./api";
+import { apiGet, getToken } from "./api";
 import { getDirectRealtimeUrl } from "./direct-realtime";
 import { isLiveSocketMessagePayload, type LiveSocketMessagePayload } from "./chat-live-types";
 
@@ -104,15 +104,33 @@ export function useMobileChatRealtime(
     const cfg = RT[kind];
     let cancelled = false;
     let socket: Socket | null = null;
+    /** Same ref as connect + reconnect handlers — needed for cleanup `off`. */
+    let emitJoinHandler: (() => void) | null = null;
 
     void (async () => {
       const token = await getToken();
-      if (!token || cancelled) return;
+      const trimmed = token?.trim();
+      if (!trimmed || cancelled) return;
+      /** Same as web: short-lived `nwc-realtime` JWT. Raw mobile JWT can fail verify on the socket server (issuer/exp skew). */
+      let socketAuth = trimmed;
+      try {
+        const { token: rt } = await apiGet<{ token: string }>("/api/realtime/token");
+        if (typeof rt === "string" && rt.length > 0) socketAuth = rt;
+      } catch {
+        /* fall back to mobile Bearer — may work for local dev */
+      }
+      if (cancelled) return;
+      // RN WebSockets often fail first with a generic "websocket error" (TLS/proxy/Railway) while
+      // Engine.IO polling over HTTPS works. Web tries websocket first for lower latency.
+      const transports =
+        Platform.OS === "web" ? (["websocket", "polling"] as const) : (["polling", "websocket"] as const);
       socket = io(url, {
-        transports: ["websocket", "polling"],
-        auth: { token },
+        transports: [...transports],
+        auth: { token: socketAuth },
         reconnection: true,
         reconnectionAttempts: 8,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 10000,
       });
       socketRef.current = socket;
 
@@ -121,13 +139,33 @@ export function useMobileChatRealtime(
         if (!cid || !socket?.connected) return;
         setPeerPresenceIds([]);
         socket.emit(cfg.join, cid, (err?: string) => {
-          if (err) console.warn(`[${kind} realtime] join:`, err);
+          if (err) {
+            console.warn(`[${kind} realtime] join failed:`, err);
+            return;
+          }
+          if (typeof __DEV__ !== "undefined" && __DEV__) {
+            console.log(`[${kind} realtime] joined conversation (typing & presence active)`);
+          }
         });
       };
+      emitJoinHandler = emitJoin;
 
-      socket.on("connect", emitJoin);
+      let lastConnectErrorLog = 0;
+      socket.on("connect", () => {
+        if (typeof __DEV__ !== "undefined" && __DEV__) {
+          const name = socket?.io.engine?.transport?.name;
+          if (name) console.log(`[${kind} realtime] connected (${name})`);
+        }
+        emitJoin();
+      });
+      socket.io.on("reconnect", emitJoin);
       socket.on("connect_error", (err) => {
-        console.warn(`[${kind} realtime] connect_error`, (err as Error)?.message ?? err);
+        const now = Date.now();
+        if (now - lastConnectErrorLog < 12_000) return;
+        lastConnectErrorLog = now;
+        const e = err as Error & { description?: string; context?: unknown };
+        const detail = [e.message, e.description].filter(Boolean).join(" — ");
+        console.warn(`[${kind} realtime] connect_error`, detail || err);
       });
 
       socket.on(cfg.msgListen, (payload: unknown) => {
@@ -140,7 +178,12 @@ export function useMobileChatRealtime(
         ) {
           onLiveMessageRef.current(payload);
           const fl = flatListRefHolder.current?.current;
-          setTimeout(() => fl?.scrollToEnd({ animated: true }), 120);
+          const scrollEnd = () => fl?.scrollToEnd({ animated: true });
+          requestAnimationFrame(() => {
+            scrollEnd();
+            setTimeout(scrollEnd, 80);
+            setTimeout(() => fl?.scrollToEnd({ animated: false }), 280);
+          });
           return;
         }
         const convId =
@@ -154,11 +197,13 @@ export function useMobileChatRealtime(
         });
       });
 
-      socket.on(cfg.readListen, (payload: { conversationId?: string } | undefined) => {
-        const cid = conversationIdRef.current;
-        if (payload?.conversationId && cid && payload.conversationId !== cid) return;
-        void loadRef.current();
-      });
+      if (kind !== "group") {
+        socket.on(cfg.readListen, (payload: { conversationId?: string } | undefined) => {
+          const cid = conversationIdRef.current;
+          if (payload?.conversationId && cid && payload.conversationId !== cid) return;
+          void loadRef.current();
+        });
+      }
 
       socket.on(cfg.typingListen, (data: { memberId?: string; active?: boolean }) => {
         if (!data?.memberId || data.memberId === memberIdRef.current) return;
@@ -207,7 +252,13 @@ export function useMobileChatRealtime(
       peerTimeoutsRef.current = {};
       if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
       if (socket) {
-        socket.emit(cfg.leave, conversationId);
+        const leaveId = conversationIdRef.current;
+        if (leaveId) {
+          socket.emit(cfg.leave, leaveId);
+        }
+        if (emitJoinHandler) {
+          socket.io.off("reconnect", emitJoinHandler);
+        }
         socket.removeAllListeners();
         socket.disconnect();
       }

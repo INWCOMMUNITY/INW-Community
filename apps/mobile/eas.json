@@ -8,19 +8,22 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://www.inwcommunity.com"
+        "EXPO_PUBLIC_API_URL": "https://www.inwcommunity.com",
+        "EXPO_PUBLIC_REALTIME_URL": "https://inw-community-production.up.railway.app"
       }
     },
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://www.inwcommunity.com"
+        "EXPO_PUBLIC_API_URL": "https://www.inwcommunity.com",
+        "EXPO_PUBLIC_REALTIME_URL": "https://inw-community-production.up.railway.app"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://www.inwcommunity.com"
+        "EXPO_PUBLIC_API_URL": "https://www.inwcommunity.com",
+        "EXPO_PUBLIC_REALTIME_URL": "https://inw-community-production.up.railway.app"
       }
     }
   },

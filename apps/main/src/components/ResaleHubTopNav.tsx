@@ -32,7 +32,7 @@ const storefrontChildren: Child[] = [
   { href: "/resale-hub/deliveries", label: "Deliveries", icon: "car-outline" },
   { href: "/resale-hub/pickups", label: "Pickups", icon: "hand-left-outline" },
   { href: "/resale-hub/offers", label: "Offers", icon: "pricetag-outline" },
-  { href: "/resale-hub/messages", label: "Messages", icon: "chatbubbles-outline" },
+  { href: "/my-community/messages?tab=resale", label: "Messages", icon: "chatbubbles-outline" },
   { href: "/resale-hub/cancellations", label: "Cancellations", icon: "close-circle-outline" },
   { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
   { href: "/resale-hub/payouts", label: "Payouts", icon: "wallet-outline" },

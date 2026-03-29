@@ -18,6 +18,15 @@ function isPrivateOrLocalHost(h: string): boolean {
   return h.endsWith(".local");
 }
 
+/** Socket.IO client expects http(s) origin; env sometimes uses ws(s). Host-only values default to http (local). */
+function normalizeSocketIoHttpUrl(input: string): string {
+  const s = input.trim().replace(/\/+$/, "");
+  if (s.startsWith("wss://")) return `https://${s.slice(6)}`;
+  if (s.startsWith("ws://")) return `http://${s.slice(5)}`;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  return `http://${s}`;
+}
+
 /**
  * Realtime URL for the browser. Never use 127.0.0.1/localhost from env when the page is opened
  * at a LAN IP (Expo phone, another PC) — the socket would target the wrong machine.
@@ -28,8 +37,9 @@ function getBrowserRealtimeUrl(): string | null {
   const raw = process.env.NEXT_PUBLIC_REALTIME_URL?.trim().replace(/\/+$/, "");
 
   if (raw) {
+    const normalized = normalizeSocketIoHttpUrl(raw);
     try {
-      const url = new URL(raw.startsWith("http") ? raw : `http://${raw}`);
+      const url = new URL(normalized);
       const loopback =
         url.hostname === "127.0.0.1" ||
         url.hostname === "localhost" ||
@@ -44,9 +54,9 @@ function getBrowserRealtimeUrl(): string | null {
         return `${url.protocol}//${h}:${port}`;
       }
     } catch {
-      /* use raw */
+      /* use normalized */
     }
-    return raw;
+    return normalized;
   }
 
   if (process.env.NODE_ENV === "development" || isPrivateOrLocalHost(h)) {
@@ -115,6 +125,8 @@ export function useMessagesPageRealtime(options: {
   refreshResale: () => void;
   /** Refetch conversation lists (sidebar) when any thread gets activity */
   refreshSidebar?: () => void;
+  /** Update sidebar row preview without full list fetch when a live message is applied to the open thread. */
+  patchSidebarFromLive?: (p: LiveSocketMessagePayload, channel: "direct" | "group" | "resale") => void;
   /** Append incoming message instantly when server sends a live payload (same thread only). */
   applyLiveDirect?: (p: LiveSocketMessagePayload) => void;
   applyLiveGroup?: (p: LiveSocketMessagePayload) => void;
@@ -136,6 +148,7 @@ export function useMessagesPageRealtime(options: {
     refreshGroup,
     refreshResale,
     refreshSidebar,
+    patchSidebarFromLive,
     applyLiveDirect,
     applyLiveGroup,
     applyLiveResale,
@@ -164,6 +177,9 @@ export function useMessagesPageRealtime(options: {
   refreshResaleRef.current = refreshResale;
   refreshSidebarRef.current = refreshSidebar;
 
+  const patchSidebarFromLiveRef = useRef(patchSidebarFromLive);
+  patchSidebarFromLiveRef.current = patchSidebarFromLive;
+
   const applyLiveDirectRef = useRef(applyLiveDirect);
   const applyLiveGroupRef = useRef(applyLiveGroup);
   const applyLiveResaleRef = useRef(applyLiveResale);
@@ -183,6 +199,7 @@ export function useMessagesPageRealtime(options: {
 
   const typingIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peerTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const sidebarDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const typingPeerIds = useMemo(() => {
     const self = sessionUserId;
@@ -205,9 +222,17 @@ export function useMessagesPageRealtime(options: {
     }
     if (cur && sock.connected) {
       sock.emit(joinEvent(cur.kind), cur.id, (err?: string) => {
-        if (err) console.warn("[messages realtime] join failed:", err);
+        if (err) {
+          console.warn("[messages realtime] join failed:", err);
+          return;
+        }
+        if (
+          activeThreadRef.current?.kind === cur.kind &&
+          activeThreadRef.current?.id === cur.id
+        ) {
+          joinedRef.current = cur;
+        }
       });
-      joinedRef.current = cur;
     }
     setTypingMemberIds([]);
     Object.values(peerTimeoutsRef.current).forEach((t) => clearTimeout(t));
@@ -216,18 +241,55 @@ export function useMessagesPageRealtime(options: {
 
   useEffect(() => {
     if (!sessionUserId) return;
-    const base = getBrowserRealtimeUrl();
-    if (!base) return;
 
     let cancelled = false;
     let socket: Socket | null = null;
     let managerReconnectHandler: (() => void) | null = null;
 
     void (async () => {
+      let base = getBrowserRealtimeUrl();
+      if (!base && typeof window !== "undefined") {
+        try {
+          const sur = await fetch("/api/realtime/socket-url", {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (sur.ok) {
+            const body = (await sur.json()) as { url?: string | null };
+            if (typeof body.url === "string" && body.url.trim()) {
+              base = normalizeSocketIoHttpUrl(body.url);
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!base) {
+        if (typeof window !== "undefined") {
+          const prod = process.env.NODE_ENV === "production";
+          console.warn(
+            "[messages realtime] No Socket.IO URL." +
+              (prod
+                ? " Set NEXT_PUBLIC_REALTIME_URL on Vercel, or ensure REALTIME_PUBLISH_URL is set (browser loads socket host from /api/realtime/socket-url)."
+                : " Set NEXT_PUBLIC_REALTIME_URL or run realtime on port 3007.")
+          );
+        }
+        return;
+      }
+      if (cancelled) return;
+
       const res = await fetch("/api/realtime/token", { credentials: "include" });
-      if (!res.ok || cancelled) return;
+      if (cancelled) return;
+      if (!res.ok) {
+        console.warn("[messages realtime] /api/realtime/token failed:", res.status, res.statusText);
+        return;
+      }
       const data = (await res.json()) as { token?: string };
-      if (!data.token || cancelled) return;
+      if (!data.token) {
+        console.warn("[messages realtime] /api/realtime/token returned no token");
+        return;
+      }
+      if (cancelled) return;
 
       socket = io(base, {
         transports: ["websocket", "polling"],
@@ -293,8 +355,16 @@ export function useMessagesPageRealtime(options: {
         console.warn("[messages realtime] connect_error", err?.message ?? err);
       });
 
+      const scheduleSidebarRefresh = () => {
+        if (!refreshSidebarRef.current) return;
+        if (sidebarDebounceTimerRef.current) clearTimeout(sidebarDebounceTimerRef.current);
+        sidebarDebounceTimerRef.current = setTimeout(() => {
+          sidebarDebounceTimerRef.current = null;
+          refreshSidebarRef.current?.();
+        }, 320);
+      };
+
       const onDirectMessage = (p: unknown) => {
-        refreshSidebarRef.current?.();
         const cid = directIdRef.current;
         if (
           cid &&
@@ -303,8 +373,10 @@ export function useMessagesPageRealtime(options: {
           applyLiveDirectRef.current
         ) {
           applyLiveDirectRef.current(p);
+          patchSidebarFromLiveRef.current?.(p, "direct");
           return;
         }
+        scheduleSidebarRefresh();
         const convId =
           p && typeof p === "object" && typeof (p as { conversationId?: string }).conversationId === "string"
             ? (p as { conversationId: string }).conversationId
@@ -314,7 +386,6 @@ export function useMessagesPageRealtime(options: {
         }
       };
       const onGroupMessage = (p: unknown) => {
-        refreshSidebarRef.current?.();
         const gid = groupIdRef.current;
         if (
           gid &&
@@ -323,8 +394,10 @@ export function useMessagesPageRealtime(options: {
           applyLiveGroupRef.current
         ) {
           applyLiveGroupRef.current(p);
+          patchSidebarFromLiveRef.current?.(p, "group");
           return;
         }
+        scheduleSidebarRefresh();
         const convId =
           p && typeof p === "object" && typeof (p as { conversationId?: string }).conversationId === "string"
             ? (p as { conversationId: string }).conversationId
@@ -334,7 +407,6 @@ export function useMessagesPageRealtime(options: {
         }
       };
       const onResaleMessage = (p: unknown) => {
-        refreshSidebarRef.current?.();
         const rid = resaleIdRef.current;
         if (
           rid &&
@@ -343,8 +415,10 @@ export function useMessagesPageRealtime(options: {
           applyLiveResaleRef.current
         ) {
           applyLiveResaleRef.current(p);
+          patchSidebarFromLiveRef.current?.(p, "resale");
           return;
         }
+        scheduleSidebarRefresh();
         const convId =
           p && typeof p === "object" && typeof (p as { conversationId?: string }).conversationId === "string"
             ? (p as { conversationId: string }).conversationId
@@ -355,20 +429,22 @@ export function useMessagesPageRealtime(options: {
       };
 
       const onDirectRead = (p: { conversationId?: string }) => {
-        refreshSidebarRef.current?.();
-        if (!p?.conversationId || p.conversationId === directIdRef.current) {
+        const open = directIdRef.current;
+        const target = p?.conversationId;
+        if (!(target && open && target === open)) {
+          scheduleSidebarRefresh();
+        }
+        if (!target || target === open) {
           refreshDirectRef.current();
         }
       };
-      const onGroupRead = (p: { conversationId?: string }) => {
-        refreshSidebarRef.current?.();
-        if (!p?.conversationId || p.conversationId === groupIdRef.current) {
-          refreshGroupRef.current();
-        }
-      };
       const onResaleRead = (p: { conversationId?: string }) => {
-        refreshSidebarRef.current?.();
-        if (!p?.conversationId || p.conversationId === resaleIdRef.current) {
+        const open = resaleIdRef.current;
+        const target = p?.conversationId;
+        if (!(target && open && target === open)) {
+          scheduleSidebarRefresh();
+        }
+        if (!target || target === open) {
           refreshResaleRef.current();
         }
       };
@@ -378,7 +454,6 @@ export function useMessagesPageRealtime(options: {
       socket.on("resale:message", onResaleMessage);
 
       socket.on("direct:read", onDirectRead);
-      socket.on("group:read", onGroupRead);
       socket.on("resale:read", onResaleRead);
 
       socket.on("direct:typing", onTyping);
@@ -414,6 +489,10 @@ export function useMessagesPageRealtime(options: {
       socketRef.current = null;
       joinedRef.current = null;
       if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
+      if (sidebarDebounceTimerRef.current) {
+        clearTimeout(sidebarDebounceTimerRef.current);
+        sidebarDebounceTimerRef.current = null;
+      }
       Object.values(peerTimeoutsRef.current).forEach((t) => clearTimeout(t));
       peerTimeoutsRef.current = {};
       if (socket) {

@@ -28,6 +28,7 @@ The app uses **EXPO_PUBLIC_*** variables (baked in at build time). No `.env` is 
 
    ```env
    EXPO_PUBLIC_API_URL="https://www.inwcommunity.com"
+   EXPO_PUBLIC_REALTIME_URL="https://your-realtime.up.railway.app"
    EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_live_..."
    ```
 
@@ -43,7 +44,10 @@ For **EAS Build** (Expo Application Services), env is **not** read from your loc
 Add at least:
 
 - `EXPO_PUBLIC_API_URL` = `https://www.inwcommunity.com`
+- **`EXPO_PUBLIC_REALTIME_URL`** = same origin as **`NEXT_PUBLIC_REALTIME_URL`** on Vercel (your Socket.IO / Railway URL, e.g. `https://your-service.up.railway.app`, no trailing slash). Without this, **typing, presence, and live message delivery do not work** in the app; REST + push may still work.
 - `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` = your `pk_live_...` (same as main site)
+
+`eas.json` in this repo sets `EXPO_PUBLIC_REALTIME_URL` for cloud builds; change it if your realtime host differs, or override via EAS Dashboard → Environment variables.
 
 Then run your iOS build; the new build will use those values.
 

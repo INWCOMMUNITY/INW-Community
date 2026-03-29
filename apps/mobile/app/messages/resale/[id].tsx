@@ -6,6 +6,7 @@ import {
   FlatList,
   TextInput,
   Pressable,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
@@ -19,24 +20,37 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost, apiPostWithRetry } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
-import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import {
+  type LiveSocketMessagePayload,
+  OPTIMISTIC_MSG_ID_PREFIX,
+  newOptimisticMessageId,
+} from "@/lib/chat-live-types";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
+import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
+const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+function resolvePhotoUrl(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
 
 interface ResaleConversation {
   id: string;
   buyerLastReadAt?: string | null;
   sellerLastReadAt?: string | null;
   storeItem: { id: string; title: string; slug: string };
-  buyer: { id: string; firstName: string; lastName: string };
-  seller: { id: string; firstName: string; lastName: string };
+  buyer: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
+  seller: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   messages: Array<{
     id: string;
     content: string;
     createdAt: string;
     senderId: string;
-    sender?: { id: string; firstName: string; lastName: string };
+    sender?: { id: string; firstName: string; lastName: string; profilePhotoUrl?: string | null };
   }>;
 }
 
@@ -50,6 +64,7 @@ export default function ResaleConversationScreen() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [listRefreshing, setListRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
@@ -66,6 +81,20 @@ export default function ResaleConversationScreen() {
       setLoading(false);
     }
   }, [convId]);
+
+  const onListRefresh = useCallback(async () => {
+    setListRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setListRefreshing(false);
+    }
+  }, [load]);
+
+  const { onScroll: onBottomPullScroll, scrollEventThrottle } = useChatBottomPullRefresh(
+    onListRefresh,
+    listRefreshing
+  );
 
   useEffect(() => {
     if (!convId) {
@@ -89,16 +118,31 @@ export default function ResaleConversationScreen() {
     setConv((prev) => {
       if (!prev) return prev;
       if (prev.messages.some((m) => m.id === p.messageId)) return prev;
+      const messages = prev.messages.filter(
+        (m) =>
+          !(
+            m.id.startsWith(OPTIMISTIC_MSG_ID_PREFIX) &&
+            m.senderId === p.senderId &&
+            m.content === p.content
+          )
+      );
       return {
         ...prev,
         messages: [
-          ...prev.messages,
+          ...messages,
           {
             id: p.messageId,
             content: p.content,
             createdAt: p.createdAt,
             senderId: p.senderId,
-            sender: p.sender ?? { id: p.senderId, firstName: "", lastName: "" },
+            sender: p.sender
+              ? {
+                  id: p.sender.id,
+                  firstName: p.sender.firstName,
+                  lastName: p.sender.lastName,
+                  profilePhotoUrl: p.sender.profilePhotoUrl ?? null,
+                }
+              : { id: p.senderId, firstName: "", lastName: "", profilePhotoUrl: null },
           },
         ],
       };
@@ -114,16 +158,19 @@ export default function ResaleConversationScreen() {
   );
 
   const typingPeersResolved = useMemo((): ChatTypingPeer[] => {
-    if (!conv || typingPeerIds.length === 0) return [];
-    return typingPeerIds.map((tid) => {
-      const m = tid === conv.buyer.id ? conv.buyer : tid === conv.seller.id ? conv.seller : null;
+    if (!conv || !member?.id || typingPeerIds.length === 0) return [];
+    const other = conv.buyer.id === member.id ? conv.seller : conv.buyer;
+    const peerTyping = typingPeerIds.filter((tid) => tid && tid !== member.id);
+    if (peerTyping.length === 0) return [];
+    return peerTyping.map((tid) => {
+      const m = tid === conv.buyer.id ? conv.buyer : tid === conv.seller.id ? conv.seller : other;
       return {
         id: tid,
-        name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member",
-        photoUrl: null,
+        name: `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member",
+        photoUrl: resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null,
       };
     });
-  }, [conv, typingPeerIds]);
+  }, [conv, member?.id, typingPeerIds]);
 
   const chatPresencePeers = useMemo((): ChatTypingPeer[] => {
     if (!conv || peerPresenceIds.length === 0) return [];
@@ -132,7 +179,7 @@ export default function ResaleConversationScreen() {
       return {
         id,
         name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member",
-        photoUrl: null,
+        photoUrl: m ? resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null : null,
       };
     });
   }, [conv, peerPresenceIds]);
@@ -161,6 +208,7 @@ export default function ResaleConversationScreen() {
     ? (conv.seller.id === member.id ? conv.buyer : conv.seller)
     : conv?.seller;
   const otherName = otherParty ? `${otherParty.firstName} ${otherParty.lastName}`.trim() : "Unknown";
+  const otherPhoto = otherParty ? resolvePhotoUrl(otherParty.profilePhotoUrl ?? undefined) : undefined;
   const itemTitle = conv?.storeItem?.title ?? "Item";
 
   const handleReportConversation = () => {
@@ -224,35 +272,67 @@ export default function ResaleConversationScreen() {
   };
 
   const send = async () => {
-    if (!conv || !message.trim() || sending) return;
+    if (!conv || !message.trim() || sending || !member?.id) return;
+    const memberId = member.id;
     const text = message.trim();
+    const tempId = newOptimisticMessageId();
     stopComposerTyping();
     setMessage("");
+    const selfFirst = member.firstName ?? "You";
+    setConv((prev) =>
+      prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: tempId,
+                content: text,
+                createdAt: new Date().toISOString(),
+                senderId: memberId,
+                sender: {
+                  id: memberId,
+                  firstName: selfFirst,
+                  lastName: member.lastName ?? "",
+                  profilePhotoUrl: member.profilePhotoUrl ?? null,
+                },
+              },
+            ],
+          }
+        : null
+    );
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
     setSending(true);
     try {
-      const msg = await apiPostWithRetry<{ id: string; content: string; createdAt: string; senderId: string; sender: { firstName: string; lastName: string } }>(
-        `/api/resale-conversations/${convId}`,
-        { content: text }
-      );
-      setConv((prev) =>
-        prev
-          ? {
-              ...prev,
-              messages: [
-                ...prev.messages,
-                {
-                  id: msg.id,
-                  content: msg.content,
-                  createdAt: msg.createdAt,
-                  senderId: msg.senderId,
-                  sender: msg.sender ? { id: msg.senderId, ...msg.sender } : undefined,
-                },
-              ],
-            }
-          : null
-      );
+      const msg = await apiPostWithRetry<{
+        id: string;
+        content: string;
+        createdAt: string;
+        senderId: string;
+        sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
+      }>(`/api/resale-conversations/${convId}`, { content: text });
+      setConv((prev) => {
+        if (!prev) return null;
+        const rest = prev.messages.filter((m) => m.id !== tempId);
+        return {
+          ...prev,
+          messages: [
+            ...rest,
+            {
+              id: msg.id,
+              content: msg.content,
+              createdAt: msg.createdAt,
+              senderId: msg.senderId,
+              sender: msg.sender ? { ...msg.sender, id: msg.senderId } : undefined,
+            },
+          ],
+        };
+      });
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch {
+      setConv((prev) =>
+        prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) } : null
+      );
       setMessage(text);
     } finally {
       setSending(false);
@@ -286,8 +366,17 @@ export default function ResaleConversationScreen() {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{itemTitle}</Text>
-          <Text style={styles.headerSub} numberOfLines={1}>with {otherName}</Text>
+          {otherPhoto ? (
+            <Image source={{ uri: otherPhoto }} style={styles.headerAvatar} />
+          ) : (
+            <View style={[styles.headerAvatar, styles.headerAvatarPlaceholder]}>
+              <Text style={styles.headerAvatarLetter}>{(otherParty?.firstName?.trim()?.[0] || "?").toUpperCase()}</Text>
+            </View>
+          )}
+          <View style={styles.headerTextCol}>
+            <Text style={styles.headerTitle} numberOfLines={1}>{itemTitle}</Text>
+            <Text style={styles.headerSub} numberOfLines={1}>with {otherName}</Text>
+          </View>
         </View>
         <Pressable onPress={() => setMenuOpen(true)} style={styles.headerMenuBtn}>
           <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
@@ -322,7 +411,12 @@ export default function ResaleConversationScreen() {
       <FlatList
         ref={flatListRef}
         data={conv.messages ?? []}
+        extraData={conv.messages?.length ?? 0}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
+        onScroll={onBottomPullScroll}
+        scrollEventThrottle={scrollEventThrottle}
+        bounces
+        overScrollMode="always"
         contentContainerStyle={styles.messageList}
         ListFooterComponent={
           showResaleSeen || chatPresencePeers.length > 0 ? (
@@ -340,6 +434,12 @@ export default function ResaleConversationScreen() {
           );
         }}
       />
+
+      {listRefreshing ? (
+        <View style={styles.chatRefreshingStrip} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+        </View>
+      ) : null}
 
       <View style={styles.inputRow}>
         <TextInput
@@ -378,7 +478,15 @@ const styles = StyleSheet.create({
     borderBottomColor: "#000",
   },
   backBtn: { padding: 8 },
-  headerCenter: { flex: 1 },
+  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
+  headerAvatar: { width: 36, height: 36, borderRadius: 18 },
+  headerAvatarPlaceholder: {
+    backgroundColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerAvatarLetter: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  headerTextCol: { flex: 1, minWidth: 0 },
   headerTitle: { fontSize: 17, fontWeight: "600", color: "#fff" },
   headerSub: { fontSize: 13, color: "rgba(255,255,255,0.9)", marginTop: 2 },
   headerMenuBtn: { padding: 8 },
@@ -387,9 +495,16 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
   menuItemText: { fontSize: 16, color: theme.colors.heading },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  messageList: { padding: 16, paddingBottom: 8 },
+  messageList: { padding: 16, paddingBottom: 8, flexGrow: 1, justifyContent: "flex-end" },
   bubbleWrap: { marginBottom: 12, alignItems: "flex-start" },
   bubbleWrapMe: { alignItems: "flex-end" },
+  chatRefreshingStrip: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(0,0,0,0.1)",
+    paddingVertical: 8,
+    alignItems: "center",
+    backgroundColor: "#fafafa",
+  },
   bubble: {
     maxWidth: "80%",
     padding: 12,

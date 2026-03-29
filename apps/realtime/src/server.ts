@@ -6,6 +6,11 @@ import { Server, type Socket } from "socket.io";
 
 type ChatSpace = "direct" | "group" | "resale";
 
+function logJoinError(space: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`[realtime] join ${space} error:`, msg);
+}
+
 /** Tell others someone opened the thread; send joiner a snapshot of peers already viewing. */
 async function afterJoinPresence(
   io: Server,
@@ -82,12 +87,24 @@ function parseCorsOrigins(): string[] {
 
 const allowedOrigins = parseCorsOrigins();
 
-/** Production: allow NWC sites + opaque "null" origins (some native WebViews). Native apps often send no Origin — handled by !origin above. */
+function isVercelPreviewOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    return u.protocol === "https:" && u.hostname.endsWith(".vercel.app") && u.hostname.length > ".vercel.app".length;
+  } catch {
+    return false;
+  }
+}
+
+/** Production: allow NWC sites + Vercel previews + opaque "null" origins (some native WebViews). Native apps often send no Origin — handled by !origin above. */
 function corsAllowsOrigin(origin: string | undefined): boolean {
   if (!origin || origin === "null") return true;
   if (allowedOrigins.includes(origin)) return true;
   if (process.env.NODE_ENV !== "production") return true;
-  return /^https:\/\/([a-z0-9-]+\.)*inwcommunity\.com$/i.test(origin);
+  if (isVercelPreviewOrigin(origin)) return true;
+  if (/^https:\/\/([a-z0-9-]+\.)*inwcommunity\.com$/i.test(origin)) return true;
+  if (/^https:\/\/([a-z0-9-]+\.)*northwestcommunity\.com$/i.test(origin)) return true;
+  return false;
 }
 
 const app = express();
@@ -168,7 +185,8 @@ io.on("connection", (socket) => {
       await socket.join(`direct:${conversationId}`);
       await afterJoinPresence(io, socket, "direct", conversationId, memberId);
       ack?.();
-    } catch {
+    } catch (e) {
+      logJoinError("direct", e);
       ack?.("server error");
     }
   });
@@ -212,7 +230,8 @@ io.on("connection", (socket) => {
       await socket.join(`group:${conversationId}`);
       await afterJoinPresence(io, socket, "group", conversationId, memberId);
       ack?.();
-    } catch {
+    } catch (e) {
+      logJoinError("group", e);
       ack?.("server error");
     }
   });
@@ -243,7 +262,8 @@ io.on("connection", (socket) => {
       await socket.join(`resale:${conversationId}`);
       await afterJoinPresence(io, socket, "resale", conversationId, memberId);
       ack?.();
-    } catch {
+    } catch (e) {
+      logJoinError("resale", e);
       ack?.("server error");
     }
   });
@@ -304,7 +324,6 @@ app.post("/internal/publish", (req, res) => {
     ["group:message", `group:${cid}`],
     ["resale:message", `resale:${cid}`],
     ["direct:read", `direct:${cid}`],
-    ["group:read", `group:${cid}`],
     ["resale:read", `resale:${cid}`],
   ];
   const eventByType: Record<string, string> = {
@@ -312,7 +331,6 @@ app.post("/internal/publish", (req, res) => {
     "group:message": "group:message",
     "resale:message": "resale:message",
     "direct:read": "direct:read",
-    "group:read": "group:read",
     "resale:read": "resale:read",
   };
   const t = body.type;
@@ -336,6 +354,13 @@ app.post("/internal/publish", (req, res) => {
 const PORT = Number(process.env.PORT ?? process.env.REALTIME_PORT ?? 3007);
 
 async function bootstrap(): Promise<void> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    console.log("[realtime] database ok");
+  } catch (e) {
+    console.error("[realtime] database check failed:", e instanceof Error ? e.message : e);
+  }
+
   const redisUrl = process.env.REDIS_URL?.trim();
   if (redisUrl) {
     try {

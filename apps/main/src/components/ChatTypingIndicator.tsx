@@ -19,7 +19,7 @@ export function ChatTypingIndicator({ peers }: { peers: ChatTypingPeer[] }) {
 
   return (
     <div
-      className="flex items-end gap-2 px-4 py-2 border-b border-gray-100 shrink-0 bg-gray-50"
+      className="chat-typing-indicator flex items-end gap-2 px-4 py-2 border-b border-gray-100 shrink-0 bg-gray-50"
       role="status"
       aria-live="polite"
       aria-label={label}
@@ -28,7 +28,7 @@ export function ChatTypingIndicator({ peers }: { peers: ChatTypingPeer[] }) {
         {peers.slice(0, 3).map((p) => (
           <div
             key={p.id}
-            className="relative w-9 h-9 rounded-full border-2 border-white overflow-hidden bg-[var(--color-section-alt)] flex items-center justify-center text-xs font-bold text-gray-500 ring-1 ring-black/10"
+            className="chat-typing-avatar-slot relative w-9 h-9 rounded-full border-2 border-white overflow-hidden bg-[var(--color-section-alt)] flex items-center justify-center text-xs font-bold text-gray-500 ring-1 ring-black/10"
             title={`${p.name} is typing`}
           >
             {p.photoUrl ? (
@@ -44,15 +44,15 @@ export function ChatTypingIndicator({ peers }: { peers: ChatTypingPeer[] }) {
         style={{ backgroundColor: "var(--color-section-alt)" }}
       >
         <span
-          className="w-2.5 h-2.5 rounded-full bg-gray-600 animate-bounce [animation-duration:520ms]"
+          className="chat-typing-dot w-2.5 h-2.5 rounded-full bg-gray-600 shrink-0"
           style={{ animationDelay: "0ms" }}
         />
         <span
-          className="w-2.5 h-2.5 rounded-full bg-gray-600 animate-bounce [animation-duration:520ms]"
+          className="chat-typing-dot w-2.5 h-2.5 rounded-full bg-gray-600 shrink-0"
           style={{ animationDelay: "160ms" }}
         />
         <span
-          className="w-2.5 h-2.5 rounded-full bg-gray-600 animate-bounce [animation-duration:520ms]"
+          className="chat-typing-dot w-2.5 h-2.5 rounded-full bg-gray-600 shrink-0"
           style={{ animationDelay: "320ms" }}
         />
       </div>
