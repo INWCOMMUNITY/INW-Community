@@ -14,8 +14,8 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
 } from "react-native";
-import { FlatList } from "react-native-gesture-handler";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
@@ -33,6 +33,7 @@ import {
 } from "@/lib/chat-live-types";
 import { useAuth } from "@/contexts/AuthContext";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
+import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
 
@@ -69,7 +70,7 @@ interface DirectConversation {
     likeCount?: number;
     liked?: boolean;
     likedBy?: { id: string; profilePhotoUrl: string | null; firstName: string }[];
-    sender?: { id: string; firstName: string; lastName: string };
+    sender?: { id: string; firstName: string; lastName: string; profilePhotoUrl?: string | null };
   }>;
 }
 
@@ -157,6 +158,7 @@ export default function DirectConversationScreen() {
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [acceptDeclineLoading, setAcceptDeclineLoading] = useState(false);
+  const [listRefreshing, setListRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const lastTapRef = useRef<{ messageId: string; time: number } | null>(null);
 
@@ -174,6 +176,20 @@ export default function DirectConversationScreen() {
       setLoading(false);
     }
   }, [convId]);
+
+  const onListRefresh = useCallback(async () => {
+    setListRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setListRefreshing(false);
+    }
+  }, [load]);
+
+  const { onScroll: onBottomPullScroll, scrollEventThrottle } = useChatBottomPullRefresh(
+    onListRefresh,
+    listRefreshing
+  );
 
   useEffect(() => {
     if (!convId) {
@@ -215,7 +231,14 @@ export default function DirectConversationScreen() {
             sharedContentType: p.sharedContentType ?? null,
             sharedContentId: p.sharedContentId ?? null,
             sharedContentSlug: p.sharedContentSlug ?? null,
-            sender: p.sender ?? { id: p.senderId, firstName: "", lastName: "" },
+            sender: p.sender
+              ? {
+                  id: p.sender.id,
+                  firstName: p.sender.firstName,
+                  lastName: p.sender.lastName,
+                  profilePhotoUrl: p.sender.profilePhotoUrl ?? null,
+                }
+              : { id: p.senderId, firstName: "", lastName: "", profilePhotoUrl: null },
           },
         ],
       };
@@ -529,7 +552,12 @@ export default function DirectConversationScreen() {
                 content: text,
                 createdAt: new Date().toISOString(),
                 senderId: member.id,
-                sender: { id: member.id, firstName: selfFirst, lastName: member.lastName ?? "" },
+                sender: {
+                  id: member.id,
+                  firstName: selfFirst,
+                  lastName: member.lastName ?? "",
+                  profilePhotoUrl: member.profilePhotoUrl ?? null,
+                },
                 likeCount: 0,
                 liked: false,
               },
@@ -698,7 +726,12 @@ export default function DirectConversationScreen() {
       <FlatList
         ref={flatListRef}
         data={conv.messages ?? []}
+        extraData={conv.messages?.length ?? 0}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
+        onScroll={onBottomPullScroll}
+        scrollEventThrottle={scrollEventThrottle}
+        bounces={true}
+        overScrollMode="always"
         contentContainerStyle={styles.messageList}
         ListFooterComponent={
           showDirectSeen || chatPresencePeers.length > 0 ? (
@@ -789,7 +822,11 @@ export default function DirectConversationScreen() {
                 <View style={[styles.likedBadge, isMe && styles.likedBadgeMe]}>
                   <Ionicons name="heart" size={12} color={theme.colors.primary} />
                   <Text style={styles.likedBadgeText}>
-                    {formatLikedBy(item.likedBy ?? []) || `${item.likeCount} like${(item.likeCount ?? 0) === 1 ? "" : "s"}`}
+                    {formatLikedBy(item.likedBy ?? []) ||
+                      (() => {
+                        const n = item.likeCount ?? 0;
+                        return n === 1 ? "1 like" : `${n} likes`;
+                      })()}
                   </Text>
                 </View>
               )}
@@ -797,6 +834,12 @@ export default function DirectConversationScreen() {
           );
         }}
       />
+
+      {listRefreshing ? (
+        <View style={styles.chatRefreshingStrip} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+        </View>
+      ) : null}
 
       <View style={styles.inputRow}>
         <Pressable
@@ -816,10 +859,10 @@ export default function DirectConversationScreen() {
           placeholderTextColor={theme.colors.placeholder}
           value={message}
           onChangeText={(t) => onComposerChange(t, setMessage)}
-          multiline
+          multiline={true}
           maxLength={5000}
           onSubmitEditing={send}
-          autoCorrect
+          autoCorrect={true}
           autoComplete="off"
           textContentType="none"
         />
@@ -897,9 +940,16 @@ const styles = StyleSheet.create({
   },
   requestDeclineBtnText: { fontSize: 15, color: "#666", fontWeight: "600" },
   requestBtnDisabled: { opacity: 0.7 },
-  messageList: { padding: 16, paddingBottom: 8 },
+  messageList: { padding: 16, paddingBottom: 8, flexGrow: 1, justifyContent: "flex-end" },
   bubbleWrap: { marginBottom: 12, alignItems: "flex-start" },
   bubbleWrapMe: { alignItems: "flex-end" },
+  chatRefreshingStrip: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(0,0,0,0.1)",
+    paddingVertical: 8,
+    alignItems: "center",
+    backgroundColor: "#fafafa",
+  },
   bubble: {
     maxWidth: "80%",
     padding: 12,

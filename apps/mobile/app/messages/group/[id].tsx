@@ -26,6 +26,7 @@ import {
   newOptimisticMessageId,
 } from "@/lib/chat-live-types";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
+import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
 
@@ -68,6 +69,7 @@ export default function GroupConversationScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [listRefreshing, setListRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
@@ -83,6 +85,20 @@ export default function GroupConversationScreen() {
       setLoading(false);
     }
   }, [convId]);
+
+  const onListRefresh = useCallback(async () => {
+    setListRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setListRefreshing(false);
+    }
+  }, [load]);
+
+  const { onScroll: onBottomPullScroll, scrollEventThrottle } = useChatBottomPullRefresh(
+    onListRefresh,
+    listRefreshing
+  );
 
   const loadMore = useCallback(async () => {
     if (!convId || !nextCursor || loadingMore) return;
@@ -449,7 +465,12 @@ export default function GroupConversationScreen() {
       <FlatList
         ref={flatListRef}
         data={conv.messages ?? []}
+        extraData={conv.messages?.length ?? 0}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
+        onScroll={onBottomPullScroll}
+        scrollEventThrottle={scrollEventThrottle}
+        bounces
+        overScrollMode="always"
         onEndReached={() => void loadMore()}
         onEndReachedThreshold={0.3}
         ListFooterComponent={
@@ -489,6 +510,12 @@ export default function GroupConversationScreen() {
           );
         }}
       />
+
+      {listRefreshing ? (
+        <View style={styles.chatRefreshingStrip} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+        </View>
+      ) : null}
 
       <View style={styles.inputRow}>
         <Pressable
@@ -551,9 +578,16 @@ const styles = StyleSheet.create({
   menuItemText: { fontSize: 16, color: theme.colors.heading },
   loadMorePad: { paddingVertical: 16, alignItems: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  messageList: { padding: 16, paddingBottom: 8 },
+  messageList: { padding: 16, paddingBottom: 8, flexGrow: 1, justifyContent: "flex-end" },
   bubbleWrap: { marginBottom: 12, alignItems: "flex-start" },
   bubbleWrapMe: { alignItems: "flex-end" },
+  chatRefreshingStrip: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(0,0,0,0.1)",
+    paddingVertical: 8,
+    alignItems: "center",
+    backgroundColor: "#fafafa",
+  },
   senderLabel: {
     fontSize: 12,
     color: theme.colors.placeholder,

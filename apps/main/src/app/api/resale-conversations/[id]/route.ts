@@ -26,11 +26,11 @@ export async function GET(
     where: { id },
     include: {
       storeItem: { select: { id: true, title: true, slug: true } },
-      buyer: { select: { id: true, firstName: true, lastName: true } },
-      seller: { select: { id: true, firstName: true, lastName: true } },
+      buyer: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+      seller: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
       messages: {
         orderBy: { createdAt: "asc" },
-        include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+        include: { sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
       },
     },
   });
@@ -99,7 +99,7 @@ export async function POST(
       senderId: session.user.id,
       content: contentTrimmed,
     },
-    include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+    include: { sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
   });
 
   await prisma.resaleConversation.update({
@@ -130,6 +130,7 @@ export async function POST(
       id: message.sender.id,
       firstName: message.sender.firstName,
       lastName: message.sender.lastName,
+      profilePhotoUrl: message.sender.profilePhotoUrl,
     },
   };
   scheduleRealtimePublish(publishResaleConversationMessage(id, live));

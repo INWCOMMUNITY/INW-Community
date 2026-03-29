@@ -66,10 +66,12 @@ export function getDirectRealtimeUrl(): string | null {
   try {
     const u = new URL(API_BASE);
     if (u.hostname === "www.inwcommunity.com" || u.hostname === "inwcommunity.com") {
-      if (typeof __DEV__ !== "undefined" && __DEV__ && !warnedMissingRealtimeUrl) {
+      if (!warnedMissingRealtimeUrl) {
         warnedMissingRealtimeUrl = true;
         console.warn(
-          "[chat] Set EXPO_PUBLIC_REALTIME_URL to your deployed Socket.IO origin (wss://…). Live messaging is disabled until then."
+          "[chat] EXPO_PUBLIC_REALTIME_URL is not set. Socket.IO (typing, presence, live messages) is disabled. " +
+            "Set it to the same value as NEXT_PUBLIC_REALTIME_URL on the main site, then restart Metro or create a new EAS build. " +
+            "EAS: add EXPO_PUBLIC_REALTIME_URL under build.env in eas.json or in EAS project environment variables."
         );
       }
       return null;
