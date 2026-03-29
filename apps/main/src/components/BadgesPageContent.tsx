@@ -42,7 +42,7 @@ export function BadgesPageContent({ allBadges }: BadgesPageContentProps) {
   const [memberBadges, setMemberBadges] = useState<MemberBadge[]>([]);
   const [businessBadges, setBusinessBadges] = useState<BusinessBadge[]>([]);
   const [loading, setLoading] = useState(true);
-  const viewParam = searchParams.get("view");
+  const viewParam = searchParams?.get("view");
   const [view, setView] = useState<"all" | "my">(viewParam === "my" ? "my" : "all");
 
   useEffect(() => {

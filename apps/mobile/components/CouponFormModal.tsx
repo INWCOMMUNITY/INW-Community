@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiUploadFile, getToken } from "@/lib/api";
+import { CouponExpiryDatePickerField } from "@/components/CouponExpiryDatePickerField";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -32,6 +33,7 @@ interface BusinessOption {
   id: string;
   name: string;
   slug: string;
+  logoUrl?: string | null;
 }
 
 interface CouponFormModalProps {
@@ -40,6 +42,8 @@ interface CouponFormModalProps {
   onSuccess?: () => void;
   /** Called when user has no businesses and taps to set up - parent opens WebView */
   onOpenBusinessSetup?: () => void;
+  /** When set and present in the loaded list, pre-select this business (e.g. Business Hub active business). */
+  initialBusinessId?: string | null;
 }
 
 export function CouponFormModal({
@@ -47,6 +51,7 @@ export function CouponFormModal({
   onClose,
   onSuccess,
   onOpenBusinessSetup,
+  initialBusinessId = null,
 }: CouponFormModalProps) {
   const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
   const [businessId, setBusinessId] = useState("");
@@ -55,6 +60,7 @@ export function CouponFormModal({
   const [code, setCode] = useState("");
   const [secretKey, setSecretKey] = useState("");
   const [maxMonthlyUses, setMaxMonthlyUses] = useState("1");
+  const [expiresAtIso, setExpiresAtIso] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -69,12 +75,16 @@ export function CouponFormModal({
         .then((data) => {
           const list = Array.isArray(data) ? data : [];
           setBusinesses(list);
-          setBusinessId((prev) => prev || (list[0]?.id ?? ""));
+          const next =
+            initialBusinessId && list.some((b) => b.id === initialBusinessId)
+              ? initialBusinessId
+              : (list[0]?.id ?? "");
+          setBusinessId(next);
         })
         .catch(() => setBusinesses([]))
         .finally(() => setLoading(false));
     }
-  }, [visible]);
+  }, [visible, initialBusinessId]);
 
   const resetForm = () => {
     setName("");
@@ -82,6 +92,7 @@ export function CouponFormModal({
     setCode("");
     setSecretKey("");
     setMaxMonthlyUses("1");
+    setExpiresAtIso(null);
     setImageUrl("");
     setError("");
   };
@@ -140,7 +151,7 @@ export function CouponFormModal({
       return;
     }
     if (!code.trim()) {
-      setError("Coupon code is required.");
+      setError("Redemption code is required.");
       return;
     }
     setSubmitting(true);
@@ -153,6 +164,7 @@ export function CouponFormModal({
         imageUrl: imageUrl || null,
         secretKey: secretKey.trim() || "",
         maxMonthlyUses: Math.max(1, parseInt(maxMonthlyUses, 10) || 1),
+        ...(expiresAtIso ? { expiresAt: expiresAtIso } : {}),
       });
       resetForm();
       onClose();
@@ -302,7 +314,8 @@ export function CouponFormModal({
               </View>
 
               <View style={styles.field}>
-                <Text style={styles.label}>Coupon code *</Text>
+                <Text style={styles.label}>Redemption code *</Text>
+                <Text style={styles.hint}>The code customers show or enter in store.</Text>
                 <TextInput
                   style={styles.input}
                   value={code}
@@ -310,6 +323,16 @@ export function CouponFormModal({
                   placeholder="e.g. SAVE25"
                   placeholderTextColor={theme.colors.placeholder}
                   autoCorrect={true}
+                />
+              </View>
+
+              <View style={styles.field}>
+                <CouponExpiryDatePickerField
+                  expiresAtIso={expiresAtIso}
+                  onCommit={setExpiresAtIso}
+                  disabled={submitting || loading}
+                  label="Expires (optional)"
+                  hint="Last day this offer appears in the coupon book. Tap to choose, or clear for no expiration."
                 />
               </View>
 

@@ -11,6 +11,7 @@ export type ChatPublishType =
   | "group:message"
   | "resale:message"
   | "direct:read"
+  | "group:read"
   | "resale:read";
 
 let publishDisabledDevWarned = false;
@@ -82,6 +83,10 @@ export async function publishResaleConversationMessage(conversationId: string, p
 
 export async function publishDirectConversationRead(conversationId: string, readerMemberId: string): Promise<void> {
   return publishChatEvent("direct:read", conversationId, { readerMemberId });
+}
+
+export async function publishGroupConversationRead(conversationId: string, readerMemberId: string): Promise<void> {
+  return publishChatEvent("group:read", conversationId, { readerMemberId });
 }
 
 export async function publishResaleConversationRead(conversationId: string, readerMemberId: string): Promise<void> {

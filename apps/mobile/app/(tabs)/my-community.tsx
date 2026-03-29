@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   StyleSheet,
@@ -15,6 +15,7 @@ import {
   Linking,
 } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
+import { Image as ExpoImage } from "expo-image";
 import * as Sharing from "expo-sharing";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,9 +31,69 @@ import { PostEventForm } from "@/components/PostEventForm";
 import { QRCodeDisplayModal } from "@/components/QRCodeDisplayModal";
 import { apiGet, getToken } from "@/lib/api";
 import { getBadgeIcon } from "@/lib/badge-icons";
+import {
+  businessImageRequestHeaders,
+  hubBusinessHeroImageUri,
+} from "@/lib/business-logo-display";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+type MyBusiness = {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  coverPhotoUrl: string | null;
+  photos: string[];
+};
+
+function possessiveBusinessLine1(name: string): string {
+  const t = name.trim();
+  if (!t) return "Your";
+  return /s$/i.test(t) ? `${t}'` : `${t}'s`;
+}
+
+function businessLogoInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) {
+    const w = parts[0]!;
+    return w.length >= 2 ? w.slice(0, 2).toUpperCase() : w.toUpperCase();
+  }
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+}
+
+function stringOrNull(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t || null;
+}
+
+/** Same public payload as `app/business/[slug].tsx` — fills logo when `mine=1` is missing fields. */
+async function enrichMineBusinessesWithPublicLogos(list: MyBusiness[]): Promise<MyBusiness[]> {
+  return Promise.all(
+    list.map(async (b) => {
+      try {
+        const pub = await apiGet<{
+          logoUrl?: string | null;
+          photos?: unknown;
+        }>(`/api/businesses?slug=${encodeURIComponent(b.slug)}`);
+        const pubLogo = stringOrNull(pub.logoUrl);
+        const pubPhotos = Array.isArray(pub.photos)
+          ? pub.photos.filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+          : [];
+        return {
+          ...b,
+          logoUrl: b.logoUrl ?? pubLogo,
+          photos: b.photos.length > 0 ? b.photos : pubPhotos,
+        };
+      } catch {
+        return b;
+      }
+    })
+  );
+}
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 function uint8ArrayToBase64(bytes: Uint8Array): string {
@@ -49,6 +110,10 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
   return out;
 }
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+/** Business Hub hero logo: 1.3× the standard 72px hub icon. */
+const BUSINESS_HUB_LOGO_PX = Math.round(72 * 1.3);
+const BUSINESS_HUB_LOGO_RADIUS = BUSINESS_HUB_LOGO_PX / 2;
 
 function SellerHubContent() {
   const router = useRouter();
@@ -457,11 +522,12 @@ export default function MyCommunityScreen() {
   const [couponModalVisible, setCouponModalVisible] = useState(false);
   const [rewardModalVisible, setRewardModalVisible] = useState(false);
   const [eventModalVisible, setEventModalVisible] = useState(false);
-  const [businesses, setBusinesses] = useState<{ id: string; name: string; slug: string }[]>([]);
-  const [downloadPickerType, setDownloadPickerType] = useState<"qr" | "flyer" | null>(null);
+  const [businesses, setBusinesses] = useState<MyBusiness[]>([]);
+  const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
+  const [hubBusinessSwitcherOpen, setHubBusinessSwitcherOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [showQRBusiness, setShowQRBusiness] = useState<{ id: string; name: string } | null>(null);
-  const [qrPickerOpen, setQrPickerOpen] = useState(false);
+  const [hubLogoLoadFailed, setHubLogoLoadFailed] = useState(false);
   const [profileBadges, setProfileBadges] = useState<
     { id: string; badge: { slug: string; name: string }; displayOnProfile: boolean }[]
   >([]);
@@ -481,15 +547,35 @@ export default function MyCommunityScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (profileView === "business_hub") {
-        apiGet<{ id: string; name: string; slug: string }[] | { error: string }>(
-          "/api/businesses?mine=1"
-        )
-          .then((data) => {
-            setBusinesses(Array.isArray(data) ? data : []);
-          })
-          .catch(() => setBusinesses([]));
-      }
+      if (profileView !== "business_hub") return;
+      let cancelled = false;
+      (async () => {
+        try {
+          const data = await apiGet<MyBusiness[] | { error: string }>("/api/businesses?mine=1");
+          if (cancelled) return;
+          if (!Array.isArray(data)) {
+            setBusinesses([]);
+            return;
+          }
+          const mapped: MyBusiness[] = data.map((b) => ({
+            id: b.id,
+            name: b.name,
+            slug: b.slug,
+            logoUrl: stringOrNull(b.logoUrl),
+            coverPhotoUrl: stringOrNull(b.coverPhotoUrl),
+            photos: Array.isArray(b.photos)
+              ? b.photos.filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+              : [],
+          }));
+          const enriched = await enrichMineBusinessesWithPublicLogos(mapped);
+          if (!cancelled) setBusinesses(enriched);
+        } catch {
+          if (!cancelled) setBusinesses([]);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
     }, [profileView])
   );
 
@@ -507,6 +593,32 @@ export default function MyCommunityScreen() {
     }, [profileView, params.open])
   );
 
+  useEffect(() => {
+    setActiveBusinessId((prev) => {
+      if (businesses.length === 0) return null;
+      if (prev && businesses.some((b) => b.id === prev)) return prev;
+      return businesses[0]!.id;
+    });
+  }, [businesses]);
+
+  const activeBusiness = useMemo(() => {
+    if (businesses.length === 0) return null;
+    if (activeBusinessId) {
+      const found = businesses.find((b) => b.id === activeBusinessId);
+      if (found) return found;
+    }
+    return businesses[0] ?? null;
+  }, [businesses, activeBusinessId]);
+
+  const hubHeroLogoUri = useMemo(() => {
+    if (!activeBusiness) return undefined;
+    return hubBusinessHeroImageUri(activeBusiness);
+  }, [activeBusiness]);
+
+  useEffect(() => {
+    setHubLogoLoadFailed(false);
+  }, [hubHeroLogoUri]);
+
   useFocusEffect(
     useCallback(() => {
       if (profileView !== "business_hub") {
@@ -518,16 +630,14 @@ export default function MyCommunityScreen() {
           Alert.alert("No businesses", "Add a business first to show your QR code.");
           return;
         }
-        if (businesses.length === 1) {
-          setShowQRBusiness(businesses[0]);
-        } else {
-          setQrPickerOpen(true);
-        }
+        const b = activeBusiness;
+        if (!b) return;
+        setShowQRBusiness({ id: b.id, name: b.name });
       };
       return () => {
         openBusinessQRRef.current = null;
       };
-    }, [profileView, businesses])
+    }, [profileView, businesses, activeBusiness])
   );
 
   const openBusinessSetup = () => {
@@ -541,7 +651,6 @@ export default function MyCommunityScreen() {
       return;
     }
     setDownloading(true);
-    setDownloadPickerType(null);
     try {
       const url = `${API_BASE}/api/businesses/${businessId}/flyer`;
       const filename = `nwc-flyer-${slug}.pdf`;
@@ -594,7 +703,6 @@ export default function MyCommunityScreen() {
       return;
     }
     setDownloading(true);
-    setDownloadPickerType(null);
     try {
       const url = `${API_BASE}/api/businesses/${businessId}/qr`;
       const filename = `nwc-qr-${slug}.png`;
@@ -641,17 +749,13 @@ export default function MyCommunityScreen() {
   };
 
   const promptDownload = (type: "qr" | "flyer") => {
-    if (businesses.length === 0) {
+    if (businesses.length === 0 || !activeBusiness) {
       Alert.alert("No businesses", "Add a business first to download a QR code or flyer.");
       return;
     }
-    if (businesses.length === 1) {
-      type === "qr"
-        ? handleDownloadQR(businesses[0].id, businesses[0].slug)
-        : handleDownloadFlyer(businesses[0].id, businesses[0].slug);
-      return;
-    }
-    setDownloadPickerType(type);
+    type === "qr"
+      ? handleDownloadQR(activeBusiness.id, activeBusiness.slug)
+      : handleDownloadFlyer(activeBusiness.id, activeBusiness.slug);
   };
 
   if (loading) {
@@ -698,27 +802,16 @@ export default function MyCommunityScreen() {
         icon: "business",
         onPress: () => (router.push as (href: string) => void)("/sponsor-business"),
       },
-      ...(openCreatePostAsBusiness && businesses.length > 0
+      ...(openCreatePostAsBusiness && businesses.length > 0 && activeBusiness
         ? [
             {
               label: "Create Post",
               icon: "megaphone" as const,
               onPress: () => {
-                if (businesses.length === 1) {
-                  openCreatePostAsBusiness({ id: businesses[0].id, name: businesses[0].name });
-                } else {
-                  Alert.alert(
-                    "Create Post as",
-                    "Choose which business to post as (Business Post).",
-                    [
-                      ...businesses.map((b) => ({
-                        text: b.name,
-                        onPress: () => openCreatePostAsBusiness({ id: b.id, name: b.name }),
-                      })),
-                      { text: "Cancel", style: "cancel" as const },
-                    ]
-                  );
-                }
+                openCreatePostAsBusiness({
+                  id: activeBusiness.id,
+                  name: activeBusiness.name,
+                });
               },
             },
           ]
@@ -752,14 +845,84 @@ export default function MyCommunityScreen() {
           contentContainerStyle={styles.businessHubContent}
         >
           <RNView style={styles.sellerHubHero}>
-            <RNView style={styles.sellerHubHeroText}>
-              <Text style={styles.sellerHubTitle}>Business Hub</Text>
+            <RNView style={styles.businessHubHeroText}>
+              {businesses.length === 0 ? (
+                <>
+                  <Text style={styles.businessHubHeroLine1}>Your</Text>
+                  <Text style={styles.sellerHubTitle}>Business Hub</Text>
+                </>
+              ) : businesses.length === 1 ? (
+                <>
+                  <Text style={styles.businessHubHeroLine1}>
+                    {possessiveBusinessLine1(activeBusiness?.name ?? "")}
+                  </Text>
+                  <Text style={styles.sellerHubTitle}>Business Hub</Text>
+                </>
+              ) : (
+                <>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.businessHubHeroLine1Press,
+                      pressed && { opacity: 0.75 },
+                    ]}
+                    onPress={() => setHubBusinessSwitcherOpen(true)}
+                  >
+                    <Text style={styles.businessHubHeroLine1}>
+                      {possessiveBusinessLine1(activeBusiness?.name ?? "")}
+                    </Text>
+                    <Ionicons name="chevron-down" size={20} color={theme.colors.primary} />
+                  </Pressable>
+                  <Text style={styles.sellerHubTitle}>Business Hub</Text>
+                </>
+              )}
               <Text style={styles.sellerHubSubtitle}>
                 Give residents a reason to support local. Offer Coupons, Rewards, & Post Events
               </Text>
             </RNView>
-            <RNView style={styles.sellerHubIconCircle}>
-              <Ionicons name="business" size={40} color={theme.colors.primary} />
+            <RNView style={styles.businessHubHeroLogoColumn}>
+              <RNView style={styles.businessHubHeroLogoSlot}>
+                {(() => {
+                  const logoUri =
+                    businesses.length > 0 ? hubHeroLogoUri : undefined;
+                  const a11yLabel =
+                    activeBusiness != null
+                      ? `${activeBusiness.name} logo`
+                      : "Business logo";
+                  if (logoUri && !hubLogoLoadFailed) {
+                    const headers = businessImageRequestHeaders();
+                    return (
+                      <ExpoImage
+                        source={
+                          headers
+                            ? { uri: logoUri, headers }
+                            : { uri: logoUri }
+                        }
+                        style={styles.businessHubHeroLogoImage}
+                        contentFit="contain"
+                        contentPosition="center"
+                        cachePolicy="memory-disk"
+                        accessibilityLabel={a11yLabel}
+                        onError={() => setHubLogoLoadFailed(true)}
+                      />
+                    );
+                  }
+                  return (
+                    <RNView
+                      style={[
+                        styles.businessHubHeroLogoImage,
+                        styles.sellerHubPhotoPlaceholder,
+                      ]}
+                      accessibilityLabel={a11yLabel}
+                    >
+                      <Text style={styles.businessHubLogoInitialsLarge}>
+                        {activeBusiness != null
+                          ? businessLogoInitials(activeBusiness.name)
+                          : "?"}
+                      </Text>
+                    </RNView>
+                  );
+                })()}
+              </RNView>
             </RNView>
           </RNView>
 
@@ -789,7 +952,7 @@ export default function MyCommunityScreen() {
               onPress={() => (router.push as (href: string) => void)("/business-hub-manage")}
             >
               <Ionicons name="folder-outline" size={28} color="#fff" />
-              <Text style={styles.showQRButtonText}>My Posts, Coupons, and Rewards</Text>
+              <Text style={styles.showQRButtonText}>Business Offers & Publicity</Text>
             </Pressable>
           </RNView>
 
@@ -802,10 +965,8 @@ export default function MyCommunityScreen() {
                   pressed && { opacity: 0.85 },
                 ]}
                 onPress={() => {
-                  if (businesses.length === 1) {
-                    setShowQRBusiness(businesses[0]);
-                  } else {
-                    setQrPickerOpen(true);
+                  if (activeBusiness) {
+                    setShowQRBusiness({ id: activeBusiness.id, name: activeBusiness.name });
                   }
                 }}
               >
@@ -874,59 +1035,61 @@ export default function MyCommunityScreen() {
           )}
         </ScrollView>
 
-        {downloadPickerType && businesses.length > 1 && (
-          <Modal
-            visible={!!downloadPickerType}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setDownloadPickerType(null)}
+        <Modal
+          visible={hubBusinessSwitcherOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setHubBusinessSwitcherOpen(false)}
+        >
+          <Pressable
+            style={styles.hubBusinessSwitcherBackdrop}
+            onPress={() => setHubBusinessSwitcherOpen(false)}
           >
-            <Pressable
-              style={styles.businessPickerOverlay}
-              onPress={() => setDownloadPickerType(null)}
+            <RNView
+              style={styles.hubBusinessSwitcherSheet}
+              onStartShouldSetResponder={() => true}
             >
-              <RNView style={styles.businessPickerSheet}>
-                <Text style={styles.businessPickerTitle}>
-                  Select business for {downloadPickerType === "qr" ? "QR Code" : "Flyer"}
-                </Text>
-                {businesses.map((b) => (
-                  <Pressable
-                    key={b.id}
-                    style={({ pressed }) => [styles.businessPickerOption, pressed && styles.buttonPressed]}
-                    onPress={() => {
-                      if (downloadPickerType === "qr") {
-                        handleDownloadQR(b.id, b.slug);
-                      } else {
-                        handleDownloadFlyer(b.id, b.slug);
-                      }
-                      setDownloadPickerType(null);
-                    }}
-                  >
-                    <Text style={styles.businessPickerOptionText}>{b.name}</Text>
-                  </Pressable>
-                ))}
+              {businesses.map((b, i) => (
                 <Pressable
-                  style={({ pressed }) => [styles.businessPickerCancel, pressed && styles.buttonPressed]}
-                  onPress={() => setDownloadPickerType(null)}
+                  key={b.id}
+                  style={({ pressed }) => [
+                    styles.hubBusinessSwitcherRow,
+                    i < businesses.length - 1 && styles.hubBusinessSwitcherRowBorder,
+                    activeBusiness?.id === b.id && styles.hubBusinessSwitcherRowActive,
+                    pressed && styles.buttonPressed,
+                  ]}
+                  onPress={() => {
+                    setActiveBusinessId(b.id);
+                    setHubBusinessSwitcherOpen(false);
+                  }}
                 >
-                  <Text style={styles.businessPickerCancelText}>Cancel</Text>
+                  <Text
+                    style={[
+                      styles.hubBusinessSwitcherRowText,
+                      activeBusiness?.id === b.id && styles.hubBusinessSwitcherRowTextActive,
+                    ]}
+                  >
+                    {b.name}
+                  </Text>
                 </Pressable>
-              </RNView>
-            </Pressable>
-          </Modal>
-        )}
+              ))}
+            </RNView>
+          </Pressable>
+        </Modal>
 
         <CouponFormModal
           visible={couponModalVisible}
           onClose={() => setCouponModalVisible(false)}
           onSuccess={() => setCouponModalVisible(false)}
           onOpenBusinessSetup={openBusinessSetup}
+          initialBusinessId={activeBusiness?.id ?? null}
         />
         <RewardFormModal
           visible={rewardModalVisible}
           onClose={() => setRewardModalVisible(false)}
           onSuccess={() => setRewardModalVisible(false)}
           onOpenBusinessSetup={openBusinessSetup}
+          initialBusinessId={activeBusiness?.id ?? null}
         />
         <Modal
           visible={eventModalVisible}
@@ -948,48 +1111,19 @@ export default function MyCommunityScreen() {
               <View style={styles.eventModalSpacer} />
             </View>
             <PostEventForm
+              key={`hub-event-${activeBusiness?.id ?? "none"}`}
+              postEventAs={
+                activeBusiness
+                  ? {
+                      businessId: activeBusiness.id,
+                      displayName: activeBusiness.name,
+                    }
+                  : undefined
+              }
               onSuccess={() => setEventModalVisible(false)}
             />
           </View>
         </Modal>
-
-        {qrPickerOpen && businesses.length > 1 && (
-          <Modal
-            visible={qrPickerOpen}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setQrPickerOpen(false)}
-          >
-            <Pressable
-              style={styles.businessPickerOverlay}
-              onPress={() => setQrPickerOpen(false)}
-            >
-              <RNView style={styles.businessPickerSheet}>
-                <Text style={styles.businessPickerTitle}>
-                  Show QR Code for
-                </Text>
-                {businesses.map((b) => (
-                  <Pressable
-                    key={b.id}
-                    style={({ pressed }) => [styles.businessPickerOption, pressed && styles.buttonPressed]}
-                    onPress={() => {
-                      setShowQRBusiness(b);
-                      setQrPickerOpen(false);
-                    }}
-                  >
-                    <Text style={styles.businessPickerOptionText}>{b.name}</Text>
-                  </Pressable>
-                ))}
-                <Pressable
-                  style={({ pressed }) => [styles.businessPickerCancel, pressed && styles.buttonPressed]}
-                  onPress={() => setQrPickerOpen(false)}
-                >
-                  <Text style={styles.businessPickerCancelText}>Cancel</Text>
-                </Pressable>
-              </RNView>
-            </Pressable>
-          </Modal>
-        )}
 
         <QRCodeDisplayModal
           visible={!!showQRBusiness}
@@ -1633,6 +1767,84 @@ const styles = StyleSheet.create({
   sellerHubHeroText: {
     flex: 1,
   },
+  /** Sizes to copy; remaining row width goes to `businessHubHeroLogoColumn` so the logo centers to the tan box edge. */
+  businessHubHeroText: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  businessHubHeroLogoColumn: {
+    flexGrow: 1,
+    flexShrink: 0,
+    minWidth: BUSINESS_HUB_LOGO_PX,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  businessHubHeroLogoSlot: {
+    width: BUSINESS_HUB_LOGO_PX,
+    height: BUSINESS_HUB_LOGO_PX,
+    borderRadius: BUSINESS_HUB_LOGO_RADIUS,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  businessHubHeroLogoImage: {
+    width: BUSINESS_HUB_LOGO_PX,
+    height: BUSINESS_HUB_LOGO_PX,
+    alignSelf: "center",
+  },
+  businessHubHeroLine1: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    fontFamily: theme.fonts.heading,
+    marginBottom: 2,
+  },
+  businessHubHeroLine1Press: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    marginBottom: 2,
+  },
+  hubBusinessSwitcherBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-start",
+    paddingTop: 120,
+    paddingHorizontal: 24,
+    alignItems: "center",
+  },
+  hubBusinessSwitcherSheet: {
+    minWidth: 260,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    overflow: "hidden",
+    backgroundColor: "#ffffff",
+  },
+  hubBusinessSwitcherRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  hubBusinessSwitcherRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  hubBusinessSwitcherRowActive: {
+    backgroundColor: theme.colors.cream,
+  },
+  hubBusinessSwitcherRowText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.heading,
+  },
+  hubBusinessSwitcherRowTextActive: {
+    fontWeight: "700",
+  },
   sellerHubTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -1660,6 +1872,9 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 36,
     overflow: "hidden",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
   },
   sellerHubPhoto: {
     width: "100%",
@@ -1671,6 +1886,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#e8e8e8",
     alignItems: "center",
     justifyContent: "center",
+  },
+  businessHubLogoInitialsLarge: {
+    fontSize: Math.round(22 * 1.3),
+    fontWeight: "700",
+    color: theme.colors.primary,
+    fontFamily: theme.fonts.heading,
   },
   sellerHubGrid: {
     flexDirection: "row",

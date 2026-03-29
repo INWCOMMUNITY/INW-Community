@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -39,6 +39,7 @@ interface StoreOrder {
   totalCents: number;
   createdAt: string;
   orderNumber?: string;
+  orderKind?: string;
   shippingAddress?: unknown;
   buyer?: { firstName: string; lastName: string; email?: string };
   items?: { quantity: number; storeItem?: { title: string; slug: string; photos?: string[] } }[];
@@ -72,6 +73,13 @@ function formatDate(s: string): string {
   }
 }
 
+function sellerOrderTotalLabel(order: StoreOrder): string {
+  if (order.orderKind === "reward_redemption" && order.totalCents === 0) {
+    return "No charge (reward)";
+  }
+  return formatPrice(order.totalCents);
+}
+
 const TABS: { key: OrderTab; label: string; param: string }[] = [
   { key: "to_ship", label: "To Ship", param: "mine=1&needsShipment=1" },
   { key: "shipped", label: "Shipped", param: "mine=1&shipped=1" },
@@ -85,7 +93,6 @@ function ToShipFlowView({
   refreshing,
 }: {
   orders: StoreOrder[];
-  setOrders: React.Dispatch<React.SetStateAction<StoreOrder[]>>;
   onRefresh: () => void;
   refreshing: boolean;
 }) {
@@ -93,7 +100,14 @@ function ToShipFlowView({
   const [connected, setConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savingPackingSlip, setSavingPackingSlip] = useState(false);
-  const [combineByBuyer, setCombineByBuyer] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setSelectedOrderIds(new Set(orders.map((o) => o.id)));
+  }, [orders]);
+
+  const selectedCount = selectedOrderIds.size;
+  const selectedIdList = useMemo(() => Array.from(selectedOrderIds), [selectedOrderIds]);
 
   const loadStatus = useCallback(() => {
     apiGet<{ connected?: boolean }>("/api/shipping/status")
@@ -103,17 +117,39 @@ function ToShipFlowView({
 
   useFocusEffect(useCallback(() => { loadStatus(); }, [loadStatus]));
 
-  const openPurchaseLabelsWeb = () => {
-    const hubUrl = buildHubWebUrl(siteBase, "/seller-hub/orders", {
-      nwAppShippo: "bulk",
-      nwAppChrome: true,
+  function toggleOrderSelection(orderId: string) {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
     });
-    const url = `/web?url=${encodeURIComponent(hubUrl)}&title=${encodeURIComponent("Purchase labels")}`;
+  }
+
+  function selectAllToShip() {
+    setSelectedOrderIds(new Set(orders.map((o) => o.id)));
+  }
+
+  const openPurchaseLabelsWeb = () => {
+    if (selectedIdList.length === 0) {
+      Alert.alert("Select orders", "Choose at least one order to buy labels for.");
+      return;
+    }
+    const hubUrl = buildHubWebUrl(siteBase, "/seller-hub/orders/shippo-bulk", {
+      nwAppChrome: true,
+      returnTo: "/seller-hub/orders",
+      bulkOrderIds: selectedIdList,
+    });
+    const url = `/web?url=${encodeURIComponent(hubUrl)}&title=${encodeURIComponent("Shipping labels")}`;
     (router.push as (href: string) => void)(url);
   };
 
   const handleSavePackingSlips = async () => {
-    if (orders.length === 0) return;
+    const selectedOrders = orders.filter((o) => selectedOrderIds.has(o.id));
+    if (selectedOrders.length === 0) {
+      Alert.alert("Select orders", "Choose at least one order for packing slips.");
+      return;
+    }
     setSavingPackingSlip(true);
     setError(null);
     try {
@@ -122,12 +158,18 @@ function ToShipFlowView({
         Alert.alert("Sign in required", "Please sign in to save packing slips.");
         return;
       }
-      const orderIds = orders.map((o) => o.id);
+      const sameBuyer =
+        selectedOrders.length <= 1 ||
+        selectedOrders.every(
+          (o) => (o.buyer?.email ?? "").trim().toLowerCase() ===
+            (selectedOrders[0].buyer?.email ?? "").trim().toLowerCase()
+        );
+      const orderIds = selectedOrders.map((o) => o.id);
       const url = `${API_BASE}/api/seller-hub/packing-slip`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ orderIds, combined: combineByBuyer }),
+        body: JSON.stringify({ orderIds, combined: selectedOrders.length > 1 && sameBuyer }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -194,19 +236,33 @@ function ToShipFlowView({
     >
       <Text style={styles.shipTitle}>Ship Items</Text>
       <Text style={styles.shipHint}>
-        Purchase and print shipping labels on the website. Open the page below to select orders and buy labels with Shippo.
+        Select orders for this run, then purchase labels (full-screen Shippo in the browser). Same-buyer orders are
+        combined into one purchase per buyer.
       </Text>
+      <Pressable onPress={selectAllToShip} style={({ pressed }) => [styles.selectAllBtn, pressed && { opacity: 0.7 }]}>
+        <Text style={styles.selectAllText}>Select all to ship</Text>
+      </Pressable>
       <Pressable
-        style={({ pressed }) => [styles.purchaseLabelsBtn, pressed && { opacity: 0.8 }]}
+        style={({ pressed }) => [
+          styles.purchaseLabelsBtn,
+          pressed && { opacity: 0.8 },
+          selectedCount === 0 && styles.purchaseLabelsBtnDisabled,
+        ]}
         onPress={openPurchaseLabelsWeb}
+        disabled={selectedCount === 0}
       >
         <Ionicons name="pricetag-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
         <Text style={styles.shipBtnText}>Purchase labels</Text>
       </Pressable>
+      <Text style={styles.packingSlipHint}>Packing slips use the same order selection.</Text>
       <Pressable
-        style={({ pressed }) => [styles.packingSlipBtn, pressed && { opacity: 0.8 }]}
+        style={({ pressed }) => [
+          styles.packingSlipBtn,
+          pressed && { opacity: 0.8 },
+          selectedCount === 0 && styles.purchaseLabelsBtnDisabled,
+        ]}
         onPress={handleSavePackingSlips}
-        disabled={savingPackingSlip}
+        disabled={savingPackingSlip || selectedCount === 0}
       >
         {savingPackingSlip ? (
           <ActivityIndicator color="#fff" size="small" />
@@ -222,18 +278,52 @@ function ToShipFlowView({
           <Text style={styles.shipErr}>{error}</Text>
         </View>
       )}
-      <Text style={styles.shipNote}>Orders to ship: {orders.length}</Text>
-      {orders.slice(0, 8).map((order) => (
-        <View key={order.id} style={styles.shipCard}>
-          <Text style={styles.shipOrderId}>#{order.id.slice(-8)}</Text>
-          <Text style={styles.shipBuyer}>
-            {order.buyer ? [order.buyer.firstName, order.buyer.lastName].filter(Boolean).join(" ") || "—" : "—"}
-          </Text>
-        </View>
-      ))}
-      {orders.length > 8 && (
-        <Text style={styles.shipNote}>+ {orders.length - 8} more. Tap "Purchase labels" to see all on the website.</Text>
-      )}
+      <Text style={styles.shipNote}>
+        {selectedCount} of {orders.length} selected for labels / packing slips
+      </Text>
+      {orders.map((order) => {
+        const orderNum = order.orderNumber ?? order.id.slice(-8).toUpperCase();
+        const checked = selectedOrderIds.has(order.id);
+        const addr = formatShippingAddress(order.shippingAddress);
+        return (
+          <View key={order.id} style={styles.shipCard}>
+            <View style={styles.shipRow}>
+              <Pressable
+                onPress={() => toggleOrderSelection(order.id)}
+                style={({ pressed }) => [styles.shipCheckboxHit, pressed && { opacity: 0.7 }]}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked }}
+                accessibilityLabel={`Select order ${orderNum}`}
+              >
+                <Ionicons
+                  name={checked ? "checkbox" : "square-outline"}
+                  size={26}
+                  color={checked ? theme.colors.primary : "#888"}
+                />
+              </Pressable>
+              <View style={styles.shipRowBody}>
+                <Pressable onPress={() => router.push(`/seller-hub/orders/${order.id}` as never)}>
+                  <Text style={styles.shipOrderId}>
+                    #{orderNum}
+                    {order.orderKind === "reward_redemption" ? (
+                      <Text style={styles.shipRewardBadge}> · Reward</Text>
+                    ) : null}
+                  </Text>
+                </Pressable>
+                <Text style={styles.shipBuyer}>
+                  {order.buyer
+                    ? [order.buyer.firstName, order.buyer.lastName].filter(Boolean).join(" ") || "—"
+                    : "—"}
+                </Text>
+                <Text style={styles.shipAddr} numberOfLines={2}>
+                  {addr || "—"}
+                </Text>
+                <Text style={styles.shipTotal}>{sellerOrderTotalLabel(order)}</Text>
+              </View>
+            </View>
+          </View>
+        );
+      })}
     </ScrollView>
   );
 }
@@ -281,7 +371,7 @@ export default function OrdersScreen() {
         ))}
       </View>
       {tab === "to_ship" ? (
-        <ToShipFlowView orders={orders} setOrders={setOrders} onRefresh={() => { setRefreshing(true); load(); }} refreshing={refreshing} />
+        <ToShipFlowView orders={orders} onRefresh={() => { setRefreshing(true); load(); }} refreshing={refreshing} />
       ) : (
         <FlatList
           data={orders}
@@ -400,6 +490,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   packingSlipBtnInner: { flexDirection: "row", alignItems: "center" },
+  packingSlipHint: { fontSize: 13, color: "#666", marginBottom: 10 },
   shipToggle: { marginBottom: 16 },
   shipToggleText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },
   shipErr: { color: "#c62828", fontSize: 14 },
@@ -409,14 +500,21 @@ const styles = StyleSheet.create({
   shipCard: {
     backgroundColor: "#f9f9f9",
     borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
+    padding: 12,
+    marginBottom: 12,
   },
+  shipRow: { flexDirection: "row", alignItems: "flex-start" },
+  shipCheckboxHit: { paddingRight: 12, paddingTop: 2 },
+  shipRowBody: { flex: 1, minWidth: 0 },
   shipCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
-  shipOrderId: { fontSize: 14, fontWeight: "600", color: theme.colors.primary },
-  shipBuyer: { fontSize: 16, fontWeight: "600", marginTop: 4 },
+  shipOrderId: { fontSize: 15, fontWeight: "700", color: theme.colors.primary },
+  shipRewardBadge: { fontSize: 12, fontWeight: "600", color: "#b45309" },
+  shipBuyer: { fontSize: 15, fontWeight: "600", marginTop: 4, color: "#333" },
+  shipAddr: { fontSize: 13, color: "#666", marginTop: 4, lineHeight: 18 },
+  shipTotal: { fontSize: 15, fontWeight: "600", color: theme.colors.primary, marginTop: 6 },
+  selectAllBtn: { alignSelf: "flex-start", marginBottom: 12 },
+  selectAllText: { fontSize: 15, fontWeight: "600", color: theme.colors.primary },
   shipSelectedRate: { fontSize: 14, color: "#2e7d32", marginTop: 4, fontWeight: "500" },
-  shipAddr: { fontSize: 14, color: "#666", marginTop: 4, marginBottom: 12 },
   shipDimLabel: { fontSize: 12, color: "#888", marginBottom: 8 },
   shipDimRow: { flexDirection: "row", marginBottom: 12 },
   shipDimInput: {
@@ -466,5 +564,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     marginBottom: 16,
+  },
+  purchaseLabelsBtnDisabled: {
+    opacity: 0.45,
   },
 });

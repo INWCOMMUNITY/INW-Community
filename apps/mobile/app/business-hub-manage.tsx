@@ -3,7 +3,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 
-/** Three in-app destinations: posts list, rewards management, coupons management. */
+/** In-app destinations: posts, events, rewards, coupons. */
 const ACTIONS: {
   label: string;
   href: string;
@@ -15,6 +15,11 @@ const ACTIONS: {
     icon: "megaphone-outline",
   },
   {
+    label: "My Business Events",
+    href: "/business-hub-my-events",
+    icon: "calendar-outline",
+  },
+  {
     label: "My Business Rewards",
     href: "/business-hub-offered-rewards",
     icon: "ribbon-outline",
@@ -23,11 +28,6 @@ const ACTIONS: {
     label: "My Business Coupons",
     href: "/business-hub-offered-coupons",
     icon: "pricetags-outline",
-  },
-  {
-    label: "My Business Events",
-    href: "/business-hub-my-events",
-    icon: "calendar-outline",
   },
 ];
 

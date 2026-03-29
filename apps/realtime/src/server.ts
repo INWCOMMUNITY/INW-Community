@@ -207,7 +207,9 @@ io.on("connection", (socket) => {
       if (typeof o.conversationId !== "string" || !o.conversationId) return;
       if (!allowTypingEmit(socket.id)) return;
       const active = Boolean(o.active);
-      socket.to(`${roomPrefix}:${o.conversationId}`).emit(eventName, { memberId, active });
+      socket
+        .to(`${roomPrefix}:${o.conversationId}`)
+        .emit(eventName, { conversationId: o.conversationId, memberId, active });
     };
 
   socket.on("direct_typing", emitTyping("direct", "direct:typing"));
@@ -324,6 +326,7 @@ app.post("/internal/publish", (req, res) => {
     ["group:message", `group:${cid}`],
     ["resale:message", `resale:${cid}`],
     ["direct:read", `direct:${cid}`],
+    ["group:read", `group:${cid}`],
     ["resale:read", `resale:${cid}`],
   ];
   const eventByType: Record<string, string> = {
@@ -331,6 +334,7 @@ app.post("/internal/publish", (req, res) => {
     "group:message": "group:message",
     "resale:message": "resale:message",
     "direct:read": "direct:read",
+    "group:read": "group:read",
     "resale:read": "resale:read",
   };
   const t = body.type;

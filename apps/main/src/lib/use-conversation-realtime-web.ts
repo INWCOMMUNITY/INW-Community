@@ -298,7 +298,9 @@ export function useMessagesPageRealtime(options: {
       });
       socketRef.current = socket;
 
-      const onTyping = (payload: { memberId?: string; active?: boolean }) => {
+      const onTyping = (payload: { conversationId?: string; memberId?: string; active?: boolean }) => {
+        const open = activeThreadRef.current;
+        if (payload.conversationId && open && payload.conversationId !== open.id) return;
         if (!payload?.memberId || payload.memberId === userIdRef.current) return;
         const mid = payload.memberId;
         const active = Boolean(payload.active);

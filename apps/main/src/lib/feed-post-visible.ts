@@ -2,6 +2,8 @@
  * Returns true if a feed post has meaningful content to render (hides empty / orphaned shares).
  */
 
+import { isCouponActiveByExpiresAt } from "@/lib/coupon-expiration";
+
 export type FeedPostLike = {
   type: string;
   content: string | null;
@@ -42,7 +44,13 @@ export function isFeedPostRenderable(p: FeedPostLike): boolean {
     return Boolean(p.sourceBusiness);
   }
   if (p.type === "shared_coupon" || p.sourceCouponId) {
-    return Boolean(p.sourceCoupon);
+    const c = p.sourceCoupon;
+    if (!c || typeof c !== "object") return false;
+    const raw = (c as { expiresAt?: Date | string | null }).expiresAt;
+    if (raw == null) return isCouponActiveByExpiresAt(null);
+    const exp = raw instanceof Date ? raw : new Date(raw as string);
+    if (Number.isNaN(exp.getTime())) return false;
+    return isCouponActiveByExpiresAt(exp);
   }
   if (p.type === "shared_reward" || p.sourceRewardId) {
     return Boolean(p.sourceReward);

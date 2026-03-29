@@ -5,6 +5,7 @@ import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 import { isFeedPostRenderable, type FeedPostLike } from "@/lib/feed-post-visible";
 import { hydrateFeedPostRows, feedPostListInclude } from "@/lib/hydrate-feed-post-rows";
 import { canViewerSeeFeedItem } from "@/lib/feed-post-viewer-access";
+import { couponPublicActiveWhere } from "@/lib/coupon-expiration";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const cursor = new URL(req.url).searchParams.get("cursor") ?? undefined;
 
   const [couponRows, rewardRows, excludedAuthors] = await Promise.all([
-    prisma.coupon.findMany({ where: { businessId: business.id }, select: { id: true } }),
+    prisma.coupon.findMany({
+      where: { AND: [{ businessId: business.id }, couponPublicActiveWhere()] },
+      select: { id: true },
+    }),
     prisma.reward.findMany({ where: { businessId: business.id }, select: { id: true } }),
     viewerId ? getFeedExcludedAuthorIds(viewerId) : Promise.resolve([] as string[]),
   ]);

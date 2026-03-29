@@ -4,7 +4,6 @@ import {
   View,
   Text,
   Pressable,
-  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
@@ -24,7 +23,7 @@ export function ListItemModal({ visible, onClose }: ListItemModalProps) {
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle={Platform.OS === "ios" ? "pageSheet" : "overFullScreen"}
+      presentationStyle="overFullScreen"
       onRequestClose={onClose}
     >
       <View style={styles.container}>

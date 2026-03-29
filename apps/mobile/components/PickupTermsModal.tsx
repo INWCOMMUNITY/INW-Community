@@ -175,7 +175,7 @@ export function PickupTermsModal({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle={Platform.OS === "ios" ? "pageSheet" : "overFullScreen"}
+      presentationStyle="overFullScreen"
       onRequestClose={onClose}
       transparent
     >

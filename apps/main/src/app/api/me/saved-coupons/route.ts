@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { couponPublicActiveWhere } from "@/lib/coupon-expiration";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   const coupons =
     couponIds.length > 0
       ? await prisma.coupon.findMany({
-          where: { id: { in: couponIds } },
+          where: { AND: [{ id: { in: couponIds } }, couponPublicActiveWhere()] },
           include: { business: { select: { name: true, slug: true } } },
         })
       : [];

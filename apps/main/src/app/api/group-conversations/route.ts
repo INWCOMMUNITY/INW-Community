@@ -20,14 +20,16 @@ export async function GET(req: NextRequest) {
       include: {
         createdBy: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
         members: {
-          include: {
+          select: {
+            memberId: true,
+            lastReadAt: true,
             member: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
           },
         },
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { content: true, createdAt: true, senderId: true },
+          select: { id: true, content: true, createdAt: true, senderId: true, sharedContentType: true },
         },
       },
       orderBy: { updatedAt: "desc" },
@@ -39,7 +41,22 @@ export async function GET(req: NextRequest) {
     return !otherMemberIds.some((mid) => blockedIds.has(mid));
   });
 
-  return NextResponse.json(filtered);
+  const withUnread = await Promise.all(
+    filtered.map(async (c) => {
+      const row = c.members.find((m) => m.memberId === session.user.id);
+      const lastRead = row?.lastReadAt ?? null;
+      const unreadCount = await prisma.groupConversationMessage.count({
+        where: {
+          conversationId: c.id,
+          senderId: { not: session.user.id },
+          ...(lastRead ? { createdAt: { gt: lastRead } } : {}),
+        },
+      });
+      return { ...c, unreadCount };
+    })
+  );
+
+  return NextResponse.json(withUnread);
 }
 
 const postBodySchema = z.object({

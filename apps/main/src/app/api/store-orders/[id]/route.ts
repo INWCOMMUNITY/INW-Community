@@ -46,21 +46,33 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const paymentLabel = orderPaymentLabel(order);
+    /** Combined labels: Shipment row lives on the primary order only (see label-from-elements). */
+    let orderForResponse = order;
+    if (!order.shipment && order.shippedWithOrderId) {
+      const primary = await prisma.storeOrder.findUnique({
+        where: { id: order.shippedWithOrderId },
+        include: { shipment: true },
+      });
+      if (primary?.shipment) {
+        orderForResponse = { ...order, shipment: primary.shipment };
+      }
+    }
+
+    const paymentLabel = orderPaymentLabel(orderForResponse);
 
     // For buyer: do not expose stripePaymentIntentId; add isCashOrder for UI (cancel vs request refund).
-    if (order.buyerId === userId) {
-      const { stripePaymentIntentId, ...rest } = order;
+    if (orderForResponse.buyerId === userId) {
+      const { stripePaymentIntentId, ...rest } = orderForResponse;
       return NextResponse.json({
         ...rest,
         isCashOrder: !stripePaymentIntentId,
-        orderNumber: order.id.slice(-8).toUpperCase(),
+        orderNumber: orderForResponse.id.slice(-8).toUpperCase(),
         paymentLabel,
       });
     }
     return NextResponse.json({
-      ...order,
-      orderNumber: order.id.slice(-8).toUpperCase(),
+      ...orderForResponse,
+      orderNumber: orderForResponse.id.slice(-8).toUpperCase(),
       paymentLabel,
     });
   } catch (e) {

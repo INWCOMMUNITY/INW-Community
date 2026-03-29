@@ -120,7 +120,7 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
     {
       type: "route",
       href: "/business-hub-manage",
-      label: "My Posts, Coupons, and Rewards",
+      label: "Business Offers & Publicity",
     },
   ];
 

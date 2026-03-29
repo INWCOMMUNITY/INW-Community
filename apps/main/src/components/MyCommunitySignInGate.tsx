@@ -7,7 +7,7 @@ export function MyCommunitySignInGate({ callbackUrl }: { callbackUrl?: string })
   const searchParams = useSearchParams();
   const effectiveCallbackUrl =
     callbackUrl ??
-    (searchParams.get("success") === "1" ? "/my-community?success=1" : "/my-community");
+    (searchParams?.get("success") === "1" ? "/my-community?success=1" : "/my-community");
 
   return (
     <>

@@ -25,7 +25,7 @@ export function CheckoutSuccessSessionSync() {
   const MAX_STRIPE_SYNC = 3;
 
   useEffect(() => {
-    if (searchParams.get("success") !== "1" || doneRef.current) return;
+    if (!searchParams || searchParams.get("success") !== "1" || doneRef.current) return;
     if (status === "loading") return;
     if (status === "unauthenticated") return;
 

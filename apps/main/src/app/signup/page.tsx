@@ -18,8 +18,8 @@ const DEFAULT_AFTER_SIGNUP = "/my-community";
 
 export default function SignupPage() {
   const searchParams = useSearchParams();
-  const refCode = searchParams.get("ref") ?? undefined;
-  const afterSignup = safeInternalPath(searchParams.get("next"), DEFAULT_AFTER_SIGNUP);
+  const refCode = searchParams?.get("ref") ?? undefined;
+  const afterSignup = safeInternalPath(searchParams?.get("next"), DEFAULT_AFTER_SIGNUP);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [retypePassword, setRetypePassword] = useState("");

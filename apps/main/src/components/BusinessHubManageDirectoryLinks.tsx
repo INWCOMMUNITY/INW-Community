@@ -13,6 +13,11 @@ const items: { href: string; label: string; icon: string }[] = [
     icon: "megaphone-outline",
   },
   {
+    href: "/business-hub/my-business-events",
+    label: "My Business Events",
+    icon: "calendar-outline",
+  },
+  {
     href: "/business-hub/offered-rewards",
     label: "My Business Rewards",
     icon: "ribbon-outline",
@@ -21,11 +26,6 @@ const items: { href: string; label: string; icon: string }[] = [
     href: "/business-hub/offered-coupons",
     label: "My Business Coupons",
     icon: "pricetags-outline",
-  },
-  {
-    href: "/business-hub/my-business-events",
-    label: "My Business Events",
-    icon: "calendar-outline",
   },
 ];
 

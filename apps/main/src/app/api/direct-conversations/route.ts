@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
           messages: {
             orderBy: { createdAt: "desc" },
             take: 1,
-            select: { content: true, createdAt: true, senderId: true },
+            select: { id: true, content: true, createdAt: true, senderId: true, sharedContentType: true },
           },
         },
         orderBy: { updatedAt: "desc" },
@@ -61,9 +61,32 @@ export async function GET(req: NextRequest) {
       (c) => c.status === "accepted" || c.requestedByMemberId === session.user.id
     );
 
+    const attachUnread = async (
+      list: typeof filtered
+    ): Promise<(typeof filtered[number] & { unreadCount: number })[]> =>
+      Promise.all(
+        list.map(async (c) => {
+          const isA = c.memberAId === session.user.id;
+          const lastRead = isA ? c.memberALastReadAt : c.memberBLastReadAt;
+          const unreadCount = await prisma.directMessage.count({
+            where: {
+              conversationId: c.id,
+              senderId: { not: session.user.id },
+              ...(lastRead ? { createdAt: { gt: lastRead } } : {}),
+            },
+          });
+          return { ...c, unreadCount };
+        })
+      );
+
+    const [conversationsOut, requestsOut] = await Promise.all([
+      attachUnread(acceptedList),
+      attachUnread(messageRequests),
+    ]);
+
     return NextResponse.json({
-      conversations: acceptedList,
-      messageRequests,
+      conversations: conversationsOut,
+      messageRequests: requestsOut,
     });
   } catch (e: unknown) {
     if (isDirectConversationSchemaError(e)) {

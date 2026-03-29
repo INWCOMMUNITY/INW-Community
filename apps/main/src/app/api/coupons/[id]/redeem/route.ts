@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardCouponRedeemBadges, type EarnedBadge } from "@/lib/badge-award";
 import { awardPoints } from "@/lib/award-points";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
+import { isCouponActiveByExpiresAt } from "@/lib/coupon-expiration";
 
 const POINTS_PER_REDEEM = 10;
 
@@ -24,6 +25,10 @@ export async function POST(
   });
   if (!coupon) {
     return NextResponse.json({ error: "Coupon not found" }, { status: 404 });
+  }
+
+  if (!isCouponActiveByExpiresAt(coupon.expiresAt)) {
+    return NextResponse.json({ error: "This coupon has expired" }, { status: 410 });
   }
 
   if (!coupon.secretKey) {

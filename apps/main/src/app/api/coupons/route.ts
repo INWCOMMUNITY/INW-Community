@@ -11,6 +11,8 @@ const bodySchema = z.object({
   imageUrl: z.string().nullable().optional(),
   secretKey: z.string().optional().default(""),
   maxMonthlyUses: z.number().int().min(1).optional(),
+  /** ISO-8601 end of validity; null/omit = no expiration (stays in coupon book until removed). */
+  expiresAt: z.union([z.string().min(1), z.null()]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -21,6 +23,14 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const data = bodySchema.parse({ ...body, imageUrl: body.imageUrl || null });
+    let expiresAt: Date | null = null;
+    if (data.expiresAt !== undefined && data.expiresAt !== null) {
+      const d = new Date(data.expiresAt);
+      if (Number.isNaN(d.getTime())) {
+        return NextResponse.json({ error: "Invalid expiresAt date" }, { status: 400 });
+      }
+      expiresAt = d;
+    }
     const business = await prisma.business.findFirst({
       where: { id: data.businessId, memberId: session.user.id },
     });
@@ -36,6 +46,7 @@ export async function POST(req: NextRequest) {
         imageUrl: data.imageUrl ?? null,
         secretKey: data.secretKey || null,
         maxMonthlyUses: data.maxMonthlyUses ?? 1,
+        expiresAt,
       },
     });
     return NextResponse.json({ ok: true });

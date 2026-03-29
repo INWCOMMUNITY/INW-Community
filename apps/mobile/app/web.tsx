@@ -1,19 +1,18 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StyleSheet, View, ActivityIndicator, Pressable, Text, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { WebView } from "react-native-webview";
+import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { useAuth } from "@/contexts/AuthContext";
-import { API_BASE, apiPost, setToken } from "@/lib/api";
-import {
-  isHubWebviewBridgePath,
-  sameOriginPathFromUrl,
-  siteOriginFromApiBase,
-} from "@/lib/app-webview-params";
+import { apiPost, setToken } from "@/lib/api";
+import { useHubWebviewUri } from "@/lib/use-hub-webview-uri";
 
 const AUTH_SCHEME = "inwcommunity://auth";
+
+/** Keep in sync with `NW_APP_WEBVIEW_MSG_SHIPPO_LABEL_SUCCESS` in apps/main `nw-app-webview-bridge.ts`. */
+const NW_APP_MSG_SHIPPO_LABEL_SUCCESS = "nw_shippo_label_success";
 
 function parseTokenFromAuthUrl(url: string): string | null {
   if (!url.startsWith(AUTH_SCHEME)) return null;
@@ -33,17 +32,20 @@ export default function WebScreen() {
   const insets = useSafeAreaInsets();
   const { refreshMember } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [webViewUri, setWebViewUri] = useState<string | null>(null);
   const authHandled = useRef(false);
   const checkoutSuccessHandled = useRef(false);
+  const shippoLabelBackHandled = useRef(false);
 
   const resolvedUrl = url ? decodeURIComponent(url) : "";
   const resolvedSuccessPattern = successPattern ? decodeURIComponent(successPattern) : "";
   const resolvedSuccessRoute = successRoute ? decodeURIComponent(successRoute) : "";
   const shouldRefreshOnSuccess = refreshOnSuccess === "1";
 
+  const webViewUri = useHubWebviewUri(resolvedUrl);
+
   useEffect(() => {
     checkoutSuccessHandled.current = false;
+    shippoLabelBackHandled.current = false;
   }, [resolvedUrl]);
 
   const runCheckoutSuccessRefresh = useCallback(async () => {
@@ -52,38 +54,6 @@ export default function WebScreen() {
     await apiPost("/api/stripe/sync-subscriptions", {}).catch(() => {});
     await refreshMember?.().catch(() => {});
   }, [refreshMember]);
-
-  useEffect(() => {
-    if (!resolvedUrl) {
-      setWebViewUri(null);
-      return;
-    }
-    const origin = siteOriginFromApiBase(API_BASE);
-    const path = sameOriginPathFromUrl(resolvedUrl, origin);
-    if (!path || !isHubWebviewBridgePath(path.split("#")[0] ?? "")) {
-      setWebViewUri(resolvedUrl);
-      return;
-    }
-    let cancelled = false;
-    const nextPath = path.split("#")[0];
-    (async () => {
-      try {
-        const data = await apiPost<{ redirectUrl?: string }>("/api/auth/webview-bridge", {
-          next: nextPath,
-        });
-        if (!cancelled && data.redirectUrl) {
-          setWebViewUri(data.redirectUrl);
-          return;
-        }
-      } catch {
-        // fall through to direct URL (user may need to sign in on web)
-      }
-      if (!cancelled) setWebViewUri(resolvedUrl);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [resolvedUrl]);
 
   const handleAuthRedirect = useCallback(
     async (targetUrl: string) => {
@@ -130,6 +100,23 @@ export default function WebScreen() {
       return true;
     },
     [handleAuthRedirect]
+  );
+
+  const onWebViewMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      try {
+        const data = JSON.parse(event.nativeEvent.data) as { type?: string };
+        if (data?.type === NW_APP_MSG_SHIPPO_LABEL_SUCCESS && !shippoLabelBackHandled.current) {
+          shippoLabelBackHandled.current = true;
+          setTimeout(() => {
+            router.back();
+          }, 400);
+        }
+      } catch {
+        // ignore non-JSON or unrelated messages
+      }
+    },
+    [router]
   );
 
   if (!resolvedUrl) {
@@ -182,6 +169,7 @@ export default function WebScreen() {
         onLoadEnd={() => setLoading(false)}
         onNavigationStateChange={onNavigationStateChange}
         onShouldStartLoadWithRequest={Platform.OS === "ios" ? onShouldStartLoadWithRequest : undefined}
+        onMessage={onWebViewMessage}
         androidLayerType="hardware"
       />
     </View>

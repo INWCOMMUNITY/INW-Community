@@ -5,12 +5,14 @@ import {
   deduplicateCities,
   extractBusinessDisplayCity,
 } from "@/lib/city-utils";
+import { couponPublicActiveWhere } from "@/lib/coupon-expiration";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const list = searchParams.get("list");
   if (list === "meta") {
     const coupons = await prisma.coupon.findMany({
+      where: couponPublicActiveWhere(),
       include: { business: { select: { city: true, categories: true } } },
     });
     const cityList: string[] = [];
@@ -28,24 +30,21 @@ export async function GET(req: NextRequest) {
   const cityFilter = (searchParams.get("city") ?? "").trim();
   const search = searchParams.get("search")?.trim();
 
-  const where: Prisma.CouponWhereInput = {};
+  const andParts: Prisma.CouponWhereInput[] = [couponPublicActiveWhere()];
   if (category) {
-    where.business = {
-      categories: { has: category },
-    };
+    andParts.push({ business: { categories: { has: category } } });
   }
   if (search) {
-    where.AND = [
-      ...(Array.isArray(where.AND) ? where.AND : []),
-      {
-        OR: [
-          { name: { contains: search, mode: "insensitive" } },
-          { discount: { contains: search, mode: "insensitive" } },
-          { business: { name: { contains: search, mode: "insensitive" } } },
-        ],
-      },
-    ];
+    andParts.push({
+      OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { discount: { contains: search, mode: "insensitive" } },
+        { business: { name: { contains: search, mode: "insensitive" } } },
+      ],
+    });
   }
+  const where: Prisma.CouponWhereInput =
+    andParts.length === 1 ? andParts[0]! : { AND: andParts };
 
   const coupons = await prisma.coupon.findMany({
     where,

@@ -22,6 +22,7 @@ import {
 } from "@/lib/nwc-paid-subscription";
 import { linkAllUnscopedStoreItemsToBusiness } from "@/lib/migrate-resale-items-for-seller-plan";
 import { photosExcludingLogo } from "@/lib/business-photos";
+import { isCouponActiveByExpiresAt } from "@/lib/coupon-expiration";
 
 export async function GET(req: NextRequest) {
   try {
@@ -41,7 +42,14 @@ export async function GET(req: NextRequest) {
     }
     const businesses = await prisma.business.findMany({
       where: { memberId: session.user.id },
-      select: { id: true, name: true, slug: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        logoUrl: true,
+        coverPhotoUrl: true,
+        photos: true,
+      },
       orderBy: { name: "asc" },
     });
     return NextResponse.json(businesses);
@@ -88,7 +96,7 @@ export async function GET(req: NextRequest) {
       subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
       hoursOfOperation: business.hoursOfOperation,
       photos: photosExcludingLogo(business.photos, business.logoUrl),
-      coupons: business.coupons,
+      coupons: business.coupons.filter((c) => isCouponActiveByExpiresAt(c.expiresAt)),
     });
   }
 

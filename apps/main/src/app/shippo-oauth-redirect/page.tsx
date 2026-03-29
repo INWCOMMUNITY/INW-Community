@@ -10,15 +10,15 @@ import { useSearchParams } from "next/navigation";
  */
 function ShippoOAuthRedirectContent() {
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
-  const code = searchParams.get("code");
+  const error = searchParams?.get("error");
+  const code = searchParams?.get("code");
 
   if (error) {
     return (
       <section className="py-12 px-4 max-w-lg mx-auto">
         <h1 className="text-xl font-semibold mb-2">Shippo connection cancelled</h1>
         <p className="text-gray-600 mb-4">
-          {searchParams.get("error_description")
+          {searchParams?.get("error_description")
             ? decodeURIComponent(
                 String(searchParams.get("error_description")).replace(/\+/g, " ")
               )
