@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { flushSync } from "react-dom";
 import {
   buildOrderDetailsFromOrder,
@@ -9,6 +9,7 @@ import {
 } from "@/lib/shippo-elements";
 import { NWC_SHIPPO_ELEMENTS_THEME, type ShippoElementsTheme } from "@/lib/shippo-elements-theme";
 import { notifyNwAppShippoLabelSuccess } from "@/lib/nw-app-webview-bridge";
+import { afterNextPaint, clearShippoElementsMount } from "@/lib/shippo-mount-utils";
 
 export const SHIPPO_BULK_ORG = "inw-community";
 export const SHIPPO_BULK_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
@@ -131,11 +132,21 @@ export function useShippoBulkLabelFlow(options: {
   const groupIndexRef = useRef(0);
   const sessionLabeledOrderIdsRef = useRef<string[]>([]);
   const labelSuccessHandlingRef = useRef(false);
+  /** Ignores stale `LABEL_PURCHASED_SUCCESS` when another flow/hook also registered on `window.shippo`. */
+  const bulkFlowActiveRef = useRef(false);
   const onAfterSaveRef = useRef(onAfterSave);
   onAfterSaveRef.current = onAfterSave;
 
   const containerIdRef = useRef(containerId);
   containerIdRef.current = containerId;
+
+  useEffect(() => {
+    return () => {
+      bulkFlowActiveRef.current = false;
+      labelSuccessHandlingRef.current = false;
+      clearShippoElementsMount(containerIdRef.current);
+    };
+  }, []);
 
   const advanceOrFinish = useCallback(async (shippo: ShippoElementsAPI, afterSaveOrderIds: string[]) => {
     const cid = containerIdRef.current;
@@ -147,6 +158,8 @@ export function useShippoBulkLabelFlow(options: {
     if (nextIdx >= groups.length) {
       notifyNwAppShippoLabelSuccess({ orderIds: sessionLabeledOrderIdsRef.current });
       setProgressSubtitle(null);
+      bulkFlowActiveRef.current = false;
+      clearShippoElementsMount(containerIdRef.current);
       setShippoSurfaceOpen(false);
       buyerGroupsRef.current = [];
       groupIndexRef.current = 0;
@@ -159,6 +172,8 @@ export function useShippoBulkLabelFlow(options: {
     if (!orderDetails) {
       setElementsError("Order(s) have no valid shipping address.");
       setProgressSubtitle(null);
+      bulkFlowActiveRef.current = false;
+      clearShippoElementsMount(containerIdRef.current);
       setShippoSurfaceOpen(false);
       buyerGroupsRef.current = [];
       groupIndexRef.current = 0;
@@ -170,11 +185,19 @@ export function useShippoBulkLabelFlow(options: {
     setProgressSubtitle(groups.length > 1 ? `Buyer ${nextIdx + 1} of ${groups.length}` : null);
     currentElementsOrderIdsRef.current = nextGroup.map((o) => o.id);
     shippoOrderIdsRef.current = [];
-    const mount = document.getElementById(cid);
-    if (mount) mount.innerHTML = "";
+    clearShippoElementsMount(cid);
     flushSync(() => {
       setShippoSurfaceOpen(true);
     });
+    await afterNextPaint();
+    const mount = document.getElementById(cid);
+    if (!mount) {
+      setElementsError("Label tool could not open. Close and try again.");
+      bulkFlowActiveRef.current = false;
+      setShippoSurfaceOpen(false);
+      return;
+    }
+    bulkFlowActiveRef.current = true;
     shippo.labelPurchase(`#${cid}`, orderDetails);
   }, []);
 
@@ -250,10 +273,12 @@ export function useShippoBulkLabelFlow(options: {
       if (!elementsListenersRef.current) {
         elementsListenersRef.current = true;
         shippo.on("ORDER_CREATED", (params: unknown) => {
+          if (!bulkFlowActiveRef.current) return;
           const p = params as { order_id?: string };
           if (p?.order_id) shippoOrderIdsRef.current.push(p.order_id);
         });
         shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
+          if (!bulkFlowActiveRef.current) return;
           if (labelSuccessHandlingRef.current) return;
           const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
           const labeledOrderIds = currentElementsOrderIdsRef.current;
@@ -292,6 +317,8 @@ export function useShippoBulkLabelFlow(options: {
                 setElementsError(
                   "Label saved, but the app could not open the next step. Refresh this page and check your orders."
                 );
+                bulkFlowActiveRef.current = false;
+                clearShippoElementsMount(containerIdRef.current);
                 setShippoSurfaceOpen(false);
                 setProgressSubtitle(null);
                 buyerGroupsRef.current = [];
@@ -312,6 +339,7 @@ export function useShippoBulkLabelFlow(options: {
           }
         });
         shippo.on("ERROR", (err: unknown) => {
+          if (!bulkFlowActiveRef.current) return;
           const msg =
             err && typeof err === "object" && "detail" in err
               ? String((err as { detail: string }).detail)
@@ -321,11 +349,19 @@ export function useShippoBulkLabelFlow(options: {
       }
 
       setProgressSubtitle(groups.length > 1 ? `Buyer 1 of ${groups.length}` : null);
-      const mount = document.getElementById(containerIdRef.current);
-      if (mount) mount.innerHTML = "";
+      clearShippoElementsMount(containerIdRef.current);
       flushSync(() => {
         setShippoSurfaceOpen(true);
       });
+      await afterNextPaint();
+      const mount = document.getElementById(containerIdRef.current);
+      if (!mount) {
+        setElementsError("Label tool could not open. Close and try again.");
+        bulkFlowActiveRef.current = false;
+        setShippoSurfaceOpen(false);
+        return;
+      }
+      bulkFlowActiveRef.current = true;
       shippo.labelPurchase(`#${containerIdRef.current}`, orderDetails);
     } catch {
       setElementsError("Connection failed.");
@@ -335,6 +371,9 @@ export function useShippoBulkLabelFlow(options: {
   }, [orders]);
 
   const closeShippoSurface = useCallback(() => {
+    bulkFlowActiveRef.current = false;
+    labelSuccessHandlingRef.current = false;
+    clearShippoElementsMount(containerIdRef.current);
     setShippoSurfaceOpen(false);
     setProgressSubtitle(null);
     buyerGroupsRef.current = [];

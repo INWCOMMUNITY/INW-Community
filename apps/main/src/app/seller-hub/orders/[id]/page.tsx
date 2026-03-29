@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
 import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
+import { orderEligibleForAnotherShippoLabel } from "types";
 
 interface OrderItem {
   id: string;
@@ -60,7 +61,9 @@ function shippoLabelHref(orderId: string, labelAction: "purchase" | "reprint" | 
 
 export default function SellerOrderDetailPage() {
   const params = useParams();
-  const id = typeof params?.id === "string" ? params.id : "";
+  const rawId = params?.id;
+  const id =
+    typeof rawId === "string" ? rawId : Array.isArray(rawId) ? (rawId[0] ?? "") : "";
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -112,9 +115,6 @@ export default function SellerOrderDetailPage() {
       </section>
     );
   }
-
-  const canLabelFlow =
-    order.status === "paid" || order.status === "shipped" || order.status === "delivered";
 
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
@@ -185,26 +185,6 @@ export default function SellerOrderDetailPage() {
               </Link>
             </div>
           )}
-          <div className="border-t pt-4">
-            <p className="font-medium mb-2">Items</p>
-            <ul className="space-y-2">
-              {order.items.map((oi) => (
-                <li key={oi.id} className="flex items-center gap-2">
-                  {oi.storeItem.photos[0] && (
-                    <img
-                      src={oi.storeItem.photos[0]}
-                      alt=""
-                      className="w-10 h-10 object-cover rounded"
-                    />
-                  )}
-                  <span>
-                    {oi.storeItem.title} × {oi.quantity} — $
-                    {((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
           {order.shipment && (
             <>
               <div className="border-t pt-4 mb-4">
@@ -227,7 +207,7 @@ export default function SellerOrderDetailPage() {
                   </p>
                 )}
               </div>
-              <div className="border-t pt-4">
+              <div className="border-t pt-4 mb-4">
                 <p className="font-medium mb-2">Labels</p>
                 <div className="flex flex-wrap gap-3 mb-3">
                   {order.shipment?.shippoOrderId &&
@@ -250,7 +230,7 @@ export default function SellerOrderDetailPage() {
                       Open label PDF
                     </a>
                   ) : null}
-                  {canLabelFlow ? (
+                  {orderEligibleForAnotherShippoLabel(order) ? (
                     <Link
                       href={shippoLabelHref(order.id, "another")}
                       className="btn text-sm py-2 px-4 inline-block text-center"
@@ -266,6 +246,26 @@ export default function SellerOrderDetailPage() {
               </div>
             </>
           )}
+          <div className="border-t pt-4">
+            <p className="font-medium mb-2">Items</p>
+            <ul className="space-y-2">
+              {order.items.map((oi) => (
+                <li key={oi.id} className="flex items-center gap-2">
+                  {oi.storeItem.photos[0] && (
+                    <img
+                      src={oi.storeItem.photos[0]}
+                      alt=""
+                      className="w-10 h-10 object-cover rounded"
+                    />
+                  )}
+                  <span>
+                    {oi.storeItem.title} × {oi.quantity} — $
+                    {((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </div>
     </section>

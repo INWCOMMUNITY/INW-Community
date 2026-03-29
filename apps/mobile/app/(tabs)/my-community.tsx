@@ -192,7 +192,7 @@ function SellerHubContent() {
 
   if (!hasSeller) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, styles.planGateFill]}>
         <View style={[styles.tanSection, { padding: 24, alignItems: "center" }]}>
           <Text style={[styles.businessHubButtonTitle, { marginBottom: 12, textAlign: "center" }]}>
             Seller Hub
@@ -385,7 +385,7 @@ function ResaleHubContent() {
 
   if (!canAccessResaleHub) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, styles.planGateFill]}>
         <View style={[styles.tanSection, { padding: 24, alignItems: "center" }]}>
           <Text style={[styles.businessHubButtonTitle, { marginBottom: 12, textAlign: "center" }]}>
             Resale Hub
@@ -1337,6 +1337,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#ffffff",
+  },
+  /** Plan / subscription gates: anchor CTA block toward bottom of tab (matches web hub gates). */
+  planGateFill: {
+    justifyContent: "flex-end",
+    paddingBottom: 8,
   },
   scrollContent: {
     flexGrow: 1,

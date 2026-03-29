@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { afterNextPaint, clearShippoElementsMount } from "@/lib/shippo-mount-utils";
 import { flushSync } from "react-dom";
 import {
   buildOrderDetailsFromOrder,
@@ -11,6 +12,7 @@ import {
 import { NWC_SHIPPO_ELEMENTS_THEME, type ShippoElementsTheme } from "@/lib/shippo-elements-theme";
 import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 import { notifyNwAppShippoLabelSuccess } from "@/lib/nw-app-webview-bridge";
+import { orderEligibleForAnotherShippoLabel } from "types";
 
 export const SHIPPO_ORG = "inw-community";
 export const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
@@ -67,6 +69,21 @@ export interface StoreOrderForShippo extends OrderForElements {
 
 export type NwAppShippoMode = "reprint" | "purchase" | "another";
 
+function stripNwAppShippoDeepLinkParams(): void {
+  if (typeof window === "undefined") return;
+  const sp = new URLSearchParams(window.location.search);
+  if (!sp.has("nwAppShippo") && !sp.has("labelAction") && !sp.has("nwAppChrome")) return;
+  sp.delete("nwAppShippo");
+  sp.delete("labelAction");
+  sp.delete("nwAppChrome");
+  const qs = sp.toString();
+  window.history.replaceState(
+    {},
+    "",
+    `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
+  );
+}
+
 /**
  * Shippo Embeddable label purchase for a single store order. Register listeners once per widget instance.
  */
@@ -80,7 +97,7 @@ export function useShippoLabelFlowForOrder(options: {
   elementsLoading: boolean;
   elementsError: string | null;
   shippoModalOpen: boolean;
-  openElementsFlow: (opts?: { forReprint?: boolean }) => Promise<void>;
+  openElementsFlow: (opts?: { forReprint?: boolean; forceAdditionalLabel?: boolean }) => Promise<void>;
   closeShippoModal: () => void;
 } {
   const { orderId, containerId, order, orderLoading, onLabelSaved } = options;
@@ -91,17 +108,32 @@ export function useShippoLabelFlowForOrder(options: {
   const elementsListenersRef = useRef(false);
   const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
   const labelFlowOrderIdRef = useRef<string>("");
-  const autoNwAppShippoTriggeredRef = useRef(false);
+  const labelSaveHandlingRef = useRef(false);
+  /** Drops stray Shippo events when bulk label flow or another page also registered listeners. */
+  const singleFlowActiveRef = useRef(false);
   const onLabelSavedRef = useRef(onLabelSaved);
   onLabelSavedRef.current = onLabelSaved;
 
+  useEffect(() => {
+    return () => {
+      singleFlowActiveRef.current = false;
+      labelSaveHandlingRef.current = false;
+      clearShippoElementsMount(containerId);
+    };
+  }, [containerId]);
+
   const openElementsFlow = useCallback(
-    async (flowOpts: { forReprint?: boolean } = {}) => {
+    async (flowOpts: { forReprint?: boolean; forceAdditionalLabel?: boolean } = {}) => {
       if (!order || !orderId) return;
       labelFlowOrderIdRef.current = orderId;
       const objectId = flowOpts.forReprint ? order.shipment?.shippoOrderId : undefined;
+      const useFreshShippoOrder = flowOpts.forReprint
+        ? false
+        : flowOpts.forceAdditionalLabel === true
+          ? true
+          : Boolean(order.shipment) || order.status === "shipped" || order.status === "delivered";
       const orderDetails = buildOrderDetailsFromOrder(order, objectId, {
-        freshShippoOrder: Boolean(order.shipment) && !flowOpts.forReprint,
+        freshShippoOrder: useFreshShippoOrder,
       });
       if (!orderDetails) {
         setElementsError("Order has no valid shipping address.");
@@ -142,13 +174,17 @@ export function useShippoLabelFlowForOrder(options: {
         if (!elementsListenersRef.current) {
           elementsListenersRef.current = true;
           shippo.on("ORDER_CREATED", (params: unknown) => {
+            if (!singleFlowActiveRef.current) return;
             const p = params as { order_id?: string };
             if (p?.order_id) shippoOrderIdFromCreatedRef.current = p.order_id;
           });
           shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
+            if (!singleFlowActiveRef.current) return;
+            if (labelSaveHandlingRef.current) return;
             const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
             const saveOrderId = labelFlowOrderIdRef.current;
             if (txs.length === 0 || !saveOrderId) return;
+            labelSaveHandlingRef.current = true;
             const firstTx = txs[0];
             const payload = transactionToLabelFromElementsPayload(firstTx, {
               weightOz: 16,
@@ -181,9 +217,12 @@ export function useShippoLabelFlowForOrder(options: {
               }
             } catch {
               setElementsError("Could not save label to your order.");
+            } finally {
+              labelSaveHandlingRef.current = false;
             }
           });
           shippo.on("ERROR", (err: unknown) => {
+            if (!singleFlowActiveRef.current) return;
             const msg =
               err && typeof err === "object" && "detail" in err
                 ? String((err as { detail: string }).detail)
@@ -191,11 +230,19 @@ export function useShippoLabelFlowForOrder(options: {
             setElementsError(msg);
           });
         }
-        const mount = document.getElementById(containerId);
-        if (mount) mount.innerHTML = "";
+        clearShippoElementsMount(containerId);
         flushSync(() => {
           setShippoModalOpen(true);
         });
+        await afterNextPaint();
+        const mount = document.getElementById(containerId);
+        if (!mount) {
+          setElementsError("Label tool could not open. Close and try again.");
+          singleFlowActiveRef.current = false;
+          setShippoModalOpen(false);
+          return;
+        }
+        singleFlowActiveRef.current = true;
         shippo.labelPurchase(`#${containerId}`, orderDetails);
       } catch {
         setElementsError("Connection failed.");
@@ -207,57 +254,49 @@ export function useShippoLabelFlowForOrder(options: {
   );
 
   const closeShippoModal = useCallback(() => {
+    singleFlowActiveRef.current = false;
+    labelSaveHandlingRef.current = false;
+    clearShippoElementsMount(containerId);
     setShippoModalOpen(false);
-  }, []);
+  }, [containerId]);
 
   const openElementsFlowRef = useRef(openElementsFlow);
   openElementsFlowRef.current = openElementsFlow;
 
   useEffect(() => {
     if (typeof window === "undefined" || !order || orderLoading || !orderId) return;
-    if (autoNwAppShippoTriggeredRef.current) return;
     const sp = new URLSearchParams(window.location.search);
     const mode = sp.get("nwAppShippo") ?? sp.get("labelAction");
     if (!mode) return;
     if (mode !== "reprint" && mode !== "purchase" && mode !== "another") return;
-    autoNwAppShippoTriggeredRef.current = true;
-    sp.delete("nwAppShippo");
-    sp.delete("labelAction");
-    sp.delete("nwAppChrome");
-    const qs = sp.toString();
-    window.history.replaceState(
-      {},
-      "",
-      `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
-    );
 
     const run = openElementsFlowRef.current;
     const canReprintStatus =
-      order.status === "paid" ||
-      order.status === "shipped" ||
-      order.status === "delivered";
+      order.status === "paid" || order.status === "shipped" || order.status === "delivered";
+
     if (mode === "reprint") {
       if (
-        canReprintStatus &&
-        order.shipment?.shippoOrderId &&
-        order.shipment.createdAt &&
-        isWithinLabelReprintWindow(order.shipment.createdAt)
+        !canReprintStatus ||
+        !order.shipment?.shippoOrderId ||
+        !order.shipment.createdAt ||
+        !isWithinLabelReprintWindow(order.shipment.createdAt)
       ) {
-        void run({ forReprint: true });
+        return;
       }
-    } else if (mode === "purchase") {
-      if (order.status === "paid" && !order.shipment) {
-        void run();
-      }
-    } else if (mode === "another") {
-      const canAnother =
-        order.shipment &&
-        (order.status === "paid" ||
-          order.status === "shipped" ||
-          order.status === "delivered");
-      if (canAnother) {
-        void run();
-      }
+      stripNwAppShippoDeepLinkParams();
+      void run({ forReprint: true });
+      return;
+    }
+    if (mode === "purchase") {
+      if (!(order.status === "paid" && !order.shipment)) return;
+      stripNwAppShippoDeepLinkParams();
+      void run();
+      return;
+    }
+    if (mode === "another") {
+      if (!orderEligibleForAnotherShippoLabel(order)) return;
+      stripNwAppShippoDeepLinkParams();
+      void run({ forceAdditionalLabel: true });
     }
   }, [order, orderLoading, orderId]);
 
@@ -294,12 +333,10 @@ export function getNwAppShippoSkippedReason(
     return null;
   }
   if (mode === "another") {
-    if (!order.shipment) return "Purchase a first label from order details before purchasing another.";
-    if (
-      order.status !== "paid" &&
-      order.status !== "shipped" &&
-      order.status !== "delivered"
-    ) {
+    if (!orderEligibleForAnotherShippoLabel(order)) {
+      if (order.status === "paid" && !order.shipment) {
+        return "Purchase a first label from order details before purchasing another.";
+      }
       return "Purchase another label is only available for paid, shipped, or delivered orders.";
     }
     return null;
