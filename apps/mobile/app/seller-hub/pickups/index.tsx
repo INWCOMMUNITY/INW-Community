@@ -13,6 +13,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch } from "@/lib/api";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -59,6 +60,10 @@ export default function SellerHubPickupsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [earnedBadges, setEarnedBadges] = useState<
+    { slug: string; name: string; description?: string }[]
+  >([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
   const load = useCallback(() => {
     apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1")
@@ -82,8 +87,14 @@ export default function SellerHubPickupsScreen() {
   const markSellerPickedUp = async (orderId: string) => {
     setConfirmingId(orderId);
     try {
-      await apiPatch(`/api/store-orders/${orderId}`, { pickupSellerConfirmed: true });
+      const res = await apiPatch<{
+        earnedBadges?: { slug: string; name: string; description?: string }[];
+      }>(`/api/store-orders/${orderId}`, { pickupSellerConfirmed: true });
       load();
+      if (res?.earnedBadges?.length) {
+        setEarnedBadges(res.earnedBadges);
+        setBadgePopupIndex(0);
+      }
     } catch {
       // ignore
     } finally {
@@ -101,6 +112,23 @@ export default function SellerHubPickupsScreen() {
 
   return (
     <View style={styles.container}>
+      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
+        <BadgeEarnedPopup
+          visible
+          onClose={() => {
+            const next = badgePopupIndex + 1;
+            if (next < earnedBadges.length) {
+              setBadgePopupIndex(next);
+            } else {
+              setBadgePopupIndex(-1);
+              setEarnedBadges([]);
+            }
+          }}
+          badgeName={earnedBadges[badgePopupIndex].name}
+          badgeSlug={earnedBadges[badgePopupIndex].slug}
+          badgeDescription={earnedBadges[badgePopupIndex].description}
+        />
+      )}
       <Text style={styles.intro}>
         Orders with in-store or local pickup will appear here. Mark them as picked up when the buyer collects the item.
       </Text>
@@ -201,10 +229,18 @@ const styles = StyleSheet.create({
   date: { fontSize: 12, color: "#888", marginTop: 4 },
   total: { fontSize: 16, fontWeight: "600", color: theme.colors.primary, marginTop: 8 },
   itemsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
-  itemChip: { flexDirection: "row", alignItems: "center", gap: 6 },
+  itemChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: "100%",
+  },
   itemThumb: { width: 36, height: 36, borderRadius: 6 },
   itemThumbPlaceholder: { backgroundColor: "#ddd" },
-  itemTitle: { fontSize: 12, color: "#555", maxWidth: 120 },
+  itemTitle: { flex: 1, minWidth: 0, fontSize: 12, color: "#555" },
   pickupLine: { fontSize: 13, color: "#444", marginTop: 4 },
   pickupNote: { fontSize: 13, color: "#666", marginTop: 4, fontStyle: "italic" },
   confirmRow: { fontSize: 12, color: "#555", marginTop: 8 },

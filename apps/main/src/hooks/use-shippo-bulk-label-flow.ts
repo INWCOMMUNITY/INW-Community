@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { flushSync } from "react-dom";
 import {
   buildOrderDetailsFromOrder,
+  resolveOrderShipToAddress,
   transactionToLabelFromElementsPayload,
   type ElementsTransactionPayload,
 } from "@/lib/shippo-elements";
@@ -65,6 +66,7 @@ export interface StoreOrderForBulkLabel {
   totalCents?: number;
   status: string;
   shippingAddress: unknown;
+  localDeliveryDetails?: unknown;
   createdAt: string;
   buyer: { firstName: string; lastName: string; email: string };
   items: Array<{
@@ -127,6 +129,7 @@ export function useShippoBulkLabelFlow(options: {
 
   const elementsListenersRef = useRef(false);
   const currentElementsOrderIdsRef = useRef<string[]>([]);
+  const currentShipToSnapshotRef = useRef<ReturnType<typeof resolveOrderShipToAddress>>(null);
   const shippoOrderIdsRef = useRef<string[]>([]);
   const buyerGroupsRef = useRef<StoreOrderForBulkLabel[][]>([]);
   const groupIndexRef = useRef(0);
@@ -198,6 +201,7 @@ export function useShippoBulkLabelFlow(options: {
       return;
     }
     bulkFlowActiveRef.current = true;
+    currentShipToSnapshotRef.current = resolveOrderShipToAddress(nextGroup[0]);
     shippo.labelPurchase(`#${cid}`, orderDetails);
   }, []);
 
@@ -293,6 +297,7 @@ export function useShippoBulkLabelFlow(options: {
           });
           const shippoOrderId =
             firstTx.order_id?.trim() || shippoOrderIdsRef.current[0]?.trim() || null;
+          const snap = currentShipToSnapshotRef.current;
           try {
             const res = await fetch("/api/shipping/label-from-elements", {
               method: "POST",
@@ -301,6 +306,17 @@ export function useShippoBulkLabelFlow(options: {
                 orderIds: labeledOrderIds,
                 ...payload,
                 ...(shippoOrderId ? { shippoOrderId } : {}),
+                ...(snap
+                  ? {
+                      shipToSnapshot: {
+                        street: snap.street,
+                        city: snap.city,
+                        state: snap.state,
+                        zip: snap.zip,
+                        ...(snap.aptOrSuite?.trim() ? { aptOrSuite: snap.aptOrSuite.trim() } : {}),
+                      },
+                    }
+                  : {}),
               }),
             });
             const data = await res.json().catch(() => ({}));
@@ -362,6 +378,7 @@ export function useShippoBulkLabelFlow(options: {
         return;
       }
       bulkFlowActiveRef.current = true;
+      currentShipToSnapshotRef.current = resolveOrderShipToAddress(first[0]);
       shippo.labelPurchase(`#${containerIdRef.current}`, orderDetails);
     } catch {
       setElementsError("Connection failed.");

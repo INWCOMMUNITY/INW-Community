@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardScannerBadges, awardCategoryScanBadges, type EarnedBadge } from "@/lib/badge-award";
+import { refreshMemberBadgeProgress } from "@/lib/member-badge-progress";
 import { awardPoints } from "@/lib/award-points";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 
@@ -83,9 +84,10 @@ export async function POST(req: NextRequest) {
 
     let earnedBadges: EarnedBadge[] = [];
     try {
+      await refreshMemberBadgeProgress(session.user.id);
       const [scannerBadges, catBadges] = await Promise.all([
         awardScannerBadges(session.user.id),
-        awardCategoryScanBadges(session.user.id, business.categories),
+        awardCategoryScanBadges(session.user.id),
       ]);
       earnedBadges = [...scannerBadges, ...catBadges];
     } catch {

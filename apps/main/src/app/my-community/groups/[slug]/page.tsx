@@ -12,6 +12,7 @@ interface GroupDetail {
   category: string | null;
   coverImageUrl: string | null;
   slug: string;
+  allowBusinessPosts?: boolean;
   createdBy: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   _count: { members: number; groupPosts: number };
   isMember: boolean;
@@ -30,6 +31,7 @@ export default function GroupAdminPage() {
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [allowBusinessPosts, setAllowBusinessPosts] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -46,6 +48,7 @@ export default function GroupAdminPage() {
         setDescription(data.description ?? "");
         setCategory(data.category ?? "");
         setCoverImageUrl(data.coverImageUrl ?? "");
+        setAllowBusinessPosts(!!data.allowBusinessPosts);
       })
       .catch(() => setGroup(null))
       .finally(() => setLoading(false));
@@ -85,6 +88,7 @@ export default function GroupAdminPage() {
           description: description.trim() || null,
           category: category.trim() || null,
           coverImageUrl: coverImageUrl || null,
+          allowBusinessPosts,
         }),
       });
       const data = await res.json();
@@ -203,6 +207,21 @@ export default function GroupAdminPage() {
               {uploading ? "Uploading…" : "Upload cover photo"}
             </button>
           )}
+        </div>
+        <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50/80 p-4">
+          <input
+            id="admin-allowBusinessPosts"
+            type="checkbox"
+            checked={allowBusinessPosts}
+            onChange={(e) => setAllowBusinessPosts(e.target.checked)}
+            className="mt-1 h-4 w-4 shrink-0"
+          />
+          <label htmlFor="admin-allowBusinessPosts" className="text-sm text-gray-700 cursor-pointer">
+            <span className="font-medium text-gray-900">Allow businesses to post in this group</span>
+            <span className="block text-gray-600 mt-1">
+              Members with a directory business can post as that business in this group when enabled.
+            </span>
+          </label>
         </div>
         <div className="flex gap-3">
           <button type="submit" disabled={saving} className="btn">

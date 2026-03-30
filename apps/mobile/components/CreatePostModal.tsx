@@ -21,6 +21,8 @@ import * as FileSystem from "expo-file-system/legacy";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { getToken, apiUploadFile, apiGet } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { PostEventAsPickerPanel } from "@/components/PostEventAsPickerModal";
 import { createPost, updatePost, type FeedPost } from "@/lib/feed-api";
 import { useEventInvitePopupSuppression } from "@/contexts/EventInvitePopupSuppressionContext";
 import { ScaledImageFit } from "@/components/ScaledImageFit";
@@ -59,6 +61,8 @@ interface CreatePostModalProps {
   initialBusinessForPost?: { id: string; name: string } | null;
   /** When set, post is created into this group. Used when opening from a group detail page. */
   initialGroupId?: string | null;
+  /** When posting into a group, whether that group allows posting as a business. */
+  allowBusinessPostsInGroup?: boolean;
   /** When set, submit PATCHes this post (author-only on server). */
   editingPost?: FeedPost | null;
 }
@@ -69,9 +73,11 @@ export function CreatePostModal({
   onSuccess,
   initialBusinessForPost,
   initialGroupId = null,
+  allowBusinessPostsInGroup = true,
   editingPost = null,
 }: CreatePostModalProps) {
   const insets = useSafeAreaInsets();
+  const { member } = useAuth();
   const [content, setContent] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -98,7 +104,14 @@ export function CreatePostModal({
   const [myBusinesses, setMyBusinesses] = useState<BusinessItem[]>([]);
   const [businessLoading, setBusinessLoading] = useState(false);
 
+  const [composePhase, setComposePhase] = useState<"checking" | "picker" | "ready">("checking");
+  const [identityPickerBusinesses, setIdentityPickerBusinesses] = useState<
+    { id: string; name: string; slug: string }[]
+  >([]);
+
   const isEditing = !!editingPost;
+  const profileDisplayNameForPicker =
+    `${member?.firstName ?? ""} ${member?.lastName ?? ""}`.trim() || "Your profile";
 
   const { incrementSuppression, decrementSuppression } = useEventInvitePopupSuppression();
   useEffect(() => {
@@ -106,6 +119,63 @@ export function CreatePostModal({
     incrementSuppression();
     return () => decrementSuppression();
   }, [visible, incrementSuppression, decrementSuppression]);
+
+  useEffect(() => {
+    if (!visible) {
+      setComposePhase("checking");
+      setIdentityPickerBusinesses([]);
+    }
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible || composePhase !== "checking") return;
+    if (editingPost) {
+      setComposePhase("ready");
+      return;
+    }
+    if (initialBusinessForPost) {
+      setComposePhase("ready");
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      try {
+        if (initialGroupId && !allowBusinessPostsInGroup) {
+          if (!cancelled) setComposePhase("ready");
+          return;
+        }
+        const token = await getToken();
+        if (!token) {
+          if (!cancelled) setComposePhase("ready");
+          return;
+        }
+        const data = await apiGet<Array<{ id: string; name: string; slug: string }>>("/api/businesses?mine=1");
+        const list = Array.isArray(data) ? data : [];
+        if (cancelled) return;
+        if (list.length > 0) {
+          setIdentityPickerBusinesses(
+            list.map((b) => ({ id: b.id, name: b.name, slug: b.slug ?? "" }))
+          );
+          setComposePhase("picker");
+        } else {
+          setComposePhase("ready");
+        }
+      } catch {
+        if (!cancelled) setComposePhase("ready");
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    visible,
+    composePhase,
+    editingPost?.id,
+    initialBusinessForPost?.id,
+    initialGroupId,
+    allowBusinessPostsInGroup,
+  ]);
 
   useEffect(() => {
     if (!visible) return;
@@ -334,11 +404,27 @@ export function CreatePostModal({
     : allFriends;
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      onRequestClose={handleClose}
-    >
+    <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+      {composePhase === "picker" ? (
+        <View style={{ flex: 1 }}>
+          <PostEventAsPickerPanel
+            onClose={handleClose}
+            profileDisplayName={profileDisplayNameForPicker}
+            businesses={identityPickerBusinesses}
+            title="Create post"
+            subtitle="Choose who is posting so it appears under the right name in the feed."
+            onSelectPersonal={() => {
+              setSelectedBusiness(null);
+              setComposePhase("ready");
+            }}
+            onSelectBusiness={(b) => {
+              setSelectedBusiness({ id: b.id, name: b.name, slug: b.slug ?? "" });
+              setComposePhase("ready");
+            }}
+          />
+        </View>
+      ) : (
+        <>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -355,10 +441,16 @@ export function CreatePostModal({
           <Text style={styles.headerTitle}>{isEditing ? "Edit post" : "Create Post"}</Text>
           <Pressable
             onPress={handleSubmit}
-            disabled={submitting || (!content.trim() && photos.length === 0)}
+            disabled={
+              submitting ||
+              composePhase === "checking" ||
+              (!content.trim() && photos.length === 0)
+            }
             style={({ pressed }) => [
               styles.submitBtn,
-              (submitting || (!content.trim() && photos.length === 0)) &&
+              (submitting ||
+                composePhase === "checking" ||
+                (!content.trim() && photos.length === 0)) &&
                 styles.submitBtnDisabled,
               pressed && styles.pressed,
             ]}
@@ -371,6 +463,12 @@ export function CreatePostModal({
           </Pressable>
         </View>
 
+        {composePhase === "checking" ? (
+          <View style={styles.checkingWrap}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={styles.checkingText}>Loading…</Text>
+          </View>
+        ) : (
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
@@ -501,7 +599,7 @@ export function CreatePostModal({
               <Text style={styles.actionBtnText}>Tag Friends</Text>
             </Pressable>
 
-            {!isEditing ? (
+            {!isEditing && !(initialGroupId && !allowBusinessPostsInGroup) ? (
               <Pressable
                 style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
                 onPress={() => {
@@ -519,6 +617,7 @@ export function CreatePostModal({
             <Text style={styles.error}>{error}</Text>
           ) : null}
         </ScrollView>
+        )}
       </KeyboardAvoidingView>
 
       {/* Tag Picker Modal */}
@@ -702,11 +801,24 @@ export function CreatePostModal({
           )}
         </View>
       </Modal>
+        </>
+      )}
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  checkingWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 48,
+    gap: 12,
+  },
+  checkingText: {
+    fontSize: 15,
+    color: "#666",
+  },
   container: {
     flex: 1,
     backgroundColor: "#fff",

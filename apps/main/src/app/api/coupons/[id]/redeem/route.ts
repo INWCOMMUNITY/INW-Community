@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { awardCouponRedeemBadges, type EarnedBadge } from "@/lib/badge-award";
+import { refreshMemberBadgeProgress } from "@/lib/member-badge-progress";
 import { awardPoints } from "@/lib/award-points";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { isCouponActiveByExpiresAt } from "@/lib/coupon-expiration";
@@ -96,6 +97,7 @@ export async function POST(
 
   let earnedBadges: EarnedBadge[] = [];
   try {
+    await refreshMemberBadgeProgress(userId);
     earnedBadges = await awardCouponRedeemBadges(userId);
   } catch {
     // badge errors shouldn't block coupon redemption

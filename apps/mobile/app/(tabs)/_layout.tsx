@@ -16,6 +16,29 @@ import { Tabs, useRouter, usePathname } from "expo-router";
 
 import { useClientOnlyValue } from "@/components/useClientOnlyValue";
 
+/** Bottom tab strings; shrink-to-fit on iOS helps ~375pt-wide phones. Layout target: min ~375 logical pt. */
+const TAB_ROUTE_LABELS: Record<string, string> = {
+  home: "Home",
+  index: "Community",
+  store: "Store",
+  "support-local": "Local",
+  "my-community": "Profile",
+};
+
+function BottomTabBarLabel({ routeName, color }: { routeName: string; color: string }) {
+  const label = TAB_ROUTE_LABELS[routeName] ?? routeName;
+  return (
+    <Text
+      numberOfLines={1}
+      adjustsFontSizeToFit={Platform.OS === "ios"}
+      minimumFontScale={0.62}
+      style={{ color, fontSize: 10, fontWeight: "500", textAlign: "center" }}
+    >
+      {label}
+    </Text>
+  );
+}
+
 const openSellerMenuRef: { current: (() => void) | null } = { current: null };
 export function useOpenSellerMenu() {
   return () => openSellerMenuRef.current?.();
@@ -424,8 +447,9 @@ function TabLayoutInner() {
           backgroundColor: theme.colors.primary,
           borderTopColor: theme.colors.primary,
           borderTopWidth: 2,
+          minHeight: Platform.OS === "ios" ? 52 : undefined,
         },
-        tabBarLabelStyle: { fontSize: 10, fontWeight: "500" },
+        tabBarLabel: ({ color }) => <BottomTabBarLabel routeName={route.name} color={color} />,
         headerShown: useClientOnlyValue(false, true),
         headerStyle: { backgroundColor: theme.colors.primary },
         headerTintColor: "#ffffff",
@@ -450,45 +474,51 @@ function TabLayoutInner() {
             : route.name === "my-community" || route.name === "index"
               ? () => (
                   <Pressable
-                    style={{ marginLeft: 16 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Messages"
+                    hitSlop={{ top: 14, bottom: 14, left: 8, right: 14 }}
+                    style={({ pressed }) => ({
+                      marginLeft: 4,
+                      marginVertical: 4,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      minWidth: 44,
+                      minHeight: 44,
+                      justifyContent: "center",
+                      alignItems: "center",
+                      opacity: pressed ? 0.75 : 1,
+                    })}
                     onPress={() => router.push("/messages")}
                   >
-                    {({ pressed }) => (
-                      <View style={{ position: "relative" }}>
-                        <Ionicons
-                          name="mail"
-                          size={22}
-                          color="#ffffff"
-                          style={{ opacity: pressed ? 0.7 : 1 }}
-                        />
-                        {unreadMessages > 0 && (
-                          <View
+                    <View style={{ position: "relative" }}>
+                      <Ionicons name="mail" size={22} color="#ffffff" />
+                      {unreadMessages > 0 && (
+                        <View
+                          style={{
+                            position: "absolute",
+                            top: -4,
+                            left: -6,
+                            minWidth: 14,
+                            height: 14,
+                            borderRadius: 7,
+                            backgroundColor: "#fff",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            paddingHorizontal: 3,
+                          }}
+                        >
+                          <Text
                             style={{
-                              position: "absolute",
-                              top: -4,
-                              left: -6,
-                              minWidth: 14,
-                              height: 14,
-                              borderRadius: 7,
-                              backgroundColor: "#fff",
-                              justifyContent: "center",
-                              alignItems: "center",
-                              paddingHorizontal: 3,
+                              fontSize: 10,
+                              fontWeight: "700",
+                              color: theme.colors.primary,
                             }}
                           >
-                            <Text
-                              style={{
-                                fontSize: 10,
-                                fontWeight: "700",
-                                color: theme.colors.primary,
-                              }}
-                            >
-                              {unreadMessages > 99 ? "99+" : String(unreadMessages)}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
+                            {unreadMessages > 99 ? "99+" : String(unreadMessages)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </Pressable>
                 )
               : undefined,
@@ -566,7 +596,6 @@ function TabLayoutInner() {
         name="support-local"
         options={{
           title: "Support Local",
-          tabBarLabel: "Local",
           tabBarIcon: ({ color }) => <TabBarIcon name="hammer" color={color} />,
         }}
       />

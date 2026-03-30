@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const cursor = new URL(req.url).searchParams.get("cursor") ?? undefined;
 
   // Unauthenticated: return a public discover feed (recent posts, no groups)
-  if (!session?.user?.id) {
+  if (!session || !session.user.id) {
     const where = { groupId: null };
     const posts = await prisma.post.findMany({
       where,
@@ -134,29 +134,31 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ posts: feedItems, nextCursor });
   }
 
+  const viewerId = session.user.id;
+
   const [followBusinesses, friendships, myGroups, followedTags, excludedAuthors] = await Promise.all([
     prisma.followBusiness.findMany({
-      where: { memberId: session.user.id },
+      where: { memberId: viewerId },
       select: { business: { select: { memberId: true } } },
     }),
     prisma.friendRequest.findMany({
       where: {
         OR: [
-          { requesterId: session.user.id, status: "accepted" },
-          { addresseeId: session.user.id, status: "accepted" },
+          { requesterId: viewerId, status: "accepted" },
+          { addresseeId: viewerId, status: "accepted" },
         ],
       },
       select: { requesterId: true, addresseeId: true },
     }),
     prisma.groupMember.findMany({
-      where: { memberId: session.user.id },
+      where: { memberId: viewerId },
       select: { groupId: true },
     }),
     prisma.followTag.findMany({
-      where: { memberId: session.user.id },
+      where: { memberId: viewerId },
       select: { tagId: true },
     }),
-    getFeedExcludedAuthorIds(session.user.id),
+    getFeedExcludedAuthorIds(viewerId),
   ]);
   const blockedIds = excludedAuthors;
 
@@ -165,13 +167,13 @@ export async function GET(req: NextRequest) {
     .filter(Boolean) as string[];
   const friendIds = [...new Set(
     friendships.flatMap((f) =>
-      f.requesterId === session.user.id ? f.addresseeId : f.requesterId
+      f.requesterId === viewerId ? f.addresseeId : f.requesterId
     )
   )];
   const groupIds = myGroups.map((g) => g.groupId);
   const viewerFriendIdSet = new Set(friendIds);
   const viewerGroupIdSet = new Set(groupIds);
-  const authorIds = new Set([session.user.id, ...friendIds, ...followBusinessAuthorIds]);
+  const authorIds = new Set([viewerId, ...friendIds, ...followBusinessAuthorIds]);
   const followedTagIds = followedTags.map((f) => f.tagId);
 
   let sharedBlogIdsWithFollowedTags: string[] = [];
@@ -185,38 +187,103 @@ export async function GET(req: NextRequest) {
     sharedBlogIdsWithFollowedTags = blogsWithTags.map((b) => b.id);
   }
 
-  const where = {
+  const visibilityOr = [
+    { authorId: { in: Array.from(authorIds) } },
+    ...(groupIds.length > 0 ? [{ groupId: { in: groupIds } }] : []),
+    ...(followedTagIds.length > 0
+      ? [
+          { postTags: { some: { tagId: { in: followedTagIds } } } },
+          ...(sharedBlogIdsWithFollowedTags.length > 0
+            ? [{ sourceBlogId: { in: sharedBlogIdsWithFollowedTags } }]
+            : []),
+        ]
+      : []),
+  ] as const;
+
+  const baseWhere = {
     ...(blockedIds.length > 0 ? { authorId: { notIn: blockedIds } } : {}),
-    OR: [
-      { authorId: { in: Array.from(authorIds) } },
-      ...(groupIds.length > 0 ? [{ groupId: { in: groupIds } }] : []),
-      ...(followedTagIds.length > 0
-        ? [
-            { postTags: { some: { tagId: { in: followedTagIds } } } },
-            ...(sharedBlogIdsWithFollowedTags.length > 0
-              ? [{ sourceBlogId: { in: sharedBlogIdsWithFollowedTags } }]
-              : []),
-          ]
-        : []),
-    ],
+    OR: [...visibilityOr],
   };
 
-  const posts = await prisma.post.findMany({
-    where,
-    include: {
-      author: {
-        select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
+  const followBizAuthorSet = new Set(followBusinessAuthorIds);
+  const boostedOr = [
+    {
+      authorId: {
+        in: [viewerId, ...friendIds, ...followBusinessAuthorIds],
       },
-      postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
     },
+    ...(groupIds.length > 0 ? [{ groupId: { in: groupIds } }] : []),
+    ...(followedTagIds.length > 0
+      ? [
+          { postTags: { some: { tagId: { in: followedTagIds } } } },
+          ...(sharedBlogIdsWithFollowedTags.length > 0
+            ? [{ sourceBlogId: { in: sharedBlogIdsWithFollowedTags } }]
+            : []),
+        ]
+      : []),
+  ];
+
+  const postInclude = {
+    author: {
+      select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
+    },
+    postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
+  } as const;
+
+  const RANK_FETCH = 200;
+  const boostedPosts = await prisma.post.findMany({
+    where: { AND: [baseWhere, { OR: boostedOr }] },
+    include: postInclude,
     orderBy: { createdAt: "desc" },
-    take: limit + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    take: RANK_FETCH,
+  });
+  const boostedIdSet = new Set(boostedPosts.map((p) => p.id));
+  const restPosts = await prisma.post.findMany({
+    where: {
+      AND: [baseWhere, { id: { notIn: [...boostedIdSet] } }],
+    },
+    include: postInclude,
+    orderBy: { createdAt: "desc" },
+    take: RANK_FETCH,
   });
 
-  const hasMore = posts.length > limit;
-  const items = hasMore ? posts.slice(0, limit) : posts;
-  // Cursor is computed after privacy filtering.
+  const mergedById = new Map<string, (typeof boostedPosts)[0]>();
+  for (const p of boostedPosts) mergedById.set(p.id, p);
+  for (const p of restPosts) mergedById.set(p.id, p);
+  const mergedList = [...mergedById.values()];
+
+  function rankScore(p: (typeof mergedList)[0]): number {
+    const t = new Date(p.createdAt).getTime();
+    const aid = p.authorId;
+    if (aid === viewerId || viewerFriendIdSet.has(aid) || followBizAuthorSet.has(aid)) {
+      return 3e15 + t;
+    }
+    if (p.groupId && viewerGroupIdSet.has(p.groupId)) return 2e15 + t;
+    if (
+      followedTagIds.length > 0 &&
+      p.postTags?.some((pt) => followedTagIds.includes(pt.tag.id))
+    ) {
+      return 2e15 + t;
+    }
+    if (
+      p.sourceBlogId &&
+      sharedBlogIdsWithFollowedTags.includes(p.sourceBlogId)
+    ) {
+      return 2e15 + t;
+    }
+    return 1e15 + t;
+  }
+
+  mergedList.sort((a, b) => rankScore(b) - rankScore(a));
+
+  let startIdx = 0;
+  if (cursor) {
+    const ci = mergedList.findIndex((p) => p.id === cursor);
+    startIdx = ci >= 0 ? ci + 1 : 0;
+  }
+
+  const OVERSHOOT = 28;
+  const items = mergedList.slice(startIdx, startIdx + limit + OVERSHOOT);
 
   const postIds = items.map((p) => p.id);
   const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
@@ -354,7 +421,7 @@ export async function GET(req: NextRequest) {
 
   const [likes, likeCounts, commentCounts] = await Promise.all([
     prisma.postLike.findMany({
-      where: { postId: { in: postIds }, memberId: session.user.id },
+      where: { postId: { in: postIds }, memberId: viewerId },
       select: { postId: true },
     }),
     prisma.postLike.groupBy({
@@ -398,7 +465,6 @@ export async function GET(req: NextRequest) {
       const sourcePost = p.sourcePost;
       if (!sourcePost?.author?.id) return false;
 
-      const viewerId = session.user.id;
       const sourceAuthorId = sourcePost.author.id as string;
       const sourcePrivacyLevel = sourcePost.author.privacyLevel as string;
       const sourceGroupId = (sourcePost.groupId as string | null) ?? null;
@@ -420,7 +486,6 @@ export async function GET(req: NextRequest) {
     const postGroupId = (p.groupId as string | null) ?? null;
     if (postGroupId && viewerGroupIdSet.has(postGroupId)) return true;
 
-    const viewerId = session.user.id;
     const authorId = p.author.id as string;
     const privacyLevel = (p.author.privacyLevel as string) ?? "public";
 
@@ -434,10 +499,13 @@ export async function GET(req: NextRequest) {
     return false;
   });
 
-  const nextCursor = hasMore ? feedItemsVisible[feedItemsVisible.length - 1]?.id : null;
+  const visibleWindow = feedItemsVisible.slice(0, limit + 1);
+  const hasMoreVisible = visibleWindow.length > limit;
+  const postsOut = hasMoreVisible ? visibleWindow.slice(0, limit) : visibleWindow;
+  const nextCursor = hasMoreVisible ? postsOut[postsOut.length - 1]?.id ?? null : null;
 
   return NextResponse.json({
-    posts: feedItemsVisible,
+    posts: postsOut,
     nextCursor,
   });
 }

@@ -10,8 +10,14 @@ export function CreatePostModalHost() {
     setCreatePostVisible(false);
     createPostCtx?.setInitialBusinessForPost(null);
     createPostCtx?.setInitialGroupIdForPost(null);
+    createPostCtx?.setGroupAllowsBusinessPostsForPost(false);
     createPostCtx?.setEditingPost(null);
   };
+  const inGroup = Boolean(createPostCtx?.initialGroupIdForPost);
+  const allowBizInGroup = inGroup
+    ? !!createPostCtx?.groupAllowsBusinessPostsForPost
+    : true;
+
   return (
     <CreatePostModal
       visible={createPostVisible}
@@ -19,6 +25,7 @@ export function CreatePostModalHost() {
       onSuccess={clearCreatePostState}
       initialBusinessForPost={createPostCtx?.initialBusinessForPost ?? undefined}
       initialGroupId={createPostCtx?.initialGroupIdForPost ?? null}
+      allowBusinessPostsInGroup={allowBizInGroup}
       editingPost={createPostCtx?.editingPost ?? null}
     />
   );

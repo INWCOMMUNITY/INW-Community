@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -10,8 +10,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
-  Dimensions,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,10 +26,8 @@ import { HeartSaveButton } from "@/components/HeartSaveButton";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
-const { width } = Dimensions.get("window");
 const CARD_GAP = 12;
 const CARD_PADDING = 16;
-const CARD_WIDTH = (width - CARD_PADDING * 2 - CARD_GAP) / 2;
 
 interface CouponItem {
   id: string;
@@ -55,6 +53,200 @@ function resolveUrl(path: string | null | undefined): string | undefined {
 }
 
 export default function CouponsScreen() {
+  const { width } = useWindowDimensions();
+  const cardWidth = (width - CARD_PADDING * 2 - CARD_GAP) / 2;
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: { flex: 1, backgroundColor: "#fff" },
+        center: {
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        header: {
+          flexDirection: "row",
+          alignItems: "center",
+          paddingHorizontal: 8,
+          paddingBottom: 12,
+        },
+        backBtn: { padding: 4 },
+        headerTitleWrap: { flex: 1, alignItems: "center" },
+        headerTitle: {
+          fontSize: 18,
+          fontWeight: "600",
+          color: "#fff",
+          textAlign: "center",
+        },
+        titleSection: {
+          paddingHorizontal: 16,
+          paddingTop: 12,
+        },
+        titleCard: {
+          padding: 16,
+          borderRadius: 8,
+          borderWidth: 2,
+          backgroundColor: "#fff",
+          marginBottom: 16,
+        },
+        titleCardHeading: {
+          fontSize: 22,
+          fontWeight: "700",
+          marginBottom: 6,
+          textAlign: "center",
+        },
+        titleCardDesc: {
+          fontSize: 15,
+          lineHeight: 22,
+          textAlign: "center",
+          paddingRight: 24,
+        },
+        expandArrow: {
+          position: "absolute",
+          bottom: 8,
+          right: 10,
+          padding: 4,
+        },
+        subscribeBox: {
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 16,
+        },
+        subscribeBoxText: {
+          fontSize: 15,
+          color: "#fff",
+          lineHeight: 22,
+          marginBottom: 12,
+        },
+        subscribeInlineBtn: {
+          paddingVertical: 8,
+          borderRadius: 6,
+          alignItems: "center",
+          backgroundColor: "#fff",
+        },
+        subscribeInlineBtnText: {
+          color: "#333",
+          fontSize: 15,
+          fontWeight: "600",
+        },
+        filters: {
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: "#eee",
+          backgroundColor: "#fafafa",
+          marginBottom: 12,
+        },
+        searchInput: {
+          backgroundColor: "#fff",
+          borderWidth: 2,
+          borderRadius: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          fontSize: 16,
+          marginBottom: 12,
+        },
+        chips: { marginHorizontal: -16 },
+        chipsContent: {
+          flexDirection: "row",
+          gap: 8,
+          paddingHorizontal: 16,
+          paddingBottom: 8,
+        },
+        chip: {
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+          borderRadius: 16,
+          backgroundColor: "rgba(80,85,66,0.2)",
+          borderWidth: 2,
+        },
+        chipActive: {},
+        chipText: { fontSize: 14, color: "#333" },
+        chipTextActive: { color: "#fff", fontWeight: "600" },
+        row: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          marginBottom: CARD_GAP,
+        },
+        listContent: { padding: 16, paddingTop: 8, paddingBottom: 48 },
+        card: {
+          width: cardWidth,
+          borderRadius: 8,
+          borderWidth: 2,
+          backgroundColor: "#fff",
+          overflow: "hidden",
+        },
+        heartWrap: {
+          position: "absolute",
+          top: 8,
+          right: 8,
+          zIndex: 1,
+        },
+        logoBox: {
+          width: "100%",
+          aspectRatio: 1,
+          backgroundColor: "#f5f5f5",
+        },
+        logo: { width: "100%", height: "100%" },
+        logoPlaceholder: {
+          width: "100%",
+          height: "100%",
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        cardInfo: { padding: 12 },
+        businessName: {
+          fontSize: 12,
+          color: "#666",
+          marginBottom: 4,
+        },
+        couponName: {
+          fontSize: 14,
+          fontWeight: "600",
+          color: "#333",
+        },
+        discount: {
+          fontSize: 12,
+          color: "#666",
+          marginTop: 4,
+        },
+        seeButton: {
+          marginHorizontal: 12,
+          marginBottom: 12,
+          paddingVertical: 10,
+          borderRadius: 8,
+          alignItems: "center",
+        },
+        seeButtonText: {
+          fontSize: 14,
+          fontWeight: "600",
+          color: "#fff",
+        },
+        empty: {
+          padding: 48,
+          alignItems: "center",
+        },
+        emptyText: {
+          fontSize: 16,
+          color: "#666",
+          textAlign: "center",
+          marginBottom: 16,
+        },
+        retryBtn: {
+          paddingHorizontal: 24,
+          paddingVertical: 12,
+          borderRadius: 8,
+          backgroundColor: "#3A624E",
+        },
+        retryBtnText: {
+          fontSize: 16,
+          fontWeight: "600",
+          color: "#fff",
+        },
+      }),
+    [cardWidth]
+  );
+
   const theme = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -407,191 +599,3 @@ export default function CouponsScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingBottom: 12,
-  },
-  backBtn: { padding: 4 },
-  headerTitleWrap: { flex: 1, alignItems: "center" },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#fff",
-    textAlign: "center",
-  },
-  titleSection: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-  },
-  titleCard: {
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    backgroundColor: "#fff",
-    marginBottom: 16,
-  },
-  titleCardHeading: {
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: 6,
-    textAlign: "center",
-  },
-  titleCardDesc: {
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
-    paddingRight: 24,
-  },
-  expandArrow: {
-    position: "absolute",
-    bottom: 8,
-    right: 10,
-    padding: 4,
-  },
-  subscribeBox: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  subscribeBoxText: {
-    fontSize: 15,
-    color: "#fff",
-    lineHeight: 22,
-    marginBottom: 12,
-  },
-  subscribeInlineBtn: {
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: "center",
-    backgroundColor: "#fff",
-  },
-  subscribeInlineBtnText: {
-    color: "#333",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  filters: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    backgroundColor: "#fafafa",
-    marginBottom: 12,
-  },
-  searchInput: {
-    backgroundColor: "#fff",
-    borderWidth: 2,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  chips: { marginHorizontal: -16 },
-  chipsContent: {
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: "rgba(80,85,66,0.2)",
-    borderWidth: 2,
-  },
-  chipActive: {},
-  chipText: { fontSize: 14, color: "#333" },
-  chipTextActive: { color: "#fff", fontWeight: "600" },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: CARD_GAP,
-  },
-  listContent: { padding: 16, paddingTop: 8, paddingBottom: 48 },
-  card: {
-    width: CARD_WIDTH,
-    borderRadius: 8,
-    borderWidth: 2,
-    backgroundColor: "#fff",
-    overflow: "hidden",
-  },
-  heartWrap: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    zIndex: 1,
-  },
-  logoBox: {
-    width: "100%",
-    aspectRatio: 1,
-    backgroundColor: "#f5f5f5",
-  },
-  logo: { width: "100%", height: "100%" },
-  logoPlaceholder: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardInfo: { padding: 12 },
-  businessName: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 4,
-  },
-  couponName: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-  },
-  discount: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
-  },
-  seeButton: {
-    marginHorizontal: 12,
-    marginBottom: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  seeButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#fff",
-  },
-  empty: {
-    padding: 48,
-    alignItems: "center",
-  },
-  emptyText: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 16,
-  },
-  retryBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: "#3A624E",
-  },
-  retryBtnText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-  },
-});

@@ -14,25 +14,89 @@ import { useEffect } from "react";
 export interface OwnedBusinessOption {
   id: string;
   name: string;
+  /** Present for directory businesses from `/api/businesses?mine=1`; optional for callers that only need id/name. */
+  slug?: string;
 }
 
-interface PostEventAsPickerModalProps {
-  visible: boolean;
+export type PostEventAsPickerPanelProps = {
   onClose: () => void;
   /** Member display name for the personal option, e.g. "Jane Doe" */
   profileDisplayName: string;
   businesses: OwnedBusinessOption[];
   onSelectPersonal: () => void;
   onSelectBusiness: (business: OwnedBusinessOption) => void;
-}
+  /** Defaults to "Post Event" for calendars; use "Create post" for the feed composer. */
+  title?: string;
+  subtitle?: string;
+};
 
-export function PostEventAsPickerModal({
-  visible,
+/**
+ * Bottom-sheet style picker UI without wrapping Modal — use inside an existing Modal
+ * (e.g. create post) to avoid stacked native Modals freezing touches on Android/iOS.
+ */
+export function PostEventAsPickerPanel({
   onClose,
   profileDisplayName,
   businesses,
   onSelectPersonal,
   onSelectBusiness,
+  title = "Post Event",
+  subtitle = "Choose who is hosting this event so it appears under the right name on the calendar.",
+}: PostEventAsPickerPanelProps) {
+  return (
+    <View style={styles.backdrop}>
+      <View style={styles.panel}>
+        <View style={styles.header}>
+          <Text style={styles.title} numberOfLines={2}>
+            {title}
+          </Text>
+          <Pressable
+            onPress={onClose}
+            style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}
+            hitSlop={12}
+            accessibilityLabel="Close"
+          >
+            <Ionicons name="close" size={24} color={theme.colors.heading} />
+          </Pressable>
+        </View>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.subtitle}>{subtitle}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+            onPress={onSelectPersonal}
+          >
+            <Ionicons name="person-outline" size={22} color={theme.colors.primary} />
+            <Text style={styles.optionText}>Post as &quot;{profileDisplayName}&quot;</Text>
+            <Ionicons name="chevron-forward" size={20} color={theme.colors.primary} />
+          </Pressable>
+          {businesses.map((b) => (
+            <Pressable
+              key={b.id}
+              style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+              onPress={() => onSelectBusiness(b)}
+            >
+              <Ionicons name="business-outline" size={22} color={theme.colors.primary} />
+              <Text style={styles.optionText}>Post as &quot;{b.name}&quot;</Text>
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.primary} />
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
+interface PostEventAsPickerModalProps extends PostEventAsPickerPanelProps {
+  visible: boolean;
+}
+
+export function PostEventAsPickerModal({
+  visible,
+  ...panelProps
 }: PostEventAsPickerModalProps) {
   const { incrementSuppression, decrementSuppression } = useEventInvitePopupSuppression();
   useEffect(() => {
@@ -46,54 +110,10 @@ export function PostEventAsPickerModal({
       visible={visible}
       animationType="slide"
       presentationStyle="overFullScreen"
-      onRequestClose={onClose}
+      onRequestClose={panelProps.onClose}
       transparent
     >
-      <View style={styles.backdrop}>
-        <View style={styles.panel}>
-          <View style={styles.header}>
-            <Text style={styles.title} numberOfLines={2}>
-              Post Event
-            </Text>
-            <Pressable
-              onPress={onClose}
-              style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}
-              hitSlop={12}
-              accessibilityLabel="Close"
-            >
-              <Ionicons name="close" size={24} color={theme.colors.heading} />
-            </Pressable>
-          </View>
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Text style={styles.subtitle}>
-              Choose who is hosting this event so it appears under the right name on the calendar.
-            </Text>
-            <Pressable
-              style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
-              onPress={onSelectPersonal}
-            >
-              <Ionicons name="person-outline" size={22} color={theme.colors.primary} />
-              <Text style={styles.optionText}>Post as &quot;{profileDisplayName}&quot;</Text>
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.primary} />
-            </Pressable>
-            {businesses.map((b) => (
-              <Pressable
-                key={b.id}
-                style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
-                onPress={() => onSelectBusiness(b)}
-              >
-                <Ionicons name="business-outline" size={22} color={theme.colors.primary} />
-                <Text style={styles.optionText}>Post as &quot;{b.name}&quot;</Text>
-                <Ionicons name="chevron-forward" size={20} color={theme.colors.primary} />
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      </View>
+      <PostEventAsPickerPanel {...panelProps} />
     </Modal>
   );
 }

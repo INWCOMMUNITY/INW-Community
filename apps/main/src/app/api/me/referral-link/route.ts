@@ -42,5 +42,34 @@ export async function GET(req: NextRequest) {
 
   const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
   const signupUrl = `${base}/signup?ref=${link.code}`;
-  return NextResponse.json({ code: link.code, url: signupUrl });
+  const defaultIosAppStore =
+    "https://apps.apple.com/us/app/inw-community/id6759624513";
+  const appStoreUrl =
+    process.env.REFERRAL_IOS_APP_STORE_URL?.trim() || defaultIosAppStore;
+  const playStoreUrl = process.env.REFERRAL_ANDROID_PLAY_STORE_URL?.trim() || "";
+
+  const lines = [
+    "Join me on INW Community — local businesses, rewards, and more.",
+    "",
+    `Download the app: ${appStoreUrl}`,
+  ];
+  if (playStoreUrl) {
+    lines.push(`Google Play: ${playStoreUrl}`);
+  }
+  lines.push(
+    "",
+    "After you install, create your account with my invite link so your signup counts toward community badges:",
+    signupUrl
+  );
+  const shareMessage = lines.join("\n");
+
+  return NextResponse.json({
+    code: link.code,
+    /** @deprecated use signupUrl — kept for older clients */
+    url: signupUrl,
+    signupUrl,
+    appStoreUrl,
+    ...(playStoreUrl ? { playStoreUrl } : {}),
+    shareMessage,
+  });
 }

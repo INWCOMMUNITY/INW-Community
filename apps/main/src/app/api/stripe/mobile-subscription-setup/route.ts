@@ -6,6 +6,7 @@ import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import type { EarnedBadge } from "@/lib/badge-award";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -40,7 +41,7 @@ function slugify(s: string): string {
 async function createBusinessDraftInDb(
   memberId: string,
   data: Record<string, unknown>
-): Promise<string | undefined> {
+): Promise<{ businessId: string; earnedBadges: EarnedBadge[] } | undefined> {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const city = typeof data.city === "string" ? data.city.trim() : "";
   const shortDescription = typeof data.shortDescription === "string" ? data.shortDescription.trim() : null;
@@ -101,8 +102,13 @@ async function createBusinessDraftInDb(
     },
   });
   const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-  awardBusinessSignupBadges(business.id).catch(() => {});
-  return business.id;
+  let earnedBadges: EarnedBadge[] = [];
+  try {
+    earnedBadges = await awardBusinessSignupBadges(business.id);
+  } catch {
+    /* best-effort */
+  }
+  return { businessId: business.id, earnedBadges };
 }
 
 export async function POST(req: NextRequest) {
@@ -191,6 +197,7 @@ export async function POST(req: NextRequest) {
     }
 
     let businessId: string | undefined;
+    let stripeSetupEarnedBadges: EarnedBadge[] = [];
     if (
       (planId === "sponsor" || planId === "seller") &&
       businessData &&
@@ -198,7 +205,11 @@ export async function POST(req: NextRequest) {
       Object.keys(businessData).length > 0
     ) {
       try {
-        businessId = await createBusinessDraftInDb(session.user.id, businessData);
+        const draft = await createBusinessDraftInDb(session.user.id, businessData);
+        if (draft) {
+          businessId = draft.businessId;
+          stripeSetupEarnedBadges = draft.earnedBadges;
+        }
       } catch (bErr) {
         console.error("[mobile-subscription-setup] business draft create:", bErr);
       }
@@ -257,6 +268,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           completed: true,
           subscriptionId: subscription.id,
+          earnedBadges: stripeSetupEarnedBadges,
           applePayPresentation: {
             amountCents: 0,
             currency: "usd",
@@ -288,6 +300,7 @@ export async function POST(req: NextRequest) {
       ephemeralKey: ephemeralKey.secret,
       customerId,
       subscriptionId: subscription.id,
+      earnedBadges: stripeSetupEarnedBadges,
       applePayPresentation: {
         amountCents: paymentIntent.amount,
         currency: paymentIntent.currency,

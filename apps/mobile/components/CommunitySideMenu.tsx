@@ -14,6 +14,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
+import { useAuth } from "@/contexts/AuthContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
@@ -31,6 +32,7 @@ export function CommunitySideMenu({
   onOpenCreatePost,
 }: CommunitySideMenuProps) {
   const router = useRouter();
+  const { member } = useAuth();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
 
@@ -44,17 +46,19 @@ export function CommunitySideMenu({
     (router.push as (href: string) => void)(href);
   };
 
-  const items: { label: string; href: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { label: "Create Post", href: "create-post", icon: "create" },
+  const allItems: { label: string; href: string; icon: keyof typeof Ionicons.glyphMap; guest?: boolean }[] = [
+    { label: "Create Post", href: "create-post", icon: "create", guest: true },
     { label: "My Friends", href: "/community/my-friends", icon: "people" },
     { label: "Friend Requests", href: "/community/friend-requests", icon: "person-add" },
     { label: "Tags", href: "/community/tags", icon: "pricetags" },
     { label: "Groups", href: "/community/groups", icon: "people-circle" },
     { label: "Posted Photos / Posts", href: "/community/posts-photos", icon: "images" },
-    { label: "Blogs", href: "/community/blogs", icon: "newspaper" },
+    { label: "Blogs", href: "/community/blogs", icon: "newspaper", guest: true },
     { label: "Invites", href: "/community/invites", icon: "calendar" },
-    { label: "Badges", href: "/my-badges", icon: "ribbon" },
+    /** Full catalog + scan progress lives on `/badges`. `/my-badges` is profile display toggles only. */
+    { label: "Badges", href: "/badges", icon: "ribbon", guest: true },
   ];
+  const items = member ? allItems : allItems.filter((i) => i.guest);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

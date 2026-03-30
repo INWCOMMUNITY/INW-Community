@@ -94,8 +94,13 @@ export async function POST(req: NextRequest) {
       },
     });
     const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-    awardBusinessSignupBadges(business.id).catch(() => {});
-    return NextResponse.json({ ok: true });
+    let earnedBadges: { slug: string; name: string; description: string }[] = [];
+    try {
+      earnedBadges = await awardBusinessSignupBadges(business.id);
+    } catch {
+      /* best-effort */
+    }
+    return NextResponse.json({ ok: true, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       const msg = e.errors.map((err) => err.message).join(". ") || "Validation failed";

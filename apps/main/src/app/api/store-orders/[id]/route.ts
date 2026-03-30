@@ -9,6 +9,7 @@ import {
   orderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
 import { tryReleaseBuyerPointsForOrder } from "@/lib/store-order-buyer-points";
+import { resolveOrderShipToAddress } from "@/lib/shippo-elements";
 
 export async function GET(
   _req: NextRequest,
@@ -46,15 +47,37 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    /** Combined labels: Shipment row lives on the primary order only (see label-from-elements). */
+    /**
+     * Combined shipment: label row may live on the primary only; ship-to JSON may also only exist there
+     * (e.g. secondary paid lines with empty shippingAddress). Merge so Shippo always sees historical address.
+     */
     let orderForResponse = order;
-    if (!order.shipment && order.shippedWithOrderId) {
+    if (order.shippedWithOrderId) {
       const primary = await prisma.storeOrder.findUnique({
         where: { id: order.shippedWithOrderId },
-        include: { shipment: true },
+        select: {
+          shippingAddress: true,
+          localDeliveryDetails: true,
+          shipment: true,
+        },
       });
-      if (primary?.shipment) {
-        orderForResponse = { ...order, shipment: primary.shipment };
+      if (primary) {
+        let next = { ...order };
+        if (!next.shipment && primary.shipment) {
+          next = { ...next, shipment: primary.shipment };
+        }
+        if (resolveOrderShipToAddress(next) == null) {
+          next = {
+            ...next,
+            shippingAddress:
+              primary.shippingAddress != null ? primary.shippingAddress : next.shippingAddress,
+            localDeliveryDetails:
+              primary.localDeliveryDetails != null
+                ? primary.localDeliveryDetails
+                : next.localDeliveryDetails,
+          };
+        }
+        orderForResponse = next;
       }
     }
 
@@ -242,5 +265,7 @@ export async function PATCH(
       // badge errors shouldn't block order update
     }
   }
-  return NextResponse.json({ ...order, earnedBadges });
+  const earnedBadgesForViewer =
+    order.sellerId && userId === order.sellerId ? earnedBadges : [];
+  return NextResponse.json({ ...order, earnedBadges: earnedBadgesForViewer });
 }

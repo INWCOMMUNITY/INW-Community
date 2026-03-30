@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -124,13 +125,32 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSide
         Alert.alert("Sign in required", "Please sign in to invite friends.");
         return;
       }
-      const data = await apiGet<{ url: string }>("/api/me/referral-link");
-      if (data?.url) {
-        await Share.share({
-          message: `Join me on Northwest Community! ${data.url}`,
-          url: data.url,
-          title: "Invite to Northwest Community",
-        });
+      const data = await apiGet<{
+        url: string;
+        shareMessage?: string;
+        appStoreUrl?: string;
+        signupUrl?: string;
+      }>("/api/me/referral-link");
+      const signupUrl = data?.signupUrl ?? data?.url;
+      const message =
+        data?.shareMessage ??
+        (signupUrl
+          ? `Join me on Northwest Community!\n\n${signupUrl}`
+          : "");
+      if (message) {
+        const appStoreUrl = data?.appStoreUrl;
+        await Share.share(
+          Platform.OS === "ios" && appStoreUrl
+            ? {
+                message,
+                url: appStoreUrl,
+                title: "Invite to Northwest Community",
+              }
+            : {
+                message,
+                title: "Invite to Northwest Community",
+              }
+        );
         onClose();
       }
     } catch {

@@ -7,6 +7,12 @@ import { useSearchParams } from "next/navigation";
 import { BadgeCard } from "@/components/BadgeCard";
 import { BackToProfileLink } from "@/components/BackToProfileLink";
 import { getBadgeCategoryLabel } from "@/lib/badge-icons";
+import {
+  getScanBadgeProgressDisplay,
+  parseBadgeProgressRowsFromApi,
+  progressRowsToMap,
+  type BadgeProgressRow,
+} from "@/lib/badge-scan-progress-ui";
 
 const CATEGORY_ORDER = ["member", "business", "seller", "event", "other"];
 
@@ -41,6 +47,7 @@ export function BadgesPageContent({ allBadges }: BadgesPageContentProps) {
   const { data: session, status } = useSession();
   const [memberBadges, setMemberBadges] = useState<MemberBadge[]>([]);
   const [businessBadges, setBusinessBadges] = useState<BusinessBadge[]>([]);
+  const [badgeProgress, setBadgeProgress] = useState<BadgeProgressRow[]>([]);
   const [loading, setLoading] = useState(true);
   const viewParam = searchParams?.get("view");
   const [view, setView] = useState<"all" | "my">(viewParam === "my" ? "my" : "all");
@@ -51,6 +58,9 @@ export function BadgesPageContent({ allBadges }: BadgesPageContentProps) {
 
   useEffect(() => {
     if (status !== "authenticated" || !session?.user?.id) {
+      setMemberBadges([]);
+      setBusinessBadges([]);
+      setBadgeProgress([]);
       setLoading(false);
       return;
     }
@@ -59,10 +69,13 @@ export function BadgesPageContent({ allBadges }: BadgesPageContentProps) {
       .then((data) => {
         setMemberBadges(data?.memberBadges ?? []);
         setBusinessBadges(data?.businessBadges ?? []);
+        const rows = data?.badgeProgress ?? (data as { badge_progress?: unknown })?.badge_progress;
+        setBadgeProgress(parseBadgeProgressRowsFromApi(rows));
       })
       .catch(() => {
         setMemberBadges([]);
         setBusinessBadges([]);
+        setBadgeProgress([]);
       })
       .finally(() => setLoading(false));
   }, [session?.user?.id, status]);
@@ -73,6 +86,8 @@ export function BadgesPageContent({ allBadges }: BadgesPageContentProps) {
   ]);
 
   const myBadges = allBadges.filter((b) => earnedBadgeIds.has(b.id));
+
+  const scanProgressMap = progressRowsToMap(badgeProgress);
 
   const groupByCategory = (badges: Badge[]) => {
     const groups: Record<string, Badge[]> = {};
@@ -164,7 +179,15 @@ export function BadgesPageContent({ allBadges }: BadgesPageContentProps) {
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {grouped[category]?.map((b) => (
-                  <BadgeCard key={b.id} badge={b} />
+                  <BadgeCard
+                    key={b.id}
+                    badge={b}
+                    scanProgress={
+                      status === "authenticated"
+                        ? getScanBadgeProgressDisplay(b.slug, earnedBadgeIds.has(b.id), scanProgressMap)
+                        : null
+                    }
+                  />
                 ))}
               </div>
             </div>

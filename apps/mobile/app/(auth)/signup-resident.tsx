@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
@@ -12,7 +12,7 @@ import {
   Platform,
   Switch,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   signupAgeSwitchOutline,
@@ -27,6 +27,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import { PREBUILT_CITIES } from "@/lib/prebuilt-cities";
 import { normalizeResidentCity } from "@/lib/city-utils";
+import {
+  clearPendingReferralCode,
+  getPendingReferralCode,
+  setPendingReferralCode,
+} from "@/lib/referral-code";
 
 interface EarnedBadge {
   slug: string;
@@ -36,6 +41,7 @@ interface EarnedBadge {
 
 export default function SignupResidentScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ ref?: string }>();
   const { refreshMember } = useAuth();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -50,6 +56,12 @@ export default function SignupResidentScreen() {
   const [loading, setLoading] = useState(false);
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadge[]>([]);
   const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+
+  useEffect(() => {
+    const raw = params.ref;
+    const code = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
+    if (code) void setPendingReferralCode(code);
+  }, [params.ref]);
 
   const finishSignup = async () => {
     try {
@@ -101,6 +113,7 @@ export default function SignupResidentScreen() {
 
     setLoading(true);
     try {
+      const ref = await getPendingReferralCode();
       const res = await apiPost<{ ok?: boolean; earnedBadges?: EarnedBadge[] }>("/api/auth/signup", {
         email: email.trim().toLowerCase(),
         password,
@@ -108,7 +121,9 @@ export default function SignupResidentScreen() {
         lastName: lastName.trim(),
         city: cityOut,
         signupIntent: "resident",
+        ...(ref ? { ref } : {}),
       });
+      await clearPendingReferralCode();
       if (res?.earnedBadges?.length) {
         setEarnedBadges(res.earnedBadges);
         setBadgePopupIndex(0);

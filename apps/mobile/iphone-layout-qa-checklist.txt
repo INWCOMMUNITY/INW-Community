@@ -1,0 +1,18 @@
+iPhone layout QA (post–iPhone 13) — run on Xcode simulators
+Minimum logical width we target: 375pt (13 mini / SE).
+
+Simulators: ~375pt, ~393–402pt, ~428–430pt (Plus/Max).
+
+Per size, verify:
+[ ] Tab bar: all 5 labels readable (Home, Community, Store, Local, Profile)
+[ ] Tab stack headers: long titles not clipped oddly
+[ ] Home: logo, 2x2 shortcuts, calendar grid tiles, Top 10 / leaderboard rows
+[ ] Support Local: header pills, directory title, search, chips, 2-col cards
+[ ] Store tab, Community tab / my-community: grids, menus
+[ ] Cart, Coupons, Rewards: headers and primary buttons
+[ ] Seller hub: orders list, pickups item lines
+
+Pass: no clipped primary actions; chips scroll horizontally; grids align on 375pt.
+
+Re-QA after layout code changes: repeat the three simulator widths on Home, Support Local,
+Coupons, Rewards, bottom tabs, and Seller hub pickups; try landscape once if applicable.

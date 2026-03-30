@@ -34,9 +34,23 @@ import {
   type StorefrontCheckoutPayload,
 } from "@/components/StorefrontNativeCheckoutButton";
 import { PointsEarnedPopup } from "@/components/PointsEarnedPopup";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import { useAuth } from "@/contexts/AuthContext";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+type CartEarnedBadge = { slug: string; name: string; description?: string };
+
+function mergeEarnedBadges(prev: CartEarnedBadge[], next: CartEarnedBadge[] | undefined): CartEarnedBadge[] {
+  const map = new Map<string, CartEarnedBadge>();
+  for (const b of prev) {
+    if (b?.slug) map.set(b.slug, b);
+  }
+  for (const b of next ?? []) {
+    if (b?.slug) map.set(b.slug, b);
+  }
+  return [...map.values()];
+}
 
 const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
 const hasStripeKey = !!stripePublishableKey && !stripePublishableKey.includes("placeholder");
@@ -150,6 +164,10 @@ export default function CartScreen() {
   } | null>(null);
   const [paymentMethodByItemId, setPaymentMethodByItemId] = useState<Record<string, "card" | "cash">>({});
   const mixedCashOrderIdsRef = useRef<string[]>([]);
+  const mixedCashEarnedBadgesRef = useRef<CartEarnedBadge[]>([]);
+  const pendingCashOrderIdsForPointsRef = useRef<string[] | null>(null);
+  const [cashEarnedBadgeQueue, setCashEarnedBadgeQueue] = useState<CartEarnedBadge[]>([]);
+  const [cashEarnedBadgeIndex, setCashEarnedBadgeIndex] = useState(-1);
   const scrollViewRef = useRef<ScrollView>(null);
   const initialCartFocusLoadDoneRef = useRef(false);
 
@@ -409,17 +427,12 @@ export default function CartScreen() {
     : [];
   const cardItems = items.filter((i) => !cashItems.some((c) => c.id === i.id));
 
-  /** Same post-checkout flow as native Stripe success (no WebView). */
-  const finalizeCashCheckoutSuccess = useCallback(
+  const runPointsAfterCashOrders = useCallback(
     async (orderIds: string[]) => {
-      if (!orderIds.length) return;
-      try {
-        await apiDelete("/api/cart");
-      } catch {
-        /* ignore; load() refreshes */
+      if (!orderIds.length) {
+        router.back();
+        return;
       }
-      await load(true);
-      setOrderJustConfirmed(true);
       const orderIdsQuery = orderIds.join(",");
       try {
         const [summaryRes, meRes] = await Promise.all([
@@ -453,7 +466,30 @@ export default function CartScreen() {
       }
       router.back();
     },
-    [load, router]
+    [router]
+  );
+
+  /** Same post-checkout flow as native Stripe success (no WebView). */
+  const finalizeCashCheckoutSuccess = useCallback(
+    async (orderIds: string[], earnedFromApi?: CartEarnedBadge[]) => {
+      if (!orderIds.length) return;
+      try {
+        await apiDelete("/api/cart");
+      } catch {
+        /* ignore; load() refreshes */
+      }
+      await load(true);
+      setOrderJustConfirmed(true);
+      const badges = mergeEarnedBadges([], earnedFromApi);
+      if (badges.length > 0) {
+        pendingCashOrderIdsForPointsRef.current = orderIds;
+        setCashEarnedBadgeQueue(badges);
+        setCashEarnedBadgeIndex(0);
+        return;
+      }
+      await runPointsAfterCashOrders(orderIds);
+    },
+    [load, runPointsAfterCashOrders]
   );
 
   const updateLocalDeliveryDetails = async (
@@ -537,6 +573,7 @@ export default function CartScreen() {
 
   const getNativeCheckoutPayload = useCallback(async (): Promise<StorefrontCheckoutPayload> => {
     mixedCashOrderIdsRef.current = [];
+    mixedCashEarnedBadgesRef.current = [];
     let lines = items;
     if (cashItems.length > 0) {
       const ldSource = hasLocalDelivery
@@ -553,8 +590,15 @@ export default function CartScreen() {
       if (hasLocalDelivery && ldSource) {
         body.localDeliveryDetails = ldSource;
       }
-      const data = await apiPost<{ orderIds?: string[] }>("/api/store-orders/cash-checkout", body);
+      const data = await apiPost<{ orderIds?: string[]; earnedBadges?: CartEarnedBadge[] }>(
+        "/api/store-orders/cash-checkout",
+        body
+      );
       mixedCashOrderIdsRef.current = data.orderIds ?? [];
+      mixedCashEarnedBadgesRef.current = mergeEarnedBadges(
+        mixedCashEarnedBadgesRef.current,
+        data.earnedBadges
+      );
       // Server cash-checkout already removes matching cart rows; refetch only.
       const refreshed = await apiGet<CartItem[]>("/api/cart").catch(() => []);
       lines = Array.isArray(refreshed) ? refreshed : [];
@@ -644,12 +688,14 @@ export default function CartScreen() {
     setCheckingOut(true);
     setError("");
     try {
-      const data = await apiPost<{ url?: string; orderIds?: string[]; error?: string }>(
-        "/api/store-orders/cash-checkout",
-        body
-      );
+      const data = await apiPost<{
+        url?: string;
+        orderIds?: string[];
+        earnedBadges?: CartEarnedBadge[];
+        error?: string;
+      }>("/api/store-orders/cash-checkout", body);
       if (data.orderIds?.length) {
-        await finalizeCashCheckoutSuccess(data.orderIds);
+        await finalizeCashCheckoutSuccess(data.orderIds, data.earnedBadges);
       } else if (data.url) {
         setCheckoutUrl(data.url);
       } else {
@@ -754,12 +800,14 @@ export default function CartScreen() {
       };
 
       if (cardItems.length === 0 && cashItems.length > 0) {
-        const data = await apiPost<{ url?: string; orderIds?: string[]; error?: string }>(
-          "/api/store-orders/cash-checkout",
-          makeCashBody(cashItems)
-        );
+        const data = await apiPost<{
+          url?: string;
+          orderIds?: string[];
+          earnedBadges?: CartEarnedBadge[];
+          error?: string;
+        }>("/api/store-orders/cash-checkout", makeCashBody(cashItems));
         if (data.orderIds?.length) {
-          await finalizeCashCheckoutSuccess(data.orderIds);
+          await finalizeCashCheckoutSuccess(data.orderIds, data.earnedBadges);
         } else if (data.url) {
           setCheckoutUrl(data.url);
         } else {
@@ -772,10 +820,11 @@ export default function CartScreen() {
 
       let cashOrderIds: string[] | undefined;
       if (cashItems.length > 0) {
-        const cashRes = await apiPost<{ orderIds?: string[]; error?: string }>(
-          "/api/store-orders/cash-checkout",
-          makeCashBody(cashItems)
-        );
+        const cashRes = await apiPost<{
+          orderIds?: string[];
+          earnedBadges?: CartEarnedBadge[];
+          error?: string;
+        }>("/api/store-orders/cash-checkout", makeCashBody(cashItems));
         if (cashRes.error || !cashRes.orderIds?.length) {
           const msg = cashRes.error ?? "Cash checkout failed";
           setError(msg);
@@ -783,6 +832,10 @@ export default function CartScreen() {
           return;
         }
         cashOrderIds = cashRes.orderIds;
+        mixedCashEarnedBadgesRef.current = mergeEarnedBadges(
+          mixedCashEarnedBadgesRef.current,
+          cashRes.earnedBadges
+        );
         // Cart lines for cash items are cleared on the server by cash-checkout.
       }
 
@@ -1238,7 +1291,9 @@ export default function CartScreen() {
                     }
                     onSuccess={async (orderIds) => {
                       const preorder = [...mixedCashOrderIdsRef.current];
+                      const preBadges = [...mixedCashEarnedBadgesRef.current];
                       mixedCashOrderIdsRef.current = [];
+                      mixedCashEarnedBadgesRef.current = [];
                       const merged = [...new Set([...preorder, ...(orderIds ?? [])])];
                       try {
                         await apiDelete("/api/cart");
@@ -1246,40 +1301,19 @@ export default function CartScreen() {
                         // ignore; load() will still refresh
                       }
                       await load();
+                      setOrderJustConfirmed(true);
                       if (merged.length > 0) {
-                        try {
-                          const orderIdsQuery = merged.join(",");
-                          const [summaryRes, meRes] = await Promise.all([
-                            apiGet<{ pointsAwarded?: number; pointsPendingFulfillment?: number }>(
-                              `/api/store-orders/success-summary?order_ids=${encodeURIComponent(orderIdsQuery)}`
-                            ),
-                            apiGet<{ points?: number }>("/api/me"),
-                          ]);
-                          const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
-                          const pointsPending = summaryRes?.pointsPendingFulfillment ?? 0;
-                          const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
-                          if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
-                            setPointsPopup({
-                              pointsAwarded,
-                              previousTotal: newTotal - pointsAwarded,
-                              newTotal,
-                              pointsPendingFulfillment: pointsPending > 0 ? pointsPending : undefined,
-                            });
-                            return;
-                          }
-                          if (pointsPending > 0) {
-                            Alert.alert(
-                              "Points after pickup or delivery",
-                              `You'll earn ${pointsPending} points once pickup or delivery is fully confirmed by you and the seller.`,
-                              [{ text: "OK", onPress: () => router.back() }]
-                            );
-                            return;
-                          }
-                        } catch {
-                          // ignore; fall through to router.back()
+                        const badges = mergeEarnedBadges([], preBadges);
+                        if (badges.length > 0) {
+                          pendingCashOrderIdsForPointsRef.current = merged;
+                          setCashEarnedBadgeQueue(badges);
+                          setCashEarnedBadgeIndex(0);
+                          return;
                         }
+                        await runPointsAfterCashOrders(merged);
+                      } else {
+                        router.back();
                       }
-                      router.back();
                     }}
                     onError={setError}
                     setCheckingOut={setCheckingOut}
@@ -1368,6 +1402,26 @@ export default function CartScreen() {
           onSave={updatePickupDetails}
         />
       )}
+      {cashEarnedBadgeIndex >= 0 && cashEarnedBadgeQueue[cashEarnedBadgeIndex] ? (
+        <BadgeEarnedPopup
+          visible
+          badgeName={cashEarnedBadgeQueue[cashEarnedBadgeIndex].name}
+          badgeSlug={cashEarnedBadgeQueue[cashEarnedBadgeIndex].slug}
+          badgeDescription={cashEarnedBadgeQueue[cashEarnedBadgeIndex].description}
+          onClose={() => {
+            const next = cashEarnedBadgeIndex + 1;
+            if (next < cashEarnedBadgeQueue.length) {
+              setCashEarnedBadgeIndex(next);
+            } else {
+              const orderIds = pendingCashOrderIdsForPointsRef.current;
+              pendingCashOrderIdsForPointsRef.current = null;
+              setCashEarnedBadgeQueue([]);
+              setCashEarnedBadgeIndex(-1);
+              void runPointsAfterCashOrders(orderIds ?? []);
+            }
+          }}
+        />
+      ) : null}
       {pointsPopup && (
         <PointsEarnedPopup
           visible={true}

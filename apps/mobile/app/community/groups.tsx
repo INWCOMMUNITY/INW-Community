@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  Switch,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -56,6 +57,7 @@ export default function GroupsScreen() {
   const [createCoverUrl, setCreateCoverUrl] = useState<string | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [createAllowBusinessPosts, setCreateAllowBusinessPosts] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [rulesJoinTarget, setRulesJoinTarget] = useState<Group | null>(null);
   const [joinBusyId, setJoinBusyId] = useState<string | null>(null);
@@ -170,6 +172,7 @@ export default function GroupsScreen() {
         category: createCategory.trim() || undefined,
         coverImageUrl: createCoverUrl ?? undefined,
         rules: createRules.trim() || undefined,
+        allowBusinessPosts: createAllowBusinessPosts,
       });
       setShowCreate(false);
       setCreateName("");
@@ -177,6 +180,7 @@ export default function GroupsScreen() {
       setCreateCategory("");
       setCreateRules("");
       setCreateCoverUrl(null);
+      setCreateAllowBusinessPosts(false);
       load();
       const slug = data?.group?.slug;
       if (!slug) return;
@@ -366,6 +370,7 @@ export default function GroupsScreen() {
                 setCreateCategory("");
                 setCreateRules("");
                 setCreateCoverUrl(null);
+                setCreateAllowBusinessPosts(false);
               }}
               hitSlop={12}
             >
@@ -430,6 +435,19 @@ export default function GroupsScreen() {
               numberOfLines={4}
               autoCorrect={true}
             />
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleTextCol}>
+                <Text style={styles.toggleLabel}>Allow businesses to post</Text>
+                <Text style={styles.toggleHint}>
+                  When on, members can post as a directory business in this group.
+                </Text>
+              </View>
+              <Switch
+                value={createAllowBusinessPosts}
+                onValueChange={setCreateAllowBusinessPosts}
+                trackColor={{ false: "#ccc", true: theme.colors.primary }}
+              />
+            </View>
             <View style={styles.createActions}>
               <Pressable
                 style={({ pressed }) => [styles.cancelBtn, pressed && styles.buttonPressed]}
@@ -440,6 +458,7 @@ export default function GroupsScreen() {
                   setCreateCategory("");
                   setCreateRules("");
                   setCreateCoverUrl(null);
+                  setCreateAllowBusinessPosts(false);
                 }}
               >
                 <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -615,6 +634,19 @@ const styles = StyleSheet.create({
   filterChipActive: { backgroundColor: theme.colors.primary },
   filterChipText: { fontSize: 14, color: theme.colors.heading },
   filterChipTextActive: { color: "#fff", fontWeight: "600" },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 12,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: "#f5f5f5",
+  },
+  toggleTextCol: { flex: 1, paddingRight: 12 },
+  toggleLabel: { fontSize: 16, fontWeight: "600", color: theme.colors.heading },
+  toggleHint: { fontSize: 13, color: "#666", marginTop: 4 },
   createActions: { flexDirection: "row", gap: 8, justifyContent: "flex-end" },
   cancelBtn: { paddingVertical: 8, paddingHorizontal: 16 },
   cancelBtnText: { color: "#666", fontSize: 16 },

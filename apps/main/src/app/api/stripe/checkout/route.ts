@@ -8,6 +8,7 @@ import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import type { EarnedBadge } from "@/lib/badge-award";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -44,7 +45,7 @@ async function createBusinessDraftInDb(
   memberId: string,
   data: Record<string, unknown>,
   planId: "subscribe" | "sponsor" | "seller"
-): Promise<string | undefined> {
+): Promise<{ businessId: string; earnedBadges: EarnedBadge[] } | undefined> {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const city = typeof data.city === "string" ? data.city.trim() : "";
   const categories = Array.isArray(data.categories)
@@ -66,7 +67,7 @@ async function createBusinessDraftInDb(
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
-    if (existingBusiness) return existingBusiness.id;
+    if (existingBusiness) return { businessId: existingBusiness.id, earnedBadges: [] };
   }
 
   const existingCount = await prisma.business.count({ where: { memberId } });
@@ -100,8 +101,13 @@ async function createBusinessDraftInDb(
     },
   });
   const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-  awardBusinessSignupBadges(business.id).catch(() => {});
-  return business.id;
+  let earnedBadges: EarnedBadge[] = [];
+  try {
+    earnedBadges = await awardBusinessSignupBadges(business.id);
+  } catch {
+    /* best-effort */
+  }
+  return { businessId: business.id, earnedBadges };
 }
 
 export async function POST(req: NextRequest) {
@@ -156,6 +162,7 @@ export async function POST(req: NextRequest) {
       memberId: session.user.id,
       planId,
     };
+    let checkoutEarnedBadges: EarnedBadge[] = [];
     if (
       (planId === "sponsor" || planId === "seller") &&
       businessData &&
@@ -163,8 +170,11 @@ export async function POST(req: NextRequest) {
       Object.keys(businessData).length > 0
     ) {
       try {
-        const businessId = await createBusinessDraftInDb(session.user.id, businessData, planKey);
-        if (businessId) metadata.businessId = businessId;
+        const draft = await createBusinessDraftInDb(session.user.id, businessData, planKey);
+        if (draft) {
+          metadata.businessId = draft.businessId;
+          checkoutEarnedBadges = draft.earnedBadges;
+        }
       } catch (bErr) {
         console.error("[stripe/checkout] business draft create:", bErr);
       }
@@ -194,7 +204,7 @@ export async function POST(req: NextRequest) {
       console.error("[stripe/checkout] No URL in checkout session:", checkout.id);
       return NextResponse.json({ error: "Checkout could not be created" }, { status: 500 });
     }
-    return NextResponse.json({ url: checkout.url });
+    return NextResponse.json({ url: checkout.url, earnedBadges: checkoutEarnedBadges });
   } catch (e) {
     console.error("[stripe/checkout]", e);
     const msg =

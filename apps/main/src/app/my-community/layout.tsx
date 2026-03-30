@@ -1,12 +1,15 @@
 import { Suspense } from "react";
+import { headers } from "next/headers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { CheckoutSuccessSessionSync } from "@/components/CheckoutSuccessSessionSync";
 import { MyCommunitySignInGate } from "@/components/MyCommunitySignInGate";
+import { MyCommunityGuestShell } from "@/components/MyCommunityGuestShell";
 import { EventInvitationsSidebar } from "@/components/EventInvitationsSidebar";
 import { MyCommunitySidebar } from "@/components/MyCommunitySidebar";
 import { MyCommunityRightSidebar } from "@/components/MyCommunityRightSidebar";
 import { MyCommunityFloatingMenu } from "@/components/MyCommunityFloatingMenu";
+import { isGuestAllowedMyCommunityPath } from "@/lib/guest-access-paths";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +20,15 @@ export default async function MyCommunityLayout({
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
+    const pathname = headers().get("x-pathname") ?? "";
+    if (pathname && isGuestAllowedMyCommunityPath(pathname)) {
+      return (
+        <MyCommunityGuestShell>
+          <h1 className="text-3xl font-bold mb-8">Inland Northwest Community</h1>
+          {children}
+        </MyCommunityGuestShell>
+      );
+    }
     return (
       <section className="py-12 px-4 lg:pl-[0.5in] lg:pr-6" style={{ paddingTop: "calc(var(--section-padding) + 0.5in)", paddingBottom: "var(--section-padding)" }}>
         <Suspense fallback={null}>

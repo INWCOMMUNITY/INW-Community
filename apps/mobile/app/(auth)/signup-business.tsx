@@ -24,6 +24,7 @@ import {
   theme,
 } from "@/lib/theme";
 import { apiPost, apiPatch } from "@/lib/api";
+import { clearPendingReferralCode, getPendingReferralCode } from "@/lib/referral-code";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { BusinessForm } from "@/components/BusinessForm";
@@ -134,11 +135,14 @@ export default function SignupBusinessScreen() {
     }
     setLoading(true);
     try {
+      const ref = await getPendingReferralCode();
       await apiPost("/api/auth/signup", {
         email: email.trim().toLowerCase(),
         password,
         signupIntent: "business",
+        ...(ref ? { ref } : {}),
       });
+      await clearPendingReferralCode();
       await signIn(email.trim(), password, "sponsor");
       await refreshMember();
       setStep("business");
