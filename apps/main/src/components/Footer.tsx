@@ -23,6 +23,8 @@ export function Footer() {
           <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
           <Link href="/coupons" className="hover:underline">Coupons</Link>
           <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
+          <Link href="/download-app" className="hover:underline">Download App</Link>
+          <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
           <Link href="/support-nwc" className="hover:underline">Subscribe</Link>
           <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
           <Link href="/terms" className="hover:underline">Terms</Link>

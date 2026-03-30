@@ -120,8 +120,17 @@ export async function middleware(req: NextRequest) {
   if (!pathname.startsWith("/api/")) {
     const secret = process.env.NEXTAUTH_SECRET;
     if (secret) {
-      const token = await getToken({ req, secret });
-      const authed = Boolean(token?.sub);
+      let authed = false;
+      try {
+        const token = await getToken({ req, secret });
+        authed = Boolean(token?.sub);
+      } catch (e) {
+        // next-auth/jwt can throw e.g. "Cannot read properties of null (reading 'get')"
+        // when cookie/header adapters differ by runtime; treat as guest instead of 500.
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[middleware] getToken failed:", e);
+        }
+      }
       if (!authed && shouldRedirectGuestFromPath(pathname)) {
         const login = new URL("/login", req.url);
         const callback = `${pathname}${req.nextUrl.search}`;

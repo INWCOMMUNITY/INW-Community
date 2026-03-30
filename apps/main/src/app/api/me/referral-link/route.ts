@@ -4,6 +4,10 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getBaseUrl } from "@/lib/get-base-url";
+import {
+  getAndroidPlayStoreUrl,
+  getIosAppStoreUrl,
+} from "@/lib/app-store-urls";
 
 const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -43,11 +47,8 @@ export async function GET(req: NextRequest) {
 
   const base = getBaseUrl();
   const signupUrl = `${base}/signup?ref=${link.code}`;
-  const defaultIosAppStore =
-    "https://apps.apple.com/us/app/inw-community/id6759624513";
-  const appStoreUrl =
-    process.env.REFERRAL_IOS_APP_STORE_URL?.trim() || defaultIosAppStore;
-  const playStoreUrl = process.env.REFERRAL_ANDROID_PLAY_STORE_URL?.trim() || "";
+  const appStoreUrl = getIosAppStoreUrl();
+  const playStoreUrl = getAndroidPlayStoreUrl() ?? "";
 
   const lines = [
     "Join me on INW Community — if you're a resident of the Eastern Washington or North Idaho, this app is quite literally made for you! It's a community page where you connect with people in our area, support our locally owned businesses, and earn points for fun prizes, check it out!",
