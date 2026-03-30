@@ -1,3 +1,5 @@
+import { theme } from "@/lib/theme";
+
 /** Aligns with `member_badge_progress.progress_key` and `MEMBER_BADGE_PROGRESS_KEYS` (main API). */
 export const MEMBER_PROGRESS_KEYS = {
   SCANNER_DISTINCT: "scanner:distinct_businesses",
@@ -344,7 +346,7 @@ export function getScanBadgeProgressDisplay(
 /** High-contrast bar: white track, green fill, black ring (see badges screen). */
 export const BADGE_SCAN_PROGRESS_BAR = {
   track: "#ffffff",
-  fill: "#2E7D32",
+  fill: theme.colors.primary,
   border: "#000000",
   label: "#000000",
 } as const;

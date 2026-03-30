@@ -70,6 +70,31 @@ function groupByCategory(badges: Badge[]) {
       groups[cat].sort((a, b) => a.order - b.order);
     }
   }
+
+  // Keep preferred member badge pairs together in the 2-column grid.
+  const member = groups.member;
+  if (member?.length) {
+    const community = member.find((b) => b.slug === "community_member");
+    const ogCommunity = member.find((b) => b.slug === "og_community_member");
+    const writer = member.find((b) => b.slug === "community_writer");
+    const admin = member.find((b) => b.slug === "admin_badge");
+    if (community && ogCommunity && writer && admin) {
+      const rest = member.filter(
+        (b) =>
+          b.slug !== "community_member" &&
+          b.slug !== "og_community_member" &&
+          b.slug !== "community_writer" &&
+          b.slug !== "admin_badge"
+      );
+      groups.member = [community, ogCommunity, writer, admin, ...rest];
+    } else if (writer && admin) {
+      const rest = member.filter(
+        (b) => b.slug !== "community_writer" && b.slug !== "admin_badge"
+      );
+      groups.member = [writer, admin, ...rest];
+    }
+  }
+
   return groups;
 }
 

@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Pressable,
   Share,
-  Platform,
   ActivityIndicator,
   Alert,
 } from "react-native";
@@ -37,9 +36,6 @@ export default function ShareInwCommunityScreen() {
   const [shareLoading, setShareLoading] = useState(false);
   const [count, setCount] = useState(0);
   const [shareMessage, setShareMessage] = useState(buildShareMessage(DEFAULT_IOS_URL));
-  const [appStoreUrl, setAppStoreUrl] = useState(
-    DEFAULT_IOS_URL
-  );
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeItem[]>([]);
   const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
@@ -69,7 +65,6 @@ export default function ShareInwCommunityScreen() {
           typeof link?.appStoreUrl === "string" && link.appStoreUrl.trim()
             ? link.appStoreUrl.trim()
             : DEFAULT_IOS_URL;
-        setAppStoreUrl(resolvedUrl);
         // Keep app copy stable even when backend copy lags or caches.
         setShareMessage(buildShareMessage(resolvedUrl));
       } else {
@@ -93,18 +88,12 @@ export default function ShareInwCommunityScreen() {
     }
     setShareLoading(true);
     try {
-      const result = await Share.share(
-        Platform.OS === "ios" && appStoreUrl
-          ? {
-              message: shareMessage,
-              url: appStoreUrl,
-              title: "Share INW Community",
-            }
-          : {
-              message: shareMessage,
-              title: "Share INW Community",
-            }
-      );
+      // Do not pass `url` on iOS when the message already includes the App Store link — RN/iOS
+      // would attach the URL again (often before the body), so the link appears twice.
+      const result = await Share.share({
+        message: shareMessage,
+        title: "Share INW Community",
+      });
       if (result.action === Share.sharedAction) {
         try {
           const data = await apiPost<{
