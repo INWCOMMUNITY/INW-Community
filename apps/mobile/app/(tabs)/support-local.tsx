@@ -353,6 +353,7 @@ export default function SupportLocalScreen() {
         logoContainer: {
           alignItems: "center",
           justifyContent: "center",
+          marginHorizontal: 20,
         },
         logoCircle: {
           width: 92,
@@ -362,6 +363,8 @@ export default function SupportLocalScreen() {
           backgroundColor: "transparent",
           alignItems: "center",
           justifyContent: "center",
+          borderWidth: 1.2,
+          borderColor: "#000",
         },
         headerLogo: {
           width: 92,
@@ -370,21 +373,28 @@ export default function SupportLocalScreen() {
         },
         headerButton: {
           marginHorizontal: 4,
-          paddingHorizontal: 12,
+          paddingHorizontal: 10,
           paddingVertical: 10,
           borderRadius: 20,
-          backgroundColor: "rgba(255,255,255,0.3)",
+          backgroundColor: "#fff",
+          borderWidth: 2,
+          borderColor: "#000",
           maxWidth: "100%",
           alignItems: "center",
           justifyContent: "center",
         },
         headerButtonPressed: { opacity: 0.8 },
+        headerButtonInner: {
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 4,
+        },
         headerButtonText: {
           fontSize: 14,
-          fontWeight: "600",
-          color: "#fff",
+          color: "#000",
           textAlign: "center",
-          fontFamily: theme.fonts.headingRegular,
+          fontFamily: theme.fonts.heading,
         },
         searchInput: {
           backgroundColor: "#fff",
@@ -598,7 +608,10 @@ export default function SupportLocalScreen() {
               style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
               onPress={openCoupons}
             >
-              <Text style={styles.headerButtonText}>Coupons</Text>
+              <View style={styles.headerButtonInner}>
+                <Ionicons name="pricetag-outline" size={22} color="#000" />
+                <Text style={styles.headerButtonText}>Coupons</Text>
+              </View>
             </Pressable>
           </View>
           <View style={styles.logoContainer}>
@@ -616,7 +629,10 @@ export default function SupportLocalScreen() {
               style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
               onPress={openRewards}
             >
-              <Text style={styles.headerButtonText}>Rewards</Text>
+              <View style={styles.headerButtonInner}>
+                <Ionicons name="gift-outline" size={22} color="#000" />
+                <Text style={styles.headerButtonText}>Rewards</Text>
+              </View>
             </Pressable>
           </View>
         </View>

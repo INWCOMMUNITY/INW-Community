@@ -3,7 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "database";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
-import { awardMemberSignupBadges, awardSpreadingTheWordBadge } from "@/lib/badge-award";
+import { awardMemberSignupBadges } from "@/lib/badge-award";
 import { normalizeResidentCity } from "@/lib/city-utils";
 
 const schema = z.object({
@@ -97,7 +97,6 @@ export async function POST(req: NextRequest) {
               data: { referrerId: referralLink.memberId, newMemberId: member.id },
             });
           }
-          awardSpreadingTheWordBadge(referralLink.memberId).catch(() => {});
         }
       }
       if (tagIds?.length) {
@@ -133,7 +132,6 @@ export async function POST(req: NextRequest) {
         await prisma.referralSignup.create({
           data: { referrerId: referralLink.memberId, newMemberId: member.id },
         });
-        awardSpreadingTheWordBadge(referralLink.memberId).catch(() => {});
       }
     }
     if (tagIds?.length) {

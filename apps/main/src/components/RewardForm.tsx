@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
+import { useLockBodyScroll } from "@/lib/scroll-lock";
+import { BadgeEarnedStackOverlay, type EarnedBadgeForOverlay } from "@/components/BadgeEarnedStackOverlay";
 
 interface Business {
   id: string;
@@ -28,6 +30,11 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [needsShipping, setNeedsShipping] = useState(false);
+  const [cashValueDollars, setCashValueDollars] = useState("");
+  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeForOverlay[]>([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+
+  useLockBodyScroll(badgePopupIndex >= 0);
 
   useEffect(() => {
     fetch("/api/businesses?mine=1")
@@ -90,6 +97,16 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
       setError("Redemption limit must be at least 1");
       return;
     }
+    let cashValueCents: number | null = null;
+    const dv = cashValueDollars.trim();
+    if (dv !== "") {
+      const dollars = Number(dv);
+      if (!Number.isFinite(dollars) || dollars < 0) {
+        setError("Cash value must be a non-negative number (or leave blank)");
+        return;
+      }
+      cashValueCents = Math.min(Math.round(dollars * 100), 2_147_483_647);
+    }
     setSubmitting(true);
     try {
       const res = await fetch("/api/rewards", {
@@ -101,6 +118,7 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
           description: description.trim() || null,
           pointsRequired: points,
           redemptionLimit: limit,
+          cashValueCents,
           imageUrl: imageUrl || null,
           needsShipping,
         }),
@@ -110,7 +128,13 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
         setError(getErrorMessage(data.error, "Failed to create reward"));
         return;
       }
-      if (onSuccess) {
+      const badges = Array.isArray(data.earnedBadges)
+        ? (data.earnedBadges as EarnedBadgeForOverlay[]).filter((b) => b?.slug && b?.name)
+        : [];
+      if (badges.length > 0) {
+        setEarnedBadges(badges);
+        setBadgePopupIndex(0);
+      } else if (onSuccess) {
         onSuccess();
       } else {
         router.push("/business-hub");
@@ -118,6 +142,24 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
       }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  const activePostBadge =
+    badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? earnedBadges[badgePopupIndex] : null;
+
+  function handleCloseBadgePopup() {
+    if (badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length - 1) {
+      setBadgePopupIndex((i) => i + 1);
+      return;
+    }
+    setEarnedBadges([]);
+    setBadgePopupIndex(-1);
+    if (onSuccess) {
+      onSuccess();
+    } else {
+      router.push("/business-hub");
+      router.refresh();
     }
   }
 
@@ -133,6 +175,8 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
   }
 
   return (
+    <>
+      <BadgeEarnedStackOverlay badge={activePostBadge} onDismiss={handleCloseBadgePopup} />
     <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
       <div>
         <label className="block text-sm font-medium mb-1">Business *</label>
@@ -198,6 +242,22 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
         </div>
       </div>
       <div>
+        <label className="block text-sm font-medium mb-1">Cash value per redemption (optional)</label>
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          value={cashValueDollars}
+          onChange={(e) => setCashValueDollars(e.target.value)}
+          placeholder="e.g. 25.00 for $25"
+          className="w-full border rounded px-3 py-2"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Dollar value of this prize per winner (before points). Used to track Community Star progress ($1,000
+          offered within 6 months). Leave blank if not applicable.
+        </p>
+      </div>
+      <div>
         <label className="block text-sm font-medium mb-1">Photo (optional)</label>
         {imageUrl ? (
           <div className="relative inline-block mb-2">
@@ -241,5 +301,6 @@ export function RewardForm({ onSuccess }: RewardFormProps = {}) {
         {submitting ? "Creating…" : "Create Reward"}
       </button>
     </form>
+    </>
   );
 }

@@ -29,7 +29,7 @@ interface OrderItem {
 type OrderTab = "to_receive" | "delivered" | "canceled" | "all";
 
 const ORDER_TABS: { key: OrderTab; label: string; param: string }[] = [
-  { key: "to_receive", label: "To receive", param: "buyer=1&to_receive=1" },
+  { key: "to_receive", label: "To Receive", param: "buyer=1&to_receive=1" },
   { key: "delivered", label: "Delivered", param: "buyer=1&delivered=1" },
   { key: "canceled", label: "Canceled", param: "buyer=1&canceled=1" },
   { key: "all", label: "All", param: "buyer=1" },

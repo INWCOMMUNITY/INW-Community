@@ -160,6 +160,7 @@ export function CouponPopup({
       const res = await apiPost<{
         ok: boolean;
         pointsAwarded: number;
+        totalPoints?: number;
         usedThisMonth: number;
         maxMonthlyUses: number;
         earnedBadges?: { slug: string; name: string; description?: string }[];
@@ -170,16 +171,23 @@ export function CouponPopup({
       if (res.earnedBadges?.length) {
         setEarnedBadges(res.earnedBadges);
       }
-      setRedeemSuccess(`You earned ${res.pointsAwarded} Community Points! (${res.usedThisMonth}/${res.maxMonthlyUses} used this month)`);
+      const newTotal =
+        typeof res.totalPoints === "number" && Number.isFinite(res.totalPoints)
+          ? res.totalPoints
+          : previousTotal + res.pointsAwarded;
+      const pointsDelta = Math.max(0, newTotal - previousTotal);
+      setRedeemSuccess(
+        `You earned ${pointsDelta} Community Points! (${res.usedThisMonth}/${res.maxMonthlyUses} used this month)`
+      );
       setSecretKeyInput("");
       if (data) {
         setData({ ...data, usedThisMonth: res.usedThisMonth, usedToday: true });
       }
       setPointsPopup({
         businessName: data?.business?.name ?? "Local Business",
-        pointsAwarded: res.pointsAwarded,
+        pointsAwarded: pointsDelta,
         previousTotal,
-        newTotal: previousTotal + res.pointsAwarded,
+        newTotal,
       });
     } catch (e) {
       const err = e as { error?: string };

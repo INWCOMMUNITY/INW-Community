@@ -3,6 +3,10 @@
  * Call after relevant events (message, sale, badge, etc.); fetches member tokens from DB.
  */
 import { prisma } from "database";
+import {
+  isMemberPushCategoryEnabled,
+  type PushNotificationCategory,
+} from "@/lib/push-notification-category";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
@@ -11,7 +15,11 @@ export interface PushPayload {
   body: string;
   /** Optional deep-link data for the app (e.g. { screen: "messages", conversationId: "..." }) */
   data?: Record<string, string | number | boolean>;
+  /** Respects MemberNotificationPreferences when set. Omit only for rare/system sends. */
+  category?: PushNotificationCategory;
 }
+
+export type { PushNotificationCategory };
 
 /**
  * Send a push notification to a member. No-op if member has no registered tokens.
@@ -21,6 +29,11 @@ export async function sendPushNotification(
   memberId: string,
   payload: PushPayload
 ): Promise<void> {
+  if (payload.category) {
+    const allowed = await isMemberPushCategoryEnabled(memberId, payload.category);
+    if (!allowed) return;
+  }
+
   const tokens = await prisma.memberPushToken.findMany({
     where: { memberId },
     select: { token: true, id: true },

@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiUploadFile, getToken } from "@/lib/api";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -57,6 +58,7 @@ export function RewardFormModal({
   const [description, setDescription] = useState("");
   const [pointsRequired, setPointsRequired] = useState("");
   const [redemptionLimit, setRedemptionLimit] = useState("");
+  const [cashValueDollars, setCashValueDollars] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -64,6 +66,10 @@ export function RewardFormModal({
   const [error, setError] = useState("");
   const [showBusinessPicker, setShowBusinessPicker] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [earnedBadges, setEarnedBadges] = useState<
+    { slug: string; name: string; description?: string }[]
+  >([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
   useEffect(() => {
     if (visible) {
@@ -88,6 +94,7 @@ export function RewardFormModal({
     setDescription("");
     setPointsRequired("");
     setRedemptionLimit("");
+    setCashValueDollars("");
     setImageUrl("");
     setError("");
   };
@@ -153,19 +160,41 @@ export function RewardFormModal({
       return;
     }
 
+    let cashValueCents: number | null = null;
+    const dv = cashValueDollars.trim();
+    if (dv !== "") {
+      const dollars = Number(dv);
+      if (!Number.isFinite(dollars) || dollars < 0) {
+        setError("Cash value must be a non-negative number (or leave blank)");
+        return;
+      }
+      cashValueCents = Math.min(Math.round(dollars * 100), 2_147_483_647);
+    }
+
     setSubmitting(true);
     try {
-      await apiPost("/api/rewards", {
+      const res = await apiPost<{
+        ok?: boolean;
+        earnedBadges?: { slug: string; name: string; description?: string }[];
+      }>("/api/rewards", {
         businessId,
         title: title.trim(),
         description: description.trim() || null,
         pointsRequired: points,
         redemptionLimit: limit,
+        cashValueCents,
         imageUrl: imageUrl || null,
       });
+      const badges = (res?.earnedBadges ?? []).filter((b) => b?.slug && b?.name);
+      if (badges.length > 0) {
+        setEarnedBadges(badges);
+        setBadgePopupIndex(0);
+      }
       resetForm();
-      onClose();
-      onSuccess?.();
+      if (badges.length === 0) {
+        onClose();
+        onSuccess?.();
+      }
     } catch (e) {
       setError(
         (e as { error?: string }).error ?? "Failed to create reward. Try again."
@@ -179,7 +208,21 @@ export function RewardFormModal({
     if (!submitting) {
       resetForm();
       setShowHowItWorks(false);
+      setEarnedBadges([]);
+      setBadgePopupIndex(-1);
       onClose();
+    }
+  };
+
+  const handleCloseBadgePopup = () => {
+    const next = badgePopupIndex + 1;
+    if (next < earnedBadges.length) {
+      setBadgePopupIndex(next);
+    } else {
+      setEarnedBadges([]);
+      setBadgePopupIndex(-1);
+      onClose();
+      onSuccess?.();
     }
   };
 
@@ -384,6 +427,22 @@ export function RewardFormModal({
                   </Text>
 
                   <View style={styles.field}>
+                    <Text style={styles.label}>Cash value per redemption (optional)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={cashValueDollars}
+                      onChangeText={setCashValueDollars}
+                      placeholder="e.g. 25 (dollars)"
+                      placeholderTextColor={theme.colors.placeholder}
+                      keyboardType="decimal-pad"
+                    />
+                    <Text style={styles.hint}>
+                      Dollar value of this prize per winner. Used for Community Star tracking ($1,000 offered in
+                      6 months).
+                    </Text>
+                  </View>
+
+                  <View style={styles.field}>
                     <Text style={styles.label}>Photo (optional)</Text>
                     {imageUrl ? (
                       <View style={styles.imageRow}>
@@ -476,6 +535,16 @@ export function RewardFormModal({
               </View>
             </Pressable>
           </Modal>
+        )}
+
+        {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
+          <BadgeEarnedPopup
+            visible
+            onClose={handleCloseBadgePopup}
+            badgeName={earnedBadges[badgePopupIndex].name}
+            badgeSlug={earnedBadges[badgePopupIndex].slug}
+            badgeDescription={earnedBadges[badgePopupIndex].description}
+          />
         )}
       </KeyboardAvoidingView>
     </Modal>

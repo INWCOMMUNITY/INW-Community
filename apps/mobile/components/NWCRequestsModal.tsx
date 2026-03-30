@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -36,9 +36,16 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
   const [sent, setSent] = useState(false);
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeItem[]>([]);
   const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+  const badgeRevealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      if (badgeRevealTimeoutRef.current) {
+        clearTimeout(badgeRevealTimeoutRef.current);
+        badgeRevealTimeoutRef.current = null;
+      }
+      return;
+    }
     setError(null);
     setSent(false);
     setEarnedBadges([]);
@@ -76,6 +83,12 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     };
   }, [visible, member?.email, member?.firstName, member?.lastName]);
 
+  useEffect(() => () => {
+    if (badgeRevealTimeoutRef.current) {
+      clearTimeout(badgeRevealTimeoutRef.current);
+    }
+  }, []);
+
   async function handleSubmit() {
     setError(null);
     const submitName = name.trim();
@@ -97,11 +110,25 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
           message: submitMessage,
         }
       );
-      const badges = (data?.earnedBadges ?? []).filter(Boolean);
+      const badges = (data?.earnedBadges ?? []).filter(
+        (b): b is EarnedBadgeItem =>
+          !!b &&
+          typeof b === "object" &&
+          typeof (b as EarnedBadgeItem).slug === "string" &&
+          typeof (b as EarnedBadgeItem).name === "string"
+      );
       setMessage("");
       if (badges.length > 0) {
         setEarnedBadges(badges);
-        setBadgePopupIndex(0);
+        if (badgeRevealTimeoutRef.current) {
+          clearTimeout(badgeRevealTimeoutRef.current);
+        }
+        /** Let the request sheet dismiss before the badge popup (RN stacks modals poorly if both animate at once). */
+        const revealMs = Platform.OS === "ios" ? 380 : 320;
+        badgeRevealTimeoutRef.current = setTimeout(() => {
+          badgeRevealTimeoutRef.current = null;
+          setBadgePopupIndex(0);
+        }, revealMs);
       } else {
         setSent(true);
         setTimeout(() => {
@@ -119,11 +146,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
   const finishAfterBadges = () => {
     setEarnedBadges([]);
     setBadgePopupIndex(-1);
-    setSent(true);
-    setTimeout(() => {
-      setSent(false);
-      onClose();
-    }, 1800);
+    onClose();
   };
 
   const handleCloseBadgePopup = () => {
@@ -136,10 +159,14 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
 
   if (!visible) return null;
 
+  /** Hide the sheet as soon as we have badge results (before the celebration popup opens). */
+  const showRequestFormModal =
+    visible && badgePopupIndex < 0 && earnedBadges.length === 0;
+
   return (
     <>
     <Modal
-      visible={visible}
+      visible={showRequestFormModal}
       animationType="slide"
       onRequestClose={onClose}
     >

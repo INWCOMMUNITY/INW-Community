@@ -10,7 +10,7 @@ import {
   Linking,
   Alert,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
@@ -83,6 +83,13 @@ function formatWhen(iso: string): string {
 
 export default function RedeemedRewardsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ businessId?: string | string[] }>();
+  const pushBusinessId =
+    typeof params.businessId === "string"
+      ? params.businessId
+      : Array.isArray(params.businessId)
+        ? params.businessId[0]
+        : undefined;
   const [businesses, setBusinesses] = useState<BusinessRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [data, setData] = useState<ListPayload | null>(null);
@@ -95,9 +102,13 @@ export default function RedeemedRewardsScreen() {
     const arr = Array.isArray(list) ? list : [];
     setBusinesses(arr);
     if (arr.length > 0) {
-      setSelectedId((prev) => prev ?? arr[0].id);
+      setSelectedId((prev) => {
+        if (prev) return prev;
+        if (pushBusinessId && arr.some((b) => b.id === pushBusinessId)) return pushBusinessId;
+        return arr[0].id;
+      });
     }
-  }, []);
+  }, [pushBusinessId]);
 
   const loadRedemptions = useCallback(async () => {
     if (!selectedId) {

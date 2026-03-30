@@ -36,6 +36,19 @@ try {
 const SITE_DOMAINS = ["inwcommunity.com", "www.inwcommunity.com"];
 const SCAN_PATH_REGEX = /\/scan\/([a-zA-Z0-9_-]+)/;
 
+/** Points popup: use wallet delta so scan (incl. subscriber 2×) + badge bonuses match “+N” and total. */
+function pointsEarnedDeltaForScanPopup(
+  previousTotal: number,
+  result: { pointsAwarded?: number; totalPoints?: number }
+): number {
+  const next = result.totalPoints;
+  if (typeof next === "number" && Number.isFinite(next)) {
+    const d = next - previousTotal;
+    if (d > 0) return d;
+  }
+  return Math.max(0, result.pointsAwarded ?? 0);
+}
+
 function extractBusinessId(data: string): string | null {
   try {
     const url = new URL(data);
@@ -97,11 +110,12 @@ function ScannerWithExpoCamera() {
       if (result.earnedBadges?.length) {
         setEarnedBadges(result.earnedBadges);
       }
+      const newTotal = result.totalPoints ?? previousTotal;
       setPopupData({
         businessName: result.businessName ?? "Local Business",
-        pointsAwarded: result.pointsAwarded ?? 0,
+        pointsAwarded: pointsEarnedDeltaForScanPopup(previousTotal, result),
         previousTotal,
-        newTotal: result.totalPoints ?? previousTotal,
+        newTotal,
       });
     } catch (e) {
       if (__DEV__) console.warn("[scanner] pending scan claim failed", e);
@@ -182,11 +196,12 @@ function ScannerWithExpoCamera() {
           if (result.earnedBadges?.length) {
             setEarnedBadges(result.earnedBadges);
           }
+          const newTotal = result.totalPoints ?? previousTotal;
           setPopupData({
             businessName: result.businessName ?? "Local Business",
-            pointsAwarded: result.pointsAwarded ?? 0,
+            pointsAwarded: pointsEarnedDeltaForScanPopup(previousTotal, result),
             previousTotal,
-            newTotal: result.totalPoints ?? previousTotal,
+            newTotal,
           });
         }
       } catch (e) {

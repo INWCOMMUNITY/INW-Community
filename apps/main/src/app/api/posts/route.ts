@@ -150,6 +150,40 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    if (groupId) {
+      const group = await prisma.group.findUnique({
+        where: { id: groupId },
+        select: { name: true, slug: true },
+      });
+      const admins = await prisma.groupMember.findMany({
+        where: {
+          groupId,
+          role: "admin",
+          memberId: { not: session.user.id },
+        },
+        select: { memberId: true },
+      });
+      if (group && admins.length > 0) {
+        const author = await prisma.member.findUnique({
+          where: { id: session.user.id },
+          select: { firstName: true, lastName: true },
+        });
+        const authorLabel =
+          author != null
+            ? [author.firstName, author.lastName].filter(Boolean).join(" ").trim() || "Someone"
+            : "Someone";
+        const { sendPushNotification } = await import("@/lib/send-push-notification");
+        for (const a of admins) {
+          sendPushNotification(a.memberId, {
+            category: "group_admin",
+            title: "New post in your group",
+            body: `${authorLabel} posted in ${group.name}. Tap to view.`,
+            data: { screen: "group_feed", groupSlug: group.slug },
+          }).catch(() => {});
+        }
+      }
+    }
+
     if (data.tags?.length) {
       const tagIds: string[] = [];
       for (const t of data.tags) {

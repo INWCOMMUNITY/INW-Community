@@ -262,9 +262,10 @@ export async function POST(req: NextRequest) {
     }
     const { sendPushNotification } = await import("@/lib/send-push-notification");
     sendPushNotification(sellerId, {
-      title: "You sold an item",
-      body: "A customer purchased from your store.",
+      title: "Woo Hoo! You made a sale!",
+      body: "Someone just bought from your store — open the app to see the order!",
       data: { screen: "seller-hub/orders", orderId: order.id },
+      category: "commerce",
     }).catch(() => {});
   }
 

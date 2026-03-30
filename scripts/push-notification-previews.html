@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Push notifications — preview (sample text)</title>
+    <style>
+      :root {
+        --bg: #1c1c1e;
+        --phone: #000;
+        --banner: rgba(60, 60, 67, 0.72);
+        --banner-border: rgba(255, 255, 255, 0.12);
+        --text: #fff;
+        --text-dim: rgba(255, 255, 255, 0.55);
+        --accent: #0a84ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+        background: linear-gradient(165deg, #2d2d30 0%, #1c1c1e 45%, #0d0d0f 100%);
+        color: var(--text);
+        min-height: 100vh;
+        padding: 2rem 1rem 4rem;
+      }
+
+      h1 {
+        font-size: 1.35rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.35rem;
+      }
+
+      .sub {
+        color: var(--text-dim);
+        font-size: 0.875rem;
+        max-width: 42rem;
+        line-height: 1.45;
+        margin-bottom: 2rem;
+      }
+
+      .grid {
+        display: grid;
+        gap: 2.5rem;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .item {
+        display: grid;
+        gap: 0.65rem;
+      }
+
+      .label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--accent);
+      }
+
+      .phone {
+        width: 100%;
+        max-width: 390px;
+        background: var(--phone);
+        border-radius: 44px;
+        padding: 48px 14px 32px;
+        box-shadow:
+          0 0 0 3px #3a3a3c,
+          0 24px 80px rgba(0, 0, 0, 0.55);
+        margin: 0 auto;
+      }
+
+      .notch-area {
+        height: 12px;
+        margin-bottom: 8px;
+      }
+
+      /* Full “popup” banner — like expanded notification at top of screen */
+      .popup {
+        backdrop-filter: blur(40px) saturate(180%);
+        -webkit-backdrop-filter: blur(40px) saturate(180%);
+        background: var(--banner);
+        border-radius: 22px;
+        border: 1px solid var(--banner-border);
+        padding: 14px 16px 14px 14px;
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 12px;
+        align-items: start;
+        box-shadow:               0 8px 32px rgba(0, 0, 0, 0.35);
+      }
+
+      .app-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: linear-gradient(145deg, #5e9eff 0%, #0a84ff 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 13px;
+        color: #fff;
+        flex-shrink: 0;
+      }
+
+      .app-icon span {
+        opacity: 0.95;
+      }
+
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+
+      .app-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-dim);
+      }
+
+      .time {
+        font-size: 12px;
+        color: var(--text-dim);
+        flex-shrink: 0;
+      }
+
+      .title {
+        font-size: 15px;
+        font-weight: 600;
+        line-height: 1.25;
+        letter-spacing: -0.01em;
+        margin: 0 0 4px;
+      }
+
+      .body {
+        font-size: 15px;
+        font-weight: 400;
+        line-height: 1.35;
+        color: rgba(255, 255, 255, 0.92);
+        margin: 0;
+        letter-spacing: -0.01em;
+      }
+
+      .controls {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(28, 28, 30, 0.85);
+        backdrop-filter: blur(12px);
+        margin: -1rem -1rem 1.5rem;
+        padding: 1rem;
+        border-bottom: 1px solid var(--banner-border);
+      }
+
+      .controls-inner {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+      }
+
+      button {
+        font: inherit;
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        border-radius: 10px;
+        border: 1px solid var(--banner-border);
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: rgba(255, 255, 255, 0.14);
+      }
+
+      #focusOverlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.65);
+        z-index: 100;
+        padding: max(2rem, env(safe-area-inset-top)) 1rem 2rem;
+        align-items: flex-start;
+        justify-content: center;
+      }
+
+      #focusOverlay.open {
+        display: flex;
+      }
+
+      #focusOverlay .phone {
+        margin-top: 2rem;
+      }
+
+      #focusOverlay .hint {
+        text-align: center;
+        color: var(--text-dim);
+        font-size: 0.8rem;
+        margin-top: 1.25rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="controls">
+      <div class="controls-inner">
+        <strong style="margin-right: 0.5rem">Preview</strong>
+        <button type="button" id="btnSlideshow">Slideshow: one full popup at a time</button>
+        <button type="button" id="btnClose" style="display: none">Close slideshow (Esc)</button>
+      </div>
+    </div>
+
+    <h1>Push notifications — how they look on a phone</h1>
+    <p class="sub">
+      Samples use placeholder names and titles. Your OS will still add its own app icon, grouping,
+      and time. Tap <strong>Slideshow</strong> to see each as a single full-window popup.
+    </p>
+
+    <div class="grid" id="grid"></div>
+
+    <div id="focusOverlay" aria-hidden="true">
+      <div>
+        <div class="phone" id="focusPhone"></div>
+        <p class="hint">Click background or press Esc — Next: right arrow or Space</p>
+      </div>
+    </div>
+
+    <script>
+      const APP = "INW Community";
+      const NOW = "now";
+
+      const samples = [
+        { cat: "Badges", title: "Your business has earned a new badge!", body: 'Nice work! — you unlocked the “Local Favorite” badge!' },
+        { cat: "Badges", title: "You’ve got a new badge! Great job!", body: '“Community Member” is live on your profile — tap to take a look!' },
+        { cat: "Orders / Stripe", title: "We couldn’t finish that checkout", body: 'Someone else bought “Vintage jacket” before payment went through — nothing was charged.' },
+        { cat: "Orders / Stripe", title: "We couldn’t finish that checkout", body: 'Someone else bought these before payment went through: Mug, Poster. You weren’t charged.' },
+        { cat: "Orders / Seller", title: "Woo Hoo! You made a sale!", body: "Someone just bought from your store — open the app to see the order!" },
+        { cat: "Shipping", title: "Great news, it’s on the way!", body: "USPS tracking available here. Tap to follow your order from “River Road Vintage”!" },
+        { cat: "Shipping", title: "Great news, it’s on the way!", body: "Your seller marked this order as shipped. Tap for details." },
+        { cat: "Cart / inventory", title: "Checkout didn’t go through", body: '“Ceramic bowl set” sold to someone else while you were checking out — you weren’t charged.' },
+        { cat: "Cart / inventory", title: "We updated your cart", body: '“Handmade earrings” just sold to someone else, so we removed it from your cart.' },
+        { cat: "Direct messages", title: "Somebody wants to chat!", body: "River: Hey! Saw your post about the farmers market…" },
+        { cat: "Direct messages", title: "Somebody wants to chat!", body: "Jordan sent a message request — tap to accept or decline." },
+        { cat: "Direct messages", title: "New Message!", body: "Sam: Are you still interested in the table?" },
+        { cat: "Direct messages", title: "New Message!", body: "Alex sent you a message — tap to open." },
+        { cat: "Resale messages", title: "Message about your listing", body: "Casey: Could you ship this week?" },
+        { cat: "Resale messages", title: "Message about your listing", body: "Morgan messaged you about a resale — tap to read." },
+        { cat: "Events", title: "Hey! You’ve been invited to a local event!", body: 'Jamie wants you at “Summer Night Market” — tap to check it out!' },
+        { cat: "Events", title: "Invite Response", body: 'Taylor replied to “Summer Night Market”: Accepted.' },
+        { cat: "Events", title: "Invite Response", body: 'Taylor replied to “Summer Night Market”: Maybe.' },
+        { cat: "Events", title: "Invite Response", body: 'Taylor replied to “Summer Night Market”: Declined.' },
+        { cat: "Social", title: "You have a new Friend Request!", body: "Riley wants to connect — tap to respond!" },
+        { cat: "Social", title: "You have a new Friend Request!", body: "Someone wants to connect — tap to respond!" },
+        { cat: "Events (cron)", title: "Don't Forget!", body: 'Friendly reminder: “Downtown Art Walk” is tomorrow — tap for details.' },
+        { cat: "Resale offers", title: "New offer on your listing", body: 'Blake offered $42.00 on “Leather messenger bag” — tap to respond.' },
+        { cat: "Resale offers", title: "Your offer was accepted!", body: "The seller said yes — you have 24 hours to check out at $42.00. Tap to open your cart." },
+      ];
+
+      function bannerHtml(title, bodyText) {
+        return `
+          <div class="popup">
+            <div class="app-icon" aria-hidden="true"><span>INW</span></div>
+            <div>
+              <div class="meta">
+                <span class="app-name">${APP}</span>
+                <span class="time">${NOW}</span>
+              </div>
+              <h2 class="title">${escapeHtml(title)}</h2>
+              <p class="body">${escapeHtml(bodyText)}</p>
+            </div>
+          </div>`;
+      }
+
+      function phoneShell(inner) {
+        return `<div class="phone"><div class="notch-area"></div>${inner}</div>`;
+      }
+
+      function escapeHtml(s) {
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      const grid = document.getElementById("grid");
+      samples.forEach((s) => {
+        const wrap = document.createElement("div");
+        wrap.className = "item";
+        wrap.innerHTML = `<div class="label">${escapeHtml(s.cat)}</div>${phoneShell(bannerHtml(s.title, s.body))}`;
+        grid.appendChild(wrap);
+      });
+
+      let slideIdx = 0;
+      const overlay = document.getElementById("focusOverlay");
+      const focusPhone = document.getElementById("focusPhone");
+      const btnSlideshow = document.getElementById("btnSlideshow");
+      const btnClose = document.getElementById("btnClose");
+
+      function showSlide(i) {
+        slideIdx = ((i % samples.length) + samples.length) % samples.length;
+        const s = samples[slideIdx];
+        focusPhone.innerHTML = `<div class="notch-area"></div>${bannerHtml(s.title, s.body)}`;
+      }
+
+      function openSlideshow() {
+        overlay.classList.add("open");
+        overlay.setAttribute("aria-hidden", "false");
+        btnClose.style.display = "";
+        showSlide(slideIdx);
+      }
+
+      function closeSlideshow() {
+        overlay.classList.remove("open");
+        overlay.setAttribute("aria-hidden", "true");
+        btnClose.style.display = "none";
+      }
+
+      btnSlideshow.addEventListener("click", () => {
+        slideIdx = 0;
+        openSlideshow();
+      });
+      btnClose.addEventListener("click", closeSlideshow);
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) closeSlideshow();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (!overlay.classList.contains("open")) return;
+        if (e.key === "Escape") closeSlideshow();
+        if (e.key === "ArrowRight" || e.key === " ") {
+          e.preventDefault();
+          showSlide(slideIdx + 1);
+        }
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          showSlide(slideIdx - 1);
+        }
+      });
+    </script>
+  </body>
+</html>

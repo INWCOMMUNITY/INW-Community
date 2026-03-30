@@ -213,6 +213,36 @@ export async function POST(
       }
     );
 
+    try {
+      const rewardMeta = await prisma.reward.findUnique({
+        where: { id: rewardId },
+        select: {
+          title: true,
+          business: { select: { id: true, memberId: true, name: true } },
+        },
+      });
+      const redeemer = await prisma.member.findUnique({
+        where: { id: session.user.id },
+        select: { firstName: true, lastName: true },
+      });
+      if (rewardMeta?.business && rewardMeta.business.memberId !== session.user.id) {
+        const who =
+          [redeemer?.firstName, redeemer?.lastName].filter(Boolean).join(" ").trim() || "Someone";
+        const { sendPushNotification } = await import("@/lib/send-push-notification");
+        sendPushNotification(rewardMeta.business.memberId, {
+          category: "commerce",
+          title: "Reward redeemed!",
+          body: `${who} redeemed “${rewardMeta.title}” — tap to view details.`,
+          data: {
+            screen: "business_redeemed_rewards",
+            businessId: rewardMeta.business.id,
+          },
+        }).catch(() => {});
+      }
+    } catch {
+      /* ignore push errors */
+    }
+
     return NextResponse.json({
       ok: true,
       redemptionId: result.redemptionId,

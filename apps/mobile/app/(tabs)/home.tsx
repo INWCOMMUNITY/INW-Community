@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   FlatList,
   useWindowDimensions,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { View as ThemedView } from "@/components/Themed";
@@ -26,6 +27,8 @@ import { Ionicons } from "@expo/vector-icons";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+const INSTAGRAM_URL = "https://www.instagram.com/northwest.community/?hl=en";
+const FACEBOOK_URL = "https://www.facebook.com/people/Northwest-Community/61581601094411/";
 
 interface Top10Prize {
   rank: number;
@@ -574,6 +577,40 @@ export default function HomeScreen() {
     fontWeight: "600",
     fontFamily: theme.fonts.heading,
   },
+  liveUpdatesSection: {
+    width: "100%",
+    marginTop: 28,
+    alignItems: "center",
+  },
+  liveUpdatesTitle: {
+    fontSize: 16,
+    color: theme.colors.text,
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  liveUpdatesRow: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 12,
+  },
+  liveUpdatesButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  liveUpdatesButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    fontFamily: theme.fonts.heading,
+  },
 });
 
     return {
@@ -936,6 +973,27 @@ export default function HomeScreen() {
       >
         <Text style={styles.subscribeHomeBtnText}>Subscribe to NWC</Text>
       </Pressable>
+      <View style={[styles.greenDivider, { marginTop: 28 }]} />
+
+      <View style={styles.liveUpdatesSection}>
+        <Text style={styles.liveUpdatesTitle}>Live Updates</Text>
+        <View style={styles.liveUpdatesRow}>
+          <Pressable
+            style={({ pressed }) => [styles.liveUpdatesButton, pressed && styles.buttonPressed]}
+            onPress={() => Linking.openURL(INSTAGRAM_URL).catch(() => {})}
+          >
+            <Ionicons name="logo-instagram" size={20} color={theme.colors.primary} />
+            <Text style={styles.liveUpdatesButtonText}>Instagram</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.liveUpdatesButton, pressed && styles.buttonPressed]}
+            onPress={() => Linking.openURL(FACEBOOK_URL).catch(() => {})}
+          >
+            <Ionicons name="logo-facebook" size={20} color={theme.colors.primary} />
+            <Text style={styles.liveUpdatesButtonText}>Facebook</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <Modal
         visible={postEventModalVisible}

@@ -1,6 +1,7 @@
 import type { Plan } from "database";
+import { prisma } from "database";
 
-/** Subscribe, Business (internal plan id `sponsor`), or Seller — shared perks: coupon book, 2× points on purchases/scans. */
+/** Subscribe, Business (internal plan id `sponsor`), or Seller — shared perks: coupon book, 2× points on purchases/scans and badge bonuses. */
 export const NWC_PAID_PLAN_SLUGS = ["subscribe", "sponsor", "seller"] as const;
 
 export type NwcPaidPlanSlug = (typeof NWC_PAID_PLAN_SLUGS)[number];
@@ -14,6 +15,15 @@ export function prismaWhereActivePaidNwcPlan(memberId: string) {
     status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] },
     plan: { in: [...NWC_PAID_PLAN_SLUGS] },
   };
+}
+
+/** Matches scan/coupon 2× perks: active Subscribe, Sponsor, or Seller subscription for this member. */
+export async function memberHasActivePaidNwcPlan(memberId: string): Promise<boolean> {
+  const row = await prisma.subscription.findFirst({
+    where: prismaWhereActivePaidNwcPlan(memberId),
+    select: { id: true },
+  });
+  return row != null;
 }
 
 /** Business (sponsor) or Seller — Business Hub, some storefront flows (matches Stripe webhook statuses). */

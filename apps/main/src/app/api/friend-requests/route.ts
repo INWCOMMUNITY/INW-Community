@@ -65,9 +65,10 @@ export async function POST(req: NextRequest) {
       (sender ? [sender.firstName, sender.lastName].filter(Boolean).join(" ") : null);
     const { sendPushNotification } = await import("@/lib/send-push-notification");
     sendPushNotification(addresseeId, {
-      title: "Friend request",
-      body: senderName ? `${senderName} sent you a friend request` : "You received a friend request",
+      title: "You have a new Friend Request!",
+      body: senderName ? `${senderName} wants to connect — tap to respond!` : "Someone wants to connect — tap to respond!",
       data: { screen: "community/my-friends" },
+      category: "social",
     }).catch(() => {});
 
     return NextResponse.json(req_);

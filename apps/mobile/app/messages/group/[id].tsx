@@ -32,6 +32,7 @@ import { setOpenChatConversationId } from "@/lib/chat-notification-suppression";
 import { useChatScrollToLatest } from "@/lib/use-chat-scroll-to-latest";
 import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
 import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
+import { GifPickerModal } from "@/components/GifPickerModal";
 
 interface GroupConversation {
   id: string;
@@ -69,6 +70,7 @@ export default function GroupConversationScreen() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -291,66 +293,86 @@ export default function GroupConversationScreen() {
     );
   };
 
+  const postPhotoAttachmentMessage = async (fullUrl: string) => {
+    const msg = await apiPostWithRetry<{
+      id: string;
+      content: string;
+      createdAt: string;
+      senderId: string;
+      sharedContentType?: string;
+      sharedContentId?: string;
+      sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
+    }>(`/api/group-conversations/${convId}`, {
+      sharedContentType: "photo",
+      sharedContentId: fullUrl,
+      content: "",
+    });
+    setConv((prev) =>
+      (prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: msg.id,
+                content: msg.content,
+                createdAt: msg.createdAt,
+                senderId: msg.senderId,
+                sharedContentType: "photo",
+                sharedContentId: fullUrl,
+                sender: msg.sender,
+              },
+            ],
+          }
+        : null) as GroupConversation | null
+    );
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+  };
+
   const pickAndSendPhoto = async () => {
     if (!conv || sending || uploadingPhoto) return;
     stopComposerTyping();
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission needed", "Allow access to photos to share images.");
+      Alert.alert("Permission needed", "Allow access to photos and GIFs to share images.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 0.8,
     });
     if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const mime = asset.mimeType ?? "image/jpeg";
+    const isGif = mime === "image/gif" || /\.gif(\?|$)/i.test(asset.uri);
     setUploadingPhoto(true);
     try {
       const formData = new FormData();
       formData.append("file", {
-        uri: result.assets[0].uri,
-        type: result.assets[0].mimeType ?? "image/jpeg",
-        name: "photo.jpg",
+        uri: asset.uri,
+        type: isGif ? "image/gif" : mime,
+        name: isGif ? "photo.gif" : "photo.jpg",
       } as unknown as Blob);
       formData.append("type", "image");
       const { url } = await apiUploadFile("/api/upload/post", formData);
       const fullUrl = url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
-      const msg = await apiPostWithRetry<{
-        id: string;
-        content: string;
-        createdAt: string;
-        senderId: string;
-        sharedContentType?: string;
-        sharedContentId?: string;
-        sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
-      }>(`/api/group-conversations/${convId}`, {
-        sharedContentType: "photo",
-        sharedContentId: fullUrl,
-        content: "",
-      });
-      setConv((prev) =>
-        (prev
-          ? {
-              ...prev,
-              messages: [
-                ...prev.messages,
-                {
-                  id: msg.id,
-                  content: msg.content,
-                  createdAt: msg.createdAt,
-                  senderId: msg.senderId,
-                  sharedContentType: "photo",
-                  sharedContentId: fullUrl,
-                  sender: msg.sender,
-                },
-              ],
-            }
-          : null) as GroupConversation | null
-      );
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      await postPhotoAttachmentMessage(fullUrl);
     } catch (e) {
       Alert.alert("Error", (e as { error?: string }).error ?? "Photo upload failed.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleGifSelect = async (gifUrl: string) => {
+    if (!conv || sending || uploadingPhoto) return;
+    stopComposerTyping();
+    setUploadingPhoto(true);
+    try {
+      await postPhotoAttachmentMessage(gifUrl);
+    } catch (e) {
+      Alert.alert("Error", (e as { error?: string }).error ?? "Could not send GIF.");
     } finally {
       setUploadingPhoto(false);
     }
@@ -507,21 +529,30 @@ export default function GroupConversationScreen() {
         renderItem={({ item }) => {
           const isMe = item.senderId === member?.id;
           const senderName = item.sender ? `${item.sender.firstName} ${item.sender.lastName}`.trim() : "";
+          const hasPhotoAttachment =
+            item.sharedContentType === "photo" && !!item.sharedContentId;
           return (
             <View style={[styles.bubbleWrap, isMe && styles.bubbleWrapMe]}>
               {!isMe && senderName ? (
                 <Text style={styles.senderLabel}>{senderName}</Text>
               ) : null}
-              <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
-                {item.sharedContentType === "photo" && item.sharedContentId && (
+              <View
+                style={[
+                  styles.bubble,
+                  hasPhotoAttachment ? styles.bubblePhoto : isMe ? styles.bubbleMe : styles.bubbleThem,
+                ]}
+              >
+                {hasPhotoAttachment && item.sharedContentId ? (
                   <Image
                     source={{ uri: resolvePhotoUrl(item.sharedContentId) ?? item.sharedContentId }}
                     style={styles.sharedPhoto}
                     resizeMode="cover"
                   />
-                )}
+                ) : null}
                 {item.content ? (
-                  <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{item.content}</Text>
+                  <Text style={[styles.bubbleText, isMe && !hasPhotoAttachment && styles.bubbleTextMe]}>
+                    {item.content}
+                  </Text>
                 ) : null}
               </View>
             </View>
@@ -536,17 +567,26 @@ export default function GroupConversationScreen() {
       ) : null}
 
       <View style={styles.inputRow}>
-        <Pressable
-          style={({ pressed }) => [styles.photoBtn, (sending || uploadingPhoto) && styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}
-          onPress={pickAndSendPhoto}
-          disabled={sending || uploadingPhoto}
-        >
-          {uploadingPhoto ? (
-            <ActivityIndicator size="small" color={theme.colors.primary} />
-          ) : (
-            <Ionicons name="image-outline" size={24} color={theme.colors.primary} />
-          )}
-        </Pressable>
+        <View style={styles.attachBtnRow}>
+          <Pressable
+            style={({ pressed }) => [styles.photoBtn, (sending || uploadingPhoto) && styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}
+            onPress={pickAndSendPhoto}
+            disabled={sending || uploadingPhoto}
+          >
+            {uploadingPhoto ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            ) : (
+              <Ionicons name="image-outline" size={24} color={theme.colors.primary} />
+            )}
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.gifChatBtn, (sending || uploadingPhoto) && styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}
+            onPress={() => setGifPickerOpen(true)}
+            disabled={sending || uploadingPhoto}
+          >
+            <Text style={styles.gifChatBtnText}>GIF</Text>
+          </Pressable>
+        </View>
         <TextInput
           style={styles.input}
           placeholder="Message..."
@@ -566,6 +606,8 @@ export default function GroupConversationScreen() {
           <Ionicons name="send" size={22} color="#fff" />
         </Pressable>
       </View>
+
+      <GifPickerModal visible={gifPickerOpen} onClose={() => setGifPickerOpen(false)} onSelect={handleGifSelect} />
     </KeyboardAvoidingView>
   );
 }
@@ -627,16 +669,38 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
   },
   bubbleThem: {},
+  bubblePhoto: {
+    backgroundColor: "#fff",
+    borderColor: "#000",
+  },
   bubbleText: { fontSize: 16, color: theme.colors.heading },
   bubbleTextMe: { color: "#fff" },
   sharedPhoto: { width: 200, height: 200, borderRadius: 12, marginBottom: 8 },
+  attachBtnRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 4,
+    gap: 4,
+  },
   photoBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 4,
+  },
+  gifChatBtn: {
+    minWidth: 40,
+    height: 44,
+    paddingHorizontal: 8,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  gifChatBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.colors.primary,
   },
   inputRow: {
     flexDirection: "row",

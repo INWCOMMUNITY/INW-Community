@@ -174,11 +174,23 @@ export async function POST(
   }
 
   const { id } = await params;
-  let conversation: { id: string; memberAId: string; memberBId: string } | null;
+  let conversation: {
+    id: string;
+    memberAId: string;
+    memberBId: string;
+    status: string;
+    requestedByMemberId: string | null;
+  } | null;
   try {
     conversation = await prisma.directConversation.findUnique({
       where: { id },
-      select: { id: true, memberAId: true, memberBId: true },
+      select: {
+        id: true,
+        memberAId: true,
+        memberBId: true,
+        status: true,
+        requestedByMemberId: true,
+      },
     });
   } catch (e) {
     if (isDirectConversationColumnError(e)) {
@@ -244,15 +256,23 @@ export async function POST(
   }
 
   const otherMemberId = conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
+  const isRequestNotice =
+    conversation.status === "pending" &&
+    conversation.requestedByMemberId != null &&
+    conversation.requestedByMemberId === session.user.id;
   const pushBody =
     contentTrimmed.length > 0
       ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
-      : "New message";
+      : isRequestNotice
+        ? `${message.sender.firstName} sent a message request — tap to accept or decline.`
+        : `${message.sender.firstName} sent you a message — tap to open.`;
+  const pushTitle = isRequestNotice ? "Somebody wants to chat!" : "New Message!";
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   sendPushNotification(otherMemberId, {
-    title: "New message",
+    title: pushTitle,
     body: pushBody,
     data: { screen: "messages", conversationId: id },
+    category: "messages",
   }).catch(() => {});
 
   // Test Friend bot: when you message testfriend@nwc.local, they auto-reply " :)"

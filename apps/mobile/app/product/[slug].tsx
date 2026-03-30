@@ -1259,13 +1259,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: "700",
-    color: theme.colors.heading,
+    color: "#000",
     marginBottom: 8,
   },
   price: {
     fontSize: 24,
     fontWeight: "700",
-    color: theme.colors.primary,
+    color: "#000",
     marginBottom: 12,
   },
   categoryChip: {

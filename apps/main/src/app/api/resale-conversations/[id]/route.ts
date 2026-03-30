@@ -112,12 +112,13 @@ export async function POST(
   const pushBody =
     contentTrimmed.length > 0
       ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
-      : "New resale message";
+      : `${message.sender.firstName} messaged you about a resale — tap to read.`;
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   sendPushNotification(recipientId, {
-    title: "Resale message",
+    title: "Message about your listing",
     body: pushBody,
     data: { screen: "resale-hub/messages", conversationId: id },
+    category: "messages",
   }).catch(() => {});
 
   const live: LiveSocketMessagePayload = {

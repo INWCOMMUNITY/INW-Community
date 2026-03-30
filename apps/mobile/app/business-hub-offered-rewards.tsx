@@ -15,12 +15,14 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiDelete, apiGet, apiPatch } from "@/lib/api";
+import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 type OfferedReward = {
   id: string;
   title: string;
   pointsRequired: number;
   redemptionLimit: number;
+  cashValueCents?: number | null;
   status: string;
   business: { id: string; name: string };
 };
@@ -29,14 +31,21 @@ function RewardEditor({
   reward,
   onRemoved,
   onAfterSave,
+  onEarnedBadges,
 }: {
   reward: OfferedReward;
   onRemoved: (id: string) => void;
   onAfterSave: () => void;
+  onEarnedBadges?: (badges: { slug: string; name: string; description?: string }[]) => void;
 }) {
   const [title, setTitle] = useState(reward.title);
   const [points, setPoints] = useState(String(reward.pointsRequired));
   const [limit, setLimit] = useState(String(reward.redemptionLimit));
+  const [cashDollars, setCashDollars] = useState(
+    reward.cashValueCents != null && reward.cashValueCents > 0
+      ? String(reward.cashValueCents / 100)
+      : ""
+  );
   const [status, setStatus] = useState(reward.status);
   const [busy, setBusy] = useState(false);
 
@@ -44,13 +53,27 @@ function RewardEditor({
     setTitle(reward.title);
     setPoints(String(reward.pointsRequired));
     setLimit(String(reward.redemptionLimit));
+    setCashDollars(
+      reward.cashValueCents != null && reward.cashValueCents > 0
+        ? String(reward.cashValueCents / 100)
+        : ""
+    );
     setStatus(reward.status);
-  }, [reward.id, reward.title, reward.pointsRequired, reward.redemptionLimit, reward.status]);
+  }, [reward.id, reward.title, reward.pointsRequired, reward.redemptionLimit, reward.cashValueCents, reward.status]);
 
   const patch = async (body: Record<string, unknown>) => {
     setBusy(true);
     try {
-      await apiPatch(`/api/rewards/${reward.id}`, body);
+      const data = await apiPatch<{
+        earnedBadges?: { slug: string; name: string; description?: string }[];
+      }>(`/api/rewards/${reward.id}`, body);
+      const badges = (data?.earnedBadges ?? []).filter(
+        (b): b is { slug: string; name: string; description?: string } =>
+          Boolean(b?.slug && b?.name)
+      );
+      if (badges.length > 0) {
+        onEarnedBadges?.(badges);
+      }
       onAfterSave();
     } catch (e) {
       Alert.alert("Could not save", (e as { error?: string }).error ?? "Try again.");
@@ -128,6 +151,34 @@ function RewardEditor({
           if (n !== reward.redemptionLimit) void patch({ redemptionLimit: n });
         }}
       />
+      <Text style={styles.fieldLabel}>Cash value per redemption ($)</Text>
+      <TextInput
+        style={styles.input}
+        value={cashDollars}
+        onChangeText={setCashDollars}
+        keyboardType="decimal-pad"
+        editable={!busy && !redeemedOut}
+        placeholder="e.g. 25"
+        placeholderTextColor="#999"
+        onEndEditing={() => {
+          const raw = cashDollars.trim();
+          if (raw === "") {
+            if (reward.cashValueCents != null) void patch({ cashValueCents: null });
+            return;
+          }
+          const n = Number(raw);
+          if (!Number.isFinite(n) || n < 0) {
+            setCashDollars(
+              reward.cashValueCents != null && reward.cashValueCents > 0
+                ? String(reward.cashValueCents / 100)
+                : ""
+            );
+            return;
+          }
+          const cents = Math.min(Math.round(n * 100), 2_147_483_647);
+          if (cents !== (reward.cashValueCents ?? -1)) void patch({ cashValueCents: cents });
+        }}
+      />
 
       {redeemedOut ? (
         <Text style={styles.lockedNote}>Status: redeemed out (set automatically)</Text>
@@ -179,6 +230,10 @@ export default function BusinessHubOfferedRewardsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [earnedBadges, setEarnedBadges] = useState<
+    { slug: string; name: string; description?: string }[]
+  >([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
   const load = useCallback(async () => {
     setError(null);
@@ -242,10 +297,32 @@ export default function BusinessHubOfferedRewardsScreen() {
                 reward={r}
                 onRemoved={(id) => setRewards((prev) => prev.filter((x) => x.id !== id))}
                 onAfterSave={() => void load()}
+                onEarnedBadges={(badges) => {
+                  setEarnedBadges(badges);
+                  setBadgePopupIndex(0);
+                }}
               />
             ))
           )}
         </ScrollView>
+      )}
+
+      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
+        <BadgeEarnedPopup
+          visible
+          onClose={() => {
+            const next = badgePopupIndex + 1;
+            if (next < earnedBadges.length) {
+              setBadgePopupIndex(next);
+            } else {
+              setEarnedBadges([]);
+              setBadgePopupIndex(-1);
+            }
+          }}
+          badgeName={earnedBadges[badgePopupIndex].name}
+          badgeSlug={earnedBadges[badgePopupIndex].slug}
+          badgeDescription={earnedBadges[badgePopupIndex].description}
+        />
       )}
     </View>
   );

@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -16,10 +17,14 @@ import { theme } from "@/lib/theme";
 import { getBadgeIcon } from "@/lib/badge-icons";
 import { apiGet, getToken } from "@/lib/api";
 import {
-  getScanBadgeProgressDisplay,
+  getBadgeProgressForCard,
   parseBadgeProgressRowsFromApi,
   progressRowsToMap,
-  BADGE_SCAN_PROGRESS_TAN,
+  BADGE_SCAN_PROGRESS_BAR,
+  memberBadgesArrayFromMe,
+  businessBadgesArrayFromMe,
+  catalogBadgeIdFromEarnedRow,
+  memberBadgeCountForBadgerProgress,
 } from "@/lib/badge-scan-progress-ui";
 
 interface Badge {
@@ -30,6 +35,8 @@ interface Badge {
   imageUrl: string | null;
   category: string;
   order: number;
+  /** From Prisma JSON — used for category_scan targets when progress rows are missing. */
+  criteria?: unknown;
 }
 
 const CATEGORY_ORDER = ["member", "business", "seller", "event", "other"];
@@ -47,6 +54,9 @@ const BADGE_ICON_COLOR: Record<string, string> = {
   gold_seller: "#FFD700",
   platinum_seller: theme.colors.primary,
 };
+
+/** Match web BadgeCard: only offer expand when description is long enough to clamp. */
+const DESCRIPTION_EXPAND_THRESHOLD = 80;
 
 function groupByCategory(badges: Badge[]) {
   const groups: Record<string, Badge[]> = {};
@@ -80,6 +90,11 @@ export default function BadgesScreen() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   /** Signed in (token + /api/me/badges ok) — show link to profile badge toggles. */
   const [canManageProfileBadges, setCanManageProfileBadges] = useState(false);
+  /** Member-only badges earned (for The Badger progress numerator). */
+  const [memberBadgeRowCount, setMemberBadgeRowCount] = useState(0);
+  /** Set when signed in but `/api/me/badges` fails — avoids a silent 0/10 Badger bar. */
+  const [meBadgesError, setMeBadgesError] = useState<string | null>(null);
+  const hasLoadedOnceRef = useRef(false);
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -90,7 +105,7 @@ export default function BadgesScreen() {
     });
   };
 
-  const load = async (refresh = false) => {
+  const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
     else setLoading(true);
     try {
@@ -100,51 +115,60 @@ export default function BadgesScreen() {
       const token = await getToken();
       if (token) {
         try {
-          const me = await apiGet<{
-            memberBadges?: { badgeId?: string; badge?: { id?: string } }[];
-            businessBadges?: { badgeId?: string; badge?: { id?: string } }[];
-            badgeProgress?: unknown;
-            badge_progress?: unknown;
-          }>("/api/me/badges");
+          setMeBadgesError(null);
+          const me = await apiGet<Record<string, unknown>>("/api/me/badges");
+          const memberList = memberBadgesArrayFromMe(me);
+          setMemberBadgeRowCount(memberBadgeCountForBadgerProgress(memberList));
           const ids = new Set<string>();
-          for (const mb of me?.memberBadges ?? []) {
-            const id = mb.badgeId ?? mb.badge?.id;
-            if (id != null && id !== "") ids.add(String(id));
+          for (const mb of memberList) {
+            const id = catalogBadgeIdFromEarnedRow(mb);
+            if (id) ids.add(String(id));
           }
-          for (const bb of me?.businessBadges ?? []) {
-            const id = bb.badgeId ?? bb.badge?.id;
-            if (id != null && id !== "") ids.add(String(id));
+          for (const bb of businessBadgesArrayFromMe(me)) {
+            const id = catalogBadgeIdFromEarnedRow(bb);
+            if (id) ids.add(String(id));
           }
           setEarnedBadgeIds(ids);
-          const rawProgress =
-            (me as { badgeProgress?: unknown; badge_progress?: unknown })?.badgeProgress ??
-            (me as { badge_progress?: unknown })?.badge_progress;
+          const rawProgress = me.badgeProgress ?? me.badge_progress;
           setScanProgressMap(progressRowsToMap(parseBadgeProgressRowsFromApi(rawProgress)));
           setCanManageProfileBadges(true);
-        } catch {
+        } catch (e) {
+          const msg =
+            e && typeof e === "object" && "error" in e && typeof (e as { error: unknown }).error === "string"
+              ? (e as { error: string }).error
+              : "Could not load your badges.";
+          setMeBadgesError(msg);
           setEarnedBadgeIds(new Set());
           setScanProgressMap(new Map());
           setCanManageProfileBadges(false);
+          setMemberBadgeRowCount(0);
         }
       } else {
+        setMeBadgesError(null);
         setEarnedBadgeIds(new Set());
         setScanProgressMap(new Map());
         setCanManageProfileBadges(false);
+        setMemberBadgeRowCount(0);
       }
     } catch {
       setBadges([]);
       setEarnedBadgeIds(new Set());
       setScanProgressMap(new Map());
       setCanManageProfileBadges(false);
+      setMemberBadgeRowCount(0);
+      setMeBadgesError(null);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    load();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load(hasLoadedOnceRef.current);
+      hasLoadedOnceRef.current = true;
+    }, [load])
+  );
 
   if (loading && !refreshing) {
     return (
@@ -188,9 +212,24 @@ export default function BadgesScreen() {
           />
         }
       >
-      <Text style={styles.subtitle}>
+      <Text
+        style={[
+          styles.subtitle,
+          canManageProfileBadges ? styles.subtitleSpacingSignedIn : styles.subtitleSpacingGuest,
+        ]}
+      >
         Earn badges by participating in Northwest Community. Here are all the badges you can unlock.
       </Text>
+      {!canManageProfileBadges && !meBadgesError ? (
+        <Text style={styles.subtitleHint}>
+          Sign in to see your live progress toward each badge.
+        </Text>
+      ) : null}
+      {meBadgesError ? (
+        <Text style={styles.meBadgesErrorText}>
+          {meBadgesError} Pull down to retry.
+        </Text>
+      ) : null}
 
       {sortedCategories.map((category) => (
         <View key={category} style={styles.categorySection}>
@@ -200,10 +239,12 @@ export default function BadgesScreen() {
           <View style={[styles.list, { gap }]}>
             {grouped[category]!.map((b) => {
               const earned = earnedBadgeIds.has(String(b.id));
-              const scanProgress = getScanBadgeProgressDisplay(
+              const scanProgress = getBadgeProgressForCard(
                 b.slug,
+                b.criteria,
                 earned,
-                scanProgressMap
+                scanProgressMap,
+                memberBadgeRowCount
               );
               const pct =
                 scanProgress && scanProgress.target > 0
@@ -211,52 +252,70 @@ export default function BadgesScreen() {
                   : 0;
               /** RN nested % widths are unreliable; track width matches card content box (padding 12×2). */
               const trackW = Math.max(0, cardWidth - 24);
-              const fillW = Math.round((pct / 100) * trackW);
+              const innerW = Math.max(0, trackW - 4);
+              const fillW = Math.round((pct / 100) * innerW);
+              const desc = b.description ?? "";
+              const needsExpand = desc.length > DESCRIPTION_EXPAND_THRESHOLD;
               return (
               <View key={b.id} style={[styles.card, { width: cardWidth }]}>
                 <View style={styles.badgeIcon}>
                   <Ionicons name={getBadgeIcon(b.slug)} size={28} color={BADGE_ICON_COLOR[b.slug] ?? theme.colors.primary} />
                 </View>
                 <Text style={styles.badgeName} numberOfLines={2}>{b.name}</Text>
-                <Text style={styles.badgeDesc} numberOfLines={expandedIds.has(b.id) ? undefined : 2}>
-                  {b.description}
+                <Text
+                  style={styles.badgeDesc}
+                  numberOfLines={needsExpand && !expandedIds.has(b.id) ? 2 : undefined}
+                >
+                  {desc}
                 </Text>
-                {scanProgress && scanProgress.target > 0 && (
+                {needsExpand ? (
+                  <Pressable
+                    style={({ pressed }) => [styles.expandBtn, pressed && { opacity: 0.7 }]}
+                    onPress={() => toggleExpand(b.id)}
+                  >
+                    <Ionicons
+                      name={expandedIds.has(b.id) ? "chevron-up" : "chevron-down"}
+                      size={16}
+                      color={theme.colors.primary}
+                    />
+                    <Text style={styles.expandLabel}>
+                      {expandedIds.has(b.id) ? "Less" : "Read more"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {scanProgress && scanProgress.target > 0 ? (
                   <View style={styles.progressWrap}>
-                    <View style={styles.progressHeader}>
-                      <Text style={styles.progressLabel}>{scanProgress.progressLabel}</Text>
-                      <Text style={styles.progressLabel}>
-                        {Math.min(scanProgress.current, scanProgress.target)}/{scanProgress.target}
-                      </Text>
-                    </View>
+                    <Text style={styles.progressLabelAbove}>{scanProgress.progressLabel}</Text>
                     <View
                       style={[
-                        styles.progressTrack,
-                        { width: trackW, backgroundColor: BADGE_SCAN_PROGRESS_TAN.track },
+                        styles.progressBarOuter,
+                        {
+                          width: trackW,
+                          borderColor: BADGE_SCAN_PROGRESS_BAR.border,
+                          backgroundColor: BADGE_SCAN_PROGRESS_BAR.track,
+                        },
                       ]}
                     >
                       <View
                         style={[
-                          styles.progressFill,
-                          { width: fillW, backgroundColor: BADGE_SCAN_PROGRESS_TAN.fill },
+                          styles.progressBarFill,
+                          {
+                            width: fillW,
+                            backgroundColor: BADGE_SCAN_PROGRESS_BAR.fill,
+                            borderTopRightRadius: fillW >= innerW - 2 ? 999 : 0,
+                            borderBottomRightRadius: fillW >= innerW - 2 ? 999 : 0,
+                          },
                         ]}
                       />
+                      <View style={styles.progressBarLabelOverlay} pointerEvents="none">
+                        <Text style={styles.progressBarCenterText} numberOfLines={1}>
+                          {scanProgress.centerDisplay ??
+                            `${Math.min(scanProgress.current, scanProgress.target)}/${scanProgress.target}`}
+                        </Text>
+                      </View>
                     </View>
                   </View>
-                )}
-                <Pressable
-                  style={({ pressed }) => [styles.expandBtn, pressed && { opacity: 0.7 }]}
-                  onPress={() => toggleExpand(b.id)}
-                >
-                  <Ionicons
-                    name={expandedIds.has(b.id) ? "chevron-up" : "chevron-down"}
-                    size={16}
-                    color={theme.colors.primary}
-                  />
-                  <Text style={styles.expandLabel}>
-                    {expandedIds.has(b.id) ? "Less" : "Read more"}
-                  </Text>
-                </Pressable>
+                ) : null}
               </View>
             );
             })}
@@ -316,8 +375,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
     textAlign: "center",
-    marginBottom: 24,
     lineHeight: 20,
+  },
+  subtitleSpacingSignedIn: {
+    marginBottom: 24,
+  },
+  subtitleSpacingGuest: {
+    marginBottom: 8,
+  },
+  subtitleHint: {
+    fontSize: 13,
+    color: theme.colors.primary,
+    textAlign: "center",
+    fontWeight: "600",
+    marginBottom: 24,
+    lineHeight: 18,
+  },
+  meBadgesErrorText: {
+    fontSize: 13,
+    color: "#b45309",
+    textAlign: "center",
+    marginBottom: 20,
+    lineHeight: 18,
   },
   categorySection: {
     marginBottom: 24,
@@ -381,25 +460,38 @@ const styles = StyleSheet.create({
     width: "100%",
     marginTop: 10,
   },
-  progressHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  progressLabel: {
+  progressLabelAbove: {
     fontSize: 11,
     fontWeight: "600",
-    color: BADGE_SCAN_PROGRESS_TAN.label,
+    color: "#000000",
+    textAlign: "center",
+    marginBottom: 8,
   },
-  progressTrack: {
-    height: 10,
+  progressBarOuter: {
+    height: 28,
     borderRadius: 999,
+    borderWidth: 2,
     overflow: "hidden",
     alignSelf: "center",
+    justifyContent: "center",
   },
-  progressFill: {
-    height: "100%",
-    borderRadius: 999,
+  progressBarFill: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderTopLeftRadius: 999,
+    borderBottomLeftRadius: 999,
+  },
+  progressBarLabelOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  progressBarCenterText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#000000",
   },
   empty: {
     fontSize: 16,

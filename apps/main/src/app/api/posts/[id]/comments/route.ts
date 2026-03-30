@@ -82,7 +82,10 @@ export async function POST(
   }
 
   const { id } = await params;
-  const post = await prisma.post.findUnique({ where: { id } });
+  const post = await prisma.post.findUnique({
+    where: { id },
+    select: { id: true, authorId: true, sourceBusinessId: true },
+  });
   if (!post) {
     return NextResponse.json({ error: "Post not found" }, { status: 404 });
   }
@@ -91,13 +94,16 @@ export async function POST(
     const body = await req.json();
     const { content, photos, parentId } = bodySchema.parse(body);
 
+    let parentCommentAuthorId: string | null = null;
     if (parentId) {
       const parent = await prisma.postComment.findFirst({
         where: { id: parentId, postId: id },
+        select: { id: true, memberId: true },
       });
       if (!parent) {
         return NextResponse.json({ error: "Parent comment not found" }, { status: 404 });
       }
+      parentCommentAuthorId = parent.memberId;
     }
 
     const contentTrimmed = (content ?? "").trim() || " ";
@@ -120,6 +126,54 @@ export async function POST(
         },
       },
     });
+
+    let notifyMemberId: string | null = null;
+    let pushTitle = "";
+    if (parentId && parentCommentAuthorId && parentCommentAuthorId !== session.user.id) {
+      notifyMemberId = parentCommentAuthorId;
+      pushTitle = "New reply to your comment!";
+    } else if (!parentId && post.authorId !== session.user.id) {
+      notifyMemberId = post.authorId;
+      pushTitle = "New comment on your post!";
+    }
+    if (notifyMemberId) {
+      const preview =
+        contentTrimmed.length > 0
+          ? `${comment.member.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+          : `${comment.member.firstName} commented on your post — tap to view.`;
+      const { sendPushNotification } = await import("@/lib/send-push-notification");
+      sendPushNotification(notifyMemberId, {
+        title: pushTitle,
+        body: preview,
+        data: { screen: "post", postId: id },
+        category: "comments",
+      }).catch(() => {});
+    }
+
+    if (!parentId && post.sourceBusinessId && post.sourceBusinessId.length > 0) {
+      const biz = await prisma.business.findUnique({
+        where: { id: post.sourceBusinessId },
+        select: { memberId: true, name: true },
+      });
+      if (
+        biz &&
+        biz.memberId !== session.user.id &&
+        biz.memberId !== notifyMemberId
+      ) {
+        const previewBiz =
+          contentTrimmed.length > 0
+            ? `${comment.member.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+            : `${comment.member.firstName} commented on a post about your business — tap to view.`;
+        const { sendPushNotification } = await import("@/lib/send-push-notification");
+        sendPushNotification(biz.memberId, {
+          title: "New comment on your business post!",
+          body: previewBiz,
+          data: { screen: "post", postId: id },
+          category: "comments",
+        }).catch(() => {});
+      }
+    }
+
     return NextResponse.json(comment);
   } catch (e) {
     if (e instanceof z.ZodError) {

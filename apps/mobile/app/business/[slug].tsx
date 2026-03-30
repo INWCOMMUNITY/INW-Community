@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   useWindowDimensions,
   Linking,
-  Platform,
   Modal,
   Alert,
   RefreshControl,
@@ -18,6 +17,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
+import { openAddressInMaps } from "@/lib/open-maps";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { CouponPopup } from "@/components/CouponPopup";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
@@ -334,11 +334,6 @@ export default function BusinessScreen() {
   const addressDisplay = business
     ? [business.address, business.city].filter(Boolean).join(", ")
     : "";
-  const mapsUrl = addressDisplay
-    ? Platform.OS === "ios"
-      ? `https://maps.apple.com/?q=${encodeURIComponent(addressDisplay)}`
-      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressDisplay)}`
-    : null;
 
   const hours = business?.hoursOfOperation;
   const hasHours = hours && typeof hours === "object" && Object.keys(hours).length > 0;
@@ -419,7 +414,7 @@ export default function BusinessScreen() {
           {addressDisplay ? (
             <Pressable
               style={styles.addressRow}
-              onPress={() => mapsUrl && Linking.openURL(mapsUrl)}
+              onPress={() => void openAddressInMaps(addressDisplay)}
             >
               <Ionicons name="location" size={18} color={theme.colors.primary} />
               <Text style={styles.addressText} numberOfLines={2}>{addressDisplay}</Text>
@@ -485,12 +480,12 @@ export default function BusinessScreen() {
           ) : null}
         </View>
 
-        {addressDisplay && mapsUrl && (
-          <Pressable style={styles.mapBtn} onPress={() => Linking.openURL(mapsUrl)}>
+        {addressDisplay ? (
+          <Pressable style={styles.mapBtn} onPress={() => void openAddressInMaps(addressDisplay)}>
             <Ionicons name="map" size={20} color="#fff" />
             <Text style={styles.mapBtnText}>Open in Maps</Text>
           </Pressable>
-        )}
+        ) : null}
 
         {business.shortDescription ? (
           <View style={styles.section}>

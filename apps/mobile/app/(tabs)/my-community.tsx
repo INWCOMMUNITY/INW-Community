@@ -1286,6 +1286,13 @@ export default function MyCommunityScreen() {
             <Ionicons name="heart" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Wishlist</ThemedText>
           </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
+            onPress={() => (router.push as (href: string) => void)("/community/my-orders")}
+          >
+            <Ionicons name="receipt" size={22} color="#fff" style={styles.tanButtonIcon} />
+            <ThemedText style={styles.tanButtonText}>My Orders</ThemedText>
+          </Pressable>
         </RNView>
       </RNView>
     </ScrollView>

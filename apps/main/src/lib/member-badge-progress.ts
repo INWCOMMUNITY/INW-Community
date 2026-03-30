@@ -8,6 +8,7 @@ export const MEMBER_BADGE_PROGRESS_KEYS = {
   SCANNER_ELITE_TARGET: 50,
   COUPON_REDEMPTIONS: "coupon:redemptions",
   COUPON_PENNY_PUSHER_TARGET: 10,
+  /** Progress for Spreading the Word — in-app share completions (MemberAppShare), not referral signups */
   REFERRAL_SIGNUPS: "referral:qualified_signups",
   SPREADING_WORD_TARGET: 5,
   EVENTS_CREATED: "events:created",
@@ -62,7 +63,7 @@ export async function refreshMemberBadgeProgress(memberId: string): Promise<void
     getDistinctScannedBusinessCount(memberId),
     getAllCategoryScanMetrics(memberId),
     prisma.couponRedeem.count({ where: { memberId } }),
-    prisma.referralSignup.count({ where: { referrerId: memberId } }),
+    prisma.memberAppShare.count({ where: { memberId } }),
     prisma.event.count({ where: { memberId } }),
     prisma.eventInvite.count({ where: { inviterId: memberId } }),
     prisma.storeOrder.aggregate({
@@ -164,13 +165,16 @@ export async function refreshMemberBadgeProgress(memberId: string): Promise<void
 }
 
 /**
- * Subset of `refreshMemberBadgeProgress` — only distinct QR scans + category_scan badges.
- * Used when the full refresh fails partway so scan progress UIs still get rows.
+ * Subset of `refreshMemberBadgeProgress` — QR scans, category_scan badges, and event/invite
+ * counts for planner badges. Used when the full refresh fails so progress UIs still get rows
+ * (otherwise `events:created` is missing and Community Planner stays at 0/5).
  */
 export async function ensureScanRelatedBadgeProgress(memberId: string): Promise<void> {
-  const [distinctBiz, categoryMetrics] = await Promise.all([
+  const [distinctBiz, categoryMetrics, eventCount, inviteCount] = await Promise.all([
     getDistinctScannedBusinessCount(memberId),
     getAllCategoryScanMetrics(memberId),
+    prisma.event.count({ where: { memberId } }),
+    prisma.eventInvite.count({ where: { inviterId: memberId } }),
   ]);
   const upserts: Promise<void>[] = [
     upsertProgress(
@@ -178,6 +182,18 @@ export async function ensureScanRelatedBadgeProgress(memberId: string): Promise<
       MEMBER_BADGE_PROGRESS_KEYS.SCANNER_DISTINCT,
       distinctBiz,
       MEMBER_BADGE_PROGRESS_KEYS.SCANNER_ELITE_TARGET
+    ),
+    upsertProgress(
+      memberId,
+      MEMBER_BADGE_PROGRESS_KEYS.EVENTS_CREATED,
+      eventCount,
+      MEMBER_BADGE_PROGRESS_KEYS.COMMUNITY_PLANNER_TARGET
+    ),
+    upsertProgress(
+      memberId,
+      MEMBER_BADGE_PROGRESS_KEYS.EVENT_INVITES_SENT,
+      inviteCount,
+      MEMBER_BADGE_PROGRESS_KEYS.PARTY_PLANNER_TARGET
     ),
   ];
   for (const m of categoryMetrics) {

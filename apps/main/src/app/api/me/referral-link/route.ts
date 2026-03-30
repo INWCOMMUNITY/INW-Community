@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { getBaseUrl } from "@/lib/get-base-url";
 
 const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  const base = getBaseUrl();
   const signupUrl = `${base}/signup?ref=${link.code}`;
   const defaultIosAppStore =
     "https://apps.apple.com/us/app/inw-community/id6759624513";
@@ -49,23 +50,18 @@ export async function GET(req: NextRequest) {
   const playStoreUrl = process.env.REFERRAL_ANDROID_PLAY_STORE_URL?.trim() || "";
 
   const lines = [
-    "Join me on INW Community — local businesses, rewards, and more.",
+    "Join me on INW Community — if you're a resident of the Eastern Washington or North Idaho, this app is quite literally made for you! It's a community page where you connect with people in our area, support our locally owned businesses, and earn points for fun prizes, check it out!",
     "",
     `Download the app: ${appStoreUrl}`,
   ];
   if (playStoreUrl) {
     lines.push(`Google Play: ${playStoreUrl}`);
   }
-  lines.push(
-    "",
-    "After you install, create your account with my invite link so your signup counts toward community badges:",
-    signupUrl
-  );
   const shareMessage = lines.join("\n");
 
   return NextResponse.json({
     code: link.code,
-    /** @deprecated use signupUrl — kept for older clients */
+    /** Optional invite URL for analytics; not required for Community Badges (use in-app Share). */
     url: signupUrl,
     signupUrl,
     appStoreUrl,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { z } from "zod";
+import { awardCommunityStarBusinessBadge, type EarnedBadge } from "@/lib/badge-award";
 
 const patchSchema = z.object({
   title: z.string().min(1).optional(),
@@ -50,7 +51,14 @@ export async function PATCH(
       },
     });
 
-    return NextResponse.json({ ok: true });
+    let earnedBadges: EarnedBadge[] = [];
+    try {
+      earnedBadges = await awardCommunityStarBusinessBadge(reward.businessId);
+    } catch {
+      /* badge errors should not break reward update */
+    }
+
+    return NextResponse.json({ ok: true, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });

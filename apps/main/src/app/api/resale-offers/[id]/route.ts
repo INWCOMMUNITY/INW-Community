@@ -71,10 +71,14 @@ async function placeAcceptedOfferInBuyerCart(
   });
 
   const { sendPushNotification } = await import("@/lib/send-push-notification");
+  const priceLabel = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+    finalAmountCents / 100
+  );
   await sendPushNotification(offer.buyerId, {
-    title: "Offer accepted",
-    body: `Complete checkout within 24 hours at the agreed price of $${(finalAmountCents / 100).toFixed(2)}.`,
+    title: "Your offer was accepted!",
+    body: `The seller said yes — you have 24 hours to check out at ${priceLabel}. Tap to open your cart.`,
     data: { screen: "cart" },
+    category: "commerce",
   }).catch(() => {});
 }
 

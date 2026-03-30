@@ -28,6 +28,27 @@ The admin dashboard edits **the same site it runs on**:
 
 To edit the live site, use **https://inwcommunity.com/admin** (not localhost). Ensure Vercel has `NEXTAUTH_URL` and `DATABASE_URL` set to production values so the deployed admin connects to your live data.
 
+## Prisma: P3018 / `type "Plan" already exists` (squashed `20250101000000_init`)
+
+If Vercel build fails during `pnpm db:migrate:deploy` with **P3018** on migration `20250101000000_init`, production already has the full schema from **older** migration names. The squashed init must **not** run its SQL there.
+
+**One-time fix** (from your machine, with production DB URL):
+
+1. Put the production connection string in **root** `.env` as **`DATABASE_URL`** and/or **`DATABASE_URL_PRODUCTION`** (same value as Vercel; use a **direct** Neon URL if you use pooling — see `scripts/migrate-deploy.mjs`). The resolve script **always prefers root `.env` for** `DATABASE_URL`, `DATABASE_URL_PRODUCTION`, `DATABASE_URL_UNPOOLED`, and `DIRECT_URL` **over** `apps/main/.env` and **`packages/database/.env`** (those often use `localhost` for local Prisma/Next). The script still **refuses** if the resolved URL is localhost unless you set `RESOLVE_SQUASHED_INIT_ALLOW_LOCAL=1`.
+2. Run:
+
+   ```bash
+   pnpm db:resolve-squashed-init
+   ```
+
+   This marks `20250101000000_init` as applied without executing it (or **skips** that step with **P3008** if it is already applied), then runs `migrate deploy` for any **new** migrations (e.g. `20250329190000_group_allow_business_posts`).
+
+   For a **local** Postgres only, run: `RESOLVE_SQUASHED_INIT_ALLOW_LOCAL=1 pnpm db:resolve-squashed-init` (PowerShell: `$env:RESOLVE_SQUASHED_INIT_ALLOW_LOCAL=1; pnpm db:resolve-squashed-init`).
+
+3. Trigger a new Vercel deployment.
+
+If you instead see errors about migrations **present in the database but missing from the repo**, the `_prisma_migrations` history must be reconciled with [Prisma’s troubleshooting guide](https://www.prisma.io/docs/guides/migrate/production-troubleshooting); contact the team before editing that table.
+
 ## Seeding production (businesses, badges, etc.)
 
 To add or update seed data (businesses, coupons, badges) on the live site:

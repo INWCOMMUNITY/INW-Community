@@ -23,6 +23,7 @@ const ROOT_DENY = new Set([
   "blocked-members",
   "redeemed-rewards",
   "manage-subscription",
+  "share-inw-community",
   "sponsor-business",
   "support-request",
 ]);

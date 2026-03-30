@@ -5,6 +5,7 @@ import { theme } from "@/lib/theme";
 import { CALENDAR_TYPES, getCalendarImage, type CalendarType } from "@/lib/calendars";
 import { fetchEvents } from "@/lib/events-api";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { PopupModal } from "@/components/PopupModal";
 import { PostEventForm, type PostEventAsContext } from "@/components/PostEventForm";
 import { PostEventAsPickerModal } from "@/components/PostEventAsPickerModal";
@@ -96,12 +97,33 @@ export default function CalendarsScreen() {
         <Text style={styles.subtitle}>
           Local events not run by NWC. See what&apos;s happening in our area!
         </Text>
-        <Pressable
-          style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
-          onPress={() => void openPostEventFlow()}
-        >
-          <Text style={styles.postEventButtonText}>Post Event</Text>
-        </Pressable>
+        <View style={styles.calendarsActionRow}>
+          <Pressable
+            style={({ pressed }) => [styles.sideNavButton, styles.calendarPrimaryBtn, pressed && styles.buttonPressed]}
+            onPress={() => (router.push as (href: string) => void)("/profile-events")}
+            accessibilityRole="button"
+            accessibilityLabel="My events"
+          >
+            <Ionicons name="calendar" size={18} color={theme.colors.buttonText} />
+            <Text style={styles.calendarSideLabel}>My Events</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.calendarPrimaryBtn, styles.postEventButton, pressed && styles.buttonPressed]}
+            onPress={() => void openPostEventFlow()}
+          >
+            <Ionicons name="add" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.postEventButtonText}>Post Event</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.sideNavButton, styles.calendarPrimaryBtn, pressed && styles.buttonPressed]}
+            onPress={() => (router.push as (href: string) => void)("/community/invites")}
+            accessibilityRole="button"
+            accessibilityLabel="Event invites"
+          >
+            <Ionicons name="megaphone" size={18} color={theme.colors.buttonText} />
+            <Text style={styles.calendarSideLabel}>Invites</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.grid} lightColor="#fff" darkColor="#fff">
@@ -186,18 +208,57 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     textAlign: "center",
   },
-  postEventButton: {
+  calendarsActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: 16,
+    gap: 8,
+    width: "100%",
+    maxWidth: 400,
+    alignSelf: "center",
+  },
+  /** Solid green — Invites, Post Event, My Events (white icon + label); black border. */
+  calendarPrimaryBtn: {
     backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: "#000",
+    borderRadius: 8,
+  },
+  sideNavButton: {
+    flex: 1,
+    minWidth: 0,
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 5,
+    paddingHorizontal: 3,
+    gap: 3,
+    minHeight: 56,
+  },
+  calendarSideLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: theme.colors.buttonText,
+    fontFamily: theme.fonts.heading,
+    textAlign: "center",
+  },
+  postEventButton: {
+    flexShrink: 0,
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    minHeight: 80,
   },
   postEventButtonText: {
     color: theme.colors.buttonText,
     fontSize: 16,
     fontWeight: "600",
     fontFamily: theme.fonts.heading,
+    textAlign: "center",
   },
   buttonPressed: { opacity: 0.8 },
   grid: {
@@ -212,7 +273,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: "hidden",
     borderWidth: 2,
-    borderColor: theme.colors.primary,
+    borderColor: "#000",
   },
   tilePressed: { opacity: 0.85 },
   tileImage: {
@@ -222,7 +283,7 @@ const styles = StyleSheet.create({
   tileLabelWrap: {
     padding: 12,
     borderTopWidth: 2,
-    borderTopColor: theme.colors.primary,
+    borderTopColor: "#000",
   },
   tileLabel: {
     fontSize: 12,

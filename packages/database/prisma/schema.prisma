@@ -103,8 +103,10 @@ model Member {
   referralLinks ReferralLink[]
   referralSignupsAsReferrer ReferralSignup[] @relation("ReferralSignupReferrer")
   referralSignupsAsNewMember ReferralSignup[] @relation("ReferralSignupNewMember")
+  appShares MemberAppShare[]
   reports                  Report[]
   pushTokens               MemberPushToken[]
+  notificationPreferences MemberNotificationPreferences?
   webviewBridgeTokens      WebviewBridgeToken[]
   planSwitchLogs           PlanSwitchLog[]
 }
@@ -135,6 +137,23 @@ model MemberPushToken {
 
   @@index([memberId])
   @@map("member_push_token")
+}
+
+/// Per-member toggles for push notification categories (mobile).
+model MemberNotificationPreferences {
+  memberId           String   @id @map("member_id")
+  notifyBadges       Boolean  @default(true) @map("notify_badges")
+  notifyMessages     Boolean  @default(true) @map("notify_messages")
+  notifyComments     Boolean  @default(true) @map("notify_comments")
+  notifyEvents       Boolean  @default(true) @map("notify_events")
+  notifyGroupAdmin   Boolean  @default(true) @map("notify_group_admin")
+  notifyCommerce     Boolean  @default(true) @map("notify_commerce")
+  notifySocial       Boolean  @default(true) @map("notify_social")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@map("member_notification_preferences")
 }
 
 model SellerTimeAway {
@@ -1228,6 +1247,18 @@ model ReferralSignup {
 
   @@unique([referrerId, newMemberId])
   @@map("referral_signup")
+}
+
+// One row per completed share from the in-app Share INW Community screen (Spreading the Word badge).
+model MemberAppShare {
+  id        String   @id @default(cuid())
+  memberId  String   @map("member_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, createdAt])
+  @@map("member_app_share")
 }
 
 // Messages/requests from users to admin (NWC Requests form, app Support & contact)
