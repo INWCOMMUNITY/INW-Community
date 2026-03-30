@@ -17,6 +17,12 @@ export type NotificationData = {
   eventSlug?: string;
   eventTitle?: string;
   inviteId?: string;
+  postId?: string;
+  groupSlug?: string;
+  businessId?: string;
+  businessSlug?: string;
+  webUrl?: string;
+  webTitle?: string;
 };
 
 // EAS projectId from app.json extra.eas.projectId (for getExpoPushTokenAsync)
@@ -110,6 +116,10 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
       return data.orderId ? `/seller-hub/orders/${data.orderId}` : "/seller-hub/orders";
     case "my-badges":
       return "/my-badges";
+    case "my-orders":
+      return data.orderId ? `/community/my-orders/${data.orderId}` : "/community/my-orders";
+    case "cart":
+      return "/cart";
     case "resale-hub/offers":
       return "/resale-hub/offers";
     case "resale-hub/messages":
@@ -128,6 +138,19 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
         : "/community/invites";
     case "event_rsvp":
       return data.eventSlug ? `/event/${data.eventSlug}` : "/community/invites";
+    case "post":
+      return data.postId ? `/post/${data.postId}` : "/(tabs)/index";
+    case "group_feed":
+      return data.groupSlug ? `/community/group/${data.groupSlug}` : "/community/groups";
+    case "business_redeemed_rewards":
+      return data.businessId
+        ? `/redeemed-rewards?businessId=${encodeURIComponent(String(data.businessId))}`
+        : "/redeemed-rewards";
+    case "business_profile":
+      return data.businessSlug ? `/business/${data.businessSlug}` : "/(tabs)/index";
+    case "web_link":
+      if (!data.webUrl) return null;
+      return `/web?url=${encodeURIComponent(String(data.webUrl))}&title=${encodeURIComponent(String(data.webTitle ?? "Open"))}`;
     default:
       return null;
   }

@@ -242,8 +242,20 @@ export function ShareToChatModal({
     onClose();
   };
 
+  const feedBadgePopup =
+    feedBadgePopupIndex >= 0 && feedBadgePopupIndex < feedEarnedBadges.length ? (
+      <BadgeEarnedPopup
+        visible
+        onClose={handleCloseFeedBadgePopup}
+        badgeName={feedEarnedBadges[feedBadgePopupIndex].name}
+        badgeSlug={feedEarnedBadges[feedBadgePopupIndex].slug}
+        badgeDescription={feedEarnedBadges[feedBadgePopupIndex].description}
+      />
+    ) : null;
+
   if (composing) {
     return (
+      <>
       <Modal visible={visible} transparent animationType="slide" onRequestClose={() => setComposing(false)}>
         <KeyboardAvoidingView
           style={styles.backdrop}
@@ -316,6 +328,8 @@ export function ShareToChatModal({
           </Pressable>
         </KeyboardAvoidingView>
       </Modal>
+      {feedBadgePopup}
+      </>
     );
   }
 
@@ -468,15 +482,7 @@ export function ShareToChatModal({
         </Pressable>
       </Pressable>
     </Modal>
-    {feedBadgePopupIndex >= 0 && feedBadgePopupIndex < feedEarnedBadges.length && (
-      <BadgeEarnedPopup
-        visible
-        onClose={handleCloseFeedBadgePopup}
-        badgeName={feedEarnedBadges[feedBadgePopupIndex].name}
-        badgeSlug={feedEarnedBadges[feedBadgePopupIndex].slug}
-        badgeDescription={feedEarnedBadges[feedBadgePopupIndex].description}
-      />
-    )}
+    {feedBadgePopup}
     </>
   );
 }

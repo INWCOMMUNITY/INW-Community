@@ -19,7 +19,7 @@ export async function POST(
   const { businessId } = await params;
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    select: { id: true, memberId: true },
+    select: { id: true, memberId: true, name: true, slug: true },
   });
   if (!business) {
     return NextResponse.json({ error: "Business not found" }, { status: 404 });
@@ -33,6 +33,12 @@ export async function POST(
   }
 
   try {
+    const existing = await prisma.followBusiness.findUnique({
+      where: {
+        memberId_businessId: { memberId: session.user.id, businessId },
+      },
+      select: { id: true },
+    });
     await prisma.followBusiness.upsert({
       where: {
         memberId_businessId: { memberId: session.user.id, businessId },
@@ -40,6 +46,26 @@ export async function POST(
       create: { memberId: session.user.id, businessId },
       update: {},
     });
+    if (!existing && business.memberId !== session.user.id) {
+      const follower = await prisma.member.findUnique({
+        where: { id: session.user.id },
+        select: { firstName: true, lastName: true },
+      });
+      const who =
+        follower != null
+          ? [follower.firstName, follower.lastName].filter(Boolean).join(" ").trim() || "Someone"
+          : "Someone";
+      const { sendPushNotification } = await import("@/lib/send-push-notification");
+      sendPushNotification(business.memberId, {
+        category: "commerce",
+        title: "New favorite business!",
+        body: `${who} saved “${business.name}” as a favorite — tap to view your page.`,
+        data: {
+          screen: "business_profile",
+          businessSlug: business.slug,
+        },
+      }).catch(() => {});
+    }
     return NextResponse.json({ followed: true });
   } catch (e) {
     return NextResponse.json({ error: "Failed to follow" }, { status: 500 });

@@ -16,6 +16,7 @@ import { stripeSubscriptionStatusToDb } from "@/lib/stripe-subscription-db-statu
 import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
 import { removeNwcMemberPerksAfterSubscriptionEnd } from "@/lib/nwc-subscription-perk-cleanup";
 import { migrateResaleItemsForSellerMember } from "@/lib/migrate-resale-items-for-seller-plan";
+import { orderIdsFromCheckoutSessionMetadata } from "@/lib/stripe-checkout-order-ids";
 import type { Plan } from "database";
 
 /**
@@ -367,19 +368,9 @@ export async function POST(req: NextRequest) {
     }
 
     const meta = session.metadata ?? {};
-    const orderIdsRaw = meta.orderIds && typeof meta.orderIds === "string" ? meta.orderIds : null;
-    const chunks: string[] = orderIdsRaw?.trim() ? [orderIdsRaw.trim()] : [];
-    for (let i = 0; ; i++) {
-      const key = `orderIds_${i}`;
-      const val = meta[key];
-      if (val && typeof val === "string" && val.trim()) chunks.push(val.trim());
-      else break;
-    }
-    const orderIdsList: string[] = chunks.length > 0
-      ? chunks.flatMap((s) => s.split(",").map((id) => id.trim()).filter(Boolean))
-      : [];
-    const singleOrderId = meta.orderId && typeof meta.orderId === "string" ? meta.orderId.trim() : null;
-    const toProcess: string[] = orderIdsList.length > 0 ? orderIdsList : singleOrderId ? [singleOrderId] : [];
+    const toProcess: string[] = orderIdsFromCheckoutSessionMetadata(
+      meta as Record<string, string | null | undefined>
+    );
 
     if (session.mode === "payment" && toProcess.length === 0) {
       console.warn("[webhook] checkout.session.completed: no order IDs in metadata", {
@@ -432,12 +423,13 @@ export async function POST(req: NextRequest) {
           });
           const { sendPushNotification } = await import("@/lib/send-push-notification");
           sendPushNotification(buyerId, {
-            title: "Order canceled",
+            title: "We couldn’t finish that checkout",
             body:
               batchCheck.titles.length === 1
-                ? `This item sold before checkout was complete: ${batchCheck.titles[0]}`
-                : `These items sold before checkout was complete: ${itemTitles}`,
+                ? `Someone else bought “${batchCheck.titles[0]}” before payment went through — nothing was charged.`
+                : `Someone else bought these before payment went through: ${itemTitles}. You weren’t charged.`,
             data: { screen: "my-orders" },
+            category: "commerce",
           }).catch(() => {});
         } else {
           const allSoldOutIds = new Set<string>();
@@ -755,9 +747,10 @@ export async function POST(req: NextRequest) {
 
         const { sendPushNotification } = await import("@/lib/send-push-notification");
         sendPushNotification(sellerId, {
-          title: "You sold an item",
-          body: "A customer purchased from your store.",
+          title: "Woo Hoo! You made a sale!",
+          body: "Someone just bought from your store — open the app to see the order!",
           data: { screen: "seller-hub/orders", orderId: order.id },
+          category: "commerce",
         }).catch(() => {});
 
         const storeItemIds = orderItems.map((oi) => oi.storeItemId);
@@ -881,12 +874,13 @@ export async function POST(req: NextRequest) {
         });
         const { sendPushNotification } = await import("@/lib/send-push-notification");
         sendPushNotification(order.buyerId, {
-          title: "Order canceled",
+          title: "We couldn’t finish that checkout",
           body:
             insufficientItems.length === 1
-              ? `This item sold before checkout was complete: ${insufficientItems[0].title}`
-              : `These items sold before checkout was complete: ${itemTitles}`,
+              ? `Someone else bought “${insufficientItems[0].title}” before payment went through — nothing was charged.`
+              : `Someone else bought these before payment went through: ${itemTitles}. You weren’t charged.`,
           data: { screen: "my-orders", orderId: order.id },
+          category: "commerce",
         }).catch(() => {});
         continue;
       }
@@ -1026,9 +1020,10 @@ export async function POST(req: NextRequest) {
 
       const { sendPushNotification } = await import("@/lib/send-push-notification");
       sendPushNotification(order.sellerId, {
-        title: "You sold an item",
-        body: "A customer purchased from your store.",
+        title: "Woo Hoo! You made a sale!",
+        body: "Someone just bought from your store — open the app to see the order!",
         data: { screen: "seller-hub/orders", orderId: order.id },
+        category: "commerce",
       }).catch(() => {});
 
       const storeItemIds = order.items.map((oi) => oi.storeItemId);

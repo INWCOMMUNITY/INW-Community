@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
+import { BadgeEarnedStackOverlay, type EarnedBadgeForOverlay } from "@/components/BadgeEarnedStackOverlay";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
 import {
   STORE_CATEGORIES,
@@ -133,6 +134,8 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
   const [submitting, setSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
+  const [listingEarnedBadges, setListingEarnedBadges] = useState<EarnedBadgeForOverlay[]>([]);
+  const [listingBadgePopupIndex, setListingBadgePopupIndex] = useState(-1);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -174,7 +177,22 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
       .catch(() => {});
   }, [resaleOnly, existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms]);
 
-  useLockBodyScroll(showSuccessModal);
+  useLockBodyScroll(showSuccessModal || listingBadgePopupIndex >= 0);
+
+  const activeListingBadge =
+    listingBadgePopupIndex >= 0 && listingBadgePopupIndex < listingEarnedBadges.length
+      ? listingEarnedBadges[listingBadgePopupIndex]
+      : null;
+
+  function handleCloseListingBadgePopup() {
+    if (listingBadgePopupIndex >= 0 && listingBadgePopupIndex < listingEarnedBadges.length - 1) {
+      setListingBadgePopupIndex((i) => i + 1);
+      return;
+    }
+    setListingEarnedBadges([]);
+    setListingBadgePopupIndex(-1);
+    setShowSuccessModal(true);
+  }
 
   useEffect(() => {
     Promise.all([
@@ -360,7 +378,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      let data: { error?: unknown; message?: string } = {};
+      let data: { error?: unknown; message?: string; earnedBadges?: unknown } = {};
       try {
         const text = await res.text();
         if (text) data = JSON.parse(text);
@@ -385,7 +403,20 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         }
       }
       setEditSuccess(!!existing);
-      setShowSuccessModal(true);
+      if (!existing) {
+        const earnedRaw = data.earnedBadges;
+        const badges = Array.isArray(earnedRaw)
+          ? (earnedRaw as EarnedBadgeForOverlay[]).filter((b) => b?.slug && b?.name)
+          : [];
+        if (badges.length > 0) {
+          setListingEarnedBadges(badges);
+          setListingBadgePopupIndex(0);
+        } else {
+          setShowSuccessModal(true);
+        }
+      } else {
+        setShowSuccessModal(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -431,6 +462,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
 
   return (
     <>
+    <BadgeEarnedStackOverlay badge={activeListingBadge} onDismiss={handleCloseListingBadgePopup} />
     <form onSubmit={handleSubmit} className="space-y-6 max-w-xl mx-auto text-center">
       {!resaleOnly && businesses.length > 1 && (
         <div>

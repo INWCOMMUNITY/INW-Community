@@ -10,6 +10,19 @@ import {
 
 export const dynamic = "force-dynamic";
 
+function orderSellerDisplayName(order: {
+  seller: {
+    firstName: string;
+    lastName: string;
+    businesses: { name: string }[];
+  };
+}): string {
+  const biz = order.seller.businesses[0]?.name?.trim();
+  if (biz) return biz;
+  const personal = [order.seller.firstName, order.seller.lastName].filter(Boolean).join(" ").trim();
+  return personal || "your seller";
+}
+
 const DEFAULT_WEIGHT_OZ = 16;
 const DEFAULT_LENGTH_IN = 12;
 const DEFAULT_WIDTH_IN = 12;
@@ -122,7 +135,17 @@ export async function POST(req: NextRequest) {
       sellerId: userId,
       ...statusWhere,
     },
-    include: { shipment: true, buyer: { select: { email: true } } },
+    include: {
+      shipment: true,
+      buyer: { select: { email: true } },
+      seller: {
+        select: {
+          firstName: true,
+          lastName: true,
+          businesses: { select: { name: true }, orderBy: { createdAt: "asc" }, take: 1 },
+        },
+      },
+    },
   });
   if (orders.length === 0) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -203,12 +226,13 @@ export async function POST(req: NextRequest) {
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   for (const o of orders) {
     sendPushNotification(o.buyerId, {
-      title: "Your order shipped",
+      title: "Great news, it’s on the way!",
       body:
         shipData.trackingNumber != null
-          ? `Track your order: ${shipData.carrier} ${shipData.trackingNumber}`
-          : "Your order has been shipped.",
-      data: { screen: "resale-hub/list", orderId: o.id },
+          ? `${shipData.carrier} tracking available here. Tap to follow your order from “${orderSellerDisplayName(o)}”!`
+          : "Your seller marked this order as shipped. Tap for details.",
+      data: { screen: "my-orders", orderId: o.id },
+      category: "commerce",
     }).catch(() => {});
   }
 

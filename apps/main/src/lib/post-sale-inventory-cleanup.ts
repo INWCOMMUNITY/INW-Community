@@ -29,9 +29,10 @@ export async function cancelPendingOrdersForSoldOutItems(params: {
     notifiedBuyerItems.add(key);
     const title = titleByItemId.get(oi.storeItemId) ?? "Item";
     sendPushNotification(oi.order.buyerId, {
-      title: "Item no longer available",
-      body: `This item sold before checkout was complete: ${title}`,
+      title: "Checkout didn’t go through",
+      body: `“${title}” sold to someone else while you were checking out — you weren’t charged.`,
       data: { screen: "cart" },
+      category: "commerce",
     }).catch(() => {});
   }
   if (ordersToCancel.size > 0) {
@@ -85,9 +86,10 @@ export async function cleanupOtherBuyersCartsForStoreItems(params: {
       if (!notifiedRemoved.has(key)) {
         notifiedRemoved.add(key);
         sendPushNotification(row.memberId, {
-          title: "Item sold",
-          body: `${si.title} was purchased by another member and was removed from your cart.`,
+          title: "We updated your cart",
+          body: `“${si.title}” just sold to someone else, so we removed it from your cart.`,
           data: { screen: "cart" },
+          category: "commerce",
         }).catch(() => {});
       }
     } else if (row.quantity > avail) {

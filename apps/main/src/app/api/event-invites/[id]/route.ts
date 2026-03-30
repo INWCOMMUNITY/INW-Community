@@ -64,13 +64,14 @@ export async function PATCH(
       body.status === "accepted" ? "Accepted" : body.status === "maybe" ? "Maybe" : "Declined";
     const { sendPushNotification } = await import("@/lib/send-push-notification");
     sendPushNotification(enriched.inviterId, {
-      title: "Invitation response",
-      body: `${inviteeName} responded to your invite for ${enriched.event.title}: ${statusLabel}`,
+      title: "Invite Response",
+      body: `${inviteeName} replied to “${enriched.event.title}”: ${statusLabel}.`,
       data: {
         screen: "event_rsvp",
         eventSlug: String(enriched.event.slug),
         eventTitle: String(enriched.event.title),
       },
+      category: "events",
     }).catch(() => {});
   }
 

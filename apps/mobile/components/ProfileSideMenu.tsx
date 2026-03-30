@@ -10,17 +10,14 @@ import {
   ScrollView,
   StyleSheet,
   Dimensions,
-  Share,
-  ActivityIndicator,
   Alert,
   Linking,
-  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, getToken } from "@/lib/api";
+import { apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 
@@ -113,52 +110,8 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSide
       ["active", "trialing", "past_due"].includes(s.status)
     ) ?? false;
 
-  const [inviteLoading, setInviteLoading] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [incomingFriendRequests, setIncomingFriendRequests] = useState(0);
-
-  const handleInviteFriends = async () => {
-    setInviteLoading(true);
-    try {
-      const token = await getToken();
-      if (!token) {
-        Alert.alert("Sign in required", "Please sign in to invite friends.");
-        return;
-      }
-      const data = await apiGet<{
-        url: string;
-        shareMessage?: string;
-        appStoreUrl?: string;
-        signupUrl?: string;
-      }>("/api/me/referral-link");
-      const signupUrl = data?.signupUrl ?? data?.url;
-      const message =
-        data?.shareMessage ??
-        (signupUrl
-          ? `Join me on Northwest Community!\n\n${signupUrl}`
-          : "");
-      if (message) {
-        const appStoreUrl = data?.appStoreUrl;
-        await Share.share(
-          Platform.OS === "ios" && appStoreUrl
-            ? {
-                message,
-                url: appStoreUrl,
-                title: "Invite to Northwest Community",
-              }
-            : {
-                message,
-                title: "Invite to Northwest Community",
-              }
-        );
-        onClose();
-      }
-    } catch {
-      Alert.alert("Error", "Could not get invite link. Try again.");
-    } finally {
-      setInviteLoading(false);
-    }
-  };
 
   const handleManageSubscription = () => {
     onClose();
@@ -189,30 +142,31 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSide
     { href: "/saved-posts", label: "My Saved Posts", icon: "bookmark-outline" },
     { href: "/blocked-members", label: "Blocked Members", icon: "ban-outline" },
     { href: "/community/groups", label: "My Groups", icon: "people-circle-outline" },
-    { href: "invite:friends", label: "Share App", icon: "share-social-outline" },
+    { href: "/share-inw-community", label: "Share App", icon: "share-social-outline" },
   ];
 
   const supportLocalItems: NavItem[] = [
     { href: "/profile-businesses", label: "My Businesses", icon: "business-outline" },
     { href: "/my-sellers", label: "My Sellers", icon: "storefront-outline" },
     { href: "/profile-wishlist", label: "My Wishlist", icon: "heart-outline" },
-    { href: "/rewards/my-rewards", label: "My Rewards", icon: "gift-outline" },
     { href: "/community/my-orders", label: "My Orders", icon: "receipt-outline" },
+    { href: "/rewards/my-rewards", label: "My Rewards", icon: "gift-outline" },
   ];
 
   const profileItems: NavItem[] = [
     ...(hasManageablePaidPlan
-      ? [{ href: "action:manage-subscription", label: "Manage subscriptions", icon: "card-outline" as const }]
+      ? [{ href: "action:manage-subscription", label: "Manage Subscriptions", icon: "card-outline" as const }]
       : []),
+    {
+      href: "/profile-notification-settings",
+      label: "Notification Settings",
+      icon: "notifications-outline",
+    },
     { href: "/profile-edit", label: "Delete account", icon: "trash-outline" },
     { href: "action:logout", label: "Logout", icon: "log-out-outline" },
   ];
 
   const handleNavigate = (href: string) => {
-    if (href === "invite:friends") {
-      handleInviteFriends();
-      return;
-    }
     if (href === "action:manage-subscription") {
       handleManageSubscription();
       return;

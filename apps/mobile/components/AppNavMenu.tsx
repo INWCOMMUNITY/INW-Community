@@ -2,6 +2,7 @@
  * Generic app navigation menu - shown when on tabs other than my-community.
  * Links to Profile, Seller Hub (if hasSeller), Business Hub (if sponsor or seller), Resale Hub (if hasSubscriber).
  */
+import type { ComponentProps } from "react";
 import {
   Modal,
   View,
@@ -10,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Dimensions,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +22,12 @@ import { useProfileView } from "@/contexts/ProfileViewContext";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
 const NAV_HEADER_HEIGHT = 44;
+
+const INSTAGRAM_URL = "https://www.instagram.com/northwest.community/?hl=en";
+const FACEBOOK_URL = "https://www.facebook.com/people/Northwest-Community/61581601094411/";
+
+const MENU_ICON_SIZE = 22;
+const menuIconColor = theme.colors.primary;
 
 interface AppNavMenuProps {
   visible: boolean;
@@ -39,6 +47,36 @@ export function AppNavMenu({ visible, onClose, hasSeller, hasSubscriber }: AppNa
     setProfileView(view);
     router.push("/(tabs)/my-community" as any);
   };
+
+  const MenuRow = ({
+    icon,
+    label,
+    onPress,
+    labelTone,
+  }: {
+    icon: ComponentProps<typeof Ionicons>["name"];
+    label: string;
+    onPress: () => void;
+    labelTone?: "default" | "primary";
+  }) => (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
+    >
+      <View style={styles.navLinkRow}>
+        <Ionicons name={icon} size={MENU_ICON_SIZE} color={menuIconColor} />
+        <Text
+          style={[
+            styles.navLinkText,
+            styles.navLinkWithIcon,
+            labelTone === "primary" && { color: theme.colors.primary },
+          ]}
+        >
+          {label}
+        </Text>
+      </View>
+    </Pressable>
+  );
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -65,41 +103,69 @@ export function AppNavMenu({ visible, onClose, hasSeller, hasSubscriber }: AppNa
               <Text style={styles.sectionTitle}>Go to</Text>
               <View style={styles.divider} />
               {hasBusinessHub && (
-                <Pressable
+                <MenuRow
+                  icon="business-outline"
+                  label="Business Hub"
                   onPress={() => handleNav("business_hub")}
-                  style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
-                >
-                  <Text style={styles.navLinkText}>Business Hub</Text>
-                </Pressable>
+                />
               )}
               {hasSeller && (
-                <Pressable
+                <MenuRow
+                  icon="briefcase-outline"
+                  label="Seller Hub"
                   onPress={() => handleNav("seller_hub")}
-                  style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
-                >
-                  <Text style={styles.navLinkText}>Seller Hub</Text>
-                </Pressable>
+                />
               )}
               {hasSubscriber && (
-                <Pressable
+                <MenuRow
+                  icon="cash-outline"
+                  label="Resale Hub"
                   onPress={() => handleNav("resale_hub")}
-                  style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
-                >
-                  <Text style={styles.navLinkText}>Resale Hub</Text>
-                </Pressable>
+                />
               )}
-              <Pressable
+              <MenuRow
+                icon="person-outline"
+                label="Profile"
                 onPress={() => handleNav("profile")}
-                style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
-              >
-                <Text style={styles.navLinkText}>Profile</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => { onClose(); router.push("/subscribe" as import("expo-router").Href); }}
-                style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
-              >
-                <Text style={[styles.navLinkText, { color: theme.colors.primary }]}>Subscribe</Text>
-              </Pressable>
+              />
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Northwest Community:</Text>
+              <View style={styles.divider} />
+              <MenuRow
+                icon="share-social-outline"
+                label="Share App"
+                onPress={() => {
+                  onClose();
+                  router.push("/share-inw-community" as import("expo-router").Href);
+                }}
+              />
+              <MenuRow
+                icon="card-outline"
+                label="Subscribe"
+                labelTone="primary"
+                onPress={() => {
+                  onClose();
+                  router.push("/subscribe" as import("expo-router").Href);
+                }}
+              />
+              <MenuRow
+                icon="logo-instagram"
+                label="Instagram"
+                onPress={() => {
+                  onClose();
+                  Linking.openURL(INSTAGRAM_URL).catch(() => {});
+                }}
+              />
+              <MenuRow
+                icon="logo-facebook"
+                label="Facebook"
+                onPress={() => {
+                  onClose();
+                  Linking.openURL(FACEBOOK_URL).catch(() => {});
+                }}
+              />
             </View>
           </ScrollView>
         </View>
@@ -180,6 +246,14 @@ const styles = StyleSheet.create({
   navLinkPressed: {
     opacity: 0.8,
     backgroundColor: "#f5f5f5",
+  },
+  navLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  navLinkWithIcon: {
+    flex: 1,
   },
   navLinkText: {
     fontSize: 15,

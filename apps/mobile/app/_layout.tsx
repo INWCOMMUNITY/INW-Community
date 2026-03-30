@@ -251,6 +251,8 @@ function RootLayoutNav() {
         <Stack.Screen name="business-hub-my-events" options={{ headerShown: false }} />
         <Stack.Screen name="support-request" options={{ headerShown: false }} />
         <Stack.Screen name="profile-edit" />
+        <Stack.Screen name="profile-notification-settings" options={{ headerShown: false }} />
+        <Stack.Screen name="share-inw-community" options={{ headerShown: false }} />
         <Stack.Screen name="policies" />
         <Stack.Screen name="profile-businesses" />
         <Stack.Screen name="profile-events" />

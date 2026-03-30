@@ -113,14 +113,15 @@ export async function POST(
     const { sendPushNotification } = await import("@/lib/send-push-notification");
     for (const row of inviteRows) {
       sendPushNotification(row.inviteeId, {
-        title: "Event invitation",
-        body: `${inviterName} invited you to ${title}`,
+        title: "Hey! You’ve been invited to a local event!",
+        body: `${inviterName} wants you at “${title}” — tap to check it out!`,
         data: {
           screen: "event_invite",
           inviteId: String(row.id),
           eventSlug: String(slug),
           eventTitle: String(title),
         },
+        category: "events",
       }).catch(() => {});
     }
 

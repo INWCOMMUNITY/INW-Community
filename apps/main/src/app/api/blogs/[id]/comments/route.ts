@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSessionForApi } from "@/lib/mobile-auth";
+import { getBaseUrl } from "@/lib/get-base-url";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -12,7 +12,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
+  const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -28,6 +28,13 @@ export async function POST(
   const { id } = await params;
   const blog = await prisma.blog.findFirst({
     where: { OR: [{ id }, { slug: id }] },
+    select: {
+      id: true,
+      slug: true,
+      title: true,
+      status: true,
+      memberId: true,
+    },
   });
   if (!blog) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (blog.status !== "approved") {
@@ -43,6 +50,26 @@ export async function POST(
         member: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
       },
     });
+
+    if (blog.memberId !== session.user.id) {
+      const preview =
+        content.trim().length > 0
+          ? `${comment.member.firstName}: ${content.trim().slice(0, 60)}${content.trim().length > 60 ? "…" : ""}`
+          : `${comment.member.firstName} commented on your blog — tap to view.`;
+      const base = getBaseUrl();
+      const { sendPushNotification } = await import("@/lib/send-push-notification");
+      sendPushNotification(blog.memberId, {
+        category: "comments",
+        title: "New comment on your blog!",
+        body: preview,
+        data: {
+          screen: "web_link",
+          webUrl: `${base}/blog/${blog.slug}`,
+          webTitle: blog.title,
+        },
+      }).catch(() => {});
+    }
+
     return NextResponse.json(comment);
   } catch (e) {
     if (e instanceof z.ZodError) {

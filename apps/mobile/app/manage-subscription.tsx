@@ -140,7 +140,7 @@ export default function ManageSubscriptionScreen() {
         <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.heading} />
         </Pressable>
-        <Text style={styles.headerTitle}>Manage subscription</Text>
+        <Text style={styles.headerTitle}>Manage Subscriptions</Text>
         <View style={{ width: 40 }} />
       </View>
 

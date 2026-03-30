@@ -423,7 +423,7 @@ const styles = StyleSheet.create({
   productImageWrap: { aspectRatio: 1 },
   productImage: { width: "100%", height: "100%" },
   productImagePlaceholder: { backgroundColor: "#f5f5f5", alignItems: "center", justifyContent: "center" },
-  productTitle: { fontSize: 13, fontWeight: "600", padding: 8 },
-  productPrice: { fontSize: 14, fontWeight: "bold", paddingHorizontal: 8, paddingBottom: 8 },
+  productTitle: { fontSize: 13, fontWeight: "600", color: "#000", padding: 8 },
+  productPrice: { fontSize: 14, fontWeight: "bold", color: "#000", paddingHorizontal: 8, paddingBottom: 8 },
   emptyProducts: { fontSize: 14, color: "#666" },
 });

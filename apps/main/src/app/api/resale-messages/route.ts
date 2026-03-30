@@ -85,12 +85,13 @@ export async function POST(req: NextRequest) {
   const pushBody =
     contentTrimmed.length > 0
       ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
-      : "New message about your listing";
+      : `${message.sender.firstName} messaged you about your listing — tap to read.`;
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   sendPushNotification(sellerId, {
-    title: "Resale message",
+    title: "Message about your listing",
     body: pushBody,
     data: { screen: "resale-hub/messages", conversationId: conversation.id },
+    category: "messages",
   }).catch(() => {});
 
   return NextResponse.json({ conversationId: conversation.id, message });

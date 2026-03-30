@@ -5,11 +5,17 @@
  * ensureMemberBadge returns all slugs newly awarded in one operation (including cascaded `badger_badge`).
  * ensureMemberBadgeWithInfo maps those to EarnedBadge[] for in-app popups and push (one notification per badge).
  *
- * Not auto-awarded here: `community_star_business` (planned / TBD), `community_point_giver` (admin_only in seed).
+ * Not auto-awarded here: `community_point_giver` (admin_only in seed).
+ * `community_star_business` is awarded from reward offer totals (see `awardCommunityStarBusinessBadge`).
  */
 import { prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
+import { memberHasActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { getAllCategoryScanMetrics, getDistinctScannedBusinessCount } from "@/lib/badge-scan-metrics";
+import {
+  COMMUNITY_STAR_REWARD_OFFER_THRESHOLD_CENTS,
+  getBusinessRewardOfferValueCentsRolling,
+} from "@/lib/business-reward-offer-value";
 
 /** Returns slugs of member badges newly created (empty if already had the badge). Includes `badger_badge` when cascade triggers. */
 async function ensureMemberBadge(memberId: string, badgeSlug: string): Promise<string[]> {
@@ -27,7 +33,9 @@ async function ensureMemberBadge(memberId: string, badgeSlug: string): Promise<s
   const criteria = badge.criteria as Record<string, unknown> | null;
   const bonusPoints = typeof criteria?.bonusPoints === "number" ? criteria.bonusPoints : 0;
   if (bonusPoints > 0) {
-    await awardPoints(memberId, bonusPoints);
+    const paid = await memberHasActivePaidNwcPlan(memberId);
+    const toAward = paid ? bonusPoints * 2 : bonusPoints;
+    await awardPoints(memberId, toAward);
   }
   if (badgeSlug !== "badger_badge") {
     const count = await prisma.memberBadge.count({ where: { memberId } });
@@ -70,9 +78,10 @@ async function ensureBusinessBadgeWithInfo(businessId: string, badgeSlug: string
   import("@/lib/send-push-notification")
     .then(({ sendPushNotification }) =>
       sendPushNotification(business.memberId, {
-        title: "Badge earned",
-        body: `Your business earned the ${badge.name} badge!`,
+        title: "Your business has earned a new badge!",
+        body: `Nice work! — you unlocked the “${badge.name}” badge!`,
         data: { screen: "my-badges" },
+        category: "badges",
       })
     )
     .catch(() => {});
@@ -101,9 +110,10 @@ async function ensureMemberBadgeWithInfo(memberId: string, badgeSlug: string): P
     import("@/lib/send-push-notification")
       .then(({ sendPushNotification }) =>
         sendPushNotification(memberId, {
-          title: "Badge earned",
-          body: `You earned the ${badge.name} badge!`,
+          title: "You’ve got a new badge! Great job!",
+          body: `“${badge.name}” is live on your profile — tap to take a look!`,
           data: { screen: "my-badges" },
+          category: "badges",
         })
       )
       .catch(() => {});
@@ -138,6 +148,16 @@ export async function awardBusinessSignupBadges(businessId: string): Promise<Ear
   return earned;
 }
 
+/**
+ * Community Star Business — when Σ (cash value × redemption limit) for qualifying rewards
+ * in the rolling window reaches $1,000. Call after reward create/update.
+ */
+export async function awardCommunityStarBusinessBadge(businessId: string): Promise<EarnedBadge[]> {
+  const total = await getBusinessRewardOfferValueCentsRolling(businessId);
+  if (total < COMMUNITY_STAR_REWARD_OFFER_THRESHOLD_CENTS) return [];
+  return ensureBusinessBadgeWithInfo(businessId, "community_star_business");
+}
+
 /** Call after StoreItem create (first item by member) */
 export async function awardNwcSellerBadge(memberId: string): Promise<EarnedBadge[]> {
   const count = await prisma.storeItem.count({ where: { memberId } });
@@ -167,7 +187,11 @@ export async function awardSellerTierBadges(sellerId: string): Promise<EarnedBad
   return earned;
 }
 
-/** Call after Post create with type=shared_blog */
+/**
+ * Community Writer — award once per member.
+ * Called when: (1) a member shares any approved blog to the feed (`Post` type `shared_blog`),
+ * or (2) their own blog is first approved by admin (author published without resharing).
+ */
 export async function awardCommunityWriterBadge(authorId: string): Promise<EarnedBadge[]> {
   return ensureMemberBadgeWithInfo(authorId, "community_writer");
 }
@@ -199,6 +223,8 @@ export async function awardPartyPlannerBadge(inviterId: string): Promise<EarnedB
   return [];
 }
 
+const LOCAL_BUSINESS_PRO_THRESHOLD_CENTS = 100_000;
+
 /** Call when StoreOrder is paid (buyer) - Local Business Pro when total spent >= $1000 */
 export async function awardLocalBusinessProBadge(buyerId: string): Promise<EarnedBadge[]> {
   const { _sum } = await prisma.storeOrder.aggregate({
@@ -209,19 +235,82 @@ export async function awardLocalBusinessProBadge(buyerId: string): Promise<Earne
     _sum: { totalCents: true },
   });
   const totalCents = _sum?.totalCents ?? 0;
-  if (totalCents >= 100000) {
+  if (totalCents >= LOCAL_BUSINESS_PRO_THRESHOLD_CENTS) {
     return ensureMemberBadgeWithInfo(buyerId, "local_business_pro");
   }
   return [];
 }
 
-/** Call after signup via referral - Spreading the Word when referrer has 5+ signups */
-export async function awardSpreadingTheWordBadge(referrerId: string): Promise<EarnedBadge[]> {
-  const count = await prisma.referralSignup.count({
-    where: { referrerId },
+/**
+ * For post-checkout UI (success-summary with celebrate_badges=1): return Local Business Pro once if the
+ * member just crossed $1000 lifetime storefront spend on these orders. Handles Stripe webhook racing
+ * the client (award already applied → empty from awardLocalBusinessProBadge, then synthetic celebration).
+ */
+export async function resolveLocalBusinessProCheckoutCelebration(
+  buyerId: string,
+  orderIds: string[]
+): Promise<EarnedBadge[]> {
+  if (orderIds.length === 0) return [];
+
+  const direct = await awardLocalBusinessProBadge(buyerId);
+  if (direct.length > 0) return direct;
+
+  const badge = await prisma.badge.findUnique({
+    where: { slug: "local_business_pro" },
+    select: { id: true, slug: true, name: true, description: true },
+  });
+  if (!badge) return [];
+
+  const memberBadge = await prisma.memberBadge.findUnique({
+    where: { memberId_badgeId: { memberId: buyerId, badgeId: badge.id } },
+    select: { earnedAt: true },
+  });
+  if (!memberBadge) return [];
+
+  const paidStatuses = ["paid", "shipped", "delivered"] as const;
+  const orders = await prisma.storeOrder.findMany({
+    where: {
+      id: { in: orderIds },
+      buyerId,
+      status: { in: [...paidStatuses] },
+    },
+    select: { totalCents: true, updatedAt: true },
+  });
+  if (orders.length !== orderIds.length) return [];
+
+  const batchCents = orders.reduce((s, o) => s + o.totalCents, 0);
+  const latestOrderAt = Math.max(...orders.map((o) => o.updatedAt.getTime()));
+  const celebrationWindowMs = 12 * 60 * 1000;
+  if (Date.now() - latestOrderAt > celebrationWindowMs) return [];
+
+  const { _sum } = await prisma.storeOrder.aggregate({
+    where: {
+      buyerId,
+      status: { in: [...paidStatuses] },
+      id: { notIn: orderIds },
+    },
+    _sum: { totalCents: true },
+  });
+  const spendExcludingBatch = _sum?.totalCents ?? 0;
+  if (spendExcludingBatch >= LOCAL_BUSINESS_PRO_THRESHOLD_CENTS) return [];
+  if (spendExcludingBatch + batchCents < LOCAL_BUSINESS_PRO_THRESHOLD_CENTS) return [];
+
+  return [
+    {
+      slug: badge.slug,
+      name: badge.name,
+      description: badge.description ?? "",
+    },
+  ];
+}
+
+/** Call after in-app share (POST /api/me/app-share) — Spreading the Word at 5 completed shares */
+export async function awardSpreadingTheWordBadge(memberId: string): Promise<EarnedBadge[]> {
+  const count = await prisma.memberAppShare.count({
+    where: { memberId },
   });
   if (count >= 5) {
-    return ensureMemberBadgeWithInfo(referrerId, "spreading_the_word");
+    return ensureMemberBadgeWithInfo(memberId, "spreading_the_word");
   }
   return [];
 }

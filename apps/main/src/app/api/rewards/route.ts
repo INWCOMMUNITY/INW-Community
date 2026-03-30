@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getCurrentSeasonId } from "@/lib/award-points";
 import { z } from "zod";
 import { prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import { awardCommunityStarBusinessBadge, type EarnedBadge } from "@/lib/badge-award";
 
 export async function GET(req: NextRequest) {
   const currentSeasonId = await getCurrentSeasonId();
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
       ...body,
       imageUrl: body.imageUrl || null,
     });
-    await prisma.reward.create({
+    const created = await prisma.reward.create({
       data: {
         businessId: data.businessId,
         title: data.title,
@@ -70,7 +71,13 @@ export async function POST(req: NextRequest) {
         needsShipping: data.needsShipping === true,
       },
     });
-    return NextResponse.json({ ok: true });
+    let earnedBadges: EarnedBadge[] = [];
+    try {
+      earnedBadges = await awardCommunityStarBusinessBadge(data.businessId);
+    } catch {
+      /* badge errors should not break reward create */
+    }
+    return NextResponse.json({ ok: true, rewardId: created.id, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });

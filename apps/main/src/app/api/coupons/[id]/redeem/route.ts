@@ -103,9 +103,16 @@ export async function POST(
     // badge errors shouldn't block coupon redemption
   }
 
+  const member = await prisma.member.findUnique({
+    where: { id: userId },
+    select: { points: true },
+  });
+  const totalPoints = member?.points ?? POINTS_PER_REDEEM;
+
   return NextResponse.json({
     ok: true,
     pointsAwarded: POINTS_PER_REDEEM,
+    totalPoints,
     usedThisMonth: usedThisMonth + 1,
     maxMonthlyUses: coupon.maxMonthlyUses,
     earnedBadges,

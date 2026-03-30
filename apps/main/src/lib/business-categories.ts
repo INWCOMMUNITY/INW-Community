@@ -37,6 +37,10 @@ export const BUSINESS_CATEGORIES: BusinessCategoryOption[] = [
     label: "Mechanic",
     subcategories: ["General Auto Repair", "Transmission", "Brakes and Tires", "Oil and Lube", "Diagnostics", "Fleet", "Other"],
   },
+  {
+    label: "Automotive",
+    subcategories: ["General Auto Service", "Diagnostics", "Body and Collision", "Detailing (Shop)", "Mobile Mechanic", "Other"],
+  },
   { label: "Car Dealership", subcategories: ["New Vehicles", "Used Vehicles", "Both", "Other"] },
   { label: "Auto Parts and Tires", subcategories: ["Parts Store", "Tire Shop", "Accessories", "Other"] },
   { label: "Car Wash and Detailing", subcategories: ["Car Wash", "Detailing", "Both", "Other"] },

@@ -660,7 +660,7 @@ const styles = StyleSheet.create({
   cardPrice: {
     fontSize: 16,
     fontWeight: "700",
-    color: theme.colors.primary,
+    color: "#000",
     paddingHorizontal: 8,
     paddingBottom: 4,
   },

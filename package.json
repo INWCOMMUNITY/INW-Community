@@ -3,6 +3,7 @@
     "db:migrate:deploy:package":"pnpm --filter database run migrate:deploy","db:seed":"pnpm --filter database seed",
     "db:seed:demo":"node scripts/seed-demo.mjs",
     "db:baseline:prod":"node scripts/baseline-production.mjs",
+    "db:resolve-squashed-init":"node scripts/resolve-squashed-init-baseline.mjs",
     "db:migrate:prod":"node scripts/migrate-production.mjs",
     "db:seed:prod":"node scripts/seed-production.mjs",
     "db:seed-admin":"pnpm --filter database exec node scripts/seed-admin.js","db:import-businesses":"pnpm --filter database run import-businesses","db:studio":"pnpm --filter database studio","vercel:logs":"node scripts/fetch-vercel-logs.mjs","vercel:cycle":"node scripts/vercel-build-cycle.mjs","vercel:parse":"node scripts/vercel-parse-error.mjs","vercel:set-root":"node scripts/vercel-set-root.mjs",

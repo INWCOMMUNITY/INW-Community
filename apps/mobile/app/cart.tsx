@@ -118,6 +118,25 @@ function cartLineUnitPriceCents(item: CartItem): number {
   return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
 }
 
+/** Stripe / cash return URLs from storefront order-success. */
+function parseOrderSuccessCheckoutParams(url: string): { orderIds: string[]; sessionId: string | null } {
+  try {
+    const qIdx = url.indexOf("?");
+    if (qIdx < 0) return { orderIds: [], sessionId: null };
+    const qs = url.slice(qIdx + 1).split("#")[0];
+    const params = new URLSearchParams(qs);
+    const o1 = params.get("order_ids");
+    const o2 = params.get("cash_order_ids");
+    const raw = [
+      ...(o1?.split(",").map((s) => s.trim()).filter(Boolean) ?? []),
+      ...(o2?.split(",").map((s) => s.trim()).filter(Boolean) ?? []),
+    ];
+    return { orderIds: [...new Set(raw)], sessionId: params.get("session_id") };
+  } catch {
+    return { orderIds: [], sessionId: null };
+  }
+}
+
 function resolvePhotoUrl(path: string | undefined): string | undefined {
   if (!path) return undefined;
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
@@ -427,6 +446,13 @@ export default function CartScreen() {
     : [];
   const cardItems = items.filter((i) => !cashItems.some((c) => c.id === i.id));
 
+  type StoreSuccessSummary = {
+    orderIds?: string[];
+    pointsAwarded?: number;
+    pointsPendingFulfillment?: number;
+    earnedBadges?: CartEarnedBadge[];
+  };
+
   const runPointsAfterCashOrders = useCallback(
     async (orderIds: string[]) => {
       if (!orderIds.length) {
@@ -436,7 +462,7 @@ export default function CartScreen() {
       const orderIdsQuery = orderIds.join(",");
       try {
         const [summaryRes, meRes] = await Promise.all([
-          apiGet<{ pointsAwarded?: number; pointsPendingFulfillment?: number }>(
+          apiGet<StoreSuccessSummary>(
             `/api/store-orders/success-summary?order_ids=${encodeURIComponent(orderIdsQuery)}`
           ),
           apiGet<{ points?: number }>("/api/me"),
@@ -469,6 +495,83 @@ export default function CartScreen() {
     [router]
   );
 
+  const applyPointsFromSummary = useCallback(
+    async (summaryRes: StoreSuccessSummary, orderIdsForFlow: string[]) => {
+      if (!orderIdsForFlow.length) {
+        router.back();
+        return;
+      }
+      try {
+        const meRes = await apiGet<{ points?: number }>("/api/me");
+        const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
+        const pointsPending = summaryRes?.pointsPendingFulfillment ?? 0;
+        const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
+        if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
+          setPointsPopup({
+            pointsAwarded,
+            previousTotal: newTotal - pointsAwarded,
+            newTotal,
+            pointsPendingFulfillment: pointsPending > 0 ? pointsPending : undefined,
+          });
+          return;
+        }
+        if (pointsPending > 0) {
+          Alert.alert(
+            "Points after pickup or delivery",
+            `You'll earn ${pointsPending} points once pickup or delivery is fully confirmed by you and the seller.`,
+            [{ text: "OK", onPress: () => router.back() }]
+          );
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      router.back();
+    },
+    [router]
+  );
+
+  /**
+   * Card / WebView / mixed checkout: fetch success-summary with celebrate_badges so Local Business Pro
+   * (and future checkout badges) can show even when Stripe webhook awarded before the response.
+   */
+  const completeCheckoutAfterPayment = useCallback(
+    async (orderIds: string[], extraBadges?: CartEarnedBadge[], sessionId?: string | null) => {
+      const sid = sessionId?.trim() || null;
+      if (orderIds.length === 0 && !sid) {
+        await runPointsAfterCashOrders(orderIds);
+        return;
+      }
+      const q = new URLSearchParams();
+      if (orderIds.length > 0) q.set("order_ids", orderIds.join(","));
+      else if (sid) q.set("session_id", sid);
+      q.set("celebrate_badges", "1");
+      let summaryRes: StoreSuccessSummary;
+      try {
+        summaryRes = await apiGet<StoreSuccessSummary>(
+          `/api/store-orders/success-summary?${q.toString()}`
+        );
+      } catch {
+        if (orderIds.length > 0) await runPointsAfterCashOrders(orderIds);
+        else router.back();
+        return;
+      }
+      const resolvedIds =
+        Array.isArray(summaryRes.orderIds) && summaryRes.orderIds.length > 0
+          ? summaryRes.orderIds
+          : orderIds;
+      const badges = mergeEarnedBadges(extraBadges ?? [], summaryRes.earnedBadges);
+      if (badges.length > 0) {
+        pendingCashOrderIdsForPointsRef.current = resolvedIds;
+        setCashEarnedBadgeQueue(badges);
+        setCashEarnedBadgeIndex(0);
+        return;
+      }
+      await applyPointsFromSummary(summaryRes, resolvedIds);
+    },
+    [applyPointsFromSummary, runPointsAfterCashOrders, router]
+  );
+
   /** Same post-checkout flow as native Stripe success (no WebView). */
   const finalizeCashCheckoutSuccess = useCallback(
     async (orderIds: string[], earnedFromApi?: CartEarnedBadge[]) => {
@@ -480,16 +583,9 @@ export default function CartScreen() {
       }
       await load(true);
       setOrderJustConfirmed(true);
-      const badges = mergeEarnedBadges([], earnedFromApi);
-      if (badges.length > 0) {
-        pendingCashOrderIdsForPointsRef.current = orderIds;
-        setCashEarnedBadgeQueue(badges);
-        setCashEarnedBadgeIndex(0);
-        return;
-      }
-      await runPointsAfterCashOrders(orderIds);
+      await completeCheckoutAfterPayment(orderIds, earnedFromApi, null);
     },
-    [load, runPointsAfterCashOrders]
+    [load, completeCheckoutAfterPayment]
   );
 
   const updateLocalDeliveryDetails = async (
@@ -936,8 +1032,19 @@ export default function CartScreen() {
   const onCheckoutWebViewNav = (nav: { url: string }) => {
     if (nav.url.includes("order-success")) {
       setCheckoutUrl(null);
-      load();
-      setOrderJustConfirmed(true);
+      const { orderIds: successOrderIds, sessionId: successSessionId } = parseOrderSuccessCheckoutParams(
+        nav.url
+      );
+      void (async () => {
+        try {
+          await apiDelete("/api/cart");
+        } catch {
+          /* ignore */
+        }
+        await load(true);
+        setOrderJustConfirmed(true);
+        await completeCheckoutAfterPayment(successOrderIds, undefined, successSessionId);
+      })();
     }
     if (nav.url.includes("canceled=1")) {
       setCheckoutUrl(null);
@@ -1303,14 +1410,7 @@ export default function CartScreen() {
                       await load();
                       setOrderJustConfirmed(true);
                       if (merged.length > 0) {
-                        const badges = mergeEarnedBadges([], preBadges);
-                        if (badges.length > 0) {
-                          pendingCashOrderIdsForPointsRef.current = merged;
-                          setCashEarnedBadgeQueue(badges);
-                          setCashEarnedBadgeIndex(0);
-                          return;
-                        }
-                        await runPointsAfterCashOrders(merged);
+                        await completeCheckoutAfterPayment(merged, preBadges, null);
                       } else {
                         router.back();
                       }
@@ -1557,11 +1657,11 @@ const styles = StyleSheet.create({
   itemTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: theme.colors.heading,
+    color: "#000",
   },
   itemPrice: {
     fontSize: 14,
-    color: theme.colors.primary,
+    color: "#000",
     marginTop: 4,
   },
   offerHint: {

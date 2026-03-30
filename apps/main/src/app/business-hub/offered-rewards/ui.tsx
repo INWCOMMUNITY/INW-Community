@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useLockBodyScroll } from "@/lib/scroll-lock";
+import { BadgeEarnedStackOverlay, type EarnedBadgeForOverlay } from "@/components/BadgeEarnedStackOverlay";
 
 function formatApiError(error: unknown): string {
   if (error == null) return "Something went wrong.";
@@ -27,6 +29,22 @@ export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[]
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeForOverlay[]>([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+
+  useLockBodyScroll(badgePopupIndex >= 0);
+
+  const activeBadge =
+    badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? earnedBadges[badgePopupIndex] : null;
+
+  function handleCloseBadgePopup() {
+    if (badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length - 1) {
+      setBadgePopupIndex((i) => i + 1);
+    } else {
+      setEarnedBadges([]);
+      setBadgePopupIndex(-1);
+    }
+  }
 
   useEffect(() => {
     setRewards(initialRewards);
@@ -46,6 +64,13 @@ export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[]
       if (!res.ok) {
         const msg = formatApiError(data.error);
         throw new Error(msg || "Failed to save");
+      }
+      const badges = Array.isArray(data.earnedBadges)
+        ? (data.earnedBadges as EarnedBadgeForOverlay[]).filter((b) => b?.slug && b?.name)
+        : [];
+      if (badges.length > 0) {
+        setEarnedBadges(badges);
+        setBadgePopupIndex(0);
       }
       router.refresh();
     } catch (e: unknown) {
@@ -80,18 +105,20 @@ export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[]
 
   return (
     <div className="space-y-4">
+      <BadgeEarnedStackOverlay badge={activeBadge} onDismiss={handleCloseBadgePopup} />
       {error && <p className="text-red-600">{error}</p>}
       {rewards.length === 0 ? (
         <p className="text-gray-500">No rewards found.</p>
       ) : (
         <div className="overflow-x-auto border rounded-lg" style={{ borderColor: "var(--color-primary)" }}>
-          <table className="w-full text-sm min-w-[760px]">
+          <table className="w-full text-sm min-w-[860px]">
             <thead>
               <tr className="bg-[var(--color-section-alt)]">
                 <th className="text-left p-3 font-semibold">Business</th>
                 <th className="text-left p-3 font-semibold">Title</th>
                 <th className="text-left p-3 font-semibold">Points</th>
                 <th className="text-left p-3 font-semibold">Limit</th>
+                <th className="text-left p-3 font-semibold">Cash / redemption ($)</th>
                 <th className="text-left p-3 font-semibold">Status</th>
                 <th className="text-left p-3 font-semibold">Actions</th>
               </tr>
@@ -147,6 +174,41 @@ export function OfferedRewardsClient({ initialRewards }: { initialRewards: any[]
                             prev.map((x) => (x.id === r.id ? { ...x, redemptionLimit: n } : x))
                           );
                           saveReward(r.id, { redemptionLimit: n });
+                        }
+                      }}
+                    />
+                  </td>
+                  <td className="p-3">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      className="w-28 border rounded px-2 py-1"
+                      defaultValue={
+                        r.cashValueCents != null && r.cashValueCents > 0
+                          ? r.cashValueCents / 100
+                          : ""
+                      }
+                      disabled={r.status === "redeemed_out"}
+                      onBlur={(e) => {
+                        const raw = e.target.value.trim();
+                        if (raw === "") {
+                          if (r.cashValueCents != null) {
+                            setRewards((prev: any[]) =>
+                              prev.map((x) => (x.id === r.id ? { ...x, cashValueCents: null } : x))
+                            );
+                            saveReward(r.id, { cashValueCents: null });
+                          }
+                          return;
+                        }
+                        const n = parseFloat(raw);
+                        if (!Number.isFinite(n) || n < 0) return;
+                        const cents = Math.min(Math.round(n * 100), 2_147_483_647);
+                        if (cents !== (r.cashValueCents ?? -1)) {
+                          setRewards((prev: any[]) =>
+                            prev.map((x) => (x.id === r.id ? { ...x, cashValueCents: cents } : x))
+                          );
+                          saveReward(r.id, { cashValueCents: cents });
                         }
                       }}
                     />

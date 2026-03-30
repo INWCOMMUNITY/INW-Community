@@ -232,15 +232,20 @@ export async function POST(req: NextRequest) {
         }
         const otherId = conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
         const isRequest = conversation.status === "pending";
-        const pushTitle = isRequest ? "Message request" : "New message";
+        const pushTitle = isRequest ? "Somebody wants to chat!" : "New Message!";
         const pushBody =
           contentTrimmed.length > 0
             ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
             : isRequest
-              ? `${message.sender.firstName} sent you a message request`
-              : "New message";
+              ? `${message.sender.firstName} sent a message request — tap to accept or decline.`
+              : `${message.sender.firstName} messaged you — tap to read.`;
         const { sendPushNotification } = await import("@/lib/send-push-notification");
-        sendPushNotification(otherId, { title: pushTitle, body: pushBody, data: { screen: "messages", conversationId: conversation.id } }).catch(() => {});
+        sendPushNotification(otherId, {
+          title: pushTitle,
+          body: pushBody,
+          data: { screen: "messages", conversationId: conversation.id },
+          category: "messages",
+        }).catch(() => {});
         const withNewMessage = { ...conversation, messages: [...(conversation.messages ?? []), message] };
         return NextResponse.json(withNewMessage);
       }
@@ -252,18 +257,19 @@ export async function POST(req: NextRequest) {
     const otherId =
       conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
     const isRequest = conversation.status === "pending";
-    const pushTitle = isRequest ? "Message request" : "New message";
+    const pushTitle = isRequest ? "Somebody wants to chat!" : "New Message!";
     const pushBody =
       contentTrimmed.length > 0
         ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
         : isRequest
-          ? `${message.sender.firstName} sent you a message request`
-          : "New message";
+          ? `${message.sender.firstName} sent a message request — tap to accept or decline.`
+          : `${message.sender.firstName} messaged you — tap to read.`;
     const { sendPushNotification } = await import("@/lib/send-push-notification");
     sendPushNotification(otherId, {
       title: pushTitle,
       body: pushBody,
       data: { screen: "messages", conversationId: conversation.id },
+      category: "messages",
     }).catch(() => {});
     return NextResponse.json(conversation);
   }

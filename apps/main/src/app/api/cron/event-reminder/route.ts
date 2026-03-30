@@ -45,9 +45,10 @@ export async function GET(req: NextRequest) {
       const event = eventMap.get(s.referenceId);
       if (!event) continue;
       await sendPushNotification(s.memberId, {
-        title: "Event tomorrow",
-        body: `${event.title} is coming up tomorrow.`,
+        title: "Don't Forget!",
+        body: `Friendly reminder: “${event.title}” is tomorrow — tap for details.`,
         data: { screen: "event", eventSlug: event.slug },
+        category: "events",
       });
       sent++;
     }

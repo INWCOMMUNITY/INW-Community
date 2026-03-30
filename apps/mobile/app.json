@@ -17,6 +17,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.northwestcommunity.app",
       "infoPlist": {
+        "LSApplicationQueriesSchemes": ["maps", "http", "https", "geo"],
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
           "NSExceptionDomains": {

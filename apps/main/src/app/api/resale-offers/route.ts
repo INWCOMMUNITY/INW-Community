@@ -27,7 +27,16 @@ export async function POST(req: NextRequest) {
 
   const storeItem = await prisma.storeItem.findUnique({
     where: { id: data.storeItemId },
-    select: { id: true, memberId: true, listingType: true, quantity: true, status: true, acceptOffers: true, minOfferCents: true },
+    select: {
+      id: true,
+      memberId: true,
+      title: true,
+      listingType: true,
+      quantity: true,
+      status: true,
+      acceptOffers: true,
+      minOfferCents: true,
+    },
   });
   if (!storeItem) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -90,11 +99,22 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  const buyer = await prisma.member.findUnique({
+    where: { id: userId },
+    select: { firstName: true },
+  });
+  const buyerLabel = buyer?.firstName?.trim() || "Someone";
+  const itemLabel = storeItem.title?.trim() || "your listing";
+  const priceLabel = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+    data.amountCents / 100
+  );
+
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   sendPushNotification(storeItem.memberId, {
-    title: "You received an offer",
-    body: `Someone made an offer on your item.`,
+    title: "New offer on your listing",
+    body: `${buyerLabel} offered ${priceLabel} on “${itemLabel}” — tap to respond.`,
     data: { screen: "resale-hub/offers" },
+    category: "commerce",
   }).catch(() => {});
 
   return NextResponse.json(offer);
