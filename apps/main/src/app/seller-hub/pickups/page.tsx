@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { getErrorMessage } from "@/lib/api-error";
+import { useLockBodyScroll } from "@/lib/scroll-lock";
+import { BadgeEarnedStackOverlay, type EarnedBadgeForOverlay } from "@/components/BadgeEarnedStackOverlay";
 
 interface OrderWithPickup {
   id: string;
@@ -29,6 +31,10 @@ export default function MyPickupsPage() {
   const [error, setError] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeForOverlay[]>([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+
+  useLockBodyScroll(badgePopupIndex >= 0);
 
   useEffect(() => {
     fetch("/api/store-orders?mine=1")
@@ -51,10 +57,17 @@ export default function MyPickupsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deliveryConfirmed: true }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         setError(getErrorMessage(data.error, "Failed to update"));
         return;
+      }
+      const badges = Array.isArray(data.earnedBadges)
+        ? (data.earnedBadges as EarnedBadgeForOverlay[]).filter((b) => b?.slug && b?.name)
+        : [];
+      if (badges.length > 0) {
+        setEarnedBadges(badges);
+        setBadgePopupIndex(0);
       }
       setOrders((prev) =>
         prev.map((o) =>
@@ -69,6 +82,18 @@ export default function MyPickupsPage() {
   const pending = orders.filter((o) => !o.deliveryConfirmedAt);
   const completed = orders.filter((o) => o.deliveryConfirmedAt);
 
+  const activeBadge =
+    badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? earnedBadges[badgePopupIndex] : null;
+
+  function handleCloseBadgePopup() {
+    if (badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length - 1) {
+      setBadgePopupIndex((i) => i + 1);
+    } else {
+      setEarnedBadges([]);
+      setBadgePopupIndex(-1);
+    }
+  }
+
   if (loading) {
     return (
       <div>
@@ -80,6 +105,7 @@ export default function MyPickupsPage() {
 
   return (
     <div>
+      <BadgeEarnedStackOverlay badge={activeBadge} onDismiss={handleCloseBadgePopup} />
       <h1 className="text-2xl font-bold mb-4">My Pickups</h1>
       <p className="text-gray-600 mb-6">
         Orders with in-store pickup. Mark as picked up when the buyer has collected the item.

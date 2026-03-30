@@ -1,2 +1,0 @@
--- AlterTable
-ALTER TABLE "Group" ADD COLUMN IF NOT EXISTS "rules" TEXT;

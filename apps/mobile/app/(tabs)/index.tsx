@@ -98,6 +98,10 @@ export default function CommunityScreen() {
 
   useEffect(() => {
     if (signedIn === null) return;
+    if (!signedIn) {
+      setUgcGate("ok");
+      return;
+    }
     let cancelled = false;
     AsyncStorage.getItem(UGC_TERMS_STORAGE_KEY)
       .then((v) => {
@@ -180,9 +184,19 @@ export default function CommunityScreen() {
     [signedIn]
   );
 
-  const handleShare = useCallback((postId: string) => {
-    setShareToChatPost({ id: postId });
-  }, []);
+  const handleShare = useCallback(
+    (postId: string) => {
+      if (!signedIn) {
+        Alert.alert("Sign in", "Sign in to share posts.", [
+          { text: "OK" },
+          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+        ]);
+        return;
+      }
+      setShareToChatPost({ id: postId });
+    },
+    [signedIn, router]
+  );
 
   const handleComment = useCallback(
     (postId: string) => {
@@ -331,7 +345,7 @@ export default function CommunityScreen() {
   return (
     <>
       <CommunityUgcTermsModal
-        visible={ugcGate === "needs"}
+        visible={signedIn === true && ugcGate === "needs"}
         onAccept={acceptUgcTerms}
         onOpenTerms={openTermsWeb}
       />
@@ -359,7 +373,16 @@ export default function CommunityScreen() {
               styles.headerSideBtn,
               pressed && styles.buttonPressed,
             ]}
-            onPress={() => (router.push as (href: string) => void)("/community/my-friends")}
+            onPress={() => {
+              if (!signedIn) {
+                Alert.alert("Sign in", "Sign in to find and manage friends.", [
+                  { text: "OK" },
+                  { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+                ]);
+                return;
+              }
+              (router.push as (href: string) => void)("/community/my-friends");
+            }}
             accessibilityLabel="My friends"
           >
             <Ionicons name="people-outline" size={22} color={theme.colors.buttonText} />
@@ -391,7 +414,16 @@ export default function CommunityScreen() {
               styles.headerSideBtn,
               pressed && styles.buttonPressed,
             ]}
-            onPress={() => (router.push as (href: string) => void)("/community/groups")}
+            onPress={() => {
+              if (!signedIn) {
+                Alert.alert("Sign in", "Sign in to browse and join groups.", [
+                  { text: "OK" },
+                  { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+                ]);
+                return;
+              }
+              (router.push as (href: string) => void)("/community/groups");
+            }}
             accessibilityLabel="Community groups"
           >
             <Ionicons name="people-circle-outline" size={22} color={theme.colors.buttonText} />
@@ -407,8 +439,9 @@ export default function CommunityScreen() {
         </View>
       ) : posts.length === 0 ? (
         <Text style={styles.emptyText}>
-          No posts yet. Follow blog authors, join groups, or share to get
-          started!
+          {signedIn
+            ? "No posts yet. Follow blog authors, join groups, or share to get started!"
+            : "No public posts to show yet."}
         </Text>
       ) : (
         <>

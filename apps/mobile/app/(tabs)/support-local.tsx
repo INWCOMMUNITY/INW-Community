@@ -10,12 +10,12 @@ import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
-  Dimensions,
   Animated,
   Easing,
   Platform,
   UIManager,
   Modal,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -34,10 +34,8 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const { width } = Dimensions.get("window");
 const CARD_GAP = 12;
 const CARD_PADDING = 16;
-const CARD_WIDTH = (width - CARD_PADDING * 2 - CARD_GAP) / 2;
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -75,6 +73,7 @@ interface BusinessesMeta {
 type ViewMode = "directory" | "sellers";
 
 export default function SupportLocalScreen() {
+  const { width } = useWindowDimensions();
   const theme = useTheme();
   const router = useRouter();
   const navigation = useNavigation();
@@ -289,6 +288,8 @@ export default function SupportLocalScreen() {
     return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
   };
 
+  const cardWidth = (width - CARD_PADDING * 2 - CARD_GAP) / 2;
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -324,6 +325,8 @@ export default function SupportLocalScreen() {
           fontFamily: theme.fonts.heading,
           marginBottom: 16,
           textAlign: "center",
+          flexShrink: 1,
+          maxWidth: "92%",
         },
         logoRow: {
           flexDirection: "row",
@@ -333,12 +336,16 @@ export default function SupportLocalScreen() {
         },
         logoRowSideLeft: {
           flex: 1,
+          minWidth: 0,
+          flexShrink: 1,
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "flex-end",
         },
         logoRowSideRight: {
           flex: 1,
+          minWidth: 0,
+          flexShrink: 1,
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "flex-start",
@@ -362,14 +369,23 @@ export default function SupportLocalScreen() {
           alignSelf: "center",
         },
         headerButton: {
-          marginHorizontal: 8,
-          paddingHorizontal: 20,
+          marginHorizontal: 4,
+          paddingHorizontal: 12,
           paddingVertical: 10,
           borderRadius: 20,
           backgroundColor: "rgba(255,255,255,0.3)",
+          maxWidth: "100%",
+          alignItems: "center",
+          justifyContent: "center",
         },
         headerButtonPressed: { opacity: 0.8 },
-        headerButtonText: { fontSize: 14, fontWeight: "600", color: "#fff" },
+        headerButtonText: {
+          fontSize: 14,
+          fontWeight: "600",
+          color: "#fff",
+          textAlign: "center",
+          fontFamily: theme.fonts.headingRegular,
+        },
         searchInput: {
           backgroundColor: "#fff",
           borderWidth: 2,
@@ -383,7 +399,7 @@ export default function SupportLocalScreen() {
         },
         filters: {
           marginHorizontal: -16,
-          maxHeight: 50,
+          maxHeight: 56,
           flexGrow: 0,
         },
         filtersContent: {
@@ -410,7 +426,7 @@ export default function SupportLocalScreen() {
           marginBottom: CARD_GAP,
         },
         card: {
-          width: CARD_WIDTH,
+          width: cardWidth,
           alignItems: "stretch",
           padding: 0,
           borderRadius: 8,
@@ -474,7 +490,7 @@ export default function SupportLocalScreen() {
         },
         retryButtonText: { fontSize: 16, fontWeight: "600", color: "#fff" },
       }),
-    [theme]
+    [theme, cardWidth]
   );
 
   const renderBusinessItem = ({ item }: { item: Business }) => {

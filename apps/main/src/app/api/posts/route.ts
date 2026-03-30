@@ -74,6 +74,22 @@ export async function POST(req: NextRequest) {
       else if (data.sharedItemType === "store_item") sourceStoreItemId = data.sharedItemId;
     }
 
+    if (groupId && data.sharedItemType === "business") {
+      const g = await prisma.group.findUnique({
+        where: { id: groupId },
+        select: { allowBusinessPosts: true },
+      });
+      if (!g?.allowBusinessPosts) {
+        return NextResponse.json(
+          {
+            error:
+              "This group does not allow posts as a business. A group admin can enable “Allow businesses to post” in group settings.",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const photos = (data.photos ?? []).filter((p): p is string => typeof p === "string" && p.length > 0);
     const videos = (data.videos ?? []).filter((v): v is string => typeof v === "string" && v.length > 0);
     const links = (data.links ?? []).filter((l) => l?.url && typeof l.url === "string" && l.url.length > 0);

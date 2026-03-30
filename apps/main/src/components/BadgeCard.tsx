@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { BadgeIcon, getBadgeCategoryLabel } from "@/lib/badge-icons";
+import { BADGE_SCAN_PROGRESS_TAN } from "@/lib/badge-scan-progress-ui";
 
 interface Badge {
   id: string;
@@ -13,7 +14,14 @@ interface Badge {
   order: number;
 }
 
-export function BadgeCard({ badge }: { badge: Badge }) {
+export function BadgeCard({
+  badge,
+  scanProgress,
+}: {
+  badge: Badge;
+  /** When set, shows a tan progress bar (scan / category-scan badges). */
+  scanProgress?: { current: number; target: number } | null;
+}) {
   const [expanded, setExpanded] = useState(false);
   const desc = badge.description ?? "";
   const needsExpand = desc.length > 80;
@@ -51,6 +59,31 @@ export function BadgeCard({ badge }: { badge: Badge }) {
             >
               {expanded ? "Show less" : "Read more"}
             </button>
+          )}
+          {scanProgress && scanProgress.target > 0 && (
+            <div className="w-full mt-3 text-left">
+              <div
+                className="flex justify-between text-xs font-medium mb-1"
+                style={{ color: BADGE_SCAN_PROGRESS_TAN.label }}
+              >
+                <span>Scan progress</span>
+                <span>
+                  {Math.min(scanProgress.current, scanProgress.target)}/{scanProgress.target}
+                </span>
+              </div>
+              <div
+                className="h-2.5 w-full rounded-full overflow-hidden"
+                style={{ backgroundColor: BADGE_SCAN_PROGRESS_TAN.track }}
+              >
+                <div
+                  className="h-full rounded-full transition-[width] duration-300 ease-out"
+                  style={{
+                    width: `${Math.min(100, (scanProgress.current / scanProgress.target) * 100)}%`,
+                    backgroundColor: BADGE_SCAN_PROGRESS_TAN.fill,
+                  }}
+                />
+              </div>
+            </div>
           )}
         </div>
       </div>

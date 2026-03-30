@@ -3,13 +3,13 @@ import {
   ScrollView,
   Pressable,
   Image,
-  Dimensions,
   PixelRatio,
   Modal,
   View,
   Text,
   ActivityIndicator,
   FlatList,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { View as ThemedView } from "@/components/Themed";
@@ -20,7 +20,7 @@ import { NWCRequestsModal } from "@/components/NWCRequestsModal";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { getToken, apiGet } from "@/lib/api";
 import { fetchEvents } from "@/lib/events-api";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -49,15 +49,12 @@ interface LeaderboardMember {
   points: number;
 }
 
-const { width } = Dimensions.get("window");
 const gap = 12;
 const containerPadding = 24;
 const boxEdgeGap = 16; // white space between green box and screen edges
 // ~0.1 inch padding between box border and calendar grid
 const boxPaddingInches = 0.1;
-const boxPaddingPx = PixelRatio.roundToNearestPixel(boxPaddingInches * 163);
 const cols = 2;
-const tileSize = (width - boxEdgeGap * 2 - 2 * boxPaddingPx - gap) / cols;
 
 function resolveUrl(path: string | null | undefined): string | undefined {
   if (!path) return undefined;
@@ -66,14 +63,526 @@ function resolveUrl(path: string | null | undefined): string | undefined {
 
 const logoSource = require("@/assets/images/nwc-logo-home.png");
 const logoDims = Image.resolveAssetSource(logoSource);
-const logoHeight =
-  logoDims?.width && logoDims?.height ? (width * logoDims.height) / logoDims.width : width;
 
 const homeShortcutGap = 12;
-const homeShortcutCellWidth = (width - containerPadding * 2 - homeShortcutGap) / 2;
-const TOP10_PRIZE_PREVIEW_SIZE = Math.min(220, width - 64);
 
 export default function HomeScreen() {
+  const { width } = useWindowDimensions();
+  const { styles, homeShortcutCellWidth, logoHeight } = useMemo(() => {
+    const boxPaddingPx = PixelRatio.roundToNearestPixel(boxPaddingInches * 163);
+    const tileSize = (width - boxEdgeGap * 2 - 2 * boxPaddingPx - gap) / cols;
+    const homeShortcutCellWidthCalc = (width - containerPadding * 2 - homeShortcutGap) / 2;
+    const logoHeightCalc =
+      logoDims?.width && logoDims?.height ? (width * logoDims.height) / logoDims.width : width;
+    const top10PrizePreviewSize = Math.min(220, width - 64);
+
+    const s = StyleSheet.create({
+  scroll: { flex: 1, backgroundColor: "#ffffff" },
+  container: {
+    padding: 24,
+    paddingBottom: 40,
+    alignItems: "center",
+  },
+  logoWrapper: {
+    width,
+    marginHorizontal: -containerPadding,
+    marginTop: -containerPadding,
+    marginBottom: 24,
+    alignSelf: "center",
+    overflow: "hidden",
+  },
+  logo: {
+    width,
+  },
+  buttons: {
+    width: "100%",
+    marginBottom: 32,
+  },
+  buttonGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: homeShortcutGap,
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  buttonCell: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  buttonPressed: { opacity: 0.8 },
+  pointsCard: {
+    width: "100%",
+    maxWidth: 320,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+    alignItems: "center",
+  },
+  pointsLabel: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 4,
+  },
+  pointsValue: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: theme.colors.primary,
+    fontFamily: theme.fonts.heading,
+  },
+  seasonPointsLine: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 4,
+  },
+  top10Section: {
+    width: width - boxEdgeGap * 2,
+    marginHorizontal: -(containerPadding - boxEdgeGap),
+    alignSelf: "center",
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+  },
+  toggleRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e5e5",
+  },
+  toggleBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  toggleBtnActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#666",
+  },
+  toggleTextActive: {
+    color: theme.colors.buttonText ?? "#fff",
+  },
+  prizesList: {
+    padding: 12,
+    maxHeight: 400,
+  },
+  prizeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    gap: 10,
+  },
+  prizeRowPressed: { opacity: 0.8 },
+  top10PrizeModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  top10PrizeModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  top10PrizeModalContent: {
+    width: "100%",
+    maxWidth: 400,
+    maxHeight: "85%",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  top10PrizeModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  top10PrizeModalTitle: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#222",
+    paddingRight: 8,
+  },
+  top10PrizeModalCloseBtn: { padding: 4 },
+  top10PrizeModalScroll: { maxHeight: 500 },
+  top10PrizeModalImageWrap: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    backgroundColor: "#f5f5f5",
+  },
+  top10PrizePreviewListSingle: {
+    alignSelf: "center",
+    paddingHorizontal: 16,
+  },
+  top10PrizePreviewThumbPress: {
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#ddd",
+  },
+  top10PrizePreviewThumb: {
+    width: top10PrizePreviewSize,
+    height: top10PrizePreviewSize,
+    backgroundColor: "#e8e8e8",
+  },
+  top10PrizeModalImagePlaceholder: {
+    width: "100%",
+    minHeight: 200,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  top10PrizeModalPlaceholderText: { fontSize: 17, color: "#666", marginTop: 8 },
+  top10PrizeModalBusiness: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  top10PrizeModalBusinessText: { fontSize: 17, fontWeight: "600" },
+  top10PrizeModalValue: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  top10PrizeModalDescription: {
+    fontSize: 17,
+    color: "#444",
+    lineHeight: 24,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  top10PrizeModalSeasonEnd: {
+    fontSize: 14,
+    color: "#666",
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  prizeRank: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: theme.colors.primary,
+    width: 28,
+  },
+  prizeThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 4,
+  },
+  prizeThumbPlaceholder: {
+    backgroundColor: "#e5e5e5",
+  },
+  prizeLabel: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    color: theme.colors.heading,
+  },
+  prizeBusiness: {
+    fontSize: 12,
+    color: "#666",
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  prizeEmpty: {
+    fontSize: 14,
+    color: "#999",
+    flex: 1,
+  },
+  prizeEmptyAll: {
+    fontSize: 14,
+    color: "#999",
+    textAlign: "center",
+    padding: 24,
+  },
+  leaderboardList: {
+    padding: 12,
+    maxHeight: 400,
+  },
+  leaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    gap: 10,
+  },
+  leaderRank: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: theme.colors.primary,
+    width: 24,
+  },
+  leaderAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  leaderAvatarPlaceholder: {
+    backgroundColor: "#e5e5e5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  leaderInitials: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#666",
+  },
+  leaderName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    color: theme.colors.heading,
+  },
+  leaderEmpty: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    color: "#999",
+  },
+  leaderPoints: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  buttonText: {
+    color: theme.colors.buttonText,
+    fontSize: 18,
+    fontWeight: "600",
+    fontFamily: theme.fonts.heading,
+  },
+  calendarsBoxWrapper: {
+    width: width - boxEdgeGap * 2,
+    marginHorizontal: -(containerPadding - boxEdgeGap),
+    alignSelf: "center",
+    marginBottom: 0,
+  },
+  calendarsBox: {
+    width: "100%",
+    alignItems: "center",
+    padding: boxPaddingPx,
+    paddingHorizontal: boxPaddingPx,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+  },
+  calendarsTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: theme.colors.heading,
+    fontFamily: theme.fonts.heading,
+    textAlign: "center",
+  },
+  calendarsSubtitle: {
+    marginTop: 8,
+    fontSize: 14,
+    color: theme.colors.text,
+    textAlign: "center",
+  },
+  postEventButton: {
+    marginTop: 16,
+    marginBottom: 20,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 4,
+  },
+  postEventButtonText: {
+    color: theme.colors.buttonText,
+    fontSize: 16,
+    fontWeight: "600",
+    fontFamily: theme.fonts.heading,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  tile: {
+    width: tileSize,
+    marginBottom: gap,
+    borderRadius: 8,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  tilePressed: { opacity: 0.85 },
+  tileImage: {
+    width: tileSize,
+    height: tileSize,
+  },
+  tileLabelWrap: {
+    padding: 10,
+    borderTopWidth: 2,
+    borderTopColor: theme.colors.primary,
+    backgroundColor: "#fff",
+  },
+  tileLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    fontFamily: theme.fonts.heading,
+    textAlign: "center",
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e5e5",
+    backgroundColor: theme.colors.primary,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#ffffff",
+    fontFamily: theme.fonts.heading,
+  },
+  modalCloseButton: {
+    padding: 8,
+  },
+  modalCloseText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  signInPrompt: {
+    flex: 1,
+    padding: 24,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  signInText: {
+    fontSize: 16,
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  signInButton: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 8,
+  },
+  signInButtonText: {
+    color: theme.colors.buttonText,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  nwcRequestsSection: {
+    width: "100%",
+    marginTop: 32,
+    marginBottom: 32,
+    marginHorizontal: -containerPadding,
+    alignItems: "center",
+  },
+  nwcRequestsOverlay: {
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    marginHorizontal: 12,
+    padding: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    alignSelf: "center",
+    width: width - 24,
+  },
+  nwcRequestsPhoto: {
+    width,
+    height: 240,
+    marginTop: 0,
+  },
+  nwcRequestsTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: theme.colors.heading,
+    fontFamily: theme.fonts.heading,
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  nwcRequestsParagraph: {
+    fontSize: 14,
+    color: theme.colors.text,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  nwcRequestButton: {
+    marginTop: 16,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  nwcRequestButtonText: {
+    color: theme.colors.buttonText,
+    fontSize: 16,
+    fontWeight: "600",
+    fontFamily: theme.fonts.heading,
+  },
+  greenDivider: {
+    height: 2,
+    backgroundColor: theme.colors.primary,
+    marginHorizontal: -24,
+    alignSelf: "stretch",
+  },
+  subscribePrompt: {
+    fontSize: 16,
+    color: theme.colors.text,
+    textAlign: "center",
+    marginTop: 32,
+  },
+  subscribeHomeBtn: {
+    marginTop: 16,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignSelf: "center",
+  },
+  subscribeHomeBtnText: {
+    color: theme.colors.buttonText,
+    fontSize: 16,
+    fontWeight: "600",
+    fontFamily: theme.fonts.heading,
+  },
+});
+
+    return {
+      styles: s,
+      homeShortcutCellWidth: homeShortcutCellWidthCalc,
+      logoHeight: logoHeightCalc,
+    };
+  }, [width]);
+
   const router = useRouter();
   const [postEventModalVisible, setPostEventModalVisible] = useState(false);
   const [nwcRequestModalVisible, setNwcRequestModalVisible] = useState(false);
@@ -606,499 +1115,3 @@ export default function HomeScreen() {
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: "#ffffff" },
-  container: {
-    padding: 24,
-    paddingBottom: 40,
-    alignItems: "center",
-  },
-  logoWrapper: {
-    width: width,
-    marginHorizontal: -containerPadding,
-    marginTop: -containerPadding,
-    marginBottom: 24,
-    alignSelf: "center",
-    overflow: "hidden",
-  },
-  logo: {
-    width: width,
-  },
-  buttons: {
-    width: "100%",
-    marginBottom: 32,
-  },
-  buttonGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: homeShortcutGap,
-    justifyContent: "space-between",
-    width: "100%",
-  },
-  buttonCell: {
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-  },
-  buttonPressed: { opacity: 0.8 },
-  pointsCard: {
-    width: "100%",
-    maxWidth: 320,
-    marginBottom: 20,
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    backgroundColor: "#fff",
-    alignItems: "center",
-  },
-  pointsLabel: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
-  },
-  pointsValue: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: theme.colors.primary,
-    fontFamily: theme.fonts.heading,
-  },
-  seasonPointsLine: {
-    fontSize: 14,
-    color: "#666",
-    marginTop: 4,
-  },
-  top10Section: {
-    width: width - boxEdgeGap * 2,
-    marginHorizontal: -(containerPadding - boxEdgeGap),
-    alignSelf: "center",
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    borderRadius: 8,
-    overflow: "hidden",
-    backgroundColor: "#fff",
-  },
-  toggleRow: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e5e5",
-  },
-  toggleBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  toggleBtnActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  toggleText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#666",
-  },
-  toggleTextActive: {
-    color: theme.colors.buttonText ?? "#fff",
-  },
-  prizesList: {
-    padding: 12,
-    maxHeight: 400,
-  },
-  prizeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    gap: 10,
-  },
-  prizeRowPressed: { opacity: 0.8 },
-  top10PrizeModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  top10PrizeModalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  top10PrizeModalContent: {
-    width: "100%",
-    maxWidth: 400,
-    maxHeight: "85%",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  top10PrizeModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  top10PrizeModalTitle: {
-    flex: 1,
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#222",
-    paddingRight: 8,
-  },
-  top10PrizeModalCloseBtn: { padding: 4 },
-  top10PrizeModalScroll: { maxHeight: 500 },
-  top10PrizeModalImageWrap: {
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    backgroundColor: "#f5f5f5",
-  },
-  top10PrizePreviewListSingle: {
-    alignSelf: "center",
-    paddingHorizontal: 16,
-  },
-  top10PrizePreviewThumbPress: {
-    borderRadius: 10,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "#ddd",
-  },
-  top10PrizePreviewThumb: {
-    width: TOP10_PRIZE_PREVIEW_SIZE,
-    height: TOP10_PRIZE_PREVIEW_SIZE,
-    backgroundColor: "#e8e8e8",
-  },
-  top10PrizeModalImagePlaceholder: {
-    width: "100%",
-    minHeight: 200,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  top10PrizeModalPlaceholderText: { fontSize: 17, color: "#666", marginTop: 8 },
-  top10PrizeModalBusiness: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  top10PrizeModalBusinessText: { fontSize: 17, fontWeight: "600" },
-  top10PrizeModalValue: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: theme.colors.primary,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  top10PrizeModalDescription: {
-    fontSize: 17,
-    color: "#444",
-    lineHeight: 24,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  top10PrizeModalSeasonEnd: {
-    fontSize: 14,
-    color: "#666",
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-  },
-  prizeRank: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: theme.colors.primary,
-    width: 28,
-  },
-  prizeThumb: {
-    width: 36,
-    height: 36,
-    borderRadius: 4,
-  },
-  prizeThumbPlaceholder: {
-    backgroundColor: "#e5e5e5",
-  },
-  prizeLabel: {
-    flex: 1,
-    fontSize: 14,
-    color: theme.colors.heading,
-  },
-  prizeBusiness: {
-    fontSize: 12,
-    color: "#666",
-    maxWidth: 100,
-  },
-  prizeEmpty: {
-    fontSize: 14,
-    color: "#999",
-    flex: 1,
-  },
-  prizeEmptyAll: {
-    fontSize: 14,
-    color: "#999",
-    textAlign: "center",
-    padding: 24,
-  },
-  leaderboardList: {
-    padding: 12,
-    maxHeight: 400,
-  },
-  leaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    gap: 10,
-  },
-  leaderRank: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: theme.colors.primary,
-    width: 24,
-  },
-  leaderAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  leaderAvatarPlaceholder: {
-    backgroundColor: "#e5e5e5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  leaderInitials: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#666",
-  },
-  leaderName: {
-    flex: 1,
-    fontSize: 14,
-    color: theme.colors.heading,
-  },
-  leaderEmpty: {
-    flex: 1,
-    fontSize: 14,
-    color: "#999",
-  },
-  leaderPoints: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: theme.colors.primary,
-  },
-  buttonText: {
-    color: theme.colors.buttonText,
-    fontSize: 18,
-    fontWeight: "600",
-    fontFamily: theme.fonts.heading,
-  },
-  calendarsBoxWrapper: {
-    width: width - boxEdgeGap * 2,
-    marginHorizontal: -(containerPadding - boxEdgeGap),
-    alignSelf: "center",
-    marginBottom: 0,
-  },
-  calendarsBox: {
-    width: "100%",
-    alignItems: "center",
-    padding: boxPaddingPx,
-    paddingHorizontal: boxPaddingPx,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    borderRadius: 8,
-    backgroundColor: "#fff",
-  },
-  calendarsTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: theme.colors.heading,
-    fontFamily: theme.fonts.heading,
-    textAlign: "center",
-  },
-  calendarsSubtitle: {
-    marginTop: 8,
-    fontSize: 14,
-    color: theme.colors.text,
-    textAlign: "center",
-  },
-  postEventButton: {
-    marginTop: 16,
-    marginBottom: 20,
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 4,
-  },
-  postEventButtonText: {
-    color: theme.colors.buttonText,
-    fontSize: 16,
-    fontWeight: "600",
-    fontFamily: theme.fonts.heading,
-  },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    width: "100%",
-  },
-  tile: {
-    width: tileSize,
-    marginBottom: gap,
-    borderRadius: 8,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-  },
-  tilePressed: { opacity: 0.85 },
-  tileImage: {
-    width: tileSize,
-    height: tileSize,
-  },
-  tileLabelWrap: {
-    padding: 10,
-    borderTopWidth: 2,
-    borderTopColor: theme.colors.primary,
-    backgroundColor: "#fff",
-  },
-  tileLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: theme.colors.heading,
-    fontFamily: theme.fonts.heading,
-    textAlign: "center",
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "#ffffff",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e5e5",
-    backgroundColor: theme.colors.primary,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#ffffff",
-    fontFamily: theme.fonts.heading,
-  },
-  modalCloseButton: {
-    padding: 8,
-  },
-  modalCloseText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  signInPrompt: {
-    flex: 1,
-    padding: 24,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  signInText: {
-    fontSize: 16,
-    color: "#333",
-    textAlign: "center",
-    marginBottom: 24,
-  },
-  signInButton: {
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 8,
-  },
-  signInButtonText: {
-    color: theme.colors.buttonText,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  nwcRequestsSection: {
-    width: "100%",
-    marginTop: 32,
-    marginBottom: 32,
-    marginHorizontal: -containerPadding,
-    alignItems: "center",
-  },
-  nwcRequestsOverlay: {
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-    marginHorizontal: 12,
-    padding: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    alignSelf: "center",
-    width: width - 24,
-  },
-  nwcRequestsPhoto: {
-    width: width,
-    height: 240,
-    marginTop: 0,
-  },
-  nwcRequestsTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: theme.colors.heading,
-    fontFamily: theme.fonts.heading,
-    marginBottom: 12,
-    textAlign: "center",
-  },
-  nwcRequestsParagraph: {
-    fontSize: 14,
-    color: theme.colors.text,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  nwcRequestButton: {
-    marginTop: 16,
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-  },
-  nwcRequestButtonText: {
-    color: theme.colors.buttonText,
-    fontSize: 16,
-    fontWeight: "600",
-    fontFamily: theme.fonts.heading,
-  },
-  greenDivider: {
-    height: 2,
-    backgroundColor: theme.colors.primary,
-    marginHorizontal: -24,
-    alignSelf: "stretch",
-  },
-  subscribePrompt: {
-    fontSize: 16,
-    color: theme.colors.text,
-    textAlign: "center",
-    marginTop: 32,
-  },
-  subscribeHomeBtn: {
-    marginTop: 16,
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignSelf: "center",
-  },
-  subscribeHomeBtnText: {
-    color: theme.colors.buttonText,
-    fontSize: 16,
-    fontWeight: "600",
-    fontFamily: theme.fonts.heading,
-  },
-});

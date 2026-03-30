@@ -256,7 +256,7 @@ export function CreatePostForm({
             Posting as <strong>{initialSharedBusinessName ?? "your business"}</strong> (business directory)
           </p>
         )}
-        {groups.length > 0 && !initialSharedBusinessId && (
+        {groups.length > 0 && !initialSharedBusinessId && !initialGroupId && (
           <div>
             <label htmlFor="group" className="block text-sm font-medium mb-1">Post to</label>
             <select

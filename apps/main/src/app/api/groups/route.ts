@@ -20,6 +20,7 @@ const postSchema = z.object({
     .optional()
     .nullable(),
   rules: z.string().max(5000).optional().nullable(),
+  allowBusinessPosts: z.boolean().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -118,6 +119,7 @@ export async function POST(req: NextRequest) {
         category: data.category ?? null,
         coverImageUrl: data.coverImageUrl ?? null,
         rules: data.rules ?? null,
+        allowBusinessPosts: data.allowBusinessPosts ?? false,
         slug,
         createdById: session.user.id,
       },

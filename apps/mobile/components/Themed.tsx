@@ -5,6 +5,7 @@
 
 import { Text as DefaultText, View as DefaultView } from 'react-native';
 
+import { APP_MAX_FONT_SIZE_MULTIPLIER } from '@/lib/font-accessibility';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from './useColorScheme';
 
@@ -31,10 +32,16 @@ export function useThemeColor(
 }
 
 export function Text(props: TextProps) {
-  const { style, lightColor, darkColor, ...otherProps } = props;
+  const { style, lightColor, darkColor, maxFontSizeMultiplier, ...otherProps } = props;
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
 
-  return <DefaultText style={[{ color }, style]} {...otherProps} />;
+  return (
+    <DefaultText
+      maxFontSizeMultiplier={maxFontSizeMultiplier ?? APP_MAX_FONT_SIZE_MULTIPLIER}
+      style={[{ color }, style]}
+      {...otherProps}
+    />
+  );
 }
 
 export function View(props: ViewProps) {

@@ -17,6 +17,7 @@ const patchSchema = z.object({
     .optional()
     .nullable(),
   rules: z.string().max(5000).optional().nullable(),
+  allowBusinessPosts: z.boolean().optional(),
 });
 
 export async function GET(
@@ -103,6 +104,9 @@ export async function PATCH(
         ...(data.category !== undefined && { category: data.category }),
         ...(data.coverImageUrl !== undefined && { coverImageUrl: data.coverImageUrl }),
         ...(data.rules !== undefined && { rules: data.rules }),
+        ...(data.allowBusinessPosts !== undefined && {
+          allowBusinessPosts: data.allowBusinessPosts,
+        }),
       },
     });
     return NextResponse.json(updated);

@@ -40,6 +40,7 @@ interface GroupDetail {
   category: string | null;
   coverImageUrl: string | null;
   rules: string | null;
+  allowBusinessPosts?: boolean;
   isMember: boolean;
   memberRole: string | null;
   createdBy: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
@@ -173,7 +174,9 @@ export default function GroupDetailScreen() {
             type: "custom",
             element: (
               <Pressable
-                onPress={() => openCreatePostInGroup(groupIdForPost)}
+                onPress={() =>
+                  openCreatePostInGroup(groupIdForPost, !!group.allowBusinessPosts)
+                }
                 hitSlop={12}
                 accessibilityRole="button"
                 accessibilityLabel="Create Post in this group"
@@ -190,7 +193,9 @@ export default function GroupDetailScreen() {
         unstable_headerRightItems: undefined,
         headerRight: () => (
           <Pressable
-            onPress={() => openCreatePostInGroup(groupIdForPost)}
+            onPress={() =>
+                  openCreatePostInGroup(groupIdForPost, !!group.allowBusinessPosts)
+                }
             style={({ pressed }) => [pressed && { opacity: 0.85 }]}
             android_ripple={{ color: "rgba(255,255,255,0.2)", borderless: true }}
             hitSlop={12}

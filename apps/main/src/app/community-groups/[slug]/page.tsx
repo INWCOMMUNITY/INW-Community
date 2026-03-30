@@ -14,6 +14,7 @@ interface GroupDetail {
   coverImageUrl: string | null;
   slug: string;
   rules: string | null;
+  allowBusinessPosts?: boolean;
   createdBy: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   _count: { members: number; groupPosts: number };
   isMember: boolean;
@@ -198,6 +199,7 @@ export default function GroupDetailPage() {
                 {group.isMember && (
                   <CreatePostButton
                     groupId={group.id}
+                    groupAllowsBusinessPosts={!!group.allowBusinessPosts}
                     returnTo={`/community-groups/${group.slug}`}
                     className="btn !p-0 w-10 h-10 flex items-center justify-center"
                   >

@@ -62,6 +62,8 @@ interface FeedPostCardProps {
   viewerUserId?: string | null;
   onEditPost?: (post: FeedPostCardProps["post"]) => void;
   onDeletePost?: (postId: string) => void;
+  /** Signed-out feed: show content and comment thread read-only; no like/share/post comment. */
+  readOnlyInteractions?: boolean;
 }
 
 function isVideoUrl(url: string) {
@@ -86,6 +88,7 @@ export function FeedPostCard({
   viewerUserId,
   onEditPost,
   onDeletePost,
+  readOnlyInteractions = false,
 }: FeedPostCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [postMenuOpen, setPostMenuOpen] = useState(false);
@@ -588,31 +591,57 @@ export function FeedPostCard({
         )}
       </div>
       <div className="border-t flex divide-x">
-        <button
-          type="button"
-          onClick={() => onLike(post.id)}
-          className={`flex-1 py-2 text-sm font-medium ${post.liked ? "" : "text-gray-600 hover:bg-gray-50"}`}
-          style={post.liked ? { color: "var(--color-primary)" } : undefined}
-        >
-          Like {post.likeCount > 0 && `(${post.likeCount})`}
-        </button>
-        <button
-          type="button"
-          onClick={() => setCommentsOpen((open) => !open)}
-          className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-        >
-          Comment {post.commentCount > 0 && `(${post.commentCount})`}
-        </button>
-        {onShare && (
-          <button
-            type="button"
-            onClick={() => onShare(post.id)}
-            className="flex-1 py-2 text-sm text-gray-600 hover:bg-gray-50"
-          >
-            Share
-          </button>
+        {readOnlyInteractions ? (
+          <>
+            <span className="flex-1 py-2 text-sm font-medium text-gray-500 text-center">
+              {post.likeCount} like{post.likeCount === 1 ? "" : "s"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCommentsOpen((open) => !open)}
+              className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+            >
+              Comment{post.commentCount > 0 ? ` (${post.commentCount})` : "s"}
+            </button>
+            <span className="flex-1 py-2 text-sm text-gray-400 text-center">—</span>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => onLike(post.id)}
+              className={`flex-1 py-2 text-sm font-medium ${post.liked ? "" : "text-gray-600 hover:bg-gray-50"}`}
+              style={post.liked ? { color: "var(--color-primary)" } : undefined}
+            >
+              Like {post.likeCount > 0 && `(${post.likeCount})`}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCommentsOpen((open) => !open)}
+              className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+            >
+              Comment {post.commentCount > 0 && `(${post.commentCount})`}
+            </button>
+            {onShare && (
+              <button
+                type="button"
+                onClick={() => onShare(post.id)}
+                className="flex-1 py-2 text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Share
+              </button>
+            )}
+          </>
         )}
       </div>
+      {readOnlyInteractions && (
+        <p className="text-xs text-gray-500 px-3 py-2 border-t bg-gray-50">
+          <Link href="/login?callbackUrl=/my-community/feed" className="underline font-medium" style={{ color: "var(--color-link)" }}>
+            Sign in
+          </Link>{" "}
+          to like, comment, or share.
+        </p>
+      )}
       {commentsOpen && (
         <div className="border-t bg-gray-50 px-4 py-3 space-y-3">
           {commentsLoading ? (
@@ -646,24 +675,26 @@ export function FeedPostCard({
               {comments.length === 0 && <p className="text-sm text-gray-500">No comments yet.</p>}
             </ul>
           )}
-          <form onSubmit={submitComment} className="flex gap-2 pt-1">
-            <input
-              type="text"
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              placeholder="Add a comment..."
-              className="flex-1 min-w-0 rounded-full border border-gray-300 px-4 py-2 text-sm"
-              maxLength={2000}
-            />
-            <button
-              type="submit"
-              disabled={submittingComment || !commentText.trim()}
-              className="shrink-0 px-4 py-2 rounded-full text-sm font-medium text-white disabled:opacity-50"
-              style={{ backgroundColor: "var(--color-primary)" }}
-            >
-              {submittingComment ? "…" : "Post"}
-            </button>
-          </form>
+          {!readOnlyInteractions && (
+            <form onSubmit={submitComment} className="flex gap-2 pt-1">
+              <input
+                type="text"
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                placeholder="Add a comment..."
+                className="flex-1 min-w-0 rounded-full border border-gray-300 px-4 py-2 text-sm"
+                maxLength={2000}
+              />
+              <button
+                type="submit"
+                disabled={submittingComment || !commentText.trim()}
+                className="shrink-0 px-4 py-2 rounded-full text-sm font-medium text-white disabled:opacity-50"
+                style={{ backgroundColor: "var(--color-primary)" }}
+              >
+                {submittingComment ? "…" : "Post"}
+              </button>
+            </form>
+          )}
         </div>
       )}
     </article>

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
+import { shouldRedirectGuestFromPath } from "@/lib/guest-access-paths";
 
 // Allow admin app to call main app /api/admin (CORS). Production admin URL from env.
 function getAdminOrigins(): string[] {
@@ -67,14 +69,19 @@ function mobileCorsHeaders(req: NextRequest) {
   };
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
+  const pathname = req.nextUrl.pathname;
+
   // Stripe must receive the request unchanged; do not add CORS or other logic here.
-  if (req.nextUrl.pathname === "/api/stripe/webhook") {
+  if (pathname === "/api/stripe/webhook") {
     return NextResponse.next();
   }
 
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", pathname);
+
   // Rate limit login attempts (brute-force protection)
-  if (req.method === "POST" && req.nextUrl.pathname === "/api/auth/callback/credentials") {
+  if (req.method === "POST" && pathname === "/api/auth/callback/credentials") {
     const ip = getClientIp(req);
     if (!checkLoginRateLimit(ip)) {
       return NextResponse.json(
@@ -85,31 +92,50 @@ export function middleware(req: NextRequest) {
   }
 
   // CORS for admin app (/api/admin only)
-  if (req.nextUrl.pathname.startsWith("/api/admin")) {
-    const headers = corsHeaders(req);
+  if (pathname.startsWith("/api/admin")) {
+    const headers = { ...corsHeaders(req), "x-pathname": pathname };
     if (req.method === "OPTIONS") {
       return new NextResponse(null, { status: 204, headers });
     }
-    const res = NextResponse.next();
+    const res = NextResponse.next({ request: { headers: requestHeaders } });
     Object.entries(headers).forEach(([k, v]) => res.headers.set(k, v));
     return res;
   }
 
   // CORS for mobile app (Expo web / dev client) calling any /api/*
-  const pathname = req.nextUrl.pathname;
   if (pathname.startsWith("/api/")) {
     const origin = req.headers.get("origin");
     const mobileOrigins = getMobileOrigins();
     if (origin && mobileOrigins.includes(origin)) {
-      const headers = mobileCorsHeaders(req);
+      const headers = { ...mobileCorsHeaders(req), "x-pathname": pathname };
       if (req.method === "OPTIONS") {
         return new NextResponse(null, { status: 204, headers });
       }
-      const res = NextResponse.next();
+      const res = NextResponse.next({ request: { headers: requestHeaders } });
       Object.entries(headers).forEach(([k, v]) => res.headers.set(k, v));
       return res;
     }
   }
 
-  return NextResponse.next();
+  if (!pathname.startsWith("/api/")) {
+    const secret = process.env.NEXTAUTH_SECRET;
+    if (secret) {
+      const token = await getToken({ req, secret });
+      const authed = Boolean(token?.sub);
+      if (!authed && shouldRedirectGuestFromPath(pathname)) {
+        const login = new URL("/login", req.url);
+        const callback = `${pathname}${req.nextUrl.search}`;
+        login.searchParams.set("callbackUrl", callback);
+        return NextResponse.redirect(login);
+      }
+    }
+  }
+
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
+
+export const config = {
+  matcher: [
+    "/((?!api/stripe/webhook|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
+};

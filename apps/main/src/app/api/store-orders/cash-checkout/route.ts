@@ -214,9 +214,6 @@ export async function POST(req: NextRequest) {
     orderIds.push(order.id);
     // Buyer points for pickup/local delivery are deferred until both parties confirm (see tryReleaseBuyerPointsForOrder).
 
-    const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
-    awardLocalBusinessProBadge(buyerId).catch(() => {});
-
     for (const oi of orderItems) {
       await prisma.orderItem.create({
         data: {
@@ -300,7 +297,15 @@ export async function POST(req: NextRequest) {
     where: { memberId: session.user.id, storeItemId: { in: purchasedIds } },
   });
 
+  const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
+  let earnedBadges: { slug: string; name: string; description: string }[] = [];
+  try {
+    earnedBadges = await awardLocalBusinessProBadge(buyerId);
+  } catch {
+    /* best-effort */
+  }
+
   const orderIdsParam = orderIds.join(",");
   const url = `${getBaseUrl()}/storefront/order-success?cash=1&order_ids=${encodeURIComponent(orderIdsParam)}`;
-  return NextResponse.json({ orderIds, url });
+  return NextResponse.json({ orderIds, url, earnedBadges });
 }

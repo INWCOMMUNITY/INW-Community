@@ -15,6 +15,8 @@
     "push": "prisma db push",
     "migrate": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
+    "migrate:mark-init-applied": "prisma migrate resolve --applied 20250101000000_init",
+    "migrate:recover-failed-init": "prisma migrate resolve --rolled-back 20250101000000_init",
     "studio": "prisma studio",
     "seed": "prisma db seed",
     "seed:test-profile": "node scripts/seed-test-profile-member.js",

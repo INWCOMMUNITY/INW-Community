@@ -99,6 +99,7 @@ model Member {
   groupConversationMessageReactions GroupConversationMessageReaction[]
   nwcRequests NwcRequest[]
   memberBadges MemberBadge[]
+  memberBadgeProgress MemberBadgeProgress[]
   referralLinks ReferralLink[]
   referralSignupsAsReferrer ReferralSignup[] @relation("ReferralSignupReferrer")
   referralSignupsAsNewMember ReferralSignup[] @relation("ReferralSignupNewMember")
@@ -464,6 +465,8 @@ model Group {
   category      String?
   coverImageUrl String?  @map("cover_image_url")
   rules         String?  @db.Text
+  /// When true, members may post as a directory business (shared_business) into this group.
+  allowBusinessPosts Boolean @default(false) @map("allow_business_posts")
   slug          String   @unique
   createdById   String   @map("created_by_id")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -1170,6 +1173,22 @@ model MemberBadge {
 
   @@unique([memberId, badgeId])
   @@map("member_badge")
+}
+
+// Denormalized counters for badge UI and self-healing checks (mirrors source tables).
+model MemberBadgeProgress {
+  id          String   @id @default(cuid())
+  memberId    String   @map("member_id")
+  progressKey String   @map("progress_key")
+  current     Int      @default(0)
+  target      Int?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, progressKey])
+  @@index([memberId])
+  @@map("member_badge_progress")
 }
 
 model BusinessBadge {

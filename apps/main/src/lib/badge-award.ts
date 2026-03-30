@@ -9,6 +9,7 @@
  */
 import { prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
+import { getAllCategoryScanMetrics, getDistinctScannedBusinessCount } from "@/lib/badge-scan-metrics";
 
 /** Returns slugs of member badges newly created (empty if already had the badge). Includes `badger_badge` when cascade triggers. */
 async function ensureMemberBadge(memberId: string, badgeSlug: string): Promise<string[]> {
@@ -38,17 +39,45 @@ async function ensureMemberBadge(memberId: string, badgeSlug: string): Promise<s
   return newly;
 }
 
-async function ensureBusinessBadge(businessId: string, badgeSlug: string): Promise<boolean> {
+/**
+ * Creates business_badge if missing; notifies the business owner's member account (push + EarnedBadge for popups).
+ */
+async function ensureBusinessBadgeWithInfo(businessId: string, badgeSlug: string): Promise<EarnedBadge[]> {
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { memberId: true },
+  });
+  if (!business) return [];
+
   const badge = await prisma.badge.findUnique({ where: { slug: badgeSlug } });
-  if (!badge) return false;
+  if (!badge) return [];
+
   const existing = await prisma.businessBadge.findUnique({
     where: { businessId_badgeId: { businessId, badgeId: badge.id } },
   });
-  if (existing) return false;
+  if (existing) return [];
+
   await prisma.businessBadge.create({
     data: { businessId, badgeId: badge.id },
   });
-  return true;
+
+  const earned: EarnedBadge = {
+    slug: badge.slug,
+    name: badge.name,
+    description: badge.description ?? "",
+  };
+
+  import("@/lib/send-push-notification")
+    .then(({ sendPushNotification }) =>
+      sendPushNotification(business.memberId, {
+        title: "Badge earned",
+        body: `Your business earned the ${badge.name} badge!`,
+        data: { screen: "my-badges" },
+      })
+    )
+    .catch(() => {});
+
+  return [earned];
 }
 
 export interface EarnedBadge {
@@ -98,13 +127,15 @@ export async function awardMemberSignupBadges(memberId: string, signupIntent?: s
   return earned;
 }
 
-/** Call after Business create */
-export async function awardBusinessSignupBadges(businessId: string) {
-  await ensureBusinessBadge(businessId, "local_business");
+/** Call after Business create. Returns newly earned business badges for in-app popups and triggers push to the owner. */
+export async function awardBusinessSignupBadges(businessId: string): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
+  earned.push(...(await ensureBusinessBadgeWithInfo(businessId, "local_business")));
   const businessCount = await prisma.business.count();
   if (businessCount <= 100) {
-    await ensureBusinessBadge(businessId, "og_nwc_business");
+    earned.push(...(await ensureBusinessBadgeWithInfo(businessId, "og_nwc_business")));
   }
+  return earned;
 }
 
 /** Call after StoreItem create (first item by member) */
@@ -201,11 +232,7 @@ export async function awardSpreadingTheWordBadge(referrerId: string): Promise<Ea
  */
 export async function awardScannerBadges(memberId: string): Promise<EarnedBadge[]> {
   const earned: EarnedBadge[] = [];
-  const distinctBizCount = await prisma.qRScan.groupBy({
-    by: ["businessId"],
-    where: { memberId },
-  });
-  const count = distinctBizCount.length;
+  const count = await getDistinctScannedBusinessCount(memberId);
   if (count >= 10) {
     earned.push(...(await ensureMemberBadgeWithInfo(memberId, "super_scanner")));
   }
@@ -215,51 +242,16 @@ export async function awardScannerBadges(memberId: string): Promise<EarnedBadge[
   return earned;
 }
 
-interface CategoryScanCriteria {
-  type: "category_scan";
-  categories: string[];
-  scanCount: number;
-  bonusPoints?: number;
-}
-
-/** Call after QRScan create - checks all category_scan badges (total scans, not distinct) */
-export async function awardCategoryScanBadges(memberId: string, businessCategories: string[]): Promise<EarnedBadge[]> {
+/**
+ * Call after QRScan create (or when reconciling). Evaluates **every** category_scan badge using
+ * full scan history — not only the business categories from the latest scan (avoids missing awards).
+ */
+export async function awardCategoryScanBadges(memberId: string): Promise<EarnedBadge[]> {
   const earned: EarnedBadge[] = [];
-  if (!businessCategories.length) return earned;
-
-  const catBadges = await prisma.badge.findMany({
-    where: { criteria: { path: ["type"], equals: "category_scan" } },
-  });
-
-  const bizCatsLower = businessCategories.map((c) => c.toLowerCase());
-
-  for (const badge of catBadges) {
-    const criteria = badge.criteria as unknown as CategoryScanCriteria | null;
-    if (!criteria?.categories?.length || !criteria.scanCount) continue;
-
-    const badgeCatsLower = criteria.categories.map((c) => c.toLowerCase());
-    if (!bizCatsLower.some((c) => badgeCatsLower.includes(c))) continue;
-
-    const matchingBusinesses = await prisma.business.findMany({
-      where: {
-        OR: criteria.categories.map((cat) => ({
-          categories: { has: cat },
-        })),
-      },
-      select: { id: true },
-    });
-
-    if (!matchingBusinesses.length) continue;
-
-    const totalScans = await prisma.qRScan.count({
-      where: {
-        memberId,
-        businessId: { in: matchingBusinesses.map((b) => b.id) },
-      },
-    });
-
-    if (totalScans >= criteria.scanCount) {
-      earned.push(...(await ensureMemberBadgeWithInfo(memberId, badge.slug)));
+  const metrics = await getAllCategoryScanMetrics(memberId);
+  for (const m of metrics) {
+    if (m.current >= m.target) {
+      earned.push(...(await ensureMemberBadgeWithInfo(memberId, m.slug)));
     }
   }
   return earned;
@@ -333,6 +325,30 @@ export async function awardSellerPickupBadge(sellerId: string): Promise<EarnedBa
   });
   if (pickupCount >= 1) {
     earned.push(...(await ensureMemberBadgeWithInfo(sellerId, "here_in_town")));
+  }
+  return earned;
+}
+
+/**
+ * Re-apply threshold-based **member** badges from live counts (signup / one-shot badges excluded).
+ * Call after `refreshMemberBadgeProgress` when loading badges to heal missed awards if an earlier request failed.
+ */
+export async function reconcileThresholdMemberBadges(memberId: string): Promise<EarnedBadge[]> {
+  const earned: EarnedBadge[] = [];
+  const chunks = await Promise.all([
+    awardScannerBadges(memberId),
+    awardCategoryScanBadges(memberId),
+    awardCouponRedeemBadges(memberId),
+    awardSpreadingTheWordBadge(memberId),
+    awardCommunityPlannerBadge(memberId),
+    awardPartyPlannerBadge(memberId),
+    awardLocalBusinessProBadge(memberId),
+    awardSellerTierBadges(memberId),
+    awardSellerDeliveryBadge(memberId),
+    awardSellerPickupBadge(memberId),
+  ]);
+  for (const c of chunks) {
+    earned.push(...c);
   }
   return earned;
 }

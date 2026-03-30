@@ -3,6 +3,10 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { sendTrackingEmail } from "@/lib/send-tracking-email";
+import {
+  normalizeLooseAddressSnapshot,
+  resolvedShipToToOrderShippingJson,
+} from "@/lib/shippo-elements";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +48,8 @@ export async function POST(req: NextRequest) {
     lengthIn?: number;
     widthIn?: number;
     heightIn?: number;
+    /** Client snapshot of ship-to used in Shippo; persisted on the order when valid (fixes missing checkout JSON). */
+    shipToSnapshot?: unknown;
   };
   try {
     body = await req.json();
@@ -65,7 +71,13 @@ export async function POST(req: NextRequest) {
     lengthIn = DEFAULT_LENGTH_IN,
     widthIn = DEFAULT_WIDTH_IN,
     heightIn = DEFAULT_HEIGHT_IN,
+    shipToSnapshot: shipToSnapshotRaw,
   } = body;
+
+  const shipToNormalized = normalizeLooseAddressSnapshot(shipToSnapshotRaw);
+  const shipToPersist = shipToNormalized
+    ? resolvedShipToToOrderShippingJson(shipToNormalized)
+    : null;
 
   let ids = orderIds && orderIds.length > 0 ? orderIds : orderId ? [orderId] : [];
   if (ids.length === 0 || !carrier?.trim() || !service?.trim() || rateCents < 0) {
@@ -153,6 +165,7 @@ export async function POST(req: NextRequest) {
     packageLengthIn: lengthIn,
     packageWidthIn: widthIn,
     packageHeightIn: heightIn,
+    ...(shipToPersist ? { shippingAddress: shipToPersist as object } : {}),
   };
 
   const shipment = await prisma.$transaction(async (tx) => {

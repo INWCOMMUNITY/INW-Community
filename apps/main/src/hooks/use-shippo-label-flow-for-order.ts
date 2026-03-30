@@ -5,6 +5,7 @@ import { afterNextPaint, clearShippoElementsMount } from "@/lib/shippo-mount-uti
 import { flushSync } from "react-dom";
 import {
   buildOrderDetailsFromOrder,
+  resolveOrderShipToAddress,
   transactionToLabelFromElementsPayload,
   type ElementsTransactionPayload,
   type OrderForElements,
@@ -107,6 +108,8 @@ export function useShippoLabelFlowForOrder(options: {
   const [shippoModalOpen, setShippoModalOpen] = useState(false);
   const elementsListenersRef = useRef(false);
   const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
+  /** Ship-to used for the open Shippo session; saved on the order when the label is recorded. */
+  const lastShipToSnapshotRef = useRef<ReturnType<typeof resolveOrderShipToAddress>>(null);
   const labelFlowOrderIdRef = useRef<string>("");
   const labelSaveHandlingRef = useRef(false);
   /** Drops stray Shippo events when bulk label flow or another page also registered listeners. */
@@ -136,9 +139,12 @@ export function useShippoLabelFlowForOrder(options: {
         freshShippoOrder: useFreshShippoOrder,
       });
       if (!orderDetails) {
-        setElementsError("Order has no valid shipping address.");
+        setElementsError(
+          "Could not read a ship-to address for this order. We use the historical checkout address (ship or local delivery) saved on the order."
+        );
         return;
       }
+      lastShipToSnapshotRef.current = resolveOrderShipToAddress(order);
       setElementsError(null);
       setElementsLoading(true);
       shippoOrderIdFromCreatedRef.current = null;
@@ -194,6 +200,7 @@ export function useShippoLabelFlowForOrder(options: {
             });
             const shippoOrderId =
               firstTx.order_id?.trim() || shippoOrderIdFromCreatedRef.current?.trim() || null;
+            const snap = lastShipToSnapshotRef.current;
             try {
               const res = await fetch("/api/shipping/label-from-elements", {
                 method: "POST",
@@ -202,6 +209,19 @@ export function useShippoLabelFlowForOrder(options: {
                   orderId: saveOrderId,
                   ...payload,
                   ...(shippoOrderId ? { shippoOrderId } : {}),
+                  ...(snap
+                    ? {
+                        shipToSnapshot: {
+                          street: snap.street,
+                          city: snap.city,
+                          state: snap.state,
+                          zip: snap.zip,
+                          ...(snap.aptOrSuite?.trim()
+                            ? { aptOrSuite: snap.aptOrSuite.trim() }
+                            : {}),
+                        },
+                      }
+                    : {}),
                 }),
               });
               const saveData = await res.json().catch(() => ({}));

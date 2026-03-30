@@ -16,6 +16,7 @@ export default function NewGroupPage() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [allowBusinessPosts, setAllowBusinessPosts] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleCoverUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -55,6 +56,7 @@ export default function NewGroupPage() {
           description: description.trim() || undefined,
           category: category.trim() || undefined,
           coverImageUrl: coverImageUrl || undefined,
+          allowBusinessPosts,
         }),
       });
       const data = await res.json();
@@ -170,6 +172,22 @@ export default function NewGroupPage() {
                 {uploading ? "Uploading…" : "Upload cover photo"}
               </button>
             )}
+          </div>
+          <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50/80 p-4">
+            <input
+              id="allowBusinessPosts"
+              type="checkbox"
+              checked={allowBusinessPosts}
+              onChange={(e) => setAllowBusinessPosts(e.target.checked)}
+              className="mt-1 h-4 w-4 shrink-0"
+            />
+            <label htmlFor="allowBusinessPosts" className="text-sm text-gray-700 cursor-pointer">
+              <span className="font-medium text-gray-900">Allow businesses to post in this group</span>
+              <span className="block text-gray-600 mt-1">
+                When enabled, members with a business on the directory can choose to post as that business here.
+                You can change this later in group settings.
+              </span>
+            </label>
           </div>
           <div className="flex gap-3">
             <button type="submit" disabled={loading} className="btn">

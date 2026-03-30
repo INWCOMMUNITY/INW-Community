@@ -1,4 +1,5 @@
 import "react-native-gesture-handler";
+import "@/lib/font-accessibility";
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -17,6 +18,7 @@ import 'react-native-reanimated';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { useColorScheme } from '@/components/useColorScheme';
 import { setToken } from '@/lib/api';
+import { captureReferralCodeFromUrl } from '@/lib/referral-code';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import {
@@ -31,6 +33,7 @@ import { EventInvitePopupHost } from '@/components/EventInvitePopupHost';
 import { theme } from '@/lib/theme';
 import { CreatePostProvider } from '@/contexts/CreatePostContext';
 import { CreatePostModalHost } from '@/components/CreatePostModalHost';
+import { GuestRouteGuard } from '@/components/GuestRouteGuard';
 import { EventInvitePopupSuppressionProvider } from '@/contexts/EventInvitePopupSuppressionContext';
 
 /** True if the string looks like HTML (never render raw in UI). */
@@ -181,6 +184,19 @@ function AuthDeepLinkHandler() {
   return null;
 }
 
+/** Store ?ref= from universal / signup links so the next in-app signup can attribute referrals. */
+function ReferralDeepLinkHandler() {
+  useEffect(() => {
+    const run = (url: string | null) => {
+      if (url) void captureReferralCodeFromUrl(url);
+    };
+    void Linking.getInitialURL().then(run);
+    const sub = Linking.addEventListener('url', ({ url }) => run(url));
+    return () => sub.remove();
+  }, []);
+  return null;
+}
+
 function ProfileViewLayout({ children }: { children: React.ReactNode }) {
   const { member, subscriptionPlan } = useAuth();
   const hasSponsor = member?.subscriptions?.some((s) => s.plan === "sponsor") ?? false;
@@ -263,8 +279,10 @@ function RootLayoutNav() {
     <GestureHandlerRootView style={{ flex: 1 }}>
     <ThemeProvider>
       <AuthProvider>
+      <GuestRouteGuard>
       <EventInvitePopupSuppressionProvider>
       <AuthDeepLinkHandler />
+      <ReferralDeepLinkHandler />
       <PushNotificationHandler />
       <EventInvitePopupHost />
       <CreatePostProvider>
@@ -286,6 +304,7 @@ function RootLayoutNav() {
     </ProfileViewLayout>
     </CreatePostProvider>
     </EventInvitePopupSuppressionProvider>
+    </GuestRouteGuard>
     </AuthProvider>
     </ThemeProvider>
     </GestureHandlerRootView>

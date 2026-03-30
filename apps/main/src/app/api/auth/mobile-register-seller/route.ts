@@ -83,6 +83,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    let earnedBadges: { slug: string; name: string; description: string }[] = [];
     // Create business if provided (sellers can have businesses)
     if (data.business) {
       const b = data.business;
@@ -112,7 +113,11 @@ export async function POST(req: NextRequest) {
         },
       });
       const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-      awardBusinessSignupBadges(business.id).catch(() => {});
+      try {
+        earnedBadges = await awardBusinessSignupBadges(business.id);
+      } catch {
+        /* best-effort */
+      }
     }
 
     // Update member profile if provided
@@ -133,7 +138,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       const msg = e.errors.map((err) => err.message).join(". ") || "Validation failed";

@@ -9,11 +9,11 @@ import {
   ActivityIndicator,
   RefreshControl,
   Linking,
-  Dimensions,
   TextInput,
   Modal,
   Share,
   FlatList,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,10 +30,8 @@ import { buildShareUrl } from "@/lib/share-utils";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_PADDING = 16;
 const CARD_GAP = 12;
-const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
 
 interface LeaderboardMember {
   id: string;
@@ -75,9 +73,11 @@ function resolveUrl(path: string | null | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-const REWARD_PREVIEW_SIZE = Math.min(220, SCREEN_WIDTH - 64);
-
 export default function RewardsScreen() {
+  const { width } = useWindowDimensions();
+  const cardGridWidth = (width - CARD_PADDING * 2 - CARD_GAP) / 2;
+  const rewardPreviewSize = Math.min(220, width - 64);
+
   const theme = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -521,7 +521,10 @@ export default function RewardsScreen() {
                                 >
                                   <Image
                                     source={{ uri: item }}
-                                    style={styles.rewardPreviewThumb}
+                                    style={[
+                                      styles.rewardPreviewThumb,
+                                      { width: rewardPreviewSize, height: rewardPreviewSize },
+                                    ]}
                                     resizeMode="cover"
                                   />
                                 </Pressable>
@@ -602,7 +605,13 @@ export default function RewardsScreen() {
                           const expanded = expandedRewardId === r.id;
                           const isSaved = savedRewardIds.has(r.id);
                           return (
-                            <View key={r.id} style={[styles.rewardCardGrid, { borderColor: theme.colors.primary }]}>
+                            <View
+                              key={r.id}
+                              style={[
+                                styles.rewardCardGrid,
+                                { width: cardGridWidth, borderColor: theme.colors.primary },
+                              ]}
+                            >
                               <Pressable
                                 style={styles.rewardCardImageWrap}
                                 onPress={() => setSelectedRewardForModal(r)}
@@ -784,7 +793,10 @@ export default function RewardsScreen() {
                             >
                               <Image
                                 source={{ uri: item }}
-                                style={styles.rewardPreviewThumb}
+                                style={[
+                                  styles.rewardPreviewThumb,
+                                  { width: rewardPreviewSize, height: rewardPreviewSize },
+                                ]}
                                 resizeMode="cover"
                               />
                             </Pressable>
@@ -1118,7 +1130,7 @@ const styles = StyleSheet.create({
   leaderAvatar: { width: 32, height: 32, borderRadius: 16 },
   leaderAvatarPlaceholder: { backgroundColor: "#e8e8e8", alignItems: "center", justifyContent: "center" },
   leaderInitials: { fontSize: 12, fontWeight: "600", color: "#666" },
-  leaderName: { flex: 1, fontSize: 14, fontWeight: "500" },
+  leaderName: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: "500" },
   leaderEmpty: { flex: 1, fontSize: 14, color: "#999" },
   leaderPoints: { fontWeight: "600", fontSize: 14 },
   rewardModalOverlay: {
@@ -1172,8 +1184,6 @@ const styles = StyleSheet.create({
     borderColor: "#ddd",
   },
   rewardPreviewThumb: {
-    width: REWARD_PREVIEW_SIZE,
-    height: REWARD_PREVIEW_SIZE,
     backgroundColor: "#e8e8e8",
   },
   rewardModalImagePlaceholder: {
@@ -1249,7 +1259,6 @@ const styles = StyleSheet.create({
   rewardGridWrap: { marginBottom: 16 },
   rewardRow: { flexDirection: "row", gap: CARD_GAP, marginBottom: CARD_GAP },
   rewardCardGrid: {
-    width: CARD_WIDTH,
     padding: 10,
     borderRadius: 8,
     borderWidth: 2,

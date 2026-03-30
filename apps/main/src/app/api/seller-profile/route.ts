@@ -172,6 +172,7 @@ export async function PATCH(req: NextRequest) {
       // Columns may not exist if db push wasn't run
     }
   }
+  let earnedBadges: { slug: string; name: string; description: string }[] = [];
   const biz = body.business as Record<string, string> | undefined;
   if (biz && typeof biz === "object") {
     const existing = await prisma.business.findFirst({
@@ -216,8 +217,12 @@ export async function PATCH(req: NextRequest) {
         },
       });
       const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-      awardBusinessSignupBadges(business.id).catch(() => {});
+      try {
+        earnedBadges = await awardBusinessSignupBadges(business.id);
+      } catch {
+        /* best-effort */
+      }
     }
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, earnedBadges });
 }

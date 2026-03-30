@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { CreatePostModal, type EditFeedPostPayload } from "@/components/CreatePostModal";
@@ -36,8 +37,9 @@ interface FeedPost {
 }
 
 export default function CommunityFeedPage() {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const viewerUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
+  const isGuest = sessionStatus !== "loading" && !viewerUserId;
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -148,13 +150,26 @@ export default function CommunityFeedPage() {
         <h1 className="text-2xl font-bold max-md:text-center md:order-1">Northwest Community Feed</h1>
       </div>
       <p className="text-gray-600 mb-6 max-md:text-center">
-        Posts from you and your friends, groups you&apos;ve joined, tags you follow, and businesses you follow (including
-        their updates). Share a blog or other item to add it here.
+        {isGuest ? (
+          <>
+            Public posts from members and businesses.{" "}
+            <Link href="/login?callbackUrl=/my-community/feed" className="underline font-medium" style={{ color: "var(--color-link)" }}>
+              Sign in
+            </Link>{" "}
+            to like, comment, share, and see a personalized feed.
+          </>
+        ) : (
+          <>
+            Posts from you and your friends, groups you&apos;ve joined, tags you follow, and businesses you follow (including
+            their updates). Share a blog or other item to add it here.
+          </>
+        )}
       </p>
       {posts.length === 0 ? (
         <p className="text-gray-500">
-          Your feed is empty. Add friends, join groups, follow tags or local businesses, or share a blog post to get
-          started!
+          {isGuest
+            ? "No public posts to show yet."
+            : "Your feed is empty. Add friends, join groups, follow tags or local businesses, or share a blog post to get started!"}
         </p>
       ) : (
         <div className="space-y-6">
@@ -163,10 +178,11 @@ export default function CommunityFeedPage() {
               key={post.id}
               post={post as Parameters<typeof FeedPostCard>[0]["post"]}
               onLike={toggleLike}
-              onShare={handleShare}
+              onShare={isGuest ? undefined : handleShare}
               viewerUserId={viewerUserId}
-              onEditPost={openEditFeedPost}
-              onDeletePost={handleDeletePost}
+              onEditPost={isGuest ? undefined : openEditFeedPost}
+              onDeletePost={isGuest ? undefined : handleDeletePost}
+              readOnlyInteractions={isGuest}
               onCommentAdded={(postId) => {
                 setPosts((prev) =>
                   prev.map((p) =>

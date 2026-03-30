@@ -8,7 +8,7 @@ type CreatePostContextValue = {
   /** Open create post modal pre-set to post as this business (Business Post). */
   openCreatePostAsBusiness: (business: CreatePostBusiness) => void;
   /** Open create post modal pre-scoped to a specific group. */
-  openCreatePostInGroup: (groupId: string) => void;
+  openCreatePostInGroup: (groupId: string, allowBusinessPosts?: boolean) => void;
   /** Open modal to edit the user's own post (author checked in UI before calling). */
   openEditPost: (post: FeedPost) => void;
   createPostVisible: boolean;
@@ -19,6 +19,9 @@ type CreatePostContextValue = {
   /** When set, the create post modal should post into this group. */
   initialGroupIdForPost: string | null;
   setInitialGroupIdForPost: (groupId: string | null) => void;
+  /** When posting into a group, whether that group allows business-authored posts. */
+  groupAllowsBusinessPostsForPost: boolean;
+  setGroupAllowsBusinessPostsForPost: (v: boolean) => void;
   editingPost: FeedPost | null;
   setEditingPost: (p: FeedPost | null) => void;
 };
@@ -29,28 +32,33 @@ export function CreatePostProvider({ children }: { children: ReactNode }) {
   const [createPostVisible, setCreatePostVisible] = useState(false);
   const [initialBusinessForPost, setInitialBusinessForPost] = useState<CreatePostBusiness | null>(null);
   const [initialGroupIdForPost, setInitialGroupIdForPost] = useState<string | null>(null);
+  const [groupAllowsBusinessPostsForPost, setGroupAllowsBusinessPostsForPost] = useState(false);
   const [editingPost, setEditingPost] = useState<FeedPost | null>(null);
   const openCreatePost = useCallback(() => {
     setEditingPost(null);
     setInitialBusinessForPost(null);
     setInitialGroupIdForPost(null);
+    setGroupAllowsBusinessPostsForPost(false);
     setCreatePostVisible(true);
   }, []);
   const openCreatePostAsBusiness = useCallback((business: CreatePostBusiness) => {
     setEditingPost(null);
     setInitialBusinessForPost(business);
     setInitialGroupIdForPost(null);
+    setGroupAllowsBusinessPostsForPost(false);
     setCreatePostVisible(true);
   }, []);
-  const openCreatePostInGroup = useCallback((groupId: string) => {
+  const openCreatePostInGroup = useCallback((groupId: string, allowBusinessPosts = false) => {
     setEditingPost(null);
     setInitialBusinessForPost(null);
     setInitialGroupIdForPost(groupId);
+    setGroupAllowsBusinessPostsForPost(allowBusinessPosts);
     setCreatePostVisible(true);
   }, []);
   const openEditPost = useCallback((post: FeedPost) => {
     setEditingPost(post);
     setInitialGroupIdForPost(null);
+    setGroupAllowsBusinessPostsForPost(false);
     if (post.type === "shared_business" && post.sourceBusiness) {
       setInitialBusinessForPost({ id: post.sourceBusiness.id, name: post.sourceBusiness.name });
     } else {
@@ -71,6 +79,8 @@ export function CreatePostProvider({ children }: { children: ReactNode }) {
         setInitialBusinessForPost,
         initialGroupIdForPost,
         setInitialGroupIdForPost,
+        groupAllowsBusinessPostsForPost,
+        setGroupAllowsBusinessPostsForPost,
         editingPost,
         setEditingPost,
       }}

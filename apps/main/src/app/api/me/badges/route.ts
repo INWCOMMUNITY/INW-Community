@@ -18,6 +18,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
+    const { refreshMemberBadgeProgress } = await import("@/lib/member-badge-progress");
+    const { reconcileThresholdMemberBadges } = await import("@/lib/badge-award");
+    try {
+      await refreshMemberBadgeProgress(userId);
+      await reconcileThresholdMemberBadges(userId);
+    } catch {
+      /* progress + reconcile are best-effort; still return earned badges */
+    }
+
     const memberBadges = await prisma.memberBadge.findMany({
       where: { memberId: userId },
       include: { badge: true },
@@ -33,9 +42,26 @@ export async function GET(req: NextRequest) {
       include: { badge: true },
       orderBy: { earnedAt: "desc" },
     });
+    let badgeProgress = await prisma.memberBadgeProgress.findMany({
+      where: { memberId: userId },
+      orderBy: { progressKey: "asc" },
+    });
+    if (badgeProgress.length === 0) {
+      try {
+        const { ensureScanRelatedBadgeProgress } = await import("@/lib/member-badge-progress");
+        await ensureScanRelatedBadgeProgress(userId);
+      } catch {
+        /* best-effort: scan rows only */
+      }
+      badgeProgress = await prisma.memberBadgeProgress.findMany({
+        where: { memberId: userId },
+        orderBy: { progressKey: "asc" },
+      });
+    }
     return NextResponse.json({
       memberBadges,
       businessBadges,
+      badgeProgress,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Database error";

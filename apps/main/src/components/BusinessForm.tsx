@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
+import { useLockBodyScroll } from "@/lib/scroll-lock";
+import { BadgeEarnedStackOverlay, type EarnedBadgeForOverlay } from "@/components/BadgeEarnedStackOverlay";
 import { CityPicker } from "@/components/CityPicker";
 import {
   BUSINESS_CATEGORIES,
@@ -100,6 +102,8 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
   const [logoUrl, setLogoUrl] = useState(existing?.logoUrl ?? "");
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("coverPhotoUrl" in (existing ?? {}) ? (existing as { coverPhotoUrl?: string }).coverPhotoUrl ?? "" : "");
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [postEarnedBadges, setPostEarnedBadges] = useState<EarnedBadgeForOverlay[]>([]);
+  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
   const [address, setAddress] = useState("address" in (existing ?? {}) ? (existing as { address?: string }).address ?? "" : "");
   const [city, setCity] = useState(existing?.city ?? "");
   const [categories, setCategories] = useState<string[]>(() => {
@@ -158,6 +162,24 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  useLockBodyScroll(badgePopupIndex >= 0);
+
+  function finishAfterBusinessBadges() {
+    setPostEarnedBadges([]);
+    setBadgePopupIndex(-1);
+    if (onSuccess) onSuccess();
+    else router.push("/business-hub/business");
+    router.refresh();
+  }
+
+  function handleCloseBusinessBadgePopup() {
+    if (badgePopupIndex >= 0 && badgePopupIndex < postEarnedBadges.length - 1) {
+      setBadgePopupIndex((i) => i + 1);
+    } else {
+      finishAfterBusinessBadges();
+    }
+  }
 
   async function uploadFile(file: File): Promise<string> {
     const formData = new FormData();
@@ -322,6 +344,16 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
         setError(getErrorMessage(data.error, "Failed to save."));
         return;
       }
+      if (!existing) {
+        const badges = Array.isArray(data.earnedBadges)
+          ? (data.earnedBadges as EarnedBadgeForOverlay[]).filter((b) => b?.slug && b?.name)
+          : [];
+        if (badges.length > 0) {
+          setPostEarnedBadges(badges);
+          setBadgePopupIndex(0);
+          return;
+        }
+      }
       if (onSuccess) onSuccess();
       else router.push("/business-hub/business");
       router.refresh();
@@ -330,7 +362,13 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
     }
   }
 
+  const activePostBadge =
+    badgePopupIndex >= 0 && badgePopupIndex < postEarnedBadges.length
+      ? postEarnedBadges[badgePopupIndex]
+      : null;
+
   return (
+    <>
     <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
       <div>
         <label className="block text-sm font-medium mb-1">Company name *</label>
@@ -656,5 +694,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
         {mode === "signup" ? "Continue" : submitting ? "Saving…" : existing ? "Update business" : "Add business"}
       </button>
     </form>
+    <BadgeEarnedStackOverlay badge={activePostBadge} onDismiss={handleCloseBusinessBadgePopup} />
+    </>
   );
 }
