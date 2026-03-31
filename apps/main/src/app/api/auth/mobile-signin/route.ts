@@ -17,8 +17,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
     }
 
-    const member = await prisma.member.findUnique({
-      where: { email: email.trim().toLowerCase() },
+    const loginId = email.trim();
+    const member = await prisma.member.findFirst({
+      where: { email: { equals: loginId, mode: "insensitive" } },
     });
 
     if (!member) {

@@ -32,6 +32,34 @@ function signUpHrefForPlan(plan: Plan | null): string {
   return "/signup";
 }
 
+/** When set to the same login id as `ADMIN_EMAIL`, successful sign-in jumps to production admin (or `/admin` on the current origin). */
+function postLoginUrlForAdminAccount(typedLogin: string, fallbackCallbackUrl: string): string {
+  const adminLogin = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.trim();
+  if (!adminLogin || typedLogin.trim().toLowerCase() !== adminLogin.toLowerCase()) {
+    return fallbackCallbackUrl;
+  }
+
+  const liveRaw = (
+    process.env.NEXT_PUBLIC_LIVE_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_MAIN_SITE_URL?.trim() ||
+    ""
+  ).replace(/\/+$/, "");
+
+  if (liveRaw && typeof window !== "undefined") {
+    try {
+      const normalized = liveRaw.includes("://") ? liveRaw : `https://${liveRaw}`;
+      const liveOrigin = new URL(normalized).origin;
+      if (liveOrigin !== window.location.origin) {
+        return `${liveOrigin}/admin/dashboard`;
+      }
+    } catch {
+      /* relative /admin below */
+    }
+  }
+
+  return "/admin/dashboard";
+}
+
 function LoginForm() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams?.get("callbackUrl") ?? "/my-community";
@@ -104,7 +132,7 @@ function LoginForm() {
         return;
       }
       if (res?.ok) {
-        window.location.href = callbackUrl;
+        window.location.href = postLoginUrlForAdminAccount(email, callbackUrl);
         return;
       }
       setLoginError("generic");

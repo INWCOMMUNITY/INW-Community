@@ -17,20 +17,28 @@ export const authOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-        const email = credentials.email.trim().toLowerCase();
-        const member = await prisma.member.findUnique({
-          where: { email },
-        });
-        if (!member) return null;
-        if (member.status === "suspended") return null;
-        const ok = await bcrypt.compare(credentials.password, member.passwordHash);
-        if (!ok) return null;
-        return {
-          id: member.id,
-          email: member.email,
-          name: `${member.firstName} ${member.lastName}`,
-          image: member.profilePhotoUrl ?? undefined,
-        };
+        const loginId = credentials.email.trim();
+        if (!loginId) return null;
+        try {
+          // PostgreSQL unique email is case-sensitive; stored casing may differ from
+          // what users type. Insensitive match avoids false "invalid password" 401s.
+          const member = await prisma.member.findFirst({
+            where: { email: { equals: loginId, mode: "insensitive" } },
+          });
+          if (!member) return null;
+          if (member.status === "suspended") return null;
+          const ok = await bcrypt.compare(credentials.password, member.passwordHash);
+          if (!ok) return null;
+          return {
+            id: member.id,
+            email: member.email,
+            name: `${member.firstName} ${member.lastName}`,
+            image: member.profilePhotoUrl ?? undefined,
+          };
+        } catch (e) {
+          console.error("[next-auth authorize]", e);
+          return null;
+        }
       },
     }),
   ],

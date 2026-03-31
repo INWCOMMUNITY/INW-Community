@@ -12,6 +12,7 @@
    | `NEXTAUTH_URL`  | Yes      | Production URL (e.g. `https://yoursite.com`), no trailing slash — must match the host users use (www vs apex) |
    | `NEXTAUTH_SECRET` | Yes   | Generate with `openssl rand -base64 32`             |
    | `ADMIN_EMAIL`   | Yes (admin) | Must exactly match the **`Member.email`** you use to sign in at `/login` (case-insensitive). Without it, `/admin` API routes reject session auth. |
+   | `NEXT_PUBLIC_ADMIN_EMAIL` | Recommended | Same value as **`ADMIN_EMAIL`**. Lets `/login` redirect that account to **`/admin/dashboard`** after sign-in (and to the live site when signing in from another origin). |
    | `ADMIN_APP_ORIGIN` | If using standalone `apps/admin` | Comma-separated admin app origin(s) for CORS on `/api/admin` (e.g. `https://admin.yoursite.com`). |
    | `STRIPE_*`      | For payments | Stripe live keys and price IDs                    |
 
