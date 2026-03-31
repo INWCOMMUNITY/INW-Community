@@ -36,6 +36,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams?.get("callbackUrl") ?? "/my-community";
   const fromSignup = searchParams?.get("fromSignup") === "1";
+  const adminAccessDenied = searchParams?.get("adminError") === "notAdmin";
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [showSignInForm, setShowSignInForm] = useState(false);
@@ -109,8 +110,32 @@ function LoginForm() {
 
   const showEntry = !showSignInForm;
 
+  const signOutReturnToAdmin = `/api/auth/signout?callbackUrl=${encodeURIComponent(
+    "/login?callbackUrl=" + encodeURIComponent("/admin/dashboard"),
+  )}`;
+
   return (
-    <div className="max-w-md mx-auto px-4 py-12 flex flex-col items-center">
+    <div className="max-w-md mx-auto px-4 py-12 flex flex-col items-center w-full">
+      {adminAccessDenied ? (
+        <p
+          className="mb-6 p-3 rounded-lg text-sm w-full max-w-[320px] border border-red-200 bg-red-50 text-left"
+          role="alert"
+        >
+          <span className="font-semibold text-red-800 block mb-1">Admin access</span>
+          <span className="text-red-900">
+            This account is not recognized as admin. Use the member email that matches{" "}
+            <strong>ADMIN_EMAIL</strong> in production (e.g. Vercel env), or add{" "}
+            <strong>ADMIN_EMAIL</strong> there to match the account you sign in with.
+          </span>
+          <Link
+            href={signOutReturnToAdmin}
+            className="mt-2 inline-block font-semibold underline"
+            style={{ color: "var(--color-primary)" }}
+          >
+            Sign out and try another account
+          </Link>
+        </p>
+      ) : null}
       {showEntry ? (
         <>
           <Link

@@ -63,9 +63,20 @@ export const authOptions = {
           /** NWC Resale Hub — Resident Subscribe plan only (not Business/Seller). */
           (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = !!subResale;
         }
-        const adminEmail = process.env.ADMIN_EMAIL;
+        const adminEmail = process.env.ADMIN_EMAIL?.trim();
+        let emailForAdmin =
+          (token.email as string | undefined) ?? (session.user?.email as string | undefined);
+        if (!emailForAdmin && memberId && adminEmail) {
+          const m = await prisma.member.findUnique({
+            where: { id: memberId },
+            select: { email: true },
+          });
+          emailForAdmin = m?.email ?? undefined;
+        }
         (session.user as { isAdmin?: boolean }).isAdmin =
-          !!adminEmail && (token.email as string)?.toLowerCase() === adminEmail.toLowerCase();
+          !!adminEmail &&
+          !!emailForAdmin &&
+          emailForAdmin.toLowerCase() === adminEmail.toLowerCase();
       }
       return session;
     },
