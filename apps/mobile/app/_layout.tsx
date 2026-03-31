@@ -202,19 +202,23 @@ function ProfileViewLayout({ children }: { children: React.ReactNode }) {
   const hasSponsor = member?.subscriptions?.some((s) => s.plan === "sponsor") ?? false;
   const hasSeller = member?.subscriptions?.some((s) => s.plan === "seller") ?? false;
   const hasResaleHubSwitcher = member?.hasResaleHubAccess ?? false;
+  const hasBusinessHubFromApi = member?.hasBusinessHubAccess ?? false;
   const defaultView: ProfileView =
-    subscriptionPlan === "sponsor"
-      ? "business_hub"
-      : subscriptionPlan === "seller"
-        ? "seller_hub"
-        : hasResaleHubSwitcher
-          ? "resale_hub"
-          : "profile";
+    subscriptionPlan === "seller"
+      ? "seller_hub"
+      : subscriptionPlan === "sponsor"
+        ? "business_hub"
+        : hasBusinessHubFromApi
+          ? "business_hub"
+          : hasResaleHubSwitcher
+            ? "resale_hub"
+            : "profile";
   return (
     <ProfileViewProvider
       hasSponsor={hasSponsor}
       hasSeller={hasSeller}
       hasSubscriber={hasResaleHubSwitcher}
+      hasBusinessHubFromApi={hasBusinessHubFromApi}
       defaultView={defaultView}
     >
       {children}

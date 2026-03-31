@@ -24,6 +24,8 @@ export interface Member {
   isSubscriber?: boolean;
   /** Resident Subscribe plan only — NWC Resale Hub (not Business/Seller alone). */
   hasResaleHubAccess?: boolean;
+  /** Paid Business/Seller or admin-assigned business (see /api/me). */
+  hasBusinessHubAccess?: boolean;
   /** Subscribe, Business, or Seller — coupons + 2× points on purchases/scans */
   hasPaidSubscription?: boolean;
   subscriptionPlan?: SubscriptionPlan | null;

@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireBlobStorage } from "@/lib/upload";
 import { prisma } from "database";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
+import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 import path from "path";
 import fs from "fs/promises";
 
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [sub, member] = await Promise.all([
+  const [sub, member, hubAccess] = await Promise.all([
     prisma.subscription.findFirst({
       where: prismaWhereActivePaidNwcPlan(session.user.id),
     }),
@@ -24,9 +25,10 @@ export async function POST(req: NextRequest) {
       where: { id: session.user.id },
       select: { signupIntent: true },
     }),
+    hasBusinessHubAccess(session.user.id),
   ]);
   const isSignupFlow = !sub && !!member?.signupIntent && ["business", "seller"].includes(member.signupIntent);
-  if (!sub && !isSignupFlow) {
+  if (!sub && !isSignupFlow && !hubAccess) {
     return NextResponse.json({ error: "Business, Seller, or Subscribe plan required" }, { status: 403 });
   }
 

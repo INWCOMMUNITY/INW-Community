@@ -3,7 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getCurrentSeasonId } from "@/lib/award-points";
 import { z } from "zod";
-import { prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 import { awardCommunityStarBusinessBadge, type EarnedBadge } from "@/lib/badge-award";
 
 export async function GET(req: NextRequest) {
@@ -41,11 +41,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const sub = await prisma.subscription.findFirst({
-    where: prismaWhereMemberSponsorOrSellerPlanAccess(session.user.id),
-  });
-  if (!sub) {
-    return NextResponse.json({ error: "Business or Seller plan required" }, { status: 403 });
+  if (!(await hasBusinessHubAccess(session.user.id))) {
+    return NextResponse.json({ error: "Business Hub access required" }, { status: 403 });
   }
   try {
     const body = await req.json();

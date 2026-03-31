@@ -33,6 +33,10 @@ export default function AdminMembersPage() {
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState("");
   const [assignLoadingBiz, setAssignLoadingBiz] = useState(false);
+  const [assignSuccess, setAssignSuccess] = useState<{
+    businessName: string;
+    memberLabel: string;
+  } | null>(null);
 
   useEffect(() => {
     fetch("/api/admin/members")
@@ -64,6 +68,9 @@ export default function AdminMembersPage() {
     if (!assignForMember || !assignBusinessId) return;
     setAssignError("");
     setAssigning(true);
+    const chosen =
+      businesses.find((b) => b.id === assignBusinessId)?.name ?? "Business";
+    const memberLabel = `${assignForMember.firstName} ${assignForMember.lastName} (${assignForMember.email})`;
     try {
       const res = await fetch(`/api/admin/businesses/${assignBusinessId}`, {
         method: "PATCH",
@@ -75,6 +82,7 @@ export default function AdminMembersPage() {
         setAssignError(data.error ?? "Failed to assign");
         return;
       }
+      setAssignSuccess({ businessName: chosen, memberLabel });
       setAssignForMember(null);
       setAssignBusinessId("");
     } finally {
@@ -154,6 +162,40 @@ export default function AdminMembersPage() {
           </tbody>
         </table>
       </div>
+
+      {assignSuccess && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="assign-success-title"
+          onClick={(e) => e.target === e.currentTarget && setAssignSuccess(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-md w-full p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="assign-success-title" className="text-lg font-semibold mb-2 text-green-800">
+              Business assigned
+            </h2>
+            <p className="text-sm text-gray-700 mb-4">
+              <span className="font-medium">{assignSuccess.businessName}</span> is now linked to{" "}
+              <span className="font-medium">{assignSuccess.memberLabel}</span>. They have Business Hub access
+              (no payment required).
+            </p>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setAssignSuccess(null)}
+                className="px-3 py-1.5 text-sm rounded text-white"
+                style={{ backgroundColor: "#505542" }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {assignForMember && (
         <div

@@ -8,6 +8,7 @@ import {
   prismaWhereMemberSubscribeTierPerksAccess,
 } from "@/lib/subscribe-plan-access";
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
+import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 import { z } from "zod";
 
 const deliveryAddressSchema = z.object({
@@ -87,7 +88,7 @@ export async function GET(req: NextRequest) {
       seasonPointsEarned = msp?.pointsEarned ?? 0;
     }
   }
-  const [subTier, subResaleHub, subscriptions, subscriptionPlan] = await Promise.all([
+  const [subTier, subResaleHub, subscriptions, subscriptionPlan, hasHubAccess] = await Promise.all([
     prisma.subscription.findFirst({
       where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
       select: { id: true },
@@ -101,6 +102,7 @@ export async function GET(req: NextRequest) {
       select: { plan: true, status: true },
     }),
     resolveEffectiveNwcPlan(session.user.id),
+    hasBusinessHubAccess(session.user.id),
   ]);
   const paidSlugSet = new Set<string>(NWC_PAID_PLAN_SLUGS);
   const hasPaidSubscription = subscriptions.some((s) => paidSlugSet.has(s.plan));
@@ -111,6 +113,8 @@ export async function GET(req: NextRequest) {
     isSubscriber: !!subTier,
     /** Resident Subscribe ($10/mo) only — NWC Resale Hub; Business/Seller use Seller Hub for resale listings. */
     hasResaleHubAccess: !!subResaleHub,
+    /** Active Business/Seller plan or admin-assigned business (`adminGrantedAt`). */
+    hasBusinessHubAccess: hasHubAccess,
     hasPaidSubscription,
     subscriptionPlan,
     subscriptions: subscriptions.map((s) => ({ plan: s.plan, status: s.status })),

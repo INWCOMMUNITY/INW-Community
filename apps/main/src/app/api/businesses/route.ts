@@ -15,11 +15,8 @@ import {
   parseSubcategoriesByPrimary,
 } from "@/lib/business-categories";
 import { z } from "zod";
-import {
-  NWC_PAID_PLAN_ACCESS_STATUSES,
-  prismaWhereMemberSellerPlanAccess,
-  prismaWhereMemberSponsorOrSellerPlanAccess,
-} from "@/lib/nwc-paid-subscription";
+import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 import { linkAllUnscopedStoreItemsToBusiness } from "@/lib/migrate-resale-items-for-seller-plan";
 import { photosExcludingLogo } from "@/lib/business-photos";
 import { isCouponActiveByExpiresAt } from "@/lib/coupon-expiration";
@@ -34,11 +31,8 @@ export async function GET(req: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const sub = await prisma.subscription.findFirst({
-      where: prismaWhereMemberSponsorOrSellerPlanAccess(session.user.id),
-    });
-    if (!sub) {
-      return NextResponse.json({ error: "Business or Seller plan required" }, { status: 403 });
+    if (!(await hasBusinessHubAccess(session.user.id))) {
+      return NextResponse.json({ error: "Business Hub access required" }, { status: 403 });
     }
     const businesses = await prisma.business.findMany({
       where: { memberId: session.user.id },
@@ -228,18 +222,18 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const sub = await prisma.subscription.findFirst({
-    where: prismaWhereMemberSponsorOrSellerPlanAccess(session.user.id),
-  });
-  if (!sub) {
-    return NextResponse.json({ error: "Business or Seller plan required" }, { status: 403 });
+  if (!(await hasBusinessHubAccess(session.user.id))) {
+    return NextResponse.json({ error: "Business Hub access required" }, { status: 403 });
   }
   const existingCount = await prisma.business.count({
     where: { memberId: session.user.id },
   });
   if (existingCount >= 2) {
     return NextResponse.json(
-      { error: "Maximum 2 businesses per Business or Seller subscription. Edit an existing business or delete one to add another." },
+      {
+        error:
+          "Maximum 2 businesses per Business Hub account. Edit an existing business or delete one to add another.",
+      },
       { status: 403 }
     );
   }

@@ -25,12 +25,15 @@ export function ProfileViewProvider({
   hasSponsor,
   hasSeller,
   hasSubscriber,
+  hasBusinessHubFromApi,
   defaultView,
 }: {
   children: React.ReactNode;
   hasSponsor: boolean;
   hasSeller: boolean;
   hasSubscriber: boolean;
+  /** True when /api/me reports Business Hub access (incl. admin-assigned business). */
+  hasBusinessHubFromApi: boolean;
   defaultView: ProfileView;
 }) {
   const [profileView, setProfileView] = useState<ProfileView>(defaultView);
@@ -40,8 +43,8 @@ export function ProfileViewProvider({
     setProfileView(defaultView);
   }, [defaultView]);
   const [switcherVisible, setSwitcherVisible] = useState(false);
-  const showSwitcher = hasSponsor || hasSeller || hasSubscriber;
-  const hasBusinessHub = hasSponsor || hasSeller;
+  const hasBusinessHub = hasSponsor || hasSeller || hasBusinessHubFromApi;
+  const showSwitcher = hasBusinessHub || hasSubscriber;
   const openSwitcher = useCallback(() => setSwitcherVisible(true), []);
   const closeSwitcher = useCallback(() => setSwitcherVisible(false), []);
 
