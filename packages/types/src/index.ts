@@ -88,3 +88,8 @@ export {
   orderEligibleForAnotherShippoLabel,
   type StoreOrderForAnotherLabel,
 } from "./shippo-order-label-eligibility";
+
+export {
+  CHAT_COMPOSER_TYPING_REFRESH_MS,
+  CHAT_PEER_TYPING_INDICATOR_TTL_MS,
+} from "./chat-typing-timers";

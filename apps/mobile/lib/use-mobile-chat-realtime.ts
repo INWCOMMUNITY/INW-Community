@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, type FlatList } from "react-native";
+import { InteractionManager, Platform, type FlatList } from "react-native";
 import { io, type Socket } from "socket.io-client";
 import { apiGet, getToken } from "./api";
 import { getDirectRealtimeUrl } from "./direct-realtime";
 import { isLiveSocketMessagePayload, type LiveSocketMessagePayload } from "./chat-live-types";
+import { CHAT_COMPOSER_TYPING_REFRESH_MS, CHAT_PEER_TYPING_INDICATOR_TTL_MS } from "./chat-typing-timers";
 
 export type { LiveSocketMessagePayload };
 
@@ -54,13 +55,19 @@ export function useMobileChatRealtime(
     authLoading?: boolean;
     /** Append incoming message from Socket.IO without waiting for a full refetch (Instagram-style). */
     onLiveMessage?: (payload: LiveSocketMessagePayload) => void;
+    /** Typing pings only while the composer is actually focused (keyboard session). */
+    isComposerFocused?: () => boolean;
   }
 ): {
   typingBanner: string | null;
   typingPeerIds: string[];
   peerPresenceIds: string[];
+  /** True while the message field is focused (keyboard up) — your green typing preview + socket typing. */
+  localComposerTypingActive: boolean;
   onComposerChange: (text: string, setMessage: (t: string) => void) => void;
   stopComposerTyping: () => void;
+  /** Call when the message field focuses/blurs (keyboard session). */
+  onComposerFocusChange: (focused: boolean) => void;
 } {
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -72,11 +79,14 @@ export function useMobileChatRealtime(
   const authLoading = options?.authLoading ?? false;
   const onLiveMessageRef = useRef(options?.onLiveMessage);
   onLiveMessageRef.current = options?.onLiveMessage;
+  const isComposerFocusedProbeRef = useRef(options?.isComposerFocused);
+  isComposerFocusedProbeRef.current = options?.isComposerFocused;
 
   const [typingMemberIds, setTypingMemberIds] = useState<string[]>([]);
   const [peerPresenceIds, setPeerPresenceIds] = useState<string[]>([]);
+  const [localComposerTypingActive, setLocalComposerTypingActive] = useState(false);
   const socketRef = useRef<Socket | null>(null);
-  const typingIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const composerTypingRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const peerTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const typingPeerIds = useMemo(() => {
@@ -104,24 +114,20 @@ export function useMobileChatRealtime(
     const cfg = RT[kind];
     let cancelled = false;
     let socket: Socket | null = null;
-    /** Same ref as connect + reconnect handlers — needed for cleanup `off`. */
     let emitJoinHandler: (() => void) | null = null;
 
     void (async () => {
       const token = await getToken();
       const trimmed = token?.trim();
       if (!trimmed || cancelled) return;
-      /** Same as web: short-lived `nwc-realtime` JWT. Raw mobile JWT can fail verify on the socket server (issuer/exp skew). */
       let socketAuth = trimmed;
       try {
         const { token: rt } = await apiGet<{ token: string }>("/api/realtime/token");
         if (typeof rt === "string" && rt.length > 0) socketAuth = rt;
       } catch {
-        /* fall back to mobile Bearer — may work for local dev */
+        /* fall back to mobile Bearer */
       }
       if (cancelled) return;
-      // RN WebSockets often fail first with a generic "websocket error" (TLS/proxy/Railway) while
-      // Engine.IO polling over HTTPS works. Web tries websocket first for lower latency.
       const transports =
         Platform.OS === "web" ? (["websocket", "polling"] as const) : (["polling", "websocket"] as const);
       socket = io(url, {
@@ -178,12 +184,16 @@ export function useMobileChatRealtime(
         ) {
           onLiveMessageRef.current(payload);
           const fl = flatListRefHolder.current?.current;
-          const scrollEnd = () => fl?.scrollToEnd({ animated: true });
-          requestAnimationFrame(() => {
-            scrollEnd();
-            setTimeout(scrollEnd, 80);
-            setTimeout(() => fl?.scrollToEnd({ animated: false }), 280);
-          });
+          if (fl) {
+            /** One smooth scroll after layout; avoid repeated scrollToEnd + animated:false snaps (visible glitch). */
+            const scrollSmooth = () => fl.scrollToEnd({ animated: true });
+            InteractionManager.runAfterInteractions(() => {
+              requestAnimationFrame(() => {
+                requestAnimationFrame(scrollSmooth);
+              });
+            });
+            return;
+          }
           return;
         }
         const convId =
@@ -215,7 +225,7 @@ export function useMobileChatRealtime(
           peerTimeoutsRef.current[mid] = setTimeout(() => {
             delete peerTimeoutsRef.current[mid];
             setTypingMemberIds((ids) => ids.filter((x) => x !== mid));
-          }, 2800);
+          }, CHAT_PEER_TYPING_INDICATOR_TTL_MS);
         } else {
           delete peerTimeoutsRef.current[mid];
           setTypingMemberIds((ids) => ids.filter((x) => x !== mid));
@@ -249,7 +259,10 @@ export function useMobileChatRealtime(
       socketRef.current = null;
       Object.values(peerTimeoutsRef.current).forEach((t) => clearTimeout(t));
       peerTimeoutsRef.current = {};
-      if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
+      if (composerTypingRefreshRef.current) {
+        clearInterval(composerTypingRefreshRef.current);
+        composerTypingRefreshRef.current = null;
+      }
       if (socket) {
         const leaveId = conversationIdRef.current;
         if (leaveId) {
@@ -275,21 +288,60 @@ export function useMobileChatRealtime(
     [kind, conversationId]
   );
 
-  const onComposerChange = useCallback(
-    (text: string, setMessage: (t: string) => void) => {
-      setMessage(text);
-      if (!conversationId) return;
-      emitTyping(true);
-      if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
-      typingIdleRef.current = setTimeout(() => emitTyping(false), 2000);
-    },
-    [conversationId, emitTyping]
-  );
+  const clearComposerTypingRefresh = useCallback(() => {
+    if (composerTypingRefreshRef.current) {
+      clearInterval(composerTypingRefreshRef.current);
+      composerTypingRefreshRef.current = null;
+    }
+  }, []);
+
+  const clearComposerTypingSession = useCallback(() => {
+    clearComposerTypingRefresh();
+    emitTyping(false);
+    setLocalComposerTypingActive(false);
+  }, [emitTyping, clearComposerTypingRefresh]);
+
+  const onComposerChange = useCallback((text: string, setMessage: (t: string) => void) => {
+    setMessage(text);
+  }, []);
 
   const stopComposerTyping = useCallback(() => {
-    if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
-    emitTyping(false);
-  }, [emitTyping]);
+    clearComposerTypingSession();
+  }, [clearComposerTypingSession]);
 
-  return { typingBanner, typingPeerIds, peerPresenceIds, onComposerChange, stopComposerTyping };
+  const onComposerFocusChange = useCallback(
+    (focused: boolean) => {
+      if (!conversationId) return;
+      if (!focused) {
+        clearComposerTypingSession();
+        return;
+      }
+      const probe = isComposerFocusedProbeRef.current;
+      if (probe && !probe()) return;
+      clearComposerTypingRefresh();
+      emitTyping(true);
+      setLocalComposerTypingActive(true);
+      composerTypingRefreshRef.current = setInterval(() => {
+        const p = isComposerFocusedProbeRef.current;
+        if (p && !p()) {
+          clearComposerTypingRefresh();
+          emitTyping(false);
+          setLocalComposerTypingActive(false);
+          return;
+        }
+        emitTyping(true);
+      }, CHAT_COMPOSER_TYPING_REFRESH_MS);
+    },
+    [conversationId, emitTyping, clearComposerTypingSession, clearComposerTypingRefresh]
+  );
+
+  return {
+    typingBanner,
+    typingPeerIds,
+    peerPresenceIds,
+    localComposerTypingActive,
+    onComposerChange,
+    stopComposerTyping,
+    onComposerFocusChange,
+  };
 }

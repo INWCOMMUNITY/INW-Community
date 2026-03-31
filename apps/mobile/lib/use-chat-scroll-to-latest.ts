@@ -47,11 +47,9 @@ export function useChatScrollToLatest(
   useEffect(() => {
     const eventName = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const sub = Keyboard.addListener(eventName, () => {
-      const smooth = () => scrollToLatest(true);
-      const snap = () => scrollToLatest(false);
-      requestAnimationFrame(smooth);
-      setTimeout(snap, 100);
-      setTimeout(snap, 320);
+      requestAnimationFrame(() => {
+        scrollToLatest(true);
+      });
     });
     return () => sub.remove();
   }, [scrollToLatest]);

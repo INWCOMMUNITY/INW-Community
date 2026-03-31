@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { io, type Socket } from "socket.io-client";
 import { apiGet, getToken } from "./api";
@@ -26,6 +26,7 @@ function tabToChannel(tab: InboxTab): ChatChannel {
   return "direct";
 }
 
+/** Live messages + read on the inbox list. Typing is only shown inside an open thread, not on row previews. */
 export function useMessagesInboxRealtime(options: {
   tab: InboxTab;
   conversationIds: string[];
@@ -37,7 +38,7 @@ export function useMessagesInboxRealtime(options: {
   onLiveRead: (channel: ChatChannel, conversationId: string) => void;
   /** Refetch lists when activity references a conversation we are not showing (e.g. new thread). */
   onRefreshLists: () => void;
-}): { typingByConversationId: Record<string, boolean> } {
+}): void {
   const {
     tab,
     conversationIds,
@@ -49,48 +50,19 @@ export function useMessagesInboxRealtime(options: {
     onRefreshLists,
   } = options;
 
-  const [typingByConversationId, setTypingByConversationId] = useState<Record<string, boolean>>({});
-  const typingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-
   const socketRef = useRef<Socket | null>(null);
   const joinedRef = useRef<{ kind: ChatChannel; id: string }[]>([]);
   const tabRef = useRef(tab);
   const idsRef = useRef(conversationIds);
-  const memberIdRef = useRef(memberId);
   const onLiveMessageRef = useRef(onLiveMessage);
   const onLiveReadRef = useRef(onLiveRead);
   const onRefreshListsRef = useRef(onRefreshLists);
 
   tabRef.current = tab;
   idsRef.current = conversationIds;
-  memberIdRef.current = memberId;
   onLiveMessageRef.current = onLiveMessage;
   onLiveReadRef.current = onLiveRead;
   onRefreshListsRef.current = onRefreshLists;
-
-  const applyTyping = useCallback((conversationId: string, active: boolean, fromMemberId: string) => {
-    if (!fromMemberId || fromMemberId === memberIdRef.current) return;
-    const prevT = typingTimersRef.current[conversationId];
-    if (prevT) clearTimeout(prevT);
-    if (active) {
-      setTypingByConversationId((m) => ({ ...m, [conversationId]: true }));
-      typingTimersRef.current[conversationId] = setTimeout(() => {
-        delete typingTimersRef.current[conversationId];
-        setTypingByConversationId((m) => {
-          const next = { ...m };
-          delete next[conversationId];
-          return next;
-        });
-      }, 2800);
-    } else {
-      delete typingTimersRef.current[conversationId];
-      setTypingByConversationId((m) => {
-        const next = { ...m };
-        delete next[conversationId];
-        return next;
-      });
-    }
-  }, []);
 
   useEffect(() => {
     if (!enabled || authLoading) return;
@@ -126,18 +98,6 @@ export function useMessagesInboxRealtime(options: {
       });
       socketRef.current = socket;
 
-      const handleTyping = (channel: ChatChannel, data: { conversationId?: string; memberId?: string; active?: boolean }) => {
-        const cid = data.conversationId;
-        if (!cid || !data.memberId) return;
-        const t = tabRef.current;
-        const ok =
-          (channel === "direct" && t === "direct") ||
-          (channel === "group" && t === "groups") ||
-          (channel === "resale" && t === "resale");
-        if (!ok || !idsRef.current.includes(cid)) return;
-        applyTyping(cid, Boolean(data.active), data.memberId);
-      };
-
       const onMessage = (channel: ChatChannel, p: unknown) => {
         if (!isLiveSocketMessagePayload(p)) return;
         const t = tabRef.current;
@@ -171,15 +131,6 @@ export function useMessagesInboxRealtime(options: {
       socket.on("direct:read", (payload: unknown) => onRead("direct", payload as { conversationId?: string }));
       socket.on("group:read", (payload: unknown) => onRead("group", payload as { conversationId?: string }));
       socket.on("resale:read", (payload: unknown) => onRead("resale", payload as { conversationId?: string }));
-      socket.on("direct:typing", (d: { conversationId?: string; memberId?: string; active?: boolean }) =>
-        handleTyping("direct", d)
-      );
-      socket.on("group:typing", (d: { conversationId?: string; memberId?: string; active?: boolean }) =>
-        handleTyping("group", d)
-      );
-      socket.on("resale:typing", (d: { conversationId?: string; memberId?: string; active?: boolean }) =>
-        handleTyping("resale", d)
-      );
 
       const syncJoins = () => {
         const sock = socketRef.current;
@@ -215,9 +166,6 @@ export function useMessagesInboxRealtime(options: {
     return () => {
       cancelled = true;
       socketRef.current = null;
-      Object.values(typingTimersRef.current).forEach((t) => clearTimeout(t));
-      typingTimersRef.current = {};
-      setTypingByConversationId({});
       if (socket) {
         for (const r of joinedRef.current) {
           socket.emit(LEAVE[r.kind], r.id);
@@ -230,7 +178,7 @@ export function useMessagesInboxRealtime(options: {
         socket.disconnect();
       }
     };
-  }, [enabled, authLoading, memberId, applyTyping]);
+  }, [enabled, authLoading, memberId]);
 
   useEffect(() => {
     const sock = socketRef.current;
@@ -247,6 +195,4 @@ export function useMessagesInboxRealtime(options: {
       });
     }
   }, [tab, conversationIds, enabled, authLoading]);
-
-  return { typingByConversationId };
 }

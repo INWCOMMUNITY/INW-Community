@@ -36,8 +36,12 @@ import { normalizeRouteParam } from "@/lib/normalize-route-param";
 import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
 import { setOpenChatConversationId } from "@/lib/chat-notification-suppression";
 import { useChatScrollToLatest } from "@/lib/use-chat-scroll-to-latest";
-import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
-import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
+import {
+  ChatIncomingActivityFooter,
+  ChatSeenLine,
+  LocalComposerTypingPreview,
+  type ChatTypingPeer,
+} from "@/components/ChatTypingRow";
 import { GifPickerModal } from "@/components/GifPickerModal";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -163,8 +167,11 @@ export default function DirectConversationScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [acceptDeclineLoading, setAcceptDeclineLoading] = useState(false);
   const [listRefreshing, setListRefreshing] = useState(false);
+  const composerInputRef = useRef<TextInput | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const lastTapRef = useRef<{ messageId: string; time: number } | null>(null);
+  /** Prevents double submit (rapid double-tap, multiline keyboard + send button). */
+  const outboundLockRef = useRef(false);
 
   useChatScrollToLatest(flatListRef, {
     conversationId: convId,
@@ -254,13 +261,29 @@ export default function DirectConversationScreen() {
     });
   }, [convId]);
 
-  const { typingPeerIds, peerPresenceIds, onComposerChange, stopComposerTyping } = useMobileChatRealtime(
-    "direct",
-    convId,
-    member?.id,
-    load,
-    { flatListRef, memberNamesById: directTypingNames, authLoading, onLiveMessage: onLiveDirectMessage }
-  );
+  const {
+    typingPeerIds,
+    peerPresenceIds,
+    localComposerTypingActive,
+    onComposerChange,
+    stopComposerTyping,
+    onComposerFocusChange,
+  } = useMobileChatRealtime("direct", convId, member?.id, load, {
+    flatListRef,
+    memberNamesById: directTypingNames,
+    authLoading,
+    onLiveMessage: onLiveDirectMessage,
+    isComposerFocused: () => composerInputRef.current?.isFocused() ?? false,
+  });
+
+  const localTypingPeer = useMemo((): ChatTypingPeer | null => {
+    if (!member?.id) return null;
+    return {
+      id: member.id,
+      name: `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() || "You",
+      photoUrl: resolvePhotoUrl(member.profilePhotoUrl ?? undefined) ?? null,
+    };
+  }, [member]);
 
   const typingPeersResolved = useMemo((): ChatTypingPeer[] => {
     if (!conv || !member?.id || typingPeerIds.length === 0) return [];
@@ -287,6 +310,11 @@ export default function DirectConversationScreen() {
       return { id, name, photoUrl: resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null };
     });
   }, [conv, peerPresenceIds]);
+
+  const presenceOnlyPeers = useMemo((): ChatTypingPeer[] => {
+    const typingSet = new Set(typingPeerIds);
+    return chatPresencePeers.filter((p) => !typingSet.has(p.id));
+  }, [chatPresencePeers, typingPeerIds]);
 
   const showDirectSeen = useMemo(() => {
     if (!conv || !member?.id) return false;
@@ -486,6 +514,9 @@ export default function DirectConversationScreen() {
   };
 
   const postPhotoAttachmentMessage = async (fullUrl: string) => {
+    if (outboundLockRef.current) return;
+    outboundLockRef.current = true;
+    try {
     const res = await apiPostWithRetry<{
       id: string;
       content: string;
@@ -535,11 +566,13 @@ export default function DirectConversationScreen() {
       return { ...prev, messages: [...prev.messages, ...newMessages] };
     });
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    } finally {
+      outboundLockRef.current = false;
+    }
   };
 
   const pickAndSendPhoto = async () => {
     if (!conv || sending || uploadingPhoto) return;
-    stopComposerTyping();
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission needed", "Allow access to photos and GIFs to share images.");
@@ -551,6 +584,7 @@ export default function DirectConversationScreen() {
       quality: 0.8,
     });
     if (result.canceled || !result.assets[0]) return;
+    stopComposerTyping();
     const asset = result.assets[0];
     const mime = asset.mimeType ?? "image/jpeg";
     const isGif = mime === "image/gif" || /\.gif(\?|$)/i.test(asset.uri);
@@ -570,6 +604,7 @@ export default function DirectConversationScreen() {
       Alert.alert("Error", (e as { error?: string }).error ?? "Photo upload failed.");
     } finally {
       setUploadingPhoto(false);
+      if (composerInputRef.current?.isFocused()) onComposerFocusChange(true);
     }
   };
 
@@ -583,11 +618,14 @@ export default function DirectConversationScreen() {
       Alert.alert("Error", (e as { error?: string }).error ?? "Could not send GIF.");
     } finally {
       setUploadingPhoto(false);
+      if (composerInputRef.current?.isFocused()) onComposerFocusChange(true);
     }
   };
 
   const send = async () => {
-    if (!conv || !message.trim() || sending || !member?.id) return;
+    if (!conv || !message.trim() || !member?.id) return;
+    if (outboundLockRef.current || sending) return;
+    outboundLockRef.current = true;
     const text = message.trim();
     const tempId = newOptimisticMessageId();
     stopComposerTyping();
@@ -660,7 +698,9 @@ export default function DirectConversationScreen() {
       const err = e as { error?: string };
       Alert.alert("Message not sent", err.error ?? "Please try again.");
     } finally {
+      outboundLockRef.current = false;
       setSending(false);
+      if (composerInputRef.current?.isFocused()) onComposerFocusChange(true);
     }
   };
 
@@ -724,10 +764,6 @@ export default function DirectConversationScreen() {
         </Pressable>
       </View>
 
-      {typingPeersResolved.length > 0 && !isMessageRequest && (
-        <ChatTypingRow peers={typingPeersResolved} />
-      )}
-
       {isMessageRequest && (
         <View style={styles.requestBanner}>
           <Text style={styles.requestBannerText}>Message request — accept to continue the conversation</Text>
@@ -778,7 +814,7 @@ export default function DirectConversationScreen() {
       <FlatList
         ref={flatListRef}
         data={conv.messages ?? []}
-        extraData={conv.messages?.length ?? 0}
+        extraData={`${conv.messages?.length ?? 0}-${typingPeersResolved.length}-${chatPresencePeers.length}-${showDirectSeen}-${localComposerTypingActive}`}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
         onScroll={onBottomPullScroll}
         scrollEventThrottle={scrollEventThrottle}
@@ -786,9 +822,19 @@ export default function DirectConversationScreen() {
         overScrollMode="always"
         contentContainerStyle={styles.messageList}
         ListFooterComponent={
-          showDirectSeen || chatPresencePeers.length > 0 ? (
-            <ChatSeenPresenceFooter showSeen={showDirectSeen} peers={chatPresencePeers} />
-          ) : null
+          <>
+            {!isMessageRequest &&
+            (typingPeersResolved.length > 0 || chatPresencePeers.length > 0) ? (
+              <ChatIncomingActivityFooter
+                typingPeers={typingPeersResolved}
+                presenceOnlyPeers={presenceOnlyPeers}
+              />
+            ) : null}
+            {localComposerTypingActive && localTypingPeer && !isMessageRequest ? (
+              <LocalComposerTypingPreview peer={localTypingPeer} />
+            ) : null}
+            {!isMessageRequest ? <ChatSeenLine visible={showDirectSeen} /> : null}
+          </>
         }
         renderItem={({ item }) => {
           const isMe = item.senderId === member?.id;
@@ -916,6 +962,7 @@ export default function DirectConversationScreen() {
           </Pressable>
         </View>
         <TextInput
+          ref={composerInputRef}
           style={styles.input}
           placeholder="Message..."
           placeholderTextColor={theme.colors.placeholder}
@@ -923,10 +970,12 @@ export default function DirectConversationScreen() {
           onChangeText={(t) => onComposerChange(t, setMessage)}
           multiline={true}
           maxLength={5000}
-          onSubmitEditing={send}
+          blurOnSubmit={false}
           autoCorrect={true}
           autoComplete="off"
           textContentType="none"
+          onFocus={() => onComposerFocusChange(true)}
+          onBlur={() => onComposerFocusChange(false)}
         />
         <Pressable
           style={({ pressed }) => [styles.sendBtn, (!message.trim() || sending) && styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
+import { CHAT_PEER_TYPING_INDICATOR_TTL_MS } from "types";
 import { isLiveSocketMessagePayload, type LiveSocketMessagePayload } from "@/lib/chat-live-types";
 
 export type { LiveSocketMessagePayload };
@@ -311,7 +312,7 @@ export function useMessagesPageRealtime(options: {
           peerTimeoutsRef.current[mid] = setTimeout(() => {
             delete peerTimeoutsRef.current[mid];
             setTypingMemberIds((ids) => ids.filter((x) => x !== mid));
-          }, 2800);
+          }, CHAT_PEER_TYPING_INDICATOR_TTL_MS);
         } else {
           delete peerTimeoutsRef.current[mid];
           setTypingMemberIds((ids) => ids.filter((x) => x !== mid));

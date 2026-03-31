@@ -225,7 +225,7 @@ export default function MessagesInboxScreen() {
     [myId]
   );
 
-  const { typingByConversationId } = useMessagesInboxRealtime({
+  useMessagesInboxRealtime({
     tab,
     conversationIds: listIds,
     authLoading,
@@ -344,7 +344,6 @@ export default function MessagesInboxScreen() {
         <FlatList
           data={list}
           keyExtractor={(item) => item.id}
-          extraData={typingByConversationId}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
           }
@@ -362,7 +361,7 @@ export default function MessagesInboxScreen() {
                   const sub = inboxPreviewSubtitle({
                     previewBase,
                     unreadFromOthers: c.unreadCount ?? 0,
-                    isTyping: Boolean(typingByConversationId[c.id]),
+                    isTyping: false,
                     emptyLabel: "Message request",
                   });
                   return (
@@ -430,7 +429,7 @@ export default function MessagesInboxScreen() {
               const sub = inboxPreviewSubtitle({
                 previewBase,
                 unreadFromOthers: c.unreadCount ?? 0,
-                isTyping: Boolean(typingByConversationId[c.id]),
+                isTyping: false,
                 emptyLabel: "No messages yet",
               });
               return (
@@ -474,7 +473,7 @@ export default function MessagesInboxScreen() {
               const sub = inboxPreviewSubtitle({
                 previewBase,
                 unreadFromOthers: c.unreadCount ?? 0,
-                isTyping: Boolean(typingByConversationId[c.id]),
+                isTyping: false,
                 emptyLabel: "No messages yet",
               });
               return (
@@ -517,7 +516,7 @@ export default function MessagesInboxScreen() {
             const sub = inboxPreviewSubtitle({
               previewBase,
               unreadFromOthers: c.unreadCount ?? 0,
-              isTyping: Boolean(typingByConversationId[c.id]),
+              isTyping: false,
               emptyLabel: "No messages yet",
             });
             return (

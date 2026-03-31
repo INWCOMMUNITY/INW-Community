@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef, useMemo } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo, Fragment } from "react";
 import {
   View,
   Text,
@@ -29,8 +29,12 @@ import { normalizeRouteParam } from "@/lib/normalize-route-param";
 import { setOpenChatConversationId } from "@/lib/chat-notification-suppression";
 import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
 import { useChatScrollToLatest } from "@/lib/use-chat-scroll-to-latest";
-import { ChatTypingRow, type ChatTypingPeer } from "@/components/ChatTypingRow";
-import { ChatSeenPresenceFooter } from "@/components/ChatSeenPresenceFooter";
+import {
+  ChatIncomingActivityFooter,
+  ChatSeenLine,
+  LocalComposerTypingPreview,
+  type ChatTypingPeer,
+} from "@/components/ChatTypingRow";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -67,7 +71,9 @@ export default function ResaleConversationScreen() {
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [listRefreshing, setListRefreshing] = useState(false);
+  const composerInputRef = useRef<TextInput | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const outboundLockRef = useRef(false);
 
   useChatScrollToLatest(flatListRef, {
     conversationId: convId,
@@ -156,13 +162,29 @@ export default function ResaleConversationScreen() {
     });
   }, [convId]);
 
-  const { typingPeerIds, peerPresenceIds, onComposerChange, stopComposerTyping } = useMobileChatRealtime(
-    "resale",
-    convId,
-    member?.id,
-    load,
-    { flatListRef, memberNamesById: resaleTypingNames, authLoading, onLiveMessage: onLiveResaleMessage }
-  );
+  const {
+    typingPeerIds,
+    peerPresenceIds,
+    localComposerTypingActive,
+    onComposerChange,
+    stopComposerTyping,
+    onComposerFocusChange,
+  } = useMobileChatRealtime("resale", convId, member?.id, load, {
+    flatListRef,
+    memberNamesById: resaleTypingNames,
+    authLoading,
+    onLiveMessage: onLiveResaleMessage,
+    isComposerFocused: () => composerInputRef.current?.isFocused() ?? false,
+  });
+
+  const localTypingPeer = useMemo((): ChatTypingPeer | null => {
+    if (!member?.id) return null;
+    return {
+      id: member.id,
+      name: `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() || "You",
+      photoUrl: resolvePhotoUrl(member.profilePhotoUrl ?? undefined) ?? null,
+    };
+  }, [member]);
 
   const typingPeersResolved = useMemo((): ChatTypingPeer[] => {
     if (!conv || !member?.id || typingPeerIds.length === 0) return [];
@@ -190,6 +212,11 @@ export default function ResaleConversationScreen() {
       };
     });
   }, [conv, peerPresenceIds]);
+
+  const presenceOnlyPeers = useMemo((): ChatTypingPeer[] => {
+    const typingSet = new Set(typingPeerIds);
+    return chatPresencePeers.filter((p) => !typingSet.has(p.id));
+  }, [chatPresencePeers, typingPeerIds]);
 
   const showResaleSeen = useMemo(() => {
     if (!conv || !member?.id) return false;
@@ -281,7 +308,9 @@ export default function ResaleConversationScreen() {
   };
 
   const send = async () => {
-    if (!conv || !message.trim() || sending || !member?.id) return;
+    if (!conv || !message.trim() || !member?.id) return;
+    if (outboundLockRef.current || sending) return;
+    outboundLockRef.current = true;
     const memberId = member.id;
     const text = message.trim();
     const tempId = newOptimisticMessageId();
@@ -344,7 +373,9 @@ export default function ResaleConversationScreen() {
       );
       setMessage(text);
     } finally {
+      outboundLockRef.current = false;
       setSending(false);
+      if (composerInputRef.current?.isFocused()) onComposerFocusChange(true);
     }
   };
 
@@ -415,12 +446,10 @@ export default function ResaleConversationScreen() {
         </Modal>
       )}
 
-      {typingPeersResolved.length > 0 && <ChatTypingRow peers={typingPeersResolved} />}
-
       <FlatList
         ref={flatListRef}
         data={conv.messages ?? []}
-        extraData={conv.messages?.length ?? 0}
+        extraData={`${conv.messages?.length ?? 0}-${typingPeersResolved.length}-${chatPresencePeers.length}-${showResaleSeen}-${localComposerTypingActive}`}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
         onScroll={onBottomPullScroll}
         scrollEventThrottle={scrollEventThrottle}
@@ -428,9 +457,18 @@ export default function ResaleConversationScreen() {
         overScrollMode="always"
         contentContainerStyle={styles.messageList}
         ListFooterComponent={
-          showResaleSeen || chatPresencePeers.length > 0 ? (
-            <ChatSeenPresenceFooter showSeen={showResaleSeen} peers={chatPresencePeers} />
-          ) : null
+          <Fragment>
+            {typingPeersResolved.length > 0 || chatPresencePeers.length > 0 ? (
+              <ChatIncomingActivityFooter
+                typingPeers={typingPeersResolved}
+                presenceOnlyPeers={presenceOnlyPeers}
+              />
+            ) : null}
+            {localComposerTypingActive && localTypingPeer ? (
+              <LocalComposerTypingPreview peer={localTypingPeer} />
+            ) : null}
+            <ChatSeenLine visible={showResaleSeen} />
+          </Fragment>
         }
         renderItem={({ item }) => {
           const isMe = item.senderId === member?.id;
@@ -452,6 +490,7 @@ export default function ResaleConversationScreen() {
 
       <View style={styles.inputRow}>
         <TextInput
+          ref={composerInputRef}
           style={styles.input}
           placeholder="Message..."
           placeholderTextColor={theme.colors.placeholder}
@@ -459,8 +498,10 @@ export default function ResaleConversationScreen() {
           onChangeText={(t) => onComposerChange(t, setMessage)}
           multiline
           maxLength={5000}
-          onSubmitEditing={send}
+          blurOnSubmit={false}
           autoCorrect={true}
+          onFocus={() => onComposerFocusChange(true)}
+          onBlur={() => onComposerFocusChange(false)}
         />
         <Pressable
           style={({ pressed }) => [styles.sendBtn, (!message.trim() || sending) && styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}
