@@ -45,9 +45,14 @@ export const authOptions = {
     },
     // eslint-disable-next-line
     async session({ session, token }: any) {
-      if (session.user) {
-        (session.user as { id?: string }).id = token.id as string;
-        const memberId = token.id as string | undefined;
+      if (!session.user) return session;
+      const memberId = token.id as string | undefined;
+      const tokenEmail = token.email as string | undefined;
+      if (tokenEmail && !session.user.email) {
+        (session.user as { email?: string }).email = tokenEmail;
+      }
+      (session.user as { id?: string }).id = memberId;
+      try {
         if (memberId) {
           const [subTier, subResale] = await Promise.all([
             prisma.subscription.findFirst({
@@ -62,10 +67,12 @@ export const authOptions = {
           (session.user as { isSubscriber?: boolean }).isSubscriber = !!subTier;
           /** NWC Resale Hub — Resident Subscribe plan only (not Business/Seller). */
           (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = !!subResale;
+        } else {
+          (session.user as { isSubscriber?: boolean }).isSubscriber = false;
+          (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = false;
         }
         const adminEmail = process.env.ADMIN_EMAIL?.trim();
-        let emailForAdmin =
-          (token.email as string | undefined) ?? (session.user?.email as string | undefined);
+        let emailForAdmin = tokenEmail ?? (session.user?.email as string | undefined);
         if (!emailForAdmin && memberId && adminEmail) {
           const m = await prisma.member.findUnique({
             where: { id: memberId },
@@ -77,6 +84,11 @@ export const authOptions = {
           !!adminEmail &&
           !!emailForAdmin &&
           emailForAdmin.toLowerCase() === adminEmail.toLowerCase();
+      } catch (e) {
+        console.error("[next-auth session callback]", e);
+        (session.user as { isSubscriber?: boolean }).isSubscriber = false;
+        (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = false;
+        (session.user as { isAdmin?: boolean }).isAdmin = false;
       }
       return session;
     },

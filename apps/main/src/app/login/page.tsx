@@ -76,6 +76,12 @@ function LoginForm() {
         redirect: false,
       });
       if (res?.error) {
+        if (res.error === "Configuration") {
+          setError(
+            "Sign-in is misconfigured on the server. Ensure NEXTAUTH_SECRET and NEXTAUTH_URL are set correctly in production.",
+          );
+          return;
+        }
         const trimmed = email.trim().toLowerCase();
         const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
         if (looksLikeEmail) {
