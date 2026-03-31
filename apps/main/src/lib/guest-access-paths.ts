@@ -4,13 +4,16 @@
  */
 
 /** URL prefixes guests must not access — redirect to login with callbackUrl. */
+/** `/admin` is enforced in `app/admin/layout.tsx` via getServerSession (Node).
+ * Edge middleware getToken can fail while the server session is valid; skipping
+ * /admin here avoids a false "always guest" redirect loop on /admin.
+ */
 const GUEST_DENY_PREFIXES = [
   "/community-groups",
   "/seller-hub",
   "/business-hub",
   "/resale-hub",
   "/sponsor-hub",
-  "/admin",
 ] as const;
 
 export function isGuestAllowedMyCommunityPath(pathname: string): boolean {

@@ -88,7 +88,14 @@ export const authOptions = {
         console.error("[next-auth session callback]", e);
         (session.user as { isSubscriber?: boolean }).isSubscriber = false;
         (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = false;
-        (session.user as { isAdmin?: boolean }).isAdmin = false;
+        // Keep admin from JWT email when DB reads fail (timeouts) so ADMIN_EMAIL
+        // still matches without requiring subscription queries.
+        const adminEmail = process.env.ADMIN_EMAIL?.trim();
+        let emailForAdmin = tokenEmail ?? (session.user?.email as string | undefined);
+        (session.user as { isAdmin?: boolean }).isAdmin =
+          !!adminEmail &&
+          !!emailForAdmin &&
+          emailForAdmin.toLowerCase() === adminEmail.toLowerCase();
       }
       return session;
     },
@@ -115,7 +122,9 @@ export async function getServerSession(options?: typeof authOptions) {
     return await nextAuthGetServerSession(options ?? authOptions);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("reading 'get')") || msg.includes("null")) {
+    // Only swallow the known NextAuth/cookies null-headers failure — not every
+    // error that happens to mention "null" (that hid real bugs and looked like logout).
+    if (msg.includes("reading 'get')")) {
       return null;
     }
     throw e;

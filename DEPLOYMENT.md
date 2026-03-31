@@ -9,8 +9,10 @@
    | Variable        | Required | Notes                                                |
    |-----------------|----------|------------------------------------------------------|
    | `DATABASE_URL`  | Yes      | PostgreSQL connection string (e.g. Neon, Supabase)   |
-   | `NEXTAUTH_URL`  | Yes      | Production URL (e.g. `https://yoursite.com`)        |
+   | `NEXTAUTH_URL`  | Yes      | Production URL (e.g. `https://yoursite.com`), no trailing slash — must match the host users use (www vs apex) |
    | `NEXTAUTH_SECRET` | Yes   | Generate with `openssl rand -base64 32`             |
+   | `ADMIN_EMAIL`   | Yes (admin) | Must exactly match the **`Member.email`** you use to sign in at `/login` (case-insensitive). Without it, `/admin` API routes reject session auth. |
+   | `ADMIN_APP_ORIGIN` | If using standalone `apps/admin` | Comma-separated admin app origin(s) for CORS on `/api/admin` (e.g. `https://admin.yoursite.com`). |
    | `STRIPE_*`      | For payments | Stripe live keys and price IDs                    |
 
 3. **VERCEL_TOKEN** – For build automation scripts, add to your local `.env`:

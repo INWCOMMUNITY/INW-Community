@@ -1,10 +1,9 @@
 import { prisma } from "database";
 import Link from "next/link";
 import { headers } from "next/headers";
+import { getBaseUrl } from "@/lib/get-base-url";
 import { DashboardTodoList } from "./DashboardTodoList";
 import { DashboardQuote } from "./DashboardQuote";
-
-const BASE_URL = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -20,6 +19,7 @@ export default async function DashboardPage() {
   const monthEnd = endOfMonth(now);
   const headersList = await headers();
   const cookie = headersList.get("cookie") ?? "";
+  const baseUrl = getBaseUrl();
 
   const [
     membersCount,
@@ -55,13 +55,13 @@ export default async function DashboardPage() {
       },
       select: { quantity: true },
     }),
-    fetch(`${BASE_URL}/api/admin/stripe-stats`, {
+    fetch(`${baseUrl}/api/admin/stripe-stats`, {
       headers: { cookie },
       next: { revalidate: 60 },
     })
       .then((r) => r.json())
       .catch(() => ({ subscriptionRevenueThisMonthCents: 0 })),
-    fetch(`${BASE_URL}/api/admin/analytics`, {
+    fetch(`${baseUrl}/api/admin/analytics`, {
       headers: { cookie },
       next: { revalidate: 60 },
     })

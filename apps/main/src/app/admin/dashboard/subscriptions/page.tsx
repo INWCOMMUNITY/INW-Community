@@ -1,12 +1,12 @@
 import { prisma } from "database";
 import Link from "next/link";
 import { headers } from "next/headers";
-
-const BASE_URL = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+import { getBaseUrl } from "@/lib/get-base-url";
 
 export default async function AdminSubscriptionsPage() {
   const headersList = await headers();
   const cookie = headersList.get("cookie") ?? "";
+  const baseUrl = getBaseUrl();
   const [subscriptions, stripeStats] = await Promise.all([
     prisma.subscription.findMany({
       orderBy: { createdAt: "desc" },
@@ -14,7 +14,7 @@ export default async function AdminSubscriptionsPage() {
         member: { select: { id: true, email: true, firstName: true, lastName: true } },
       },
     }),
-    fetch(`${BASE_URL}/api/admin/stripe-stats`, {
+    fetch(`${baseUrl}/api/admin/stripe-stats`, {
       headers: { cookie },
       next: { revalidate: 60 },
     })
