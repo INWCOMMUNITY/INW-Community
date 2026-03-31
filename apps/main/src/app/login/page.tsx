@@ -110,9 +110,10 @@ function LoginForm() {
           );
           return;
         }
-        const trimmed = email.trim().toLowerCase();
+        const trimmed = email.trim();
         const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
-        if (looksLikeEmail) {
+        const looksLikePlainLoginId = /^[a-zA-Z0-9._-]{3,128}$/.test(trimmed);
+        if (looksLikeEmail || looksLikePlainLoginId) {
           const hintRes = await fetch("/api/auth/login-hint", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -305,7 +306,7 @@ function LoginForm() {
             </div>
             {loginError === "unknown_email" ? (
               <div className="text-red-600 text-sm space-y-1">
-                <p>Email not recognized. New to NWC?</p>
+                <p>That email or login ID is not registered. New to NWC?</p>
                 <p>
                   <Link
                     href={signUpHrefForPlan(selectedPlan)}

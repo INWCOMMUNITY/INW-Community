@@ -3,8 +3,8 @@ import { prisma } from "database";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 
 /**
- * Returns whether an email is registered. Used after a failed credentials sign-in
- * so we can show "email not recognized" vs "wrong password" without changing NextAuth.
+ * Returns whether a login id (email or admin-style id like NWCADMIN57611) is registered.
+ * Used after a failed credentials sign-in so we can show "not recognized" vs "wrong password".
  */
 export async function POST(req: NextRequest) {
   const key = `login-hint:${getClientIdentifier(req)}`;
@@ -15,13 +15,22 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ error: "Valid email required." }, { status: 400 });
+    const loginId = typeof body.email === "string" ? body.email.trim() : "";
+    if (!loginId || loginId.length > 200) {
+      return NextResponse.json({ error: "Login id required." }, { status: 400 });
+    }
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginId);
+    const isPlainLoginId = /^[a-zA-Z0-9._-]{3,128}$/.test(loginId);
+    if (loginId.includes("@")) {
+      if (!isEmail) {
+        return NextResponse.json({ error: "Invalid email." }, { status: 400 });
+      }
+    } else if (!isPlainLoginId) {
+      return NextResponse.json({ error: "Invalid login id." }, { status: 400 });
     }
 
     const member = await prisma.member.findFirst({
-      where: { email: { equals: email, mode: "insensitive" } },
+      where: { email: { equals: loginId, mode: "insensitive" } },
       select: { id: true },
     });
 
