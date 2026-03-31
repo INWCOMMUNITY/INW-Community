@@ -15,7 +15,15 @@ type NavItem =
   | { href: string; label: string; icon: string; children: NavChild[] };
 
 const navItems: NavItem[] = [
-  { href: "/", label: "Home", icon: "leaf-outline" },
+  {
+    label: "Home",
+    href: "/",
+    icon: "leaf-outline",
+    children: [
+      { href: "/", label: "Home" },
+      { href: "/download-app", label: "Download App" },
+    ],
+  },
   {
     label: "Community",
     href: "/my-community/feed",
@@ -63,11 +71,14 @@ const navItems: NavItem[] = [
 
 function isPathActive(pathname: string, item: (typeof navItems)[number]): boolean {
   const href = "href" in item ? item.href : "";
+  if ("children" in item && (item.children?.length ?? 0) > 0) {
+    const childMatch = (item.children ?? []).some(
+      (c) => pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href)),
+    );
+    if (childMatch) return true;
+  }
   if (href === "/") return pathname === "/";
   if (pathname === href) return true;
-  if ("children" in item) {
-    return (item.children ?? []).some((c) => pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href)));
-  }
   return pathname.startsWith(href);
 }
 

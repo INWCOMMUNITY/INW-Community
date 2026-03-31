@@ -3,12 +3,16 @@ import Image from "next/image";
 import { Section } from "design-tokens";
 import { WIX_IMG, WIX_HERO_GALLERY, WIX_SUBSCRIBE_BACKGROUND, CALENDAR_IMAGES } from "@/lib/wix-media";
 import { getSiteImageUrl } from "@/lib/site-images";
+import { DownloadAppStoreButtons } from "@/components/DownloadAppStoreButtons";
+import { getAndroidPlayStoreUrl, getIosAppStoreUrl } from "@/lib/app-store-urls";
 
 /** Green background used by logo section and Goals section right column (match opacity). */
 const SECTION_GREEN_BG = "rgba(80, 85, 66, 0.8)";
 
 export default async function HomePage() {
   const thanksLandscapeUrl = await getSiteImageUrl("thanks-landscape");
+  const iosAppStoreUrl = getIosAppStoreUrl();
+  const androidPlayStoreUrl = getAndroidPlayStoreUrl();
   return (
     <>
       <section className="relative min-h-[85vh] flex flex-col items-center justify-center px-4 py-16 text-center overflow-hidden">
@@ -47,7 +51,34 @@ export default async function HomePage() {
       </section>
 
       <section
-        className="grid grid-cols-1 md:grid-cols-2 min-w-0 w-full max-w-none items-center border-t-2 border-b-2"
+        className="w-full py-12 px-6 md:px-8 border-t-2 border-b-2 bg-white"
+        style={{ borderColor: SECTION_GREEN_BG }}
+      >
+        <div className="max-w-2xl mx-auto text-center">
+          <h2
+            className="text-2xl md:text-3xl font-bold mb-4"
+            style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+          >
+            Download the INW Community App
+          </h2>
+          <p className="text-lg mb-8 leading-relaxed" style={{ color: "var(--color-text)" }}>
+            Download the INW Community App on your phone to gain reward points, support our local
+            businesses, join a community group, see our event calendars, access coupons, purchase
+            local goods, and more. Support the businesses and people of the beautiful Inland
+            Northwest!
+          </p>
+          <div className="w-full max-w-md mx-auto md:max-w-3xl">
+            <DownloadAppStoreButtons
+              iosUrl={iosAppStoreUrl}
+              androidUrl={androidPlayStoreUrl}
+              variant="home"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section
+        className="grid grid-cols-1 md:grid-cols-2 min-w-0 w-full max-w-none items-center border-b-2"
         style={{ borderColor: SECTION_GREEN_BG }}
       >
         <div className="bg-white py-12 px-6 md:px-8 md:pr-12 text-center">

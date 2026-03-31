@@ -7,9 +7,9 @@ import {
 } from "@/lib/app-store-urls";
 
 export const metadata: Metadata = {
-  title: "Download App | Northwest Community",
+  title: "Download the INW Community App | Northwest Community",
   description:
-    "Download the INW Community app for iPhone or Android — connect locally, support businesses, and earn rewards.",
+    "Download the INW Community App for reward points, supporting local businesses, community groups, calendars, coupons, local goods, and more in the Inland Northwest.",
 };
 
 export default function DownloadAppPage() {
@@ -18,29 +18,26 @@ export default function DownloadAppPage() {
 
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-      <div className="max-w-md mx-auto text-center">
+      <div className="max-w-2xl mx-auto text-center">
         <div className="mb-6">
           <Link href="/" className="text-sm text-gray-600 hover:underline">
             ← Northwest Community
           </Link>
         </div>
 
-        <h1 className="text-3xl font-bold mb-3" style={{ fontFamily: "var(--font-heading)" }}>
-          Download the app
+        <h1 className="text-3xl font-bold mb-4" style={{ fontFamily: "var(--font-heading)" }}>
+          Download the INW Community App
         </h1>
-        <p className="text-gray-700 mb-10 leading-relaxed">
-          Get INW Community on your phone: local feed, events, storefront, rewards, and more for
-          Eastern Washington and North Idaho.
+        <p className="text-gray-700 mb-10 leading-relaxed text-base sm:text-lg">
+          Download the INW Community App on your phone to gain reward points, support our local
+          businesses, join a community group, see our event calendars, access coupons, purchase
+          local goods, and more. Support the businesses and people of the beautiful Inland
+          Northwest!
         </p>
 
-        <DownloadAppStoreButtons iosUrl={iosUrl} androidUrl={androidUrl} />
-
-        {!androidUrl ? (
-          <p className="mt-6 text-sm text-gray-500 leading-relaxed">
-            The Android release is on the way. Check back here or follow Northwest Community for
-            updates.
-          </p>
-        ) : null}
+        <div className="max-w-md mx-auto w-full">
+          <DownloadAppStoreButtons iosUrl={iosUrl} androidUrl={androidUrl} />
+        </div>
       </div>
     </section>
   );

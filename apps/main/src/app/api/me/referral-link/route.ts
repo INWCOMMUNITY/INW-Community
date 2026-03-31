@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   const lines = [
     "Join me on INW Community — if you're a resident of the Eastern Washington or North Idaho, this app is quite literally made for you! It's a community page where you connect with people in our area, support our locally owned businesses, and earn points for fun prizes, check it out!",
     "",
-    `Download the app: ${appStoreUrl}`,
+    `Download the INW Community App: ${appStoreUrl}`,
   ];
   if (playStoreUrl) {
     lines.push(`Google Play: ${playStoreUrl}`);
