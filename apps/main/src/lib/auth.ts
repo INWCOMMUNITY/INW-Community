@@ -7,6 +7,13 @@ import {
   prismaWhereMemberSubscribeTierPerksAccess,
 } from "@/lib/subscribe-plan-access";
 
+/** For Vercel logs: correlate failures without printing full login ids in every case. */
+function redactLoginId(id: string): string {
+  if (!id) return "(empty)";
+  if (id.length <= 4) return `(len=${id.length})`;
+  return `${id.slice(0, 2)}…${id.slice(-2)}`;
+}
+
 export const authOptions = {
   providers: [
     CredentialsProvider({
@@ -16,19 +23,43 @@ export const authOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        if (!credentials?.email || !credentials?.password) {
+          console.error("[auth][credentials] reject missing_fields");
+          return null;
+        }
         const loginId = credentials.email.trim();
-        if (!loginId) return null;
+        if (!loginId) {
+          console.error("[auth][credentials] reject empty_login_id");
+          return null;
+        }
+        const who = redactLoginId(loginId);
         try {
           // PostgreSQL unique email is case-sensitive; stored casing may differ from
           // what users type. Insensitive match avoids false "invalid password" 401s.
           const member = await prisma.member.findFirst({
             where: { email: { equals: loginId, mode: "insensitive" } },
           });
-          if (!member) return null;
-          if (member.status === "suspended") return null;
-          const ok = await bcrypt.compare(credentials.password, member.passwordHash);
-          if (!ok) return null;
+          if (!member) {
+            console.error(`[auth][credentials] reject NO_MEMBER login=${who} (no Member row, case-insensitive)`);
+            return null;
+          }
+          if (member.status === "suspended") {
+            console.error(`[auth][credentials] reject SUSPENDED login=${who} memberId=${member.id}`);
+            return null;
+          }
+          let passwordOk = false;
+          try {
+            passwordOk = await bcrypt.compare(credentials.password, member.passwordHash);
+          } catch (bcryptErr) {
+            console.error(
+              `[auth][credentials] reject BCRYPT_ERROR login=${who} error=${bcryptErr instanceof Error ? bcryptErr.message : String(bcryptErr)}`,
+            );
+            return null;
+          }
+          if (!passwordOk) {
+            console.error(`[auth][credentials] reject PASSWORD_MISMATCH login=${who} memberId=${member.id}`);
+            return null;
+          }
           return {
             id: member.id,
             email: member.email,
@@ -36,7 +67,9 @@ export const authOptions = {
             image: member.profilePhotoUrl ?? undefined,
           };
         } catch (e) {
-          console.error("[next-auth authorize]", e);
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`[auth][credentials] reject PRISMA_OR_UNKNOWN login=${who} error=${msg}`);
+          if (e instanceof Error && e.stack) console.error(e.stack);
           return null;
         }
       },
@@ -117,6 +150,8 @@ export const authOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   // Required on Vercel so NextAuth uses the request host for callbacks/cookies
   trustHost: true,
+  /** Set AUTH_DEBUG=1 in Vercel (temporarily) for verbose NextAuth logs alongside [auth][credentials]. */
+  debug: process.env.AUTH_DEBUG === "1",
 };
 
 /**
