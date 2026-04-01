@@ -12,6 +12,8 @@ const isNative = Platform.OS === "ios" || Platform.OS === "android";
 
 export type NotificationData = {
   screen?: string;
+  /** Requester's member id (e.g. friend request → open their profile to accept/decline). */
+  memberId?: string;
   conversationId?: string;
   orderId?: string;
   eventSlug?: string;
@@ -130,6 +132,8 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
       return "/resale-hub/list";
     case "community/my-friends":
       return "/community/my-friends";
+    case "member_profile":
+      return data.memberId ? `/members/${data.memberId}` : "/community/my-friends";
     case "event":
       return data.eventSlug ? `/event/${data.eventSlug}` : "/calendars/fun_events";
     case "event_invite":

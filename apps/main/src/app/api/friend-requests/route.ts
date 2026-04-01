@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     sendPushNotification(addresseeId, {
       title: "You have a new Friend Request!",
       body: senderName ? `${senderName} wants to connect — tap to respond!` : "Someone wants to connect — tap to respond!",
-      data: { screen: "community/my-friends" },
+      data: { screen: "member_profile", memberId: session.user.id },
       category: "social",
     }).catch(() => {});
 

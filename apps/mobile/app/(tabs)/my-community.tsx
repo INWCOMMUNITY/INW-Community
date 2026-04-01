@@ -13,6 +13,7 @@ import {
   Dimensions,
   Alert,
   Linking,
+  Platform,
 } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import { Image as ExpoImage } from "expo-image";
@@ -531,6 +532,7 @@ export default function MyCommunityScreen() {
   const [profileBadges, setProfileBadges] = useState<
     { id: string; badge: { slug: string; name: string }; displayOnProfile: boolean }[]
   >([]);
+  const [pendingIncomingFriendRequests, setPendingIncomingFriendRequests] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -543,6 +545,20 @@ export default function MyCommunityScreen() {
         })
         .catch(() => setProfileBadges([]));
     }, [])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!member) {
+        setPendingIncomingFriendRequests(0);
+        return;
+      }
+      apiGet<{ incoming?: { id: string }[] }>("/api/friend-requests")
+        .then((d) =>
+          setPendingIncomingFriendRequests(Array.isArray(d?.incoming) ? d.incoming.length : 0)
+        )
+        .catch(() => setPendingIncomingFriendRequests(0));
+    }, [member?.id])
   );
 
   useFocusEffect(
@@ -1230,14 +1246,31 @@ export default function MyCommunityScreen() {
       </View>
 
       <RNView style={styles.tanSection}>
-        <RNView style={styles.buttonRow}>
-          <Pressable
-            style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
-            onPress={() => (router.push as (href: string) => void)("/community/my-friends")}
+        <RNView
+          style={[
+            styles.buttonRow,
+            pendingIncomingFriendRequests > 0 && styles.buttonRowFriendBadgeInset,
+          ]}
+        >
+          <RNView
+            style={[
+              styles.tanButtonFriendWrap,
+              pendingIncomingFriendRequests > 0 && styles.tanButtonFriendWrapRaised,
+            ]}
           >
-            <Ionicons name="people" size={22} color="#fff" style={styles.tanButtonIcon} />
-            <ThemedText style={styles.tanButtonText}>My Friends</ThemedText>
-          </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
+              onPress={() => (router.push as (href: string) => void)("/community/my-friends")}
+            >
+              <Ionicons name="people" size={22} color="#fff" style={styles.tanButtonIcon} />
+              <ThemedText style={styles.tanButtonText}>My Friends</ThemedText>
+            </Pressable>
+            {pendingIncomingFriendRequests > 0 ? (
+              <RNView style={styles.tanButtonFriendBadge} pointerEvents="none">
+                <Text style={styles.tanButtonFriendBadgeText}>!</Text>
+              </RNView>
+            ) : null}
+          </RNView>
           <Pressable
             style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
             onPress={() => router.push("/profile-businesses")}
@@ -1625,6 +1658,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: theme.colors.cream,
   },
+  /** Space so the friends notification dot can sit outside the green tile without ScrollView clipping. */
+  buttonRowFriendBadgeInset: {
+    paddingTop: 8,
+    paddingRight: 8,
+  },
   tanButton: {
     flex: 1,
     flexDirection: "row",
@@ -1638,6 +1676,46 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 12,
     minHeight: 52,
+  },
+  tanButtonFriendWrap: {
+    flex: 1,
+    position: "relative",
+    overflow: "visible",
+    zIndex: 0,
+  },
+  /** Lift stacking when badge sits outside the button so it paints above the sibling tile. */
+  tanButtonFriendWrapRaised: {
+    zIndex: 2,
+  },
+  tanButtonFriendBadge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 3,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.22,
+        shadowRadius: 2,
+      },
+      android: { elevation: 4 },
+      default: {},
+    }),
+  },
+  tanButtonFriendBadgeText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: theme.colors.primary,
+    marginTop: Platform.OS === "ios" ? -1 : 0,
   },
   tanButtonIcon: {},
   tanButtonText: {

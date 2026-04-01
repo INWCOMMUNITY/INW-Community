@@ -108,6 +108,11 @@ export function useMobileChatRealtime(
   conversationIdRef.current = conversationId;
 
   useEffect(() => {
+    setTypingMemberIds([]);
+    setPeerPresenceIds([]);
+  }, [kind, conversationId]);
+
+  useEffect(() => {
     if (authLoading) return;
     const url = getDirectRealtimeUrl();
     if (!url || !conversationId) return;
@@ -274,8 +279,8 @@ export function useMobileChatRealtime(
         socket.removeAllListeners();
         socket.disconnect();
       }
-      setTypingMemberIds([]);
-      setPeerPresenceIds([]);
+      // Do not call setState here — unmount/Fast Refresh + Hermes can throw if we update
+      // after teardown (e.g. "Property … doesn't exist" on ref-like internals).
     };
   }, [kind, conversationId, memberId, authLoading]);
 

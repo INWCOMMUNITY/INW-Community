@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -128,6 +128,96 @@ function MemberCard({
   );
 }
 
+function IncomingRequestCard({
+  request,
+  onAccept,
+  onDecline,
+  onAfterAction,
+  router,
+}: {
+  request: { id: string; requester: Friend };
+  onAccept: (requestId: string) => Promise<void>;
+  onDecline: (requestId: string) => Promise<void>;
+  onAfterAction: () => void;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const [loading, setLoading] = useState<"accept" | "decline" | null>(null);
+  const member = request.requester;
+
+  const run = async (kind: "accept" | "decline") => {
+    setLoading(kind);
+    try {
+      if (kind === "accept") await onAccept(request.id);
+      else await onDecline(request.id);
+      onAfterAction();
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.incomingRequestCard, pressed && styles.buttonPressed]}
+      onPress={() => (router.push as (href: string) => void)(`/members/${member.id}`)}
+    >
+      {member.profilePhotoUrl ? (
+        <Image source={{ uri: member.profilePhotoUrl }} style={styles.avatar} />
+      ) : (
+        <View style={styles.avatarPlaceholder}>
+          <Text style={styles.avatarText}>
+            {member.firstName?.[0]}
+            {member.lastName?.[0]}
+          </Text>
+        </View>
+      )}
+      <View style={styles.friendInfo}>
+        <Text style={styles.friendName}>
+          {member.firstName} {member.lastName}
+        </Text>
+        {member.city ? <Text style={styles.friendCity}>{member.city}</Text> : null}
+      </View>
+      <View style={styles.incomingRequestActions}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.incomingAcceptBtn,
+            pressed && styles.buttonPressed,
+            loading != null && styles.incomingActionDisabled,
+          ]}
+          onPress={(e) => {
+            e.stopPropagation();
+            if (!loading) void run("accept");
+          }}
+          disabled={loading != null}
+        >
+          {loading === "accept" ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.incomingAcceptBtnText}>Accept</Text>
+          )}
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.incomingDeclineBtn,
+            pressed && styles.buttonPressed,
+            loading != null && styles.incomingActionDisabled,
+          ]}
+          onPress={(e) => {
+            e.stopPropagation();
+            if (!loading) void run("decline");
+          }}
+          disabled={loading != null}
+        >
+          {loading === "decline" ? (
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+          ) : (
+            <Text style={styles.incomingDeclineBtnText}>Decline</Text>
+          )}
+        </Pressable>
+      </View>
+    </Pressable>
+  );
+}
+
 export default function MyFriendsScreen() {
   const router = useRouter();
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -234,6 +324,10 @@ export default function MyFriendsScreen() {
     await apiPatch(`/api/friend-requests/${requestId}`, { status: "accepted" });
   }, []);
 
+  const declineRequest = useCallback(async (requestId: string) => {
+    await apiPatch(`/api/friend-requests/${requestId}`, { status: "declined" });
+  }, []);
+
   const refreshFriendData = useCallback(async () => {
     try {
       const data = await apiGet<FriendData>("/api/friend-requests");
@@ -243,6 +337,27 @@ export default function MyFriendsScreen() {
     }
   }, []);
 
+  const incomingRequesterIds = useMemo(() => {
+    const ids =
+      friendData?.incoming.map((r) => r.requester?.id).filter((id): id is string => !!id) ?? [];
+    return new Set(ids);
+  }, [friendData]);
+
+  const browseMembersFiltered = useMemo(
+    () => browseMembers.filter((m) => !incomingRequesterIds.has(m.id)),
+    [browseMembers, incomingRequesterIds]
+  );
+
+  const searchResultsFiltered = useMemo(
+    () => searchResults.filter((m) => !incomingRequesterIds.has(m.id)),
+    [searchResults, incomingRequesterIds]
+  );
+
+  const suggestedFiltered = useMemo(
+    () => suggested.filter((s) => !incomingRequesterIds.has(s.id)),
+    [suggested, incomingRequesterIds]
+  );
+
   return (
     <ScrollView
       style={styles.container}
@@ -251,6 +366,28 @@ export default function MyFriendsScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
       }
     >
+      <View style={[styles.section, styles.friendRequestsSection]}>
+        <Text style={styles.sectionTitle}>Friend requests</Text>
+        {loading ? (
+          <View style={styles.friendRequestsLoading}>
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+          </View>
+        ) : friendData && friendData.incoming.length > 0 ? (
+          friendData.incoming.map((req) => (
+            <IncomingRequestCard
+              key={req.id}
+              request={req}
+              onAccept={acceptRequest}
+              onDecline={declineRequest}
+              onAfterAction={load}
+              router={router}
+            />
+          ))
+        ) : (
+          <Text style={styles.emptyText}>No pending friend requests.</Text>
+        )}
+      </View>
+
       <View style={styles.searchSection}>
         <Text style={styles.sectionTitle}>Discover members</Text>
         <View style={styles.searchRow}>
@@ -281,10 +418,10 @@ export default function MyFriendsScreen() {
         </View>
       ) : (
         <>
-          {searchResults.length > 0 && (
+          {searchResultsFiltered.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Search results</Text>
-              {searchResults.map((m) => (
+              {searchResultsFiltered.map((m) => (
                 <MemberCard
                   key={m.id}
                   member={m}
@@ -310,10 +447,10 @@ export default function MyFriendsScreen() {
                   <Text style={styles.sectionTitle}>Browse members</Text>
                   <Text style={styles.emptyText}>{browseError}</Text>
                 </View>
-              ) : browseMembers.length > 0 ? (
+              ) : browseMembersFiltered.length > 0 ? (
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>Browse members</Text>
-                  {browseMembers.map((m) => (
+                  {browseMembersFiltered.map((m) => (
                     <MemberCard
                       key={m.id}
                       member={m}
@@ -328,10 +465,10 @@ export default function MyFriendsScreen() {
                 </View>
               ) : null}
 
-              {suggested.length > 0 && (
+              {suggestedFiltered.length > 0 && (
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>Recommended (mutual friends)</Text>
-                  {suggested.map((s) => (
+                  {suggestedFiltered.map((s) => (
                     <MemberCard
                       key={s.id}
                       member={s}
@@ -394,6 +531,50 @@ const styles = StyleSheet.create({
   center: { paddingVertical: 24, alignItems: "center" },
   searchSection: { marginBottom: 24 },
   section: { marginBottom: 24 },
+  friendRequestsSection: {
+    paddingBottom: 16,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e8e8e8",
+  },
+  friendRequestsLoading: {
+    paddingVertical: 16,
+    alignItems: "flex-start",
+  },
+  incomingRequestCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    marginBottom: 8,
+    backgroundColor: "#f5faf6",
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  incomingRequestActions: { flexDirection: "row", gap: 6, marginLeft: 2 },
+  incomingAcceptBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: theme.colors.primary,
+    minWidth: 72,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  incomingAcceptBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  incomingDeclineBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+    minWidth: 72,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  incomingDeclineBtnText: { color: theme.colors.primary, fontSize: 12, fontWeight: "600" },
+  incomingActionDisabled: { opacity: 0.65 },
   sectionTitle: {
     fontSize: 16,
     fontWeight: "600",

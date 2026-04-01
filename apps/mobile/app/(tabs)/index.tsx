@@ -9,8 +9,10 @@ import {
   RefreshControl,
   Alert,
   Linking,
+  Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
@@ -50,6 +52,26 @@ export default function CommunityScreen() {
   const [shareToChatPost, setShareToChatPost] = useState<{ id: string; slug?: string } | null>(null);
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+  const [pendingIncomingFriendRequests, setPendingIncomingFriendRequests] = useState(0);
+
+  const loadPendingFriendRequests = useCallback(() => {
+    if (signedIn === false) {
+      setPendingIncomingFriendRequests(0);
+      return;
+    }
+    if (signedIn !== true) return;
+    apiGet<{ incoming?: { id: string }[] }>("/api/friend-requests")
+      .then((d) =>
+        setPendingIncomingFriendRequests(Array.isArray(d?.incoming) ? d.incoming.length : 0)
+      )
+      .catch(() => setPendingIncomingFriendRequests(0));
+  }, [signedIn]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPendingFriendRequests();
+    }, [loadPendingFriendRequests])
+  );
 
   useEffect(() => {
     if (!authMember) {
@@ -134,6 +156,7 @@ export default function CommunityScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    loadPendingFriendRequests();
     loadFeed()
       .then(({ posts: p, nextCursor: c }) => {
         setPosts(p ?? []);
@@ -144,7 +167,7 @@ export default function CommunityScreen() {
         setNextCursor(null);
       })
       .finally(() => setRefreshing(false));
-  }, [loadFeed]);
+  }, [loadFeed, loadPendingFriendRequests]);
 
   const loadMore = useCallback(() => {
     if (!nextCursor || loadingMore) return;
@@ -367,27 +390,45 @@ export default function CommunityScreen() {
             ? "Posts from people you follow and groups you've joined."
             : "Browse recent posts. Sign in to like, comment, and save."}
         </Text>
-        <View style={styles.headerBtnsRow}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.headerSideBtn,
-              pressed && styles.buttonPressed,
+        <View
+          style={[
+            styles.headerBtnsRow,
+            pendingIncomingFriendRequests > 0 && styles.headerBtnsRowBadgeInset,
+          ]}
+        >
+          <View
+            style={[
+              styles.headerFriendsWrap,
+              pendingIncomingFriendRequests > 0 && styles.headerFriendsWrapRaised,
             ]}
-            onPress={() => {
-              if (!signedIn) {
-                Alert.alert("Sign in", "Sign in to find and manage friends.", [
-                  { text: "OK" },
-                  { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-                ]);
-                return;
-              }
-              (router.push as (href: string) => void)("/community/my-friends");
-            }}
-            accessibilityLabel="My friends"
           >
-            <Ionicons name="people-outline" size={22} color={theme.colors.buttonText} />
-            <Text style={styles.headerSideBtnLabel}>Friends</Text>
-          </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.headerSideBtn, pressed && styles.buttonPressed]}
+              onPress={() => {
+                if (!signedIn) {
+                  Alert.alert("Sign in", "Sign in to find and manage friends.", [
+                    { text: "OK" },
+                    { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+                  ]);
+                  return;
+                }
+                (router.push as (href: string) => void)("/community/my-friends");
+              }}
+              accessibilityLabel={
+                pendingIncomingFriendRequests > 0
+                  ? `My friends, ${pendingIncomingFriendRequests} pending friend request${pendingIncomingFriendRequests === 1 ? "" : "s"}`
+                  : "My friends"
+              }
+            >
+              <Ionicons name="people-outline" size={22} color={theme.colors.buttonText} />
+              <Text style={styles.headerSideBtnLabel}>Friends</Text>
+            </Pressable>
+            {pendingIncomingFriendRequests > 0 ? (
+              <View style={styles.headerFriendRequestBadge} pointerEvents="none">
+                <Text style={styles.headerFriendRequestBadgeText}>!</Text>
+              </View>
+            ) : null}
+          </View>
           {signedIn ? (
             <Pressable
               style={({ pressed }) => [
@@ -555,6 +596,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     marginTop: 8,
+    overflow: "visible",
+  },
+  headerBtnsRowBadgeInset: {
+    paddingTop: 6,
+    paddingRight: 4,
   },
   headerSideBtn: {
     backgroundColor: theme.colors.primary,
@@ -564,6 +610,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerFriendsWrap: {
+    position: "relative",
+    overflow: "visible",
+    zIndex: 0,
+  },
+  headerFriendsWrapRaised: {
+    zIndex: 3,
+  },
+  headerFriendRequestBadge: {
+    position: "absolute",
+    top: -5,
+    right: -5,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.22,
+        shadowRadius: 2,
+      },
+      android: { elevation: 4 },
+      default: {},
+    }),
+  },
+  headerFriendRequestBadgeText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: theme.colors.primary,
+    marginTop: Platform.OS === "ios" ? -1 : 0,
   },
   headerSideBtnLabel: {
     marginTop: 2,

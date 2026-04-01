@@ -83,6 +83,7 @@ export default function MemberProfileScreen() {
   const [friendStatus, setFriendStatus] = useState<"none" | "friends" | "pending_outgoing" | "pending_incoming">("none");
   const [incomingRequestId, setIncomingRequestId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [messageLoading, setMessageLoading] = useState(false);
   const [memberPosts, setMemberPosts] = useState<MemberPost[]>([]);
   const [postsNextCursor, setPostsNextCursor] = useState<string | null>(null);
   const [postsLoading, setPostsLoading] = useState(false);
@@ -168,9 +169,33 @@ export default function MemberProfileScreen() {
     }
   };
 
-  const handleMessage = () => {
-    if (!profile) return;
-    router.push(`/messages/new?addresseeId=${profile.id}`);
+  const handleMessage = async () => {
+    if (!profile || !currentMember || messageLoading) return;
+    setMessageLoading(true);
+    try {
+      const conv = await apiPost<{ id: string }>("/api/direct-conversations", { addresseeId: profile.id });
+      if (conv?.id) router.push(`/messages/${conv.id}`);
+      else Alert.alert("Error", "Could not open chat.");
+    } catch (e) {
+      const err = e as { error?: string };
+      Alert.alert("Error", err.error ?? "Could not open chat.");
+    } finally {
+      setMessageLoading(false);
+    }
+  };
+
+  const handleDeclineFriend = async () => {
+    if (!incomingRequestId || actionLoading) return;
+    setActionLoading("decline");
+    try {
+      await apiPatch(`/api/friend-requests/${incomingRequestId}`, { status: "declined" });
+      setFriendStatus("none");
+      setIncomingRequestId(null);
+    } catch {
+      Alert.alert("Error", "Could not decline friend request.");
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const loadMemberPosts = useCallback(
@@ -312,6 +337,48 @@ export default function MemberProfileScreen() {
         )}
       </View>
 
+      {!isOwnProfile &&
+      friendStatus === "pending_incoming" &&
+      incomingRequestId &&
+      currentMember ? (
+        <View style={styles.incomingRequestBanner}>
+          <Text style={styles.incomingRequestTitle}>Friend request</Text>
+          <Text style={styles.incomingRequestSubtitle}>
+            {profile.firstName} wants to connect with you
+          </Text>
+          <View style={styles.incomingRequestActions}>
+            <Pressable
+              style={[
+                styles.incomingAcceptBtn,
+                actionLoading != null && styles.incomingBtnDisabled,
+              ]}
+              onPress={handleAddFriend}
+              disabled={actionLoading != null}
+            >
+              {actionLoading === "friend" ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.incomingAcceptBtnText}>Accept</Text>
+              )}
+            </Pressable>
+            <Pressable
+              style={[
+                styles.incomingDeclineBtn,
+                actionLoading != null && styles.incomingBtnDisabled,
+              ]}
+              onPress={handleDeclineFriend}
+              disabled={actionLoading != null}
+            >
+              {actionLoading === "decline" ? (
+                <ActivityIndicator color="#666" />
+              ) : (
+                <Text style={styles.incomingDeclineBtnText}>Decline</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -347,45 +414,81 @@ export default function MemberProfileScreen() {
 
         {!isOwnProfile ? (
           <View style={styles.actionsBlock}>
-            <View style={styles.actionsRow}>
+            {friendStatus === "pending_incoming" ? (
               <Pressable
                 style={[
-                  styles.primaryBtn,
-                  styles.actionBtnEqual,
-                  { backgroundColor: theme.colors.primary },
-                  (friendStatus === "pending_outgoing" || friendStatus === "friends") && styles.primaryBtnDisabled,
-                  !currentMember && styles.primaryBtnDisabled,
+                  styles.secondaryBtn,
+                  styles.messageFullWidth,
+                  { borderColor: theme.colors.primary },
+                  (!currentMember || messageLoading) && styles.primaryBtnDisabled,
                 ]}
-                onPress={currentMember ? handleAddFriend : () => Alert.alert("Sign in", "Please sign in to add friends.")}
-                disabled={!!actionLoading || friendStatus === "pending_outgoing" || friendStatus === "friends"}
+                onPress={currentMember ? handleMessage : () => Alert.alert("Sign in", "Please sign in to message this member.")}
+                disabled={!currentMember || messageLoading}
               >
-                {actionLoading === "friend" ? (
-                  <Text style={styles.primaryBtnText}>…</Text>
+                {messageLoading ? (
+                  <ActivityIndicator color={theme.colors.primary} />
                 ) : (
                   <>
-                    {friendStatus === "none" || friendStatus === "pending_incoming" ? (
-                      <Ionicons name="person-add" size={20} color="#fff" style={styles.primaryBtnIcon} />
-                    ) : friendStatus === "pending_outgoing" ? (
-                      <Ionicons name="time-outline" size={20} color="#fff" style={styles.primaryBtnIcon} />
-                    ) : (
-                      <Ionicons name="people-outline" size={20} color="#fff" style={styles.primaryBtnIcon} />
-                    )}
-                    <Text style={styles.primaryBtnText} numberOfLines={1}>
-                      {friendStatus === "pending_incoming" ? "Accept" : friendStatus === "pending_outgoing" ? "Pending" : friendStatus === "friends" ? "Friends" : "Add Friend"}
+                    <Ionicons name="chatbubble-outline" size={20} color={theme.colors.primary} />
+                    <Text style={[styles.secondaryBtnText, { color: theme.colors.primary }]} numberOfLines={1}>
+                      Message {profile.firstName}
                     </Text>
                   </>
                 )}
               </Pressable>
-              <Pressable
-                style={[styles.secondaryBtn, styles.actionBtnEqual, { borderColor: theme.colors.primary }, !currentMember && styles.primaryBtnDisabled]}
-                onPress={currentMember ? handleMessage : () => Alert.alert("Sign in", "Please sign in to message this member.")}
-              >
-                <Ionicons name="chatbubble-outline" size={20} color={theme.colors.primary} />
-                <Text style={[styles.secondaryBtnText, { color: theme.colors.primary }]} numberOfLines={1}>
-                  Message {profile.firstName}
-                </Text>
-              </Pressable>
-            </View>
+            ) : (
+              <View style={styles.actionsRow}>
+                <Pressable
+                  style={[
+                    styles.primaryBtn,
+                    styles.actionBtnEqual,
+                    { backgroundColor: theme.colors.primary },
+                    (friendStatus === "pending_outgoing" || friendStatus === "friends") && styles.primaryBtnDisabled,
+                    !currentMember && styles.primaryBtnDisabled,
+                  ]}
+                  onPress={currentMember ? handleAddFriend : () => Alert.alert("Sign in", "Please sign in to add friends.")}
+                  disabled={!!actionLoading || friendStatus === "pending_outgoing" || friendStatus === "friends"}
+                >
+                  {actionLoading === "friend" ? (
+                    <Text style={styles.primaryBtnText}>…</Text>
+                  ) : (
+                    <>
+                      {friendStatus === "none" ? (
+                        <Ionicons name="person-add" size={20} color="#fff" style={styles.primaryBtnIcon} />
+                      ) : friendStatus === "pending_outgoing" ? (
+                        <Ionicons name="time-outline" size={20} color="#fff" style={styles.primaryBtnIcon} />
+                      ) : (
+                        <Ionicons name="people-outline" size={20} color="#fff" style={styles.primaryBtnIcon} />
+                      )}
+                      <Text style={styles.primaryBtnText} numberOfLines={1}>
+                        {friendStatus === "pending_outgoing" ? "Pending" : friendStatus === "friends" ? "Friends" : "Add Friend"}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.secondaryBtn,
+                    styles.actionBtnEqual,
+                    { borderColor: theme.colors.primary },
+                    (!currentMember || messageLoading) && styles.primaryBtnDisabled,
+                  ]}
+                  onPress={currentMember ? handleMessage : () => Alert.alert("Sign in", "Please sign in to message this member.")}
+                  disabled={!currentMember || messageLoading}
+                >
+                  {messageLoading ? (
+                    <ActivityIndicator color={theme.colors.primary} />
+                  ) : (
+                    <>
+                      <Ionicons name="chatbubble-outline" size={20} color={theme.colors.primary} />
+                      <Text style={[styles.secondaryBtnText, { color: theme.colors.primary }]} numberOfLines={1}>
+                        Message {profile.firstName}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+            )}
           </View>
         ) : isOwnProfile ? (
           <View style={styles.actionsRowSpacer} />
@@ -594,6 +697,40 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: "#fff", textAlign: "center" },
   headerRight: { width: 40 },
   menuBtn: { padding: 8 },
+  incomingRequestBanner: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: "#f5f7fa",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
+  },
+  incomingRequestTitle: { fontSize: 15, fontWeight: "700", color: theme.colors.heading },
+  incomingRequestSubtitle: { fontSize: 14, color: "#555", marginTop: 4, marginBottom: 12 },
+  incomingRequestActions: { flexDirection: "row", gap: 12 },
+  incomingAcceptBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+    minHeight: 44,
+  },
+  incomingAcceptBtnText: { fontSize: 16, fontWeight: "600", color: "#fff" },
+  incomingDeclineBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#ccc",
+    backgroundColor: "#fff",
+    minHeight: 44,
+  },
+  incomingDeclineBtnText: { fontSize: 16, fontWeight: "600", color: "#666" },
+  incomingBtnDisabled: { opacity: 0.65 },
+  messageFullWidth: { width: "100%" },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 32 },
   profileBlock: { borderBottomWidth: 1, borderBottomColor: "#e0e0e0", paddingBottom: 16, marginBottom: 16 },
