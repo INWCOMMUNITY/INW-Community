@@ -5,6 +5,8 @@
   },
   "build": {
     "development": {
+      "corepack": true,
+      "pnpm": "9.14.2",
       "developmentClient": true,
       "distribution": "internal",
       "env": {
@@ -13,6 +15,8 @@
       }
     },
     "preview": {
+      "corepack": true,
+      "pnpm": "9.14.2",
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://www.inwcommunity.com",
@@ -20,6 +24,8 @@
       }
     },
     "production": {
+      "corepack": true,
+      "pnpm": "9.14.2",
       "autoIncrement": false,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://www.inwcommunity.com",

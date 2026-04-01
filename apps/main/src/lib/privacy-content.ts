@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "March 27, 2026";
+export const PRIVACY_LAST_UPDATED = "March 30, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -193,10 +193,29 @@ Phone: 208-819-0268
 ● NWC may request additional information to verify your identity before fulfilling any data-access or data-deletion request for your protection.
 NWC will respond within a reasonable timeframe.
 
-8. CHILDREN'S PRIVACY
+8. CHILDREN'S PRIVACY & STANDARDS AGAINST CSAE AND CSAM
+8.1 Children's privacy (age and collection)
 NWC does not knowingly collect information from children under 16.
 If we discover that such data has been collected, we will remove it promptly.
 Parents may contact us to request deletion.
+
+8.2 Published standards against child sexual abuse and exploitation (CSAE) and child sexual abuse material (CSAM)
+NWC prohibits all CSAE and CSAM on its services. These standards are published here and in our Terms of Service (Section 3.5).
+
+What we prohibit
+● CSAM: visual depictions or other material that constitutes child sexual abuse material under applicable law, including when shared through posts, messages, listings, profiles, images, links, or any other feature.
+● CSAE: conduct that sexually exploits or endangers minors, including grooming, solicitation of minors for sexual purposes, trafficking or facilitation of sexual abuse of minors, and sexualization of minors.
+
+How we respond
+● We review reports and may remove content, restrict or terminate accounts, and retain information as needed for safety, moderation, and legal compliance.
+● Where we become aware of apparent CSAM or serious risk to children, we will comply with applicable law. That may include reporting to law enforcement and, where U.S. law applies, to the National Center for Missing & Exploited Children (NCMEC) or other designated bodies, and preserving related data as required.
+● Cooperation with police and prosecutors: When we identify or reasonably suspect CSAE or CSAM tied to NWC, we will refer the matter to law enforcement on our own initiative where permitted by law, not only when a court order requires it. We will preserve evidence, respond to lawful requests from police and prosecutors, and use every lawful means available to support investigation and prosecution. Criminal conduct involving children is taken seriously; those who use our platform for such abuse should expect to be reported and to face the full consequences of the criminal justice system.
+
+Data related to safety reports
+● When you report content (including for CSAM, CSAE, nudity, hate, or other reasons), we store report metadata—such as reporter identifiers, content type, reason, and details you provide—for moderation, safety review, and legal compliance.
+● We may share information with law enforcement or other authorities when required by law or when we reasonably believe disclosure is necessary to protect the safety of children or the community.
+
+You can read the full conduct rules in our Terms of Service. For questions about these standards, contact donivan@inwcommunity.com or 208-819-0268.
 
 9. BUSINESS SUBSCRIBERS & SELLER DATA
 Business subscribers and sellers agree that:
@@ -208,7 +227,7 @@ Business subscribers and sellers agree that:
 NWC does not store seller-specific payment or financial data; payments are processed through Stripe and secure third-party systems.
 
 10. REPORTS, REFERRALS & REWARDS
-● When you report content (e.g., political, hate, nudity, CSAM, other), we store the report metadata (reporter, content type, reason, details) for moderation and safety purposes.
+● When you report content (e.g., political, hate, nudity, CSAM, CSAE, other), we store the report metadata (reporter, content type, reason, details) for moderation and safety purposes. See Section 8.2 for how CSAM and CSAE reports are handled.
 ● When you block another member (website or app, where available), we store the block relationship (such as identifiers for your account and the blocked member, and when the block was created) so we can hide their posts and limit certain interactions from your perspective. We may store a related report or log entry for staff review, including when a block action automatically creates a report in the app.
 ● If you participate in our referral program, we store referral links and signup associations for badges and rewards.
 ● Points, redemptions, and reward data are stored to operate our rewards program.

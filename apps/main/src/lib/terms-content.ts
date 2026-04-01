@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "March 25, 2026";
+export const TERMS_LAST_UPDATED = "March 30, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -44,6 +44,7 @@ NWC may remove content that includes:
 ● Hate speech, harassment, or threats
 ● Illegal activity
 ● Adult/explicit material
+● Child sexual abuse material (CSAM), content that sexually exploits or endangers minors, grooming, or any sexualization of minors (see Section 3.5)
 ● Misinformation
 ● Spam or fraudulent postings
 ● AI-Generated Material
@@ -62,6 +63,28 @@ When you block someone, their posts are generally removed from your personalized
 NWC also receives an associated internal report for moderation and safety review when you use block as implemented in the app.
 Blocking changes what you see and certain interactions; it does not delete the other member's account and does not remove their content for other users.
 You should continue to use reporting tools to flag specific posts, comments, or conversations that violate these Terms.
+
+3.5 Child safety: standards against CSAE and CSAM
+Northwest Community has zero tolerance for child sexual abuse and exploitation (CSAE) and for child sexual abuse material (CSAM).
+
+Definitions and scope
+● "CSAM" means visual depictions (including images, video, and realistic computer-generated depictions) of minors engaged in sexually explicit conduct, and other material that constitutes child sexual abuse material under applicable law.
+● "CSAE" includes conduct that sexually exploits or endangers minors, solicits minors for sexual purposes, grooms minors, traffics minors for sex, or otherwise violates laws protecting children, whether or not images are involved.
+
+Prohibited conduct and content
+You may not use NWC—including the website, mobile app, feed, groups, messaging, listings, profiles, blogs, events, or any other feature—to:
+● Create, upload, share, request, link to, or distribute CSAM
+● Sexualize, solicit, or groom minors; arrange or facilitate sexual contact with a minor; or encourage CSAE
+● Use NWC to meet minors for an illegal or sexual purpose
+● Misrepresent your age or the age of another person in connection with sexual content or contact involving minors
+
+Enforcement
+● We may remove content, suspend or permanently terminate accounts, preserve relevant records, and cooperate fully with law enforcement and with statutorily designated organizations (such as the National Center for Missing & Exploited Children in the United States) when required or appropriate.
+● We are not required to warn you before taking action for CSAE or CSAM violations.
+● Cooperation with police and prosecutors: When we identify or reasonably suspect CSAE or CSAM tied to NWC, we will refer the matter to law enforcement on our own initiative where permitted by law, not only when a court order requires it. We will preserve evidence, respond to lawful requests from police and prosecutors, and use every lawful means available to support investigation and prosecution. Criminal conduct involving children is taken seriously; those who use our platform for such abuse should expect to be reported and to face the full consequences of the criminal justice system.
+
+Reporting by users
+If you see content or behavior on NWC that involves a child at risk, CSAM, or CSAE, report it immediately using the in-app or on-site reporting tools and, if anyone is in immediate danger, contact local emergency services. You may also contact us at donivan@inwcommunity.com or 208-819-0268.
 
 4. COMMUNITY FEED, POSTS, AND MESSAGING
 4.1 Purpose
