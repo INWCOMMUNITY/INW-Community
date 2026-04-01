@@ -2,7 +2,7 @@
  * Set `logoUrl` to the same image the Business Hub circle uses:
  * logo → cover photo → first gallery photo (see `hubBusinessHeroImageUri` in the mobile app).
  *
- * Targets: DJs Coins & Collectibles, Coach Boe, Cedar & Stone Consulting.
+ * Targets: DJs Coins & Collectibles, Cedar & Stone Consulting (not Coach Boe).
  *
  * Run from repo root:
  *   node packages/database/scripts/update-business-logos-from-hub-hero.js
@@ -60,11 +60,7 @@ function hubHeroLogoUrl(b) {
   return wixOriginalMediaUrl(raw);
 }
 
-const SLUGS = [
-  "djs-coins-collectibles",
-  "coach-boe",
-  "cedar-stone-consulting",
-];
+const SLUGS = ["djs-coins-collectibles", "cedar-stone-consulting"];
 
 async function main() {
   if (!process.env.DATABASE_URL) {
