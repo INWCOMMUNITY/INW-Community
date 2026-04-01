@@ -22,7 +22,8 @@
     "seed:test-profile": "node scripts/seed-test-profile-member.js",
     "delete:test-profile": "node scripts/delete-test-profile-member.js",
     "verify:leaderboard": "node scripts/verify-leaderboard.js",
-    "import-businesses": "node scripts/import-businesses-admin.js scripts/import-businesses.json"
+    "import-businesses": "node scripts/import-businesses-admin.js scripts/import-businesses.json",
+    "update:hub-logos": "node scripts/update-business-logos-from-hub-hero.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
