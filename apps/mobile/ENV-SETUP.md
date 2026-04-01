@@ -32,7 +32,7 @@ The app uses **EXPO_PUBLIC_*** variables (baked in at build time). No `.env` is 
    EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_live_..."
    ```
 
-3. For a **new iOS build** (e.g. `eas build --platform ios`), run the build from the repo root so the env is picked up; or use Option B.
+3. For **EAS Build**, run commands from **`apps/mobile`** (the Expo app root), e.g. `cd apps/mobile && eas build --platform ios`. Expo resolves `app.json` from the current directory; running `eas build` from the monorepo root can pick up the wrong project and ignore your real `version` / `buildNumber`. From the repo root you can use: `pnpm eas:mobile -- build --platform ios` (passes through to `eas`). Env for cloud builds is set in **`apps/mobile/eas.json`** (`build.*.env`) and Option B below—not from a root `eas.json`.
 
 ## Option B: EAS (cloud build / TestFlight)
 
