@@ -78,12 +78,8 @@ export async function PATCH(
   }
   try {
     const body = await req.json();
-    const parsed = bodySchema.parse({
-      ...body,
-      website: body.website ?? null,
-      email: body.email ?? null,
-      logoUrl: body.logoUrl ?? null,
-    });
+    // Omitting logoUrl/website/email must not clear stored values (same as admin PATCH).
+    const parsed = bodySchema.parse(body);
     const updateData: Record<string, unknown> = {};
     if (parsed.name != null && parsed.name.trim()) {
       const nameCheck = validateText(parsed.name, "business_name");

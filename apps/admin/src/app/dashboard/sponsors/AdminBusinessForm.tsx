@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
@@ -19,6 +19,7 @@ interface SponsorOption {
 
 interface BusinessExisting {
   id: string;
+  memberId: string;
   name: string;
   shortDescription: string | null;
   fullDescription: string | null;
@@ -31,6 +32,7 @@ interface BusinessExisting {
   categories: string[];
   photos: string[];
   hoursOfOperation: unknown;
+  owner?: { firstName: string; lastName: string; email: string } | null;
 }
 
 interface AdminBusinessFormProps {
@@ -51,7 +53,7 @@ function parseHours(ho: unknown): HoursRecord {
 
 export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusinessFormProps) {
   const router = useRouter();
-  const [memberId, setMemberId] = useState(existing ? "" : (sponsors[0]?.memberId ?? ""));
+  const [memberId, setMemberId] = useState(existing?.memberId ?? sponsors[0]?.memberId ?? "");
   const [name, setName] = useState(existing?.name ?? "");
   const [shortDescription, setShortDescription] = useState(existing?.shortDescription ?? "");
   const [fullDescription, setFullDescription] = useState(existing?.fullDescription ?? "");
@@ -78,6 +80,34 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
     "Content-Type": "application/json",
     "x-admin-code": ADMIN_CODE,
   };
+
+  /** Current owner may not appear in `sponsors` (e.g. subscription lapsed); still allow showing/editing. */
+  const ownerSelectOptions = useMemo(() => {
+    if (
+      existing?.memberId &&
+      !sponsors.some((s) => s.memberId === existing.memberId)
+    ) {
+      return [
+        {
+          memberId: existing.memberId,
+          firstName: existing.owner?.firstName ?? "Current",
+          lastName: existing.owner?.lastName ?? "owner",
+          email: existing.owner?.email ?? "",
+          businessCount: 0,
+        },
+        ...sponsors,
+      ];
+    }
+    return sponsors;
+  }, [sponsors, existing]);
+
+  const eligibleOwners = useMemo(
+    () =>
+      ownerSelectOptions.filter(
+        (s) => s.memberId === memberId || s.memberId === existing?.memberId || s.businessCount < 2
+      ),
+    [ownerSelectOptions, memberId, existing?.memberId]
+  );
 
   async function uploadFile(file: File): Promise<string> {
     const formData = new FormData();
@@ -143,7 +173,11 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
     setSubmitting(true);
     try {
       const body = {
-        ...(existing ? {} : { memberId }),
+        ...(!existing
+          ? { memberId }
+          : memberId && memberId !== existing.memberId
+            ? { memberId }
+            : {}),
         name,
         shortDescription: shortDescription || null,
         fullDescription: fullDescription || null,
@@ -183,22 +217,29 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 max-w-xl max-h-[85vh] overflow-y-auto p-4">
-      {!existing && sponsors.length > 0 && (
+      {(existing ? ownerSelectOptions.length > 0 : sponsors.length > 0) && (
         <div>
-          <label className="block text-sm font-medium mb-1">Business subscriber (member) *</label>
+          <label className="block text-sm font-medium mb-1">
+            {existing ? "Business owner (transfer)" : "Business subscriber (member) *"}
+          </label>
           <select
             value={memberId}
             onChange={(e) => setMemberId(e.target.value)}
             required
             className="w-full border rounded px-3 py-2"
           >
-            <option value="">Select member…</option>
-            {sponsors.filter((s) => s.businessCount < 2).map((s) => (
+            {!existing && <option value="">Select member…</option>}
+            {(existing ? eligibleOwners : sponsors.filter((s) => s.businessCount < 2)).map((s) => (
               <option key={s.memberId} value={s.memberId}>
                 {s.firstName} {s.lastName} ({s.email}) – {s.businessCount}/2 businesses
               </option>
             ))}
           </select>
+          {existing && (
+            <p className="text-xs text-gray-500 mt-1">
+              Changing owner sends only the new member id; logo and gallery are kept unless you edit them here.
+            </p>
+          )}
         </div>
       )}
       <div>

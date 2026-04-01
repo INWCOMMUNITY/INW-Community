@@ -14,6 +14,7 @@ export async function GET(
     where: { id },
     select: {
       id: true,
+      memberId: true,
       name: true,
       nameApprovalStatus: true,
       shortDescription: true,
@@ -27,12 +28,22 @@ export async function GET(
       categories: true,
       photos: true,
       hoursOfOperation: true,
+      member: { select: { firstName: true, lastName: true, email: true } },
     },
   });
   if (!business) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const { member, ...rest } = business;
   return NextResponse.json({
-    ...business,
+    ...rest,
+    logoUrl: business.logoUrl ? wixOriginalMediaUrl(business.logoUrl) : null,
     photos: (business.photos ?? []).map((p) => wixOriginalMediaUrl(p)),
+    owner: member
+      ? {
+          firstName: member.firstName,
+          lastName: member.lastName,
+          email: member.email,
+        }
+      : null,
   });
 }
 
@@ -70,11 +81,10 @@ export async function PATCH(
 
   let data: z.infer<typeof bodySchema>;
   try {
+    // Do not coerce omitted logoUrl/website/email to null — that cleared media when
+    // the client sent only memberId (transfer) or another partial PATCH.
     data = bodySchema.parse({
       ...(body as Record<string, unknown>),
-      website: (body as { website?: unknown }).website ?? null,
-      email: (body as { email?: unknown }).email ?? null,
-      logoUrl: (body as { logoUrl?: unknown }).logoUrl ?? null,
     });
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -84,7 +94,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Validation failed" }, { status: 400 });
   }
 
-  const existing = await prisma.business.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.business.findUnique({ where: { id }, select: { id: true, memberId: true } });
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -106,7 +116,7 @@ export async function PATCH(
       hoursOfOperation: data.hoursOfOperation === null ? Prisma.JsonNull : data.hoursOfOperation,
     }),
   };
-  if (data.memberId != null) {
+  if (data.memberId != null && data.memberId !== existing.memberId) {
     updateData.memberId = data.memberId;
     updateData.adminGrantedAt = new Date();
   }
