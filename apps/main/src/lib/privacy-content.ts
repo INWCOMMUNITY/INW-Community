@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "March 30, 2026";
+export const PRIVACY_LAST_UPDATED = "April 2, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -20,6 +20,7 @@ You may provide information when you:
 ● Submit an NWC Requests form on the website, or send a Support & contact message from the mobile app
 ● Make a payment
 ● Complete checkout for marketplace items that offer local pickup or local delivery (you may be asked for your name, email address, phone number, optional notes, agreement to the seller's stated terms where shown, and for pickup an estimated pickup date and time; for local delivery a delivery address and when you are available to receive the delivery)
+● Complete checkout for other marketplace purchases, where we may collect shipping or billing addresses, postal codes, and order line details needed to calculate and collect sales tax when NWC acts as a marketplace facilitator (see our Terms of Service)
 ● Communicate with NWC staff
 
 This information may include:
@@ -35,6 +36,7 @@ This information may include:
 ● Blog submissions, feed posts, comments, direct messages, group conversations, listings, event information
 ● NWC Requests and Support & contact: we store your name, email address, and message. On the mobile app you may also enter a short subject line. You may optionally provide a phone number so our team can follow up by call or text as well as by email. These submissions are saved in our administrative systems for support and follow-up.
 ● Marketplace order fulfillment details you enter at checkout for local pickup or local delivery (including contact and scheduling fields described above), stored with your order
+● Address, jurisdiction, and transaction details shared with or derived for sales tax compliance providers (for example TaxJar) when we implement tax calculation and reporting for marketplace orders
 ● Any content you voluntarily provide
 
 NWC information disclosure
@@ -96,6 +98,7 @@ We use the collected information for the following purposes:
 ● To prevent fraud or misuse
 ● To enforce member-to-member blocks you create (for example, filtering feeds and certain interactions) and to review related safety reports
 ● To comply with legal obligations
+● To calculate, collect, report, and remit sales tax where NWC acts as a marketplace facilitator, and to apply the Sales Tax Reserve described in our Terms of Service
 
 We do not sell your personal information to third parties.
 
@@ -110,6 +113,7 @@ We use third-party vendors such as:
 ● Stripe (payment processing, subscriptions, billing portal, in-app subscription changes we initiate through Stripe, and related payment data)
 ● Expo push notification service (delivery of mobile push notifications when you enable them on your device)
 ● Shippo (shipping labels for marketplace orders)
+● TaxJar or similar sales tax compliance providers (tax determination, reporting, and related processing for marketplace orders where NWC implements them), subject to their terms
 ● Resend (transactional email)
 ● Our database hosting provider (PostgreSQL)
 

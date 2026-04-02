@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "March 30, 2026";
+export const TERMS_LAST_UPDATED = "April 2, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -143,8 +143,7 @@ NWC may request proof of product authenticity, sourcing, or ownership if concern
 Sellers are solely responsible for ensuring compliance with USPS, UPS, FedEx, and other applicable shipping regulations for their products.
 
 7.3 Fees & External Store Links
-● NWC takes no percentage of product sales.
-● A transaction/card processing fee may be deducted from marketplace orders to support site operations. Sellers may also incur shipping-related fees. These are disclosed during checkout and seller onboarding.
+● NWC does not take a commission on product sales as a percentage for its own discretionary profit. A transaction or card processing fee may be deducted from marketplace orders to support site operations. Where NWC facilitates sales tax as described in Section 7.9, checkout may include sales tax collected from the buyer and, for applicable sales, a Sales Tax Reserve withholding from the seller's share, as disclosed in seller materials and payout statements. Sellers may also incur shipping-related fees. These are disclosed during checkout and seller onboarding.
 ● Sellers may link to their own storefronts freely.
 
 7.4 Disputes
@@ -178,6 +177,34 @@ The mobile app may show a "Pick Up Ticket" or "Delivery Ticket" for eligible ord
 7.8.3 Responsibility
 Sellers and buyers should arrange delivery and pickup at their own discretion and follow applicable laws and safety practices. NWC is merely a platform for setting up transactions and has no responsibility for in-person transactions, delivery timing, or disputes over whether an item was picked up or delivered, except where a website or app error or system issue is clearly the cause (see 7.4).
 
+7.9 Sales Tax Marketplace Facilitator
+7.9.1 Role
+Northwest Community LLC ("NWC"), through its website and app, may act as a marketplace facilitator for sales tax compliance on behalf of sellers using the storefront and resale store, where and to the extent required by applicable U.S. state and local law. NWC's role includes registering and remitting sales tax as a facilitator in jurisdictions where NWC is required to do so (as determined with NWC's tax advisors).
+
+7.9.2 Collection and remittance
+For taxable facilitated sales on the platform, sales tax is calculated and collected from the buyer at checkout (rates vary by jurisdiction; NWC does not use a single generic percentage for all orders). NWC is responsible for ensuring that sales tax collected on those facilitated sales is reported and remitted to the appropriate taxing authorities by the required due dates, subject to NWC's integration, product tax settings, and advisors' guidance.
+
+7.9.3 Tools
+NWC may use services such as TaxJar to support accurate tax calculation, reporting, and filing workflows. NWC remains responsible for registration, the accuracy of its integration and product tax settings, and timely filing and payment.
+
+7.9.4 Sales Tax Reserve
+NWC may withhold from the seller's share of each applicable sale an amount equal to 1% of the Total Sale (defined below), credited to NWC's Sales Tax Reserve. The Sales Tax Reserve is withheld only to support sales tax compliance (for example: timing of filings, card-processing costs assessed on the total charge, rate or rounding drift, and similar compliance-related needs). It is not NWC's discretionary profit; it is earmarked for compliance-related use as described in seller agreements and payout statements.
+
+7.9.5 Total Sale (for the Sales Tax Reserve)
+For purposes of the Sales Tax Reserve, "Total Sale" means the item subtotal for the order, excluding delivery fees and shipping fees. Delivery and shipping are calculated and collected by NWC's third-party shipping provider, Shippo, and are not included in Total Sale for the 1% reserve calculation.
+
+7.9.6 Dedicated account; formula
+NWC may maintain a separate bank account dedicated to sales tax obligations and the Sales Tax Reserve to reduce commingling with general operating funds. Segregation supports operations and clarity; remittance amounts and timing still follow each state's filing calendar and NWC's returns, not only the balance in that account at a given moment. NWC will maintain liquidity so tax and reserve amounts can be paid when due. After each relevant payout or on the schedule NWC adopts, NWC may move to that dedicated account an amount equal to: (sales tax collected on the sale) + (1% × Total Sale), where Total Sale is defined in Section 7.9.5, for orders to which this policy applies. Transfers follow this formula, the seller agreement, and payout statements.
+
+7.9.7 When the formula does not apply
+The full formula in Section 7.9.6 applies to taxable facilitated sales where NWC collects sales tax under its published rules. Non-taxable items, exempt buyers (where NWC supports exemptions), or jurisdictions NWC has not enabled may result in no sales tax and/or different treatment; NWC will document those cases in its policies and seller materials.
+
+7.9.8 Refunds and adjustments
+Refunds, cancellations, partial refunds, and chargebacks may reduce the sales tax and/or reserve amounts associated with an order. NWC will adjust seller payouts and internal tax and reserve tracking in line with its refund policy and payment-processor reconciliation practices.
+
+7.9.9 Profit
+NWC expects platform profit primarily from subscriptions and marketplace fees described elsewhere in these Terms, not from sales tax collected or from the Sales Tax Reserve (both of which are compliance-related).
+
 8. SUBSCRIPTION PLANS
 8.0 Paid plan benefits (Subscribe, Business, Seller)
 Members with any active paid NWC plan (Resident Subscribe, Business, or Seller) receive:
@@ -192,7 +219,7 @@ The Resident plan ($10/month or yearly equivalent) also provides:
 Subscriptions renew automatically until canceled. You may manage, change plans, or cancel your subscription through account tools we provide (including the in-app subscription management screen and Stripe's self-service billing portal where we link to it), or by contacting NWC.
 
 8.2 Business & Seller Plans - Tax Responsibility
-Business subscribers are responsible for their own taxes, reporting, EIN requirements, and legal compliance.
+Business subscribers are responsible for their own taxes, reporting, EIN requirements, and legal compliance for their business in general. For marketplace sales that NWC facilitates as described in Section 7.9, NWC may collect and remit sales tax as a marketplace facilitator where required; sellers remain responsible for obligations outside Section 7.9 and for non-marketplace taxes, as applicable.
 NWC Business plan fees may be deductible as marketing expenses.
 
 8.3 Honest Business Practice
@@ -347,7 +374,7 @@ NWC is not responsible for interruptions caused by third-party service providers
 Information provided on NWC, including blogs, posts, or community discussions, is for general informational purposes only and should not be considered professional advice (including legal, medical, financial, or business advice). Users should consult appropriate professionals before relying on any information from the platform.
 
 20. THIRD-PARTY SERVICES & POLICIES
-NWC uses third-party services including Stripe (payments and subscriptions), Shippo (shipping), and Vercel (hosting). NWC assumes no ownership of, and is not responsible for, the terms of service, privacy policies, or other policies of these third-party providers. By using NWC, you acknowledge that your use of these services is subject to each provider's respective policies. You agree to read and review those policies at your own discretion. NWC is not liable for any claims, issues, or disputes arising from your agreement with or use of third-party services.
+NWC uses third-party services including Stripe (payments and subscriptions), Shippo (shipping), TaxJar or similar providers (sales tax calculation and compliance workflows where NWC implements them), and Vercel (hosting). NWC assumes no ownership of, and is not responsible for, the terms of service, privacy policies, or other policies of these third-party providers. By using NWC, you acknowledge that your use of these services is subject to each provider's respective policies. You agree to read and review those policies at your own discretion. NWC is not liable for any claims, issues, or disputes arising from your agreement with or use of third-party services.
 
 21. CONTACT INFORMATION
 For questions, cancellations, concerns, or reports:
