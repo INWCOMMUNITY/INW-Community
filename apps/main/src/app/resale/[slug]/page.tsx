@@ -470,15 +470,7 @@ export default function ResaleProductDetailPage() {
         return;
       }
 
-      const useEmbeddedCheckout = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
-      if (!useEmbeddedCheckout) {
-        setError(
-          "Card payment is not configured. Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to enable checkout. Payments go directly to sellers."
-        );
-        return;
-      }
-
-      const intentRes = await fetch("/api/stripe/storefront-checkout-intent", {
+      const checkoutRes = await fetch("/api/stripe/storefront-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -486,37 +478,16 @@ export default function ResaleProductDetailPage() {
           returnBaseUrl: typeof window !== "undefined" ? window.location.origin : undefined,
         }),
       });
-      const intentData = await intentRes.json().catch(() => ({}));
-      if (!intentRes.ok) {
-        setError(getErrorMessage(intentData.error, "Checkout failed"));
+      const checkoutData = (await checkoutRes.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!checkoutRes.ok) {
+        setError(getErrorMessage(checkoutData.error, "Checkout failed"));
         return;
       }
-      const payments =
-        Array.isArray(intentData.payments) && intentData.payments.length > 0
-          ? intentData.payments
-          : intentData.clientSecret && intentData.orderIds?.length
-            ? [{ clientSecret: intentData.clientSecret, orderIds: intentData.orderIds }]
-            : null;
-      if (payments && intentData.summary && intentData.orderIds?.length && intentData.successUrl) {
-        try {
-          sessionStorage.setItem(
-            "storefront_checkout",
-            JSON.stringify({
-              payments,
-              paymentIndex: 0,
-              orderIds: intentData.orderIds,
-              summary: intentData.summary,
-              successUrl: intentData.successUrl,
-            })
-          );
-          window.location.href = "/storefront/checkout";
-          return;
-        } catch {
-          setError("Could not start checkout.");
-        }
-      } else {
-        setError(getErrorMessage(intentData.error, "Checkout could not be started."));
+      if (checkoutData.url) {
+        window.location.href = checkoutData.url;
+        return;
       }
+      setError(getErrorMessage(checkoutData.error, "Checkout could not be started."));
     } finally {
       setCheckingOut(false);
     }

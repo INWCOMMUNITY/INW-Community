@@ -406,21 +406,13 @@ export default function CartPage() {
       }
       if (typeof window !== "undefined") stripeBody.returnBaseUrl = window.location.origin;
 
-      const useEmbeddedCheckout = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
-      if (!useEmbeddedCheckout) {
-        setError(
-          "Card payment is not configured. Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to enable checkout. Payments go directly to sellers."
-        );
-        return;
-      }
-
-      const res = await fetch("/api/stripe/storefront-checkout-intent", {
+      const res = await fetch("/api/stripe/storefront-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(stripeBody),
         credentials: "include",
       });
-      const data = await res.json().catch(() => ({}));
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
       if (!res.ok) {
         const msg = res.status === 401
           ? "Your session has expired. Please sign in again to complete checkout."
@@ -428,29 +420,10 @@ export default function CartPage() {
         setError(msg);
         return;
       }
-      const payments =
-        Array.isArray(data.payments) && data.payments.length > 0
-          ? data.payments
-          : data.clientSecret && data.orderIds?.length
-            ? [{ clientSecret: data.clientSecret, orderIds: data.orderIds }]
-            : null;
-      if (payments && data.summary && data.orderIds?.length) {
-        try {
-          sessionStorage.setItem(
-            "storefront_checkout",
-            JSON.stringify({
-              payments,
-              paymentIndex: 0,
-              orderIds: data.orderIds,
-              summary: data.summary,
-              successUrl: data.successUrl,
-            })
-          );
-        } catch {
-          setError("Could not start checkout.");
-          return;
-        }
-        window.location.href = "/storefront/checkout";
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        setError(getErrorMessage(data.error, "Checkout could not be started."));
       }
     } finally {
       setCheckingOut(false);

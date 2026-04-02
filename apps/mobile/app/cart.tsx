@@ -1396,25 +1396,7 @@ export default function CartScreen() {
                             })
                         : undefined
                     }
-                    onSuccess={async (orderIds) => {
-                      const preorder = [...mixedCashOrderIdsRef.current];
-                      const preBadges = [...mixedCashEarnedBadgesRef.current];
-                      mixedCashOrderIdsRef.current = [];
-                      mixedCashEarnedBadgesRef.current = [];
-                      const merged = [...new Set([...preorder, ...(orderIds ?? [])])];
-                      try {
-                        await apiDelete("/api/cart");
-                      } catch {
-                        // ignore; load() will still refresh
-                      }
-                      await load();
-                      setOrderJustConfirmed(true);
-                      if (merged.length > 0) {
-                        await completeCheckoutAfterPayment(merged, preBadges, null);
-                      } else {
-                        router.back();
-                      }
-                    }}
+                    onHostedCheckoutUrl={(url) => setCheckoutUrl(url)}
                     onError={setError}
                     setCheckingOut={setCheckingOut}
                     disabled={!canCheckout || checkingOut}

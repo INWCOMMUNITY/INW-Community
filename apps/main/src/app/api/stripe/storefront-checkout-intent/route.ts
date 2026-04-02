@@ -1,3 +1,7 @@
+/**
+ * Legacy: creates PaymentIntents on each seller's Stripe Connect account (no platform-level Stripe Tax).
+ * Prefer `POST /api/stripe/storefront-checkout` for hosted Checkout on the platform; webhook sends Connect transfers.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";

@@ -859,6 +859,12 @@ model StoreOrder {
   shippingCostCents       Int      @default(0) @map("shipping_cost_cents")
   subtotalCents           Int      @map("subtotal_cents")
   taxCents                Int      @default(0) @map("tax_cents")
+  /// 1% of item subtotal only; withheld for compliance (see Terms §7.9)
+  salesTaxReserveCents    Int      @default(0) @map("sales_tax_reserve_cents")
+  /// NWC platform fee on pre-tax order total (5% with minimum)
+  platformFeeCents        Int      @default(0) @map("platform_fee_cents")
+  /// Stripe Connect transfer to seller after platform collects payment (facilitator flow)
+  stripeSellerTransferId  String?  @map("stripe_seller_transfer_id")
   status                  String   @default("pending") // pending | paid | shipped | delivered | refunded | canceled
   shippingAddress         Json?    @map("shipping_address") // { street, city, state, zip }
   localDeliveryDetails    Json?    @map("local_delivery_details") // { firstName, lastName, phone, email?, deliveryAddress, note, termsAcceptedAt, availableDropOffTimes? }

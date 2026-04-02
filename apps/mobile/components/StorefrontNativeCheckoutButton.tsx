@@ -1,103 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-} from "react-native";
-import { StripeProvider, usePaymentSheet, usePlatformPay } from "@stripe/stripe-react-native";
+import { useCallback, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text } from "react-native";
 import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
-import { logApplePayDiagnostics } from "@/lib/stripe-wallet-config";
-
-/** Single Connect payment: init + present inside a StripeProvider with stripeAccountId so the SDK finds the PI. */
-function ConnectSheetRunner({
-  payment,
-  onSuccess,
-  onError,
-}: {
-  payment: { clientSecret: string; orderIds: string[]; stripeAccountId?: string; amountCents?: number };
-  onSuccess: () => void;
-  onError: (message: string) => void;
-}) {
-  const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
-  const { isPlatformPaySupported } = usePlatformPay();
-  const ran = useRef(false);
-  useEffect(() => {
-    if (ran.current) return;
-    ran.current = true;
-    (async () => {
-      if (Platform.OS === "ios") {
-        const walletOk = await isPlatformPaySupported().catch(() => false);
-        if (!walletOk) {
-          logApplePayDiagnostics("store-connect", "isPlatformPaySupported returned false (Connect checkout)", {
-            hint: "Apple Pay on marketplace checkout uses the seller’s Stripe Connect account; the seller account must support wallets, and the app needs a valid Merchant ID.",
-          });
-        }
-      }
-      const amountCents = payment.amountCents ?? 0;
-      const applePayConfig: {
-        merchantCountryCode: string;
-        cartItems?: { paymentType: "Immediate"; label: string; amount: string }[];
-      } = { merchantCountryCode: "US" };
-      if (amountCents > 0) {
-        applePayConfig.cartItems = [
-          {
-            paymentType: "Immediate",
-            label: "Northwest Community",
-            amount: (amountCents / 100).toFixed(2),
-          },
-        ];
-      }
-      const { error: initErr } = await initPaymentSheet({
-        merchantDisplayName: "Northwest Community",
-        paymentIntentClientSecret: payment.clientSecret,
-        returnURL: "mobile://stripe-redirect",
-        allowsDelayedPaymentMethods: false,
-        applePay: applePayConfig,
-        googlePay: { merchantCountryCode: "US", currencyCode: "USD", testEnv: __DEV__ ?? false },
-        paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
-        appearance: {
-          colors: {
-            primary: "#505542",
-            background: "#FDEDCC",
-            componentBackground: "#FFFFFF",
-            componentText: "#3E432F",
-            primaryText: "#3E432F",
-            secondaryText: "#505542",
-            icon: "#505542",
-          },
-        },
-      });
-      if (initErr) {
-        onError(initErr.message ?? "Payment session could not be loaded.");
-        return;
-      }
-      const { error: presentErr } = await presentPaymentSheet();
-      if (presentErr) {
-        if (presentErr.code === "Canceled") {
-          onError(""); // User cancelled; caller will reset state
-        } else {
-          onError(presentErr.message ?? "Payment failed");
-        }
-        return;
-      }
-      onSuccess();
-    })();
-  }, [
-    payment.clientSecret,
-    payment.orderIds,
-    payment.amountCents,
-    initPaymentSheet,
-    presentPaymentSheet,
-    onSuccess,
-    onError,
-    isPlatformPaySupported,
-  ]);
-  return null;
-}
 
 export interface StorefrontCheckoutPayload {
   items: { storeItemId: string; quantity: number; variant?: unknown; fulfillmentType?: string }[];
@@ -115,7 +19,8 @@ interface StorefrontNativeCheckoutButtonProps {
   payload?: StorefrontCheckoutPayload;
   /** Build payload at tap time — use for mixed cash-then-card checkout. */
   getPayload?: () => Promise<StorefrontCheckoutPayload>;
-  onSuccess: (orderIds?: string[]) => void;
+  /** Stripe-hosted Checkout URL (platform collects tax; sellers paid via Connect after payment). */
+  onHostedCheckoutUrl: (url: string) => void;
   onError: (message: string) => void;
   setCheckingOut: (v: boolean) => void;
   disabled: boolean;
@@ -128,7 +33,7 @@ interface StorefrontNativeCheckoutButtonProps {
 export function StorefrontNativeCheckoutButton({
   payload,
   getPayload,
-  onSuccess,
+  onHostedCheckoutUrl,
   onError,
   setCheckingOut,
   disabled,
@@ -136,51 +41,10 @@ export function StorefrontNativeCheckoutButton({
   buttonDisabledStyle,
   onShippingAddressFormatted,
 }: StorefrontNativeCheckoutButtonProps) {
-  const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
-  const { isPlatformPaySupported } = usePlatformPay();
   const [loading, setLoading] = useState(false);
-  const [connectSheet, setConnectSheet] = useState<{ payments: { clientSecret: string; orderIds: string[]; stripeAccountId?: string; amountCents?: number }[]; index: number } | null>(null);
   const completedRef = useRef(false);
-  const pendingConnectRef = useRef(false);
-  const stripePk = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
-  const stripeMerchantId = process.env.EXPO_PUBLIC_STRIPE_MERCHANT_IDENTIFIER ?? "merchant.com.northwestcommunity";
 
   const CHECKOUT_TIMEOUT_MS = 60000;
-
-  const onConnectSheetSuccess = useCallback(() => {
-    setConnectSheet((prev) => {
-      if (!prev || prev.index + 1 >= prev.payments.length) {
-        completedRef.current = true;
-        pendingConnectRef.current = false;
-        setLoading(false);
-        setCheckingOut(false);
-        const allOrderIds = prev ? prev.payments.flatMap((p) => p.orderIds ?? []) : [];
-        onSuccess(allOrderIds);
-        return null;
-      }
-      return { payments: prev.payments, index: prev.index + 1 };
-    });
-  }, [onSuccess, setCheckingOut]);
-
-  const onConnectSheetError = useCallback(
-    (message: string) => {
-      setConnectSheet(null);
-      completedRef.current = true;
-      pendingConnectRef.current = false;
-      setLoading(false);
-      setCheckingOut(false);
-      if (message) {
-        onError(message);
-        const isStale = /No such payment_intent|payment_intent.*does not exist/i.test(message);
-        if (isStale) {
-          Alert.alert("Session expired", "Tap Checkout again to start a new one." + (message ? ` (${message})` : ""), [{ text: "OK" }]);
-        } else {
-          Alert.alert("Payment failed", message);
-        }
-      }
-    },
-    [onError, setCheckingOut]
-  );
 
   const handlePress = useCallback(async () => {
     if (disabled || loading) return;
@@ -195,13 +59,7 @@ export function StorefrontNativeCheckoutButton({
     setLoading(true);
     onError("");
     completedRef.current = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      if (completedRef.current) return;
-      completedRef.current = true;
-      onError("Checkout timed out. Please try again.");
-      setLoading(false);
-      setCheckingOut(false);
-    }, CHECKOUT_TIMEOUT_MS);
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     try {
       let checkoutPayload: StorefrontCheckoutPayload;
@@ -214,7 +72,6 @@ export function StorefrontNativeCheckoutButton({
           onError("Checkout is not configured.");
           setLoading(false);
           setCheckingOut(false);
-          if (timeoutId != null) clearTimeout(timeoutId);
           return;
         }
       } catch (prepErr: unknown) {
@@ -222,9 +79,16 @@ export function StorefrontNativeCheckoutButton({
         onError(err.error ?? "Checkout could not be started.");
         setLoading(false);
         setCheckingOut(false);
-        if (timeoutId != null) clearTimeout(timeoutId);
         return;
       }
+
+      timeoutId = setTimeout(() => {
+        if (completedRef.current) return;
+        completedRef.current = true;
+        onError("Checkout timed out. Please try again.");
+        setLoading(false);
+        setCheckingOut(false);
+      }, CHECKOUT_TIMEOUT_MS);
 
       const hasShipping = !!(
         checkoutPayload.shippingAddress?.street &&
@@ -285,136 +149,21 @@ export function StorefrontNativeCheckoutButton({
         }
       }
 
-      const data = await apiPost<{
-        payments?: { clientSecret: string; orderIds: string[]; stripeAccountId?: string; amountCents?: number }[];
-        error?: string;
-      }>("/api/stripe/storefront-checkout-intent", checkoutPayload);
+      const data = await apiPost<{ url?: string; error?: string }>("/api/stripe/storefront-checkout", checkoutPayload);
 
       if (data.error) {
         onError(data.error);
         return;
       }
-
-      const payments = data.payments ?? [];
-      if (payments.length === 0) {
-        onError("Checkout could not be started. Try redirect checkout.");
+      if (data.url) {
+        if (timeoutId != null) clearTimeout(timeoutId);
+        completedRef.current = true;
+        setLoading(false);
+        setCheckingOut(false);
+        onHostedCheckoutUrl(data.url);
         return;
       }
-
-      // Connect PIs are on the seller's Stripe account. The SDK must use StripeProvider stripeAccountId
-      // or Stripe returns "no such payment_intent". Use nested provider + ConnectSheetRunner.
-      const firstPayment = payments[0];
-      if (firstPayment?.stripeAccountId?.trim()) {
-        clearTimeout(timeoutId);
-        setConnectSheet({ payments, index: 0 });
-        pendingConnectRef.current = true;
-        return;
-      }
-
-      // Fallback when API doesn't return stripeAccountId (e.g. old backend).
-      if (Platform.OS === "ios") {
-        const walletOk = await isPlatformPaySupported().catch(() => false);
-        if (!walletOk) {
-          logApplePayDiagnostics("store-platform", "isPlatformPaySupported returned false", {
-            hint: "Verify Apple Pay capability, Merchant ID, and Wallet on device.",
-          });
-        }
-      }
-      for (let i = 0; i < payments.length; i++) {
-        const p = payments[i];
-        const amountCents = p.amountCents ?? 0;
-        const applePayConfig: {
-          merchantCountryCode: string;
-          cartItems?: { paymentType: "Immediate"; label: string; amount: string }[];
-        } = { merchantCountryCode: "US" };
-        if (amountCents > 0) {
-          applePayConfig.cartItems = [
-            { paymentType: "Immediate", label: "Northwest Community", amount: (amountCents / 100).toFixed(2) },
-          ];
-        }
-        const { error: initErr } = await initPaymentSheet({
-          merchantDisplayName: "Northwest Community",
-          paymentIntentClientSecret: p.clientSecret,
-          returnURL: "mobile://stripe-redirect",
-          allowsDelayedPaymentMethods: false,
-          applePay: applePayConfig,
-          googlePay: {
-            merchantCountryCode: "US",
-            currencyCode: "USD",
-            testEnv: __DEV__ ?? false,
-          },
-          paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
-          appearance: {
-            colors: {
-              primary: "#505542",
-              background: "#FDEDCC",
-              componentBackground: "#FFFFFF",
-              componentText: "#3E432F",
-              primaryText: "#3E432F",
-              secondaryText: "#505542",
-              icon: "#505542",
-            },
-          },
-        });
-
-        if (initErr) {
-          const msg = initErr.message ?? "";
-          const isStaleIntent = /No such payment_intent|payment_intent.*does not exist/i.test(msg);
-          if (__DEV__) {
-            console.warn("[StorefrontCheckout] initPaymentSheet failed", {
-              step: "init",
-              code: (initErr as { code?: string }).code,
-              message: msg,
-              isStaleIntent,
-            });
-          }
-          if (isStaleIntent) {
-            const detail = msg ? ` (${msg})` : "";
-            onError("Payment session expired. Please try checkout again." + detail);
-            Alert.alert(
-              "Session expired",
-              "The previous payment session is no longer valid. Tap Checkout again to start a new one." + detail,
-              [{ text: "OK" }]
-            );
-          } else {
-            onError(msg);
-          }
-          return;
-        }
-
-        const { error: presentErr } = await presentPaymentSheet();
-
-        if (presentErr) {
-          if (presentErr.code !== "Canceled") {
-            const msg = presentErr.message ?? "Payment failed";
-            const isStaleIntent = /No such payment_intent|payment_intent.*does not exist/i.test(msg);
-            if (__DEV__) {
-              console.warn("[StorefrontCheckout] presentPaymentSheet failed", {
-                step: "present",
-                code: presentErr.code,
-                message: msg,
-                isStaleIntent,
-              });
-            }
-            if (isStaleIntent) {
-              const detail = msg ? ` (${msg})` : "";
-              onError("Payment session expired. Please try checkout again." + detail);
-              Alert.alert(
-                "Session expired",
-                "The payment session expired. Tap Checkout again to start a new one." + detail,
-                [{ text: "OK" }]
-              );
-            } else {
-              onError(msg);
-              Alert.alert("Payment failed", msg);
-            }
-          }
-          return;
-        }
-      }
-
-      const allOrderIds = payments.flatMap((p) => p.orderIds ?? []);
-      onSuccess(allOrderIds);
+      onError("Checkout could not be started.");
     } catch (e) {
       const err = e as { error?: string; status?: number };
       if (err.status === 401) {
@@ -431,56 +180,34 @@ export function StorefrontNativeCheckoutButton({
     } finally {
       if (timeoutId != null) clearTimeout(timeoutId);
       completedRef.current = true;
-      if (!pendingConnectRef.current) {
-        setLoading(false);
-        setCheckingOut(false);
-      }
+      setLoading(false);
+      setCheckingOut(false);
     }
   }, [
     payload,
     getPayload,
     disabled,
     loading,
-    initPaymentSheet,
-    presentPaymentSheet,
-    onSuccess,
+    onHostedCheckoutUrl,
     onError,
     setCheckingOut,
     onShippingAddressFormatted,
-    isPlatformPaySupported,
   ]);
 
   const isDisabled = disabled || loading;
-  const showConnectSheet = connectSheet != null && connectSheet.payments[connectSheet.index]?.stripeAccountId?.trim();
 
   return (
-    <>
-      <Pressable
-        style={[styles.button, buttonStyle, isDisabled && (buttonDisabledStyle ?? styles.buttonDisabled)]}
-        onPress={handlePress}
-        disabled={isDisabled}
-      >
-        {loading ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Checkout</Text>
-        )}
-      </Pressable>
-      {showConnectSheet && (
-        <StripeProvider
-          publishableKey={stripePk}
-          stripeAccountId={connectSheet.payments[connectSheet.index].stripeAccountId!}
-          urlScheme="mobile"
-          merchantIdentifier={stripeMerchantId}
-        >
-          <ConnectSheetRunner
-            payment={connectSheet.payments[connectSheet.index]}
-            onSuccess={onConnectSheetSuccess}
-            onError={onConnectSheetError}
-          />
-        </StripeProvider>
+    <Pressable
+      style={[styles.button, buttonStyle, isDisabled && (buttonDisabledStyle ?? styles.buttonDisabled)]}
+      onPress={handlePress}
+      disabled={isDisabled}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color="#fff" />
+      ) : (
+        <Text style={styles.buttonText}>Checkout</Text>
       )}
-    </>
+    </Pressable>
   );
 }
 
