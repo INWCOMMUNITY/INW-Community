@@ -14,8 +14,15 @@ import {
   type LocalDeliveryDetailsJson,
 } from "@/lib/pickup-delivery-checkout";
 
-const PLATFORM_FEE_PERCENT = 0.05; // 5%
-const PLATFORM_FEE_MIN_CENTS = 50;
+/**
+ * Stripe Tax: dynamic `price_data` line items need explicit tax_behavior + tax_code or many
+ * checkouts show $0 tax despite Dashboard "collecting". Override via env if your preset differs.
+ * @see https://docs.stripe.com/tax/checkout
+ */
+const STRIPE_TAX_CODE_TANGIBLE =
+  process.env.STRIPE_TAX_CODE_TANGIBLE?.trim() || "txcd_99999999";
+const STRIPE_TAX_CODE_SHIPPING =
+  process.env.STRIPE_TAX_CODE_SHIPPING?.trim() || "txcd_92010001";
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -204,10 +211,12 @@ export async function POST(req: NextRequest) {
         price_data: {
           currency: "usd",
           unit_amount: priceCents,
+          tax_behavior: "exclusive",
           product_data: {
             name: `${storeItem.title} (${fulfillmentLabel})${resaleOfferId ? " — agreed offer price" : ""}`,
             description: fulfillmentDescription,
             images: storeItem.photos.length > 0 ? [storeItem.photos[0]] : undefined,
+            tax_code: STRIPE_TAX_CODE_TANGIBLE,
           },
         },
         quantity: item.quantity,
@@ -234,7 +243,11 @@ export async function POST(req: NextRequest) {
         price_data: {
           currency: "usd",
           unit_amount: orderShippingCents,
-          product_data: { name: "Shipping" },
+          tax_behavior: "exclusive",
+          product_data: {
+            name: "Shipping",
+            tax_code: STRIPE_TAX_CODE_SHIPPING,
+          },
         },
         quantity: 1,
       });
@@ -244,7 +257,11 @@ export async function POST(req: NextRequest) {
         price_data: {
           currency: "usd",
           unit_amount: localDeliveryFeeCentsTotal,
-          product_data: { name: "Local Delivery fee" },
+          tax_behavior: "exclusive",
+          product_data: {
+            name: "Local Delivery fee",
+            tax_code: STRIPE_TAX_CODE_SHIPPING,
+          },
         },
         quantity: 1,
       });
