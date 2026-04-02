@@ -317,19 +317,29 @@ export async function POST(req: NextRequest) {
       }
       if (chunk) metadata[`orderIds_${idx}`] = chunk;
     }
-    const createParams = {
-      mode: "payment" as const,
+    const buyerEmail =
+      typeof session.user.email === "string" && session.user.email.includes("@")
+        ? session.user.email
+        : undefined;
+
+    const createParams: Stripe.Checkout.SessionCreateParams = {
+      mode: "payment",
       line_items: lineItems,
-      payment_method_types: ["card"] as const,
+      payment_method_types: ["card"],
       success_url: successUrl,
       cancel_url: `${baseUrl}/storefront?canceled=1`,
       automatic_tax: { enabled: true },
+      // Stripe Tax needs a customer address on the session; without it, tax often stays incomplete or $0.
+      // See https://docs.stripe.com/tax/checkout
+      billing_address_collection: "required",
+      ...(hasShippedItem
+        ? { shipping_address_collection: { allowed_countries: ["US"] } }
+        : {}),
+      ...(buyerEmail ? { customer_email: buyerEmail } : {}),
       metadata,
-      ...(branding && { branding_settings: branding }),
+      ...(branding ? { branding_settings: branding } : {}),
     };
-    const checkoutSession = await stripe.checkout.sessions.create(
-      createParams as unknown as Stripe.Checkout.SessionCreateParams
-    );
+    const checkoutSession = await stripe.checkout.sessions.create(createParams);
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (e) {

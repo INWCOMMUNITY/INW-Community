@@ -191,6 +191,7 @@ export async function POST(req: NextRequest) {
       success_url: `${baseUrl}/my-community?success=1`,
       cancel_url: `${baseUrl}/support-nwc?canceled=1`,
       automatic_tax: { enabled: true },
+      billing_address_collection: "required",
       metadata,
       // Session metadata alone is not copied onto the Subscription; invoice/webhook fallbacks need this.
       subscription_data: { metadata: { ...metadata } },
