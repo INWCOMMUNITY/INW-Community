@@ -45,24 +45,30 @@ export default async function BusinessDetailPage({
   const googleMapsUrl = addressDisplay
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressDisplay)}`
     : null;
-  const appleMapsUrl = addressDisplay
-    ? `https://maps.apple.com/?q=${encodeURIComponent(addressDisplay)}`
-    : null;
-
   const hours = business.hoursOfOperation as Record<string, string> | null | undefined;
   const hasHours = hours && typeof hours === "object" && Object.keys(hours).length > 0;
   const dayOrder = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
   const galleryPhotos = photosExcludingLogo(business.photos ?? [], business.logoUrl);
 
   return (
-    <section
-      className="py-12 px-4 min-h-screen"
-      style={{ padding: "var(--section-padding)", backgroundColor: "#f8e7c9" }}
-    >
-      <div className="max-w-[2040px] mx-auto">
+    <section className="min-h-screen overflow-x-hidden bg-white pb-12 pt-0 lg:bg-[#f8e7c9] lg:px-4 lg:py-12">
+      <nav
+        className="lg:hidden sticky top-[var(--site-header-height)] z-30 flex items-center gap-2 px-3 py-3 border-b-2 border-black bg-[var(--color-primary)] text-white"
+        aria-label="Business"
+      >
+        <Link
+          href="/support-local"
+          className="shrink-0 rounded-lg px-2 py-1.5 font-semibold text-white hover:bg-white/10"
+          aria-label="Back to Local Business Directory"
+        >
+          ←
+        </Link>
+        <span className="flex-1 text-center font-semibold truncate pr-2 text-base">{business.name}</span>
+      </nav>
+
+      <div className="mx-auto w-full min-w-0 max-w-[2040px] px-4 pt-4 pb-12 lg:px-0 lg:pb-12 lg:pt-12">
         {/* Header section - name, location, logo - separate box */}
-        <div className="rounded-lg overflow-hidden mb-8 max-w-[1306px] mx-auto border-2 bg-white p-8 md:p-10 relative" style={{ borderColor: "var(--color-primary)" }}>
-          {/* Plan: Share and Save above business title, small gap between buttons */}
+        <div className="relative mx-auto mb-6 max-w-[1306px] min-w-0 overflow-hidden rounded-lg border-2 border-black bg-white p-4 sm:p-6 md:p-10 lg:mb-8 lg:border-[var(--color-primary)]">
           <div className="flex justify-end gap-3 mb-4">
             <ShareButton type="business" id={business.id} slug={business.slug} title={business.name} className="p-2 rounded border border-gray-300 bg-white hover:bg-gray-50" />
             <HeartSaveButton type="business" referenceId={business.id} initialSaved={!!saved} />
@@ -75,13 +81,13 @@ export default async function BusinessDetailPage({
               {business.name}
             </h1>
             {addressDisplay && (
-              <p className="text-base mb-6 opacity-80" style={{ color: "#000" }}>
+              <p className="text-base mb-4 lg:mb-6 opacity-80" style={{ color: "#000" }}>
                 {addressDisplay}
               </p>
             )}
-            {/* Logo: 1:1 square, large */}
+            {/* Logo: app size ~220px on mobile */}
             {business.logoUrl ? (
-              <div className="relative aspect-square w-[288px] h-[288px] sm:w-[336px] sm:h-[336px] mx-auto overflow-hidden rounded-none">
+              <div className="relative aspect-square w-[220px] h-[220px] sm:w-[260px] sm:h-[260px] lg:w-[288px] lg:h-[288px] xl:w-[336px] xl:h-[336px] mx-auto overflow-hidden rounded-xl lg:rounded-none">
                 <Image
                   src={business.logoUrl}
                   alt={business.name}
@@ -95,7 +101,7 @@ export default async function BusinessDetailPage({
               </div>
             ) : (
               <div
-                className="aspect-square w-[288px] h-[288px] sm:w-[336px] sm:h-[336px] mx-auto rounded-none flex items-center justify-center text-base opacity-60 bg-white border-2"
+                className="aspect-square w-[220px] h-[220px] sm:w-[260px] sm:h-[260px] lg:w-[288px] lg:h-[288px] xl:w-[336px] xl:h-[336px] mx-auto rounded-xl lg:rounded-none flex items-center justify-center text-base opacity-60 bg-white border-2"
                 style={{ borderColor: "var(--color-primary)", color: "#000" }}
               >
                 Logo
@@ -104,48 +110,73 @@ export default async function BusinessDetailPage({
           </div>
         </div>
 
-        {/* Business information section - separate box */}
-        <div className="rounded-lg overflow-hidden mb-8 max-w-[1306px] mx-auto border-2 bg-white p-6 md:p-8" style={{ borderColor: "var(--color-primary)" }}>
-          <div className="grid md:grid-cols-[1fr_1.5fr] gap-8">
-            {/* Left column: Hours, Contact, Location, Return button */}
-            <div>
+        {/* Business information: mobile = primary green panel (fits viewport); lg+ = white 2-col card */}
+        <div className="mx-auto mb-6 max-w-[1306px] min-w-0 overflow-hidden rounded-lg border-2 border-black lg:mb-8 lg:border-[var(--color-primary)]">
+          <div className="grid grid-cols-1 gap-0 lg:grid-cols-[1fr_1.5fr] lg:gap-8 lg:bg-white lg:p-8">
+            {/* Hours, contact, location, CTAs */}
+            <div className="min-w-0 max-w-full break-words bg-[var(--color-primary)] px-4 py-5 text-white lg:bg-transparent lg:px-0 lg:py-0 lg:text-[var(--color-text)]">
               <div className="mb-6">
-                <h2 className="text-lg font-bold mb-2" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
+                <h2
+                  className="mb-2 text-lg font-bold !text-white lg:!text-[var(--color-heading)]"
+                  style={{ fontFamily: "var(--font-heading)" }}
+                >
                   Hours of Operation
                 </h2>
                 {hasHours ? (
-                  <ul className="space-y-1 text-base" style={{ color: "#000" }}>
+                  <ul className="space-y-1 text-base text-white/95 lg:text-[var(--color-text)]">
                     {dayOrder.map((day) => {
                       const val = hours[day];
                       if (!val) return null;
                       return (
                         <li key={day} className="flex gap-3">
-                          <span className="capitalize w-20 shrink-0">{day}</span>
-                          <span>{val}</span>
+                          <span className="w-20 shrink-0 capitalize">{day}</span>
+                          <span className="min-w-0 break-words">{val}</span>
                         </li>
                       );
                     })}
                   </ul>
                 ) : (
-                  <p className="text-base opacity-80" style={{ color: "#000" }}>
-                    Not specified
-                  </p>
+                  <p className="text-base text-white/80 lg:text-[var(--color-text)] lg:opacity-80">Not specified</p>
                 )}
               </div>
               <div className="mb-6">
-                <h2 className="text-lg font-bold mb-2" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
+                <h2
+                  className="mb-2 text-lg font-bold !text-white lg:!text-[var(--color-heading)]"
+                  style={{ fontFamily: "var(--font-heading)" }}
+                >
                   Contact
                 </h2>
-                <ul className="space-y-1 text-base" style={{ color: "#000" }}>
-                  {business.phone && <li>Phone: {business.phone}</li>}
-                  {business.email && <li>Email: {business.email}</li>}
-                  {business.website && (
-                    <li>
+                <ul className="space-y-2 text-base text-white/95 lg:text-[var(--color-text)]">
+                  {business.phone && (
+                    <li className="break-words">
+                      <span className="text-white/80 lg:text-[var(--color-text)] lg:opacity-80">Phone: </span>
+                      <a href={`tel:${business.phone.replace(/\s/g, "")}`} className="text-white underline hover:opacity-90 lg:text-[var(--color-link)] lg:no-underline">
+                        {business.phone}
+                      </a>
+                    </li>
+                  )}
+                  {business.email && (
+                    <li className="break-all [overflow-wrap:anywhere]">
+                      <span className="text-white/80 lg:text-[var(--color-text)] lg:opacity-80">Email: </span>
                       <a
-                        href={business.website}
+                        href={`mailto:${business.email}`}
+                        className="text-white underline hover:opacity-90 lg:text-[var(--color-link)]"
+                      >
+                        {business.email}
+                      </a>
+                    </li>
+                  )}
+                  {business.website && (
+                    <li className="break-all [overflow-wrap:anywhere]">
+                      <a
+                        href={
+                          business.website.startsWith("http://") || business.website.startsWith("https://")
+                            ? business.website
+                            : `https://${business.website}`
+                        }
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="hover:underline text-black"
+                        className="text-white underline hover:opacity-90 lg:text-[var(--color-link)]"
                       >
                         {business.website}
                       </a>
@@ -155,32 +186,45 @@ export default async function BusinessDetailPage({
               </div>
               {addressDisplay && (
                 <div className="mb-6">
-                  <h2 className="text-lg font-bold mb-2" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
+                  <h2
+                    className="mb-2 text-lg font-bold !text-white lg:!text-[var(--color-heading)]"
+                    style={{ fontFamily: "var(--font-heading)" }}
+                  >
                     Business Location
                   </h2>
-                  <p className="text-base" style={{ color: "#000" }}>
+                  <p className="min-w-0 break-words text-base text-white/95 lg:text-[var(--color-text)]">
                     <a
                       href={googleMapsUrl ?? "#"}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="hover:underline text-black"
+                      className="text-white underline hover:opacity-90 lg:text-[var(--color-link)]"
                     >
                       {addressDisplay}
                     </a>
                   </p>
                 </div>
               )}
-              <Link href="/support-local" className="btn inline-block">
+              {addressDisplay && googleMapsUrl && (
+                <a
+                  href={googleMapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mb-4 flex w-full min-w-0 items-center justify-center gap-2 rounded-lg border-2 border-black bg-white px-3 py-3 text-center text-base font-semibold text-[var(--color-primary)] lg:hidden"
+                >
+                  Open in Maps
+                </a>
+              )}
+              <Link
+                href="/support-local"
+                className="btn inline-block max-lg:!flex max-lg:w-full max-lg:min-w-0 max-lg:max-w-full max-lg:justify-center max-lg:break-words max-lg:!rounded-lg max-lg:!border-2 max-lg:!border-white max-lg:!bg-transparent max-lg:!text-white max-lg:hover:!bg-white/10 max-lg:hover:!text-white"
+              >
                 Return to Local Business Directory!
               </Link>
             </div>
-            {/* Right column: About */}
-            <div>
+            {/* About */}
+            <div className="min-w-0 max-w-full break-words border-t-2 border-black bg-white px-4 py-5 lg:border-t-0 lg:px-0 lg:py-0">
               {business.shortDescription && (
-                <p
-                  className="text-base mb-4 max-w-xl"
-                  style={{ color: "#000", fontFamily: "var(--font-body)" }}
-                >
+                <p className="mb-4 text-base [overflow-wrap:anywhere]" style={{ color: "#000", fontFamily: "var(--font-body)" }}>
                   {business.shortDescription}
                 </p>
               )}
@@ -190,7 +234,7 @@ export default async function BusinessDetailPage({
                     About
                   </h2>
                   <p
-                    className="whitespace-pre-wrap text-base"
+                    className="whitespace-pre-wrap text-base [overflow-wrap:anywhere]"
                     style={{ color: "#000", fontFamily: "var(--font-body)" }}
                   >
                     {business.fullDescription}
@@ -203,11 +247,8 @@ export default async function BusinessDetailPage({
 
         {/* Gallery section - white with green border */}
         {galleryPhotos.length > 0 && (
-          <div className="mb-8 max-w-[1306px] mx-auto">
-            <div
-              className="rounded-lg overflow-hidden p-6 border-2 bg-white"
-              style={{ borderColor: "var(--color-primary)" }}
-            >
+          <div className="mx-auto mb-6 min-w-0 max-w-[1306px] lg:mb-8">
+            <div className="overflow-hidden rounded-lg border-2 border-black bg-white p-4 md:p-6 lg:border-[var(--color-primary)]">
               <h2 className="text-lg font-bold mb-4" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
                 Gallery
               </h2>
@@ -218,11 +259,8 @@ export default async function BusinessDetailPage({
 
         {/* Coupons - centered */}
         {business.coupons.length > 0 && (
-          <div className="max-w-[1306px] mx-auto">
-            <div
-              className="rounded-lg overflow-hidden p-6 border-2 bg-white flex flex-col items-center"
-              style={{ borderColor: "var(--color-primary)" }}
-            >
+          <div className="mx-auto min-w-0 max-w-[1306px]">
+            <div className="flex flex-col items-center overflow-hidden rounded-lg border-2 border-black bg-white p-4 md:p-6 lg:border-[var(--color-primary)]">
               <h2 className="text-lg font-bold mb-4" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
                 Coupons
               </h2>

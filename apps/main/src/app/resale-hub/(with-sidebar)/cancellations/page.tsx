@@ -126,8 +126,8 @@ export default function ResaleHubCancellationsPage() {
               </h3>
               {pendingRelist.map((order) => (
                 <div key={order.id} className="border-2 rounded-lg p-6" style={{ borderColor: "var(--color-primary)" }}>
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
+                  <div className="flex justify-between items-start gap-3 mb-4">
+                    <div className="min-w-0 flex-1">
                       <p className="font-semibold">
                         {order.buyer.firstName} {order.buyer.lastName}
                       </p>
@@ -135,12 +135,12 @@ export default function ResaleHubCancellationsPage() {
                       <p className="text-sm text-gray-500 mt-1">
                         Canceled {new Date(order.createdAt).toLocaleString()}
                       </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold">${(order.totalCents / 100).toFixed(2)}</p>
-                      <span className="inline-block px-2 py-0.5 rounded text-sm bg-amber-100 text-amber-800 mt-1">
+                      <p className="mt-2 w-full max-w-full px-2 py-1.5 rounded text-sm bg-amber-100 text-amber-800">
                         Cash order — re-list to restore inventory
-                      </span>
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold">${(order.totalCents / 100).toFixed(2)}</p>
                     </div>
                   </div>
                   <div className="border-t pt-4 mb-4">

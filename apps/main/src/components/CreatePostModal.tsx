@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { CreatePostForm } from "@/components/CreatePostForm";
 
@@ -36,9 +38,9 @@ interface CreatePostModalProps {
 }
 
 const backdropClass =
-  "fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 overflow-hidden";
+  "fixed left-0 right-0 bottom-0 z-[110] flex items-center justify-center p-4 bg-black/50 overflow-y-auto";
 const panelClass =
-  "relative rounded-xl shadow-xl bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto border-2 border-[var(--color-primary)]";
+  "relative z-[1] isolate rounded-xl shadow-xl bg-white w-full max-w-2xl overflow-y-auto border-2 border-[var(--color-primary)]";
 
 export function CreatePostModal({
   open,
@@ -52,10 +54,13 @@ export function CreatePostModal({
   onAfterSuccess,
 }: CreatePostModalProps) {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useLockBodyScroll(open);
-
-  if (!open) return null;
 
   function handleSuccess() {
     onAfterSuccess?.();
@@ -63,16 +68,26 @@ export function CreatePostModal({
     router.refresh();
   }
 
-  return (
+  if (!open || !mounted) return null;
+
+  const modal = (
     <div
       className={backdropClass}
+      style={{ top: "var(--site-header-height, 5rem)" }}
       aria-modal="true"
       role="dialog"
       aria-labelledby="create-post-modal-title"
       onClick={onClose}
     >
-      <div className={panelClass} onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between gap-4 z-10">
+      <div
+        className={panelClass}
+        style={{
+          maxHeight:
+            "min(90vh, calc(100dvh - var(--site-header-height, 5rem) - 2rem))",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 bg-white border-b px-6 py-4 flex items-center justify-between gap-4">
           <h2 id="create-post-modal-title" className="text-xl font-bold">
             {editPost ? "Edit post" : "Create Post"}
           </h2>
@@ -85,7 +100,7 @@ export function CreatePostModal({
             <span className="text-xl leading-none">×</span>
           </button>
         </div>
-        <div className="p-6">
+        <div className="p-6 bg-white">
           {noBusinessMessage && !sharedBusinessId && !editPost ? (
             <>
               <p className="text-gray-700 mb-4">{noBusinessMessage}</p>
@@ -125,4 +140,6 @@ export function CreatePostModal({
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

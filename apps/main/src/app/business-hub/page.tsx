@@ -13,8 +13,22 @@ const BUSINESS_HUB_HEADER_IMAGE =
 
 export const dynamic = "force-dynamic";
 
-export default async function BusinessHubPage() {
+function parseOpenModal(
+  raw: string | string[] | undefined
+): "coupon" | "reward" | "event" | null {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (v === "coupon" || v === "reward" || v === "event") return v;
+  return null;
+}
+
+export default async function BusinessHubPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   try {
+    const sp = await searchParams;
+    const initialOpenModal = parseOpenModal(sp.open);
     const session = await getServerSession();
     if (!session?.user?.id) {
       redirect("/login?callbackUrl=/business-hub");
@@ -29,7 +43,7 @@ export default async function BusinessHubPage() {
     const isSeller = sub?.plan === "seller";
     const businesses = await prisma.business.findMany({
       where: { memberId: session.user.id },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, name: true, slug: true, logoUrl: true },
     });
     if (!hasAccess && !isAdmin) {
       return (
@@ -51,7 +65,7 @@ export default async function BusinessHubPage() {
     return (
       <>
         <header
-          className="relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] flex items-center justify-center overflow-hidden bg-gray-900"
+          className="relative hidden lg:flex w-full aspect-[3/1] min-h-[260px] max-h-[52vh] items-center justify-center overflow-hidden bg-gray-900"
           style={{
             backgroundImage: `url(${WIX_IMG(BUSINESS_HUB_HEADER_IMAGE)})`,
             backgroundSize: "cover",
@@ -72,7 +86,12 @@ export default async function BusinessHubPage() {
         </header>
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
-          <BusinessHubFormModals businesses={businesses} isSeller={isSeller} />
+          <BusinessHubFormModals
+            businesses={businesses}
+            isSeller={isSeller}
+            hasSellerHubAccess={isSeller || isAdmin}
+            initialOpenModal={initialOpenModal}
+          />
         </div>
       </section>
       </>

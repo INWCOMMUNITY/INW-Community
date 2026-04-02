@@ -11,8 +11,8 @@ export default async function SupportLocalPage() {
 
   return (
     <>
-      {/* Header: gallery photo wall to wall, height 1.6x; logo 1:1 centered */}
-      <header className="w-full overflow-hidden relative border-2 border-[var(--color-secondary)]">
+      {/* Header: desktop only — app-style directory is in SupportLocalGallery on mobile */}
+      <header className="hidden lg:block w-full overflow-hidden relative border-2 border-[var(--color-secondary)]">
         <div className="w-full relative aspect-[2.62] min-h-[280px]">
           <Image
             src={directoryBgUrl ?? "/directory-background.jpg"}
@@ -34,9 +34,8 @@ export default async function SupportLocalPage() {
         </div>
       </header>
 
-      {/* Tan box: one-line title, reduced size */}
       <section
-        className="w-full py-6 px-4 sm:px-6 border-2 border-[var(--color-secondary)]"
+        className="hidden lg:block w-full py-6 px-4 sm:px-6 border-2 border-[var(--color-secondary)]"
         style={{ backgroundColor: "#f8e7c9" }}
       >
         <div className="max-w-3xl mx-auto text-center">
@@ -62,7 +61,7 @@ export default async function SupportLocalPage() {
         </div>
       </section>
 
-      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+      <section className="py-6 lg:py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] mx-auto">
           <SupportLocalGallery />
         </div>

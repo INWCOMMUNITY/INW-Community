@@ -14,6 +14,7 @@ type SidebarItem =
 
 const SIDEBAR_BASE: SidebarItem[] = [
   { divider: "Social" },
+  { href: "/my-community/messages", label: "My Messages", icon: "chatbubbles-outline" },
   { href: "/my-community/feed", label: "Feed", icon: "newspaper-outline" },
   { href: "/my-community/my-page", label: "My Page", icon: "person-outline" },
   { href: "/my-community/friends", label: "My Friends", icon: "people-outline" },
@@ -51,7 +52,6 @@ export function MyCommunitySidebar() {
         { href: "/resale-hub", label: "Resale Hub", icon: "storefront-outline" }
       );
     }
-    items.push({ href: "/my-community/messages", label: "My Messages", icon: "chatbubbles-outline" });
     return items;
   }, [canResaleHub, isAdmin]);
 

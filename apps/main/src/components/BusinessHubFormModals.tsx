@@ -17,11 +17,37 @@ interface BusinessOption {
   id: string;
   name: string;
   slug?: string;
+  logoUrl?: string | null;
 }
 
 interface BusinessHubFormModalsProps {
   businesses: BusinessOption[];
   isSeller: boolean;
+  /** Seller plan or admin — same gate as `/seller-hub` home. */
+  hasSellerHubAccess?: boolean;
+  /**
+   * Main `/business-hub` uses the site header for “Seller Hub”. Nested
+   * `/seller-hub/business-hub` (desktop) has no main header — show the in-form button.
+   */
+  sellerHubReturnInForm?: boolean;
+  /** Open a hub modal on mount (e.g. ?open=coupon from deep link). */
+  initialOpenModal?: "coupon" | "reward" | "event" | null;
+}
+
+function possessiveBusinessLine1(name: string): string {
+  const t = name.trim();
+  if (!t) return "Your";
+  return /s$/i.test(t) ? `${t}'` : `${t}'s`;
+}
+
+function businessLogoInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) {
+    const w = parts[0]!;
+    return w.length >= 2 ? w.slice(0, 2).toUpperCase() : w.toUpperCase();
+  }
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
 const MAX_BUSINESSES = 2;
@@ -204,7 +230,13 @@ function QRCodePopup({
   );
 }
 
-export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormModalsProps) {
+export function BusinessHubFormModals({
+  businesses,
+  isSeller,
+  hasSellerHubAccess = false,
+  sellerHubReturnInForm = false,
+  initialOpenModal = null,
+}: BusinessHubFormModalsProps) {
   const router = useRouter();
   const [openModal, setOpenModal] = useState<OpenModal>(null);
   const [rewardShowingExplanation, setRewardShowingExplanation] = useState(false);
@@ -216,6 +248,29 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
   const [qrPopupBusiness, setQrPopupBusiness] = useState<{ id: string; name: string; slug?: string } | null>(null);
   const [createPostOpen, setCreatePostOpen] = useState(false);
   const [createPostBusiness, setCreatePostBusiness] = useState<{ id: string; name: string } | null>(null);
+  const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
+  const [hubSwitcherOpen, setHubSwitcherOpen] = useState(false);
+  const [hubLogoLoadFailed, setHubLogoLoadFailed] = useState(false);
+
+  const activeBusiness =
+    businesses.find((b) => b.id === activeBusinessId) ?? businesses[0] ?? null;
+
+  useEffect(() => {
+    setActiveBusinessId((prev) => {
+      if (businesses.length === 0) return null;
+      if (prev && businesses.some((b) => b.id === prev)) return prev;
+      return businesses[0]!.id;
+    });
+  }, [businesses]);
+
+  useEffect(() => {
+    if (!initialOpenModal) return;
+    setOpenModal(initialOpenModal);
+  }, [initialOpenModal]);
+
+  useEffect(() => {
+    setHubLogoLoadFailed(false);
+  }, [activeBusiness?.id]);
 
   async function handleDownloadFlyer(businessId: string, slug: string) {
     setFlyerDownloading(true);
@@ -285,15 +340,358 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
     }
   }
 
-  useLockBodyScroll(!!openModal || !!qrPopupBusiness || createPostOpen);
+  useLockBodyScroll(!!openModal || !!qrPopupBusiness || createPostOpen || hubSwitcherOpen);
 
   const hubCardClass =
     "hub-card w-full min-w-0 border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center";
   const businessCardClass =
     "hub-card w-full min-w-0 border-2 rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] border-[var(--color-secondary)] bg-[var(--color-secondary)]/5 flex flex-col items-center";
 
+  const mobileGridTile =
+    "flex flex-col items-center justify-center gap-2 min-h-[100px] p-4 rounded-[10px] border-2 bg-white text-center active:bg-gray-50 transition-colors w-full";
+  const mobileGridTileStyle = { borderColor: "var(--color-primary)" } as const;
+
+  const sellerHubReturnButton =
+    hasSellerHubAccess && sellerHubReturnInForm ? (
+    <Link
+      href="/seller-hub"
+      prefetch={false}
+      className="mb-4 flex w-full items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-center text-sm font-semibold text-white no-underline shadow-sm transition hover:opacity-95 active:opacity-90"
+      style={{ backgroundColor: "var(--color-primary)" }}
+    >
+      <IonIcon name="arrow-back-outline" size={20} className="text-white shrink-0" />
+      Return to Seller Hub
+    </Link>
+  ) : null;
+
   return (
     <>
+      <div
+        className="lg:hidden px-4 pt-4 pb-10"
+        style={{ paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))" }}
+      >
+        <div
+          className="flex flex-row items-center gap-4 mb-6 py-4 px-4 rounded-xl border-2"
+          style={{
+            backgroundColor: "var(--color-section-alt)",
+            borderColor: "var(--color-primary)",
+          }}
+        >
+          <div className="flex-1 min-w-0">
+            {businesses.length === 0 ? (
+              <>
+                <p
+                  className="text-[17px] font-bold mb-0.5"
+                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+                >
+                  Your
+                </p>
+                <h1
+                  className="text-xl font-bold mb-1.5"
+                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+                >
+                  Business Hub
+                </h1>
+              </>
+            ) : businesses.length === 1 ? (
+              <>
+                <p
+                  className="text-[17px] font-bold mb-0.5"
+                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+                >
+                  {possessiveBusinessLine1(activeBusiness?.name ?? "")}
+                </p>
+                <h1
+                  className="text-xl font-bold mb-1.5"
+                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+                >
+                  Business Hub
+                </h1>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setHubSwitcherOpen(true)}
+                  className="flex flex-row items-center gap-1.5 mb-0.5 self-start"
+                >
+                  <span
+                    className="text-[17px] font-bold"
+                    style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+                  >
+                    {possessiveBusinessLine1(activeBusiness?.name ?? "")}
+                  </span>
+                  <IonIcon name="chevron-down" size={20} className="text-[var(--color-primary)] shrink-0" />
+                </button>
+                <h1
+                  className="text-xl font-bold mb-1.5"
+                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+                >
+                  Business Hub
+                </h1>
+              </>
+            )}
+            <p className="text-sm leading-5" style={{ color: "var(--color-text)" }}>
+              Give residents a reason to support local. Offer Coupons, Rewards, & Post Events
+            </p>
+          </div>
+          <div className="shrink-0 flex justify-center items-center min-w-[94px]">
+            <div
+              className="flex items-center justify-center overflow-hidden border-2 rounded-full bg-white w-[94px] h-[94px]"
+              style={{ borderColor: "var(--color-primary)" }}
+            >
+              {(() => {
+                const rawLogo =
+                  businesses.length > 0 && activeBusiness?.logoUrl?.trim() && !hubLogoLoadFailed
+                    ? activeBusiness.logoUrl.trim()
+                    : null;
+                if (rawLogo) {
+                  return (
+                    <img
+                      src={rawLogo}
+                      alt={activeBusiness ? `${activeBusiness.name} logo` : "Business logo"}
+                      className="w-full h-full object-contain"
+                      onError={() => setHubLogoLoadFailed(true)}
+                    />
+                  );
+                }
+                return (
+                  <span
+                    className="text-[28px] font-bold leading-none"
+                    style={{ color: "var(--color-primary)", fontFamily: "var(--font-heading)" }}
+                  >
+                    {activeBusiness != null ? businessLogoInitials(activeBusiness.name) : "?"}
+                  </span>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={openBusinessModal}
+            className={mobileGridTile}
+            style={mobileGridTileStyle}
+          >
+            <IonIcon name="business" size={28} className="text-[var(--color-primary)]" />
+            <span
+              className="text-sm font-semibold text-center leading-tight"
+              style={{ color: "var(--color-heading)" }}
+            >
+              Set up / Edit Business Page
+            </span>
+          </button>
+          {businesses.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (businesses.length === 1) {
+                  const biz = businesses[0]!;
+                  setCreatePostBusiness({ id: biz.id, name: biz.name });
+                  setCreatePostOpen(true);
+                } else {
+                  setOpenModal("create-post-picker");
+                }
+              }}
+              className={mobileGridTile}
+              style={mobileGridTileStyle}
+            >
+              <IonIcon name="megaphone" size={28} className="text-[var(--color-primary)]" />
+              <span
+                className="text-sm font-semibold text-center leading-tight"
+                style={{ color: "var(--color-heading)" }}
+              >
+                Create Post
+              </span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpenModal("event")}
+            className={mobileGridTile}
+            style={mobileGridTileStyle}
+          >
+            <IonIcon name="calendar" size={28} className="text-[var(--color-primary)]" />
+            <span
+              className="text-sm font-semibold text-center leading-tight"
+              style={{ color: "var(--color-heading)" }}
+            >
+              Post Event
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpenModal("coupon")}
+            className={mobileGridTile}
+            style={mobileGridTileStyle}
+          >
+            <IonIcon name="pricetag" size={28} className="text-[var(--color-primary)]" />
+            <span
+              className="text-sm font-semibold text-center leading-tight"
+              style={{ color: "var(--color-heading)" }}
+            >
+              Create Coupon
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpenModal("reward")}
+            className={mobileGridTile}
+            style={mobileGridTileStyle}
+          >
+            <IonIcon name="gift" size={28} className="text-[var(--color-primary)]" />
+            <span
+              className="text-sm font-semibold text-center leading-tight"
+              style={{ color: "var(--color-heading)" }}
+            >
+              Offer a Reward
+            </span>
+          </button>
+          <Link
+            href="/business-hub/reward-redemptions"
+            prefetch={false}
+            className={mobileGridTile + " no-underline"}
+            style={mobileGridTileStyle}
+          >
+            <IonIcon name="receipt-outline" size={28} className="text-[var(--color-primary)]" />
+            <span
+              className="text-sm font-semibold text-center leading-tight"
+              style={{ color: "var(--color-heading)" }}
+            >
+              Redeemed Rewards
+            </span>
+          </Link>
+        </div>
+
+        <div className="mt-6 flex flex-col items-stretch text-center">
+          <h2 className="text-base font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
+            Manage
+          </h2>
+          <Link
+            href="/business-hub/manage"
+            prefetch={false}
+            className="inline-flex items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-white font-semibold transition opacity-90 hover:opacity-100 w-full no-underline"
+            style={{ backgroundColor: "var(--color-primary)" }}
+          >
+            <IonIcon name="folder-outline" size={28} className="text-white shrink-0" />
+            Business Offers & Publicity
+          </Link>
+        </div>
+
+        {businesses.length > 0 && activeBusiness && (
+          <div className="mt-6 flex flex-col items-center text-center">
+            <h2 className="text-base font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
+              QR Code
+            </h2>
+            <button
+              type="button"
+              onClick={() =>
+                setQrPopupBusiness({
+                  id: activeBusiness.id,
+                  name: activeBusiness.name,
+                  slug: activeBusiness.slug,
+                })
+              }
+              className="inline-flex items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-white font-semibold transition opacity-90 hover:opacity-100 mb-2 w-full max-w-md"
+              style={{ backgroundColor: "var(--color-primary)" }}
+            >
+              <IonIcon name="qr-code" size={28} className="text-white" />
+              Show My QR Code
+            </button>
+            <p className="text-sm text-gray-600 mb-4 max-w-md">
+              Show this QR code to customers so they can scan it and earn reward points for supporting your
+              business.
+            </p>
+            <h2 className="text-base font-semibold mb-3 mt-2" style={{ color: "var(--color-heading)" }}>
+              Download
+            </h2>
+            <div className="grid grid-cols-2 gap-3 w-full max-w-md mx-auto">
+              <a
+                href={`/api/businesses/${activeBusiness.id}/qr`}
+                download={`nwc-qr-${activeBusiness.slug ?? activeBusiness.id}.png`}
+                className={mobileGridTile + " no-underline"}
+                style={mobileGridTileStyle}
+              >
+                <IonIcon name="qr-code" size={28} className="text-[var(--color-primary)]" />
+                <span
+                  className="text-sm font-semibold text-center leading-tight"
+                  style={{ color: "var(--color-heading)" }}
+                >
+                  QR Code
+                </span>
+              </a>
+              <button
+                type="button"
+                onClick={() => handleDownloadFlyer(activeBusiness.id, activeBusiness.slug ?? activeBusiness.id)}
+                disabled={flyerDownloading}
+                className={mobileGridTile}
+                style={mobileGridTileStyle}
+                aria-busy={flyerDownloading}
+              >
+                {flyerDownloading ? (
+                  <span className="text-sm text-gray-600">Preparing…</span>
+                ) : (
+                  <>
+                    <IonIcon name="document-text" size={28} className="text-[var(--color-primary)]" />
+                    <span
+                      className="text-sm font-semibold text-center leading-tight"
+                      style={{ color: "var(--color-heading)" }}
+                    >
+                      Download Flyer
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mt-3 max-w-md">
+              Download the QR or print the Flyer and hang it up in your storefront.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {hubSwitcherOpen && businesses.length > 1 ? (
+        <div
+          className="fixed inset-0 z-[250] lg:hidden flex justify-center items-start pt-24 px-6 bg-black/40"
+          role="dialog"
+          aria-label="Choose business"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            aria-label="Close"
+            onClick={() => setHubSwitcherOpen(false)}
+          />
+          <div
+            className="relative z-10 w-full max-w-sm rounded-lg border-2 overflow-hidden bg-white shadow-xl"
+            style={{ borderColor: "var(--color-primary)" }}
+          >
+            {businesses.map((b, i) => (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => {
+                  setActiveBusinessId(b.id);
+                  setHubSwitcherOpen(false);
+                }}
+                className={
+                  "w-full text-left px-5 py-3.5 text-base font-semibold transition " +
+                  (i < businesses.length - 1 ? "border-b border-gray-200 " : "") +
+                  (activeBusiness?.id === b.id ? "bg-[var(--color-section-alt)]" : "hover:bg-gray-50")
+                }
+                style={{ color: "var(--color-heading)" }}
+              >
+                {b.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="hidden lg:block">
+        {sellerHubReturnButton}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <button
           type="button"
@@ -372,13 +770,6 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
           </button>
         )}
       </div>
-
-      <CreatePostModal
-        open={createPostOpen}
-        onClose={() => { setCreatePostOpen(false); setCreatePostBusiness(null); }}
-        sharedBusinessId={createPostBusiness?.id}
-        sharedBusinessName={createPostBusiness?.name}
-      />
 
       <div className="mb-8 flex flex-col items-stretch max-w-2xl mx-auto w-full text-center">
         <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
@@ -488,6 +879,28 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
           )}
         </div>
       )}
+
+      {isSeller && (
+        <div
+          className="p-4 rounded-lg border-2 mt-4"
+          style={{ backgroundColor: "var(--color-section-alt)", borderColor: "var(--color-primary)" }}
+        >
+          <p className="text-sm mb-2" style={{ color: "var(--color-primary)" }}>
+            You&apos;re on the Seller plan. Access storefront and orders in Seller Hub.
+          </p>
+          <Link href="/seller-hub" className="btn text-sm">
+            Go to Seller Hub
+          </Link>
+        </div>
+      )}
+      </div>
+
+      <CreatePostModal
+        open={createPostOpen}
+        onClose={() => { setCreatePostOpen(false); setCreatePostBusiness(null); }}
+        sharedBusinessId={createPostBusiness?.id}
+        sharedBusinessName={createPostBusiness?.name}
+      />
 
       {openModal === "coupon" && (
         <Modal title="Offer a Coupon" onClose={closeModal}>
@@ -731,20 +1144,6 @@ export function BusinessHubFormModals({ businesses, isSeller }: BusinessHubFormM
             </div>
           )}
         </Modal>
-      )}
-
-      {isSeller && (
-        <div
-          className="p-4 rounded-lg border-2"
-          style={{ backgroundColor: "var(--color-section-alt)", borderColor: "var(--color-primary)" }}
-        >
-          <p className="text-sm mb-2" style={{ color: "var(--color-primary)" }}>
-            You&apos;re on the Seller plan. Access storefront and orders in Seller Hub.
-          </p>
-          <Link href="/seller-hub" className="btn text-sm">
-            Go to Seller Hub
-          </Link>
-        </div>
       )}
     </>
   );

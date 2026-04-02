@@ -6,6 +6,7 @@ import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
 import { IonIcon } from "@/components/IonIcon";
 import { HubExclamationBadge } from "@/components/HubExclamationBadge";
+import { SellerHubMobileHome } from "@/components/SellerHubMobileHome";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 
 const SELLER_HUB_HEADER_IMAGE =
@@ -68,7 +69,7 @@ export default async function SellerHubPage() {
     return (
       <>
         <header
-          className="relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] flex items-center justify-center overflow-hidden bg-gray-900"
+          className="hidden lg:flex relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] items-center justify-center overflow-hidden bg-gray-900"
           style={{
             backgroundImage: `url(${WIX_IMG(SELLER_HUB_HEADER_IMAGE)})`,
             backgroundSize: "cover",
@@ -87,7 +88,12 @@ export default async function SellerHubPage() {
             </div>
           </div>
         </header>
-      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+
+        <div className="lg:hidden bg-white min-h-[calc(100dvh-5rem)]">
+          <SellerHubMobileHome hasLocalDelivery={hasLocalDelivery} />
+        </div>
+
+      <section className="hidden lg:block py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
           <div className="flex flex-wrap justify-center gap-8">
             <Link

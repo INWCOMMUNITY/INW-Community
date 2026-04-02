@@ -26,6 +26,14 @@
   --section-padding: 3rem 1.5rem;
   --column-gap: 2rem;
   --max-width: 1200px;
+  /* Sticky main header; overlays (e.g. Create Post) start below this so they do not cover the menu */
+  --site-header-height: 4.25rem;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --site-header-height: 5.75rem;
+  }
 }
 
 html {

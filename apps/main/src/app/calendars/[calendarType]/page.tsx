@@ -20,20 +20,19 @@ export default async function CalendarTypePage({
   const imagePath = getCalendarImagePath(typedCalendarType);
 
   return (
-    <section className="relative min-h-[180vh] pt-24 px-4 pb-24">
-      {/* Mobile: background image in header with centered 70% white box; desktop: photo as full background with opaque content below */}
+    <section className="relative px-4 pb-8 max-md:pt-0 md:min-h-[180vh] md:pb-24 md:pt-24">
+      {/* Mobile: hero image and overlay share the same top + height so the white box centers in the photo */}
       {imagePath && (
         <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat max-md:h-[45vh] max-md:inset-x-0 max-md:top-0"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat max-md:h-[45vh] max-md:rounded-none max-md:bottom-auto max-md:left-0 max-md:right-0 max-md:top-0"
           style={{ backgroundImage: imagePath ? `url(${cloudinaryFetchUrl(imagePath)})` : undefined }}
           aria-hidden
         />
       )}
-      {/* Mobile: white box centered in photo, shifted up 1in */}
-      <div className="relative z-10 max-md:flex max-md:flex-col max-md:items-center max-md:justify-center max-md:h-[45vh] max-md:min-h-[45vh]">
+      <div className="relative z-10 flex min-h-[45vh] w-full flex-col items-center justify-center px-2 max-md:h-[45vh] md:hidden">
         <div
-          className="max-md:w-[90%] max-md:max-w-md max-md:rounded-xl max-md:p-6 max-md:shadow-xl max-md:text-center max-md:-translate-y-[0.5in] md:hidden"
-          style={{ backgroundColor: "rgba(255,255,255,0.8)" }}
+          className="mx-auto w-[min(92%,28rem)] rounded-xl p-5 text-center shadow-xl sm:p-6"
+          style={{ backgroundColor: "rgba(255,255,255,0.88)" }}
         >
           <Link href="/calendars" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
             ← Back to NWC Calendar & Events Page
@@ -43,9 +42,8 @@ export default async function CalendarTypePage({
           <PostEventModal calendarType={calendarType} calendarLabel={label} />
         </div>
       </div>
-      {/* Calendar: full width on mobile, centered month/nav; desktop white box shifted up 1in */}
-      <div className="relative z-10 max-w-[var(--max-width)] mx-auto md:mt-8 max-md:mt-6 max-md:w-full max-md:max-w-full max-md:px-1">
-        <div className="rounded-xl bg-white shadow-lg overflow-hidden max-md:rounded-none max-md:shadow-none">
+      <div className="relative z-10 mx-auto mt-0 w-full max-w-[var(--max-width)] max-md:max-w-full md:mt-8">
+        <div className="overflow-hidden rounded-xl bg-white shadow-lg max-md:rounded-lg max-md:shadow-md">
           <div className="p-6 border-b border-gray-200 max-md:hidden">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>

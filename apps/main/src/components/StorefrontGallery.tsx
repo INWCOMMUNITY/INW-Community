@@ -548,9 +548,7 @@ export function StorefrontGallery({
             {sidebarContent}
           </div>
         </aside>
-        <div
-          className="flex-1 min-w-0 md:ml-28"
-        >
+        <div className="flex-1 min-w-0">
         <div className="flex gap-3 justify-center mb-6 max-md:flex md:hidden">
           <button type="button" onClick={() => { setBrowseOpen(true); setFilterOpen(false); }} className="flex-1 max-w-[12rem] btn border border-gray-300 bg-white hover:bg-gray-50 py-2.5">Browse by</button>
           <button type="button" onClick={() => { setFilterOpen(true); setBrowseOpen(false); }} className="flex-1 max-w-[12rem] btn border border-gray-300 bg-white hover:bg-gray-50 py-2.5">Filter by</button>

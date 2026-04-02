@@ -22,6 +22,8 @@ const navItems: NavItem[] = [
     children: [
       { href: "/", label: "Home" },
       { href: "/download-app", label: "Download App" },
+      { href: "/about", label: "About" },
+      { href: "/support-nwc", label: "Support NWC" },
     ],
   },
   {
@@ -58,21 +60,42 @@ const navItems: NavItem[] = [
   },
   {
     label: "Members",
-    href: "/support-nwc",
+    href: "/business-hub",
     icon: "person-circle-outline",
     children: [
-      { href: "/about", label: "About" },
-      { href: "/support-nwc", label: "Support NWC" },
       { href: "/business-hub", label: "Business Hub" },
       { href: "/seller-hub", label: "Seller Hub" },
     ],
   },
 ];
 
-function isPathActive(pathname: string, item: (typeof navItems)[number]): boolean {
+function membersDropdownChildren(canAccessResaleHub: boolean | undefined): NavChild[] {
+  const base: NavChild[] = [
+    { href: "/business-hub", label: "Business Hub" },
+    { href: "/seller-hub", label: "Seller Hub" },
+  ];
+  if (canAccessResaleHub) {
+    return [...base, { href: "/resale-hub", label: "Resale Hub" }];
+  }
+  return base;
+}
+
+function navDropdownChildren(item: NavItem, canAccessResaleHub: boolean | undefined): NavChild[] {
+  if (item.label === "Members") {
+    return membersDropdownChildren(canAccessResaleHub);
+  }
+  return "children" in item ? (item.children ?? []) : [];
+}
+
+function isPathActive(
+  pathname: string,
+  item: (typeof navItems)[number],
+  canAccessResaleHub?: boolean | undefined,
+): boolean {
   const href = "href" in item ? item.href : "";
   if ("children" in item && (item.children?.length ?? 0) > 0) {
-    const childMatch = (item.children ?? []).some(
+    const children = navDropdownChildren(item, canAccessResaleHub);
+    const childMatch = children.some(
       (c) => pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href)),
     );
     if (childMatch) return true;
@@ -85,10 +108,13 @@ function isPathActive(pathname: string, item: (typeof navItems)[number]): boolea
 export function Header() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
+  const canAccessResaleHub = session?.user?.canAccessResaleHub === true;
   const { count: cartCount, setOpen: setCartOpen } = useCart();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedMobileItem, setExpandedMobileItem] = useState<string | null>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const onBusinessHub = pathname?.startsWith("/business-hub") ?? false;
+  const [canAccessSellerHub, setCanAccessSellerHub] = useState<boolean | null>(null);
   useLockBodyScroll(mobileOpen);
   const toggleMobileExpand = (label: string) => setExpandedMobileItem((prev) => (prev === label ? null : label));
   useEffect(() => {
@@ -104,6 +130,25 @@ export function Header() {
       .then((d) => setUnreadMessages(Number(d?.unreadMessages ?? 0)))
       .catch(() => setUnreadMessages(0));
   }, [session?.user?.id, pathname]);
+
+  useEffect(() => {
+    if (!session?.user?.id || !onBusinessHub) {
+      setCanAccessSellerHub(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/me", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d: { canAccessSellerHub?: boolean }) => {
+        if (!cancelled) setCanAccessSellerHub(!!d?.canAccessSellerHub);
+      })
+      .catch(() => {
+        if (!cancelled) setCanAccessSellerHub(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id, onBusinessHub]);
 
   if (pathname?.startsWith("/seller-hub")) {
     return null;
@@ -133,23 +178,37 @@ export function Header() {
           <div className="flex flex-1 items-center justify-end gap-1.5 shrink-0 min-w-0">
             {status === "loading" ? (
               <span className="text-xs text-gray-500">...</span>
-            ) : session?.user?.canAccessResaleHub ? (
-              <Link
-                href="/my-community"
-                prefetch={false}
-                className="rounded-full px-2.5 py-2 font-medium text-[0.86rem] text-white hover:opacity-95 transition-opacity shrink-0 inline-flex items-center justify-center"
-                style={{ backgroundColor: SEGMENT_COLOR }}
-              >
-                My Community
-              </Link>
             ) : (
-              <Link
-                href={session ? "/my-community" : "/login"}
-                className="rounded-full px-2.5 py-2 font-medium text-[0.86rem] text-white hover:opacity-95 transition-opacity shrink-0"
-                style={{ backgroundColor: SEGMENT_COLOR }}
-              >
-                My Community
-              </Link>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                {onBusinessHub && canAccessSellerHub === true && (
+                  <Link
+                    href="/seller-hub"
+                    prefetch={false}
+                    className="rounded-full px-2.5 py-1.5 font-semibold text-[0.72rem] leading-tight text-white text-center hover:opacity-95 transition-opacity whitespace-nowrap"
+                    style={{ backgroundColor: "var(--color-primary)" }}
+                  >
+                    Seller Hub
+                  </Link>
+                )}
+                {session?.user?.canAccessResaleHub ? (
+                  <Link
+                    href="/my-community"
+                    prefetch={false}
+                    className="rounded-full px-2.5 py-2 font-medium text-[0.86rem] text-white hover:opacity-95 transition-opacity shrink-0 inline-flex items-center justify-center"
+                    style={{ backgroundColor: SEGMENT_COLOR }}
+                  >
+                    My Community
+                  </Link>
+                ) : (
+                  <Link
+                    href={session ? "/my-community" : "/login"}
+                    className="rounded-full px-2.5 py-2 font-medium text-[0.86rem] text-white hover:opacity-95 transition-opacity shrink-0"
+                    style={{ backgroundColor: SEGMENT_COLOR }}
+                  >
+                    My Community
+                  </Link>
+                )}
+              </div>
             )}
             {cartCount > 0 && (
               <button
@@ -182,7 +241,7 @@ export function Header() {
             style={{ borderColor: "var(--color-primary)", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
           >
             {navItems.map((item, index) => {
-              const active = isPathActive(pathname, item);
+              const active = isPathActive(pathname, item, canAccessResaleHub);
               const isFirst = index === 0;
               const isLast = index === navItems.length - 1;
               const hasChildren = "children" in item && (item.children?.length ?? 0) > 0;
@@ -209,7 +268,7 @@ export function Header() {
                     {/* Wrapper includes pt-2 bridge so hover is preserved when moving from trigger to menu */}
                     <div className="absolute top-full left-0 right-0 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
                       <div className="w-full bg-white border-2 rounded-md shadow-lg" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-                        {(item.children ?? []).map((c) => {
+                        {navDropdownChildren(item, canAccessResaleHub).map((c) => {
                           const isChildActive = pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href));
                           const isRewards = c.href === "/rewards";
                           return (
@@ -267,6 +326,16 @@ export function Header() {
               Admin
             </Link>
           )}
+          {onBusinessHub && canAccessSellerHub === true && (
+            <Link
+              href="/seller-hub"
+              prefetch={false}
+              className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-semibold text-sm sm:text-[1.1375rem] text-white hover:opacity-95 transition-opacity shrink-0"
+              style={{ backgroundColor: "var(--color-primary)" }}
+            >
+              Seller Hub
+            </Link>
+          )}
           {status === "loading" ? (
             <span className="text-sm text-gray-500 w-24">...</span>
           ) : session?.user?.canAccessResaleHub ? (
@@ -287,13 +356,6 @@ export function Header() {
                     className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] rounded-t-md text-sm sm:text-base text-gray-700 text-center"
                   >
                     Messages ({unreadMessages})
-                  </Link>
-                  <Link
-                    href="/resale-hub"
-                    prefetch={false}
-                    className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] text-sm sm:text-base text-gray-700 text-center"
-                  >
-                    Resale Hub
                   </Link>
                   <Link
                     href="/api/auth/signout?callbackUrl=%2F"
@@ -428,8 +490,8 @@ export function Header() {
                         href={"href" in item ? item.href : "#"}
                         prefetch={false}
                         onClick={() => setMobileOpen(false)}
-                        className={`flex-1 py-3 px-3 font-medium ${isPathActive(pathname, item) ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
-                        style={isPathActive(pathname, item) ? { backgroundColor: "var(--color-primary)" } : undefined}
+                        className={`flex-1 py-3 px-3 font-medium ${isPathActive(pathname, item, canAccessResaleHub) ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
+                        style={isPathActive(pathname, item, canAccessResaleHub) ? { backgroundColor: "var(--color-primary)" } : undefined}
                       >
                         {item.label}
                       </Link>
@@ -452,7 +514,7 @@ export function Header() {
                     </div>
                     {isExpanded && (
                       <div className="border-t border-gray-200 bg-gray-50/80">
-                        {(item.children ?? []).map((c) => {
+                        {navDropdownChildren(item, canAccessResaleHub).map((c) => {
                           const isChildActive = pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href));
                           return (
                             <Link
@@ -483,7 +545,7 @@ export function Header() {
                   </div>
                 );
               }
-              const active = isPathActive(pathname, item);
+              const active = isPathActive(pathname, item, canAccessResaleHub);
               return (
                 <Link
                   key={item.href}
@@ -506,17 +568,6 @@ export function Header() {
                 style={{ borderColor: "var(--color-primary)", ...(pathname?.startsWith("/my-community/messages") ? { backgroundColor: "var(--color-primary)" } : {}) }}
               >
                 Messages ({unreadMessages})
-              </Link>
-            )}
-            {session?.user?.canAccessResaleHub && (
-              <Link
-                href="/resale-hub"
-                prefetch={false}
-                onClick={() => setMobileOpen(false)}
-                className={`w-full rounded-lg border-2 overflow-hidden text-left block py-3 px-4 font-medium ${pathname === "/resale-hub" || pathname.startsWith("/resale-hub/") ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
-                style={{ borderColor: "var(--color-primary)", ...(pathname === "/resale-hub" || pathname.startsWith("/resale-hub/") ? { backgroundColor: "var(--color-primary)" } : {}) }}
-              >
-                Resale Hub
               </Link>
             )}
             {session?.user && (

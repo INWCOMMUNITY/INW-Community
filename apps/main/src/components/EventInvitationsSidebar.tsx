@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { IonIcon } from "@/components/IonIcon";
+import { formatTime12h } from "@/lib/format-time";
 
 interface EventInvite {
   id: string;
@@ -28,6 +30,15 @@ function statusLabel(status: string): string {
   if (status === "maybe") return "Maybe";
   if (status === "declined") return "Can't make it";
   return status;
+}
+
+function formatEventDate(dateStr: string, time: string | null): string {
+  const line = new Date(dateStr).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  return time ? `${line} · ${formatTime12h(time)}` : line;
 }
 
 export function EventInvitationsSidebar() {
@@ -86,38 +97,62 @@ export function EventInvitationsSidebar() {
   const pending = invites.filter((i) => i.status === "pending");
   const responded = invites.filter((i) => i.status !== "pending");
 
+  const cardClass = "rounded-lg border-2 p-3 mb-3 last:mb-0 bg-[#f9f9f9]";
+
   return (
-    <aside className="w-full lg:w-64 shrink-0 order-3">
-      <div className="border rounded-lg p-4 bg-gray-50 sticky top-24">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">Event Invitations</h2>
+    <aside className="w-full shrink-0 order-3 lg:pr-5">
+      <div
+        className="rounded-lg border-2 p-4 bg-white sticky top-24 shadow-sm"
+        style={{ borderColor: "var(--color-primary)" }}
+      >
+        <h2
+          className="text-base font-bold mb-1"
+          style={{
+            fontFamily: "var(--font-heading)",
+            color: "var(--color-heading)",
+          }}
+        >
+          Local Event Invites
+        </h2>
+        <p className="text-xs text-gray-600 mb-3 leading-snug">
+          Open an event anytime; update your RSVP from the menu.
+        </p>
         {pending.length > 0 ? (
           <>
-            <p className="text-xs text-gray-500 mb-2 font-medium">Needs your response</p>
-            <ul className="space-y-3 mb-4">
+            <p
+              className="text-sm font-bold mb-2"
+              style={{ color: "var(--color-heading)" }}
+            >
+              Needs your response
+            </p>
+            <ul className="mb-4 list-none p-0 m-0">
               {pending.map((inv) => (
-                <li
-                  key={inv.id}
-                  className="border-b border-gray-200 pb-3 last:border-0 last:pb-0"
-                >
+                <li key={inv.id} className={cardClass} style={{ borderColor: "var(--color-primary)" }}>
                   <Link
                     href={`/events/${inv.event.slug}`}
-                    className="font-medium text-gray-900 hover:underline block mb-1"
+                    className="block font-semibold text-[#333] hover:underline text-sm leading-tight"
                   >
                     {inv.event.title}
                   </Link>
-                  <p className="text-xs text-gray-500 mb-1">
-                    {new Date(inv.event.date).toLocaleDateString()}
-                    {inv.event.location && ` · ${inv.event.location}`}
+                  <p className="text-sm text-gray-600 mt-1">
+                    {formatEventDate(inv.event.date, inv.event.time)}
                   </p>
-                  <p className="text-sm text-gray-600 mb-2">
+                  {inv.event.location ? (
+                    <p className="text-xs text-gray-500 mt-0.5">{inv.event.location}</p>
+                  ) : null}
+                  <p
+                    className="text-xs mt-2"
+                    style={{ color: "var(--color-primary)" }}
+                  >
                     Invited by {inv.inviter.firstName} {inv.inviter.lastName}
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 mt-3">
                     <button
                       type="button"
                       onClick={() => respond(inv.id, "accepted")}
                       disabled={responding === inv.id}
-                      className="text-sm px-2 py-1 rounded bg-green-100 text-green-800 hover:bg-green-200 disabled:opacity-50"
+                      className="flex-1 min-w-[4.5rem] text-xs font-semibold py-2 rounded-md text-white disabled:opacity-50 transition-opacity"
+                      style={{ backgroundColor: "var(--color-primary)" }}
                     >
                       {responding === inv.id ? "…" : "Accept"}
                     </button>
@@ -125,7 +160,12 @@ export function EventInvitationsSidebar() {
                       type="button"
                       onClick={() => respond(inv.id, "maybe")}
                       disabled={responding === inv.id}
-                      className="text-sm px-2 py-1 rounded bg-amber-50 text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                      className="flex-1 min-w-[4.5rem] text-xs font-semibold py-2 rounded-md border-2 disabled:opacity-50 transition-opacity"
+                      style={{
+                        backgroundColor: "var(--color-section-alt)",
+                        borderColor: "var(--color-primary)",
+                        color: "var(--color-primary)",
+                      }}
                     >
                       Maybe
                     </button>
@@ -133,7 +173,7 @@ export function EventInvitationsSidebar() {
                       type="button"
                       onClick={() => respond(inv.id, "declined")}
                       disabled={responding === inv.id}
-                      className="text-sm px-2 py-1 rounded bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-50"
+                      className="flex-1 min-w-[4.5rem] text-xs py-2 rounded-md border border-gray-500 text-gray-600 bg-transparent hover:bg-gray-100 disabled:opacity-50"
                     >
                       Decline
                     </button>
@@ -145,30 +185,51 @@ export function EventInvitationsSidebar() {
         ) : null}
         {responded.length > 0 ? (
           <>
-            <p className="text-xs text-gray-500 mb-2 font-medium">Your responses</p>
-            <ul className="space-y-3">
+            <p
+              className={`text-sm font-bold mb-2 ${pending.length > 0 ? "mt-4" : ""}`}
+              style={{ color: "var(--color-heading)" }}
+            >
+              Your responses
+            </p>
+            <ul className="space-y-0 list-none p-0 m-0">
               {responded.map((inv) => (
                 <li
                   key={inv.id}
                   data-invite-menu={inv.id}
-                  className="relative border-b border-gray-200 pb-3 last:border-0 last:pb-0"
+                  className={`${cardClass} relative`}
+                  style={{ borderColor: "var(--color-primary)" }}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <Link
                         href={`/events/${inv.event.slug}`}
-                        className="font-medium text-gray-900 hover:underline block mb-1"
+                        className="font-semibold text-[#333] hover:underline block text-sm leading-tight pr-1"
                       >
                         {inv.event.title}
                       </Link>
-                      <p className="text-xs text-gray-500 mb-1">
-                        {new Date(inv.event.date).toLocaleDateString()}
+                      <p className="text-sm text-gray-600 mt-1">
+                        {formatEventDate(inv.event.date, inv.event.time)}
                       </p>
-                      <p className="text-xs font-medium text-gray-700">
+                      {inv.event.location ? (
+                        <p className="text-xs text-gray-500 mt-0.5">{inv.event.location}</p>
+                      ) : null}
+                      <p
+                        className="text-xs mt-2"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        Invited by {inv.inviter.firstName} {inv.inviter.lastName}
+                      </p>
+                      <span
+                        className="inline-block mt-2.5 px-2.5 py-1 rounded-full text-xs font-bold"
+                        style={{
+                          backgroundColor: "color-mix(in srgb, var(--color-primary) 15%, transparent)",
+                          color: "var(--color-primary)",
+                        }}
+                      >
                         {statusLabel(inv.status)}
-                      </p>
+                      </span>
                     </div>
-                    <div className="relative shrink-0">
+                    <div className="relative shrink-0 pt-0.5">
                       <button
                         type="button"
                         aria-label="Change RSVP"
@@ -176,27 +237,21 @@ export function EventInvitationsSidebar() {
                         onClick={() =>
                           setOpenMenuId((id) => (id === inv.id ? null : inv.id))
                         }
-                        className="rounded p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-800"
+                        className="rounded-md p-1 -m-1 hover:bg-gray-200/80 transition-colors"
+                        style={{ color: "var(--color-heading)" }}
                       >
-                        <span className="sr-only">Change RSVP</span>
-                        <svg
-                          className="h-5 w-5"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                          aria-hidden
-                        >
-                          <path d="M10 6a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
-                        </svg>
+                        <IonIcon name="ellipsis-vertical" size={22} />
                       </button>
                       {openMenuId === inv.id ? (
                         <div
-                          className="absolute right-0 z-20 mt-1 w-44 rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+                          className="absolute right-0 z-20 mt-1 w-44 rounded-md border-2 bg-white py-1 shadow-lg"
+                          style={{ borderColor: "var(--color-primary)" }}
                           role="menu"
                         >
                           <button
                             type="button"
                             role="menuitem"
-                            className="block w-full px-3 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                            className="block w-full px-3 py-2 text-left text-sm text-gray-800 hover:bg-[var(--color-section-alt)] disabled:opacity-50"
                             disabled={responding === inv.id}
                             onClick={() => {
                               void respond(inv.id, "accepted");
@@ -208,7 +263,7 @@ export function EventInvitationsSidebar() {
                           <button
                             type="button"
                             role="menuitem"
-                            className="block w-full px-3 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                            className="block w-full px-3 py-2 text-left text-sm text-gray-800 hover:bg-[var(--color-section-alt)] disabled:opacity-50"
                             disabled={responding === inv.id}
                             onClick={() => {
                               void respond(inv.id, "maybe");

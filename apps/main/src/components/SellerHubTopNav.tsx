@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { IonIcon } from "@/components/IonIcon";
 import { CreatePostModal } from "@/components/CreatePostModal";
+import { SellerHubMobileDrawer } from "@/components/SellerHubMobileDrawer";
 
 const SEGMENT_COLOR = "#5F6955";
 
@@ -40,6 +41,7 @@ export function SellerHubTopNav() {
 
   const [createPostOpen, setCreatePostOpen] = useState(false);
   const [createPostBusiness, setCreatePostBusiness] = useState<{ id: string; name: string } | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   async function openCreatePostModal() {
     setHoveredDropdown(null);
@@ -108,14 +110,14 @@ export function SellerHubTopNav() {
   const actionsChildren: Child[] = [
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
     { href: "/seller-hub/orders", label: "Ship Item", icon: "boat-outline" },
-    { href: "/seller-hub/business-hub", label: "Offer Reward", icon: "gift-outline" },
-    { href: "/seller-hub/business-hub", label: "Offer Coupon", icon: "pricetag-outline" },
+    { href: "/business-hub?from=seller-hub&open=reward", label: "Offer Reward", icon: "gift-outline" },
+    { href: "/business-hub?from=seller-hub&open=coupon", label: "Offer Coupon", icon: "pricetag-outline" },
     { href: "/my-community", label: "Create Post", icon: "megaphone-outline" },
   ];
 
   const profileChildren: Child[] = [
     { href: "/seller-hub/store", label: "Seller Storefront", icon: "storefront-outline" },
-    { href: "/seller-hub/business-hub", label: "Local Business", icon: "business-outline" },
+    { href: "/business-hub?from=seller-hub", label: "Local Business", icon: "business-outline" },
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "#stripe", label: "Stripe", icon: "card-outline" },
     { href: "https://apps.goshippo.com/", label: "Shippo", icon: "boat-outline" },
@@ -127,7 +129,7 @@ export function SellerHubTopNav() {
 
   const sellerHubChildren: Child[] = [
     { href: "/seller-hub", label: "Seller Hub", icon: "home-outline" },
-    { href: "/seller-hub/business-hub", label: "Business Hub", icon: "business-outline" },
+    { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
   ];
 
   const navItems: NavItem[] = [
@@ -141,12 +143,19 @@ export function SellerHubTopNav() {
       : { label: "Get Paid", icon: "wallet-outline", children: getPaidChildren },
   ];
 
-  async function handleStripeClick(e: React.MouseEvent) {
-    e.preventDefault();
+  async function handleStripeClick(e?: React.MouseEvent) {
+    e?.preventDefault();
     const res = await fetch("/api/stripe/connect/express-dashboard", { credentials: "include" });
     const d = await res.json().catch(() => ({}));
     if (d?.url) window.open(d.url, "_blank", "noopener,noreferrer");
     else window.location.href = "/seller-hub/store/payouts";
+  }
+
+  function openCreatePostFromMenu() {
+    setMobileMenuOpen(false);
+    queueMicrotask(() => {
+      void openCreatePostModal();
+    });
   }
 
   const segmentClass = (active: boolean) =>
@@ -162,8 +171,36 @@ export function SellerHubTopNav() {
   const activeSegmentIndex = navItems.findIndex((item) => isItemActive(pathname, item));
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b-2 no-print overflow-visible py-4" style={{ borderBottomColor: "var(--color-primary)" }}>
-      <div className="max-w-[var(--max-width)] mx-auto px-3 flex items-center overflow-visible">
+    <header className="sticky top-0 z-40 bg-white border-b-2 no-print overflow-visible py-2 lg:py-4" style={{ borderBottomColor: "var(--color-primary)" }}>
+      <div className="lg:hidden max-w-[var(--max-width)] mx-auto px-3 flex items-center gap-3">
+        <Link
+          href="/"
+          prefetch={false}
+          className="shrink-0 flex items-center justify-center gap-1.5 text-sm font-semibold rounded-lg border-2 hover:bg-gray-50 max-sm:size-10 max-sm:p-0 sm:px-2 sm:py-2"
+          style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+        >
+          <IonIcon name="home-outline" size={20} />
+          <span className="hidden sm:inline">NWC Home</span>
+        </Link>
+        <span
+          className="flex-1 text-center text-base font-bold truncate"
+          style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+        >
+          Seller Hub
+        </span>
+        <button
+          type="button"
+          className="shrink-0 size-10 inline-flex items-center justify-center rounded-lg border-2 text-[var(--color-heading)] hover:bg-gray-50 p-0"
+          style={{ borderColor: "var(--color-primary)" }}
+          aria-label="Open Seller Hub menu"
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen(true)}
+        >
+          <IonIcon name="menu-outline" size={20} />
+        </button>
+      </div>
+
+      <div className="max-w-[var(--max-width)] mx-auto px-3 flex items-center overflow-visible hidden lg:flex">
         <nav
           className="flex flex-1 rounded-md border-2 min-w-0 overflow-visible"
           style={{ borderColor: "var(--color-primary)", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
@@ -279,6 +316,12 @@ export function SellerHubTopNav() {
           })}
         </nav>
       </div>
+      <SellerHubMobileDrawer
+        open={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        onStripeDashboard={() => void handleStripeClick()}
+        onCreatePost={openCreatePostFromMenu}
+      />
       <CreatePostModal
         open={createPostOpen}
         onClose={() => { setCreatePostOpen(false); setCreatePostBusiness(null); }}

@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { eventInviteEventHasPassed } from "@/lib/event-invite-visible";
 
 export async function GET(req: NextRequest) {
   const session =
@@ -32,6 +33,7 @@ export async function GET(req: NextRequest) {
           slug: true,
           date: true,
           time: true,
+          endTime: true,
           location: true,
         },
       },
@@ -47,8 +49,12 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
+  const visible = invites.filter(
+    (inv) => !eventInviteEventHasPassed(inv.event)
+  );
+
   return NextResponse.json({
-    invites: invites.map((inv) => ({
+    invites: visible.map((inv) => ({
       id: inv.id,
       status: inv.status,
       event: inv.event,

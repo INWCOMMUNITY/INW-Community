@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { WIX_IMG } from "@/lib/wix-media";
 import { BusinessHubFormModals } from "@/components/BusinessHubFormModals";
+import { SellerHubBusinessHubMobileRedirect } from "@/components/SellerHubBusinessHubMobileRedirect";
 
 /** Same header as main Business Hub – panorama (lake, dock, trees, sky) */
 const BUSINESS_HUB_HEADER_IMAGE =
@@ -18,36 +19,44 @@ export default async function SellerHubBusinessHubPage() {
 
   const businesses = await prisma.business.findMany({
     where: { memberId: session.user.id },
-    select: { id: true, name: true, slug: true },
+    select: { id: true, name: true, slug: true, logoUrl: true },
   });
 
   return (
     <>
-      <header
-        className="relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] flex items-center justify-center overflow-hidden bg-gray-900"
-        style={{
-          backgroundImage: `url(${WIX_IMG(BUSINESS_HUB_HEADER_IMAGE)})`,
-          backgroundSize: "cover",
-          backgroundPosition: "50% 65%",
-          backgroundRepeat: "no-repeat",
-        }}
-      >
-        <div className="relative z-10 w-full max-w-2xl mx-auto px-3 max-md:px-2 py-4 max-md:py-3 md:px-6 md:py-10">
-          <div className="bg-white/60 backdrop-blur-sm rounded-lg shadow-lg p-4 max-md:p-3 md:p-10 text-center max-md:max-h-[85%] max-md:overflow-auto max-md:max-w-[300px] max-md:mx-auto">
-            <h1 className="text-[2.1rem] max-md:text-lg md:text-5xl font-bold mb-3 max-md:mb-2 text-black">
-              Business Hub
-            </h1>
-            <p className="text-black leading-relaxed max-md:text-xs max-md:leading-snug">
-              Welcome Local Business Owner to Northwest Communities Business Hub. Here you can set up your business page, offer coupons to the community, post events on our event calendars, and market your business by offering rewards to community members who most actively support local businesses! Thanks for being here!
-            </p>
+      <SellerHubBusinessHubMobileRedirect />
+      <div className="hidden lg:block">
+        <header
+          className="relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] flex items-center justify-center overflow-hidden bg-gray-900"
+          style={{
+            backgroundImage: `url(${WIX_IMG(BUSINESS_HUB_HEADER_IMAGE)})`,
+            backgroundSize: "cover",
+            backgroundPosition: "50% 65%",
+            backgroundRepeat: "no-repeat",
+          }}
+        >
+          <div className="relative z-10 w-full max-w-2xl mx-auto px-3 max-md:px-2 py-4 max-md:py-3 md:px-6 md:py-10">
+            <div className="bg-white/60 backdrop-blur-sm rounded-lg shadow-lg p-4 max-md:p-3 md:p-10 text-center max-md:max-h-[85%] max-md:overflow-auto max-md:max-w-[300px] max-md:mx-auto">
+              <h1 className="text-[2.1rem] max-md:text-lg md:text-5xl font-bold mb-3 max-md:mb-2 text-black">
+                Business Hub
+              </h1>
+              <p className="text-black leading-relaxed max-md:text-xs max-md:leading-snug">
+                Welcome Local Business Owner to Northwest Communities Business Hub. Here you can set up your business page, offer coupons to the community, post events on our event calendars, and market your business by offering rewards to community members who most actively support local businesses! Thanks for being here!
+              </p>
+            </div>
           </div>
-        </div>
-      </header>
-      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-        <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
-          <BusinessHubFormModals businesses={businesses} isSeller={true} />
-        </div>
-      </section>
+        </header>
+        <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+          <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
+            <BusinessHubFormModals
+              businesses={businesses}
+              isSeller={true}
+              hasSellerHubAccess={true}
+              sellerHubReturnInForm={true}
+            />
+          </div>
+        </section>
+      </div>
     </>
   );
 }

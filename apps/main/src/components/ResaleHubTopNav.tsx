@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { IonIcon } from "@/components/IonIcon";
+import { ResaleHubMobileDrawer } from "@/components/ResaleHubMobileDrawer";
 
 const SEGMENT_COLOR = "#5F6955";
 
@@ -48,6 +49,7 @@ const navItems: NavItem[] = [
 
 export function ResaleHubTopNav() {
   const pathname = usePathname();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredDropdown, setHoveredDropdown] = useState<string | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const triggerRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -86,8 +88,39 @@ export function ResaleHubTopNav() {
   const activeSegmentIndex = navItems.findIndex((item) => isItemActive(pathname, item));
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b-2 no-print overflow-visible py-4" style={{ borderBottomColor: "var(--color-primary)" }}>
-      <div className="max-w-[var(--max-width)] mx-auto px-3 flex items-center overflow-visible">
+    <header
+      className="sticky top-0 z-40 bg-white border-b-2 no-print overflow-visible py-2 lg:py-4"
+      style={{ borderBottomColor: "var(--color-primary)" }}
+    >
+      <div className="lg:hidden max-w-[var(--max-width)] mx-auto px-3 flex items-center gap-3">
+        <Link
+          href="/"
+          prefetch={false}
+          className="shrink-0 flex items-center justify-center gap-1.5 text-sm font-semibold rounded-lg border-2 hover:bg-gray-50 max-sm:size-10 max-sm:p-0 sm:px-2 sm:py-2"
+          style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+        >
+          <IonIcon name="home-outline" size={20} />
+          <span className="hidden sm:inline">NWC Home</span>
+        </Link>
+        <span
+          className="flex-1 text-center text-base font-bold truncate"
+          style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+        >
+          Resale Hub
+        </span>
+        <button
+          type="button"
+          className="shrink-0 size-10 inline-flex items-center justify-center rounded-lg border-2 text-[var(--color-heading)] hover:bg-gray-50 p-0"
+          style={{ borderColor: "var(--color-primary)" }}
+          aria-label="Open Resale Hub menu"
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen(true)}
+        >
+          <IonIcon name="menu-outline" size={20} />
+        </button>
+      </div>
+
+      <div className="max-w-[var(--max-width)] mx-auto px-3 flex items-center overflow-visible hidden lg:flex">
         <nav
           className="flex flex-1 rounded-md border-2 min-w-0 overflow-visible"
           style={{ borderColor: "var(--color-primary)", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
@@ -163,6 +196,7 @@ export function ResaleHubTopNav() {
           })}
         </nav>
       </div>
+      <ResaleHubMobileDrawer open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
     </header>
   );
 }

@@ -4,6 +4,7 @@ import { getServerSession } from "@/lib/auth";
 import { IonIcon } from "@/components/IonIcon";
 import { WIX_IMG } from "@/lib/wix-media";
 import { HubExclamationBadge } from "@/components/HubExclamationBadge";
+import { ResaleHubMobileHome } from "@/components/ResaleHubMobileHome";
 
 const RESALE_HUB_HEADER_IMAGE =
   "2bdd49_f582d22b864044b096a7f124f1b6efda~mv2.jpg/v1/fill/w_1920,h_640,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Principle%203_edited.jpg";
@@ -52,7 +53,7 @@ export default async function ResaleHubPage() {
   return (
     <>
       <header
-        className="relative w-full aspect-[3/1] min-h-[260px] max-h-[52vh] flex items-center justify-center overflow-hidden bg-gray-900"
+        className="relative hidden lg:flex w-full aspect-[3/1] min-h-[260px] max-h-[52vh] items-center justify-center overflow-hidden bg-gray-900"
         style={{
           backgroundImage: `url(${WIX_IMG(RESALE_HUB_HEADER_IMAGE)})`,
           backgroundSize: "cover",
@@ -71,7 +72,12 @@ export default async function ResaleHubPage() {
           </div>
         </div>
       </header>
-      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+
+      <div className="lg:hidden bg-white min-h-[calc(100dvh-5rem)]">
+        <ResaleHubMobileHome />
+      </div>
+
+      <section className="hidden lg:block py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
           <div className="flex flex-wrap justify-center gap-8">
             {cards.map((card) => (

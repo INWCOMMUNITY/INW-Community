@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 
 export interface PostAsIdentityBusinessOption {
@@ -18,6 +20,9 @@ interface PostAsIdentityPickerModalProps {
   onSelectBusiness: (business: PostAsIdentityBusinessOption) => void;
 }
 
+const backdropClass =
+  "fixed left-0 right-0 bottom-0 z-[120] flex items-end sm:items-center justify-center p-4 bg-black/50";
+
 export function PostAsIdentityPickerModal({
   open,
   onClose,
@@ -28,22 +33,34 @@ export function PostAsIdentityPickerModal({
   onSelectPersonal,
   onSelectBusiness,
 }: PostAsIdentityPickerModalProps) {
-  useLockBodyScroll(open);
-  if (!open) return null;
+  const [mounted, setMounted] = useState(false);
 
-  return (
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useLockBodyScroll(open);
+
+  if (!open || !mounted) return null;
+
+  const modal = (
     <div
-      className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-4 bg-black/50"
+      className={backdropClass}
+      style={{ top: "var(--site-header-height, 5rem)" }}
       aria-modal="true"
       role="dialog"
       aria-labelledby="post-as-picker-title"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-t-xl sm:rounded-xl shadow-xl w-full max-w-md max-h-[88vh] overflow-hidden flex flex-col border-2 border-[var(--color-primary)]"
+        className="relative z-[1] isolate bg-white rounded-t-xl sm:rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col border-2 border-[var(--color-primary)]"
+        style={{
+          maxHeight:
+            "min(88vh, calc(100dvh - var(--site-header-height, 5rem) - 2rem))",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b bg-white shrink-0">
           <h2 id="post-as-picker-title" className="text-lg font-bold">
             {title}
           </h2>
@@ -56,7 +73,7 @@ export function PostAsIdentityPickerModal({
             ×
           </button>
         </div>
-        <div className="overflow-y-auto p-4 space-y-2">
+        <div className="overflow-y-auto p-4 space-y-2 bg-white">
           <p className="text-sm text-gray-600 mb-3">{subtitle}</p>
           <button
             type="button"
@@ -87,4 +104,6 @@ export function PostAsIdentityPickerModal({
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

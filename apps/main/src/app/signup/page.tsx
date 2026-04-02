@@ -101,7 +101,7 @@ export default function SignupPage() {
     <div className="max-w-md mx-auto px-4 py-12">
       <h1 className="text-2xl font-bold mb-6 text-center">Sign up</h1>
 
-      <div className="flex flex-col sm:flex-row gap-6 mb-8 justify-center items-center">
+      <div className="hidden md:flex flex-row gap-6 mb-8 justify-center items-center">
         <div className="flex flex-col items-center gap-2">
           <Link href="/signup/business" className="group btn w-full sm:w-auto min-w-[200px] flex flex-col justify-center items-center text-center py-4 gap-0.5">
             <span className="block w-full text-center">Business Sign Up</span>

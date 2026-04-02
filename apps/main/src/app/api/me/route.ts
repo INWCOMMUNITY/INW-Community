@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getCurrentSeasonId } from "@/lib/award-points";
-import { NWC_PAID_PLAN_ACCESS_STATUSES, NWC_PAID_PLAN_SLUGS } from "@/lib/nwc-paid-subscription";
+import {
+  NWC_PAID_PLAN_ACCESS_STATUSES,
+  NWC_PAID_PLAN_SLUGS,
+  prismaWhereMemberSellerPlanAccess,
+} from "@/lib/nwc-paid-subscription";
 import {
   prismaWhereMemberSubscribePlanAccess,
   prismaWhereMemberSubscribeTierPerksAccess,
@@ -88,7 +92,8 @@ export async function GET(req: NextRequest) {
       seasonPointsEarned = msp?.pointsEarned ?? 0;
     }
   }
-  const [subTier, subResaleHub, subscriptions, subscriptionPlan, hasHubAccess] = await Promise.all([
+  const [subTier, subResaleHub, subscriptions, subscriptionPlan, hasHubAccess, sellerPlanRow] =
+    await Promise.all([
     prisma.subscription.findFirst({
       where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
       select: { id: true },
@@ -103,7 +108,17 @@ export async function GET(req: NextRequest) {
     }),
     resolveEffectiveNwcPlan(session.user.id),
     hasBusinessHubAccess(session.user.id),
+    prisma.subscription.findFirst({
+      where: prismaWhereMemberSellerPlanAccess(session.user.id),
+      select: { id: true },
+    }),
   ]);
+  const adminEmail = process.env.ADMIN_EMAIL?.trim();
+  const isPlatformAdmin =
+    !!adminEmail &&
+    !!member.email &&
+    member.email.toLowerCase() === adminEmail.toLowerCase();
+  const canAccessSellerHub = isPlatformAdmin || sellerPlanRow != null;
   const paidSlugSet = new Set<string>(NWC_PAID_PLAN_SLUGS);
   const hasPaidSubscription = subscriptions.some((s) => paidSlugSet.has(s.plan));
   return NextResponse.json({
@@ -115,6 +130,8 @@ export async function GET(req: NextRequest) {
     hasResaleHubAccess: !!subResaleHub,
     /** Active Business/Seller plan or admin-assigned business (`adminGrantedAt`). */
     hasBusinessHubAccess: hasHubAccess,
+    /** Seller plan or platform admin — same gate as `/seller-hub` home. */
+    canAccessSellerHub,
     hasPaidSubscription,
     subscriptionPlan,
     subscriptions: subscriptions.map((s) => ({ plan: s.plan, status: s.status })),
