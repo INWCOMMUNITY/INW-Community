@@ -26,8 +26,7 @@ interface BusinessHubFormModalsProps {
   /** Seller plan or admin — same gate as `/seller-hub` home. */
   hasSellerHubAccess?: boolean;
   /**
-   * Main `/business-hub` uses the site header for “Seller Hub”. Nested
-   * `/seller-hub/business-hub` (desktop) has no main header — show the in-form button.
+   * `/seller-hub/business-hub` has no main site header — show the in-form “Return to Seller Hub” button.
    */
   sellerHubReturnInForm?: boolean;
   /** Open a hub modal on mount (e.g. ?open=coupon from deep link). */

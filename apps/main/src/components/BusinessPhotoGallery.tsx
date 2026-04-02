@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 
 interface BusinessPhotoGalleryProps {
@@ -12,7 +13,12 @@ interface BusinessPhotoGalleryProps {
 export function BusinessPhotoGallery({ photos, alt = "Business photo", size = "default" }: BusinessPhotoGalleryProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [portalReady, setPortalReady] = useState(false);
   const touchStartX = useRef<number>(0);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   const goNext = useCallback(() => {
     setCurrentIndex((i) => (i + 1) % photos.length);
@@ -75,71 +81,74 @@ export function BusinessPhotoGallery({ photos, alt = "Business photo", size = "d
         ))}
       </div>
 
-      {lightboxOpen && (
-        <div
-          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center"
-          onClick={() => setLightboxOpen(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Photo gallery"
-        >
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLightboxOpen(false);
-            }}
-            className="absolute top-4 right-4 text-white text-2xl hover:opacity-80"
-            aria-label="Close"
-          >
-            ✕
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              goPrev();
-            }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-white text-4xl hover:opacity-80 px-2"
-            aria-label="Previous photo"
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              goNext();
-            }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-white text-4xl hover:opacity-80 px-2"
-            aria-label="Next photo"
-          >
-            ›
-          </button>
+      {lightboxOpen &&
+        portalReady &&
+        createPortal(
           <div
-            className="relative w-[95vw] h-[95vh] max-w-[1800px] max-h-[95vh] flex items-center justify-center"
-            onClick={(e) => e.stopPropagation()}
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90"
+            onClick={() => setLightboxOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Photo gallery"
           >
-            <Image
-              key={currentIndex}
-              src={photos[currentIndex]}
-              alt={`${alt} ${currentIndex + 1}`}
-              fill
-              sizes="(max-width: 1280px) 95vw, 1200px"
-              className="object-contain select-none cursor-pointer"
-              quality={100}
-              unoptimized={photos[currentIndex].startsWith("blob:")}
-              onClick={goNext}
-              draggable={false}
-            />
-          </div>
-          <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-sm">
-            {currentIndex + 1} / {photos.length}
-          </p>
-        </div>
-      )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxOpen(false);
+              }}
+              className="absolute left-4 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-2xl text-white hover:bg-white/20 sm:left-auto sm:right-4"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                goPrev();
+              }}
+              className="absolute left-2 top-[calc(50%+1.5rem)] z-10 -translate-y-1/2 px-2 text-4xl text-white hover:opacity-80 sm:left-4 sm:top-1/2"
+              aria-label="Previous photo"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                goNext();
+              }}
+              className="absolute right-2 top-[calc(50%+1.5rem)] z-10 -translate-y-1/2 px-2 text-4xl text-white hover:opacity-80 sm:right-4 sm:top-1/2"
+              aria-label="Next photo"
+            >
+              ›
+            </button>
+            <div
+              className="relative flex h-[95vh] w-[95vw] max-h-[95vh] max-w-[1800px] items-center justify-center pt-14 sm:pt-0"
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
+              <Image
+                key={currentIndex}
+                src={photos[currentIndex]}
+                alt={`${alt} ${currentIndex + 1}`}
+                fill
+                sizes="(max-width: 1280px) 95vw, 1200px"
+                className="cursor-pointer select-none object-contain"
+                quality={100}
+                unoptimized={photos[currentIndex].startsWith("blob:")}
+                onClick={goNext}
+                draggable={false}
+              />
+            </div>
+            <p className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 text-sm text-white">
+              {currentIndex + 1} / {photos.length}
+            </p>
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

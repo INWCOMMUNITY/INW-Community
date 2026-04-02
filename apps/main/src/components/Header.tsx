@@ -113,8 +113,6 @@ export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedMobileItem, setExpandedMobileItem] = useState<string | null>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
-  const onBusinessHub = pathname?.startsWith("/business-hub") ?? false;
-  const [canAccessSellerHub, setCanAccessSellerHub] = useState<boolean | null>(null);
   useLockBodyScroll(mobileOpen);
   const toggleMobileExpand = (label: string) => setExpandedMobileItem((prev) => (prev === label ? null : label));
   useEffect(() => {
@@ -131,25 +129,6 @@ export function Header() {
       .catch(() => setUnreadMessages(0));
   }, [session?.user?.id, pathname]);
 
-  useEffect(() => {
-    if (!session?.user?.id || !onBusinessHub) {
-      setCanAccessSellerHub(null);
-      return;
-    }
-    let cancelled = false;
-    fetch("/api/me", { credentials: "include" })
-      .then((r) => r.json())
-      .then((d: { canAccessSellerHub?: boolean }) => {
-        if (!cancelled) setCanAccessSellerHub(!!d?.canAccessSellerHub);
-      })
-      .catch(() => {
-        if (!cancelled) setCanAccessSellerHub(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.user?.id, onBusinessHub]);
-
   if (pathname?.startsWith("/seller-hub")) {
     return null;
   }
@@ -158,7 +137,7 @@ export function Header() {
     <>
     <header className="sticky top-0 z-50 bg-white border-b-2 no-print py-3 sm:py-4" style={{ backgroundColor: "white", borderBottomColor: "var(--color-primary)" }}>
       <div className="max-w-[var(--max-width)] mx-auto px-3 sm:px-4 flex items-center">
-        {/* Mobile: three-part layout — NWC left (50%), hamburger center, My Community + cart right (50%) */}
+        {/* Mobile: three-part layout — NWC left, hamburger center, My Community + cart right */}
         <div className="flex md:hidden flex-1 items-center justify-between min-w-0 w-full">
           <div className="flex flex-1 items-center justify-start min-w-0">
             <Link href="/" className="text-[0.94rem] font-bold leading-tight text-center inline-block" style={{ fontFamily: "var(--font-heading)", color: "#333" }}>
@@ -180,16 +159,6 @@ export function Header() {
               <span className="text-xs text-gray-500">...</span>
             ) : (
               <div className="flex flex-col items-end gap-1 shrink-0">
-                {onBusinessHub && canAccessSellerHub === true && (
-                  <Link
-                    href="/seller-hub"
-                    prefetch={false}
-                    className="rounded-full px-2.5 py-1.5 font-semibold text-[0.72rem] leading-tight text-white text-center hover:opacity-95 transition-opacity whitespace-nowrap"
-                    style={{ backgroundColor: "var(--color-primary)" }}
-                  >
-                    Seller Hub
-                  </Link>
-                )}
                 {session?.user?.canAccessResaleHub ? (
                   <Link
                     href="/my-community"
@@ -324,16 +293,6 @@ export function Header() {
               className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] text-gray-700 hover:bg-[var(--color-section-alt)] transition-opacity shrink-0 border border-gray-300"
             >
               Admin
-            </Link>
-          )}
-          {onBusinessHub && canAccessSellerHub === true && (
-            <Link
-              href="/seller-hub"
-              prefetch={false}
-              className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-semibold text-sm sm:text-[1.1375rem] text-white hover:opacity-95 transition-opacity shrink-0"
-              style={{ backgroundColor: "var(--color-primary)" }}
-            >
-              Seller Hub
             </Link>
           )}
           {status === "loading" ? (
