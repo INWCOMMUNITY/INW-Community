@@ -940,7 +940,15 @@ export default function DirectConversationScreen() {
         </View>
       ) : null}
 
-      <View style={styles.inputRow}>
+      <View
+        style={[
+          styles.inputRow,
+          {
+            paddingBottom:
+              12 + Math.max(insets.bottom, Platform.OS === "android" ? 12 : 0),
+          },
+        ]}
+      >
         <View style={styles.attachBtnRow}>
           <Pressable
             style={({ pressed }) => [styles.photoBtn, (sending || uploadingPhoto) && styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}
@@ -1177,7 +1185,6 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     paddingHorizontal: 12,
     paddingTop: 12,
-    paddingBottom: 12,
     borderTopWidth: 1,
     borderTopColor: "#eee",
     backgroundColor: "#fff",

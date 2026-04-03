@@ -1,15 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   StyleSheet,
-  ScrollView,
+  FlatList,
   Text,
   View,
   Pressable,
   ActivityIndicator,
   RefreshControl,
   Alert,
-  Linking,
   Platform,
+  type ListRenderItemInfo,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
@@ -204,7 +204,7 @@ export default function CommunityScreen() {
         );
       } catch (_) {}
     },
-    [signedIn]
+    [signedIn, router]
   );
 
   const handleShare = useCallback(
@@ -352,37 +352,8 @@ export default function CommunityScreen() {
     []
   );
 
-
-  const openMyCommunity = () => {
-    Linking.openURL(`${siteBase}/my-community`).catch(() => {});
-  };
-
-  if (signedIn === null || ugcGate === "loading") {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
-  }
-
-  return (
-    <>
-      <CommunityUgcTermsModal
-        visible={signedIn === true && ugcGate === "needs"}
-        onAccept={acceptUgcTerms}
-        onOpenTerms={openTermsWeb}
-      />
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.scrollContent}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          colors={[theme.colors.primary]}
-        />
-      }
-    >
+  const listHeader = useMemo(
+    () => (
       <View style={styles.header}>
         <Text style={styles.title}>Northwest Community Feed</Text>
         <Text style={styles.subtitle}>
@@ -431,30 +402,21 @@ export default function CommunityScreen() {
           </View>
           {signedIn ? (
             <Pressable
-              style={({ pressed }) => [
-                styles.createPostBtn,
-                pressed && styles.buttonPressed,
-              ]}
+              style={({ pressed }) => [styles.createPostBtn, pressed && styles.buttonPressed]}
               onPress={() => openCreatePost()}
             >
               <Text style={styles.createPostBtnText}>Create Post</Text>
             </Pressable>
           ) : (
             <Pressable
-              style={({ pressed }) => [
-                styles.createPostBtn,
-                pressed && styles.buttonPressed,
-              ]}
+              style={({ pressed }) => [styles.createPostBtn, pressed && styles.buttonPressed]}
               onPress={() => router.push("/(auth)/login")}
             >
               <Text style={styles.createPostBtnText}>Sign in</Text>
             </Pressable>
           )}
           <Pressable
-            style={({ pressed }) => [
-              styles.headerSideBtn,
-              pressed && styles.buttonPressed,
-            ]}
+            style={({ pressed }) => [styles.headerSideBtn, pressed && styles.buttonPressed]}
             onPress={() => {
               if (!signedIn) {
                 Alert.alert("Sign in", "Sign in to browse and join groups.", [
@@ -472,56 +434,115 @@ export default function CommunityScreen() {
           </Pressable>
         </View>
       </View>
+    ),
+    [signedIn, pendingIncomingFriendRequests, openCreatePost, router]
+  );
 
-      {loading ? (
+  const listEmpty = useMemo(() => {
+    if (loading) {
+      return (
         <View style={styles.loading}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={styles.loadingText}>Loading feed…</Text>
         </View>
-      ) : posts.length === 0 ? (
-        <Text style={styles.emptyText}>
-          {signedIn
-            ? "No posts yet. Follow blog authors, join groups, or share to get started!"
-            : "No public posts to show yet."}
-        </Text>
-      ) : (
-        <>
-          {posts.map((post) => (
-            <FeedPostCard
-              key={post.id}
-              post={post}
-              onLike={handleLike}
-              onComment={handleComment}
-              onShare={handleShare}
-              onReport={handleReport}
-              onBlockUser={signedIn ? handleBlockUser : undefined}
-              onSave={handleSave}
-              onEditPost={openEditPost}
-              onDeletePost={handleDeletePost}
-              viewerManagedBusinessIds={
-                viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
-              }
-              onOpenCoupon={(id) => setCouponPopupId(id)}
-            />
-          ))}
-          {nextCursor ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.loadMoreBtn,
-                (loadingMore || pressed) && styles.buttonPressed,
-              ]}
-              onPress={loadMore}
-              disabled={loadingMore}
-            >
-              {loadingMore ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : (
-                <Text style={styles.loadMoreBtnText}>Load more</Text>
-              )}
-            </Pressable>
-          ) : null}
-        </>
-      )}
+      );
+    }
+    return (
+      <Text style={styles.emptyText}>
+        {signedIn
+          ? "No posts yet. Follow blog authors, join groups, or share to get started!"
+          : "No public posts to show yet."}
+      </Text>
+    );
+  }, [loading, signedIn]);
+
+  const listFooter = useMemo(() => {
+    if (!loadingMore) return null;
+    return (
+      <View style={styles.listFooterLoading}>
+        <ActivityIndicator size="small" color={theme.colors.primary} />
+      </View>
+    );
+  }, [loadingMore]);
+
+  const onEndReachedFeed = useCallback(() => {
+    if (!nextCursor || loadingMore || loading) return;
+    loadMore();
+  }, [nextCursor, loadingMore, loading, loadMore]);
+
+  const renderPost = useCallback(
+    ({ item }: ListRenderItemInfo<FeedPost>) => (
+      <FeedPostCard
+        post={item}
+        onLike={handleLike}
+        onComment={handleComment}
+        onShare={handleShare}
+        onReport={handleReport}
+        onBlockUser={signedIn ? handleBlockUser : undefined}
+        onSave={handleSave}
+        onEditPost={openEditPost}
+        onDeletePost={handleDeletePost}
+        viewerManagedBusinessIds={viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined}
+        onOpenCoupon={(id) => setCouponPopupId(id)}
+      />
+    ),
+    [
+      handleLike,
+      handleComment,
+      handleShare,
+      handleReport,
+      handleBlockUser,
+      handleSave,
+      openEditPost,
+      handleDeletePost,
+      viewerManagedBusinessIds,
+      signedIn,
+    ]
+  );
+
+  if (signedIn === null || ugcGate === "loading") {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <CommunityUgcTermsModal
+        visible={signedIn === true && ugcGate === "needs"}
+        onAccept={acceptUgcTerms}
+        onOpenTerms={openTermsWeb}
+      />
+      <FlatList
+        data={posts}
+        keyExtractor={(item) => item.id}
+        renderItem={renderPost}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
+        ListFooterComponent={listFooter}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[theme.colors.primary]}
+          />
+        }
+        onEndReached={onEndReachedFeed}
+        onEndReachedThreshold={0.35}
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.scrollContent,
+          posts.length === 0 && !loading ? styles.scrollContentEmpty : null,
+        ]}
+        removeClippedSubviews={Platform.OS === "android"}
+        windowSize={9}
+        maxToRenderPerBatch={6}
+        initialNumToRender={4}
+        updateCellsBatchingPeriod={50}
+        keyboardShouldPersistTaps="handled"
+      />
 
       {couponPopupId && (
         <CouponPopup
@@ -550,7 +571,6 @@ export default function CommunityScreen() {
           onCommentAdded={handleCommentAdded}
         />
       )}
-    </ScrollView>
     </>
   );
 }
@@ -573,6 +593,13 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingBottom: 40,
+  },
+  scrollContentEmpty: {
+    flexGrow: 1,
+  },
+  listFooterLoading: {
+    paddingVertical: 20,
+    alignItems: "center",
   },
   header: {
     marginBottom: 20,
@@ -721,18 +748,5 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
     lineHeight: 24,
-  },
-  loadMoreBtn: {
-    paddingVertical: 14,
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    borderRadius: 6,
-    marginTop: 8,
-  },
-  loadMoreBtnText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: theme.colors.primary,
   },
 });

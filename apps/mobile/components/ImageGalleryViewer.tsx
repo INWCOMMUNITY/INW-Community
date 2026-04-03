@@ -1,13 +1,15 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Modal,
   View,
   Image,
   Pressable,
   StyleSheet,
-  Dimensions,
   Text,
+  Platform,
+  useWindowDimensions,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { GestureDetector, Gesture, GestureHandlerRootView, FlatList } from "react-native-gesture-handler";
 import Animated, {
@@ -19,7 +21,6 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
 const ZOOM_LOCK_THRESHOLD = 1.4;
@@ -27,12 +28,21 @@ const DISMISS_THRESHOLD = 120;
 
 interface ZoomableImageProps {
   uri: string;
+  screenWidth: number;
+  screenHeight: number;
   onZoomChange: (zoomed: boolean) => void;
   onDismiss: () => void;
   dismissY: SharedValue<number>;
 }
 
-function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImageProps) {
+function ZoomableImage({
+  uri,
+  screenWidth,
+  screenHeight,
+  onZoomChange,
+  onDismiss,
+  dismissY,
+}: ZoomableImageProps) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -58,6 +68,8 @@ function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImage
 
   const clampTranslation = useCallback(() => {
     "worklet";
+    const sw = screenWidth;
+    const sh = screenHeight;
     const s = scale.value;
     if (s <= 1) {
       translateX.value = withTiming(0, { duration: 150 });
@@ -66,15 +78,15 @@ function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImage
       savedTranslateY.value = 0;
       return;
     }
-    const maxX = ((s - 1) * SCREEN_WIDTH) / 2;
-    const maxY = ((s - 1) * SCREEN_HEIGHT * 0.4) / 2;
+    const maxX = ((s - 1) * sw) / 2;
+    const maxY = ((s - 1) * sh * 0.4) / 2;
     const clampedX = Math.max(-maxX, Math.min(maxX, translateX.value));
     const clampedY = Math.max(-maxY, Math.min(maxY, translateY.value));
     translateX.value = withTiming(clampedX, { duration: 150 });
     translateY.value = withTiming(clampedY, { duration: 150 });
     savedTranslateX.value = clampedX;
     savedTranslateY.value = clampedY;
-  }, [scale, translateX, translateY, savedTranslateX, savedTranslateY]);
+  }, [screenWidth, screenHeight, scale, translateX, translateY, savedTranslateX, savedTranslateY]);
 
   const pinchGesture = Gesture.Pinch()
     .onUpdate((e) => {
@@ -91,7 +103,6 @@ function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImage
       }
     });
 
-  // Pan for moving around when zoomed
   const zoomPanGesture = Gesture.Pan()
     .manualActivation(true)
     .onTouchesMove((_e, state) => {
@@ -113,7 +124,6 @@ function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImage
       clampTranslation();
     });
 
-  // Vertical drag to dismiss when not zoomed
   const startTouchY = useSharedValue(0);
   const startTouchX = useSharedValue(0);
   const dismissDecided = useSharedValue(false);
@@ -139,20 +149,18 @@ function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImage
       const dx = Math.abs(t.absoluteX - startTouchX.value);
       const dy = Math.abs(t.absoluteY - startTouchY.value);
 
-      // Fail fast on any horizontal movement so FlatList swipe isn't blocked
-      if (dx > 8) {
+      // Prefer horizontal paging: only fail dismiss pan after clearer horizontal intent (Android was too sensitive at 8px).
+      if (dx > 16 && dx > dy * 0.85) {
         dismissDecided.value = true;
         state.fail();
         return;
       }
-      // Only activate dismiss for clearly vertical drags (dy must dominate)
-      if (dy > 20 && dy > dx * 2.5) {
+      if (dy > 20 && dy > dx * 2.2) {
         dismissDecided.value = true;
         state.activate();
         return;
       }
-      // If total movement is large but no clear direction, fail
-      if (dx + dy > 30) {
+      if (dx + dy > 36) {
         dismissDecided.value = true;
         state.fail();
       }
@@ -163,7 +171,7 @@ function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImage
     .onEnd((e) => {
       if (Math.abs(e.translationY) > DISMISS_THRESHOLD) {
         dismissY.value = withTiming(
-          e.translationY > 0 ? SCREEN_HEIGHT : -SCREEN_HEIGHT,
+          e.translationY > 0 ? screenHeight : -screenHeight,
           { duration: 200 },
         );
         runOnJS(onDismiss)();
@@ -182,10 +190,10 @@ function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImage
         scale.value = withTiming(targetScale, { duration: 250 });
         savedScale.value = targetScale;
 
-        const focalX = e.x - SCREEN_WIDTH / 2;
-        const focalY = e.y - SCREEN_HEIGHT / 2;
-        const newX = -focalX * (targetScale - 1) / targetScale;
-        const newY = -focalY * (targetScale - 1) / targetScale;
+        const focalX = e.x - screenWidth / 2;
+        const focalY = e.y - screenHeight / 2;
+        const newX = (-focalX * (targetScale - 1)) / targetScale;
+        const newY = (-focalY * (targetScale - 1)) / targetScale;
         translateX.value = withTiming(newX, { duration: 250 });
         translateY.value = withTiming(newY, { duration: 250 });
         savedTranslateX.value = newX;
@@ -213,16 +221,36 @@ function ZoomableImage({ uri, onZoomChange, onDismiss, dismissY }: ZoomableImage
     transform: [{ translateY: dismissY.value }],
   }));
 
+  const imageWrapH = screenHeight * 0.8;
+
   return (
-    <View style={styles.slide}>
+    <View style={[styles.slide, { width: screenWidth, height: screenHeight }]}>
       <GestureDetector gesture={composed}>
-        <Animated.View style={[styles.slideInner, dismissStyle]}>
-          <Animated.View style={[styles.imageWrap, zoomStyle]}>
-            <Image
-              source={{ uri }}
-              style={styles.image}
-              resizeMode="contain"
-            />
+        <Animated.View
+          style={[
+            styles.slideInner,
+            { width: screenWidth, height: screenHeight },
+            dismissStyle,
+          ]}
+        >
+          <Animated.View
+            style={[
+              styles.imageWrap,
+              { width: screenWidth, height: imageWrapH },
+              zoomStyle,
+            ]}
+          >
+            {Platform.OS === "android" ? (
+              <ExpoImage
+                source={{ uri }}
+                style={styles.image}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                recyclingKey={uri}
+              />
+            ) : (
+              <Image source={{ uri }} style={styles.image} resizeMode="contain" />
+            )}
           </Animated.View>
         </Animated.View>
       </GestureDetector>
@@ -243,9 +271,10 @@ export function ImageGalleryViewer({
   initialIndex = 0,
   onClose,
 }: ImageGalleryViewerProps) {
+  const { width: winWidth, height: winHeight } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isZoomed, setIsZoomed] = useState(false);
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<string>>(null);
   const dismissY = useSharedValue(0);
 
   const handleZoomChange = useCallback((zoomed: boolean) => {
@@ -259,7 +288,9 @@ export function ImageGalleryViewer({
 
   const handleDismiss = useCallback(() => {
     onClose();
-    setTimeout(() => { dismissY.value = 0; }, 250);
+    setTimeout(() => {
+      dismissY.value = 0;
+    }, 250);
   }, [onClose, dismissY]);
 
   const bgStyle = useAnimatedStyle(() => ({
@@ -271,7 +302,34 @@ export function ImageGalleryViewer({
     )})`,
   }));
 
-  if (!visible || images.length === 0) return null;
+  useEffect(() => {
+    if (visible) {
+      dismissY.value = 0;
+    }
+  }, [visible, dismissY]);
+
+  /** Android: initialScrollIndex is unreliable; sync offset when opening or size changes. */
+  useEffect(() => {
+    if (!visible || images.length === 0 || winWidth <= 0) return;
+    const idx = Math.min(Math.max(0, initialIndex), images.length - 1);
+    setCurrentIndex(idx);
+    setIsZoomed(false);
+    const id = requestAnimationFrame(() => {
+      flatListRef.current?.scrollToOffset({
+        offset: idx * winWidth,
+        animated: false,
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [visible, initialIndex, images.length, winWidth]);
+
+  if (!visible || images.length === 0 || winWidth <= 0) return null;
+
+  const getItemLayout = (_: unknown, index: number) => ({
+    length: winWidth,
+    offset: winWidth * index,
+    index,
+  });
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
@@ -294,24 +352,25 @@ export function ImageGalleryViewer({
             horizontal
             pagingEnabled
             scrollEnabled={!isZoomed}
-            directionalLockEnabled={false}
+            directionalLockEnabled
             showsHorizontalScrollIndicator={false}
-            initialScrollIndex={initialIndex}
-            getItemLayout={(_, index) => ({
-              length: SCREEN_WIDTH,
-              offset: SCREEN_WIDTH * index,
-              index,
-            })}
+            removeClippedSubviews={false}
+            initialNumToRender={Platform.OS === "android" ? 1 : 2}
+            maxToRenderPerBatch={Platform.OS === "android" ? 2 : 4}
+            windowSize={Platform.OS === "android" ? 3 : 5}
+            overScrollMode={Platform.OS === "android" ? "never" : undefined}
+            keyboardShouldPersistTaps="handled"
+            getItemLayout={getItemLayout}
             onMomentumScrollEnd={(e) => {
-              const newIndex = Math.round(
-                e.nativeEvent.contentOffset.x / SCREEN_WIDTH
-              );
+              const newIndex = Math.round(e.nativeEvent.contentOffset.x / winWidth);
               handlePageChange(newIndex);
             }}
-            keyExtractor={(_, i) => i.toString()}
+            keyExtractor={(item, i) => `${i}-${item}`}
             renderItem={({ item }) => (
               <ZoomableImage
                 uri={item}
+                screenWidth={winWidth}
+                screenHeight={winHeight}
                 onZoomChange={handleZoomChange}
                 onDismiss={handleDismiss}
                 dismissY={dismissY}
@@ -359,21 +418,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   slide: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
   slideInner: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
   },
   imageWrap: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT * 0.8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   image: {
     width: "100%",

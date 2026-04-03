@@ -11,6 +11,7 @@ import DateTimePicker, {
   DateTimePickerAndroid,
 } from "@react-native-community/datetimepicker";
 import { theme } from "@/lib/theme";
+import { androidDateTimePickerThemeProps } from "@/lib/datetimepicker-android";
 
 function stripTime(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -82,6 +83,7 @@ export function CouponExpiryDatePickerField({
     setIosDraft(initial);
     if (Platform.OS === "android") {
       DateTimePickerAndroid.open({
+        ...androidDateTimePickerThemeProps,
         value: initial,
         mode: "date",
         onChange: (event, date) => {

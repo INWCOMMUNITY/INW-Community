@@ -13,7 +13,6 @@ import {
   Animated,
   Easing,
   Platform,
-  UIManager,
   Modal,
   useWindowDimensions,
 } from "react-native";
@@ -22,17 +21,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet } from "@/lib/api";
 
-const ANIM_DURATION = 480;
+const ANIM_DURATION_IOS = 420;
+const ANIM_DURATION_ANDROID = 300;
 /** Scroll past this (px) to collapse the green header (lists with 3+ rows only; short lists use the nav chevron). */
 const HEADER_COLLAPSE_SCROLL_Y = 100;
-/** Only expand the header when scrolled essentially flush to the top (hysteresis). */
-const HEADER_EXPAND_SCROLL_Y = 8;
+/** When the header is collapsed, expand again once the list is scrolled back to the top (hysteresis, px). */
+const HEADER_EXPAND_AT_TOP_Y = 18;
 /** At most this many businesses/sellers: no scroll-to-collapse (no spacer footer); use nav chevron to hide the menu. */
 const SHORT_LIST_MAX_ITEMS_FOR_SCROLL_COLLAPSE = 2;
 
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+// No UIManager.setLayoutAnimationEnabledExperimental — no-op on New Architecture and caused HMR issues.
 
 const CARD_GAP = 12;
 const CARD_PADDING = 16;
@@ -188,10 +186,16 @@ export default function SupportLocalScreen() {
   };
 
   useEffect(() => {
+    const duration =
+      Platform.OS === "android" ? ANIM_DURATION_ANDROID : ANIM_DURATION_IOS;
+    const easing =
+      Platform.OS === "android"
+        ? Easing.out(Easing.cubic)
+        : Easing.bezier(0.33, 1, 0.68, 1);
     Animated.timing(animatedHeight, {
       toValue: headerExpanded ? headerHeightRef.current : 0,
-      duration: ANIM_DURATION,
-      easing: Easing.bezier(0.33, 1, 0.68, 1),
+      duration,
+      easing,
       useNativeDriver: false,
     }).start();
   }, [headerExpanded, animatedHeight]);
@@ -203,7 +207,10 @@ export default function SupportLocalScreen() {
     if (!expanding) return;
     requestAnimationFrame(() => {
       scrollYRef.current = 0;
-      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      listRef.current?.scrollToOffset({
+        offset: 0,
+        animated: Platform.OS !== "android",
+      });
     });
   }, [headerExpanded]);
 
@@ -214,30 +221,47 @@ export default function SupportLocalScreen() {
     if (headerExpanded) {
       Animated.timing(animatedHeight, {
         toValue: h,
-        duration: 150,
-        easing: Easing.bezier(0.33, 1, 0.68, 1),
+        duration: Platform.OS === "android" ? 100 : 150,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: false,
       }).start();
     }
   }, [headerExpanded, animatedHeight]);
 
-  const checkScrollPosition = useCallback((y: number, itemCount: number) => {
+  const tryCollapseFromScroll = useCallback((y: number, itemCount: number) => {
     const scrollCollapseOk = itemCount > SHORT_LIST_MAX_ITEMS_FOR_SCROLL_COLLAPSE;
     if (scrollCollapseOk && y > HEADER_COLLAPSE_SCROLL_Y) {
       setHeaderExpanded(false);
-    } else if (y <= HEADER_EXPAND_SCROLL_Y) {
-      setHeaderExpanded(true);
     }
   }, []);
+
+  const tryExpandWhenScrolledToTop = useCallback(
+    (y: number, itemCount: number) => {
+      if (!headerExpanded && itemCount > 0 && y <= HEADER_EXPAND_AT_TOP_Y) {
+        setHeaderExpanded(true);
+      }
+    },
+    [headerExpanded]
+  );
+
+  /** No-op placeholder (keeps HMR / older bundles from crashing if this prop is wired). */
+  const handleScrollBeginDrag = useCallback(() => {}, []);
 
   const handleScroll = useCallback(
     (e: { nativeEvent: { contentOffset: { y: number } } }) => {
       const y = e.nativeEvent.contentOffset.y;
       scrollYRef.current = y;
       const count = viewMode === "directory" ? businesses.length : sellers.length;
-      checkScrollPosition(y, count);
+      tryCollapseFromScroll(y, count);
+      tryExpandWhenScrolledToTop(y, count);
     },
-    [checkScrollPosition, viewMode, businesses.length, sellers.length]
+    [
+      tryCollapseFromScroll,
+      tryExpandWhenScrolledToTop,
+      viewMode,
+      businesses.length,
+      sellers.length,
+    ]
   );
 
   const handleScrollEnd = useCallback(
@@ -245,9 +269,10 @@ export default function SupportLocalScreen() {
       const y = e.nativeEvent.contentOffset.y;
       scrollYRef.current = y;
       const count = viewMode === "directory" ? businesses.length : sellers.length;
-      checkScrollPosition(y, count);
+      tryCollapseFromScroll(y, count);
+      tryExpandWhenScrolledToTop(y, count);
     },
-    [checkScrollPosition, viewMode, businesses.length, sellers.length]
+    [tryCollapseFromScroll, tryExpandWhenScrolledToTop, viewMode, businesses.length, sellers.length]
   );
 
   useLayoutEffect(() => {
@@ -373,28 +398,34 @@ export default function SupportLocalScreen() {
         },
         headerButton: {
           marginHorizontal: 4,
-          paddingHorizontal: 10,
+          paddingHorizontal: 8,
           paddingVertical: 10,
           borderRadius: 20,
           backgroundColor: "#fff",
           borderWidth: 2,
           borderColor: "#000",
           maxWidth: "100%",
+          minWidth: 0,
+          alignSelf: "stretch",
           alignItems: "center",
           justifyContent: "center",
         },
         headerButtonPressed: { opacity: 0.8 },
         headerButtonInner: {
+          width: "100%",
+          minWidth: 0,
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
           gap: 4,
         },
         headerButtonText: {
+          width: "100%",
           fontSize: 14,
           color: "#000",
           textAlign: "center",
           fontFamily: theme.fonts.heading,
+          ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
         },
         searchInput: {
           backgroundColor: "#fff",
@@ -600,7 +631,10 @@ export default function SupportLocalScreen() {
 
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.headerWrap, { height: animatedHeight }]}>
+      <Animated.View
+        style={[styles.headerWrap, { height: animatedHeight }]}
+        collapsable={false}
+      >
       <View style={styles.header} onLayout={handleHeaderLayout}>
         <View style={styles.logoRow}>
           <View style={styles.logoRowSideLeft}>
@@ -610,7 +644,14 @@ export default function SupportLocalScreen() {
             >
               <View style={styles.headerButtonInner}>
                 <Ionicons name="pricetag-outline" size={22} color="#000" />
-                <Text style={styles.headerButtonText}>Coupons</Text>
+                <Text
+                  style={styles.headerButtonText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.38}
+                >
+                  Coupons
+                </Text>
               </View>
             </Pressable>
           </View>
@@ -631,7 +672,14 @@ export default function SupportLocalScreen() {
             >
               <View style={styles.headerButtonInner}>
                 <Ionicons name="gift-outline" size={22} color="#000" />
-                <Text style={styles.headerButtonText}>Rewards</Text>
+                <Text
+                  style={styles.headerButtonText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.38}
+                >
+                  Rewards
+                </Text>
               </View>
             </Pressable>
           </View>
@@ -710,6 +758,7 @@ export default function SupportLocalScreen() {
         <ScrollView
           horizontal
           directionalLockEnabled
+          nestedScrollEnabled={Platform.OS === "android"}
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
           alwaysBounceVertical={false}
@@ -739,6 +788,7 @@ export default function SupportLocalScreen() {
         <ScrollView
           horizontal
           directionalLockEnabled
+          nestedScrollEnabled={Platform.OS === "android"}
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
           alwaysBounceVertical={false}
@@ -767,6 +817,7 @@ export default function SupportLocalScreen() {
           <ScrollView
             horizontal
             directionalLockEnabled
+            nestedScrollEnabled={Platform.OS === "android"}
             showsHorizontalScrollIndicator={false}
             showsVerticalScrollIndicator={false}
             alwaysBounceVertical={false}
@@ -818,18 +869,22 @@ export default function SupportLocalScreen() {
           contentContainerStyle={styles.listContent}
           {...(Platform.OS === "ios"
             ? {
-                bounces: false,
-                alwaysBounceVertical: false,
+                bounces: true,
+                alwaysBounceVertical: true,
               }
-            : { overScrollMode: "never" as const })}
+            : { overScrollMode: "auto" as const })}
+          onScrollBeginDrag={handleScrollBeginDrag}
           onScroll={handleScroll}
           onScrollEndDrag={handleScrollEnd}
           onMomentumScrollEnd={handleScrollEnd}
-          scrollEventThrottle={16}
+          scrollEventThrottle={Platform.OS === "android" ? 24 : 16}
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => load(true)}
+              refreshing={headerExpanded && refreshing}
+              onRefresh={() => {
+                if (headerExpanded) void load(true);
+              }}
+              {...(Platform.OS === "android" ? { enabled: headerExpanded } : {})}
             />
           }
           ListEmptyComponent={

@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost, apiPostWithRetry } from "@/lib/api";
@@ -64,6 +65,7 @@ export default function ResaleConversationScreen() {
   const { id: rawConvId } = useLocalSearchParams<{ id: string }>();
   const convId = normalizeRouteParam(rawConvId as string | string[] | undefined);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { member, loading: authLoading } = useAuth();
   const [conv, setConv] = useState<ResaleConversation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -488,7 +490,15 @@ export default function ResaleConversationScreen() {
         </View>
       ) : null}
 
-      <View style={styles.inputRow}>
+      <View
+        style={[
+          styles.inputRow,
+          {
+            paddingBottom:
+              12 + Math.max(insets.bottom, Platform.OS === "android" ? 12 : 0),
+          },
+        ]}
+      >
         <TextInput
           ref={composerInputRef}
           style={styles.input}
@@ -575,8 +585,8 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    padding: 12,
-    paddingBottom: 24,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "#eee",
     backgroundColor: "#fff",

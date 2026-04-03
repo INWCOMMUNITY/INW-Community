@@ -19,6 +19,7 @@ import DateTimePicker, {
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
+import { androidDateTimePickerThemeProps } from "@/lib/datetimepicker-android";
 import { CALENDAR_TYPES, EVENT_CITIES_FORM, type CalendarType } from "@/lib/calendars";
 import { apiPatch, apiPost, apiUploadFile, getToken } from "@/lib/api";
 import {
@@ -169,6 +170,21 @@ export function PostEventForm({
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState<"start" | "end" | null>(null);
+
+  const openAndroidTimePicker = (which: "start" | "end") => {
+    const value = which === "start" ? timeValue : endTimeValue;
+    DateTimePickerAndroid.open({
+      ...androidDateTimePickerThemeProps,
+      value,
+      mode: "time",
+      onChange: (event, selectedDate) => {
+        if (event.type === "set" && selectedDate) {
+          if (which === "start") setTimeValue(selectedDate);
+          else setEndTimeValue(selectedDate);
+        }
+      },
+    });
+  };
   const [city, setCity] = useState<string>(() => initialEvent?.city ?? "");
   const [location, setLocation] = useState(() => initialEvent?.location ?? "");
   const [description, setDescription] = useState(() => initialEvent?.description ?? "");
@@ -404,6 +420,7 @@ export function PostEventForm({
           onPress={() => {
             if (Platform.OS === "android") {
               DateTimePickerAndroid.open({
+                ...androidDateTimePickerThemeProps,
                 value: dateValue,
                 mode: "date",
                 minimumDate: isEdit ? undefined : today,
@@ -427,7 +444,11 @@ export function PostEventForm({
           <Text style={styles.label}>Start time</Text>
           <Pressable
             style={styles.timeBar}
-            onPress={() => setShowTimePicker("start")}
+            onPress={() =>
+              Platform.OS === "android"
+                ? openAndroidTimePicker("start")
+                : setShowTimePicker("start")
+            }
           >
             <Text style={styles.timeBarText}>{formatTimeDisplay(timeValue)}</Text>
           </Pressable>
@@ -436,7 +457,11 @@ export function PostEventForm({
           <Text style={styles.label}>End time</Text>
           <Pressable
             style={styles.timeBar}
-            onPress={() => setShowTimePicker("end")}
+            onPress={() =>
+              Platform.OS === "android"
+                ? openAndroidTimePicker("end")
+                : setShowTimePicker("end")
+            }
           >
             <Text style={styles.timeBarText}>{formatTimeDisplay(endTimeValue)}</Text>
           </Pressable>
@@ -475,7 +500,7 @@ export function PostEventForm({
         </Modal>
       )}
 
-      {showTimePicker && (
+      {Platform.OS === "ios" && showTimePicker && (
         <Modal
           visible={!!showTimePicker}
           transparent

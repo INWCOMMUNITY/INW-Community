@@ -1271,13 +1271,20 @@ export default function MyCommunityScreen() {
               </RNView>
             ) : null}
           </RNView>
-          <Pressable
-            style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
-            onPress={() => router.push("/profile-businesses")}
-          >
-            <Ionicons name="business" size={22} color="#fff" style={styles.tanButtonIcon} />
-            <ThemedText style={styles.tanButtonText}>My Businesses</ThemedText>
-          </Pressable>
+          <RNView style={styles.tanButtonSlot}>
+            <Pressable
+              style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
+              onPress={() => router.push("/profile-businesses")}
+            >
+              <Ionicons name="business" size={22} color="#fff" style={styles.tanButtonIcon} />
+              <ThemedText
+                style={[styles.tanButtonText, styles.tanButtonTextMyBusinesses]}
+                numberOfLines={1}
+              >
+                My Businesses
+              </ThemedText>
+            </Pressable>
+          </RNView>
         </RNView>
         <RNView style={styles.buttonRow}>
           <Pressable
@@ -1676,9 +1683,17 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 12,
     minHeight: 52,
+    minWidth: 0,
+    alignSelf: "stretch",
+  },
+  /** Matches flex behavior for both columns in a row (pair with tanButtonFriendWrap). */
+  tanButtonSlot: {
+    flex: 1,
+    minWidth: 0,
   },
   tanButtonFriendWrap: {
     flex: 1,
+    minWidth: 0,
     position: "relative",
     overflow: "visible",
     zIndex: 0,
@@ -1724,6 +1739,14 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     textAlign: "left",
     flexShrink: 1,
+  },
+  /** Shorter than other labels so the tile stays one line and matches sibling minHeight. */
+  tanButtonTextMyBusinesses: {
+    ...Platform.select({
+      ios: { fontSize: 15 },
+      android: { fontSize: 14 },
+      default: { fontSize: 15 },
+    }),
   },
   businessHubScroll: {
     flex: 1,

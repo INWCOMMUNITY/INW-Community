@@ -13,13 +13,8 @@ import {
   Alert,
   Animated,
   Platform,
-  UIManager,
   Easing,
 } from "react-native";
-
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const ANIM_DURATION = 480;
 import { useRouter, useNavigation, useLocalSearchParams } from "expo-router";

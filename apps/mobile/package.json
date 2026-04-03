@@ -22,6 +22,8 @@
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
+    "@react-navigation/bottom-tabs": "^7.13.0",
+    "@react-navigation/elements": "^2.9.5",
     "@react-navigation/native": "^7.1.8",
     "@stripe/stripe-react-native": "0.50.3",
     "expo": "~54.0.33",
@@ -60,7 +62,6 @@
   "devDependencies": {
     "@expo/cli": "^54.0.23",
     "@types/react": "~19.1.10",
-    "babel-plugin-module-resolver": "^5.0.3",
     "react-test-renderer": "19.1.0",
     "sharp": "^0.33.5",
     "typescript": "~5.9.2"

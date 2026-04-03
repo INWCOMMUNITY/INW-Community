@@ -1,18 +1,20 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, memo } from "react";
 import {
   StyleSheet,
   View,
   Text,
-  ScrollView,
   Image,
   Pressable,
   ActivityIndicator,
-  useWindowDimensions,
   Linking,
   Modal,
   Alert,
   RefreshControl,
+  Platform,
+  FlatList,
 } from "react-native";
+import { ScrollView as GHScrollView } from "react-native-gesture-handler";
+import { Image as ExpoImage } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,7 +24,7 @@ import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { CouponPopup } from "@/components/CouponPopup";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, type Member } from "@/contexts/AuthContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
 import { fetchBusinessFeed, toggleLike, deletePost, type FeedPost } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
@@ -63,11 +65,244 @@ function resolveUrl(path: string | null | undefined): string | undefined {
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
+/** Android: large galleries decode many bitmaps and worsen nested scroll + full-screen viewer stability. */
+const ANDROID_GALLERY_MAX_PHOTOS = 8;
+
+type BusinessListingHeaderProps = {
+  member: Member | null;
+  business: Business;
+  saved: boolean;
+  saving: boolean;
+  addressDisplay: string;
+  logoUrl: string | undefined;
+  hasHours: boolean;
+  hours: Record<string, string> | null | undefined;
+  galleryUrls: string[];
+  galleryOpen: boolean;
+  galleryIndex: number;
+  onGalleryOpenIndex: (index: number) => void;
+  onGalleryClose: () => void;
+  onSaveToggle: () => void;
+  onSharePress: () => void;
+  onCouponPress: (couponId: string) => void;
+  feedLoading: boolean;
+  feedPostsEmpty: boolean;
+  /** Android-only notice when the listing has more photos than we load in-app. */
+  androidGalleryTruncationHint: string | null;
+};
+
+const BusinessListingHeader = memo(function BusinessListingHeader({
+  member,
+  business,
+  saved,
+  saving,
+  addressDisplay,
+  logoUrl,
+  hasHours,
+  hours,
+  galleryUrls,
+  galleryOpen,
+  galleryIndex,
+  onGalleryOpenIndex,
+  onGalleryClose,
+  onSaveToggle,
+  onSharePress,
+  onCouponPress,
+  feedLoading,
+  feedPostsEmpty,
+  androidGalleryTruncationHint,
+}: BusinessListingHeaderProps) {
+  return (
+    <>
+      {member && (
+        <View style={styles.topActions}>
+          <Pressable
+            onPress={onSaveToggle}
+            disabled={saving}
+            style={({ pressed }) => [styles.topActionBtn, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons
+              name={saved ? "heart" : "heart-outline"}
+              size={26}
+              color={theme.colors.primary}
+            />
+          </Pressable>
+          <Pressable
+            onPress={onSharePress}
+            style={({ pressed }) => [styles.topActionBtn, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="share-outline" size={26} color={theme.colors.primary} />
+          </Pressable>
+        </View>
+      )}
+      <View style={styles.hero}>
+        <Text style={styles.name}>{business.name}</Text>
+        {addressDisplay ? (
+          <Pressable
+            style={styles.addressRow}
+            onPress={() => void openAddressInMaps(addressDisplay)}
+          >
+            <Ionicons name="location" size={18} color={theme.colors.primary} />
+            <Text style={styles.addressText} numberOfLines={2}>
+              {addressDisplay}
+            </Text>
+            <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={styles.logoSection}>
+        {logoUrl ? (
+          <Image source={{ uri: logoUrl }} style={styles.logo} />
+        ) : (
+          <View style={[styles.logo, styles.logoPlaceholder]}>
+            <Ionicons name="business" size={48} color={theme.colors.primary} />
+          </View>
+        )}
+      </View>
+
+      {hasHours && hours && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Hours of Operation</Text>
+          {DAY_ORDER.map((day) => {
+            const val = hours[day];
+            if (!val) return null;
+            return (
+              <View key={day} style={styles.hoursRow}>
+                <Text style={styles.hoursDay}>{day.charAt(0).toUpperCase() + day.slice(1)}</Text>
+                <Text style={styles.hoursVal}>{val}</Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Contact</Text>
+        {business.phone ? (
+          <Pressable style={styles.contactRow} onPress={() => Linking.openURL(`tel:${business.phone}`)}>
+            <Ionicons name="call" size={18} color={theme.colors.primary} />
+            <Text style={styles.contactText}>{business.phone}</Text>
+          </Pressable>
+        ) : null}
+        {business.email ? (
+          <Pressable style={styles.contactRow} onPress={() => Linking.openURL(`mailto:${business.email}`)}>
+            <Ionicons name="mail" size={18} color={theme.colors.primary} />
+            <Text style={styles.contactText}>{business.email}</Text>
+          </Pressable>
+        ) : null}
+        {business.website ? (
+          <Pressable style={styles.contactRow} onPress={() => Linking.openURL(business.website!)}>
+            <Ionicons name="globe" size={18} color={theme.colors.primary} />
+            <Text style={styles.contactText}>{business.website}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {addressDisplay ? (
+        <Pressable style={styles.mapBtn} onPress={() => void openAddressInMaps(addressDisplay)}>
+          <Ionicons name="map" size={20} color="#fff" />
+          <Text style={styles.mapBtnText}>Open in Maps</Text>
+        </Pressable>
+      ) : null}
+
+      {business.shortDescription ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>About</Text>
+          <Text style={styles.description}>{business.shortDescription}</Text>
+        </View>
+      ) : null}
+
+      {business.fullDescription ? (
+        <View style={styles.section}>
+          <Text style={styles.description}>{business.fullDescription}</Text>
+        </View>
+      ) : null}
+
+      {galleryUrls.length > 0 && (
+        <View
+          style={styles.section}
+          {...(Platform.OS === "android" ? { collapsable: false } : {})}
+        >
+          <Text style={styles.sectionTitle}>Gallery</Text>
+          {androidGalleryTruncationHint ? (
+            <Text style={styles.galleryAndroidHint}>{androidGalleryTruncationHint}</Text>
+          ) : null}
+          <GHScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            style={[styles.gallery, { height: 220 }]}
+            contentContainerStyle={styles.galleryListContent}
+            overScrollMode={Platform.OS === "android" ? "never" : undefined}
+            bounces={false}
+            keyboardShouldPersistTaps="handled"
+            directionalLockEnabled
+            {...(Platform.OS === "android" ? { collapsable: false } : {})}
+          >
+            {galleryUrls.map((uri, index) => (
+              <Pressable
+                key={`${index}-${uri}`}
+                unstable_pressDelay={60}
+                onPress={() => onGalleryOpenIndex(index)}
+              >
+                {Platform.OS === "android" ? (
+                  <ExpoImage
+                    source={{ uri }}
+                    style={styles.galleryImage}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    recyclingKey={uri}
+                  />
+                ) : (
+                  <Image source={{ uri }} style={styles.galleryImage} resizeMode="cover" />
+                )}
+              </Pressable>
+            ))}
+          </GHScrollView>
+          <ImageGalleryViewer
+            visible={galleryOpen}
+            images={galleryUrls}
+            initialIndex={galleryIndex}
+            onClose={onGalleryClose}
+          />
+        </View>
+      )}
+
+      {business.coupons && business.coupons.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Coupons</Text>
+          {business.coupons.map((c) => (
+            <Pressable
+              key={c.id}
+              style={({ pressed }) => [styles.couponCard, pressed && { opacity: 0.8 }]}
+              onPress={() => onCouponPress(c.id)}
+            >
+              <Text style={styles.couponName}>{c.name}</Text>
+              <Text style={styles.couponDiscount}>{c.discount}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      <View style={styles.feedSection}>
+        <Text style={styles.sectionTitle}>Community posts</Text>
+        <Text style={styles.feedHint}>
+          Posts that share this business or its coupons and rewards on the community feed.
+        </Text>
+        {feedLoading && feedPostsEmpty ? (
+          <ActivityIndicator size="large" color={theme.colors.primary} style={styles.feedLoading} />
+        ) : null}
+        {!feedLoading && feedPostsEmpty ? <Text style={styles.feedEmpty}>No posts yet.</Text> : null}
+      </View>
+    </>
+  );
+});
+
 export default function BusinessScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,6 +327,16 @@ export default function BusinessScreen() {
   const [feedCommentPostId, setFeedCommentPostId] = useState<string | null>(null);
   const [feedSharePost, setFeedSharePost] = useState<{ id: string } | null>(null);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setFeedPosts([]);
+    setFeedNextCursor(null);
+    setGalleryOpen(false);
+    setGalleryIndex(0);
+    setFeedCommentPostId(null);
+    setFeedSharePost(null);
+    setCouponPopupId(null);
+  }, [slug]);
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -307,7 +552,7 @@ export default function BusinessScreen() {
     [member?.id]
   );
 
-  const handleSaveToggle = async () => {
+  const handleSaveToggle = useCallback(async () => {
     if (!member || !business) return;
     const token = await getToken();
     if (!token) {
@@ -329,7 +574,7 @@ export default function BusinessScreen() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [member, business, saved, router]);
 
   const addressDisplay = business
     ? [business.address, business.city].filter(Boolean).join(", ")
@@ -337,6 +582,82 @@ export default function BusinessScreen() {
 
   const hours = business?.hoursOfOperation;
   const hasHours = hours && typeof hours === "object" && Object.keys(hours).length > 0;
+
+  const galleryTotalPhotoCount = business?.photos?.length ?? 0;
+
+  const galleryUrls: string[] = useMemo(() => {
+    if (!business?.photos?.length) return [];
+    const paths =
+      Platform.OS === "android" && business.photos.length > ANDROID_GALLERY_MAX_PHOTOS
+        ? business.photos.slice(0, ANDROID_GALLERY_MAX_PHOTOS)
+        : business.photos;
+    return paths.map((p) => resolveUrl(p)).filter(Boolean) as string[];
+  }, [business?.photos]);
+
+  const androidGalleryTruncationHint =
+    Platform.OS === "android" && galleryTotalPhotoCount > ANDROID_GALLERY_MAX_PHOTOS
+      ? `Showing first ${ANDROID_GALLERY_MAX_PHOTOS} of ${galleryTotalPhotoCount} photos in the app.`
+      : null;
+
+  const onGalleryOpenIndex = useCallback((index: number) => {
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  }, []);
+
+  const onGalleryClose = useCallback(() => setGalleryOpen(false), []);
+
+  const onSharePress = useCallback(() => setShareModalOpen(true), []);
+
+  const onCouponPressHeader = useCallback((id: string) => setCouponPopupId(id), []);
+
+  const renderFeedItem = useCallback(
+    ({ item }: { item: FeedPost }) => (
+      <View style={styles.feedPostRow}>
+        <FeedPostCard
+          post={item}
+          onLike={handleFeedLike}
+          onComment={handleFeedComment}
+          onShare={(id) => setFeedSharePost({ id })}
+          onReport={handleFeedReport}
+          onBlockUser={signedIn ? handleFeedBlockUser : undefined}
+          onSave={handleFeedSave}
+          onEditPost={openEditPost}
+          onDeletePost={handleFeedDeletePost}
+          viewerManagedBusinessIds={
+            viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+          }
+          onOpenCoupon={onCouponPressHeader}
+        />
+      </View>
+    ),
+    [
+      handleFeedLike,
+      handleFeedComment,
+      handleFeedReport,
+      handleFeedBlockUser,
+      signedIn,
+      handleFeedSave,
+      openEditPost,
+      handleFeedDeletePost,
+      viewerManagedBusinessIds,
+      onCouponPressHeader,
+    ]
+  );
+
+  const feedListFooter =
+    feedNextCursor && feedPosts.length > 0 ? (
+      <Pressable
+        style={({ pressed }) => [styles.loadMoreBtn, pressed && { opacity: 0.85 }]}
+        onPress={() => loadBusinessFeed(feedNextCursor)}
+        disabled={feedLoadingMore}
+      >
+        {feedLoadingMore ? (
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+        ) : (
+          <Text style={styles.loadMoreText}>Load more</Text>
+        )}
+      </Pressable>
+    ) : null;
 
   if (loading) {
     return (
@@ -376,10 +697,39 @@ export default function BusinessScreen() {
         </View>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={feedPosts}
+        keyExtractor={(item) => item.id}
+        renderItem={renderFeedItem}
+        ListHeaderComponent={
+          <BusinessListingHeader
+            member={member}
+            business={business}
+            saved={saved}
+            saving={saving}
+            addressDisplay={addressDisplay}
+            logoUrl={logoUrl}
+            hasHours={Boolean(hasHours)}
+            hours={hours ?? undefined}
+            galleryUrls={galleryUrls}
+            galleryOpen={galleryOpen}
+            galleryIndex={galleryIndex}
+            onGalleryOpenIndex={onGalleryOpenIndex}
+            onGalleryClose={onGalleryClose}
+            onSaveToggle={handleSaveToggle}
+            onSharePress={onSharePress}
+            onCouponPress={onCouponPressHeader}
+            feedLoading={feedLoading}
+            feedPostsEmpty={feedPosts.length === 0}
+            androidGalleryTruncationHint={androidGalleryTruncationHint}
+          />
+        }
+        ListFooterComponent={feedListFooter}
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={feedRefreshing}
@@ -387,212 +737,12 @@ export default function BusinessScreen() {
             colors={[theme.colors.primary]}
           />
         }
-      >
-        {member && (
-          <View style={styles.topActions}>
-            <Pressable
-              onPress={handleSaveToggle}
-              disabled={saving}
-              style={({ pressed }) => [styles.topActionBtn, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons
-                name={saved ? "heart" : "heart-outline"}
-                size={26}
-                color={theme.colors.primary}
-              />
-            </Pressable>
-            <Pressable
-              onPress={() => setShareModalOpen(true)}
-              style={({ pressed }) => [styles.topActionBtn, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons name="share-outline" size={26} color={theme.colors.primary} />
-            </Pressable>
-          </View>
-        )}
-        <View style={styles.hero}>
-          <Text style={styles.name}>{business.name}</Text>
-          {addressDisplay ? (
-            <Pressable
-              style={styles.addressRow}
-              onPress={() => void openAddressInMaps(addressDisplay)}
-            >
-              <Ionicons name="location" size={18} color={theme.colors.primary} />
-              <Text style={styles.addressText} numberOfLines={2}>{addressDisplay}</Text>
-              <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
-            </Pressable>
-          ) : null}
-        </View>
-
-        <View style={styles.logoSection}>
-          {logoUrl ? (
-            <Image source={{ uri: logoUrl }} style={styles.logo} />
-          ) : (
-            <View style={[styles.logo, styles.logoPlaceholder]}>
-              <Ionicons name="business" size={48} color={theme.colors.primary} />
-            </View>
-          )}
-        </View>
-
-        {hasHours && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Hours of Operation</Text>
-            {DAY_ORDER.map((day) => {
-              const val = hours?.[day];
-              if (!val) return null;
-              return (
-                <View key={day} style={styles.hoursRow}>
-                  <Text style={styles.hoursDay}>{day.charAt(0).toUpperCase() + day.slice(1)}</Text>
-                  <Text style={styles.hoursVal}>{val}</Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Contact</Text>
-          {business.phone ? (
-            <Pressable
-              style={styles.contactRow}
-              onPress={() => Linking.openURL(`tel:${business.phone}`)}
-            >
-              <Ionicons name="call" size={18} color={theme.colors.primary} />
-              <Text style={styles.contactText}>{business.phone}</Text>
-            </Pressable>
-          ) : null}
-          {business.email ? (
-            <Pressable
-              style={styles.contactRow}
-              onPress={() => Linking.openURL(`mailto:${business.email}`)}
-            >
-              <Ionicons name="mail" size={18} color={theme.colors.primary} />
-              <Text style={styles.contactText}>{business.email}</Text>
-            </Pressable>
-          ) : null}
-          {business.website ? (
-            <Pressable
-              style={styles.contactRow}
-              onPress={() => Linking.openURL(business.website!)}
-            >
-              <Ionicons name="globe" size={18} color={theme.colors.primary} />
-              <Text style={styles.contactText}>{business.website}</Text>
-            </Pressable>
-          ) : null}
-        </View>
-
-        {addressDisplay ? (
-          <Pressable style={styles.mapBtn} onPress={() => void openAddressInMaps(addressDisplay)}>
-            <Ionicons name="map" size={20} color="#fff" />
-            <Text style={styles.mapBtnText}>Open in Maps</Text>
-          </Pressable>
-        ) : null}
-
-        {business.shortDescription ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>About</Text>
-            <Text style={styles.description}>{business.shortDescription}</Text>
-          </View>
-        ) : null}
-
-        {business.fullDescription ? (
-          <View style={styles.section}>
-            <Text style={styles.description}>{business.fullDescription}</Text>
-          </View>
-        ) : null}
-
-        {business.photos && business.photos.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Gallery</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.gallery}>
-              {business.photos.map((p, i) => {
-                const url = resolveUrl(p);
-                if (!url) return null;
-                return (
-                  <Pressable
-                    key={i}
-                    onPress={() => { setGalleryIndex(i); setGalleryOpen(true); }}
-                  >
-                    <Image
-                      source={{ uri: url }}
-                      style={styles.galleryImage}
-                      resizeMode="cover"
-                    />
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-            <ImageGalleryViewer
-              visible={galleryOpen}
-              images={business.photos.map((p) => resolveUrl(p)!).filter(Boolean)}
-              initialIndex={galleryIndex}
-              onClose={() => setGalleryOpen(false)}
-            />
-          </View>
-        )}
-
-        {business.coupons && business.coupons.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Coupons</Text>
-            {business.coupons.map((c) => (
-              <Pressable
-                key={c.id}
-                style={({ pressed }) => [styles.couponCard, pressed && { opacity: 0.8 }]}
-                onPress={() => setCouponPopupId(c.id)}
-              >
-                <Text style={styles.couponName}>{c.name}</Text>
-                <Text style={styles.couponDiscount}>{c.discount}</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
-
-        <View style={styles.feedSection}>
-          <Text style={styles.sectionTitle}>Community posts</Text>
-          <Text style={styles.feedHint}>
-            Posts that share this business or its coupons and rewards on the community feed.
-          </Text>
-          {feedLoading && feedPosts.length === 0 ? (
-            <ActivityIndicator size="large" color={theme.colors.primary} style={styles.feedLoading} />
-          ) : feedPosts.length === 0 ? (
-            <Text style={styles.feedEmpty}>No posts yet.</Text>
-          ) : (
-            <>
-              {feedPosts.map((p) => (
-                <FeedPostCard
-                  key={p.id}
-                  post={p}
-                  onLike={handleFeedLike}
-                  onComment={handleFeedComment}
-                  onShare={(id) => setFeedSharePost({ id })}
-                  onReport={handleFeedReport}
-                  onBlockUser={signedIn ? handleFeedBlockUser : undefined}
-                  onSave={handleFeedSave}
-                  onEditPost={openEditPost}
-                  onDeletePost={handleFeedDeletePost}
-                  viewerManagedBusinessIds={
-                    viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
-                  }
-                  onOpenCoupon={(id) => setCouponPopupId(id)}
-                />
-              ))}
-              {feedNextCursor ? (
-                <Pressable
-                  style={({ pressed }) => [styles.loadMoreBtn, pressed && { opacity: 0.85 }]}
-                  onPress={() => loadBusinessFeed(feedNextCursor)}
-                  disabled={feedLoadingMore}
-                >
-                  {feedLoadingMore ? (
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                  ) : (
-                    <Text style={styles.loadMoreText}>Load more</Text>
-                  )}
-                </Pressable>
-              ) : null}
-            </>
-          )}
-        </View>
-
-      </ScrollView>
+        initialNumToRender={Platform.OS === "android" ? 2 : 6}
+        maxToRenderPerBatch={Platform.OS === "android" ? 3 : 8}
+        windowSize={Platform.OS === "android" ? 4 : 9}
+        removeClippedSubviews={false}
+        updateCellsBatchingPeriod={Platform.OS === "android" ? 100 : undefined}
+      />
 
       <Modal visible={showSavedNote} transparent animationType="fade">
         <Pressable style={styles.savedNoteBackdrop} onPress={() => setShowSavedNote(false)}>
@@ -795,6 +945,17 @@ const styles = StyleSheet.create({
   },
   gallery: {
     marginHorizontal: -16,
+    flexGrow: 0,
+  },
+  galleryListContent: {
+    paddingHorizontal: 8,
+    alignItems: "center",
+  },
+  galleryAndroidHint: {
+    fontSize: 12,
+    color: "#666",
+    marginBottom: 8,
+    lineHeight: 16,
   },
   galleryImage: {
     width: 280,
@@ -859,6 +1020,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#888",
     paddingVertical: 16,
+  },
+  feedPostRow: {
+    paddingHorizontal: 16,
   },
   loadMoreBtn: {
     marginTop: 8,

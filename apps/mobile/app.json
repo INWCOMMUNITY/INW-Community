@@ -70,7 +70,22 @@
           "mode": "production"
         }
       ],
-      "@react-native-community/datetimepicker",
+      [
+        "@react-native-community/datetimepicker",
+        {
+          "android": {
+            "datePicker": {
+              "colorAccent": { "light": "#505542", "dark": "#505542" },
+              "colorControlActivated": { "light": "#505542", "dark": "#505542" }
+            },
+            "timePicker": {
+              "headerBackground": { "light": "#505542", "dark": "#505542" },
+              "numbersSelectorColor": { "light": "#505542", "dark": "#505542" }
+            }
+          }
+        }
+      ],
+      "./plugins/withAndroidAppPrimaryColor.js",
       [
         "expo-splash-screen",
         {

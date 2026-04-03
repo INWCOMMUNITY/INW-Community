@@ -1,5 +1,11 @@
-import { useEffect, useState, useCallback } from "react";
+import React, { useContext, useEffect, useState, useCallback, forwardRef } from "react";
 import { useFocusEffect } from "@react-navigation/native";
+import type { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
+import {
+  getDefaultHeaderHeight,
+  HeaderHeightContext,
+  PlatformPressable,
+} from "@react-navigation/elements";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   Pressable,
@@ -7,6 +13,8 @@ import {
   Text,
   Modal,
   Platform,
+  useWindowDimensions,
+  InteractionManager,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -65,6 +73,36 @@ function TabBarIcon(props: {
   return <Ionicons size={24} style={{ marginBottom: -2 }} {...props} />;
 }
 
+/**
+ * Fixed-width header slots so the title sits in a true center column (Expo / native stack
+ * ignores or mishandles absolute-positioned title containers on some platforms).
+ */
+const HEADER_SIDE_SLOT_WIDTH = 96;
+
+function HeaderSideSlot({
+  side,
+  children,
+}: {
+  side: "left" | "right";
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        width: HEADER_SIDE_SLOT_WIDTH,
+        minHeight: Platform.OS === "android" ? 56 : 44,
+        alignSelf: "stretch",
+        justifyContent: "center",
+        alignItems: side === "left" ? "flex-start" : "flex-end",
+        paddingLeft: side === "left" ? 10 : 0,
+        paddingRight: side === "right" ? 10 : 0,
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
 function ProfileHeaderTitle() {
   const { profileView, openSwitcher, showSwitcher } = useProfileView();
   const label =
@@ -75,52 +113,99 @@ function ProfileHeaderTitle() {
         : profileView === "resale_hub"
           ? "Resale Hub"
           : "Profile";
+  const titleTextStyle = {
+    fontSize: 18,
+    fontWeight: "600" as const,
+    color: "#ffffff",
+    textAlign: "center" as const,
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
+  };
   if (!showSwitcher) {
-    return <Text style={{ fontSize: 18, fontWeight: "600", color: "#ffffff" }}>{label}</Text>;
+    return (
+      <View style={{ flex: 1, width: "100%", alignItems: "center", justifyContent: "center" }}>
+        <Text style={titleTextStyle}>{label}</Text>
+      </View>
+    );
   }
   return (
-    <Pressable onPress={openSwitcher} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-      {({ pressed }) => (
-        <>
-          <Text style={{ fontSize: 18, fontWeight: "600", color: "#ffffff", opacity: pressed ? 0.7 : 1 }}>
-            {label}
-          </Text>
-          <Ionicons name="chevron-down" size={18} color="#ffffff" style={{ opacity: pressed ? 0.7 : 1 }} />
-        </>
-      )}
-    </Pressable>
+    <View
+      style={{ flex: 1, width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "center" }}
+    >
+      <Pressable
+        onPress={openSwitcher}
+        hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+        style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+      >
+        {({ pressed }) => (
+          <>
+            <Text style={[titleTextStyle, { opacity: pressed ? 0.7 : 1 }]}>{label}</Text>
+            <Ionicons name="chevron-down" size={18} color="#ffffff" style={{ opacity: pressed ? 0.7 : 1 }} />
+          </>
+        )}
+      </Pressable>
+    </View>
   );
 }
 
-function ProfileTabButton(props: {
-  children?: React.ReactNode;
-  onPress?: () => void;
+type ProfileTabButtonProps = BottomTabBarButtonProps & {
   switcherShownOnceRef?: { current: boolean };
-  style?: StyleProp<ViewStyle> | ((state: PressableStateCallbackType) => StyleProp<ViewStyle>);
-  [key: string]: unknown;
-}) {
-  const { openSwitcher } = useProfileView();
-  const { onPress, children, switcherShownOnceRef, style, ...rest } = props;
-  return (
-    <Pressable
-      {...rest}
-      style={(state) => {
-        const base = typeof style === "function" ? style(state) : style;
-        if (Platform.OS !== "ios") return base;
-        return [base, { backgroundColor: "transparent" }];
-      }}
-      onPress={() => {
-        if (switcherShownOnceRef && !switcherShownOnceRef.current) {
-          switcherShownOnceRef.current = true;
-          openSwitcher();
-        }
-        onPress?.();
-      }}
-    >
-      {children}
-    </Pressable>
-  );
-}
+};
+
+/**
+ * Use React Navigation's PlatformPressable (not raw RN Pressable + spread).
+ * Spreading tab bar props onto Pressable can forward web/link props to the native view on Android and crash.
+ * Defer opening the profile switcher modal until after the tab transition on Android.
+ */
+const ProfileTabButton = forwardRef<React.ElementRef<typeof PlatformPressable>, ProfileTabButtonProps>(
+  function ProfileTabButton(props, ref) {
+    const { openSwitcher } = useProfileView();
+    const { onPress, children, switcherShownOnceRef, style, ...rest } = props;
+
+    const runAfterTabTransition = (fn: () => void) => {
+      if (Platform.OS === "android") {
+        InteractionManager.runAfterInteractions(() => {
+          requestAnimationFrame(fn);
+        });
+      } else {
+        fn();
+      }
+    };
+
+    const styleResolvable = style as
+      | StyleProp<ViewStyle>
+      | ((s: PressableStateCallbackType) => StyleProp<ViewStyle>)
+      | undefined;
+
+    const mergedStyle =
+      typeof styleResolvable === "function"
+        ? (state: PressableStateCallbackType) => {
+            const base = styleResolvable(state);
+            if (Platform.OS !== "ios") return base;
+            return [base, { backgroundColor: "transparent" as const }];
+          }
+        : Platform.OS === "ios"
+          ? [styleResolvable, { backgroundColor: "transparent" as const }]
+          : styleResolvable;
+
+    return (
+      <PlatformPressable
+        ref={ref}
+        {...rest}
+        // AnimatedPressable types omit Pressable's function style; runtime supports it (same as default tab bar).
+        style={mergedStyle as BottomTabBarButtonProps["style"]}
+        onPress={(e) => {
+          if (switcherShownOnceRef && !switcherShownOnceRef.current) {
+            switcherShownOnceRef.current = true;
+            runAfterTabTransition(() => openSwitcher());
+          }
+          onPress?.(e);
+        }}
+      >
+        {children}
+      </PlatformPressable>
+    );
+  }
+);
 
 function HubAttentionBadge() {
   const theme = useTheme();
@@ -143,6 +228,9 @@ function HubAttentionBadge() {
   );
 }
 
+/** Flush with bottom of green header so the sheet reads as one dropdown from the bar. */
+const PROFILE_SWITCHER_HEADER_GAP = 0;
+
 function ProfileSwitcherModal({
   businessHubAttention,
   sellerHubAttention,
@@ -153,6 +241,9 @@ function ProfileSwitcherModal({
   resaleHubAttention: boolean;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const measuredHeaderHeight = useContext(HeaderHeightContext);
   const {
     switcherVisible,
     closeSwitcher,
@@ -161,6 +252,21 @@ function ProfileSwitcherModal({
     hasSeller,
     hasSubscriber,
   } = useProfileView();
+
+  /**
+   * Y offset so the menu top meets the bottom edge of the green header. Prefer on-layout
+   * height from HeaderHeightContext when available; otherwise use the same default as
+   * @react-navigation/elements (Android toolbar is 64dp + status bar, not 56).
+   */
+  const fallbackHeaderBottom = getDefaultHeaderHeight(
+    { width: windowWidth, height: windowHeight },
+    false,
+    insets.top
+  );
+  const menuTop =
+    (measuredHeaderHeight != null && measuredHeaderHeight > 0
+      ? measuredHeaderHeight
+      : fallbackHeaderBottom) + PROFILE_SWITCHER_HEADER_GAP;
 
   return (
     <Modal
@@ -173,133 +279,157 @@ function ProfileSwitcherModal({
         style={{
           flex: 1,
           backgroundColor: "rgba(0,0,0,0.4)",
-          justifyContent: "flex-start",
-          paddingTop: 100,
-          paddingHorizontal: 24,
-          alignItems: "center",
         }}
         onPress={closeSwitcher}
       >
         <View
+          pointerEvents="box-none"
           style={{
-            minWidth: 200,
-            borderRadius: 8,
-            borderWidth: 2,
-            borderColor: theme.colors.primary,
-            overflow: "hidden",
-            backgroundColor: "#ffffff",
+            position: "absolute",
+            top: menuTop,
+            left: 0,
+            right: 0,
+            alignItems: "center",
+            paddingHorizontal: 24,
           }}
         >
-          {hasBusinessHub && (
-            <Pressable
-              style={{
-                paddingVertical: 14,
-                paddingHorizontal: 20,
-                borderBottomWidth: 1,
-                borderBottomColor: "#eee",
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-              onPress={() => {
-                setProfileView("business_hub");
-                closeSwitcher();
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "600",
-                  color: theme.colors.heading,
-                  flex: 1,
-                }}
-              >
-                Business Hub
-              </Text>
-              {businessHubAttention ? <HubAttentionBadge /> : null}
-            </Pressable>
-          )}
-          {hasSeller && (
-            <Pressable
-              style={{
-                paddingVertical: 14,
-                paddingHorizontal: 20,
-                borderBottomWidth: 1,
-                borderBottomColor: "#eee",
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-              onPress={() => {
-                setProfileView("seller_hub");
-                closeSwitcher();
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "600",
-                  color: theme.colors.heading,
-                  flex: 1,
-                }}
-              >
-                Seller Hub
-              </Text>
-              {sellerHubAttention ? <HubAttentionBadge /> : null}
-            </Pressable>
-          )}
-          {hasSubscriber && (
-            <Pressable
-              style={{
-                paddingVertical: 14,
-                paddingHorizontal: 20,
-                borderBottomWidth: 1,
-                borderBottomColor: "#eee",
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-              onPress={() => {
-                setProfileView("resale_hub");
-                closeSwitcher();
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "600",
-                  color: theme.colors.heading,
-                  flex: 1,
-                }}
-              >
-                Resale Hub
-              </Text>
-              {resaleHubAttention ? <HubAttentionBadge /> : null}
-            </Pressable>
-          )}
-          <Pressable
+          <View
+            onStartShouldSetResponder={() => true}
             style={{
-              paddingVertical: 14,
-              paddingHorizontal: 20,
-            }}
-            onPress={() => {
-              setProfileView("profile");
-              closeSwitcher();
+              minWidth: 200,
+              alignSelf: "center",
+              borderTopWidth: 0,
+              borderBottomLeftRadius: 12,
+              borderBottomRightRadius: 12,
+              borderLeftWidth: 2,
+              borderRightWidth: 2,
+              borderBottomWidth: 2,
+              borderColor: theme.colors.primary,
+              overflow: "hidden",
+              backgroundColor: "#ffffff",
+              ...Platform.select({
+                ios: {
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.12,
+                  shadowRadius: 8,
+                },
+                android: { elevation: 6 },
+                default: {},
+              }),
             }}
           >
-            <Text
+            {hasBusinessHub && (
+              <Pressable
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 20,
+                  borderBottomWidth: 1,
+                  borderBottomColor: "#eee",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                }}
+                onPress={() => {
+                  setProfileView("business_hub");
+                  closeSwitcher();
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: "600",
+                    color: theme.colors.heading,
+                    flex: 1,
+                  }}
+                >
+                  Business Hub
+                </Text>
+                {businessHubAttention ? <HubAttentionBadge /> : null}
+              </Pressable>
+            )}
+            {hasSeller && (
+              <Pressable
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 20,
+                  borderBottomWidth: 1,
+                  borderBottomColor: "#eee",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                }}
+                onPress={() => {
+                  setProfileView("seller_hub");
+                  closeSwitcher();
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: "600",
+                    color: theme.colors.heading,
+                    flex: 1,
+                  }}
+                >
+                  Seller Hub
+                </Text>
+                {sellerHubAttention ? <HubAttentionBadge /> : null}
+              </Pressable>
+            )}
+            {hasSubscriber && (
+              <Pressable
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 20,
+                  borderBottomWidth: 1,
+                  borderBottomColor: "#eee",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                }}
+                onPress={() => {
+                  setProfileView("resale_hub");
+                  closeSwitcher();
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: "600",
+                    color: theme.colors.heading,
+                    flex: 1,
+                  }}
+                >
+                  Resale Hub
+                </Text>
+                {resaleHubAttention ? <HubAttentionBadge /> : null}
+              </Pressable>
+            )}
+            <Pressable
               style={{
-                fontSize: 16,
-                fontWeight: "600",
-                color: theme.colors.heading,
+                paddingVertical: 14,
+                paddingHorizontal: 20,
+              }}
+              onPress={() => {
+                setProfileView("profile");
+                closeSwitcher();
               }}
             >
-              Profile
-            </Text>
-          </Pressable>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: theme.colors.heading,
+                }}
+              >
+                Profile
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </Pressable>
     </Modal>
@@ -361,10 +491,25 @@ function TabLayoutInner() {
 
   const isProfileTab = typeof pathname === "string" && pathname.includes("my-community");
   useEffect(() => {
-    if (isProfileTab && showSwitcher && !switcherShownOnceRef.current) {
+    if (!isProfileTab || !showSwitcher || switcherShownOnceRef.current) {
+      return;
+    }
+    let cancelled = false;
+    const show = () => {
+      if (cancelled || switcherShownOnceRef.current) return;
       switcherShownOnceRef.current = true;
       openSwitcher();
+    };
+    if (Platform.OS === "android") {
+      InteractionManager.runAfterInteractions(() => {
+        requestAnimationFrame(show);
+      });
+    } else {
+      show();
     }
+    return () => {
+      cancelled = true;
+    };
   }, [isProfileTab, showSwitcher, openSwitcher]);
 
   const profileIconName =
@@ -453,122 +598,134 @@ function TabLayoutInner() {
         headerShown: useClientOnlyValue(false, true),
         headerStyle: { backgroundColor: theme.colors.primary },
         headerTintColor: "#ffffff",
+        headerTitleAlign: "center",
+        headerTitleStyle: {
+          fontSize: 18,
+          fontWeight: "600",
+          color: "#ffffff",
+          textAlign: "center",
+          ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
+        },
+        // Insets match HEADER_SIDE_SLOT_WIDTH; top/bottom fill toolbar so title centers with icon slots.
+        headerTitleContainerStyle: {
+          position: "absolute",
+          left: HEADER_SIDE_SLOT_WIDTH,
+          right: HEADER_SIDE_SLOT_WIDTH,
+          top: 0,
+          bottom: 0,
+          alignItems: "center",
+          justifyContent: "center",
+          pointerEvents: "box-none",
+        },
+        headerLeftContainerStyle: { zIndex: 2 },
+        headerRightContainerStyle: { zIndex: 2 },
         headerTitle: route.name === "my-community" ? () => <ProfileHeaderTitle /> : undefined,
-        headerLeft:
-          route.name === "home"
-            ? () => (
-                <Pressable
-                  style={{ marginLeft: 16 }}
-                  onPress={() => router.push("/scanner" as import("expo-router").Href)}
-                >
-                  {({ pressed }) => (
-                    <Ionicons
-                      name="camera"
-                      size={22}
-                      color="#ffffff"
-                      style={{ opacity: pressed ? 0.7 : 1 }}
-                    />
-                  )}
-                </Pressable>
-              )
-            : route.name === "my-community" || route.name === "index"
-              ? () => (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Messages"
-                    hitSlop={{ top: 14, bottom: 14, left: 8, right: 14 }}
-                    style={({ pressed }) => ({
-                      marginLeft: 4,
-                      marginVertical: 4,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      minWidth: 44,
-                      minHeight: 44,
-                      justifyContent: "center",
-                      alignItems: "center",
-                      opacity: pressed ? 0.75 : 1,
-                    })}
-                    onPress={() => router.push("/messages")}
-                  >
-                    <View style={{ position: "relative" }}>
-                      <Ionicons name="mail" size={22} color="#ffffff" />
-                      {unreadMessages > 0 && (
-                        <View
-                          style={{
-                            position: "absolute",
-                            top: -4,
-                            left: -6,
-                            minWidth: 14,
-                            height: 14,
-                            borderRadius: 7,
-                            backgroundColor: "#fff",
-                            justifyContent: "center",
-                            alignItems: "center",
-                            paddingHorizontal: 3,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              fontSize: 10,
-                              fontWeight: "700",
-                              color: theme.colors.primary,
-                            }}
-                          >
-                            {unreadMessages > 99 ? "99+" : String(unreadMessages)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </Pressable>
-                )
-              : undefined,
-        headerRight: route.name === "support-local"
-          ? () => (
+        headerLeft: () => {
+          let node: React.ReactNode = null;
+          if (route.name === "home") {
+            node = (
               <Pressable
-                style={{ marginRight: 16 }}
+                accessibilityRole="button"
+                accessibilityLabel="Open scanner"
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}
                 onPress={() => router.push("/scanner" as import("expo-router").Href)}
               >
-                {({ pressed }) => (
-                  <Ionicons
-                    name="camera"
-                    size={24}
-                    color="#ffffff"
-                    style={{ opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
+                <Ionicons name="camera" size={22} color="#ffffff" />
               </Pressable>
-            )
-          : route.name === "my-community" && profileView === "business_hub"
-            ? () => (
-                <Pressable
-                  style={{ marginRight: 16 }}
-                  onPress={() => openBusinessQRRef.current?.()}
-                >
-                  {({ pressed }) => (
-                    <Ionicons
-                      name="qr-code"
-                      size={24}
-                      color="#ffffff"
-                      style={{ opacity: pressed ? 0.7 : 1 }}
-                    />
+            );
+          } else if (route.name === "my-community" || route.name === "index") {
+            node = (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Messages"
+                hitSlop={{ top: 14, bottom: 14, left: 4, right: 8 }}
+                style={({ pressed }) => ({
+                  paddingVertical: 8,
+                  paddingHorizontal: 4,
+                  minWidth: 44,
+                  minHeight: 44,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  opacity: pressed ? 0.75 : 1,
+                })}
+                onPress={() => router.push("/messages")}
+              >
+                <View style={{ position: "relative" }}>
+                  <Ionicons name="mail" size={22} color="#ffffff" />
+                  {unreadMessages > 0 && (
+                    <View
+                      style={{
+                        position: "absolute",
+                        top: -4,
+                        left: -6,
+                        minWidth: 14,
+                        height: 14,
+                        borderRadius: 7,
+                        backgroundColor: "#fff",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        paddingHorizontal: 3,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: "700",
+                          color: theme.colors.primary,
+                        }}
+                      >
+                        {unreadMessages > 99 ? "99+" : String(unreadMessages)}
+                      </Text>
+                    </View>
                   )}
-                </Pressable>
-              )
-            : () => (
-                <Pressable
-                  style={{ marginRight: 16 }}
-                  onPress={() => openSideMenu(route.name)}
-                >
-                  {({ pressed }) => (
-                    <Ionicons
-                      name="menu"
-                      size={24}
-                      color="#ffffff"
-                      style={{ opacity: pressed ? 0.5 : 1 }}
-                    />
-                  )}
-                </Pressable>
-              ),
+                </View>
+              </Pressable>
+            );
+          }
+          return <HeaderSideSlot side="left">{node}</HeaderSideSlot>;
+        },
+        headerRight: () => {
+          let node: React.ReactNode;
+          if (route.name === "support-local") {
+            node = (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open scanner"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+                style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
+                onPress={() => router.push("/scanner" as import("expo-router").Href)}
+              >
+                <Ionicons name="camera" size={24} color="#ffffff" />
+              </Pressable>
+            );
+          } else if (route.name === "my-community" && profileView === "business_hub") {
+            node = (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Business QR code"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+                style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}
+                onPress={() => openBusinessQRRef.current?.()}
+              >
+                <Ionicons name="qr-code" size={24} color="#ffffff" />
+              </Pressable>
+            );
+          } else {
+            node = (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open menu"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+                style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
+                onPress={() => openSideMenu(route.name)}
+              >
+                <Ionicons name="menu" size={24} color="#ffffff" />
+              </Pressable>
+            );
+          }
+          return <HeaderSideSlot side="right">{node}</HeaderSideSlot>;
+        },
       })}
     >
       <Tabs.Screen

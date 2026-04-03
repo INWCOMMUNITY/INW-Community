@@ -16,6 +16,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost, apiPostWithRetry, apiUploadFile } from "@/lib/api";
@@ -67,6 +68,7 @@ export default function GroupConversationScreen() {
   const { id: rawConvId } = useLocalSearchParams<{ id: string }>();
   const convId = normalizeRouteParam(rawConvId as string | string[] | undefined);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { member, loading: authLoading } = useAuth();
   const [conv, setConv] = useState<GroupConversation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -608,7 +610,15 @@ export default function GroupConversationScreen() {
         </View>
       ) : null}
 
-      <View style={styles.inputRow}>
+      <View
+        style={[
+          styles.inputRow,
+          {
+            paddingBottom:
+              12 + Math.max(insets.bottom, Platform.OS === "android" ? 12 : 0),
+          },
+        ]}
+      >
         <View style={styles.attachBtnRow}>
           <Pressable
             style={({ pressed }) => [styles.photoBtn, (sending || uploadingPhoto) && styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}
@@ -750,8 +760,8 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    padding: 12,
-    paddingBottom: 24,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "#eee",
     backgroundColor: "#fff",

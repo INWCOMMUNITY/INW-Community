@@ -11,6 +11,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { theme } from "@/lib/theme";
+import { androidDateTimePickerThemeProps } from "@/lib/datetimepicker-android";
 import { apiGet, apiPost, apiDelete } from "@/lib/api";
 
 interface TimeAwayState {
@@ -65,6 +66,7 @@ export default function TimeAwayScreen() {
   ) => {
     if (Platform.OS === "android") {
       DateTimePickerAndroid.open({
+        ...androidDateTimePickerThemeProps,
         value,
         mode,
         onChange: (_, d) => {
