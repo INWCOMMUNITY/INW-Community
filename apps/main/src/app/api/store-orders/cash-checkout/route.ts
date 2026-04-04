@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getBaseUrl } from "@/lib/get-base-url";
-import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
+import {
+  getAvailableQuantity,
+  hasMeaningfulVariantSelection,
+  hasOptionQuantities,
+  shouldMarkStoreItemSoldOut,
+} from "@/lib/store-item-variants";
+import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 import {
@@ -84,6 +90,12 @@ export async function POST(req: NextRequest) {
     const fv = validateRequestedFulfillment(si, line.fulfillmentType);
     if (!fv.ok) {
       return NextResponse.json({ error: fv.error }, { status: 400 });
+    }
+    if (hasOptionQuantities(si.variants) && !hasMeaningfulVariantSelection(line.variant)) {
+      return NextResponse.json(
+        { error: `Choose an option for “${si.title}” before checkout (required for inventory).` },
+        { status: 400 }
+      );
     }
   }
 
@@ -226,31 +238,20 @@ export async function POST(req: NextRequest) {
           pickupDetails: oi.pickupDetails ? (oi.pickupDetails as object) : Prisma.JsonNull,
         },
       });
-      const storeItem = itemMap.get(oi.storeItemId)!;
-      if (hasOptionQuantities(storeItem.variants) && oi.variant) {
-        const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
-        if (res) {
-          await prisma.storeItem.update({
-            where: { id: oi.storeItemId },
-            data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
-          });
-        } else {
-          await prisma.storeItem.update({
-            where: { id: oi.storeItemId },
-            data: { quantity: { decrement: oi.quantity } },
-          });
-        }
-      } else {
-        await prisma.storeItem.update({
-          where: { id: oi.storeItemId },
-          data: { quantity: { decrement: oi.quantity } },
+      const row = await prisma.storeItem.findUnique({
+        where: { id: oi.storeItemId },
+      });
+      if (row) {
+        await applyStoreItemDecrementAfterSale(prisma, row, {
+          quantity: oi.quantity,
+          variant: oi.variant,
         });
       }
       const updated = await prisma.storeItem.findUnique({
         where: { id: oi.storeItemId },
-        select: { quantity: true },
+        select: { quantity: true, variants: true },
       });
-      if (updated && updated.quantity <= 0) {
+      if (updated && shouldMarkStoreItemSoldOut(updated)) {
         await prisma.storeItem.update({
           where: { id: oi.storeItemId },
           data: { status: "sold_out" },

@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 import { isFeedPostRenderable } from "@/lib/feed-post-visible";
+import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
       sourceStoreItemIds.length > 0
         ? prisma.storeItem.findMany({
             where: { id: { in: sourceStoreItemIds } },
-            select: { id: true, title: true, slug: true, photos: true, priceCents: true },
+            select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
           })
         : [],
       sourcePostIds.length > 0
@@ -85,7 +86,7 @@ export async function GET(req: NextRequest) {
     const businessMap = Object.fromEntries(businesses.map((b) => [b.id, b]));
     const couponMap = Object.fromEntries(coupons.map((c) => [c.id, c]));
     const rewardMap = Object.fromEntries(rewards.map((r) => [r.id, r]));
-    const storeItemMap = Object.fromEntries(storeItems.map((s) => [s.id, s]));
+    const storeItemMap = storeItemRowsToFeedEmbedMap(storeItems);
     const sourcePostMap = Object.fromEntries(
       sourcePosts.map((p) => [
         p.id,
@@ -326,7 +327,7 @@ export async function GET(req: NextRequest) {
     sourceStoreItemIds.length > 0
       ? prisma.storeItem.findMany({
           where: { id: { in: sourceStoreItemIds } },
-          select: { id: true, title: true, slug: true, photos: true, priceCents: true },
+          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
         })
       : [],
     sourcePostIds.length > 0
@@ -353,7 +354,6 @@ export async function GET(req: NextRequest) {
   const businessMap = Object.fromEntries(businesses.map((b) => [b.id, b]));
   const couponMap = Object.fromEntries(coupons.map((c) => [c.id, c]));
   const rewardMap = Object.fromEntries(rewards.map((r) => [r.id, r]));
-  const storeItemMap = Object.fromEntries(storeItems.map((s) => [s.id, s]));
 
   const sourcePostBlogIds = sourcePosts.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
   const sourcePostBusinessIds = sourcePosts.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
@@ -393,16 +393,23 @@ export async function GET(req: NextRequest) {
     sourcePostStoreItemIds.length > 0
       ? prisma.storeItem.findMany({
           where: { id: { in: sourcePostStoreItemIds } },
-          select: { id: true, title: true, slug: true, photos: true, priceCents: true },
+          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
         })
       : [],
   ]);
+
+  const storeItemEmbedMerge = new Map<
+    string,
+    { id: string; title: string; slug: string; photos: string[]; priceCents: number; status: string; quantity: number }
+  >();
+  for (const s of storeItems) storeItemEmbedMerge.set(s.id, s);
+  for (const s of sourcePostStoreItems) storeItemEmbedMerge.set(s.id, s);
+  const feedStoreItemMap = storeItemRowsToFeedEmbedMap([...storeItemEmbedMerge.values()]);
 
   const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, b]));
   const sourcePostBusinessMap = Object.fromEntries(sourcePostBusinesses.map((b) => [b.id, b]));
   const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
   const sourcePostRewardMap = Object.fromEntries(sourcePostRewards.map((r) => [r.id, r]));
-  const sourcePostStoreItemMap = Object.fromEntries(sourcePostStoreItems.map((s) => [s.id, s]));
 
   const sourcePostMap = Object.fromEntries(
     sourcePosts.map((p) => [
@@ -414,7 +421,7 @@ export async function GET(req: NextRequest) {
         sourceBusiness: p.sourceBusinessId ? (sourcePostBusinessMap[p.sourceBusinessId] ?? businessMap[p.sourceBusinessId] ?? null) : null,
         sourceCoupon: p.sourceCouponId ? (sourcePostCouponMap[p.sourceCouponId] ?? couponMap[p.sourceCouponId] ?? null) : null,
         sourceReward: p.sourceRewardId ? (sourcePostRewardMap[p.sourceRewardId] ?? rewardMap[p.sourceRewardId] ?? null) : null,
-        sourceStoreItem: p.sourceStoreItemId ? (sourcePostStoreItemMap[p.sourceStoreItemId] ?? storeItemMap[p.sourceStoreItemId] ?? null) : null,
+        sourceStoreItem: p.sourceStoreItemId ? (feedStoreItemMap[p.sourceStoreItemId] ?? null) : null,
       },
     ])
   );
@@ -447,7 +454,7 @@ export async function GET(req: NextRequest) {
       sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
       sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
       sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
-      sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
+      sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,
       sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
       sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
       liked: likedSet.has(p.id),

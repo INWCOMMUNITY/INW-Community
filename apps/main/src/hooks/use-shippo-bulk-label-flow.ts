@@ -4,13 +4,14 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { flushSync } from "react-dom";
 import {
   buildOrderDetailsFromOrder,
-  resolveOrderShipToAddress,
+  resolvePostalShipToAddress,
   transactionToLabelFromElementsPayload,
   type ElementsTransactionPayload,
 } from "@/lib/shippo-elements";
 import { NWC_SHIPPO_ELEMENTS_THEME, type ShippoElementsTheme } from "@/lib/shippo-elements-theme";
 import { notifyNwAppShippoLabelSuccess } from "@/lib/nw-app-webview-bridge";
 import { afterNextPaint, clearShippoElementsMount } from "@/lib/shippo-mount-utils";
+import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 
 export const SHIPPO_BULK_ORG = "inw-community";
 export const SHIPPO_BULK_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
@@ -73,6 +74,7 @@ export interface StoreOrderForBulkLabel {
     storeItem: { title: string };
     quantity: number;
     priceCentsAtPurchase: number;
+    fulfillmentType?: string | null;
   }>;
   shipment?: {
     shippoOrderId?: string | null;
@@ -99,7 +101,10 @@ export function groupToShipOrdersByBuyer<T extends { id: string; buyer: { email?
 
 export function isOrderEligibleForBulkShip(o: StoreOrderForBulkLabel): boolean {
   return (
-    o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId
+    o.status === "paid" &&
+    !o.shipment &&
+    !(o as { shippedWithOrderId?: string }).shippedWithOrderId &&
+    orderHasShippedLine(o.items)
   );
 }
 
@@ -129,7 +134,7 @@ export function useShippoBulkLabelFlow(options: {
 
   const elementsListenersRef = useRef(false);
   const currentElementsOrderIdsRef = useRef<string[]>([]);
-  const currentShipToSnapshotRef = useRef<ReturnType<typeof resolveOrderShipToAddress>>(null);
+  const currentShipToSnapshotRef = useRef<ReturnType<typeof resolvePostalShipToAddress>>(null);
   const shippoOrderIdsRef = useRef<string[]>([]);
   const buyerGroupsRef = useRef<StoreOrderForBulkLabel[][]>([]);
   const groupIndexRef = useRef(0);
@@ -173,7 +178,7 @@ export function useShippoBulkLabelFlow(options: {
     const nextGroup = groups[nextIdx];
     const orderDetails = buildBulkOrderDetails(nextGroup);
     if (!orderDetails) {
-      setElementsError("Order(s) have no valid shipping address.");
+      setElementsError("Order(s) have no checkout shipping address for Shippo (postal slot).");
       setProgressSubtitle(null);
       bulkFlowActiveRef.current = false;
       clearShippoElementsMount(containerIdRef.current);
@@ -201,7 +206,7 @@ export function useShippoBulkLabelFlow(options: {
       return;
     }
     bulkFlowActiveRef.current = true;
-    currentShipToSnapshotRef.current = resolveOrderShipToAddress(nextGroup[0]);
+    currentShipToSnapshotRef.current = resolvePostalShipToAddress(nextGroup[0]);
     shippo.labelPurchase(`#${cid}`, orderDetails);
   }, []);
 
@@ -235,7 +240,7 @@ export function useShippoBulkLabelFlow(options: {
     const first = groups[0];
     const orderDetails = buildBulkOrderDetails(first);
     if (!orderDetails) {
-      setElementsError("Selected order(s) have no valid shipping address.");
+      setElementsError("Selected order(s) have no checkout shipping address for Shippo.");
       return;
     }
 
@@ -378,7 +383,7 @@ export function useShippoBulkLabelFlow(options: {
         return;
       }
       bulkFlowActiveRef.current = true;
-      currentShipToSnapshotRef.current = resolveOrderShipToAddress(first[0]);
+      currentShipToSnapshotRef.current = resolvePostalShipToAddress(first[0]);
       shippo.labelPurchase(`#${containerIdRef.current}`, orderDetails);
     } catch {
       setElementsError("Connection failed.");

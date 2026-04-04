@@ -86,6 +86,7 @@ export const PLAN_LABELS: Record<Plan, string> = {
 
 export {
   orderEligibleForAnotherShippoLabel,
+  orderHasShippedLine,
   type StoreOrderForAnotherLabel,
 } from "./shippo-order-label-eligibility";
 

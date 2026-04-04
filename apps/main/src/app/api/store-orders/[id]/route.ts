@@ -9,7 +9,11 @@ import {
   orderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
 import { tryReleaseBuyerPointsForOrder } from "@/lib/store-order-buyer-points";
-import { resolveOrderShipToAddress } from "@/lib/shippo-elements";
+import {
+  normalizeLooseAddressSnapshot,
+  resolveOrderShipToAddress,
+  resolvePostalShipToAddress,
+} from "@/lib/shippo-elements";
 
 export async function GET(
   _req: NextRequest,
@@ -65,6 +69,12 @@ export async function GET(
         let next = { ...order };
         if (!next.shipment && primary.shipment) {
           next = { ...next, shipment: primary.shipment };
+        }
+        // Shippo reads `shipping_address` only; secondary rows may have empty shipping but local delivery filled.
+        if (resolvePostalShipToAddress(next) == null && primary.shippingAddress != null) {
+          if (normalizeLooseAddressSnapshot(primary.shippingAddress)) {
+            next = { ...next, shippingAddress: primary.shippingAddress };
+          }
         }
         if (resolveOrderShipToAddress(next) == null) {
           next = {

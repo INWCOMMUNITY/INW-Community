@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, type Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
+import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 
 export async function GET(req: NextRequest) {
   try {
@@ -101,7 +102,13 @@ export async function GET(req: NextRequest) {
         orderBy: { createdAt: "desc" },
       });
       const filtered = needsShipment
-        ? orders.filter((o) => o.status === "paid" && !o.shipment && !o.shippedWithOrderId)
+        ? orders.filter(
+            (o) =>
+              o.status === "paid" &&
+              !o.shipment &&
+              !o.shippedWithOrderId &&
+              orderHasShippedLine(o.items)
+          )
         : orders;
       return NextResponse.json(
         filtered.map((o) => ({ ...o, orderNumber: o.id.slice(-8).toUpperCase() }))

@@ -3,7 +3,9 @@ import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
 import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-points";
-import { decrementOptionQuantity, getAvailableQuantity, hasOptionQuantities } from "@/lib/store-item-variants";
+import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
+import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
 import {
   cancelPendingOrdersForSoldOutItems,
   cleanupOtherBuyersCartsForStoreItems,
@@ -23,6 +25,7 @@ import {
 } from "@/lib/stripe-checkout-session-shipping";
 import {
   allocateTaxCentsAcrossOrders,
+  assertPreTaxSplitMatchesOrderTotal,
   computeSellerTransferCents,
 } from "@/lib/storefront-payout";
 import type { Plan } from "database";
@@ -475,6 +478,23 @@ export async function POST(req: NextRequest) {
             });
           }
 
+          const sumOrderTotals = ordersToFulfill.reduce((acc, o) => acc + o.totalCents, 0);
+          if (sumOrderTotals !== sessionAmountSubtotal) {
+            console.warn("[webhook] checkout.session.completed: amount_subtotal vs sum(order.totalCents)", {
+              sessionAmountSubtotal,
+              sumOrderTotals,
+              sessionId: session.id,
+            });
+          }
+          for (const order of ordersToFulfill) {
+            const p = payoutByOrderId.get(order.id)!;
+            assertPreTaxSplitMatchesOrderTotal(order, {
+              platformFeeCents: p.platformFeeCents,
+              salesTaxReserveCents: p.salesTaxReserveCents,
+              sellerTransferCents: p.sellerTransferCents,
+            });
+          }
+
           let chargeId: string | null = null;
           if (paymentIntentId) {
             try {
@@ -597,38 +617,23 @@ export async function POST(req: NextRequest) {
 
               const isRewardRedemption = order.orderKind === "reward_redemption";
               if (!isRewardRedemption) {
-                const storeItemsForOrder = await prisma.storeItem.findMany({
-                  where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
-                });
-                const storeItemMap = new Map(storeItemsForOrder.map((s) => [s.id, s]));
                 for (const oi of order.items) {
                   allPurchasedIds.add(oi.storeItemId);
-                  const storeItem = storeItemMap.get(oi.storeItemId);
+                  const storeItem = await prisma.storeItem.findUnique({
+                    where: { id: oi.storeItemId },
+                  });
                   if (storeItem) titleByItemId.set(oi.storeItemId, storeItem.title);
-                  if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
-                    const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
-                    if (res) {
-                      await prisma.storeItem.update({
-                        where: { id: oi.storeItemId },
-                        data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
-                      });
-                    } else {
-                      await prisma.storeItem.update({
-                        where: { id: oi.storeItemId },
-                        data: { quantity: { decrement: oi.quantity } },
-                      });
-                    }
-                  } else {
-                    await prisma.storeItem.update({
-                      where: { id: oi.storeItemId },
-                      data: { quantity: { decrement: oi.quantity } },
+                  if (storeItem) {
+                    await applyStoreItemDecrementAfterSale(prisma, storeItem, {
+                      quantity: oi.quantity,
+                      variant: oi.variant,
                     });
                   }
                   const updated = await prisma.storeItem.findUnique({
                     where: { id: oi.storeItemId },
-                    select: { quantity: true },
+                    select: { quantity: true, variants: true },
                   });
-                  if (updated && updated.quantity <= 0) {
+                  if (updated && shouldMarkStoreItemSoldOut(updated)) {
                     allSoldOutIds.add(oi.storeItemId);
                     await prisma.storeItem.update({
                       where: { id: oi.storeItemId },
@@ -736,7 +741,12 @@ export async function POST(req: NextRequest) {
         const shippingCostCents = parseInt(session.metadata?.shippingCostCents ?? "0", 10);
         const totalCents =
           parseInt(session.metadata?.totalCents ?? "0", 10) || subtotalCents + shippingCostCents;
-        const platformFeeCents = parseInt(session.metadata?.platformFeeCents ?? "0", 10);
+        const legacySessionTaxCents =
+          typeof session.total_details?.amount_tax === "number" ? session.total_details.amount_tax : 0;
+        const { platformFeeCents, salesTaxReserveCents, sellerTransferCents } = computeSellerTransferCents(
+          totalCents,
+          subtotalCents
+        );
         let pointsAwarded = Math.round(totalCents / 200);
         const paidBuyer = await prisma.subscription.findFirst({
           where: prismaWhereActivePaidNwcPlan(buyerId),
@@ -778,6 +788,9 @@ export async function POST(req: NextRequest) {
             subtotalCents,
             shippingCostCents,
             totalCents,
+            taxCents: legacySessionTaxCents,
+            salesTaxReserveCents,
+            platformFeeCents,
             status: "paid",
             shippingAddress: shippingAddress === null ? Prisma.JsonNull : (shippingAddress as object),
             localDeliveryDetails: localDeliveryDetails === null ? Prisma.JsonNull : (localDeliveryDetails as object),
@@ -786,11 +799,11 @@ export async function POST(req: NextRequest) {
             pointsAwarded,
           },
         });
+        assertPreTaxSplitMatchesOrderTotal(
+          { id: order.id, totalCents },
+          { platformFeeCents, salesTaxReserveCents, sellerTransferCents }
+        );
 
-        const storeItemsForNewOrder = await prisma.storeItem.findMany({
-          where: { id: { in: orderItems.map((oi) => oi.storeItemId) } },
-        });
-        const storeItemMapNew = new Map(storeItemsForNewOrder.map((s) => [s.id, s]));
         for (const oi of orderItems) {
           await prisma.orderItem.create({
             data: {
@@ -802,31 +815,20 @@ export async function POST(req: NextRequest) {
               fulfillmentType: oi.fulfillmentType ?? null,
             },
           });
-          const storeItem = storeItemMapNew.get(oi.storeItemId);
-          if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
-            const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
-            if (res) {
-              await prisma.storeItem.update({
-                where: { id: oi.storeItemId },
-                data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
-              });
-            } else {
-              await prisma.storeItem.update({
-                where: { id: oi.storeItemId },
-                data: { quantity: { decrement: oi.quantity } },
-              });
-            }
-          } else {
-            await prisma.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { quantity: { decrement: oi.quantity } },
+          const storeItem = await prisma.storeItem.findUnique({
+            where: { id: oi.storeItemId },
+          });
+          if (storeItem) {
+            await applyStoreItemDecrementAfterSale(prisma, storeItem, {
+              quantity: oi.quantity,
+              variant: oi.variant,
             });
           }
           const updated = await prisma.storeItem.findUnique({
             where: { id: oi.storeItemId },
-            select: { quantity: true },
+            select: { quantity: true, variants: true },
           });
-          if (updated && updated.quantity <= 0) {
+          if (updated && shouldMarkStoreItemSoldOut(updated)) {
             await prisma.storeItem.update({
               where: { id: oi.storeItemId },
               data: { status: "sold_out" },
@@ -843,7 +845,7 @@ export async function POST(req: NextRequest) {
         const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
         awardLocalBusinessProBadge(buyerId).catch(() => {});
 
-        const sellerCreditsCents = totalCents - platformFeeCents;
+        const sellerCreditsCents = sellerTransferCents;
         await prisma.sellerBalance.upsert({
           where: { memberId: sellerId },
           create: {
@@ -1022,37 +1024,24 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      const storeItemsPaymentIntent = await prisma.storeItem.findMany({
-        where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
-      });
-      const storeItemMapPI = new Map(storeItemsPaymentIntent.map((s) => [s.id, s]));
       const soldOutStoreItemIds = new Set<string>();
+      const titleByItemIdPI = new Map<string, string>();
       for (const oi of order.items) {
-        const storeItem = storeItemMapPI.get(oi.storeItemId);
-        if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
-          const res = decrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
-          if (res) {
-            await prisma.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { variants: res.variants as object, quantity: { decrement: res.quantityDelta } },
-            });
-          } else {
-            await prisma.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { quantity: { decrement: oi.quantity } },
-            });
-          }
-        } else {
-          await prisma.storeItem.update({
-            where: { id: oi.storeItemId },
-            data: { quantity: { decrement: oi.quantity } },
+        const storeItem = await prisma.storeItem.findUnique({
+          where: { id: oi.storeItemId },
+        });
+        if (storeItem) titleByItemIdPI.set(oi.storeItemId, storeItem.title);
+        if (storeItem) {
+          await applyStoreItemDecrementAfterSale(prisma, storeItem, {
+            quantity: oi.quantity,
+            variant: oi.variant,
           });
         }
         const updated = await prisma.storeItem.findUnique({
           where: { id: oi.storeItemId },
-          select: { quantity: true },
+          select: { quantity: true, variants: true },
         });
-        if (updated && updated.quantity <= 0) {
+        if (updated && shouldMarkStoreItemSoldOut(updated)) {
           soldOutStoreItemIds.add(oi.storeItemId);
           await prisma.storeItem.update({
             where: { id: oi.storeItemId },
@@ -1064,14 +1053,10 @@ export async function POST(req: NextRequest) {
       }
 
       if (soldOutStoreItemIds.size > 0) {
-        const titleByItemId = new Map<string, string>();
-        for (const id of soldOutStoreItemIds) {
-          titleByItemId.set(id, storeItemMapPI.get(id)?.title ?? "Item");
-        }
         await cancelPendingOrdersForSoldOutItems({
           soldOutStoreItemIds: [...soldOutStoreItemIds],
           excludeBuyerId: order.buyerId,
-          titleByItemId,
+          titleByItemId: titleByItemIdPI,
         });
       }
 
@@ -1102,8 +1087,16 @@ export async function POST(req: NextRequest) {
       }
 
       if (!isConnectEvent) {
-        const platformFeeCents = Math.max(50, Math.floor(totalCents * 0.05));
-        const sellerCreditsCents = totalCents - platformFeeCents;
+        const { platformFeeCents, salesTaxReserveCents, sellerTransferCents } = computeSellerTransferCents(
+          order.totalCents,
+          order.subtotalCents
+        );
+        assertPreTaxSplitMatchesOrderTotal(order, {
+          platformFeeCents,
+          salesTaxReserveCents,
+          sellerTransferCents,
+        });
+        const sellerCreditsCents = sellerTransferCents;
         await prisma.sellerBalance.upsert({
           where: { memberId: order.sellerId },
           create: {

@@ -297,7 +297,12 @@ export async function GET(req: NextRequest) {
     const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
     if (ids.length > 0) {
       const items = await prisma.storeItem.findMany({
-        where: { id: { in: ids }, status: "active", member: { stripeConnectAccountId: { not: null } } },
+        where: {
+          id: { in: ids },
+          status: "active",
+          quantity: { gt: 0 },
+          member: { stripeConnectAccountId: { not: null } },
+        },
         include: {
           member: { select: { id: true, firstName: true, lastName: true } },
           business: { select: { id: true, name: true, slug: true } },

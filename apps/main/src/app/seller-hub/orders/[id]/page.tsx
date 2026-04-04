@@ -7,11 +7,13 @@ import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
 import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 import { orderEligibleForAnotherShippoLabel } from "types";
+import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 
 interface OrderItem {
   id: string;
   quantity: number;
   priceCentsAtPurchase: number;
+  fulfillmentType?: string | null;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
 }
 
@@ -174,7 +176,7 @@ export default function SellerOrderDetailPage() {
               </p>
             </div>
           )}
-          {order.status === "paid" && !order.shipment && (
+          {order.status === "paid" && !order.shipment && orderHasShippedLine(order.items) && (
             <div className="border-t pt-4 mb-4">
               <p className="font-medium mb-2">Purchase shipping label</p>
               <p className="text-sm text-gray-600 mb-2">

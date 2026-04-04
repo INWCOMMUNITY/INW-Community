@@ -60,6 +60,7 @@ export interface OrderForElements {
     storeItem: { title: string };
     quantity: number;
     priceCentsAtPurchase: number;
+    fulfillmentType?: string | null;
   }>;
 }
 
@@ -117,7 +118,17 @@ export function normalizeLooseAddressSnapshot(raw: unknown): ResolvedShipToLine 
 }
 
 /**
- * Resolve ship-to from `shippingAddress` and/or `localDeliveryDetails.deliveryAddress` (historical checkout data).
+ * Resolve ship-to for **postal / Shippo labels** only: `StoreOrder.shipping_address`
+ * (the checkout shipping slot — app form, Stripe Checkout `shipping_details`, or webhook backfill).
+ * Does not use `localDeliveryDetails.deliveryAddress`, which is for seller local delivery and may differ.
+ */
+export function resolvePostalShipToAddress(order: { shippingAddress?: unknown }): ResolvedShipToLine | null {
+  return normalizeLooseAddressSnapshot(order.shippingAddress);
+}
+
+/**
+ * Resolve ship-to for display, packing slips, or merging combined orders: prefer checkout shipping,
+ * then local delivery drop-off address if present.
  */
 export function resolveOrderShipToAddress(order: {
   shippingAddress?: unknown;
@@ -177,7 +188,7 @@ export function buildOrderDetailsFromOrder(
   objectId?: string | null,
   options?: BuildOrderDetailsOptions
 ): ShippoElementsOrderDetails | null {
-  const addr = resolveOrderShipToAddress(order);
+  const addr = resolvePostalShipToAddress(order);
   if (!addr) return null;
   const { street1, street2 } = splitStreet1Street2(addr.street, addr.aptOrSuite);
   const name = `${order.buyer.firstName} ${order.buyer.lastName}`.trim() || "Recipient";

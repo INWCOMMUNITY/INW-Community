@@ -7,7 +7,11 @@ import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
-import { getAvailableQuantity } from "@/lib/store-item-variants";
+import {
+  getAvailableQuantity,
+  hasMeaningfulVariantSelection,
+  hasOptionQuantities,
+} from "@/lib/store-item-variants";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 import {
   validateLocalDeliveryDetails,
@@ -128,6 +132,12 @@ export async function POST(req: NextRequest) {
     const fv = validateRequestedFulfillment(si, line.fulfillmentType);
     if (!fv.ok) {
       return NextResponse.json({ error: fv.error }, { status: 400 });
+    }
+    if (hasOptionQuantities(si.variants) && !hasMeaningfulVariantSelection(line.variant)) {
+      return NextResponse.json(
+        { error: `Choose an option for “${si.title}” before checkout (required for inventory).` },
+        { status: 400 }
+      );
     }
   }
 

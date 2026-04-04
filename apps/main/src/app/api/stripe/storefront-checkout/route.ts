@@ -4,7 +4,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
-import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { getAvailableQuantity, hasMeaningfulVariantSelection, hasOptionQuantities } from "@/lib/store-item-variants";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 import {
   validateLocalDeliveryDetails,
@@ -132,6 +132,12 @@ export async function POST(req: NextRequest) {
     if (!fv.ok) {
       return NextResponse.json({ error: fv.error }, { status: 400 });
     }
+    if (hasOptionQuantities(si.variants) && !hasMeaningfulVariantSelection(line.variant)) {
+      return NextResponse.json(
+        { error: `Choose an option for “${si.title}” before checkout (required for inventory).` },
+        { status: 400 }
+      );
+    }
   }
 
   let normalizedLocalDelivery: LocalDeliveryDetailsJson | undefined;
@@ -182,6 +188,24 @@ export async function POST(req: NextRequest) {
     const sellerId = storeItem.memberId;
     if (!bySeller.has(sellerId)) bySeller.set(sellerId, []);
     bySeller.get(sellerId)!.push(item);
+  }
+
+  const sellerIdsForConnect = [...bySeller.keys()];
+  const membersForConnect = await prisma.member.findMany({
+    where: { id: { in: sellerIdsForConnect } },
+    select: { id: true, stripeConnectAccountId: true },
+  });
+  const connectMap = new Map(membersForConnect.map((m) => [m.id, m.stripeConnectAccountId]));
+  for (const sid of sellerIdsForConnect) {
+    if (!connectMap.get(sid)?.trim()) {
+      return NextResponse.json(
+        {
+          error:
+            "Seller payment account is not set up. Items from that seller cannot be purchased until they complete payment setup.",
+        },
+        { status: 400 }
+      );
+    }
   }
 
   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];

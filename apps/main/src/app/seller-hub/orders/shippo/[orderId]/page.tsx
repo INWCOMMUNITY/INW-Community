@@ -14,6 +14,7 @@ import {
   type StoreOrderForShippo,
 } from "@/hooks/use-shippo-label-flow-for-order";
 import { orderEligibleForAnotherShippoLabel } from "types";
+import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 
 const SHIPPO_CONTAINER_ID_THIN = "shippo-elements-container-order-thin";
 
@@ -21,6 +22,7 @@ interface OrderItem {
   id: string;
   quantity: number;
   priceCentsAtPurchase: number;
+  fulfillmentType?: string | null;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
 }
 
@@ -229,7 +231,7 @@ export default function SellerShippoThinLabelPage() {
           order.status === "delivered";
         return (
           <div className="flex flex-col gap-2">
-            {order.status === "paid" && !order.shipment && (
+            {order.status === "paid" && !order.shipment && orderHasShippedLine(order.items) && (
               <button
                 type="button"
                 onClick={() => void openElementsFlow()}

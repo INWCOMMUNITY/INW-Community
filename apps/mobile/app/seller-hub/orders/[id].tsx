@@ -14,7 +14,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
-import { orderEligibleForAnotherShippoLabel } from "@/lib/shippo-order-label-eligibility";
+import {
+  orderEligibleForAnotherShippoLabel,
+  orderHasShippedLine,
+} from "@/lib/shippo-order-label-eligibility";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -26,6 +29,7 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
 interface OrderItem {
   id: string;
   quantity: number;
+  fulfillmentType?: string | null;
   storeItem?: { id: string; title: string; slug: string; photos: string[]; listingType?: string };
 }
 
@@ -198,7 +202,7 @@ export default function OrderDetailScreen() {
                 <Text style={styles.labelBtnText}>Reprint label</Text>
               </Pressable>
             ) : null}
-            {!order.shipment && order.status === "paid" ? (
+            {!order.shipment && order.status === "paid" && orderHasShippedLine(order.items) ? (
               <Pressable
                 style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
                 onPress={() => openShippoLabelFullScreen("purchase")}

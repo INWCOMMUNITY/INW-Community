@@ -5,7 +5,7 @@ import { afterNextPaint, clearShippoElementsMount } from "@/lib/shippo-mount-uti
 import { flushSync } from "react-dom";
 import {
   buildOrderDetailsFromOrder,
-  resolveOrderShipToAddress,
+  resolvePostalShipToAddress,
   transactionToLabelFromElementsPayload,
   type ElementsTransactionPayload,
   type OrderForElements,
@@ -13,7 +13,7 @@ import {
 import { NWC_SHIPPO_ELEMENTS_THEME, type ShippoElementsTheme } from "@/lib/shippo-elements-theme";
 import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 import { notifyNwAppShippoLabelSuccess } from "@/lib/nw-app-webview-bridge";
-import { orderEligibleForAnotherShippoLabel } from "types";
+import { orderEligibleForAnotherShippoLabel, orderHasShippedLine } from "types";
 
 export const SHIPPO_ORG = "inw-community";
 export const SHIPPO_EMBEDDABLE_URL = "https://js.goshippo.com/embeddable-client.js";
@@ -109,7 +109,7 @@ export function useShippoLabelFlowForOrder(options: {
   const elementsListenersRef = useRef(false);
   const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
   /** Ship-to used for the open Shippo session; saved on the order when the label is recorded. */
-  const lastShipToSnapshotRef = useRef<ReturnType<typeof resolveOrderShipToAddress>>(null);
+  const lastShipToSnapshotRef = useRef<ReturnType<typeof resolvePostalShipToAddress>>(null);
   const labelFlowOrderIdRef = useRef<string>("");
   const labelSaveHandlingRef = useRef(false);
   /** Drops stray Shippo events when bulk label flow or another page also registered listeners. */
@@ -128,23 +128,30 @@ export function useShippoLabelFlowForOrder(options: {
   const openElementsFlow = useCallback(
     async (flowOpts: { forReprint?: boolean; forceAdditionalLabel?: boolean } = {}) => {
       if (!order || !orderId) return;
+      const postalOk = flowOpts.forReprint || orderHasShippedLine(order.items);
+      if (!postalOk) {
+        setElementsError(
+          "This order has no items to ship by mail. Local delivery and pickup orders do not use Shippo labels."
+        );
+        return;
+      }
       labelFlowOrderIdRef.current = orderId;
       const objectId = flowOpts.forReprint ? order.shipment?.shippoOrderId : undefined;
       const useFreshShippoOrder = flowOpts.forReprint
         ? false
         : flowOpts.forceAdditionalLabel === true
           ? true
-          : Boolean(order.shipment) || order.status === "shipped" || order.status === "delivered";
+          : Boolean(order.shipment) || order.status === "shipped";
       const orderDetails = buildOrderDetailsFromOrder(order, objectId, {
         freshShippoOrder: useFreshShippoOrder,
       });
       if (!orderDetails) {
         setElementsError(
-          "Could not read a ship-to address for this order. We use the historical checkout address (ship or local delivery) saved on the order."
+          "Could not read a postal ship-to for this order. Shippo uses the checkout shipping address saved on the order (not the local delivery drop-off form). If this order ships by mail, ensure checkout captured a full street, city, state, and ZIP."
         );
         return;
       }
-      lastShipToSnapshotRef.current = resolveOrderShipToAddress(order);
+      lastShipToSnapshotRef.current = resolvePostalShipToAddress(order);
       setElementsError(null);
       setElementsLoading(true);
       shippoOrderIdFromCreatedRef.current = null;
@@ -309,6 +316,7 @@ export function useShippoLabelFlowForOrder(options: {
     }
     if (mode === "purchase") {
       if (!(order.status === "paid" && !order.shipment)) return;
+      if (!orderHasShippedLine(order.items)) return;
       stripNwAppShippoDeepLinkParams();
       void run();
       return;
@@ -350,6 +358,9 @@ export function getNwAppShippoSkippedReason(
   if (mode === "purchase") {
     if (order.status !== "paid") return "Order must be paid before purchasing a label.";
     if (order.shipment) return "This order already has a shipment. Use “Purchase another label” from order details if needed.";
+    if (!orderHasShippedLine(order.items)) {
+      return "This order has no items to ship by mail. Local delivery and pickup orders do not use Shippo labels.";
+    }
     return null;
   }
   if (mode === "another") {
@@ -357,7 +368,10 @@ export function getNwAppShippoSkippedReason(
       if (order.status === "paid" && !order.shipment) {
         return "Purchase a first label from order details before purchasing another.";
       }
-      return "Purchase another label is only available for paid, shipped, or delivered orders.";
+      if (order.status === "delivered") {
+        return "Labels cannot be purchased after the order is marked delivered.";
+      }
+      return "Purchase another label is only for paid or shipped orders that already have a label.";
     }
     return null;
   }

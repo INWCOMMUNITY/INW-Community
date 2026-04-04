@@ -1,7 +1,34 @@
-/** Marketplace facilitator payout math (pre-tax order total, platform fee, Sales Tax Reserve). */
+/**
+ * Marketplace facilitator payout math (hosted Checkout on the **platform** account).
+ *
+ * **What stays on the platform Stripe balance (never transferred to Connect):**
+ * 1. **Stripe Tax** — `session.total_details.amount_tax` is allocated per order (`taxCents`) for remittance;
+ *    it was never part of `sellerTransferCents` (transfers use pre-tax `order.totalCents` minus withholdings).
+ * 2. **Sales Tax Reserve** — 1% of **item subtotal only** (`order.subtotalCents`), Terms §7.9.5 (excludes shipping & local delivery fee lines).
+ * 3. **Platform / processing fee** — optional extra cut of pre-tax `order.totalCents` (default **none**).
+ *    Set e.g. `NWC_MARKETPLACE_PLATFORM_FEE_PERCENT=0.05` and `NWC_MARKETPLACE_PLATFORM_FEE_MIN_CENTS=50` to withhold
+ *    a platform fee in addition to the 1% reserve.
+ *
+ * **Connect transfer:** `sellerTransferCents` = `order.totalCents - platformFeeCents - salesTaxReserveCents` (≥ 0).
+ */
 
-export const PLATFORM_FEE_PERCENT = 0.05;
-export const PLATFORM_FEE_MIN_CENTS = 50;
+/** Default: no extra platform fee; only the 1% reserve is withheld from the seller transfer (tax never transferred). */
+export const DEFAULT_MARKETPLACE_PLATFORM_FEE_PERCENT = 0;
+export const DEFAULT_MARKETPLACE_PLATFORM_FEE_MIN_CENTS = 0;
+
+function marketplacePlatformFeePercentFromEnv(): number {
+  const raw = process.env.NWC_MARKETPLACE_PLATFORM_FEE_PERCENT?.trim();
+  if (raw === undefined || raw === "") return DEFAULT_MARKETPLACE_PLATFORM_FEE_PERCENT;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_MARKETPLACE_PLATFORM_FEE_PERCENT;
+}
+
+function marketplacePlatformFeeMinCentsFromEnv(): number {
+  const raw = process.env.NWC_MARKETPLACE_PLATFORM_FEE_MIN_CENTS?.trim();
+  if (raw === undefined || raw === "") return DEFAULT_MARKETPLACE_PLATFORM_FEE_MIN_CENTS;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_MARKETPLACE_PLATFORM_FEE_MIN_CENTS;
+}
 
 /** 1% of item subtotal only (Terms §7.9.5) */
 export function computeSalesTaxReserveCents(itemSubtotalCents: number): number {
@@ -9,10 +36,13 @@ export function computeSalesTaxReserveCents(itemSubtotalCents: number): number {
   return Math.floor(itemSubtotalCents * 0.01);
 }
 
-/** 5% of pre-tax order total, minimum 50¢ */
+/** Configurable % of pre-tax order total (shipping/local fee lines included), with minimum when percent is positive. */
 export function computePlatformFeeCents(preTaxOrderTotalCents: number): number {
   if (preTaxOrderTotalCents <= 0) return 0;
-  return Math.max(PLATFORM_FEE_MIN_CENTS, Math.floor(preTaxOrderTotalCents * PLATFORM_FEE_PERCENT));
+  const pct = marketplacePlatformFeePercentFromEnv();
+  if (pct <= 0) return 0;
+  const minCents = marketplacePlatformFeeMinCentsFromEnv();
+  return Math.max(minCents, Math.floor(preTaxOrderTotalCents * pct));
 }
 
 export function computeSellerTransferCents(
@@ -50,4 +80,31 @@ export function allocateTaxCentsAcrossOrders(
     out.set(o.id, Math.max(0, share));
   }
   return out;
+}
+
+/** Pre-transfer guard: pre-tax split must consume the full order total (tax is handled separately on the session). */
+export function assertPreTaxSplitMatchesOrderTotal(
+  order: { id: string; totalCents: number },
+  split: { platformFeeCents: number; salesTaxReserveCents: number; sellerTransferCents: number }
+): void {
+  const sum = split.platformFeeCents + split.salesTaxReserveCents + split.sellerTransferCents;
+  if (sum !== order.totalCents) {
+    throw new Error(
+      `[storefront-payout] Order ${order.id}: platformFee+reserve+transfer (${sum}) !== totalCents (${order.totalCents})`
+    );
+  }
+}
+
+/** Stripe Checkout `amount_subtotal` must equal the sum of pending order totals (pre-tax) for this session. */
+export function assertSessionSubtotalMatchesOrderTotals(
+  orders: { id: string; totalCents: number }[],
+  sessionAmountSubtotalCents: number | null | undefined
+): void {
+  const sub = sessionAmountSubtotalCents ?? 0;
+  const sumOrders = orders.reduce((acc, o) => acc + o.totalCents, 0);
+  if (sumOrders !== sub) {
+    throw new Error(
+      `[storefront-payout] amount_subtotal (${sub}) !== sum(order.totalCents) (${sumOrders}); order ids: ${orders.map((o) => o.id).join(",")}`
+    );
+  }
 }

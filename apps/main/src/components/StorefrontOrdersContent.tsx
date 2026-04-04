@@ -14,6 +14,7 @@ import {
   isOrderEligibleForBulkShip,
   type StoreOrderForBulkLabel,
 } from "@/hooks/use-shippo-bulk-label-flow";
+import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 
 const SHIPPO_BULK_CONTAINER_ID = "shippo-elements-bulk-storefront-orders";
 
@@ -26,6 +27,7 @@ interface OrderItem {
   id: string;
   quantity: number;
   priceCentsAtPurchase: number;
+  fulfillmentType?: string | null;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
 }
 
@@ -202,7 +204,11 @@ export function StorefrontOrdersContent(props: {
     }
     if (orders.length === 0) return;
     const toShip = orders.filter(
-      (o) => o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId
+      (o) =>
+        o.status === "paid" &&
+        !o.shipment &&
+        !(o as { shippedWithOrderId?: string }).shippedWithOrderId &&
+        orderHasShippedLine(o.items)
     );
     if (toShip.length === 0) return;
     fetch("/api/shipping/status")
@@ -214,7 +220,11 @@ export function StorefrontOrdersContent(props: {
   useEffect(() => {
     if (tab !== "to_ship" || orders.length === 0) return;
     const toShip = orders.filter(
-      (o) => o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId
+      (o) =>
+        o.status === "paid" &&
+        !o.shipment &&
+        !(o as { shippedWithOrderId?: string }).shippedWithOrderId &&
+        orderHasShippedLine(o.items)
     );
     if (toShip.length > 0) setSelectedOrderIds(new Set(toShip.map((o) => o.id)));
   }, [tab, orders]);
@@ -254,12 +264,22 @@ export function StorefrontOrdersContent(props: {
   }
 
   function selectAllToShip() {
-    const toShip = orders.filter((o) => o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId);
+    const toShip = orders.filter(
+      (o) =>
+        o.status === "paid" &&
+        !o.shipment &&
+        !(o as { shippedWithOrderId?: string }).shippedWithOrderId &&
+        orderHasShippedLine(o.items)
+    );
     setSelectedOrderIds(new Set(toShip.map((o) => o.id)));
   }
 
   const toShipOrders = orders.filter(
-    (o) => o.status === "paid" && !o.shipment && !(o as { shippedWithOrderId?: string }).shippedWithOrderId
+    (o) =>
+      o.status === "paid" &&
+      !o.shipment &&
+      !(o as { shippedWithOrderId?: string }).shippedWithOrderId &&
+      orderHasShippedLine(o.items)
   );
   const selectedIdsArray = useMemo(() => Array.from(selectedOrderIds), [selectedOrderIds]);
   const selectedOrders = orders.filter((o) => selectedOrderIds.has(o.id));

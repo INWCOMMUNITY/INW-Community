@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, type Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { sendTrackingEmail } from "@/lib/send-tracking-email";
@@ -7,6 +7,7 @@ import {
   normalizeLooseAddressSnapshot,
   resolvedShipToToOrderShippingJson,
 } from "@/lib/shippo-elements";
+import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 
 export const dynamic = "force-dynamic";
 
@@ -114,16 +115,16 @@ export async function POST(req: NextRequest) {
   }
 
   const primaryId = ids[0];
-  // Multi-order combine: all must still be unpaid + unshipped. Single order: allow shipped/delivered
-  // when a shipment already exists so "purchase another label" / reprint save paths work.
-  const statusWhere =
+  // Multi-order: all paid + unshipped. Single: first label (paid, no shipment) or another label
+  // (paid/shipped with shipment — never delivered; no postal labels for pickup/local-only orders).
+  const statusWhere: Prisma.StoreOrderWhereInput =
     ids.length > 1
-      ? { status: "paid" as const }
+      ? { status: "paid" }
       : {
           OR: [
-            { status: "paid" as const },
+            { status: "paid", shipment: null },
             {
-              status: { in: ["shipped", "delivered"] },
+              status: { in: ["paid", "shipped"] },
               shipment: { isNot: null },
             },
           ],
@@ -137,6 +138,7 @@ export async function POST(req: NextRequest) {
     },
     include: {
       shipment: true,
+      items: { select: { fulfillmentType: true } },
       buyer: { select: { email: true } },
       seller: {
         select: {
@@ -152,6 +154,17 @@ export async function POST(req: NextRequest) {
   }
   const primaryOrder = orders.find((o) => o.id === primaryId) ?? orders[0];
   const isAnotherLabel = !!primaryOrder.shipment;
+  for (const o of orders) {
+    if (!orderHasShippedLine(o.items)) {
+      return NextResponse.json(
+        {
+          error:
+            "One or more orders have no items to ship by mail. Use Deliveries or pickup for those; Shippo is for postal shipments only.",
+        },
+        { status: 400 }
+      );
+    }
+  }
   if (ids.length > 1) {
     const buyerEmail = primaryOrder.buyer?.email;
     const allSameBuyer = orders.every((o) => o.buyer?.email === buyerEmail);
