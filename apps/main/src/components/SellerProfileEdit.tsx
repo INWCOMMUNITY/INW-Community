@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 
-async function uploadFile(file: File): Promise<string> {
+async function uploadFile(file: File, opts?: { purpose?: "business-logo" }): Promise<string> {
   const formData = new FormData();
   formData.append("file", file);
+  if (opts?.purpose) formData.append("purpose", opts.purpose);
   const res = await fetch("/api/upload", { method: "POST", body: formData });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error ?? "Upload failed");
@@ -131,7 +132,7 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
                     setUploadingLogo(true);
                     setError("");
                     try {
-                      const url = await uploadFile(file);
+                      const url = await uploadFile(file, { purpose: "business-logo" });
                       setLogoUrl(url);
                     } catch (err) {
                       setError(err instanceof Error ? err.message : "Upload failed");

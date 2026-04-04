@@ -411,6 +411,7 @@ export default function ProductDetailPage() {
         body: JSON.stringify({
           ...body,
           returnBaseUrl: typeof window !== "undefined" ? window.location.origin : undefined,
+          ...(fulfillmentType === "ship" ? { shippingCollectedByStripe: true } : {}),
         }),
       });
       const checkoutData = (await checkoutRes.json().catch(() => ({}))) as { url?: string; error?: string };

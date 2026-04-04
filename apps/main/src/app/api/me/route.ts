@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { syncStripeCustomerShippingFromProfileDelivery } from "@/lib/stripe-storefront-checkout-customer";
 import { getCurrentSeasonId } from "@/lib/award-points";
 import {
   NWC_PAID_PLAN_ACCESS_STATUSES,
@@ -224,6 +226,24 @@ export async function PATCH(req: NextRequest) {
         // Columns may not exist yet - ignore
       }
     }
+
+    if (data.deliveryAddress) {
+      const d = data.deliveryAddress;
+      if (d.street?.trim() && d.city?.trim() && d.state?.trim() && d.zip?.trim()) {
+        const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+        if (stripeSecretKey?.startsWith("sk_") && !stripeSecretKey.includes("...")) {
+          try {
+            const stripe = new Stripe(stripeSecretKey, {
+              apiVersion: "2024-11-20.acacia" as "2023-10-16",
+            });
+            await syncStripeCustomerShippingFromProfileDelivery(stripe, session.user.id, d);
+          } catch (syncErr) {
+            console.error("[PATCH /api/me] Stripe delivery sync failed", syncErr);
+          }
+        }
+      }
+    }
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {

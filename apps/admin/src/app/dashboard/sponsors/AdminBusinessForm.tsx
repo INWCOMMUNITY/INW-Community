@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
@@ -75,6 +75,12 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
   const [submitting, setSubmitting] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  /** True only when user clicked remove on logo; used so owner transfer does not PATCH null logoUrl by mistake. */
+  const [logoExplicitlyRemoved, setLogoExplicitlyRemoved] = useState(false);
+
+  useEffect(() => {
+    setLogoExplicitlyRemoved(false);
+  }, [existing?.id]);
 
   const adminHeaders = {
     "Content-Type": "application/json",
@@ -109,9 +115,10 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
     [ownerSelectOptions, memberId, existing?.memberId]
   );
 
-  async function uploadFile(file: File): Promise<string> {
+  async function uploadFile(file: File, purpose?: string): Promise<string> {
     const formData = new FormData();
     formData.append("file", file);
+    if (purpose) formData.append("purpose", purpose);
     const res = await fetch(`${MAIN_URL}/api/admin/upload`, {
       method: "POST",
       headers: { "x-admin-code": ADMIN_CODE },
@@ -130,8 +137,9 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
     if (!file) return;
     setUploadingLogo(true);
     try {
-      const url = await uploadFile(file);
+      const url = await uploadFile(file, "business-logo");
       setLogoUrl(url);
+      setLogoExplicitlyRemoved(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Logo upload failed");
     } finally {
@@ -172,6 +180,22 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
     setError("");
     setSubmitting(true);
     try {
+      const transferring = !!(
+        existing &&
+        memberId &&
+        existing.memberId &&
+        memberId !== existing.memberId
+      );
+      const trimmedLogo = logoUrl.trim();
+      const logoPayload: { logoUrl?: string | null } = {};
+      if (transferring) {
+        if (logoExplicitlyRemoved) logoPayload.logoUrl = null;
+        else if (trimmedLogo) logoPayload.logoUrl = trimmedLogo;
+        // else omit logoUrl — keeps existing image on the server when only the owner changes
+      } else {
+        logoPayload.logoUrl = trimmedLogo || null;
+      }
+
       const body = {
         ...(!existing
           ? { memberId }
@@ -184,7 +208,7 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
         website: website || null,
         phone: phone || null,
         email: email || null,
-        logoUrl: logoUrl || null,
+        ...logoPayload,
         address: address || null,
         city: city || null,
         categories: cats,
@@ -237,7 +261,7 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
           </select>
           {existing && (
             <p className="text-xs text-gray-500 mt-1">
-              Changing owner sends only the new member id; logo and gallery are kept unless you edit them here.
+              Changing owner keeps the current logo and photos unless you remove or replace them here before saving.
             </p>
           )}
         </div>
@@ -278,7 +302,15 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
           {logoUrl && (
             <div className="relative">
               <img src={logoUrl} alt="Logo preview" className="w-20 h-20 object-contain border rounded" />
-              <button type="button" onClick={() => setLogoUrl("")} className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs leading-none" aria-label="Remove logo">
+              <button
+                type="button"
+                onClick={() => {
+                  setLogoUrl("");
+                  setLogoExplicitlyRemoved(true);
+                }}
+                className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs leading-none"
+                aria-label="Remove logo"
+              >
                 ×
               </button>
             </div>

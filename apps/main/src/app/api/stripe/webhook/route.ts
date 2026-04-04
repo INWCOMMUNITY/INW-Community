@@ -18,6 +18,10 @@ import { removeNwcMemberPerksAfterSubscriptionEnd } from "@/lib/nwc-subscription
 import { migrateResaleItemsForSellerMember } from "@/lib/migrate-resale-items-for-seller-plan";
 import { orderIdsFromCheckoutSessionMetadata } from "@/lib/stripe-checkout-order-ids";
 import {
+  shippingAddressFromCheckoutSession,
+  storeOrderNeedsShippingBackfill,
+} from "@/lib/stripe-checkout-session-shipping";
+import {
   allocateTaxCentsAcrossOrders,
   computeSellerTransferCents,
 } from "@/lib/storefront-payout";
@@ -559,6 +563,7 @@ export async function POST(req: NextRequest) {
           }
 
           if (!abortOrderFulfillment) {
+            const shipFromStripe = shippingAddressFromCheckoutSession(session);
             for (const order of ordersToFulfill) {
               const payout = payoutByOrderId.get(order.id)!;
               const totalCents = order.totalCents;
@@ -567,6 +572,11 @@ export async function POST(req: NextRequest) {
                 where: prismaWhereActivePaidNwcPlan(order.buyerId),
               });
               if (paidBuyer) pointsAwarded *= 2;
+
+              const backfillShipping =
+                shipFromStripe && storeOrderNeedsShippingBackfill(order)
+                  ? { shippingAddress: shipFromStripe as object }
+                  : {};
 
               await prisma.storeOrder.update({
                 where: { id: order.id },
@@ -578,6 +588,7 @@ export async function POST(req: NextRequest) {
                   taxCents: payout.orderTaxCents,
                   salesTaxReserveCents: payout.salesTaxReserveCents,
                   platformFeeCents: payout.platformFeeCents,
+                  ...backfillShipping,
                   ...(transferIdByOrderId.has(order.id)
                     ? { stripeSellerTransferId: transferIdByOrderId.get(order.id) }
                     : {}),

@@ -91,8 +91,6 @@ export default function EditSellerProfileScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
       quality: 0.8,
     });
     if (result.canceled) return;
@@ -101,6 +99,7 @@ export default function EditSellerProfileScreen() {
     try {
       const asset = result.assets[0];
       const formData = new FormData();
+      formData.append("purpose", "business-logo");
       formData.append("file", {
         uri: asset.uri,
         type: asset.mimeType ?? "image/jpeg",

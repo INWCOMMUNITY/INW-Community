@@ -6,5 +6,7 @@
     "db:resolve-squashed-init":"node scripts/resolve-squashed-init-baseline.mjs",
     "db:migrate:prod":"node scripts/migrate-production.mjs",
     "db:seed:prod":"node scripts/seed-production.mjs",
-    "db:seed-admin":"pnpm --filter database exec node scripts/seed-admin.js","db:import-businesses":"pnpm --filter database run import-businesses","db:studio":"pnpm --filter database studio","vercel:logs":"node scripts/fetch-vercel-logs.mjs","vercel:cycle":"node scripts/vercel-build-cycle.mjs","vercel:parse":"node scripts/vercel-parse-error.mjs","vercel:set-root":"node scripts/vercel-set-root.mjs",
+    "db:seed-admin":"pnpm --filter database exec node scripts/seed-admin.js","db:import-businesses":"pnpm --filter database run import-businesses","db:studio":"pnpm --filter database studio",
+    "script:reletterbox-business-logo":"node apps/main/scripts/reletterbox-business-logo.cjs",
+    "script:set-business-logo":"node apps/main/scripts/set-business-logo.cjs","vercel:logs":"node scripts/fetch-vercel-logs.mjs","vercel:cycle":"node scripts/vercel-build-cycle.mjs","vercel:parse":"node scripts/vercel-parse-error.mjs","vercel:set-root":"node scripts/vercel-set-root.mjs",
     "check":"pnpm --filter database check && pnpm --filter types check && pnpm --filter design-tokens check && pnpm --filter main check && pnpm --filter admin check && pnpm --filter mobile check"},"devDependencies":{"babel-plugin-module-resolver":"^5.0.3","typescript":"^5.3.3"},"packageManager":"pnpm@9.14.2","engines":{"node":">=18"}}

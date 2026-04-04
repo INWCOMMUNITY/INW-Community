@@ -260,6 +260,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       }
       const prepared = await prepareBusinessImage(asset.uri);
       const formData = new FormData();
+      formData.append("purpose", "business-logo");
       formData.append("file", {
         uri: prepared.uri,
         type: prepared.type,

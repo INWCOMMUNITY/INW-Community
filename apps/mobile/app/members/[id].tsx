@@ -69,9 +69,18 @@ function resolveUrl(path: string | null | undefined): string | undefined {
   return path.startsWith("http") ? path : `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+/** Cold opens (e.g. from a push) may leave no stack under this screen — router.back() does nothing. */
+function useLeaveMemberProfile(router: ReturnType<typeof useRouter>) {
+  return useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/home" as never);
+  }, [router]);
+}
+
 export default function MemberProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const leaveProfile = useLeaveMemberProfile(router);
   const insets = useSafeAreaInsets();
   const { member: currentMember } = useAuth();
 
@@ -249,7 +258,7 @@ export default function MemberProfileScreen() {
             try {
               await apiPost("/api/members/block", { memberId: profile.id });
               setMenuOpen(false);
-              router.back();
+              leaveProfile();
             } catch {
               Alert.alert("Error", "Could not block.");
             } finally {
@@ -309,7 +318,7 @@ export default function MemberProfileScreen() {
   if (error || !profile) {
     return (
       <View style={[styles.container, { paddingTop: insets.top + 16 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={leaveProfile} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
         </Pressable>
         <View style={styles.center}>
@@ -322,7 +331,7 @@ export default function MemberProfileScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={leaveProfile} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>

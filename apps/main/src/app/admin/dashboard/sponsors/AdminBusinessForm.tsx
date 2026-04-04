@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
@@ -16,6 +16,7 @@ interface SponsorOption {
 
 interface BusinessExisting {
   id: string;
+  memberId?: string;
   name: string;
   shortDescription: string | null;
   fullDescription: string | null;
@@ -70,6 +71,23 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
   const [submitting, setSubmitting] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+
+  useEffect(() => {
+    if (!existing) return;
+    setName(existing.name ?? "");
+    setShortDescription(existing.shortDescription ?? "");
+    setFullDescription(existing.fullDescription ?? "");
+    setWebsite(existing.website ?? "");
+    setPhone(existing.phone ?? "");
+    setEmail(existing.email ?? "");
+    setLogoUrl(existing.logoUrl ?? "");
+    setAddress(existing.address ?? "");
+    setCity(existing.city ?? "");
+    const cats = existing.categories ?? [];
+    setCategories(cats.length === 0 ? [""] : cats.length === 1 ? [cats[0], ""] : cats.slice(0, 2));
+    setPhotos(existing.photos ?? []);
+    setHours(parseHours(existing.hoursOfOperation ?? null));
+  }, [existing?.id]);
 
   async function uploadFile(file: File): Promise<string> {
     const formData = new FormData();

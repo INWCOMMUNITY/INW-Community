@@ -132,6 +132,8 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
       return "/resale-hub/list";
     case "community/my-friends":
       return "/community/my-friends";
+    case "friend_requests":
+      return "/community/friend-requests";
     case "member_profile":
       return data.memberId ? `/members/${data.memberId}` : "/community/my-friends";
     case "event":

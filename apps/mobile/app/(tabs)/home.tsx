@@ -184,11 +184,17 @@ export default function HomeScreen() {
   },
   prizeRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
     gap: 10,
+  },
+  prizeRowTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: "center",
+    paddingTop: 1,
   },
   prizeRowPressed: { opacity: 0.8 },
   top10PrizeModalOverlay: {
@@ -288,26 +294,27 @@ export default function HomeScreen() {
     fontWeight: "bold",
     color: theme.colors.primary,
     width: 28,
+    paddingTop: 8,
   },
   prizeThumb: {
     width: 36,
     height: 36,
     borderRadius: 4,
+    marginTop: 4,
   },
   prizeThumbPlaceholder: {
     backgroundColor: "#e5e5e5",
   },
   prizeLabel: {
-    flex: 1,
-    minWidth: 0,
     fontSize: 14,
+    lineHeight: 19,
     color: theme.colors.heading,
   },
   prizeBusiness: {
     fontSize: 12,
+    lineHeight: 16,
     color: "#666",
-    flexShrink: 1,
-    minWidth: 0,
+    marginTop: 2,
   },
   prizeEmpty: {
     fontSize: 14,
@@ -834,14 +841,16 @@ export default function HomeScreen() {
                       ) : (
                         <View style={[styles.prizeThumb, styles.prizeThumbPlaceholder]} />
                       )}
-                      <Text style={styles.prizeLabel} numberOfLines={1}>
-                        {p!.label?.trim() || "—"}
-                      </Text>
-                      {p!.business && (
-                        <Text style={styles.prizeBusiness} numberOfLines={1}>
-                          {p!.business.name}
+                      <View style={styles.prizeRowTextBlock}>
+                        <Text style={styles.prizeLabel} numberOfLines={2}>
+                          {p!.label?.trim() || "—"}
                         </Text>
-                      )}
+                        {p!.business ? (
+                          <Text style={styles.prizeBusiness} numberOfLines={2}>
+                            {p!.business.name}
+                          </Text>
+                        ) : null}
+                      </View>
                     </>
                   ) : (
                     <Text style={styles.prizeEmpty}>—</Text>

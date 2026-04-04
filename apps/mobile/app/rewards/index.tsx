@@ -391,11 +391,11 @@ export default function RewardsScreen() {
                             style={({ pressed }) => [styles.prizeRowDetails, pressed && styles.buttonPressed]}
                             onPress={() => setPrizePopupPrize(p!)}
                           >
-                            <Text style={styles.prizeLabel} numberOfLines={1}>
+                            <Text style={styles.prizeLabel} numberOfLines={2}>
                               {p!.label?.trim() || "—"}
                             </Text>
                             {p!.business ? (
-                              <Text style={styles.prizeBusiness} numberOfLines={1}>
+                              <Text style={styles.prizeBusiness} numberOfLines={2}>
                                 {p!.business.name}
                               </Text>
                             ) : null}
@@ -1102,17 +1102,17 @@ const styles = StyleSheet.create({
   prizesList: { maxHeight: 320, marginTop: 12, marginBottom: 8 },
   prizeRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
     gap: 8,
   },
-  prizeRowDetails: { flex: 1, minWidth: 0, justifyContent: "center" },
-  prizeThumb: { width: 44, height: 44, borderRadius: 8 },
+  prizeRowDetails: { flex: 1, minWidth: 0, justifyContent: "flex-start", paddingTop: 2 },
+  prizeThumb: { width: 44, height: 44, borderRadius: 8, marginTop: 2 },
   prizeThumbPlaceholder: { backgroundColor: "#f0f0f0" },
-  prizeBusiness: { fontSize: 12, color: "#666" },
+  prizeBusiness: { fontSize: 12, lineHeight: 16, color: "#666", marginTop: 2 },
   prizeDetailsBtn: { padding: 4 },
   prizeEmpty: { fontSize: 14, color: "#999", flex: 1 },
   leaderboardList: { maxHeight: 320, marginTop: 12 },
@@ -1343,7 +1343,13 @@ const styles = StyleSheet.create({
     borderColor: "#eee",
     backgroundColor: "#fff",
   },
-  prizeRank: { fontSize: 12, fontWeight: "600", color: "#999", marginBottom: 8 },
+  prizeRank: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: defaultTheme.colors.primary,
+    width: 28,
+    paddingTop: 10,
+  },
   prizeImage: { width: "100%", height: 80, borderRadius: 6, marginBottom: 8 },
   prizePlaceholder: {
     width: "100%",
@@ -1355,7 +1361,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   prizePlaceholderText: { fontSize: 12, color: "#999" },
-  prizeLabel: { fontSize: 14, fontWeight: "600" },
+  prizeLabel: { fontSize: 14, fontWeight: "600", lineHeight: 19 },
   businessLink: { fontSize: 12, marginTop: 4, textDecorationLine: "underline" },
   leaderboardSubtitle: { fontSize: 16, fontWeight: "600", marginBottom: 8 },
   miniLeaderboard: {

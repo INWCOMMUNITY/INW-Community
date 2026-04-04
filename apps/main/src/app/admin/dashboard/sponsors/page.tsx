@@ -130,10 +130,11 @@ export default function AdminSponsorsPage() {
               </h2>
             </div>
             {showAddForm && (
-              <AdminBusinessForm sponsors={sponsorOptions} onClose={closeForm} />
+              <AdminBusinessForm key="add-business" sponsors={sponsorOptions} onClose={closeForm} />
             )}
             {editingBusinessId && editingBusiness && (
               <AdminBusinessForm
+                key={editingBusinessId}
                 sponsors={sponsorOptions}
                 existing={editingBusiness as unknown as Parameters<typeof AdminBusinessForm>[0]["existing"]}
                 onClose={closeForm}

@@ -67,7 +67,8 @@ export async function POST(req: NextRequest) {
     sendPushNotification(addresseeId, {
       title: "You have a new Friend Request!",
       body: senderName ? `${senderName} wants to connect — tap to respond!` : "Someone wants to connect — tap to respond!",
-      data: { screen: "member_profile", memberId: session.user.id },
+      // Open Friend Requests (stack with native back) instead of requester profile — avoids empty back stack from cold start.
+      data: { screen: "friend_requests", memberId: session.user.id },
       category: "social",
     }).catch(() => {});
 

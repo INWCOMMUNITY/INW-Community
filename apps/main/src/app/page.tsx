@@ -15,38 +15,46 @@ export default async function HomePage() {
   const androidPlayStoreUrl = getAndroidPlayStoreUrl();
   return (
     <>
-      <section className="relative min-h-[85vh] flex flex-col items-center justify-center px-4 py-16 text-center overflow-hidden">
-        {/* Background image with brightness and clarity enhancement */}
+      <section className="relative flex flex-col items-center justify-center px-4 py-12 text-center overflow-hidden bg-[#F5E9D3] md:min-h-[85vh] md:py-16 md:bg-transparent">
+        {/* Background photo — desktop only; mobile hero is logo on solid cream */}
         <div
-          className="absolute inset-0 bg-cover bg-center"
+          className="absolute inset-0 hidden bg-cover bg-center md:block"
           style={{
             backgroundImage: `url(${WIX_IMG(WIX_HERO_GALLERY)})`,
             filter: "brightness(1.2) contrast(1.1) saturate(1.05)",
           }}
           aria-hidden
         />
-        {/* Light overlay for text contrast */}
-        <div
-          className="absolute inset-0 bg-black/30"
-          aria-hidden
-        />
-        <div className="relative z-10 max-w-[var(--max-width)] mx-auto">
-          <h1
-            className="text-4xl md:text-5xl font-bold mb-4 text-white"
-            style={{ fontFamily: "var(--font-heading)" }}
-          >
-            Northwest Community
-          </h1>
-          <p className="text-lg max-w-2xl mx-auto mb-8 text-white/95 leading-relaxed">
-            Connecting the good people of Spokane & Kootenai County through our community feed and messaging, selling local goods, event calendars, NWC Requests, local coupons, and of course, fun events that bring the community together and support the beautiful Northwest we live in. This website is for residents of the Inland Northwest, a region of the beautiful PNW. Welcome, residents of Eastern Washington and North Idaho. This is your one-stop shop for supporting locally owned businesses and local people.
-          </p>
-          <Link
-            href="/signup"
-            className="inline-block px-8 py-3 rounded-lg bg-gray-400/80 text-white font-medium border-2 border-white hover:bg-gray-500/90 transition-colors"
-            style={{ fontFamily: "var(--font-heading)" }}
-          >
-            Join Now
-          </Link>
+        <div className="absolute inset-0 hidden bg-black/30 md:block" aria-hidden />
+        <div className="relative z-10 max-w-[var(--max-width)] mx-auto w-full">
+          <div className="relative mx-auto aspect-square w-[min(100%,min(92vw,420px))] md:hidden">
+            <Image
+              src="/nwc-hero-logo.png"
+              alt="Northwest Community"
+              fill
+              className="object-contain"
+              sizes="92vw"
+              priority
+            />
+          </div>
+          <div className="hidden md:block">
+            <h1
+              className="text-4xl md:text-5xl font-bold mb-4 text-white"
+              style={{ fontFamily: "var(--font-heading)" }}
+            >
+              Northwest Community
+            </h1>
+            <p className="text-lg max-w-2xl mx-auto mb-8 text-white/95 leading-relaxed">
+              Connecting the good people of Spokane & Kootenai County through our community feed and messaging, selling local goods, event calendars, NWC Requests, local coupons, and of course, fun events that bring the community together and support the beautiful Northwest we live in. This website is for residents of the Inland Northwest, a region of the beautiful PNW. Welcome, residents of Eastern Washington and North Idaho. This is your one-stop shop for supporting locally owned businesses and local people.
+            </p>
+            <Link
+              href="/signup"
+              className="inline-block px-8 py-3 rounded-lg bg-gray-400/80 text-white font-medium border-2 border-white hover:bg-gray-500/90 transition-colors"
+              style={{ fontFamily: "var(--font-heading)" }}
+            >
+              Join Now
+            </Link>
+          </div>
         </div>
       </section>
 

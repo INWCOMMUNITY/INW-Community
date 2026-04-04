@@ -13,6 +13,7 @@ import {
   storeItemHasLocalDeliveryPolicy,
   type LocalDeliveryDetailsJson,
 } from "@/lib/pickup-delivery-checkout";
+import { ensureStripeCustomerForStorefrontCheckout } from "@/lib/stripe-storefront-checkout-customer";
 
 /**
  * Stripe Product tax code **General - Tangible Goods** (`txcd_99999999`).
@@ -66,6 +67,11 @@ export async function POST(req: NextRequest) {
     cashOrderIds?: string[];
     /** Mobile app can pass this so redirect works on device (e.g. http://192.168.1.140:3000) */
     returnBaseUrl?: string;
+    /**
+     * When true with shipped line(s), skip app-provided shipping; Stripe Checkout collects shipping.
+     * Used by product-page “Buy It Now”. Webhook copies `shipping_details` onto pending orders.
+     */
+    shippingCollectedByStripe?: boolean;
   };
   try {
     body = await req.json();
@@ -73,14 +79,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { items, shippingCostCents = 0, shippingAddress, localDeliveryDetails, cashOrderIds, returnBaseUrl } = body;
+  const {
+    items,
+    shippingCostCents = 0,
+    shippingAddress,
+    localDeliveryDetails,
+    cashOrderIds,
+    returnBaseUrl,
+    shippingCollectedByStripe,
+  } = body;
   const baseUrl = resolveAllowedCheckoutBaseUrl(returnBaseUrl);
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "At least one item required" }, { status: 400 });
   }
 
   const hasShippedItem = items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
-  if (hasShippedItem) {
+  const deferShippingToStripe = Boolean(shippingCollectedByStripe) && hasShippedItem;
+  if (hasShippedItem && !deferShippingToStripe) {
     if (
       !shippingAddress ||
       !shippingAddress.street?.trim() ||
@@ -311,6 +326,23 @@ export async function POST(req: NextRequest) {
       : `${baseUrl}/storefront/order-success?session_id={CHECKOUT_SESSION_ID}`;
 
   try {
+    const buyerMember = await prisma.member.findUnique({
+      where: { id: session.user.id },
+      select: { email: true, firstName: true, lastName: true },
+    });
+    if (!buyerMember) {
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    }
+
+    const customerId = await ensureStripeCustomerForStorefrontCheckout(stripe, {
+      memberId: session.user.id,
+      email: buyerMember.email,
+      firstName: buyerMember.firstName,
+      lastName: buyerMember.lastName,
+      shipTo:
+        hasShippedItem && shippingAddress && !deferShippingToStripe ? shippingAddress : null,
+    });
+
     const branding = getStripeCheckoutBranding();
     const orderIdsStr = orderIds.join(",");
     const METADATA_VALUE_MAX = 500;
@@ -340,11 +372,6 @@ export async function POST(req: NextRequest) {
       }
       if (chunk) metadata[`orderIds_${idx}`] = chunk;
     }
-    const buyerEmail =
-      typeof session.user.email === "string" && session.user.email.includes("@")
-        ? session.user.email
-        : undefined;
-
     const createParams: Stripe.Checkout.SessionCreateParams = {
       mode: "payment",
       line_items: lineItems,
@@ -352,13 +379,12 @@ export async function POST(req: NextRequest) {
       success_url: successUrl,
       cancel_url: `${baseUrl}/storefront?canceled=1`,
       automatic_tax: { enabled: true },
-      // Stripe Tax needs a customer address on the session; without it, tax often stays incomplete or $0.
-      // See https://docs.stripe.com/tax/checkout
+      // Cart/checkout in-app: tax uses Customer shipping (no Stripe shipping step). Buy It Now: collect on Stripe.
       billing_address_collection: "required",
-      ...(hasShippedItem
+      customer: customerId,
+      ...(deferShippingToStripe
         ? { shipping_address_collection: { allowed_countries: ["US"] } }
         : {}),
-      ...(buyerEmail ? { customer_email: buyerEmail } : {}),
       metadata,
       ...(branding ? { branding_settings: branding } : {}),
     };
