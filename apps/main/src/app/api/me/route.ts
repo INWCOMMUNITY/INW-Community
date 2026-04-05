@@ -16,6 +16,7 @@ import {
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 import { z } from "zod";
+import { validateMemberDisplayNameFields } from "@/lib/member-display-name-policy";
 
 const deliveryAddressSchema = z.object({
   street: z.string().optional(),
@@ -160,6 +161,23 @@ export async function PATCH(req: NextRequest) {
       ...body,
       profilePhotoUrl: body.profilePhotoUrl ?? null,
     });
+
+    if (data.firstName !== undefined || data.lastName !== undefined) {
+      const current = await prisma.member.findUnique({
+        where: { id: session.user.id },
+        select: { firstName: true, lastName: true },
+      });
+      if (!current) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      const mergedFirst = data.firstName !== undefined ? data.firstName : current.firstName;
+      const mergedLast = data.lastName !== undefined ? data.lastName : current.lastName;
+      const namePolicyError = validateMemberDisplayNameFields(mergedFirst, mergedLast);
+      if (namePolicyError) {
+        return NextResponse.json({ error: namePolicyError }, { status: 400 });
+      }
+    }
+
     const { count } = await prisma.member.updateMany({
       where: { id: session.user.id },
       data: {

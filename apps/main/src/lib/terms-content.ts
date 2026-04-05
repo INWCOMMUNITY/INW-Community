@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "April 2, 2026";
+export const TERMS_LAST_UPDATED = "April 5, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -48,8 +48,11 @@ NWC may remove content that includes:
 ● Misinformation
 ● Spam or fraudulent postings
 ● AI-Generated Material
+● Offensive, vulgar, harassing, or abusive member profile display names (the first and last name fields visible to other members in the feed, marketplace, messaging, and related features), including sexually explicit language, slurs, hate symbols, or names intended primarily to shock or demean other users
 NWC may:
 ● Remove or restrict content at its discretion and is not required to provide notice before removal.
+● Reject display names that violate these rules when you create an account or update your profile, including through automated filters and, where appropriate, moderator review. If a legitimate given name or surname is blocked in error, contact us at donivan@inwcommunity.com or 208-819-0268 and we will review your request.
+● Suspend or terminate accounts or require a name change for repeated or egregious display name violations, in addition to other remedies in these Terms.
 Users may report content they believe violates these rules; NWC will review reports and take appropriate action.
 
 3.3 Criminal Activity

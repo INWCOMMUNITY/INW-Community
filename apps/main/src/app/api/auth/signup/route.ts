@@ -5,6 +5,7 @@ import { prisma } from "database";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 import { awardMemberSignupBadges } from "@/lib/badge-award";
 import { normalizeResidentCity } from "@/lib/city-utils";
+import { validateMemberDisplayNameFields } from "@/lib/member-display-name-policy";
 
 const schema = z.object({
   email: z
@@ -60,6 +61,10 @@ export async function POST(req: NextRequest) {
     const { email, password, tagIds, signupIntent, ref } = parsed;
     const firstName = (parsed.firstName ?? "").trim() || "Pending";
     const lastName = (parsed.lastName ?? "").trim() || "Pending";
+    const namePolicyError = validateMemberDisplayNameFields(firstName, lastName);
+    if (namePolicyError) {
+      return NextResponse.json({ error: namePolicyError }, { status: 400 });
+    }
     const city = parsed.city ? normalizeResidentCity(parsed.city) || null : null;
     const existing = await prisma.member.findUnique({
       where: { email },

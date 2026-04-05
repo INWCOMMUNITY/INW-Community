@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "April 2, 2026";
+export const PRIVACY_LAST_UPDATED = "April 5, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -42,6 +42,7 @@ This information may include:
 NWC information disclosure
 ● NWC does not collect sensitive personal information such as Social Security numbers, driver's license numbers, government ID numbers, or medical information. Users should not submit this type of information to NWC.
 ● Users must not submit personal information belonging to another individual unless they have that individual's express authorization.
+● Profile display names (first and last name shown to other members) must comply with our Terms of Service. We may decline or require changes to names that violate those rules (for example offensive or abusive language), including using automated checks when you sign up or edit your profile. If you believe a legitimate name was blocked in error, contact us as described in our Terms or Support materials and we will review your request.
 
 1.2 Automatically Collected Information
 When you visit or use our website or app, we may automatically collect:
