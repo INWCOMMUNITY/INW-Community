@@ -20,7 +20,7 @@ export default async function AdminSubscriptionsPage() {
       .catch(() => ({ subscriptionRevenueThisMonthCents: 0, subscriptionRevenueCents: 0 })),
   ]);
 
-  const activeCount = subscriptions.filter((s) => s.status === "active").length;
+  const activeCount = subscriptions.filter((s: (typeof subscriptions)[number]) => s.status === "active").length;
   const thisMonthCents = stripeStats?.subscriptionRevenueThisMonthCents ?? 0;
   const totalCents = stripeStats?.subscriptionRevenueCents ?? 0;
 
@@ -55,7 +55,7 @@ export default async function AdminSubscriptionsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {subscriptions.map((s) => (
+            {subscriptions.map((s: (typeof subscriptions)[number]) => (
               <tr key={s.id}>
                 <td className="px-4 py-2">
                   <Link href={`/dashboard/members`} className="hover:underline" style={{ color: "#505542" }}>

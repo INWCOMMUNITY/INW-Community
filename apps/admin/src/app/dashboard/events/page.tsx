@@ -36,7 +36,7 @@ export default async function AdminEventsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {events.map((e) => (
+            {events.map((e: (typeof events)[number]) => (
               <tr key={e.id}>
                 <td className="px-4 py-2 font-medium">{e.title}</td>
                 <td className="px-4 py-2">{CALENDAR_LABELS[e.calendarType] ?? e.calendarType}</td>

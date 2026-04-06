@@ -74,8 +74,8 @@ export default function AdminTagsPage() {
     <div className="min-w-0">
       <h1 className="text-2xl font-bold mb-6">Tags</h1>
       <p className="text-sm text-gray-600 mb-4 max-w-2xl">
-        Delete global tags. Removing a tag detaches it from posts and blogs and removes follow relationships. Use
-        horizontal scroll if a name is very long.
+        Delete global tags. Removing a tag detaches it from posts and blogs and removes follow relationships. Delete
+        stays on the left; use the scrollbars on the tag box if the table is wide or tall.
       </p>
       <div className="mb-4">
         <input
@@ -86,54 +86,78 @@ export default function AdminTagsPage() {
           className="w-full max-w-md border rounded px-3 py-2 text-sm"
         />
       </div>
-      <div className="min-w-0 rounded-lg border border-gray-200 bg-white shadow-sm">
-        <div className="max-h-[min(70vh,720px)] overflow-y-auto">
-          <table className="w-max min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50 sticky top-0 z-10">
+      <div className="admin-xy-scroll rounded-lg border border-gray-200 bg-white shadow-sm">
+        <table className="w-full min-w-[640px] table-fixed divide-y divide-gray-200 text-sm">
+          <colgroup>
+            <col className="w-28" />
+            <col />
+            <col />
+            <col className="w-20" />
+            <col className="w-20" />
+            <col className="w-20" />
+            <col className="w-28" />
+          </colgroup>
+          <thead className="bg-gray-50">
+            <tr>
+              <th
+                scope="col"
+                className="sticky left-0 top-0 z-30 bg-gray-50 px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 shadow-[4px_0_12px_-4px_rgba(0,0,0,0.12)]"
+              >
+                Actions
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-50 px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                Name
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-50 px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                Slug
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-50 px-4 py-2 text-right text-xs font-medium uppercase text-gray-500">
+                Posts
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-50 px-4 py-2 text-right text-xs font-medium uppercase text-gray-500">
+                Blogs
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-50 px-4 py-2 text-right text-xs font-medium uppercase text-gray-500">
+                Follows
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-50 px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                Created
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {filtered.length === 0 ? (
               <tr>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Slug</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Posts</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Blogs</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Follows</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase w-28">Actions</th>
+                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  No tags match your search.
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                    No tags match your search.
+            ) : (
+              filtered.map((t) => (
+                <tr key={t.id}>
+                  <td className="sticky left-0 z-10 bg-white px-4 py-2 align-top shadow-[4px_0_12px_-4px_rgba(0,0,0,0.08)]">
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(t)}
+                      disabled={deletingId === t.id}
+                      className="text-red-600 hover:underline disabled:opacity-50"
+                    >
+                      {deletingId === t.id ? "…" : "Delete"}
+                    </button>
+                  </td>
+                  <td className="px-4 py-2 align-top break-all">{t.name}</td>
+                  <td className="px-4 py-2 align-top break-all text-gray-600">{t.slug}</td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">{t._count.postTags}</td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">{t._count.blogTags}</td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">{t._count.followTag}</td>
+                  <td className="whitespace-nowrap px-4 py-2 text-gray-500">
+                    {new Date(t.createdAt).toLocaleDateString()}
                   </td>
                 </tr>
-              ) : (
-                filtered.map((t) => (
-                  <tr key={t.id}>
-                    <td className="px-4 py-2 align-top break-all max-w-md">{t.name}</td>
-                    <td className="px-4 py-2 align-top text-gray-600 break-all">{t.slug}</td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">{t._count.postTags}</td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">{t._count.blogTags}</td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">{t._count.followTag}</td>
-                    <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
-                      {new Date(t.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(t)}
-                        disabled={deletingId === t.id}
-                        className="text-red-600 hover:underline disabled:opacity-50"
-                      >
-                        {deletingId === t.id ? "…" : "Delete"}
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

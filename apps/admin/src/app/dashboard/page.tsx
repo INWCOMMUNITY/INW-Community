@@ -67,9 +67,18 @@ export default async function DashboardPage() {
       .catch(() => ({ appOpensWeek: 0 })),
   ]);
 
-  const totalSalesCents = storeOrdersThisMonth.reduce((s, o) => s + o.totalCents, 0);
-  const totalShippingCents = storeOrdersThisMonth.reduce((s, o) => s + o.shippingCostCents, 0);
-  const totalItemsSold = orderItemsThisMonth.reduce((s, o) => s + o.quantity, 0);
+  const totalSalesCents = storeOrdersThisMonth.reduce(
+    (s: number, o: (typeof storeOrdersThisMonth)[number]) => s + o.totalCents,
+    0
+  );
+  const totalShippingCents = storeOrdersThisMonth.reduce(
+    (s: number, o: (typeof storeOrdersThisMonth)[number]) => s + o.shippingCostCents,
+    0
+  );
+  const totalItemsSold = orderItemsThisMonth.reduce(
+    (s: number, o: (typeof orderItemsThisMonth)[number]) => s + o.quantity,
+    0
+  );
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">

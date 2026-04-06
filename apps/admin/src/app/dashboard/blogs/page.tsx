@@ -53,7 +53,7 @@ export default async function AdminBlogsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {pendingBlogs.map((b) => (
+                {pendingBlogs.map((b: (typeof pendingBlogs)[number]) => (
                   <tr key={b.id}>
                     <td className="px-4 py-2 font-medium">
                       <Link
@@ -92,7 +92,7 @@ export default async function AdminBlogsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {approvedBlogs.map((b) => (
+            {approvedBlogs.map((b: (typeof approvedBlogs)[number]) => (
               <tr key={b.id}>
                 <td className="px-4 py-2 font-medium">
                   <Link

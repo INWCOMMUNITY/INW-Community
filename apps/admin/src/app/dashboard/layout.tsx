@@ -220,8 +220,8 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      {/* Main content: min-h-0 + overflow-hidden so inner scroll gets a bounded width (flex would otherwise grow with wide tables). */}
-      <div className="flex flex-1 flex-col min-h-0 min-w-0 md:pl-60 overflow-hidden">
+      {/* basis-0: flex item can shrink below content width so table wrappers get real overflow + scrollbars */}
+      <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden md:pl-60">
         <header className="shrink-0 sticky top-0 z-30 bg-white border-b px-4 py-3 flex items-center justify-between md:justify-end" style={{ borderColor: "#e5e3df" }}>
           <button
             type="button"
@@ -234,7 +234,7 @@ export default function DashboardLayout({
           </button>
           <div className="md:hidden w-8" />
         </header>
-        <main className="flex-1 min-h-0 min-w-0 w-full p-4 admin-main-scroll">{children}</main>
+        <main className="min-h-0 min-w-0 w-full flex-1 overflow-y-auto overflow-x-hidden p-4">{children}</main>
       </div>
     </div>
   );

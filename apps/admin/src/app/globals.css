@@ -21,31 +21,67 @@ input[type="checkbox"] {
   accent-color: #505542;
 }
 
-/* Admin: force a real scrollable region + visible scrollbars (wide tables / long names). */
-.admin-main-scroll {
-  overflow-x: scroll;
-  overflow-y: auto;
+/* Admin: visible scrollbars + bounded width (flex items need basis-0 or width:0 trick to allow overflow). */
+.admin-main-scroll,
+.admin-x-scroll,
+.admin-xy-scroll {
   -webkit-overflow-scrolling: touch;
-  scrollbar-gutter: stable;
   scrollbar-width: auto;
   scrollbar-color: #b4b1a9 #eceae7;
 }
 
-.admin-main-scroll::-webkit-scrollbar {
+/* Horizontal-only: wrap wide tables; keep width within parent so overflow-x actually triggers */
+.admin-x-scroll {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: scroll;
+  overflow-y: visible;
+  scrollbar-gutter: stable;
+}
+
+/* Table lists that need both axes (e.g. Tags) */
+.admin-xy-scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  max-height: min(70vh, 720px);
+  box-sizing: border-box;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.admin-main-scroll {
+  overflow-x: scroll;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.admin-main-scroll::-webkit-scrollbar,
+.admin-x-scroll::-webkit-scrollbar,
+.admin-xy-scroll::-webkit-scrollbar {
   width: 12px;
   height: 12px;
 }
 
-.admin-main-scroll::-webkit-scrollbar-track {
+.admin-main-scroll::-webkit-scrollbar-track,
+.admin-x-scroll::-webkit-scrollbar-track,
+.admin-xy-scroll::-webkit-scrollbar-track {
   background: #eceae7;
   border-radius: 6px;
 }
 
-.admin-main-scroll::-webkit-scrollbar-thumb {
+.admin-main-scroll::-webkit-scrollbar-thumb,
+.admin-x-scroll::-webkit-scrollbar-thumb,
+.admin-xy-scroll::-webkit-scrollbar-thumb {
   background: #b4b1a9;
   border-radius: 6px;
 }
 
-.admin-main-scroll::-webkit-scrollbar-thumb:hover {
+.admin-main-scroll::-webkit-scrollbar-thumb:hover,
+.admin-x-scroll::-webkit-scrollbar-thumb:hover,
+.admin-xy-scroll::-webkit-scrollbar-thumb:hover {
   background: #8a877d;
 }

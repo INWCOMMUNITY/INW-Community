@@ -75,7 +75,7 @@ export function AdminMemberActions({
   async function handleDelete() {
     if (
       !confirm(
-        "Delete this member? Posts, groups they created, follows, tags, businesses, and other data tied to their account will be removed per database rules. This cannot be undone."
+        "Delete this member? Their profile (including name, city, bio, and any directory data), posts, groups they created, follows, businesses, and other data tied to their account will be removed. This cannot be undone."
       )
     )
       return;
@@ -96,7 +96,7 @@ export function AdminMemberActions({
   }
 
   return (
-    <div className="flex items-center gap-2 justify-end flex-wrap">
+    <div className="flex items-center gap-2 justify-start flex-wrap">
       {showGift ? (
         <form onSubmit={handleGiftPoints} className="flex items-center gap-2">
           <input
