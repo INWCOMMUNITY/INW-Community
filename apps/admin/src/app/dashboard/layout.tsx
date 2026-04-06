@@ -159,7 +159,7 @@ export default function DashboardLayout({
   );
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex overflow-x-hidden">
       {/* Desktop sidebar */}
       <aside className="hidden md:flex md:flex-col md:w-60 md:fixed md:inset-y-0 bg-white border-r" style={{ borderColor: "#e5e3df" }}>
         <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "#e5e3df" }}>
@@ -220,9 +220,9 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      {/* Main content */}
-      <div className="flex-1 md:pl-60 min-w-0">
-        <header className="sticky top-0 z-30 bg-white border-b px-4 py-3 flex items-center justify-between md:justify-end" style={{ borderColor: "#e5e3df" }}>
+      {/* Main content: min-h-0 + overflow-hidden so inner scroll gets a bounded width (flex would otherwise grow with wide tables). */}
+      <div className="flex flex-1 flex-col min-h-0 min-w-0 md:pl-60 overflow-hidden">
+        <header className="shrink-0 sticky top-0 z-30 bg-white border-b px-4 py-3 flex items-center justify-between md:justify-end" style={{ borderColor: "#e5e3df" }}>
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
@@ -234,7 +234,7 @@ export default function DashboardLayout({
           </button>
           <div className="md:hidden w-8" />
         </header>
-        <main className="p-4 min-w-0 overflow-x-auto">{children}</main>
+        <main className="flex-1 min-h-0 min-w-0 w-full p-4 admin-main-scroll">{children}</main>
       </div>
     </div>
   );

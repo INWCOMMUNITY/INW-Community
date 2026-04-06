@@ -86,9 +86,9 @@ export default function AdminTagsPage() {
           className="w-full max-w-md border rounded px-3 py-2 text-sm"
         />
       </div>
-      <div className="overflow-x-auto min-w-0 rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="min-w-0 rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="max-h-[min(70vh,720px)] overflow-y-auto">
-          <table className="min-w-[640px] w-full divide-y divide-gray-200 text-sm">
+          <table className="w-max min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>

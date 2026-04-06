@@ -57,8 +57,8 @@ export default function AdminMembersPage() {
           className="w-full max-w-md border rounded px-3 py-2 text-sm"
         />
       </div>
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="min-w-[720px] w-full divide-y divide-gray-200">
+      <div className="bg-white rounded-lg shadow">
+        <table className="w-max min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
