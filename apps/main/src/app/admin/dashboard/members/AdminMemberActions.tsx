@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 export function AdminMemberActions({
   memberId,
   status,
+  onDeleted,
 }: {
   memberId: string;
   status: string;
+  onDeleted?: () => void;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -66,20 +68,31 @@ export function AdminMemberActions({
   }
 
   async function handleDelete() {
-    if (!confirm("Delete this member? This cannot be undone.")) return;
+    if (
+      !confirm(
+        "Delete this member? Their profile (including name, city, bio, and any directory data), posts, groups they created, follows, businesses, and other data tied to their account will be removed. This cannot be undone."
+      )
+    )
+      return;
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/members/${memberId}`, {
         method: "DELETE",
       });
-      if (res.ok) router.refresh();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        onDeleted?.();
+        router.refresh();
+      } else {
+        alert(data.error ?? "Delete failed");
+      }
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="flex items-center gap-2 justify-end flex-wrap">
+    <div className="flex items-center gap-2 justify-start flex-wrap">
       {showGift ? (
         <form onSubmit={handleGiftPoints} className="flex items-center gap-2">
           <input

@@ -151,7 +151,7 @@ export default function AdminDashboardLayout({
   const headerOffset = "4rem";
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex overflow-x-hidden">
       {/* Desktop sidebar: below main site header */}
       <aside
         className="hidden md:flex md:flex-col md:w-60 md:fixed md:left-0 md:bottom-0 bg-white border-r"
@@ -213,15 +213,15 @@ export default function AdminDashboardLayout({
         </div>
       </aside>
 
-      {/* Main content */}
-      <div className="flex-1 md:pl-60 min-w-0">
+      {/* basis-0 + overflow-hidden: main column width is bounded so inner admin-x-scroll can overflow-x */}
+      <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden md:pl-60">
         {isLive === false && (
-          <div className="bg-amber-100 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
+          <div className="shrink-0 bg-amber-100 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
             You&apos;re editing the <strong>local</strong> site. To edit the live site, go to{" "}
             <a href={`${LIVE_ADMIN_URL}/admin`} className="font-medium underline hover:no-underline">{LIVE_ADMIN_URL}/admin</a>
           </div>
         )}
-        <header className="sticky z-30 bg-white border-b px-4 py-3 flex items-center justify-between md:justify-end" style={{ borderColor: "#e5e3df", top: headerOffset }}>
+        <header className="sticky z-30 shrink-0 bg-white border-b px-4 py-3 flex items-center justify-between md:justify-end" style={{ borderColor: "#e5e3df", top: headerOffset }}>
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
@@ -233,7 +233,7 @@ export default function AdminDashboardLayout({
           </button>
           <div className="md:hidden w-8" />
         </header>
-        <main className="p-4">{children}</main>
+        <main className="min-h-0 min-w-0 w-full flex-1 overflow-y-auto overflow-x-hidden p-4">{children}</main>
       </div>
     </div>
   );

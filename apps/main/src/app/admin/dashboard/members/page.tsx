@@ -115,47 +115,73 @@ export default function AdminMembersPage() {
           className="w-full max-w-md border rounded px-3 py-2 text-sm"
         />
       </div>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
+      <p className="text-sm text-gray-600 mb-3 max-w-2xl">
+        Actions stay pinned on the left. A horizontal scrollbar appears under the table when this panel is under
+        about 1200px wide (site layout uses overflow-x hidden, so scrolling is inside this box).
+      </p>
+      <div className="admin-x-scroll rounded-lg border border-gray-200 bg-white shadow-sm">
+        <table className="w-[max(100%,1200px)] table-fixed divide-y divide-gray-200">
+          <colgroup>
+            <col className="w-[260px]" />
+            <col />
+            <col />
+            <col />
+            <col className="w-[100px]" />
+            <col className="w-[120px]" />
+            <col className="w-[100px]" />
+          </colgroup>
           <thead className="bg-gray-50">
             <tr>
+              <th
+                scope="col"
+                className="sticky left-0 z-20 bg-gray-50 px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 shadow-[4px_0_12px_-4px_rgba(0,0,0,0.12)]"
+              >
+                Actions
+              </th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">City</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Subscriptions</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Subs</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Joined</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {filtered.map((m) => (
               <tr key={m.id}>
-                <td className="px-4 py-2">{m.firstName} {m.lastName}</td>
-                <td className="px-4 py-2">{m.email}</td>
-                <td className="px-4 py-2">{m.city ?? "—"}</td>
-                <td className="px-4 py-2">
+                <td className="sticky left-0 z-10 bg-white px-4 py-2 align-top shadow-[4px_0_12px_-4px_rgba(0,0,0,0.08)]">
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAssignForMember(m)}
+                      className="w-fit text-sm px-2 py-1 rounded border border-gray-300 hover:bg-gray-50"
+                    >
+                      Assign business
+                    </button>
+                    <AdminMemberActions
+                      memberId={m.id}
+                      status={m.status}
+                      onDeleted={() => setMembers((prev) => prev.filter((x) => x.id !== m.id))}
+                    />
+                  </div>
+                </td>
+                <td className="px-4 py-2 break-all align-top">
+                  {m.firstName} {m.lastName}
+                </td>
+                <td className="px-4 py-2 break-all align-top">{m.email}</td>
+                <td className="px-4 py-2 break-all align-top">{m.city ?? "—"}</td>
+                <td className="px-4 py-2 align-top">
                   <span
-                    className={`text-xs font-medium px-2 py-0.5 rounded ${
+                    className={`inline-block text-xs font-medium px-2 py-0.5 rounded ${
                       m.status === "suspended" ? "bg-amber-100 text-amber-800" : "bg-green-100 text-green-800"
                     }`}
                   >
                     {m.status}
                   </span>
                 </td>
-                <td className="px-4 py-2">{m._count.subscriptions}</td>
-                <td className="px-4 py-2 text-sm text-gray-500">
+                <td className="px-4 py-2 align-top">{m._count.subscriptions}</td>
+                <td className="px-4 py-2 text-sm text-gray-500 align-top whitespace-nowrap">
                   {new Date(m.createdAt).toLocaleDateString()}
-                </td>
-                <td className="px-4 py-2 flex flex-wrap items-center gap-2 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setAssignForMember(m)}
-                    className="text-sm px-2 py-1 rounded border border-gray-300 hover:bg-gray-50"
-                  >
-                    Assign business
-                  </button>
-                  <AdminMemberActions memberId={m.id} status={m.status} />
                 </td>
               </tr>
             ))}

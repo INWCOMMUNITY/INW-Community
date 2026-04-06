@@ -256,3 +256,66 @@ input[type="radio"] {
     animation: none;
   }
 }
+
+/* /admin/dashboard: horizontal scroll for wide tables (body uses overflow-x: hidden site-wide) */
+.admin-main-scroll,
+.admin-x-scroll,
+.admin-xy-scroll {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: auto;
+  scrollbar-color: #b4b1a9 #eceae7;
+}
+
+.admin-x-scroll {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: scroll;
+  overflow-y: visible;
+  scrollbar-gutter: stable both-edges;
+}
+
+.admin-xy-scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  max-height: min(70vh, 720px);
+  box-sizing: border-box;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.admin-main-scroll {
+  overflow-x: scroll;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.admin-main-scroll::-webkit-scrollbar,
+.admin-x-scroll::-webkit-scrollbar,
+.admin-xy-scroll::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.admin-main-scroll::-webkit-scrollbar-track,
+.admin-x-scroll::-webkit-scrollbar-track,
+.admin-xy-scroll::-webkit-scrollbar-track {
+  background: #eceae7;
+  border-radius: 6px;
+}
+
+.admin-main-scroll::-webkit-scrollbar-thumb,
+.admin-x-scroll::-webkit-scrollbar-thumb,
+.admin-xy-scroll::-webkit-scrollbar-thumb {
+  background: #b4b1a9;
+  border-radius: 6px;
+}
+
+.admin-main-scroll::-webkit-scrollbar-thumb:hover,
+.admin-x-scroll::-webkit-scrollbar-thumb:hover,
+.admin-xy-scroll::-webkit-scrollbar-thumb:hover {
+  background: #8a877d;
+}
