@@ -58,10 +58,11 @@ export default function AdminMembersPage() {
         />
       </div>
       <p className="text-sm text-gray-600 mb-3 max-w-2xl">
-        Actions stay on the left. If a row is very wide, use the horizontal scrollbar under the table.
+        Actions stay pinned on the left. If the window is wide you may not need to scroll; if the content area
+        is under about 1200px wide, use the horizontal bar below the table (or resize the window to test).
       </p>
       <div className="admin-x-scroll rounded-lg border border-gray-200 bg-white shadow-sm">
-        <table className="w-full min-w-[720px] table-fixed divide-y divide-gray-200">
+        <table className="w-[max(100%,1200px)] table-fixed divide-y divide-gray-200">
           <colgroup>
             <col className="w-[220px]" />
             <col />

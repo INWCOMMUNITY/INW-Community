@@ -87,7 +87,7 @@ export default function AdminTagsPage() {
         />
       </div>
       <div className="admin-xy-scroll rounded-lg border border-gray-200 bg-white shadow-sm">
-        <table className="w-full min-w-[640px] table-fixed divide-y divide-gray-200 text-sm">
+        <table className="w-[max(100%,960px)] table-fixed divide-y divide-gray-200 text-sm">
           <colgroup>
             <col className="w-28" />
             <col />

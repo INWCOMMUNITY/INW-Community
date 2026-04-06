@@ -37,9 +37,10 @@ input[type="checkbox"] {
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  /* scroll (not auto): always allocate horizontal scrollbar track so it is discoverable on Windows overlay mode */
   overflow-x: scroll;
   overflow-y: visible;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
 }
 
 /* Table lists that need both axes (e.g. Tags) */
