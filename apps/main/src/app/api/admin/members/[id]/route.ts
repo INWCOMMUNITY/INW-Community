@@ -32,6 +32,13 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await params;
-  await prisma.member.delete({ where: { id } }).catch(() => null);
-  return NextResponse.json({ ok: true });
+  try {
+    // DB cascades remove posts, group memberships, groups created by this member,
+    // follows, tags followed, businesses, orders, messages, etc., per schema onDelete rules.
+    await prisma.member.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("[admin] member delete", id, e);
+    return NextResponse.json({ error: "Could not delete member" }, { status: 500 });
+  }
 }

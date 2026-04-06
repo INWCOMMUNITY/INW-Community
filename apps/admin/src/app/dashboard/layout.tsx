@@ -36,6 +36,7 @@ const SIDEBAR_SECTIONS = [
       { href: "/dashboard/events", label: "Events" },
       { href: "/dashboard/blogs", label: "Blogs" },
       { href: "/dashboard/posts", label: "Posts" },
+      { href: "/dashboard/tags", label: "Tags" },
       { href: "/dashboard/flagged", label: "Flagged" },
       { href: "/dashboard/reports", label: "Reports" },
     ],
@@ -233,7 +234,7 @@ export default function DashboardLayout({
           </button>
           <div className="md:hidden w-8" />
         </header>
-        <main className="p-4">{children}</main>
+        <main className="p-4 min-w-0 overflow-x-auto">{children}</main>
       </div>
     </div>
   );

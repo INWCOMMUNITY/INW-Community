@@ -9,9 +9,11 @@ const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 export function AdminMemberActions({
   memberId,
   status,
+  onDeleted,
 }: {
   memberId: string;
   status: string;
+  onDeleted?: () => void;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -71,14 +73,23 @@ export function AdminMemberActions({
   }
 
   async function handleDelete() {
-    if (!confirm("Delete this member? This cannot be undone.")) return;
+    if (
+      !confirm(
+        "Delete this member? Posts, groups they created, follows, tags, businesses, and other data tied to their account will be removed per database rules. This cannot be undone."
+      )
+    )
+      return;
     setLoading(true);
     try {
       const res = await fetch(`${MAIN_URL}/api/admin/members/${memberId}`, {
         method: "DELETE",
         headers: { "x-admin-code": ADMIN_CODE },
       });
-      if (res.ok) router.refresh();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        onDeleted?.();
+        router.refresh();
+      } else alert(data.error ?? "Delete failed");
     } finally {
       setLoading(false);
     }
