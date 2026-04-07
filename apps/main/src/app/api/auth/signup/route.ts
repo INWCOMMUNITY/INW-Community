@@ -6,6 +6,7 @@ import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 import { awardMemberSignupBadges } from "@/lib/badge-award";
 import { normalizeResidentCity } from "@/lib/city-utils";
 import { validateMemberDisplayNameFields } from "@/lib/member-display-name-policy";
+import { issueEmailVerification } from "@/lib/email-verification";
 
 const schema = z.object({
   email: z
@@ -116,7 +117,15 @@ export async function POST(req: NextRequest) {
           });
         }
       }
-      return NextResponse.json({ ok: true, earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [] });
+      const needsVerify = !member.emailVerifiedAt;
+      if (needsVerify) {
+        await issueEmailVerification(member.id, member.email);
+      }
+      return NextResponse.json({
+        ok: true,
+        requiresEmailVerification: needsVerify,
+        earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [],
+      });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -151,7 +160,15 @@ export async function POST(req: NextRequest) {
         });
       }
     }
-    return NextResponse.json({ ok: true, earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [] });
+    const needsVerify = !member.emailVerifiedAt;
+    if (needsVerify) {
+      await issueEmailVerification(member.id, member.email);
+    }
+    return NextResponse.json({
+      ok: true,
+      requiresEmailVerification: needsVerify,
+      earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [],
+    });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: zodErrorToMessage(e) }, { status: 400 });

@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
       phone: true,
       deliveryAddress: true,
       signupIntent: true,
+      emailVerifiedAt: true,
       acceptCashForPickupDelivery: true,
       sellerShippingPolicy: true,
       sellerLocalDeliveryPolicy: true,
@@ -124,8 +125,10 @@ export async function GET(req: NextRequest) {
   const canAccessSellerHub = isPlatformAdmin || sellerPlanRow != null;
   const paidSlugSet = new Set<string>(NWC_PAID_PLAN_SLUGS);
   const hasPaidSubscription = subscriptions.some((s) => paidSlugSet.has(s.plan));
+  const { emailVerifiedAt, ...memberRest } = member;
   return NextResponse.json({
-    ...member,
+    ...memberRest,
+    emailVerified: !!emailVerifiedAt,
     seasonPointsEarned,
     currentSeason,
     isSubscriber: !!subTier,

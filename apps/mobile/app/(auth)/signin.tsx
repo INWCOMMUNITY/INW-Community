@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   StyleSheet,
   Pressable,
@@ -44,18 +44,46 @@ function getApiHost(): string {
 
 export default function SignInScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ plan?: string; isSignUp?: string; returnTo?: string }>();
+  const params = useLocalSearchParams<{
+    plan?: string;
+    isSignUp?: string;
+    returnTo?: string;
+    emailVerified?: string;
+    passwordReset?: string;
+  }>();
   const { refreshMember } = useAuth();
   const plan = (params.plan as SubscriptionPlan) || "subscribe";
-  const returnTo = params.returnTo as string | undefined;
+  const returnToRaw = params.returnTo;
+  const returnToParam =
+    typeof returnToRaw === "string"
+      ? returnToRaw
+      : Array.isArray(returnToRaw)
+        ? returnToRaw[0]
+        : undefined;
+  const returnTo = returnToParam
+    ? (() => {
+        try {
+          return decodeURIComponent(returnToParam);
+        } catch {
+          return returnToParam;
+        }
+      })()
+    : undefined;
+  const emailJustVerified = params.emailVerified === "1";
+  const passwordJustReset = params.passwordReset === "1";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [emailNotRecognized, setEmailNotRecognized] = useState(false);
+  const [emailNotVerified, setEmailNotVerified] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [errorPayload, setErrorPayload] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+  const [credentialFailCount, setCredentialFailCount] = useState(0);
+  const lastFailedEmailRef = useRef("");
 
   const planLabel = PLAN_LABELS[plan];
   const signInUrl = `${(API_BASE ?? "").replace(/\/$/, "")}/api/auth/mobile-signin`;
@@ -63,6 +91,8 @@ export default function SignInScreen() {
   async function handleSignIn() {
     setError("");
     setEmailNotRecognized(false);
+    setEmailNotVerified(false);
+    setResendMessage(null);
     setErrorDetails(null);
     setErrorPayload(null);
     setCopied(false);
@@ -108,9 +138,11 @@ export default function SignInScreen() {
         return;
       }
 
-      await signIn(email.trim(), password, plan);
+      const trimmedEmail = email.trim();
+      await signIn(trimmedEmail, password, plan);
       await refreshMember();
-      router.replace((returnTo ?? "/(tabs)/home") as import("expo-router").Href);
+      const defaultRoute = emailJustVerified ? "/(tabs)/my-community" : "/(tabs)/home";
+      router.replace((returnTo ?? defaultRoute) as import("expo-router").Href);
     } catch (e) {
       const err = e as {
         error?: string;
@@ -150,11 +182,22 @@ export default function SignInScreen() {
       } else if (err.status === 401 && msg === "EMAIL_NOT_FOUND") {
         setErrorDetails(null);
         setErrorPayload(null);
+        lastFailedEmailRef.current = email.trim();
+        setCredentialFailCount((c) => c + 1);
         setEmailNotRecognized(true);
+        setError("");
+      } else if (err.status === 403 && (msg === "EMAIL_NOT_VERIFIED" || err.code === "EMAIL_NOT_VERIFIED")) {
+        setErrorDetails(null);
+        setErrorPayload(null);
+        lastFailedEmailRef.current = email.trim();
+        setCredentialFailCount((c) => c + 1);
+        setEmailNotVerified(true);
         setError("");
       } else if (err.status === 401) {
         setErrorDetails(null);
         setErrorPayload(null);
+        lastFailedEmailRef.current = email.trim();
+        setCredentialFailCount((c) => c + 1);
         if (msg === "INVALID_PASSWORD") {
           setError("Incorrect password.");
         } else {
@@ -177,6 +220,8 @@ export default function SignInScreen() {
             .filter(Boolean)
             .join("\n")
         );
+        lastFailedEmailRef.current = email.trim();
+        setCredentialFailCount((c) => c + 1);
         if (msg) {
           setError(msg);
         } else {
@@ -211,12 +256,28 @@ export default function SignInScreen() {
         <Text style={styles.title}>Sign in as {planLabel}</Text>
       </View>
 
+      {emailJustVerified ? (
+        <View style={styles.verifiedBanner}>
+          <Text style={styles.verifiedBannerText}>Email verified. You can sign in below.</Text>
+        </View>
+      ) : null}
+      {passwordJustReset ? (
+        <View style={styles.verifiedBanner}>
+          <Text style={styles.verifiedBannerText}>Password updated. Sign in with your new password.</Text>
+        </View>
+      ) : null}
+
       <ThemedView style={styles.form} lightColor="#fff" darkColor={theme.colors.secondary}>
         <TextInput
           style={styles.input}
           placeholder="Email"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(t) => {
+            if (t.trim() !== lastFailedEmailRef.current) {
+              setCredentialFailCount(0);
+            }
+            setEmail(t);
+          }}
           autoCapitalize="none"
           keyboardType="email-address"
           placeholderTextColor={theme.colors.placeholder}
@@ -235,6 +296,14 @@ export default function SignInScreen() {
           autoComplete="password"
           autoCorrect={true}
         />
+        {credentialFailCount >= 2 ? (
+          <Text
+            style={styles.forgotPasswordLink}
+            onPress={() => router.push("/forgot-password" as import("expo-router").Href)}
+          >
+            Forgot password?
+          </Text>
+        ) : null}
         {emailNotRecognized ? (
           <View style={styles.errorSignUpBlock}>
             <Text style={styles.errorSignUpMessage}>Email not recognized. New to NWC?</Text>
@@ -244,6 +313,51 @@ export default function SignInScreen() {
             >
               Sign Up!
             </Text>
+          </View>
+        ) : null}
+        {emailNotVerified ? (
+          <View style={styles.verifyBlock}>
+            <Text style={styles.verifyText}>
+              This email isn&apos;t verified yet. Check your inbox for a 6-digit code from Northwest Community.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [styles.resendBtn, pressed && { opacity: 0.85 }]}
+              disabled={resendBusy || !email.trim()}
+              onPress={async () => {
+                setResendMessage(null);
+                setResendBusy(true);
+                try {
+                  const url = `${(API_BASE ?? "").replace(/\/$/, "")}/api/auth/resend-verification`;
+                  const res = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Accept: "application/json",
+                      ...(API_BASE.includes("inwcommunity.com")
+                        ? {
+                            Origin: "https://www.inwcommunity.com",
+                            Referer: "https://www.inwcommunity.com/",
+                          }
+                        : {}),
+                    },
+                    body: JSON.stringify({ email: email.trim() }),
+                  });
+                  const data = (await res.json().catch(() => ({}))) as { message?: string };
+                  setResendMessage(
+                    typeof data.message === "string"
+                      ? data.message
+                      : "If that email is registered, we sent a code."
+                  );
+                } catch {
+                  setResendMessage("Could not send. Try again in a minute.");
+                } finally {
+                  setResendBusy(false);
+                }
+              }}
+            >
+              <Text style={styles.resendBtnText}>{resendBusy ? "Sending…" : "Resend verification code"}</Text>
+            </Pressable>
+            {resendMessage ? <Text style={styles.resendNote}>{resendMessage}</Text> : null}
           </View>
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -319,6 +433,19 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 24,
   },
+  verifiedBanner: {
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: "#dcfce7",
+    borderWidth: 1,
+    borderColor: "#166534",
+  },
+  verifiedBannerText: {
+    color: "#14532d",
+    fontSize: 14,
+    fontWeight: "600",
+  },
   title: {
     fontSize: 22,
     fontWeight: "bold",
@@ -338,9 +465,17 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     padding: 12,
     fontSize: 16,
-    marginBottom: 12,
+    marginBottom: 8,
     color: "#000",
     backgroundColor: "#fff",
+  },
+  forgotPasswordLink: {
+    alignSelf: "flex-end",
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+    textDecorationLine: "underline",
+    marginBottom: 12,
   },
   error: {
     color: "#fff",
@@ -359,6 +494,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
     color: "#fff",
+  },
+  verifyBlock: {
+    marginBottom: 12,
+  },
+  verifyText: {
+    color: "#fff",
+    fontSize: 14,
+    marginBottom: 10,
+    lineHeight: 20,
+  },
+  resendBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  resendBtnText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  resendNote: {
+    color: "rgba(255,255,255,0.95)",
+    fontSize: 13,
+    marginTop: 8,
   },
   errorDetails: {
     color: "rgba(255,255,255,0.9)",

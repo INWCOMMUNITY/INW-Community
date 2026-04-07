@@ -74,6 +74,10 @@ export default function SignupBusinessPage() {
         setError(data.error ?? "Sign up failed.");
         return;
       }
+      if (data.requiresEmailVerification === true) {
+        window.location.href = `/login?callbackUrl=${encodeURIComponent("/signup/business")}&verifyPending=1&plan=sponsor&email=${encodeURIComponent(email.trim())}`;
+        return;
+      }
       const signInRes = await signIn("credentials", {
         email: email.trim(),
         password,

@@ -159,6 +159,7 @@ type ProfileTabButtonProps = BottomTabBarButtonProps & {
 const ProfileTabButton = forwardRef<React.ElementRef<typeof PlatformPressable>, ProfileTabButtonProps>(
   function ProfileTabButton(props, ref) {
     const { openSwitcher } = useProfileView();
+    const { member } = useAuth();
     const { onPress, children, switcherShownOnceRef, style, ...rest } = props;
 
     const runAfterTabTransition = (fn: () => void) => {
@@ -194,7 +195,7 @@ const ProfileTabButton = forwardRef<React.ElementRef<typeof PlatformPressable>, 
         // AnimatedPressable types omit Pressable's function style; runtime supports it (same as default tab bar).
         style={mergedStyle as BottomTabBarButtonProps["style"]}
         onPress={(e) => {
-          if (switcherShownOnceRef && !switcherShownOnceRef.current) {
+          if (member && switcherShownOnceRef && !switcherShownOnceRef.current) {
             switcherShownOnceRef.current = true;
             runAfterTabTransition(() => openSwitcher());
           }
@@ -444,7 +445,7 @@ function TabLayoutInner() {
   const theme = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  const { profileSyncError, clearProfileSyncError, refreshMember } = useAuth();
+  const { member, profileSyncError, clearProfileSyncError, refreshMember } = useAuth();
   const tabSafeInsets = useSafeAreaInsets();
   const { profileView, showSwitcher, openSwitcher, hasSeller, hasSubscriber } = useProfileView();
   const [sideMenuType, setSideMenuType] = useState<SideMenuType>(null);
@@ -491,7 +492,7 @@ function TabLayoutInner() {
 
   const isProfileTab = typeof pathname === "string" && pathname.includes("my-community");
   useEffect(() => {
-    if (!isProfileTab || !showSwitcher || switcherShownOnceRef.current) {
+    if (!isProfileTab || !member || !showSwitcher || switcherShownOnceRef.current) {
       return;
     }
     let cancelled = false;
@@ -510,7 +511,7 @@ function TabLayoutInner() {
     return () => {
       cancelled = true;
     };
-  }, [isProfileTab, showSwitcher, openSwitcher]);
+  }, [isProfileTab, member, showSwitcher, openSwitcher]);
 
   const profileIconName =
     profileView === "business_hub"

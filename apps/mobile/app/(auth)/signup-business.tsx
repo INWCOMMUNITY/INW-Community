@@ -136,13 +136,19 @@ export default function SignupBusinessScreen() {
     setLoading(true);
     try {
       const ref = await getPendingReferralCode();
-      await apiPost("/api/auth/signup", {
+      const signupRes = await apiPost<{ requiresEmailVerification?: boolean }>("/api/auth/signup", {
         email: email.trim().toLowerCase(),
         password,
         signupIntent: "business",
         ...(ref ? { ref } : {}),
       });
       await clearPendingReferralCode();
+      if (signupRes?.requiresEmailVerification === true) {
+        (router.replace as (href: string) => void)(
+          `/verify-email-pending?email=${encodeURIComponent(email.trim())}&plan=sponsor`
+        );
+        return;
+      }
       await signIn(email.trim(), password, "sponsor");
       await refreshMember();
       setStep("business");

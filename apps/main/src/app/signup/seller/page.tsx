@@ -87,6 +87,10 @@ export default function SignupSellerPage() {
         setError(data.error ?? "Sign up failed.");
         return;
       }
+      if (data.requiresEmailVerification === true) {
+        window.location.href = `/login?callbackUrl=${encodeURIComponent("/signup/seller")}&verifyPending=1&plan=seller&email=${encodeURIComponent(email.trim())}`;
+        return;
+      }
       const signInRes = await signIn("credentials", {
         email: email.trim(),
         password,

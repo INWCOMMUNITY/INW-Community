@@ -60,6 +60,10 @@ export const authOptions = {
             console.error(`[auth][credentials] reject PASSWORD_MISMATCH login=${who} memberId=${member.id}`);
             return null;
           }
+          if (!member.emailVerifiedAt) {
+            console.error(`[auth][credentials] reject EMAIL_NOT_VERIFIED login=${who} memberId=${member.id}`);
+            return null;
+          }
           return {
             id: member.id,
             email: member.email,

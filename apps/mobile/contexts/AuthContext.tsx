@@ -17,6 +17,8 @@ export interface Member {
   firstName: string;
   lastName: string;
   email: string;
+  /** From GET /api/me — false until the member opens the verification link in email. */
+  emailVerified?: boolean;
   profilePhotoUrl: string | null;
   bio?: string | null;
   city?: string | null;

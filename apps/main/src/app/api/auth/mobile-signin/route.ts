@@ -35,6 +35,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "INVALID_PASSWORD" }, { status: 401 });
     }
 
+    if (!member.emailVerifiedAt) {
+      return NextResponse.json(
+        {
+          error: "EMAIL_NOT_VERIFIED",
+          code: "EMAIL_NOT_VERIFIED",
+          message:
+            "Verify your email before signing in. Check your inbox for a link from Northwest Community, or tap Resend on the sign-in screen.",
+        },
+        { status: 403 }
+      );
+    }
+
     const [subTier, subResaleHub] = await Promise.all([
       prisma.subscription.findFirst({
         where: prismaWhereMemberSubscribeTierPerksAccess(member.id),

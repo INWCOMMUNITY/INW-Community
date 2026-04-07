@@ -135,13 +135,19 @@ export default function SignupSellerScreen() {
     setLoading(true);
     try {
       const ref = await getPendingReferralCode();
-      await apiPost("/api/auth/signup", {
+      const signupRes = await apiPost<{ requiresEmailVerification?: boolean }>("/api/auth/signup", {
         email: email.trim().toLowerCase(),
         password,
         signupIntent: "seller",
         ...(ref ? { ref } : {}),
       });
       await clearPendingReferralCode();
+      if (signupRes?.requiresEmailVerification === true) {
+        (router.replace as (href: string) => void)(
+          `/verify-email-pending?email=${encodeURIComponent(email.trim())}&plan=seller`
+        );
+        return;
+      }
       await signIn(email.trim(), password, "seller");
       await refreshMember();
       setStep("business");

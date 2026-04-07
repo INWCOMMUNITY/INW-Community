@@ -80,6 +80,10 @@ export default function SignupPage() {
         setError(message);
         return;
       }
+      if (data?.requiresEmailVerification === true) {
+        window.location.href = `/login?callbackUrl=${encodeURIComponent(afterSignup)}&verifyPending=1&plan=subscribe&email=${encodeURIComponent(email.trim())}`;
+        return;
+      }
       const signInRes = await signIn("credentials", {
         email,
         password,

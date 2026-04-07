@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "April 5, 2026";
+export const PRIVACY_LAST_UPDATED = "April 7, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -22,6 +22,8 @@ You may provide information when you:
 ● Complete checkout for marketplace items that offer local pickup or local delivery (you may be asked for your name, email address, phone number, optional notes, agreement to the seller's stated terms where shown, and for pickup an estimated pickup date and time; for local delivery a delivery address and when you are available to receive the delivery)
 ● Complete checkout for other marketplace purchases, where we may collect shipping or billing addresses, postal codes, and order line details needed to calculate and collect sales tax when NWC acts as a marketplace facilitator (see our Terms of Service)
 ● Communicate with NWC staff
+● Confirm your email address when you create an account (we email a short numeric verification code to the address you provide; you need access to that inbox to finish verifying)
+● Request a password reset (we send a one-time link to the email address on your account; you can complete reset in our mobile app or on the website, and we limit how often a new reset email can be sent—about once every 30 days after a completed reset)
 
 This information may include:
 ● Full name
@@ -38,6 +40,8 @@ This information may include:
 ● Marketplace order fulfillment details you enter at checkout for local pickup or local delivery (including contact and scheduling fields described above), stored with your order
 ● Address, jurisdiction, and transaction details shared with or derived for sales tax compliance providers (for example TaxJar) when we implement tax calculation and reporting for marketplace orders
 ● Any content you voluntarily provide
+
+Account security emails: When you sign up, we email a one-time verification code so we can confirm you control the email address you used. Until you enter that code (on the website login screen or in the app), you may not be able to sign in. If you use "Forgot password" (on the website or in the mobile app), we email a message with a link to choose a new password (web and app). For abuse prevention, after you successfully reset your password through that flow, we typically allow another reset email only after about 30 days. Those messages are delivered by our transactional email provider (Resend), which receives your email address and the message content we send. We store only a cryptographic hash of each verification code or link token and an expiry time in our database—not the plain code or full link. Verification codes and reset links work only for a limited time (for example, password-reset links for about one hour; signup verification codes for about 30 minutes), after which you can request a new message if still needed.
 
 NWC information disclosure
 ● NWC does not collect sensitive personal information such as Social Security numbers, driver's license numbers, government ID numbers, or medical information. Users should not submit this type of information to NWC.
@@ -96,6 +100,7 @@ We use the collected information for the following purposes:
 ● To verify business eligibility
 ● To improve website and app function and security
 ● To communicate with you about updates or policy changes
+● To verify your email address when you register and to send password-reset links when you ask for them
 ● To prevent fraud or misuse
 ● To enforce member-to-member blocks you create (for example, filtering feeds and certain interactions) and to review related safety reports
 ● To comply with legal obligations
@@ -115,7 +120,7 @@ We use third-party vendors such as:
 ● Expo push notification service (delivery of mobile push notifications when you enable them on your device)
 ● Shippo (shipping labels for marketplace orders)
 ● TaxJar or similar sales tax compliance providers (tax determination, reporting, and related processing for marketplace orders where NWC implements them), subject to their terms
-● Resend (transactional email)
+● Resend (transactional email—for example signup email verification, password-reset links, order tracking, subscription or renewal-related messages, and other service emails described in this policy)
 ● Our database hosting provider (PostgreSQL)
 
 These providers may access only the user information necessary to perform services on our behalf and must follow strict confidentiality guidelines.
@@ -176,6 +181,7 @@ We retain information for as long as necessary to:
 User-generated content (blogs, events, feed posts, comments, listings) may remain visible even after account deletion unless removal is explicitly requested.
 ● When a paid membership is canceled or lapses, NWC may promptly remove, deactivate, or hide subscription-tied listings, coupons, rewards, and business directory data as described in our Terms of Service and implemented in our systems; some records may be retained for the purposes above even after that cleanup.
 ● NWC may retain transaction-related information as required for tax, accounting, fraud-prevention, or legal compliance, even if a user requests deletion of their account.
+● Short-lived email verification and password-reset tokens (stored as hashes) are removed when you complete the step or when they expire.
 
 7. YOUR RIGHTS & CHOICES
 Depending on your location, you have rights to:

@@ -1,6 +1,7 @@
 /**
  * Routes guests (no member session) may not open in the mobile app.
- * Align with web guest policy: feed/browse ok; friends, groups, tags, hubs, orders, profile hub not.
+ * Align with web guest policy: feed/browse ok; Profile tab shows a sign-in prompt; friends, groups, tags,
+ * standalone hubs/orders routes, etc. stay gated.
  */
 
 const COMMUNITY_SUB_DENY = new Set([
@@ -43,8 +44,8 @@ export function shouldBlockGuestMobileRoute(segments: string[]): boolean {
   if (s[0] === "community" && s[1] === "group") return true;
   if (s[0] === "community" && s[1] && COMMUNITY_SUB_DENY.has(s[1])) return true;
 
-  // Profile tab (hubs / account) — guests use home/community browse only
-  if (s[0] === "my-community") return true;
+  // Profile tab (my-community): guests stay on the tab and see the sign-in prompt there.
+  // Do not redirect here — competing GuestRouteGuard replace() vs tab navigation has caused Android crashes.
 
   return false;
 }

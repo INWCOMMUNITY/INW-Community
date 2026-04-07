@@ -56,6 +56,8 @@ export default function SignupResidentScreen() {
   const [loading, setLoading] = useState(false);
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadge[]>([]);
   const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+  /** When badges finish, route here instead of signing in. */
+  const [verificationEmailAfterBadges, setVerificationEmailAfterBadges] = useState<string | null>(null);
 
   useEffect(() => {
     const raw = params.ref;
@@ -114,7 +116,11 @@ export default function SignupResidentScreen() {
     setLoading(true);
     try {
       const ref = await getPendingReferralCode();
-      const res = await apiPost<{ ok?: boolean; earnedBadges?: EarnedBadge[] }>("/api/auth/signup", {
+      const res = await apiPost<{
+        ok?: boolean;
+        earnedBadges?: EarnedBadge[];
+        requiresEmailVerification?: boolean;
+      }>("/api/auth/signup", {
         email: email.trim().toLowerCase(),
         password,
         firstName: firstName.trim(),
@@ -124,6 +130,19 @@ export default function SignupResidentScreen() {
         ...(ref ? { ref } : {}),
       });
       await clearPendingReferralCode();
+      if (res?.requiresEmailVerification === true) {
+        const addr = email.trim();
+        if (res?.earnedBadges?.length) {
+          setEarnedBadges(res.earnedBadges);
+          setVerificationEmailAfterBadges(addr);
+          setBadgePopupIndex(0);
+        } else {
+          (router.replace as (href: string) => void)(
+            `/verify-email-pending?email=${encodeURIComponent(addr)}&plan=subscribe`
+          );
+        }
+        return;
+      }
       if (res?.earnedBadges?.length) {
         setEarnedBadges(res.earnedBadges);
         setBadgePopupIndex(0);
@@ -320,7 +339,15 @@ export default function SignupResidentScreen() {
             } else {
               setBadgePopupIndex(-1);
               setEarnedBadges([]);
-              finishSignup();
+              const verifyAddr = verificationEmailAfterBadges;
+              setVerificationEmailAfterBadges(null);
+              if (verifyAddr) {
+                (router.replace as (href: string) => void)(
+                  `/verify-email-pending?email=${encodeURIComponent(verifyAddr)}&plan=subscribe`
+                );
+              } else {
+                finishSignup();
+              }
             }
           }}
           badgeName={earnedBadges[badgePopupIndex].name}
