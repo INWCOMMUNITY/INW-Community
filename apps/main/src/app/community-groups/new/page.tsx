@@ -17,6 +17,8 @@ export default function NewGroupPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [allowBusinessPosts, setAllowBusinessPosts] = useState(false);
+  const [rules, setRules] = useState("");
+  const [success, setSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleCoverUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -47,8 +49,9 @@ export default function NewGroupPage() {
     }
     setLoading(true);
     setError("");
+    setSuccess(false);
     try {
-      const res = await fetch("/api/groups", {
+      const res = await fetch("/api/group-creation-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -56,17 +59,24 @@ export default function NewGroupPage() {
           description: description.trim() || undefined,
           category: category.trim() || undefined,
           coverImageUrl: coverImageUrl || undefined,
+          rules: rules.trim() || undefined,
           allowBusinessPosts,
         }),
       });
       const data = await res.json();
       if (res.ok) {
-        router.push(`/my-community/groups/${data.group.slug}`);
+        setSuccess(true);
+        setName("");
+        setDescription("");
+        setCategory("");
+        setCoverImageUrl("");
+        setRules("");
+        setAllowBusinessPosts(false);
       } else {
-        setError(getErrorMessage(data.error, "Failed to create group"));
+        setError(getErrorMessage(data.error, "Failed to submit group request"));
       }
     } catch {
-      setError("Failed to create group");
+      setError("Failed to submit group request");
     } finally {
       setLoading(false);
     }
@@ -90,8 +100,17 @@ export default function NewGroupPage() {
         <Link href="/community-groups" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
           ← Back to groups
         </Link>
-        <h1 className="text-3xl font-bold mb-6">Create a group</h1>
+        <h1 className="text-3xl font-bold mb-2">Request a new group</h1>
+        <p className="text-gray-600 text-sm mb-6">
+          Your request is reviewed by Northwest Community. If it is not approved, you will receive an email explaining why.
+        </p>
         <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
+          {success && (
+            <p className="text-green-700 text-sm rounded border border-green-200 bg-green-50 px-3 py-2">
+              Request submitted. You will be able to open your group from the groups list after approval. Check your email
+              if you hear back about a denial.
+            </p>
+          )}
           {error && (
             <p className="text-red-600 text-sm">{error}</p>
           )}
@@ -130,6 +149,18 @@ export default function NewGroupPage() {
               maxLength={50}
               className="border rounded px-3 py-2 w-full"
               placeholder="e.g. Arts, Sports, Local"
+            />
+          </div>
+          <div>
+            <label htmlFor="rules" className="block text-sm font-medium mb-1">Group rules (optional)</label>
+            <textarea
+              id="rules"
+              value={rules}
+              onChange={(e) => setRules(e.target.value)}
+              maxLength={5000}
+              rows={4}
+              className="border rounded px-3 py-2 w-full"
+              placeholder="Members may need to agree before joining."
             />
           </div>
           <div>
@@ -191,7 +222,7 @@ export default function NewGroupPage() {
           </div>
           <div className="flex gap-3">
             <button type="submit" disabled={loading} className="btn">
-              {loading ? "Creating…" : "Create group"}
+              {loading ? "Submitting…" : "Submit request"}
             </button>
             <Link href="/community-groups" className="btn border">
               Cancel

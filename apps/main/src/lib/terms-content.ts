@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "April 5, 2026";
+export const TERMS_LAST_UPDATED = "April 7, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -103,6 +103,9 @@ NWC may restrict or remove posts at its discretion, particularly those involving
 4.3 Privacy
 Feed, group, and messaging information is not sold or shared, except in cases involving crime or threats to community safety.
 Users should not share private, sensitive, or confidential information in posts or messages. NWC is not responsible for consequences arising from users voluntarily disclosing their own information.
+
+4.4 Community groups (creation requests)
+To limit spam and keep groups aligned with community standards, you create a new community group by submitting a request through the website or app. Northwest Community reviews requests and may approve or deny them. If your request is denied, we will send an email to your account address explaining the decision in reasonable detail. Approved groups and their admins remain subject to these Terms, moderation, and removal policies.
 
 5. BLOG POLICY
 Anyone may submit a blog post.

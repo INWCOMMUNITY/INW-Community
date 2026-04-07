@@ -36,6 +36,7 @@ const SIDEBAR_SECTIONS = [
       { href: "/dashboard/events", label: "Events" },
       { href: "/dashboard/blogs", label: "Blogs" },
       { href: "/dashboard/posts", label: "Posts" },
+      { href: "/dashboard/group-requests", label: "Group requests" },
       { href: "/dashboard/tags", label: "Tags" },
       { href: "/dashboard/flagged", label: "Flagged" },
       { href: "/dashboard/reports", label: "Reports" },

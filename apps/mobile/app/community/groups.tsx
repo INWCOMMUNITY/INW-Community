@@ -22,7 +22,6 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiUploadFile } from "@/lib/api";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
 function toFullUrl(url: string): string {
@@ -61,12 +60,6 @@ export default function GroupsScreen() {
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [rulesJoinTarget, setRulesJoinTarget] = useState<Group | null>(null);
   const [joinBusyId, setJoinBusyId] = useState<string | null>(null);
-  const [earnedBadges, setEarnedBadges] = useState<
-    { slug: string; name: string; description?: string }[]
-  >([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
-  const [pendingGroupSlug, setPendingGroupSlug] = useState<string | null>(null);
-
   const load = useCallback(async () => {
     try {
       const params = new URLSearchParams();
@@ -149,13 +142,6 @@ export default function GroupsScreen() {
     }
   };
 
-  const finishCreateNavigation = useCallback(
-    (slug: string) => {
-      (router.push as (href: string) => void)(`/community/group/${slug}`);
-    },
-    [router]
-  );
-
   const handleCreate = async () => {
     if (!createName.trim()) {
       Alert.alert("Error", "Enter a group name");
@@ -163,10 +149,7 @@ export default function GroupsScreen() {
     }
     setCreating(true);
     try {
-      const data = await apiPost<{
-        group: { slug: string };
-        earnedBadges?: { slug: string; name: string; description?: string }[];
-      }>("/api/groups", {
+      await apiPost("/api/group-creation-requests", {
         name: createName.trim(),
         description: createDescription.trim() || undefined,
         category: createCategory.trim() || undefined,
@@ -182,19 +165,17 @@ export default function GroupsScreen() {
       setCreateCoverUrl(null);
       setCreateAllowBusinessPosts(false);
       load();
-      const slug = data?.group?.slug;
-      if (!slug) return;
-      const badges = data?.earnedBadges?.filter(Boolean) ?? [];
-      if (badges.length > 0) {
-        setPendingGroupSlug(slug);
-        setEarnedBadges(badges);
-        setBadgePopupIndex(0);
-      } else {
-        finishCreateNavigation(slug);
-      }
+      Alert.alert(
+        "Request sent",
+        "Your group request was submitted. We will email you if it is not approved. You will be able to open the group from this list once an admin approves it."
+      );
     } catch (e) {
       const err = e as { error?: string };
-      Alert.alert("Error", err?.error ?? "Failed to create group");
+      const msg =
+        typeof err?.error === "string"
+          ? err.error
+          : "Failed to submit group request. Try again.";
+      Alert.alert("Error", msg);
     } finally {
       setCreating(false);
     }
@@ -225,14 +206,14 @@ export default function GroupsScreen() {
         <Ionicons name="shield-checkmark" size={40} color={theme.colors.primary} style={styles.adminCalloutIcon} />
         <Text style={styles.adminCalloutTitle}>Become a Group Admin</Text>
         <Text style={styles.adminCalloutBody}>
-          Start a group around a hobby, theme, or project you care about, and connect with like-minded people in our
-          community.
+          Submit a request to start a group. Northwest Community reviews each request. If your request is not approved,
+          we will email you with a short explanation.
         </Text>
         <Pressable
           style={({ pressed }) => [styles.adminCalloutBtn, pressed && styles.buttonPressed]}
           onPress={() => setShowCreate(true)}
         >
-          <Text style={styles.adminCalloutBtnText}>Create group</Text>
+          <Text style={styles.adminCalloutBtnText}>Request a group</Text>
         </Pressable>
       </View>
 
@@ -361,7 +342,7 @@ export default function GroupsScreen() {
           keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
         >
           <View style={[styles.createModalHeader, { paddingTop: Math.max(insets.top, 12) }]}>
-            <Text style={styles.createModalHeaderTitle}>Create a group</Text>
+            <Text style={styles.createModalHeaderTitle}>Request a new group</Text>
             <Pressable
               onPress={() => {
                 setShowCreate(false);
@@ -471,7 +452,7 @@ export default function GroupsScreen() {
                 {creating ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.submitBtnText}>Create</Text>
+                  <Text style={styles.submitBtnText}>Submit request</Text>
                 )}
               </Pressable>
             </View>
@@ -479,26 +460,6 @@ export default function GroupsScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? (
-        <BadgeEarnedPopup
-          visible
-          onClose={() => {
-            const next = badgePopupIndex + 1;
-            if (next < earnedBadges.length) {
-              setBadgePopupIndex(next);
-            } else {
-              setBadgePopupIndex(-1);
-              setEarnedBadges([]);
-              const slug = pendingGroupSlug;
-              setPendingGroupSlug(null);
-              if (slug) finishCreateNavigation(slug);
-            }
-          }}
-          badgeName={earnedBadges[badgePopupIndex].name}
-          badgeSlug={earnedBadges[badgePopupIndex].slug}
-          badgeDescription={earnedBadges[badgePopupIndex].description}
-        />
-      ) : null}
     </>
   );
 }

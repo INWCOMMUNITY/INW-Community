@@ -37,6 +37,8 @@ function liveDirectPayload(
 }
 import { isBlocked } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import { checkMemberRateLimit } from "@/lib/member-rate-limit";
 import { z } from "zod";
 
 function isDirectConversationColumnError(e: unknown): boolean {
@@ -171,6 +173,21 @@ export async function POST(
   const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
+
+  const sendRl = checkMemberRateLimit(`dm:send:${session.user.id}`, 120, 60 * 1000);
+  if (!sendRl.allowed) {
+    return NextResponse.json(
+      {
+        error: "You are sending messages too quickly. Slow down and try again shortly.",
+        code: "RATE_LIMIT",
+        retryAfterSec: sendRl.retryAfterSec,
+      },
+      { status: 429 }
+    );
   }
 
   const { id } = await params;

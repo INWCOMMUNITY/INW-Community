@@ -6,6 +6,8 @@ import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 import { getBlockedMemberIds } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import { checkMemberRateLimit } from "@/lib/member-rate-limit";
 import { z } from "zod";
 
 export async function GET(
@@ -87,6 +89,21 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
+
+  const sendRl = checkMemberRateLimit(`gc:send:${session.user.id}`, 120, 60 * 1000);
+  if (!sendRl.allowed) {
+    return NextResponse.json(
+      {
+        error: "You are sending messages too quickly. Slow down and try again shortly.",
+        code: "RATE_LIMIT",
+        retryAfterSec: sendRl.retryAfterSec,
+      },
+      { status: 429 }
+    );
+  }
+
   const { id } = await params;
   const membership = await prisma.groupConversationMember.findUnique({
     where: {
@@ -158,6 +175,31 @@ export async function POST(
     sharedContentSlug: message.sharedContentSlug,
   };
   scheduleRealtimePublish(publishGroupConversationMessage(id, live));
+
+  const recipients = await prisma.groupConversationMember.findMany({
+    where: { conversationId: id, memberId: { not: session.user.id } },
+    select: { memberId: true },
+  });
+  const convMeta = await prisma.groupConversation.findUnique({
+    where: { id },
+    select: { name: true },
+  });
+  const chatLabel = convMeta?.name?.trim() || "Group chat";
+  const pushBody =
+    contentTrimmed.length > 0
+      ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+      : `${message.sender.firstName} sent a message in ${chatLabel}`;
+  const { sendPushNotification } = await import("@/lib/send-push-notification");
+  await Promise.all(
+    recipients.map((r) =>
+      sendPushNotification(r.memberId, {
+        title: chatLabel,
+        body: pushBody,
+        data: { screen: "messages/group", conversationId: id },
+        category: "messages",
+      }).catch(() => {})
+    )
+  );
 
   return NextResponse.json(message);
 }

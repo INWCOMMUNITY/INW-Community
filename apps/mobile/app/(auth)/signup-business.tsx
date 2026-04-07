@@ -68,6 +68,7 @@ export default function SignupBusinessScreen() {
   const [zip, setZip] = useState("");
   const [businessData, setBusinessData] = useState<Record<string, unknown> | null>(null);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [communityStandardsAck, setCommunityStandardsAck] = useState(false);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -123,6 +124,10 @@ export default function SignupBusinessScreen() {
     setError("");
     if (!ageConfirmed) {
       setError("You must confirm you are 16 years or older to sign up.");
+      return;
+    }
+    if (!communityStandardsAck) {
+      setError("Please confirm you agree to follow Northwest Community standards and the Terms of Service.");
       return;
     }
     if (!email.trim() || !password) {
@@ -287,6 +292,21 @@ export default function SignupBusinessScreen() {
                 />
               </View>
               <Text style={styles.ageLabel}>I confirm I am 16 years or older</Text>
+            </View>
+            <View style={styles.ageRow}>
+              <View style={signupAgeSwitchOutline}>
+                <Switch
+                  value={communityStandardsAck}
+                  onValueChange={setCommunityStandardsAck}
+                  trackColor={switchTrackColor()}
+                  thumbColor={switchThumbColor(communityStandardsAck)}
+                  ios_backgroundColor={switchIosBackgroundColor}
+                />
+              </View>
+              <Text style={styles.ageLabel}>
+                I agree to follow community standards, listings truthfulness, and the Terms of Service (including
+                conduct rules for businesses on the platform).
+              </Text>
             </View>
             <TextInput
               style={styles.input}

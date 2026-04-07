@@ -3,6 +3,8 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getBlockedMemberIds } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import { checkMemberRateLimit } from "@/lib/member-rate-limit";
 import { z } from "zod";
 
 function normalizePair(a: string, b: string): [string, string] {
@@ -115,6 +117,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
+
   let data: z.infer<typeof postBodySchema>;
   try {
     const body = await req.json();
@@ -172,6 +177,17 @@ export async function POST(req: NextRequest) {
     });
 
     if (!conversation) {
+      const newRl = checkMemberRateLimit(`dm:new:${session.user.id}`, 30, 60 * 60 * 1000);
+      if (!newRl.allowed) {
+        return NextResponse.json(
+          {
+            error: "Too many new conversations started. Try again in a little while.",
+            code: "RATE_LIMIT",
+            retryAfterSec: newRl.retryAfterSec,
+          },
+          { status: 429 }
+        );
+      }
       const status = areFriends ? "accepted" : "pending";
       const requestedByMemberId = areFriends ? null : session.user.id;
       conversation = await prisma.directConversation.create({
@@ -193,6 +209,17 @@ export async function POST(req: NextRequest) {
   const hasContent = data.content !== undefined && data.content.trim() !== "";
   const hasShared = data.sharedContentType && data.sharedContentId;
   if (hasContent || hasShared) {
+    const sendRl = checkMemberRateLimit(`dm:send:${session.user.id}`, 120, 60 * 1000);
+    if (!sendRl.allowed) {
+      return NextResponse.json(
+        {
+          error: "You are sending messages too quickly. Slow down and try again shortly.",
+          code: "RATE_LIMIT",
+          retryAfterSec: sendRl.retryAfterSec,
+        },
+        { status: 429 }
+      );
+    }
     const contentTrimmed = (data.content ?? "").trim();
     if (contentTrimmed) {
       const contentCheck = validateText(contentTrimmed, "message");

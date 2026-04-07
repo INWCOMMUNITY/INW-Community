@@ -1,27 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireAdmin } from "@/lib/admin-auth";
+import { createGroupForMember, groupCreationPayloadSchema } from "@/lib/create-group-core";
 import { z } from "zod";
-
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
-const postSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().max(2000).optional(),
-  category: z.string().max(50).optional(),
-  coverImageUrl: z
-    .string()
-    .refine((v) => !v || v.startsWith("/") || v.startsWith("http"), "Invalid cover image URL")
-    .optional()
-    .nullable(),
-  rules: z.string().max(5000).optional().nullable(),
-  allowBusinessPosts: z.boolean().optional(),
-});
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -88,60 +70,31 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ groups: groupsWithMembership });
 }
 
+/**
+ * Direct group creation is restricted to platform admins. Members submit
+ * `/api/group-creation-requests` for review.
+ */
 export async function POST(req: NextRequest) {
-  const session = await getSessionForApi(req);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const member = await prisma.member.findUnique({
-    where: { id: session.user.id },
-    select: { privacyLevel: true },
-  });
-  if (member?.privacyLevel === "completely_private") {
-    return NextResponse.json({ error: "Cannot create groups with completely private account" }, { status: 403 });
+  if (!(await requireAdmin(req))) {
+    return NextResponse.json(
+      { error: "Group creation requires admin approval. Submit a request from the app or website." },
+      { status: 403 }
+    );
   }
 
   try {
     const body = await req.json();
-    const data = postSchema.parse(body);
-
-    let slug = slugify(data.name);
-    let suffix = 0;
-    while (await prisma.group.findUnique({ where: { slug } })) {
-      slug = `${slugify(data.name)}-${++suffix}`;
-    }
-
-    const group = await prisma.group.create({
-      data: {
-        name: data.name,
-        description: data.description ?? null,
-        category: data.category ?? null,
-        coverImageUrl: data.coverImageUrl ?? null,
-        rules: data.rules ?? null,
-        allowBusinessPosts: data.allowBusinessPosts ?? false,
-        slug,
-        createdById: session.user.id,
-      },
+    const adminCreateSchema = groupCreationPayloadSchema.extend({
+      createdByMemberId: z.string().min(1),
     });
+    const parsed = adminCreateSchema.parse(body);
+    const { createdByMemberId, ...data } = parsed;
 
-    await prisma.groupMember.create({
-      data: {
-        groupId: group.id,
-        memberId: session.user.id,
-        role: "admin",
-      },
+    const { group, earnedBadges } = await createGroupForMember(createdByMemberId, data);
+    const full = await prisma.group.findUnique({
+      where: { id: group.id },
     });
-
-    const { awardAdminBadge } = await import("@/lib/badge-award");
-    let earnedBadges: { slug: string; name: string; description: string }[] = [];
-    try {
-      earnedBadges = await awardAdminBadge(session.user.id);
-    } catch {
-      /* badge award is best-effort */
-    }
-
-    return NextResponse.json({ group, earnedBadges });
+    return NextResponse.json({ group: full, earnedBadges });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });

@@ -23,11 +23,11 @@ export function CreateGroupCallout({ className = "" }: { className?: string }) {
         className="text-sm sm:text-base mb-6 max-w-lg mx-auto leading-relaxed"
         style={{ color: "var(--color-text)" }}
       >
-        Start a group around a hobby, theme, or project you care about, and connect with like-minded people in our
-        community.
+        Submit a request to start a group. Requests are reviewed; if yours is not approved, you will get an email with a
+        brief explanation.
       </p>
       <Link href="/community-groups/new" className="btn inline-block">
-        Create group
+        Request a group
       </Link>
     </aside>
   );

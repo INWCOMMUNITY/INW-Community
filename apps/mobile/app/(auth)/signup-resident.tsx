@@ -12,6 +12,7 @@ import {
   Platform,
   Switch,
 } from "react-native";
+import { Picker } from "@react-native-picker/picker";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -201,6 +202,9 @@ export default function SignupResidentScreen() {
             textContentType="familyName"
             autoCorrect={true}
           />
+          <Text style={styles.namePolicyHint}>
+            Use your real first and last name. Offensive or fake names are not allowed and may be removed.
+          </Text>
           <TextInput
             style={styles.input}
             placeholder="Email"
@@ -248,33 +252,20 @@ export default function SignupResidentScreen() {
           <Text style={styles.cityHint}>
             Same list as business profiles. Choose Other if your city is not listed.
           </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.pickerScroll}
-            contentContainerStyle={styles.pickerRow}
-          >
-            {[...PREBUILT_CITIES, "Other"].map((c) => (
-              <Pressable
-                key={c}
-                style={[
-                  styles.pickerOption,
-                  cityPicker === c && styles.pickerOptionSelected,
-                ]}
-                onPress={() => setCityPicker((prev) => (prev === c ? "" : c))}
-              >
-                <Text
-                  style={[
-                    styles.pickerOptionText,
-                    cityPicker === c && styles.pickerOptionTextSelected,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {c}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          <View style={styles.cityPickerWrap}>
+            <Picker
+              selectedValue={cityPicker}
+              onValueChange={(v) => setCityPicker(typeof v === "string" ? v : String(v))}
+              style={styles.cityPicker}
+              accessibilityLabel="City of residence"
+            >
+              <Picker.Item label="Skip (no city)" value="" />
+              {PREBUILT_CITIES.map((c) => (
+                <Picker.Item key={c} label={c} value={c} />
+              ))}
+              <Picker.Item label="Other (enter below)" value="Other" />
+            </Picker>
+          </View>
           {cityPicker === "Other" ? (
             <TextInput
               style={styles.input}
@@ -428,6 +419,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#fff",
   },
+  namePolicyHint: {
+    fontSize: 12,
+    color: "#fff",
+    opacity: 0.88,
+    marginBottom: 10,
+    lineHeight: 17,
+    paddingHorizontal: 2,
+  },
   cityLabel: {
     fontSize: 14,
     fontWeight: "600",
@@ -441,18 +440,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     lineHeight: 17,
   },
-  pickerScroll: { marginBottom: 12, marginHorizontal: -4 },
-  pickerRow: { flexDirection: "row", gap: 8, paddingHorizontal: 4, flexWrap: "wrap" },
-  pickerOption: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 6,
+  cityPickerWrap: {
+    marginBottom: 12,
+    borderRadius: 8,
     borderWidth: 2,
-    borderColor: "#fff",
+    borderColor: "rgba(255,255,255,0.85)",
+    backgroundColor: "rgba(255,255,255,0.95)",
+    overflow: "hidden",
   },
-  pickerOptionSelected: { backgroundColor: "#fff" },
-  pickerOptionText: { fontSize: 13, color: "#fff" },
-  pickerOptionTextSelected: { color: theme.colors.primary },
+  cityPicker: {
+    ...(Platform.OS === "ios" ? { height: 160 } : {}),
+  },
   button: {
     backgroundColor: "#fff",
     paddingVertical: 12,

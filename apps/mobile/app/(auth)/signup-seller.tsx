@@ -68,6 +68,7 @@ export default function SignupSellerScreen() {
   const [businessData, setBusinessData] = useState<Record<string, unknown> | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
   const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [communityStandardsAck, setCommunityStandardsAck] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [allowRemoveWithoutPrompt, setAllowRemoveWithoutPrompt] = useState(false);
@@ -122,6 +123,10 @@ export default function SignupSellerScreen() {
     setError("");
     if (!ageConfirmed) {
       setError("You must confirm you are 16 years or older to sign up.");
+      return;
+    }
+    if (!communityStandardsAck) {
+      setError("Please confirm you agree to follow Northwest Community standards and the Terms of Service.");
       return;
     }
     if (!email.trim() || !password) {
@@ -279,6 +284,21 @@ export default function SignupSellerScreen() {
                 />
               </View>
               <Text style={styles.ageLabel}>I confirm I am 16 years or older</Text>
+            </View>
+            <View style={styles.ageRow}>
+              <View style={signupAgeSwitchOutline}>
+                <Switch
+                  value={communityStandardsAck}
+                  onValueChange={setCommunityStandardsAck}
+                  trackColor={switchTrackColor()}
+                  thumbColor={switchThumbColor(communityStandardsAck)}
+                  ios_backgroundColor={switchIosBackgroundColor}
+                />
+              </View>
+              <Text style={styles.ageLabel}>
+                I agree to follow community standards and the Terms of Service. I understand payouts require completing
+                Stripe identity verification when I set up selling.
+              </Text>
             </View>
             <TextInput
               style={styles.input}

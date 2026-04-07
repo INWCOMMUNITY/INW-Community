@@ -37,7 +37,7 @@ const getProjectId = (): string | undefined => {
   }
 };
 
-const MESSAGE_SCREENS = new Set(["messages", "resale-hub/messages"]);
+const MESSAGE_SCREENS = new Set(["messages", "resale-hub/messages", "messages/group"]);
 
 function shouldSuppressChatNotification(data: NotificationData | undefined): boolean {
   if (!data?.conversationId) return false;
@@ -114,6 +114,8 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
   switch (data.screen) {
     case "messages":
       return data.conversationId ? `/messages/${data.conversationId}` : "/messages";
+    case "messages/group":
+      return data.conversationId ? `/messages/group/${data.conversationId}` : "/messages";
     case "seller-hub/orders":
       return data.orderId ? `/seller-hub/orders/${data.orderId}` : "/seller-hub/orders";
     case "my-badges":

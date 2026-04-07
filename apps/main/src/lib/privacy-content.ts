@@ -16,6 +16,7 @@ You may provide information when you:
 ● Post a listing
 ● Submit a blog
 ● Post in the community feed, groups, or messaging
+● Request creation of a new community group (we store the name, description, rules, and related details you submit for review; if a request is denied, we send an email to your account address that may include the reason, and we may retain the request record for moderation and audit)
 ● Submit an event
 ● Submit an NWC Requests form on the website, or send a Support & contact message from the mobile app
 ● Make a payment

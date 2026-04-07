@@ -3,6 +3,8 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import { checkMemberRateLimit } from "@/lib/member-rate-limit";
 import { z } from "zod";
 
 const postSchema = z.object({
@@ -24,6 +26,21 @@ export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
+
+  const postRl = checkMemberRateLimit(`post:create:${session.user.id}`, 60, 60 * 60 * 1000);
+  if (!postRl.allowed) {
+    return NextResponse.json(
+      {
+        error: "You are posting too quickly. Try again later.",
+        code: "RATE_LIMIT",
+        retryAfterSec: postRl.retryAfterSec,
+      },
+      { status: 429 }
+    );
   }
 
   const member = await prisma.member.findUnique({

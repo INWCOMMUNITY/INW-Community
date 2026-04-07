@@ -29,6 +29,7 @@ interface ResaleConversation {
 interface DirectConversation {
   id: string;
   status?: string;
+  requestedByMemberId?: string | null;
   memberALastReadAt?: string | null;
   memberBLastReadAt?: string | null;
   memberA: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
@@ -330,6 +331,21 @@ export default function MyCommunityMessagesPage() {
   const realtimeDirectId = directId ?? openDirect?.id ?? null;
   const realtimeGroupId = groupId ?? openGroup?.id ?? null;
   const realtimeResaleId = resaleId ?? openResale?.id ?? null;
+
+  const directMessageRequestForViewer = useMemo(() => {
+    if (!openDirect || openDirect.status !== "pending" || !session?.user?.id) return false;
+    const rid = openDirect.requestedByMemberId;
+    return !!rid && rid !== session.user.id;
+  }, [openDirect, session?.user?.id]);
+
+  /** Until accept: recipient cannot reply; requester only gets one outbound message (API-enforced). */
+  const directDmReplyBlocked = useMemo(() => {
+    if (!openDirect || openDirect.status !== "pending" || !session?.user?.id) return false;
+    const rid = openDirect.requestedByMemberId;
+    if (!rid) return false;
+    if (rid !== session.user.id) return true;
+    return openDirect.messages.length > 0;
+  }, [openDirect, session?.user?.id]);
 
   const { typingPeerIds, peerPresenceIds, onComposerTyping, stopComposerTyping } = useMessagesPageRealtime({
     tab,
@@ -1126,7 +1142,7 @@ export default function MyCommunityMessagesPage() {
                   );
                 })()}
               </div>
-              {openDirect.status === "pending" && openDirect.messages.some((m) => m.senderId !== session?.user?.id) && (
+              {directMessageRequestForViewer && (
                 <div className="px-4 py-3 border-b border-gray-200 shrink-0" style={{ backgroundColor: "var(--color-section-alt)" }}>
                   <p className="text-sm text-gray-800 mb-2">Message request — accept to continue the conversation</p>
                   <div className="flex gap-3">
@@ -1139,11 +1155,9 @@ export default function MyCommunityMessagesPage() {
                   </div>
                 </div>
               )}
-              {typingPeersResolved.length > 0 &&
-                !(
-                  openDirect.status === "pending" &&
-                  openDirect.messages.some((m) => m.senderId !== session?.user?.id)
-                ) && <ChatTypingIndicator peers={typingPeersResolved} />}
+              {typingPeersResolved.length > 0 && !directMessageRequestForViewer && (
+                <ChatTypingIndicator peers={typingPeersResolved} />
+              )}
               <div className="flex-1 overflow-y-scroll overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-gutter:stable]">
                 {openDirect.messages.map((m) => {
                   const isMe = session?.user?.id && m.senderId === session.user.id;
@@ -1199,40 +1213,50 @@ export default function MyCommunityMessagesPage() {
                   <ChatSeenPresenceRow showSeen={showDirectSeen} peers={chatPresencePeers} />
                 )}
               </div>
-              <div className="p-3 border-t border-gray-200 flex items-end gap-2 shrink-0 bg-white">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGifInsertTarget("reply");
-                    setGifPickerOpen(true);
-                  }}
-                  className="shrink-0 px-3 py-2 rounded-full border-2 text-sm font-semibold text-[var(--color-heading)]"
-                  style={{ borderColor: "var(--color-primary)" }}
-                >
-                  GIF
-                </button>
-                <textarea
-                  value={reply}
-                  onChange={(e) => {
-                    setReply(e.target.value);
-                    onComposerTyping();
-                  }}
-                  className="flex-1 min-h-[40px] max-h-[120px] rounded-full border-2 px-4 py-2.5 text-base resize-none"
-                  style={{ borderColor: "var(--color-primary)" }}
-                  rows={1}
-                  placeholder="Message..."
-                />
-                <button
-                  type="button"
-                  onClick={sendDirectReply}
-                  disabled={sending || !reply.trim()}
-                  className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 text-white"
-                  style={{ backgroundColor: "var(--color-primary)" }}
-                  aria-label="Send"
-                >
-                  <IonIcon name="send" size={22} className="text-white" />
-                </button>
-              </div>
+              {directDmReplyBlocked ? (
+                <div className="px-4 py-3 border-t border-gray-200 shrink-0 bg-amber-50">
+                  <p className="text-sm text-gray-800">
+                    {directMessageRequestForViewer
+                      ? "Accept the request above to reply and start the conversation."
+                      : "You've sent a message request. You can chat again after they accept."}
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 border-t border-gray-200 flex items-end gap-2 shrink-0 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGifInsertTarget("reply");
+                      setGifPickerOpen(true);
+                    }}
+                    className="shrink-0 px-3 py-2 rounded-full border-2 text-sm font-semibold text-[var(--color-heading)]"
+                    style={{ borderColor: "var(--color-primary)" }}
+                  >
+                    GIF
+                  </button>
+                  <textarea
+                    value={reply}
+                    onChange={(e) => {
+                      setReply(e.target.value);
+                      onComposerTyping();
+                    }}
+                    className="flex-1 min-h-[40px] max-h-[120px] rounded-full border-2 px-4 py-2.5 text-base resize-none"
+                    style={{ borderColor: "var(--color-primary)" }}
+                    rows={1}
+                    placeholder="Message..."
+                  />
+                  <button
+                    type="button"
+                    onClick={sendDirectReply}
+                    disabled={sending || !reply.trim()}
+                    className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 text-white"
+                    style={{ backgroundColor: "var(--color-primary)" }}
+                    aria-label="Send"
+                  >
+                    <IonIcon name="send" size={22} className="text-white" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </>

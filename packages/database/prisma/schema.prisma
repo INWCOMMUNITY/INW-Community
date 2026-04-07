@@ -119,6 +119,7 @@ model Member {
   notificationPreferences MemberNotificationPreferences?
   webviewBridgeTokens      WebviewBridgeToken[]
   planSwitchLogs           PlanSwitchLog[]
+  groupCreationRequests    GroupCreationRequest[] @relation("GroupCreationRequester")
 }
 
 model WebviewBridgeToken {
@@ -505,8 +506,35 @@ model Group {
   members    GroupMember[]
   groupPosts GroupPost[]
   adminInvites GroupAdminInvite[]
+  creationSourceRequest GroupCreationRequest?
 
   @@index([createdById])
+}
+
+/// Member-submitted request to create a community group; platform admin approves or denies.
+model GroupCreationRequest {
+  id                   String    @id @default(cuid())
+  requesterMemberId    String    @map("requester_member_id")
+  name                 String
+  description          String?   @db.Text
+  category             String?
+  coverImageUrl        String?   @map("cover_image_url")
+  rules                String?   @db.Text
+  allowBusinessPosts   Boolean   @default(false) @map("allow_business_posts")
+  status               String    @default("pending") // pending | approved | denied
+  denialReason         String?   @map("denial_reason") @db.Text
+  reviewedAt           DateTime? @map("reviewed_at")
+  reviewedByAdminEmail String?   @map("reviewed_by_admin_email")
+  resultingGroupId     String?   @unique @map("resulting_group_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  requester      Member @relation("GroupCreationRequester", fields: [requesterMemberId], references: [id], onDelete: Cascade)
+  resultingGroup Group? @relation(fields: [resultingGroupId], references: [id], onDelete: SetNull)
+
+  @@index([requesterMemberId])
+  @@index([status])
+  @@map("group_creation_request")
 }
 
 model GroupAdminInvite {
