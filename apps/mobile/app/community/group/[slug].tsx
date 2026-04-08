@@ -17,7 +17,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiPatch } from "@/lib/api";
 import { fetchGroupFeed, toggleLike, deletePost, type FeedPost } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
@@ -48,7 +48,7 @@ interface GroupDetail {
 }
 
 export default function GroupDetailScreen() {
-  const { slug } = useLocalSearchParams<{ slug: string }>();
+  const { slug, adminInvite } = useLocalSearchParams<{ slug: string; adminInvite?: string }>();
   const router = useRouter();
   const navigation = useNavigation();
   const { member } = useAuth();
@@ -139,9 +139,53 @@ export default function GroupDetailScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useLayoutEffect(() => {
     if (group?.name) {
-      navigation.setOptions({ title: group.name });
+      navigation.setOptions({
+        title: group.name,
+        headerRight:
+          group.memberRole === "admin"
+            ? () => (
+                <Pressable
+                  onPress={() =>
+                    (router.push as (h: string) => void)(`/community/group-admin?slug=${encodeURIComponent(slug)}`)
+                  }
+                  hitSlop={12}
+                  style={({ pressed }) => [{ paddingHorizontal: 10, opacity: pressed ? 0.85 : 1 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Group admin"
+                >
+                  <Ionicons name="shield" size={24} color="#fff" />
+                </Pressable>
+              )
+            : undefined,
+      });
     }
-  }, [group?.name, navigation]);
+  }, [group?.name, group?.memberRole, navigation, router, slug]);
+
+  const adminInviteHandledSlugRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (adminInvite !== "1" || !slug || !member) return;
+    if (adminInviteHandledSlugRef.current === slug) return;
+    adminInviteHandledSlugRef.current = slug;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await apiPatch(`/api/groups/${slug}/admin-invite`, { action: "accept" });
+        if (!cancelled) {
+          Alert.alert("Co-admin", "You accepted the group admin invite.");
+          await load();
+        }
+      } catch (e) {
+        adminInviteHandledSlugRef.current = null;
+        if (!cancelled) {
+          const msg = (e as { error?: string })?.error ?? "Could not accept invite.";
+          Alert.alert("Invite", msg);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [adminInvite, slug, member?.id, load]);
 
   useEffect(() => {
     if (group?.isMember && slug) loadFeed(undefined, true);

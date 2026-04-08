@@ -244,7 +244,13 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   }
 
   try {
-    await prisma.post.delete({ where: { id } });
+    await prisma.$transaction([
+      prisma.report.updateMany({
+        where: { contentType: "post", contentId: id },
+        data: { status: "resolved" },
+      }),
+      prisma.post.delete({ where: { id } }),
+    ]);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[DELETE /api/posts/[id]]", e);

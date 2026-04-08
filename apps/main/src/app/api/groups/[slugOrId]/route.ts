@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { z } from "zod";
 
 function isCuid(s: string): boolean {
@@ -46,6 +47,14 @@ export async function GET(
   let isMember = false;
   let memberRole: string | null = null;
   if (session?.user?.id) {
+    const banned = await prisma.groupMemberBan.findUnique({
+      where: {
+        groupId_memberId: { groupId: group.id, memberId: session.user.id },
+      },
+    });
+    if (banned) {
+      return NextResponse.json({ error: "Group not found" }, { status: 404 });
+    }
     const membership = await prisma.groupMember.findUnique({
       where: {
         groupId_memberId: { groupId: group.id, memberId: session.user.id },
@@ -74,6 +83,8 @@ export async function PATCH(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   const { slugOrId } = await params;
   const group = await prisma.group.findFirst({

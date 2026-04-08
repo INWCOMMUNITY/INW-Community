@@ -7,20 +7,14 @@ const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000
 
 interface RequestRow {
   id: string;
-  name: string;
-  description: string | null;
-  category: string | null;
-  coverImageUrl: string | null;
-  rules: string | null;
-  allowBusinessPosts: boolean;
+  groupId: string;
   status: string;
-  denialReason: string | null;
   createdAt: string;
+  group: { id: string; name: string; slug: string };
   requester: { id: string; email: string; firstName: string; lastName: string };
-  resultingGroup: { id: string; slug: string; name: string } | null;
 }
 
-export default function GroupCreationRequestsPage() {
+export default function GroupDeletionRequestsPage() {
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -30,7 +24,7 @@ export default function GroupCreationRequestsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch(`${MAIN_URL}/api/admin/group-creation-requests?status=pending`, {
+    fetch(`${MAIN_URL}/api/admin/group-deletion-requests?status=pending`, {
       headers: { "x-admin-code": ADMIN_CODE },
     })
       .then((r) => r.json())
@@ -47,7 +41,7 @@ export default function GroupCreationRequestsPage() {
     setError("");
     setBusyId(id);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/group-creation-requests/${id}/approve`, {
+      const res = await fetch(`${MAIN_URL}/api/admin/group-deletion-requests/${id}/approve`, {
         method: "POST",
         headers: { "x-admin-code": ADMIN_CODE },
       });
@@ -67,13 +61,13 @@ export default function GroupCreationRequestsPage() {
   async function deny(id: string) {
     const reason = denyReason.trim();
     if (reason.length < 20) {
-      setError("Denial reason must be at least 20 characters (sent to the member by email).");
+      setError("Denial reason must be at least 20 characters.");
       return;
     }
     setError("");
     setBusyId(id);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/group-creation-requests/${id}/deny`, {
+      const res = await fetch(`${MAIN_URL}/api/admin/group-deletion-requests/${id}/deny`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -100,17 +94,13 @@ export default function GroupCreationRequestsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-2">Community groups</h1>
+      <h1 className="text-2xl font-bold mb-2">Group deletion requests</h1>
       <p className="text-gray-600 mb-6">
-        Pending requests to create a new group. Approve to create the group and make the requester an admin. Deny to reject
-        and email them your explanation (required, min 20 characters).
+        A group creator asked to delete their group. Approving permanently removes the group and its feed posts. Denying
+        requires a reason (min 20 characters).
       </p>
       {error ? <p className="text-red-600 mb-4">{error}</p> : null}
-      <button
-        type="button"
-        onClick={() => load()}
-        className="mb-6 text-sm text-blue-600 hover:underline"
-      >
+      <button type="button" onClick={() => load()} className="mb-6 text-sm text-blue-600 hover:underline">
         Refresh
       </button>
       {requests.length === 0 ? (
@@ -119,53 +109,39 @@ export default function GroupCreationRequestsPage() {
         <ul className="space-y-6">
           {requests.map((r) => (
             <li key={r.id} className="border rounded-lg p-4 bg-gray-50 space-y-2">
-              <p className="font-semibold text-lg">{r.name}</p>
+              <p className="font-semibold text-lg">{r.group.name}</p>
+              <p className="text-sm text-gray-500">/{r.group.slug}</p>
               <p className="text-sm text-gray-600">
                 Requested by {r.requester.firstName} {r.requester.lastName} ({r.requester.email})
               </p>
-              {r.category ? <p className="text-sm"><span className="font-medium">Category:</span> {r.category}</p> : null}
-              {r.description ? (
-                <p className="text-sm whitespace-pre-wrap"><span className="font-medium">Description:</span> {r.description}</p>
-              ) : null}
-              {r.rules ? (
-                <p className="text-sm whitespace-pre-wrap"><span className="font-medium">Rules:</span> {r.rules}</p>
-              ) : null}
-              <p className="text-sm">
-                <span className="font-medium">Allow business posts:</span> {r.allowBusinessPosts ? "Yes" : "No"}
-              </p>
-              {r.coverImageUrl ? (
-                <a href={r.coverImageUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-600 break-all">
-                  Cover image
-                </a>
-              ) : null}
+              <p className="text-xs text-gray-500">Submitted {new Date(r.createdAt).toLocaleString()}</p>
               {denyForId === r.id ? (
-                <div className="pt-2 space-y-2">
-                  <label className="block text-sm font-medium">Reason for denial (emailed to member)</label>
+                <div className="space-y-2 pt-2">
                   <textarea
+                    className="w-full border rounded p-2 text-sm"
+                    rows={4}
+                    placeholder="Explain why the group will stay (min 20 characters)…"
                     value={denyReason}
                     onChange={(e) => setDenyReason(e.target.value)}
-                    rows={4}
-                    className="w-full border rounded px-3 py-2 text-sm"
-                    placeholder="At least 20 characters explaining why the request was not approved."
                   />
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      disabled={busyId === r.id}
-                      onClick={() => deny(r.id)}
-                      className="px-3 py-1 rounded bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-                    >
-                      Send denial email
-                    </button>
-                    <button
-                      type="button"
+                      className="px-3 py-1 bg-gray-200 rounded text-sm"
                       onClick={() => {
                         setDenyForId(null);
                         setDenyReason("");
                       }}
-                      className="px-3 py-1 rounded border text-sm"
                     >
                       Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="px-3 py-1 bg-red-600 text-white rounded text-sm disabled:opacity-50"
+                      disabled={busyId === r.id}
+                      onClick={() => deny(r.id)}
+                    >
+                      {busyId === r.id ? "Sending…" : "Submit denial"}
                     </button>
                   </div>
                 </div>
@@ -173,22 +149,19 @@ export default function GroupCreationRequestsPage() {
                 <div className="flex flex-wrap gap-2 pt-2">
                   <button
                     type="button"
+                    className="px-4 py-2 bg-green-600 text-white rounded text-sm font-medium disabled:opacity-50"
                     disabled={busyId === r.id}
                     onClick={() => approve(r.id)}
-                    className="px-3 py-1 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50"
                   >
-                    Approve
+                    {busyId === r.id ? "Working…" : "Approve deletion"}
                   </button>
                   <button
                     type="button"
+                    className="px-4 py-2 border border-gray-400 rounded text-sm font-medium"
                     disabled={busyId === r.id}
-                    onClick={() => {
-                      setDenyForId(r.id);
-                      setDenyReason("");
-                    }}
-                    className="px-3 py-1 rounded bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                    onClick={() => setDenyForId(r.id)}
                   >
-                    Deny…
+                    Deny
                   </button>
                 </div>
               )}

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import {
+  sendGroupAdminInviteChatMessage,
+  sendGroupCoAdminPromotedChatMessage,
+} from "@/lib/send-group-admin-invite-chat";
 import { z } from "zod";
 
 function isCuid(s: string): boolean {
@@ -19,6 +24,8 @@ export async function POST(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   const { slugOrId } = await params;
   const group = await prisma.group.findFirst({
@@ -67,6 +74,12 @@ export async function POST(
         where: { id: existingMembership.id },
         data: { role: "admin", invitedById: session.user.id },
       });
+      void sendGroupCoAdminPromotedChatMessage({
+        inviterId: session.user.id,
+        inviteeId,
+        groupSlug: group.slug,
+        groupName: group.name,
+      });
       return NextResponse.json({ ok: true, role: "admin" });
     }
 
@@ -95,6 +108,12 @@ export async function POST(
         inviterId: session.user.id,
         status: "pending",
       },
+    });
+    void sendGroupAdminInviteChatMessage({
+      inviterId: session.user.id,
+      inviteeId,
+      groupSlug: group.slug,
+      groupName: group.name,
     });
     return NextResponse.json({ ok: true, message: "Invite sent" });
   } catch (e) {

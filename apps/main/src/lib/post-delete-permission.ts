@@ -6,6 +6,7 @@ type PostAuthRow = {
   sourceCouponId: string | null;
   sourceRewardId: string | null;
   sourcePostId: string | null;
+  groupId: string | null;
 };
 
 /** Author may always delete. Business owner may delete posts that promote their listing/coupon/reward (including nested reshares). */
@@ -25,6 +26,7 @@ export async function canMemberDeletePost(memberId: string, postId: string): Pro
         sourceCouponId: true,
         sourceRewardId: true,
         sourcePostId: true,
+        groupId: true,
       },
     });
     if (!row) return false;
@@ -60,6 +62,21 @@ async function postRowAllowsDelete(memberId: string, post: PostAuthRow): Promise
       select: { business: { select: { memberId: true } } },
     });
     if (r?.business.memberId === memberId) return true;
+  }
+  if (post.groupId) {
+    const group = await prisma.group.findUnique({
+      where: { id: post.groupId },
+      select: { createdById: true },
+    });
+    const membership = await prisma.groupMember.findUnique({
+      where: {
+        groupId_memberId: { groupId: post.groupId, memberId },
+      },
+      select: { role: true },
+    });
+    if (group && (group.createdById === memberId || membership?.role === "admin")) {
+      return true;
+    }
   }
   return false;
 }

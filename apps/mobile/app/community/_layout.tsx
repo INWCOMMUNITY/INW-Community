@@ -37,6 +37,7 @@ export default function CommunityLayout() {
         }}
       />
       <Stack.Screen name="groups" options={{ title: "Community Groups" }} />
+      <Stack.Screen name="group-admin" options={{ title: "Group admin" }} />
       <Stack.Screen
         name="group/[slug]"
         options={{

@@ -56,6 +56,18 @@ export async function POST(
     return NextResponse.json({ error: "Already a member" }, { status: 400 });
   }
 
+  const banned = await prisma.groupMemberBan.findUnique({
+    where: {
+      groupId_memberId: { groupId: group.id, memberId: session.user.id },
+    },
+  });
+  if (banned) {
+    return NextResponse.json(
+      { error: "You cannot join this group. Contact a group admin if you think this is a mistake." },
+      { status: 403 }
+    );
+  }
+
   await prisma.groupMember.create({
     data: {
       groupId: group.id,

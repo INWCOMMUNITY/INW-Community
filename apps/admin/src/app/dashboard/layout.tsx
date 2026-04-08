@@ -33,10 +33,11 @@ const SIDEBAR_SECTIONS = [
   {
     divider: "Community",
     items: [
+      { href: "/dashboard/group-requests", label: "Groups" },
+      { href: "/dashboard/group-deletion-requests", label: "Group deletions" },
       { href: "/dashboard/events", label: "Events" },
       { href: "/dashboard/blogs", label: "Blogs" },
       { href: "/dashboard/posts", label: "Posts" },
-      { href: "/dashboard/group-requests", label: "Group requests" },
       { href: "/dashboard/tags", label: "Tags" },
       { href: "/dashboard/flagged", label: "Flagged" },
       { href: "/dashboard/reports", label: "Reports" },

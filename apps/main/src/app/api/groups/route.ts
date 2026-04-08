@@ -16,8 +16,21 @@ export async function GET(req: NextRequest) {
   if (q) where.name = { contains: q, mode: "insensitive" };
   if (category) where.category = category;
 
+  const bannedGroupIds: string[] =
+    session?.user?.id
+      ? (
+          await prisma.groupMemberBan.findMany({
+            where: { memberId: session.user.id },
+            select: { groupId: true },
+          })
+        ).map((b) => b.groupId)
+      : [];
+
   const groups = await prisma.group.findMany({
-    where: Object.keys(where).length ? where : undefined,
+    where: {
+      ...(Object.keys(where).length ? where : {}),
+      ...(bannedGroupIds.length ? { id: { notIn: bannedGroupIds } } : {}),
+    },
     include: {
       createdBy: {
         select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },

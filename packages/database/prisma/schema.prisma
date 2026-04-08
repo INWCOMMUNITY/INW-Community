@@ -120,6 +120,9 @@ model Member {
   webviewBridgeTokens      WebviewBridgeToken[]
   planSwitchLogs           PlanSwitchLog[]
   groupCreationRequests    GroupCreationRequest[] @relation("GroupCreationRequester")
+  groupMemberBansSubject   GroupMemberBan[]       @relation("GroupMemberBanSubject")
+  groupMemberBansIssued    GroupMemberBan[]       @relation("GroupMemberBanIssuer")
+  groupDeletionRequests    GroupDeletionRequest[] @relation("GroupDeletionRequester")
 }
 
 model WebviewBridgeToken {
@@ -507,6 +510,8 @@ model Group {
   groupPosts GroupPost[]
   adminInvites GroupAdminInvite[]
   creationSourceRequest GroupCreationRequest?
+  memberBans            GroupMemberBan[]
+  deletionRequests      GroupDeletionRequest[]
 
   @@index([createdById])
 }
@@ -567,6 +572,43 @@ model GroupMember {
 
   @@unique([groupId, memberId])
   @@index([memberId])
+}
+
+/// Admin removed this member; they cannot rejoin or see the group in listings.
+model GroupMemberBan {
+  id               String   @id @default(cuid())
+  groupId          String   @map("group_id")
+  memberId         String   @map("member_id")
+  bannedByMemberId String   @map("banned_by_member_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  member   Member @relation("GroupMemberBanSubject", fields: [memberId], references: [id], onDelete: Cascade)
+  bannedBy Member @relation("GroupMemberBanIssuer", fields: [bannedByMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, memberId])
+  @@index([memberId])
+  @@map("group_member_ban")
+}
+
+/// Group creator requests deletion; site admin must approve before the group is removed.
+model GroupDeletionRequest {
+  id                   String    @id @default(cuid())
+  groupId              String    @map("group_id")
+  requesterMemberId    String    @map("requester_member_id")
+  status               String    @default("pending") // pending | approved | denied
+  denialReason         String?   @map("denial_reason") @db.Text
+  reviewedAt           DateTime? @map("reviewed_at")
+  reviewedByAdminEmail String?   @map("reviewed_by_admin_email")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  group     Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  requester Member @relation("GroupDeletionRequester", fields: [requesterMemberId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([status])
+  @@map("group_deletion_request")
 }
 
 model GroupPost {

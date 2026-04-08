@@ -22,6 +22,21 @@ export default function CommunityGroupsPage() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
+  const [adminHubHref, setAdminHubHref] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setAdminHubHref(null);
+      return;
+    }
+    fetch("/api/me/groups?scope=admin")
+      .then((r) => r.json())
+      .then((data: { groups?: { slug: string }[] }) => {
+        const first = data.groups?.[0];
+        setAdminHubHref(first?.slug ? `/my-community/groups/${first.slug}/admin` : null);
+      })
+      .catch(() => setAdminHubHref(null));
+  }, [session?.user?.id]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -37,7 +52,21 @@ export default function CommunityGroupsPage() {
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto text-center">
-        <h1 className="text-3xl font-bold w-full text-center mb-6">Community Groups</h1>
+        <div className="relative w-full text-center mb-6">
+          <h1 className="text-3xl font-bold">Community Groups</h1>
+          {adminHubHref ? (
+            <Link
+              href={adminHubHref}
+              className="absolute right-0 top-0 inline-flex items-center justify-center w-10 h-10 rounded-full border-2 border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)]"
+              aria-label="Group admin"
+              title="Group admin"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+              </svg>
+            </Link>
+          ) : null}
+        </div>
         {session?.user?.id && (
           <div className="max-w-xl mx-auto mb-8">
             <CreateGroupCallout />
@@ -53,6 +82,7 @@ export default function CommunityGroupsPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="border rounded px-3 py-2 w-64 max-w-full"
+            style={{ letterSpacing: "normal" }}
           />
           <input
             type="text"

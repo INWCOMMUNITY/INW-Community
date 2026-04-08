@@ -29,6 +29,7 @@ export default async function DashboardPage() {
     orderItemsThisMonth,
     stripeStats,
     analytics,
+    pendingGroupRequestsCount,
   ] = await Promise.all([
     prisma.member.count(),
     prisma.subscription.count(),
@@ -65,6 +66,7 @@ export default async function DashboardPage() {
     })
       .then((r) => r.json())
       .catch(() => ({ appOpensWeek: 0 })),
+    prisma.groupCreationRequest.count({ where: { status: "pending" } }),
   ]);
 
   const totalSalesCents = storeOrdersThisMonth.reduce(
@@ -92,6 +94,23 @@ export default async function DashboardPage() {
 
       {/* Top Analytics */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div
+          className={`rounded-lg shadow p-4 border-2 ${
+            pendingGroupRequestsCount > 0 ? "bg-amber-50" : "bg-white"
+          }`}
+          style={{ borderColor: pendingGroupRequestsCount > 0 ? "#d97706" : "#e5e3df" }}
+        >
+          <p className="text-gray-600 text-sm">Pending group requests</p>
+          <p className="text-2xl font-bold">{pendingGroupRequestsCount}</p>
+          <p className="text-xs text-gray-500 mt-1">Awaiting approve or deny</p>
+          <Link
+            href="/dashboard/group-requests"
+            className="text-sm font-semibold hover:underline mt-1 block"
+            style={{ color: "#505542" }}
+          >
+            {pendingGroupRequestsCount > 0 ? "Review now →" : "Open groups"}
+          </Link>
+        </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-gray-600 text-sm">Money Made From Subscriptions</p>
           <p className="text-2xl font-bold">

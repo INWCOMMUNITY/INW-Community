@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useLayoutEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -16,12 +16,13 @@ import {
   Switch,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useNavigation } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiUploadFile } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api.*$/, "") || "https://www.inwcommunity.com";
 function toFullUrl(url: string): string {
@@ -43,6 +44,8 @@ interface Group {
 
 export default function GroupsScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
+  const { member } = useAuth();
   const insets = useSafeAreaInsets();
   const [groups, setGroups] = useState<Group[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -60,6 +63,8 @@ export default function GroupsScreen() {
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [rulesJoinTarget, setRulesJoinTarget] = useState<Group | null>(null);
   const [joinBusyId, setJoinBusyId] = useState<string | null>(null);
+  const [hasAdminGroup, setHasAdminGroup] = useState(false);
+
   const load = useCallback(async () => {
     try {
       const params = new URLSearchParams();
@@ -77,6 +82,39 @@ export default function GroupsScreen() {
   }, [searchQuery, categoryFilter]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const loadAdminScope = useCallback(async () => {
+    if (!member?.id) {
+      setHasAdminGroup(false);
+      return;
+    }
+    try {
+      const data = await apiGet<{ groups: { id: string }[] }>("/api/me/groups?scope=admin");
+      setHasAdminGroup((data?.groups?.length ?? 0) > 0);
+    } catch {
+      setHasAdminGroup(false);
+    }
+  }, [member?.id]);
+
+  useFocusEffect(useCallback(() => { void loadAdminScope(); }, [loadAdminScope]));
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: hasAdminGroup
+        ? () => (
+            <Pressable
+              onPress={() => (router.push as (h: string) => void)("/community/group-admin")}
+              hitSlop={12}
+              style={({ pressed }) => [{ paddingHorizontal: 10, opacity: pressed ? 0.85 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Group admin"
+            >
+              <Ionicons name="shield" size={24} color="#fff" />
+            </Pressable>
+          )
+        : undefined,
+    });
+  }, [navigation, hasAdminGroup, router]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -520,6 +558,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 16,
+    letterSpacing: 0,
+    fontFamily: theme.fonts.body,
   },
   joinModalOverlay: {
     flex: 1,
