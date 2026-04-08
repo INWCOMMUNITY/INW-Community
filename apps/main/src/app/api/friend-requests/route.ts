@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -12,6 +13,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   try {
     const body = await req.json();
@@ -86,6 +89,8 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   const incoming = await prisma.friendRequest.findMany({
     where: { addresseeId: session.user.id, status: "pending" },

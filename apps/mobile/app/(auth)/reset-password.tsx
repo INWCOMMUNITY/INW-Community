@@ -173,6 +173,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
     color: theme.colors.heading,
+    letterSpacing: 0,
   },
   error: { color: "#b91c1c", fontSize: 14, marginBottom: 8 },
   primaryBtn: {

@@ -1,24 +1,26 @@
 /** Prebuilt cities for businesses and event calendars (NWC region). */
 export const PREBUILT_CITIES = [
-  "Spokane",
-  "Spokane Valley",
   "Airway Heights",
+  "Athol",
+  "Coeur d'Alene",
+  "Deer Park",
+  "Hayden",
+  "Kellogg",
   "Liberty Lake",
+  "Moscow",
   "Newport",
   "Otis Orchards",
-  "Deer Park",
   "Post Falls",
-  "Hayden",
-  "Coeur d'Alene",
   "Rathdrum",
-  "Athol",
+  "Spokane",
+  "Spokane Valley",
   "Wallace",
-  "Kellogg",
-  "Moscow",
 ] as const;
 
 export function filterPrebuiltCities(search: string): string[] {
   const q = search.trim().toLowerCase();
-  if (!q) return [...PREBUILT_CITIES];
-  return PREBUILT_CITIES.filter((c) => c.toLowerCase().includes(q));
+  const matches = !q
+    ? [...PREBUILT_CITIES]
+    : PREBUILT_CITIES.filter((c) => c.toLowerCase().includes(q));
+  return matches.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 }

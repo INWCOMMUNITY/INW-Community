@@ -7,6 +7,7 @@ import { containsProhibitedCategory } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { z } from "zod";
 import type { CalendarType } from "database";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 
 const calendarTypes: CalendarType[] = [
   "fun_events",
@@ -92,6 +93,8 @@ export async function PATCH(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
   const { id } = await params;
   const existing = await prisma.event.findUnique({
     where: { id },
@@ -190,6 +193,8 @@ export async function DELETE(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
   const { id } = await params;
   const existing = await prisma.event.findUnique({
     where: { id },

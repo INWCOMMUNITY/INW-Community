@@ -5,10 +5,12 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { canViewerSeeFullMemberProfile } from "@/lib/member-profile-access";
 import { hasBlockBetween } from "@/lib/member-block";
+import { memberIsSiteVisible } from "@/lib/member-public-visibility";
 
 /**
  * GET /api/members/[id] – profile for a member (used by native app and any client).
- * Name and profile photo are always public. When profile is private (friends_only), only friends (or self) see bio, badges, favorite businesses.
+ * Members who are not “site-visible” (residents without verified email; business/seller without paid/granted access) return 404. Otherwise name and profile photo are always public;
+ * when profile is private (friends_only), only friends (or self) see bio, badges, favorite businesses.
  */
 export async function GET(
   req: NextRequest,
@@ -22,6 +24,7 @@ export async function GET(
     where: { id },
     select: {
       id: true,
+      emailVerifiedAt: true,
       firstName: true,
       lastName: true,
       profilePhotoUrl: true,
@@ -41,6 +44,10 @@ export async function GET(
   });
 
   if (!member) {
+    return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  }
+
+  if (!(await memberIsSiteVisible(id))) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
 

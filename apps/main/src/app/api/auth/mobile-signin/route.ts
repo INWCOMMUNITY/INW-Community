@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import bcrypt from "bcryptjs";
-import { signMobileToken } from "@/lib/mobile-auth";
-import {
-  prismaWhereMemberSubscribePlanAccess,
-  prismaWhereMemberSubscribeTierPerksAccess,
-} from "@/lib/subscribe-plan-access";
-import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
+import { issueMobileSessionForMemberId } from "@/lib/issue-mobile-session";
+import { memberHasAppAccess } from "@/lib/member-public-visibility";
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,62 +31,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "INVALID_PASSWORD" }, { status: 401 });
     }
 
-    if (!member.emailVerifiedAt) {
-      return NextResponse.json(
-        {
-          error: "EMAIL_NOT_VERIFIED",
-          code: "EMAIL_NOT_VERIFIED",
-          message:
-            "Verify your email before signing in. Check your inbox for a link from Northwest Community, or tap Resend on the sign-in screen.",
-        },
-        { status: 403 }
-      );
-    }
-
-    const [subTier, subResaleHub] = await Promise.all([
-      prisma.subscription.findFirst({
-        where: prismaWhereMemberSubscribeTierPerksAccess(member.id),
-        select: { id: true },
-      }),
-      prisma.subscription.findFirst({
-        where: prismaWhereMemberSubscribePlanAccess(member.id),
-        select: { id: true },
-      }),
-    ]);
-
-    const effectivePlan = await resolveEffectiveNwcPlan(member.id);
-
-    try {
-      // Only update lastLogin; never overwrite profile fields (firstName, lastName, bio, etc.)
-      await prisma.member.update({
-        where: { id: member.id },
-        data: { lastLogin: new Date() },
-      });
-    } catch {
-      // Ignore if last_login column missing or update fails; sign-in still proceeds
-    }
-
-    const token = await signMobileToken({
-      id: member.id,
-      email: member.email,
-      name: `${member.firstName} ${member.lastName}`,
-      isSubscriber: !!subTier,
-      hasResaleHubAccess: !!subResaleHub,
-      subscriptionPlan: effectivePlan ?? undefined,
-    });
-
-    return NextResponse.json({
-      token,
-      subscriptionPlan: effectivePlan,
-      member: {
-        firstName: member.firstName,
-        lastName: member.lastName,
+    if (!(await memberHasAppAccess(member.id))) {
+      return NextResponse.json({
+        requiresEmailVerification: true,
         email: member.email,
-        profilePhotoUrl: member.profilePhotoUrl,
-        bio: member.bio,
-        city: member.city,
-      },
-    });
+      });
+    }
+
+    const session = await issueMobileSessionForMemberId(member.id);
+    if ("error" in session) {
+      const msg =
+        session.error === "EMAIL_NOT_VERIFIED"
+          ? "Verify your email before signing in. Check your inbox for a link from Northwest Community, or tap Resend on the sign-in screen."
+          : session.error;
+      const body =
+        session.error === "EMAIL_NOT_VERIFIED"
+          ? {
+              error: "EMAIL_NOT_VERIFIED",
+              code: "EMAIL_NOT_VERIFIED",
+              message: msg,
+            }
+          : { error: msg };
+      return NextResponse.json(body, { status: session.status });
+    }
+
+    return NextResponse.json(session);
   } catch (e) {
     const err = e as Error;
     console.error("[POST /api/auth/mobile-signin]", err);

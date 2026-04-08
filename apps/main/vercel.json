@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/expire-pending-orders",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/delete-stale-unverified-residents",
+      "schedule": "15 7 * * *"
     }
   ]
 }

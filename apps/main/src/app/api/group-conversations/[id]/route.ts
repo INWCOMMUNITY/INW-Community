@@ -18,6 +18,8 @@ export async function GET(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verifiedGet = await requireVerifiedActiveMember(session.user.id);
+  if (!verifiedGet.ok) return verifiedGet.response;
 
   const { id } = await params;
   const cursor = req.nextUrl.searchParams.get("cursor");

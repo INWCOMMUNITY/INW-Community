@@ -213,7 +213,7 @@ export default function GroupsScreen() {
           style={({ pressed }) => [styles.adminCalloutBtn, pressed && styles.buttonPressed]}
           onPress={() => setShowCreate(true)}
         >
-          <Text style={styles.adminCalloutBtnText}>Request a group</Text>
+          <Text style={styles.adminCalloutBtnText}>Request a Group</Text>
         </Pressable>
       </View>
 

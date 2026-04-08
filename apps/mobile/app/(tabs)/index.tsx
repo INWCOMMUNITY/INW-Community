@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   StyleSheet,
   FlatList,
@@ -12,7 +12,7 @@ import {
   type ListRenderItemInfo,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
@@ -36,6 +36,10 @@ const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 const UGC_TERMS_STORAGE_KEY = "nwc_community_ugc_terms_v2";
 
 export default function CommunityScreen() {
+  const feedListRef = useRef<FlatList<FeedPost>>(null);
+  /** Re-tap Community tab while on this screen → scroll feed to top (see React Navigation tabPress). */
+  useScrollToTop(feedListRef);
+
   const createPostMenu = useCreatePost();
   const openCreatePost = createPostMenu?.openCreatePost ?? (() => {});
   const openEditPost = createPostMenu?.openEditPost;
@@ -516,6 +520,7 @@ export default function CommunityScreen() {
         onOpenTerms={openTermsWeb}
       />
       <FlatList
+        ref={feedListRef}
         data={posts}
         keyExtractor={(item) => item.id}
         renderItem={renderPost}

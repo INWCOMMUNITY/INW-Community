@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { authOptions } from "@/lib/auth";
 import { canViewerSeeFullMemberProfile } from "@/lib/member-profile-access";
 import { hasBlockBetween } from "@/lib/member-block";
+import { memberIsSiteVisible } from "@/lib/member-public-visibility";
 
 /**
  * GET /api/members/[id]/posts?limit=30&cursor=...
@@ -27,6 +28,10 @@ export async function GET(
   });
 
   if (!member) {
+    return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  }
+
+  if (!(await memberIsSiteVisible(memberId))) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
 

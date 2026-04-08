@@ -58,9 +58,17 @@ export function codesMatchStoredHash(
   return timingSafeEqualHex(hashEmailVerificationCode(email, codeSixDigits), storedHash);
 }
 
-/** Persist code (hashed), clear legacy link token, send email. */
-export async function issueEmailVerification(memberId: string, email: string): Promise<void> {
+/**
+ * Send verification code, then persist hash + expiry only if delivery succeeded.
+ * Avoids rotating the stored code when Resend (or SMTP) fails — otherwise resend/signup would
+ * invalidate the user's only working code without delivering a replacement.
+ */
+export async function issueEmailVerification(memberId: string, email: string): Promise<boolean> {
   const code = generateEmailVerificationSixDigitCode();
+  const sent = await sendVerificationEmail({ to: email, code });
+  if (!sent) {
+    return false;
+  }
   const hash = hashEmailVerificationCode(email, code);
   const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_CODE_TTL_MS);
   await prisma.member.update({
@@ -71,9 +79,5 @@ export async function issueEmailVerification(memberId: string, email: string): P
       emailVerificationExpiresAt: expiresAt,
     },
   });
-  try {
-    await sendVerificationEmail({ to: email, code });
-  } catch (e) {
-    console.error("[issueEmailVerification] send failed", e);
-  }
+  return true;
 }

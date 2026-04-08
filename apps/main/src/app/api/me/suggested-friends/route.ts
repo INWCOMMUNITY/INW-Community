@@ -3,12 +3,16 @@ import { prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { verifiedMemberWhere } from "@/lib/member-public-visibility";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 
 export async function GET(req: NextRequest) {
   const session = (await getSessionForApi(req)) ?? (await getServerSession(authOptions));
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   const myId = session.user.id;
 
@@ -72,6 +76,7 @@ export async function GET(req: NextRequest) {
 
   const members = await prisma.member.findMany({
     where: {
+      ...verifiedMemberWhere,
       id: { in: candidateIds },
       status: "active",
       privacyLevel: { not: "completely_private" },

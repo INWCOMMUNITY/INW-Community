@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getCurrentSeasonId } from "@/lib/award-points";
+import { verifiedMemberWhere } from "@/lib/member-public-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
 
     if (seasonId) {
       const topBySeason = await prisma.memberSeasonPoints.findMany({
-        where: { seasonId, pointsEarned: { gt: 0 } },
+        where: { seasonId, pointsEarned: { gt: 0 }, member: verifiedMemberWhere },
         orderBy: { pointsEarned: "desc" },
         take: limit,
         include: {
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
 
     // No current season (or seasonId=balance): fallback to ranking by spendable balance
     const topMembers = await prisma.member.findMany({
-      where: { points: { gt: 0 } },
+      where: { points: { gt: 0 }, ...verifiedMemberWhere },
       select: {
         id: true,
         firstName: true,

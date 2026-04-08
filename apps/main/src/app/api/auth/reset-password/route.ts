@@ -10,6 +10,7 @@ const bodySchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters.").max(128),
 });
 
+/** Does not require a verified email; unverified accounts use the same reset flow as verified ones. */
 export async function POST(req: NextRequest) {
   const key = `reset-password:${getClientIdentifier(req)}`;
   const { allowed } = checkRateLimit(key);

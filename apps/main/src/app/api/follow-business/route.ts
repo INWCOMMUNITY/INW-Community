@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 
 /**
  * GET /api/follow-business?mine=1 - List businesses (seller storefronts) the user follows
@@ -11,6 +12,8 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   const searchParams = req.nextUrl?.searchParams ?? new URLSearchParams();
   if (searchParams.get("mine") !== "1") {

@@ -15,7 +15,10 @@ export async function POST(req: NextRequest) {
   const key = `resend-verification:${getClientIdentifier(req)}`;
   const { allowed } = checkRateLimit(key);
   if (!allowed) {
-    return NextResponse.json({ ok: true, message: "If that email is registered, we sent a code." });
+    return NextResponse.json(
+      { ok: false, error: "Too many attempts. Wait a minute before requesting another code." },
+      { status: 429 },
+    );
   }
 
   try {
@@ -28,18 +31,34 @@ export async function POST(req: NextRequest) {
     });
 
     if (member && !member.emailVerifiedAt) {
-      await issueEmailVerification(member.id, member.email);
+      const sent = await issueEmailVerification(member.id, member.email);
+      if (!sent) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Could not send a verification email right now. Try again in a few minutes.",
+          },
+          { status: 503 },
+        );
+      }
+      return NextResponse.json({
+        ok: true,
+        message: "We sent a new verification code to your email.",
+      });
     }
 
     return NextResponse.json({
       ok: true,
-      message: "If that email is registered, we sent a verification code.",
+      message: "If that email is registered and still needs verification, we sent a code.",
     });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.errors[0]?.message ?? "Invalid email." }, { status: 400 });
     }
     console.error("[resend-verification]", e);
-    return NextResponse.json({ ok: true, message: "If that email is registered, we sent a code." });
+    return NextResponse.json(
+      { ok: false, error: "Something went wrong. Try again in a few minutes." },
+      { status: 503 },
+    );
   }
 }

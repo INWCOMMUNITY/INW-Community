@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createGroupForMember, groupCreationPayloadSchema } from "@/lib/create-group-core";
+import { sendPushNotification } from "@/lib/send-push-notification";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin(req))) {
@@ -41,6 +42,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         resultingGroupId: group.id,
       },
     });
+
+    void sendPushNotification(row.requesterMemberId, {
+      title: "Your group was approved",
+      body: `“${group.name}” is live. Tap to open it.`,
+      category: "group_admin",
+      data: {
+        screen: "group_feed",
+        groupSlug: group.slug,
+      },
+    }).catch((err) => console.error("[admin approve group request] push", id, err));
 
     const full = await prisma.group.findUnique({ where: { id: group.id } });
     return NextResponse.json({ group: full, earnedBadges });

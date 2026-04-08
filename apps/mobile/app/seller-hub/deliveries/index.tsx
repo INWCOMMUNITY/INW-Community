@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Image,
+  Alert,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
@@ -33,12 +34,20 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
 
 interface OrderWithDelivery {
   id: string;
+  status: string;
   createdAt: string;
   totalCents: number;
+  stripePaymentIntentId?: string | null;
   localDeliveryDetails: LocalDeliveryDetails | null;
   deliveryConfirmedAt: string | null;
   deliveryBuyerConfirmedAt?: string | null;
   items: { id?: string; storeItem: { title: string; photos?: string[] }; quantity: number }[];
+}
+
+/** API only allows fulfillment updates once the order is paid (or later). */
+function sellerCanMarkLocalDelivery(o: OrderWithDelivery): boolean {
+  if (o.deliveryConfirmedAt) return false;
+  return ["paid", "shipped", "delivered"].includes(o.status);
 }
 
 function formatAddr(d: LocalDeliveryDetails | null): string {
@@ -78,9 +87,10 @@ export default function DeliveriesScreen() {
   const markDelivered = async (orderId: string) => {
     setConfirmingId(orderId);
     try {
+      const path = `/api/store-orders/${encodeURIComponent(orderId)}`;
       const res = await apiPatch<{
         earnedBadges?: { slug: string; name: string; description?: string }[];
-      }>(`/api/store-orders/${orderId}`, { deliveryConfirmed: true });
+      }>(path, { deliveryConfirmed: true });
       setOrders((prev) =>
         prev.map((o) =>
           o.id === orderId
@@ -92,8 +102,12 @@ export default function DeliveriesScreen() {
         setEarnedBadges(res.earnedBadges);
         setBadgePopupIndex(0);
       }
-    } catch {
-      // error
+    } catch (e) {
+      const msg =
+        typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
+          ? (e as { error: string }).error
+          : "Could not update this order. Try again.";
+      Alert.alert("Mark delivered", msg);
     } finally {
       setConfirmingId(null);
     }
@@ -186,7 +200,7 @@ export default function DeliveriesScreen() {
                         );
                       })}
                     </View>
-                    {!o.deliveryConfirmedAt ? (
+                    {!o.deliveryConfirmedAt && sellerCanMarkLocalDelivery(o) ? (
                       <Pressable
                         style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
                         onPress={() => markDelivered(o.id)}
@@ -198,7 +212,18 @@ export default function DeliveriesScreen() {
                           <Text style={styles.btnText}>Mark delivered (seller)</Text>
                         )}
                       </Pressable>
-                    ) : !o.deliveryBuyerConfirmedAt ? (
+                    ) : !o.deliveryConfirmedAt ? (
+                      <Text style={styles.cannotMarkYet}>
+                        {o.status === "pending"
+                          ? "This order is not paid yet. After the buyer pays (online or cash), you can mark it delivered here."
+                          : "This order can’t be marked delivered in its current state."}
+                      </Text>
+                    ) : (
+                      <Pressable style={styles.btnMarked} disabled accessibilityState={{ disabled: true }}>
+                        <Text style={styles.btnMarkedText}>Marked Delivered</Text>
+                      </Pressable>
+                    )}
+                    {o.deliveryConfirmedAt && !o.deliveryBuyerConfirmedAt ? (
                       <Text style={styles.waiting}>Waiting for buyer to confirm receipt.</Text>
                     ) : null}
                   </View>
@@ -284,6 +309,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   btnText: { color: "#fff", fontWeight: "600" },
+  btnMarked: {
+    marginTop: 16,
+    backgroundColor: "#e5e8e0",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#c5c9be",
+  },
+  btnMarkedText: { color: theme.colors.heading, fontWeight: "600", fontSize: 15 },
+  cannotMarkYet: {
+    marginTop: 16,
+    fontSize: 14,
+    color: "#92400e",
+    lineHeight: 20,
+  },
   waiting: { fontSize: 14, color: "#92400e", marginTop: 12, fontStyle: "italic" },
   toggle: { marginBottom: 12 },
   toggleText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },

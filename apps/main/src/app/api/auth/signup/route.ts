@@ -91,7 +91,6 @@ export async function POST(req: NextRequest) {
           signupIntent: signupIntent ?? "resident",
         },
       });
-      const earnedBadges = await awardMemberSignupBadges(member.id, signupIntent ?? "resident").catch(() => []);
       if (ref) {
         const referralLink = await prisma.referralLink.findUnique({ where: { code: ref } });
         if (referralLink && referralLink.memberId !== member.id) {
@@ -117,13 +116,21 @@ export async function POST(req: NextRequest) {
           });
         }
       }
-      const needsVerify = !member.emailVerifiedAt;
-      if (needsVerify) {
-        await issueEmailVerification(member.id, member.email);
+      const intent = signupIntent ?? "resident";
+      const isBizOrSeller = intent === "business" || intent === "seller";
+      const needsEmailVerification = !member.emailVerifiedAt && !isBizOrSeller;
+      let verificationEmailSent = true;
+      if (needsEmailVerification) {
+        verificationEmailSent = await issueEmailVerification(member.id, member.email);
+      }
+      let earnedBadges: Awaited<ReturnType<typeof awardMemberSignupBadges>> = [];
+      if (!needsEmailVerification) {
+        earnedBadges = await awardMemberSignupBadges(member.id, intent).catch(() => []);
       }
       return NextResponse.json({
         ok: true,
-        requiresEmailVerification: needsVerify,
+        requiresEmailVerification: needsEmailVerification,
+        ...(needsEmailVerification ? { verificationEmailSent } : {}),
         earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [],
       });
     }
@@ -139,7 +146,6 @@ export async function POST(req: NextRequest) {
         signupIntent: signupIntent ?? "resident",
       },
     });
-    const earnedBadges = await awardMemberSignupBadges(member.id, signupIntent ?? "resident").catch(() => []);
     if (ref) {
       const referralLink = await prisma.referralLink.findUnique({ where: { code: ref } });
       if (referralLink && referralLink.memberId !== member.id) {
@@ -160,13 +166,21 @@ export async function POST(req: NextRequest) {
         });
       }
     }
-    const needsVerify = !member.emailVerifiedAt;
-    if (needsVerify) {
-      await issueEmailVerification(member.id, member.email);
+    const intent = signupIntent ?? "resident";
+    const isBizOrSeller = intent === "business" || intent === "seller";
+    const needsEmailVerification = !member.emailVerifiedAt && !isBizOrSeller;
+    let verificationEmailSent = true;
+    if (needsEmailVerification) {
+      verificationEmailSent = await issueEmailVerification(member.id, member.email);
+    }
+    let earnedBadges: Awaited<ReturnType<typeof awardMemberSignupBadges>> = [];
+    if (!needsEmailVerification) {
+      earnedBadges = await awardMemberSignupBadges(member.id, intent).catch(() => []);
     }
     return NextResponse.json({
       ok: true,
-      requiresEmailVerification: needsVerify,
+      requiresEmailVerification: needsEmailVerification,
+      ...(needsEmailVerification ? { verificationEmailSent } : {}),
       earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [],
     });
   } catch (e) {

@@ -82,11 +82,7 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   /** Set when credentials sign-in fails (distinct from network `error`). */
-  const [loginError, setLoginError] = useState<
-    "unknown_email" | "wrong_password" | "email_not_verified" | "generic" | null
-  >(null);
-  const [resendBusy, setResendBusy] = useState(false);
-  const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [loginError, setLoginError] = useState<"unknown_email" | "wrong_password" | "generic" | null>(null);
   const [verifyCode, setVerifyCode] = useState("");
   const [verifyCodeBusy, setVerifyCodeBusy] = useState(false);
   const [verifyCodeError, setVerifyCodeError] = useState<string | null>(null);
@@ -103,10 +99,14 @@ function LoginForm() {
   }, [verifyEmailParam, email]);
 
   useEffect(() => {
-    if ((verifyPending || emailJustVerified) && planFromQuery) {
+    if (emailJustVerified && planFromQuery) {
       setSelectedPlan(planFromQuery);
       setShowSignInForm(true);
       setIsSignUp(false);
+    } else if (verifyPending) {
+      setShowSignInForm(true);
+      setIsSignUp(false);
+      if (planFromQuery) setSelectedPlan(planFromQuery);
     }
   }, [verifyPending, emailJustVerified, planFromQuery]);
 
@@ -131,9 +131,19 @@ function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: addr, code: verifyCode }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        ok?: boolean;
+        signInRequired?: boolean;
+      };
       if (!res.ok) {
         setVerifyCodeError(typeof data.error === "string" ? data.error : "Could not verify. Try again.");
+        return;
+      }
+      if (data.ok === false) {
+        setVerifyCodeError(
+          typeof data.error === "string" ? data.error : "Could not verify. Try again with the same code.",
+        );
         return;
       }
       const qs = new URLSearchParams();
@@ -211,14 +221,15 @@ function LoginForm() {
               passwordMatch?: boolean;
               emailVerified?: boolean;
             };
-            if (
-              csRes.ok &&
-              cs.passwordMatch === true &&
-              cs.emailVerified === false
-            ) {
-              lastFailedEmailRef.current = trimmed;
-              setCredentialFailCount((c) => c + 1);
-              setLoginError("email_not_verified");
+            if (csRes.ok && cs.passwordMatch === true && cs.emailVerified === false) {
+              const qs = new URLSearchParams();
+              qs.set("verifyPending", "1");
+              qs.set("email", trimmed);
+              if (selectedPlan) qs.set("plan", selectedPlan);
+              const cb = searchParams?.get("callbackUrl");
+              if (cb) qs.set("callbackUrl", cb);
+              router.replace(`/login?${qs.toString()}`);
+              setLoginError(null);
               return;
             }
             lastFailedEmailRef.current = trimmed;
@@ -256,18 +267,30 @@ function LoginForm() {
       {verifyPending ? (
         <form
           onSubmit={submitEmailVerificationCode}
-          className="mb-6 p-4 rounded-lg text-sm w-full max-w-[320px] border border-blue-200 bg-blue-50 text-left space-y-3"
+          className="mb-6 p-4 rounded-lg text-sm w-full max-w-[320px] border-2 text-left space-y-3"
+          style={{
+            borderColor: "var(--color-primary)",
+            backgroundColor: "var(--color-section-alt)",
+            color: "var(--color-heading)",
+          }}
         >
           <div>
-            <span className="font-semibold text-blue-900 block mb-1">Verify your email</span>
-            <span className="text-blue-900">
+            <span className="font-semibold block mb-1" style={{ color: "var(--color-heading)" }}>
+              Verify your email
+            </span>
+            <span style={{ color: "var(--color-text)" }}>
               We sent a 6-digit code to{" "}
-              <strong>{(verifyEmailParam || email).trim() || "your email"}</strong>. Enter it below to finish sign
-              up—then you can sign in.
+              <strong>{(verifyEmailParam || email).trim() || "your email"}</strong>. Enter it below (or use{" "}
+              <strong>Resend code</strong> if it expired). If you closed the tab or app, sign in with your email and
+              password again to return here—your account stays pending until you verify.
             </span>
           </div>
           <div>
-            <label htmlFor="verify-code" className="block text-xs font-medium text-blue-900 mb-1">
+            <label
+              htmlFor="verify-code"
+              className="block text-xs font-medium mb-1"
+              style={{ color: "var(--color-heading)" }}
+            >
               Verification code
             </label>
             <input
@@ -278,7 +301,8 @@ function LoginForm() {
               maxLength={14}
               value={verifyCode}
               onChange={(e) => setVerifyCode(e.target.value)}
-              className="w-full border rounded px-3 py-2 border-blue-300 bg-white text-lg tracking-widest font-mono"
+              className="w-full border-2 rounded px-3 py-2 bg-white text-lg tracking-widest font-mono"
+              style={{ borderColor: "var(--color-primary)", color: "var(--color-heading)" }}
               placeholder="000000"
             />
           </div>
@@ -297,7 +321,8 @@ function LoginForm() {
           <button
             type="button"
             disabled={verifyResendBusy || !(verifyEmailParam || email).trim()}
-            className="text-sm font-semibold underline disabled:opacity-50 text-blue-900"
+            className="text-sm font-semibold underline disabled:opacity-50"
+            style={{ color: "var(--color-primary)" }}
             onClick={async () => {
               const addr = (verifyEmailParam || email).trim();
               setVerifyResendMessage(null);
@@ -309,10 +334,20 @@ function LoginForm() {
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ email: addr }),
                 });
-                const d = (await r.json().catch(() => ({}))) as { message?: string };
-                setVerifyResendMessage(
-                  typeof d.message === "string" ? d.message : "If that email is registered, we sent a code.",
-                );
+                const d = (await r.json().catch(() => ({}))) as {
+                  ok?: boolean;
+                  message?: string;
+                  error?: string;
+                };
+                const resendText =
+                  typeof d.error === "string" && d.error.trim()
+                    ? d.error
+                    : typeof d.message === "string" && d.message.trim()
+                      ? d.message
+                      : !r.ok
+                        ? "Could not send. Try again in a minute."
+                        : "If that email is registered, we sent a code.";
+                setVerifyResendMessage(resendText);
               } catch {
                 setVerifyResendMessage("Could not send. Try again in a minute.");
               } finally {
@@ -322,7 +357,11 @@ function LoginForm() {
           >
             {verifyResendBusy ? "Sending…" : "Resend code"}
           </button>
-          {verifyResendMessage ? <p className="text-blue-900 text-xs">{verifyResendMessage}</p> : null}
+          {verifyResendMessage ? (
+            <p className="text-xs" style={{ color: "var(--color-text)" }}>
+              {verifyResendMessage}
+            </p>
+          ) : null}
         </form>
       ) : null}
       {emailJustVerified ? (
@@ -479,7 +518,8 @@ function LoginForm() {
             Back
           </button>
           <h1 className="text-2xl font-bold mb-6 w-full text-center" style={{ color: "var(--color-heading)" }}>
-            Sign in as {selectedPlan ? PLAN_DISPLAY_NAMES[selectedPlan] : ""}
+            Sign in as{" "}
+            {PLAN_DISPLAY_NAMES[(selectedPlan ?? planFromQuery ?? "subscribe") as Plan]}
           </h1>
           {fromSignup && (
             <p className="mb-4 p-3 rounded-lg text-sm w-full" style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}>
@@ -543,44 +583,6 @@ function LoginForm() {
             ) : null}
             {loginError === "wrong_password" ? (
               <p className="text-red-600 text-sm">Incorrect password.</p>
-            ) : null}
-            {loginError === "email_not_verified" ? (
-              <div className="text-amber-800 text-sm space-y-2">
-                <p>
-                  This email isn&apos;t verified yet. Check your inbox for a <strong>6-digit code</strong> from
-                  Northwest Community, or resend a new code.
-                </p>
-                <button
-                  type="button"
-                  disabled={resendBusy || !email.trim()}
-                  className="text-sm font-semibold underline disabled:opacity-50"
-                  style={{ color: "var(--color-primary)" }}
-                  onClick={async () => {
-                    setResendMessage(null);
-                    setResendBusy(true);
-                    try {
-                      const r = await fetch("/api/auth/resend-verification", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ email: email.trim() }),
-                      });
-                      const d = (await r.json().catch(() => ({}))) as { message?: string };
-                      setResendMessage(
-                        typeof d.message === "string"
-                          ? d.message
-                          : "If that email is registered, we sent a code.",
-                      );
-                    } catch {
-                      setResendMessage("Could not send. Try again in a minute.");
-                    } finally {
-                      setResendBusy(false);
-                    }
-                  }}
-                >
-                  {resendBusy ? "Sending…" : "Resend verification code"}
-                </button>
-                {resendMessage ? <p className="text-gray-700">{resendMessage}</p> : null}
-              </div>
             ) : null}
             {loginError === "generic" ? (
               <p className="text-red-600 text-sm">Something went wrong. Please try again.</p>

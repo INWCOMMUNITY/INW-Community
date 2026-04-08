@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getBlockedMemberIds } from "@/lib/member-block";
+import { verifiedMemberWhere } from "@/lib/member-public-visibility";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { z } from "zod";
 
 export async function GET(req: NextRequest) {
@@ -9,6 +11,8 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   const [conversations, blockedIds] = await Promise.all([
     prisma.groupConversation.findMany({
@@ -69,6 +73,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verifiedPost = await requireVerifiedActiveMember(session.user.id);
+  if (!verifiedPost.ok) return verifiedPost.response;
 
   let data: z.infer<typeof postBodySchema>;
   try {
@@ -80,14 +86,24 @@ export async function POST(req: NextRequest) {
   }
 
   const uniqueMemberIds = [...new Set([session.user.id, ...data.memberIds])];
-  const members = await prisma.member.findMany({
+  const rows = await prisma.member.findMany({
     where: { id: { in: uniqueMemberIds } },
     select: { id: true },
   });
-  const foundIds = new Set(members.map((m) => m.id));
-  const invalidIds = uniqueMemberIds.filter((id) => !foundIds.has(id));
-  if (invalidIds.length > 0) {
+  const found = new Set(rows.map((r) => r.id));
+  const missing = uniqueMemberIds.filter((mid) => !found.has(mid));
+  if (missing.length > 0) {
     return NextResponse.json({ error: "Invalid member IDs" }, { status: 400 });
+  }
+  const others = uniqueMemberIds.filter((mid) => mid !== session.user.id);
+  if (others.length > 0) {
+    const visibleOthers = await prisma.member.findMany({
+      where: { id: { in: others }, ...verifiedMemberWhere },
+      select: { id: true },
+    });
+    if (visibleOthers.length !== others.length) {
+      return NextResponse.json({ error: "Invalid member IDs" }, { status: 400 });
+    }
   }
 
   const conversation = await prisma.groupConversation.create({

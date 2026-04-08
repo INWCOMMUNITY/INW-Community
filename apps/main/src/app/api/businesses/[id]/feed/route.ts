@@ -6,6 +6,7 @@ import { isFeedPostRenderable, type FeedPostLike } from "@/lib/feed-post-visible
 import { hydrateFeedPostRows, feedPostListInclude } from "@/lib/hydrate-feed-post-rows";
 import { canViewerSeeFeedItem } from "@/lib/feed-post-viewer-access";
 import { couponPublicActiveWhere } from "@/lib/coupon-expiration";
+import { verifiedMemberWhere } from "@/lib/member-public-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const where = {
     OR: orClause,
+    author: verifiedMemberWhere,
     ...(excludedAuthors.length > 0 ? { authorId: { notIn: excludedAuthors } } : {}),
   };
 

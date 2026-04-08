@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { z } from "zod";
+import { verifiedMemberWhere } from "@/lib/member-public-visibility";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 
 const postBodySchema = z.object({
   memberIds: z.array(z.string().min(1)).min(1).max(20),
@@ -15,6 +17,8 @@ export async function POST(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   const { id } = await params;
   const conversation = await prisma.groupConversation.findUnique({
@@ -45,9 +49,12 @@ export async function POST(
   }
 
   const validMembers = await prisma.member.findMany({
-    where: { id: { in: toAdd } },
+    where: { id: { in: toAdd }, ...verifiedMemberWhere },
     select: { id: true },
   });
+  if (validMembers.length !== toAdd.length) {
+    return NextResponse.json({ error: "Invalid member IDs" }, { status: 400 });
+  }
   const validIds = validMembers.map((m) => m.id);
 
   await prisma.groupConversationMember.createMany({

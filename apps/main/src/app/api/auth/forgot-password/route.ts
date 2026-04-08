@@ -10,6 +10,7 @@ const bodySchema = z.object({
 
 /**
  * Request a password-reset email. Response is always generic to limit account enumeration.
+ * Intentionally includes members who have not verified email yet so they can reset the password and finish signup.
  */
 export async function POST(req: NextRequest) {
   const key = `forgot-password:${getClientIdentifier(req)}`;

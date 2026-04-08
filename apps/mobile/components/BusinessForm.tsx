@@ -888,6 +888,7 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
     color: theme.colors.text,
+    letterSpacing: 0,
   },
   textArea: { minHeight: 60, textAlignVertical: "top" },
   logoRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 },

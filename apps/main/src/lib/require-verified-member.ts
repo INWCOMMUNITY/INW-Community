@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "database";
 
+/** Shown when a resident tries social/profile features before verifying email. */
+export const ACCOUNT_SETUP_INCOMPLETE_MESSAGE =
+  "Verify your email to finish setting up your account. Until then, your profile is not public and you can’t use messaging, friends, likes, or comments.";
+
 export type VerifiedMemberRow = {
   id: string;
   emailVerifiedAt: Date | null;
@@ -8,30 +12,16 @@ export type VerifiedMemberRow = {
 };
 
 /**
- * If set to an ISO-8601 instant, members with `createdAt` >= this time must have `emailVerifiedAt`
- * for routes that call this helper. Members created before this time are grandfathered (existing
- * accounts are not forced to verify retroactively).
- *
- * If unset, missing `emailVerifiedAt` never blocks here — sign-in still enforces verification for
- * new signups on mobile/web as configured elsewhere.
- */
-function getEnforceEmailVerifiedSince(): Date | null {
-  const raw = process.env.MEMBERS_ENFORCE_EMAIL_VERIFIED_SINCE?.trim();
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-/**
- * Ensures the member exists, is not suspended, and (when configured) has verified email for
- * accounts created after {@link getEnforceEmailVerifiedSince}.
+ * For messaging, posting, events, blogs, group requests, and similar actions:
+ * **Residents** (signup intent missing or `resident`) must have verified email.
+ * **Business / seller** signups are not required to complete inbox verification.
  */
 export async function requireVerifiedActiveMember(
   memberId: string
 ): Promise<{ ok: true; member: VerifiedMemberRow } | { ok: false; response: NextResponse }> {
   const member = await prisma.member.findUnique({
     where: { id: memberId },
-    select: { id: true, emailVerifiedAt: true, status: true, createdAt: true },
+    select: { id: true, emailVerifiedAt: true, status: true, signupIntent: true },
   });
 
   if (!member) {
@@ -54,18 +44,15 @@ export async function requireVerifiedActiveMember(
     };
   }
 
-  const enforceSince = getEnforceEmailVerifiedSince();
-  const mustVerifyEmail =
-    !!enforceSince &&
-    member.createdAt.getTime() >= enforceSince.getTime() &&
-    !member.emailVerifiedAt;
+  const isBizOrSeller =
+    member.signupIntent === "business" || member.signupIntent === "seller";
 
-  if (mustVerifyEmail) {
+  if (!isBizOrSeller && !member.emailVerifiedAt) {
     return {
       ok: false,
       response: NextResponse.json(
         {
-          error: "Verify your email to use this feature.",
+          error: ACCOUNT_SETUP_INCOMPLETE_MESSAGE,
           code: "EMAIL_NOT_VERIFIED",
         },
         { status: 403 }
@@ -73,5 +60,12 @@ export async function requireVerifiedActiveMember(
     };
   }
 
-  return { ok: true, member };
+  return {
+    ok: true,
+    member: {
+      id: member.id,
+      emailVerifiedAt: member.emailVerifiedAt,
+      status: member.status,
+    },
+  };
 }

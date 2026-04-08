@@ -153,14 +153,26 @@ export default function SignupSellerScreen() {
         );
         return;
       }
-      await signIn(email.trim(), password, "seller");
+      const signed = await signIn(email.trim(), password, "seller");
+      if ("requiresEmailVerification" in signed && signed.requiresEmailVerification) {
+        (router.replace as (href: string) => void)(
+          `/verify-email-pending?email=${encodeURIComponent(signed.email)}&plan=seller`
+        );
+        return;
+      }
       await refreshMember();
       setStep("business");
     } catch (e) {
       const err = e as { error?: string };
       if (err.error?.toLowerCase().includes("already registered")) {
         try {
-          await signIn(email.trim(), password, "seller");
+          const signed = await signIn(email.trim(), password, "seller");
+          if ("requiresEmailVerification" in signed && signed.requiresEmailVerification) {
+            (router.replace as (href: string) => void)(
+              `/verify-email-pending?email=${encodeURIComponent(signed.email)}&plan=seller`
+            );
+            return;
+          }
           await refreshMember();
           setStep("business");
           return;
@@ -696,6 +708,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     color: "#000",
     backgroundColor: "#fff",
+    letterSpacing: 0,
   },
   row: { flexDirection: "row", gap: 8 },
   inputHalf: { flex: 1 },

@@ -11,6 +11,8 @@ import {
 } from "@/lib/feed-post-viewer-access";
 import { canMemberDeletePost } from "@/lib/post-delete-permission";
 import { z } from "zod";
+import { memberIsSiteVisible } from "@/lib/member-public-visibility";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 
 /** Avoid edge/CDN serving a cached HTML shell for API responses. */
 export const dynamic = "force-dynamic";
@@ -43,6 +45,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     : [[], [], await prisma.post.findUnique({ where: { id }, include: feedPostListInclude })];
 
   if (!raw) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (!(await memberIsSiteVisible(raw.authorId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -224,6 +230,8 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   const { id } = await ctx.params;
   const post = await prisma.post.findUnique({ where: { id } });

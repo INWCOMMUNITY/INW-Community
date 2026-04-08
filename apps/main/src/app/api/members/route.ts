@@ -3,12 +3,16 @@ import { prisma, Prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { verifiedMemberWhere } from "@/lib/member-public-visibility";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 
 export async function GET(req: NextRequest) {
   const session = (await getSessionForApi(req)) ?? (await getServerSession(authOptions));
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") ?? "").trim();
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "20", 10) || 20, 50);
@@ -17,11 +21,12 @@ export async function GET(req: NextRequest) {
 
   // Exclude self and blocked relationships. If member_block table is missing (P2021), fall back to exclude self only.
   const baseWhereWithBlocks = {
+    ...verifiedMemberWhere,
     id: { not: session.user.id },
     blocksReceived: { none: { blockerId: session.user.id } },
     blocksGiven: { none: { blockedId: session.user.id } },
   };
-  const baseWhereNoBlocks = { id: { not: session.user.id } };
+  const baseWhereNoBlocks = { ...verifiedMemberWhere, id: { not: session.user.id } };
 
   const memberSelect = {
     id: true,

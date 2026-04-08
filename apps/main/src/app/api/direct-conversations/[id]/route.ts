@@ -56,6 +56,8 @@ export async function GET(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verifiedGet = await requireVerifiedActiveMember(session.user.id);
+  if (!verifiedGet.ok) return verifiedGet.response;
 
   const { id } = await params;
   let conversation;
@@ -348,6 +350,8 @@ export async function PATCH(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verifiedPatch = await requireVerifiedActiveMember(session.user.id);
+  if (!verifiedPatch.ok) return verifiedPatch.response;
 
   const { id } = await params;
   let body: z.infer<typeof patchBodySchema>;

@@ -154,14 +154,26 @@ export default function SignupBusinessScreen() {
         );
         return;
       }
-      await signIn(email.trim(), password, "sponsor");
+      const signed = await signIn(email.trim(), password, "sponsor");
+      if ("requiresEmailVerification" in signed && signed.requiresEmailVerification) {
+        (router.replace as (href: string) => void)(
+          `/verify-email-pending?email=${encodeURIComponent(signed.email)}&plan=sponsor`
+        );
+        return;
+      }
       await refreshMember();
       setStep("business");
     } catch (e) {
       const err = e as { error?: string; status?: number };
       if (err.error?.toLowerCase().includes("already registered")) {
         try {
-          await signIn(email.trim(), password, "sponsor");
+          const signed = await signIn(email.trim(), password, "sponsor");
+          if ("requiresEmailVerification" in signed && signed.requiresEmailVerification) {
+            (router.replace as (href: string) => void)(
+              `/verify-email-pending?email=${encodeURIComponent(signed.email)}&plan=sponsor`
+            );
+            return;
+          }
           await refreshMember();
           setStep("business");
           return;
@@ -704,6 +716,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     color: "#000",
     backgroundColor: "#fff",
+    letterSpacing: 0,
   },
   error: {
     color: "#fff",

@@ -17,6 +17,8 @@ import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 import { z } from "zod";
 import { validateMemberDisplayNameFields } from "@/lib/member-display-name-policy";
+import { memberHasAppAccess } from "@/lib/member-public-visibility";
+import { ACCOUNT_SETUP_INCOMPLETE_MESSAGE } from "@/lib/require-verified-member";
 
 const deliveryAddressSchema = z.object({
   street: z.string().optional(),
@@ -79,6 +81,15 @@ export async function GET(req: NextRequest) {
     },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!(await memberHasAppAccess(session.user.id))) {
+    return NextResponse.json(
+      {
+        error: "Verify your email to use your account.",
+        code: "EMAIL_NOT_VERIFIED",
+      },
+      { status: 403 }
+    );
+  }
   const seasonId = await getCurrentSeasonId();
   let seasonPointsEarned: number | undefined;
   let currentSeason: { id: string; name: string } | undefined;
@@ -125,10 +136,14 @@ export async function GET(req: NextRequest) {
   const canAccessSellerHub = isPlatformAdmin || sellerPlanRow != null;
   const paidSlugSet = new Set<string>(NWC_PAID_PLAN_SLUGS);
   const hasPaidSubscription = subscriptions.some((s) => paidSlugSet.has(s.plan));
-  const { emailVerifiedAt, ...memberRest } = member;
+  const { emailVerifiedAt, signupIntent, ...memberRest } = member;
+  const emailVerified =
+    !!emailVerifiedAt ||
+    signupIntent === "business" ||
+    signupIntent === "seller";
   return NextResponse.json({
     ...memberRest,
-    emailVerified: !!emailVerifiedAt,
+    emailVerified,
     seasonPointsEarned,
     currentSeason,
     isSubscriber: !!subTier,
@@ -157,6 +172,15 @@ export async function PATCH(req: NextRequest) {
   const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!(await memberHasAppAccess(session.user.id))) {
+    return NextResponse.json(
+      {
+        error: ACCOUNT_SETUP_INCOMPLETE_MESSAGE,
+        code: "EMAIL_NOT_VERIFIED",
+      },
+      { status: 403 }
+    );
   }
   try {
     const body = await req.json();

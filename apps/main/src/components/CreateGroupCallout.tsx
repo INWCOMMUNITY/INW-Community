@@ -27,7 +27,7 @@ export function CreateGroupCallout({ className = "" }: { className?: string }) {
         brief explanation.
       </p>
       <Link href="/community-groups/new" className="btn inline-block">
-        Request a group
+        Request a Group
       </Link>
     </aside>
   );

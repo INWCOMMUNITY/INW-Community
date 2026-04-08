@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 import { isFeedPostRenderable } from "@/lib/feed-post-visible";
 import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
+import { verifiedMemberWhere } from "@/lib/member-public-visibility";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
 
   // Unauthenticated: return a public discover feed (recent posts, no groups)
   if (!session || !session.user.id) {
-    const where = { groupId: null };
+    const where = { groupId: null, author: verifiedMemberWhere };
     const posts = await prisma.post.findMany({
       where,
       include: {
@@ -72,7 +73,7 @@ export async function GET(req: NextRequest) {
         : [],
       sourcePostIds.length > 0
         ? prisma.post.findMany({
-            where: { id: { in: sourcePostIds } },
+            where: { id: { in: sourcePostIds }, author: verifiedMemberWhere },
             include: {
               author: {
                 select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
@@ -202,6 +203,7 @@ export async function GET(req: NextRequest) {
   ] as const;
 
   const baseWhere = {
+    author: verifiedMemberWhere,
     ...(blockedIds.length > 0 ? { authorId: { notIn: blockedIds } } : {}),
     OR: [...visibilityOr],
   };
@@ -332,7 +334,7 @@ export async function GET(req: NextRequest) {
       : [],
     sourcePostIds.length > 0
       ? prisma.post.findMany({
-          where: { id: { in: sourcePostIds } },
+          where: { id: { in: sourcePostIds }, author: verifiedMemberWhere },
           include: {
             author: {
               select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },

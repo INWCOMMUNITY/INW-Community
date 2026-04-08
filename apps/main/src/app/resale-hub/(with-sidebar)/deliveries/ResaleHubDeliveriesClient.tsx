@@ -15,12 +15,19 @@ interface LocalDeliveryDetails {
 interface OrderWithDelivery {
   id: string;
   orderNumber?: string;
+  status: string;
   createdAt: string;
   totalCents: number;
   stripePaymentIntentId?: string | null;
   localDeliveryDetails: LocalDeliveryDetails | null;
   deliveryConfirmedAt: string | null;
+  deliveryBuyerConfirmedAt?: string | null;
   items: { storeItem: { title: string }; quantity: number }[];
+}
+
+function sellerCanMarkLocalDelivery(o: OrderWithDelivery): boolean {
+  if (o.deliveryConfirmedAt) return false;
+  return ["paid", "shipped", "delivered"].includes(o.status);
 }
 
 function paymentTag(order: OrderWithDelivery) {
@@ -71,8 +78,8 @@ export function ResaleHubDeliveriesClient() {
     }
   }
 
-  const pending = orders.filter((o) => !o.deliveryConfirmedAt);
-  const completed = orders.filter((o) => o.deliveryConfirmedAt);
+  const pending = orders.filter((o) => !(o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt));
+  const completed = orders.filter((o) => o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt);
 
   if (loading) {
     return (
@@ -165,15 +172,31 @@ export function ResaleHubDeliveriesClient() {
                               </span>
                             )) ?? "—"}
                           </td>
-                          <td className="py-2 px-3">
-                            <button
-                              type="button"
-                              onClick={() => markDelivered(o.id)}
-                              disabled={confirmingId === o.id}
-                              className="btn text-sm py-1.5 px-3 disabled:opacity-50"
-                            >
-                              {confirmingId === o.id ? "Saving…" : "Order Delivered"}
-                            </button>
+                          <td className="py-2 px-3 max-w-[140px]">
+                            {!o.deliveryConfirmedAt && sellerCanMarkLocalDelivery(o) ? (
+                              <button
+                                type="button"
+                                onClick={() => markDelivered(o.id)}
+                                disabled={confirmingId === o.id}
+                                className="btn text-sm py-1.5 px-3 disabled:opacity-50"
+                              >
+                                {confirmingId === o.id ? "Saving…" : "Order Delivered"}
+                              </button>
+                            ) : !o.deliveryConfirmedAt ? (
+                              <span className="text-xs text-amber-800">
+                                {o.status === "pending"
+                                  ? "Awaiting payment — mark delivered after the order is paid."
+                                  : "Can’t mark delivered in this state."}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled
+                                className="text-sm py-1.5 px-3 rounded border border-gray-300 bg-gray-100 text-gray-700 font-medium cursor-default"
+                              >
+                                Marked Delivered
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

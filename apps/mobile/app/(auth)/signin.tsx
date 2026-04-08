@@ -75,9 +75,6 @@ export default function SignInScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [emailNotRecognized, setEmailNotRecognized] = useState(false);
-  const [emailNotVerified, setEmailNotVerified] = useState(false);
-  const [resendBusy, setResendBusy] = useState(false);
-  const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [errorPayload, setErrorPayload] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -91,8 +88,6 @@ export default function SignInScreen() {
   async function handleSignIn() {
     setError("");
     setEmailNotRecognized(false);
-    setEmailNotVerified(false);
-    setResendMessage(null);
     setErrorDetails(null);
     setErrorPayload(null);
     setCopied(false);
@@ -139,7 +134,13 @@ export default function SignInScreen() {
       }
 
       const trimmedEmail = email.trim();
-      await signIn(trimmedEmail, password, plan);
+      const signResult = await signIn(trimmedEmail, password, plan);
+      if ("requiresEmailVerification" in signResult && signResult.requiresEmailVerification) {
+        router.replace(
+          `/verify-email-pending?email=${encodeURIComponent(signResult.email)}&plan=${plan}` as never
+        );
+        return;
+      }
       await refreshMember();
       const defaultRoute = emailJustVerified ? "/(tabs)/my-community" : "/(tabs)/home";
       router.replace((returnTo ?? defaultRoute) as import("expo-router").Href);
@@ -185,13 +186,6 @@ export default function SignInScreen() {
         lastFailedEmailRef.current = email.trim();
         setCredentialFailCount((c) => c + 1);
         setEmailNotRecognized(true);
-        setError("");
-      } else if (err.status === 403 && (msg === "EMAIL_NOT_VERIFIED" || err.code === "EMAIL_NOT_VERIFIED")) {
-        setErrorDetails(null);
-        setErrorPayload(null);
-        lastFailedEmailRef.current = email.trim();
-        setCredentialFailCount((c) => c + 1);
-        setEmailNotVerified(true);
         setError("");
       } else if (err.status === 401) {
         setErrorDetails(null);
@@ -315,51 +309,6 @@ export default function SignInScreen() {
             </Text>
           </View>
         ) : null}
-        {emailNotVerified ? (
-          <View style={styles.verifyBlock}>
-            <Text style={styles.verifyText}>
-              This email isn&apos;t verified yet. Check your inbox for a 6-digit code from Northwest Community.
-            </Text>
-            <Pressable
-              style={({ pressed }) => [styles.resendBtn, pressed && { opacity: 0.85 }]}
-              disabled={resendBusy || !email.trim()}
-              onPress={async () => {
-                setResendMessage(null);
-                setResendBusy(true);
-                try {
-                  const url = `${(API_BASE ?? "").replace(/\/$/, "")}/api/auth/resend-verification`;
-                  const res = await fetch(url, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Accept: "application/json",
-                      ...(API_BASE.includes("inwcommunity.com")
-                        ? {
-                            Origin: "https://www.inwcommunity.com",
-                            Referer: "https://www.inwcommunity.com/",
-                          }
-                        : {}),
-                    },
-                    body: JSON.stringify({ email: email.trim() }),
-                  });
-                  const data = (await res.json().catch(() => ({}))) as { message?: string };
-                  setResendMessage(
-                    typeof data.message === "string"
-                      ? data.message
-                      : "If that email is registered, we sent a code."
-                  );
-                } catch {
-                  setResendMessage("Could not send. Try again in a minute.");
-                } finally {
-                  setResendBusy(false);
-                }
-              }}
-            >
-              <Text style={styles.resendBtnText}>{resendBusy ? "Sending…" : "Resend verification code"}</Text>
-            </Pressable>
-            {resendMessage ? <Text style={styles.resendNote}>{resendMessage}</Text> : null}
-          </View>
-        ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {errorDetails ? (
           <Text style={styles.errorDetails} selectable>
@@ -468,6 +417,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: "#000",
     backgroundColor: "#fff",
+    letterSpacing: 0,
   },
   forgotPasswordLink: {
     alignSelf: "flex-end",
@@ -494,33 +444,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
     color: "#fff",
-  },
-  verifyBlock: {
-    marginBottom: 12,
-  },
-  verifyText: {
-    color: "#fff",
-    fontSize: 14,
-    marginBottom: 10,
-    lineHeight: 20,
-  },
-  resendBtn: {
-    alignSelf: "flex-start",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#fff",
-  },
-  resendBtnText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  resendNote: {
-    color: "rgba(255,255,255,0.95)",
-    fontSize: 13,
-    marginTop: 8,
   },
   errorDetails: {
     color: "rgba(255,255,255,0.9)",

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { getBlockedMemberIds } from "@/lib/member-block";
 
 /** Detect DB errors from missing direct_conversation columns (e.g. member_*_last_read_at not migrated yet). */
@@ -22,6 +23,8 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   let conversations: { status: string; requestedByMemberId: string | null; memberAId: string; memberBId: string; memberALastReadAt: Date | null; memberBLastReadAt: Date | null; messages: { senderId: string; createdAt: Date }[] }[] = [];
   let blockedIds: Set<string> = new Set();

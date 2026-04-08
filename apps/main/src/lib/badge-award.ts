@@ -9,6 +9,7 @@
  * `community_star_business` is awarded from reward offer totals (see `awardCommunityStarBusinessBadge`).
  */
 import { prisma } from "database";
+import { memberIsSiteVisible } from "@/lib/member-public-visibility";
 import { awardPoints } from "@/lib/award-points";
 import { memberHasActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { getAllCategoryScanMetrics, getDistinctScannedBusinessCount } from "@/lib/badge-scan-metrics";
@@ -20,6 +21,8 @@ import {
 /** Returns slugs of member badges newly created (empty if already had the badge). Includes `badger_badge` when cascade triggers. */
 async function ensureMemberBadge(memberId: string, badgeSlug: string): Promise<string[]> {
   const newly: string[] = [];
+  if (!(await memberIsSiteVisible(memberId))) return newly;
+
   const badge = await prisma.badge.findUnique({ where: { slug: badgeSlug } });
   if (!badge) return newly;
   const existing = await prisma.memberBadge.findUnique({
@@ -121,7 +124,10 @@ async function ensureMemberBadgeWithInfo(memberId: string, badgeSlug: string): P
   return earned;
 }
 
-/** Call after Member create (signup). signupIntent: resident | business | seller. Returns badges just awarded for this signup. */
+/**
+ * Call after the member’s email is verified (app signup) or when creating a member that is already verified.
+ * signupIntent: resident | business | seller. Idempotent per badge. Returns badges newly awarded for this flow.
+ */
 export async function awardMemberSignupBadges(memberId: string, signupIntent?: string | null): Promise<EarnedBadge[]> {
   const earned: EarnedBadge[] = [];
   const intent = signupIntent ?? "resident";

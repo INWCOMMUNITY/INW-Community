@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
+import { verifiedMemberWhere } from "@/lib/member-public-visibility";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -44,6 +45,7 @@ export async function GET(
   const blockedIds = excludedAuthors;
   const where = {
     groupId: group.id,
+    author: verifiedMemberWhere,
     ...(blockedIds.length > 0 ? { authorId: { notIn: blockedIds } } : {}),
   };
 

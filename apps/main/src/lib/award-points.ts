@@ -1,4 +1,5 @@
 import { prisma } from "database";
+import { memberIsSiteVisible } from "@/lib/member-public-visibility";
 
 const now = () => new Date();
 
@@ -28,6 +29,8 @@ export async function getCurrentSeasonId(): Promise<string | null> {
  */
 export async function awardPoints(memberId: string, amount: number): Promise<void> {
   if (amount <= 0) return;
+  if (!(await memberIsSiteVisible(memberId))) return;
+
   const seasonId = await getCurrentSeasonId();
   await prisma.$transaction([
     prisma.member.update({

@@ -11,6 +11,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  Modal,
+  useWindowDimensions,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -33,6 +35,19 @@ import {
   getPendingReferralCode,
   setPendingReferralCode,
 } from "@/lib/referral-code";
+
+/** Android: avoid `@react-native-picker/picker` — RN 0.81 + New Arch crashes native dialog/dropdown pickers (see picker#642). */
+const RESIDENT_CITY_ITEMS: { label: string; value: string }[] = [
+  { label: "Skip (no city)", value: "" },
+  ...PREBUILT_CITIES.map((c) => ({ label: c, value: c })),
+  { label: "Other (enter below)", value: "Other" },
+];
+
+function residentCitySelectionLabel(value: string): string {
+  if (value === "") return "Skip (no city)";
+  if (value === "Other") return "Other (enter below)";
+  return value;
+}
 
 interface EarnedBadge {
   slug: string;
@@ -57,9 +72,8 @@ export default function SignupResidentScreen() {
   const [loading, setLoading] = useState(false);
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadge[]>([]);
   const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
-  /** When badges finish, route here instead of signing in. */
-  const [verificationEmailAfterBadges, setVerificationEmailAfterBadges] = useState<string | null>(null);
-
+  const [cityModalVisible, setCityModalVisible] = useState(false);
+  const { height: windowHeight } = useWindowDimensions();
   useEffect(() => {
     const raw = params.ref;
     const code = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
@@ -72,7 +86,13 @@ export default function SignupResidentScreen() {
         "nwc_community_ugc_terms_v1",
         "nwc_community_ugc_terms_v2",
       ]).catch(() => {});
-      await signIn(email.trim(), password, "subscribe");
+      const out = await signIn(email.trim(), password, "subscribe");
+      if ("requiresEmailVerification" in out && out.requiresEmailVerification) {
+        (router.replace as (href: string) => void)(
+          `/verify-email-pending?email=${encodeURIComponent(out.email)}&plan=subscribe`
+        );
+        return;
+      }
       await refreshMember?.();
       router.replace("/(tabs)");
     } catch {
@@ -132,16 +152,9 @@ export default function SignupResidentScreen() {
       });
       await clearPendingReferralCode();
       if (res?.requiresEmailVerification === true) {
-        const addr = email.trim();
-        if (res?.earnedBadges?.length) {
-          setEarnedBadges(res.earnedBadges);
-          setVerificationEmailAfterBadges(addr);
-          setBadgePopupIndex(0);
-        } else {
-          (router.replace as (href: string) => void)(
-            `/verify-email-pending?email=${encodeURIComponent(addr)}&plan=subscribe`
-          );
-        }
+        (router.replace as (href: string) => void)(
+          `/verify-email-pending?email=${encodeURIComponent(email.trim())}&plan=subscribe`
+        );
         return;
       }
       if (res?.earnedBadges?.length) {
@@ -202,9 +215,6 @@ export default function SignupResidentScreen() {
             textContentType="familyName"
             autoCorrect={true}
           />
-          <Text style={styles.namePolicyHint}>
-            Use your real first and last name. Offensive or fake names are not allowed and may be removed.
-          </Text>
           <TextInput
             style={styles.input}
             placeholder="Email"
@@ -253,18 +263,81 @@ export default function SignupResidentScreen() {
             Same list as business profiles. Choose Other if your city is not listed.
           </Text>
           <View style={styles.cityPickerWrap}>
-            <Picker
-              selectedValue={cityPicker}
-              onValueChange={(v) => setCityPicker(typeof v === "string" ? v : String(v))}
-              style={styles.cityPicker}
-              accessibilityLabel="City of residence"
-            >
-              <Picker.Item label="Skip (no city)" value="" />
-              {PREBUILT_CITIES.map((c) => (
-                <Picker.Item key={c} label={c} value={c} />
-              ))}
-              <Picker.Item label="Other (enter below)" value="Other" />
-            </Picker>
+            {Platform.OS === "android" ? (
+              <>
+                <Pressable
+                  style={styles.cityAndroidTrigger}
+                  onPress={() => setCityModalVisible(true)}
+                  accessibilityLabel="City of residence"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.cityAndroidTriggerText} numberOfLines={1}>
+                    {residentCitySelectionLabel(cityPicker)}
+                  </Text>
+                  <Ionicons name="chevron-down" size={22} color={theme.colors.primary} />
+                </Pressable>
+                <Modal
+                  visible={cityModalVisible}
+                  animationType="slide"
+                  transparent
+                  onRequestClose={() => setCityModalVisible(false)}
+                >
+                  <View style={styles.cityModalRoot}>
+                    <Pressable
+                      style={styles.cityModalDismissLayer}
+                      onPress={() => setCityModalVisible(false)}
+                      accessibilityLabel="Dismiss city list"
+                    />
+                    <View style={styles.cityModalSheet}>
+                      <Text style={styles.cityModalTitle}>City of residence</Text>
+                      <ScrollView
+                        keyboardShouldPersistTaps="handled"
+                        style={{ maxHeight: Math.min(windowHeight * 0.62, 420) }}
+                      >
+                        {RESIDENT_CITY_ITEMS.map((item) => (
+                          <Pressable
+                            key={
+                              item.value === ""
+                                ? "__skip__"
+                                : item.value === "Other"
+                                  ? "__other__"
+                                  : item.value
+                            }
+                            style={({ pressed }) => [
+                              styles.cityModalRow,
+                              pressed && { opacity: 0.88 },
+                            ]}
+                            onPress={() => {
+                              setCityPicker(item.value);
+                              setCityModalVisible(false);
+                            }}
+                          >
+                            <Text style={styles.cityModalRowText}>{item.label}</Text>
+                            {cityPicker === item.value ? (
+                              <Ionicons name="checkmark-circle" size={22} color={theme.colors.primary} />
+                            ) : null}
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </View>
+                </Modal>
+              </>
+            ) : (
+              <Picker
+                selectedValue={cityPicker}
+                onValueChange={(v) => setCityPicker(typeof v === "string" ? v : String(v))}
+                style={styles.cityPicker}
+                itemStyle={styles.cityPickerItem}
+                accessibilityLabel="City of residence"
+              >
+                <Picker.Item label="Skip (no city)" value="" color={theme.colors.primary} />
+                {PREBUILT_CITIES.map((c) => (
+                  <Picker.Item key={c} label={c} value={c} color={theme.colors.primary} />
+                ))}
+                <Picker.Item label="Other (enter below)" value="Other" color={theme.colors.primary} />
+              </Picker>
+            )}
           </View>
           {cityPicker === "Other" ? (
             <TextInput
@@ -330,15 +403,7 @@ export default function SignupResidentScreen() {
             } else {
               setBadgePopupIndex(-1);
               setEarnedBadges([]);
-              const verifyAddr = verificationEmailAfterBadges;
-              setVerificationEmailAfterBadges(null);
-              if (verifyAddr) {
-                (router.replace as (href: string) => void)(
-                  `/verify-email-pending?email=${encodeURIComponent(verifyAddr)}&plan=subscribe`
-                );
-              } else {
-                finishSignup();
-              }
+              finishSignup();
             }
           }}
           badgeName={earnedBadges[badgePopupIndex].name}
@@ -392,6 +457,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     color: "#000",
     backgroundColor: "#fff",
+    letterSpacing: 0,
   },
   error: {
     color: "#fff",
@@ -419,14 +485,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#fff",
   },
-  namePolicyHint: {
-    fontSize: 12,
-    color: "#fff",
-    opacity: 0.88,
-    marginBottom: 10,
-    lineHeight: 17,
-    paddingHorizontal: 2,
-  },
   cityLabel: {
     fontSize: 14,
     fontWeight: "600",
@@ -448,8 +506,68 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.95)",
     overflow: "hidden",
   },
+  cityAndroidTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minHeight: 48,
+  },
+  cityAndroidTriggerText: {
+    flex: 1,
+    fontSize: 16,
+    color: theme.colors.heading,
+    marginRight: 8,
+  },
+  cityModalRoot: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  cityModalDismissLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  cityModalSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 16,
+    paddingHorizontal: 4,
+    maxHeight: "78%",
+    borderWidth: 2,
+    borderBottomWidth: 0,
+    borderColor: theme.colors.primary,
+  },
+  cityModalTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 8,
+    marginHorizontal: 12,
+  },
+  cityModalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#ddd",
+  },
+  cityModalRowText: {
+    flex: 1,
+    fontSize: 16,
+    color: "#000",
+    marginRight: 8,
+  },
   cityPicker: {
     ...(Platform.OS === "ios" ? { height: 160 } : {}),
+  },
+  /** iOS wheel text; Android uses `color` on each Picker.Item */
+  cityPickerItem: {
+    color: theme.colors.primary,
+    fontSize: 18,
   },
   button: {
     backgroundColor: "#fff",

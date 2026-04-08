@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "database";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
+import { memberHasAppAccess } from "@/lib/member-public-visibility";
 
 const schema = z.object({
   email: z.string().min(1).max(200),
@@ -26,6 +27,7 @@ export async function POST(req: NextRequest) {
     const member = await prisma.member.findFirst({
       where: { email: { equals: email.trim(), mode: "insensitive" } },
       select: {
+        id: true,
         passwordHash: true,
         emailVerifiedAt: true,
       },
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       exists: true,
       passwordMatch,
-      emailVerified: !!member.emailVerifiedAt,
+      emailVerified: passwordMatch ? await memberHasAppAccess(member.id) : !!member.emailVerifiedAt,
     });
   } catch (e) {
     if (e instanceof z.ZodError) {

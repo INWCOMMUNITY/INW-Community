@@ -6,6 +6,7 @@ import {
   prismaWhereMemberSubscribePlanAccess,
   prismaWhereMemberSubscribeTierPerksAccess,
 } from "@/lib/subscribe-plan-access";
+import { memberHasAppAccess } from "@/lib/member-public-visibility";
 
 /** For Vercel logs: correlate failures without printing full login ids in every case. */
 function redactLoginId(id: string): string {
@@ -60,7 +61,7 @@ export const authOptions = {
             console.error(`[auth][credentials] reject PASSWORD_MISMATCH login=${who} memberId=${member.id}`);
             return null;
           }
-          if (!member.emailVerifiedAt) {
+          if (!(await memberHasAppAccess(member.id))) {
             console.error(`[auth][credentials] reject EMAIL_NOT_VERIFIED login=${who} memberId=${member.id}`);
             return null;
           }

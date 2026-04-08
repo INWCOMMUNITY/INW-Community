@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { publishDirectConversationRead } from "@/lib/realtime-publish";
 import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import { isBlocked } from "@/lib/member-block";
@@ -17,6 +18,8 @@ export async function PATCH(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const verified = await requireVerifiedActiveMember(session.user.id);
+  if (!verified.ok) return verified.response;
 
   const { id } = await params;
   const conversation = await prisma.directConversation.findUnique({

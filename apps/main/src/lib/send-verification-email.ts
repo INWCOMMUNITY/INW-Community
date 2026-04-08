@@ -4,6 +4,14 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 export async function sendVerificationEmail(params: { to: string; code: string }): Promise<boolean> {
   if (!resend) {
+    const logCodeInDev =
+      process.env.NODE_ENV === "development" || process.env.VERIFICATION_EMAIL_LOG_CODE === "1";
+    if (logCodeInDev) {
+      console.warn(
+        `[sendVerificationEmail] No RESEND_API_KEY — verification code for ${params.to}: ${params.code}`,
+      );
+      return true;
+    }
     console.warn("[sendVerificationEmail] RESEND_API_KEY not configured, skipping email");
     return false;
   }
