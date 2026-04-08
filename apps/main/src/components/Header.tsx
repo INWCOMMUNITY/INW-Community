@@ -129,7 +129,7 @@ export function Header() {
       .catch(() => setUnreadMessages(0));
   }, [session?.user?.id, pathname]);
 
-  if (pathname?.startsWith("/seller-hub")) {
+  if (pathname?.startsWith("/seller-hub") || pathname?.startsWith("/admin")) {
     return null;
   }
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "NWC Admin",
+  title: "NWC ADMIN HUB",
   description: "Northwest Community Admin",
 };
 

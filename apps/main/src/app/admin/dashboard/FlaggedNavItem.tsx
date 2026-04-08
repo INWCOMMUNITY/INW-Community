@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { IonIcon } from "@/components/IonIcon";
 
 export function FlaggedNavItem({
   href,
   label,
+  icon = "flag-outline",
   isActive,
   onClick,
 }: {
   href: string;
   label: string;
+  icon?: string;
   isActive: boolean;
   onClick: () => void;
 }) {
@@ -27,15 +30,16 @@ export function FlaggedNavItem({
     <Link
       href={href}
       onClick={onClick}
-      className={`block px-4 py-2 text-sm font-medium rounded-r ${
+      className={`flex items-center gap-2.5 px-4 py-2 text-sm font-medium rounded-r ${
         isActive ? "border-l-4" : "hover:bg-[#FDEDCC]/30"
       }`}
       style={isActive ? { backgroundColor: "#FDEDCC", color: "#3E432F", borderColor: "#505542" } : { color: "#505542" }}
     >
-      <span className="flex items-center justify-between gap-2">
-        {label}
+      <IonIcon name={icon} size={20} className="opacity-90 shrink-0" />
+      <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+        <span className="truncate">{label}</span>
         {count > 0 && (
-          <span className="bg-amber-500 text-white text-xs font-bold rounded-full min-w-[1.25rem] h-5 px-1.5 flex items-center justify-center">
+          <span className="bg-amber-500 text-white text-xs font-bold rounded-full min-w-[1.25rem] h-5 px-1.5 flex shrink-0 items-center justify-center">
             {count > 99 ? "99+" : count}
           </span>
         )}

@@ -31,8 +31,6 @@ export default async function DashboardPage() {
     orderItemsThisMonth,
     stripeStats,
     analytics,
-    pendingGroupCreationRequests,
-    pendingGroupDeletionRequests,
   ] = await Promise.all([
     prisma.member.count(),
     prisma.subscription.count(),
@@ -69,8 +67,6 @@ export default async function DashboardPage() {
     })
       .then((r) => r.json())
       .catch(() => ({ appOpensWeek: 0 })),
-    prisma.groupCreationRequest.count({ where: { status: "pending" } }),
-    prisma.groupDeletionRequest.count({ where: { status: "pending" } }),
   ]);
 
   const totalSalesCents = storeOrdersThisMonth.reduce((s, o) => s + o.totalCents, 0);
@@ -83,48 +79,15 @@ export default async function DashboardPage() {
 
       {/* To Do List */}
       <div className="bg-white rounded-lg shadow p-4">
-        <h2 className="text-lg font-bold mb-3">To Do List</h2>
+        <h2 className="text-lg font-bold mb-1">To Do List</h2>
+        <p className="text-sm text-gray-600 mb-3">
+          Review reminders show when there is pending work. Checking one off hides it until new items arrive after that.
+        </p>
         <DashboardTodoList />
       </div>
 
       {/* Top Analytics */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {(pendingGroupCreationRequests > 0 || pendingGroupDeletionRequests > 0) && (
-          <div
-            className="col-span-2 md:col-span-3 rounded-lg shadow p-4 border-2"
-            style={{ borderColor: "#d97706", backgroundColor: "#fffbeb" }}
-          >
-            <p className="text-gray-800 text-sm font-semibold mb-2">Community groups — action needed</p>
-            <div className="flex flex-wrap gap-4">
-              {pendingGroupCreationRequests > 0 ? (
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{pendingGroupCreationRequests}</p>
-                  <p className="text-gray-600 text-sm">New group request(s)</p>
-                  <Link
-                    href="/admin/dashboard/group-requests"
-                    className="text-sm font-semibold hover:underline mt-1 inline-block"
-                    style={{ color: "#505542" }}
-                  >
-                    Review →
-                  </Link>
-                </div>
-              ) : null}
-              {pendingGroupDeletionRequests > 0 ? (
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{pendingGroupDeletionRequests}</p>
-                  <p className="text-gray-600 text-sm">Group deletion request(s)</p>
-                  <Link
-                    href="/admin/dashboard/group-deletion-requests"
-                    className="text-sm font-semibold hover:underline mt-1 inline-block"
-                    style={{ color: "#505542" }}
-                  >
-                    Review →
-                  </Link>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        )}
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-gray-600 text-sm">Money Made From Subscriptions</p>
           <p className="text-2xl font-bold">

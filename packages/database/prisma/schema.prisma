@@ -1239,6 +1239,16 @@ model AdminTodo {
   createdAt DateTime @default(now()) @map("created_at")
 }
 
+// When admin marks a dashboard queue reminder complete, hide until new pending work arrives after dismissedAt.
+model AdminDashboardQueueDismissal {
+  id          String   @id @default(cuid())
+  queueKey    String   @unique @map("queue_key")
+  dismissedAt DateTime @map("dismissed_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("admin_dashboard_queue_dismissal")
+}
+
 // Platform business, admin business, time away
 model SiteSetting {
   id        String   @id @default(cuid())

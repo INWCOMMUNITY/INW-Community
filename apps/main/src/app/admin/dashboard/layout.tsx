@@ -5,60 +5,59 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { BlogsNavItem } from "./BlogsNavItem";
 import { FlaggedNavItem } from "./FlaggedNavItem";
+import { IonIcon } from "@/components/IonIcon";
 
 // When on localhost, this is the live admin URL to link to in the banner
 const LIVE_ADMIN_URL = process.env.NEXT_PUBLIC_LIVE_SITE_URL || process.env.NEXT_PUBLIC_MAIN_SITE_URL || "https://inwcommunity.com";
 
-const SIDEBAR_SECTIONS = [
+type SidebarItem = { href: string; label: string; icon: string; external?: boolean };
+
+const SETTINGS_MY_BUSINESS: { href: string; label: string; icon: string }[] = [
+  { href: "/admin/dashboard/business-info", label: "Business Info", icon: "information-circle-outline" },
+  { href: "/admin/dashboard/disputes", label: "Disputes", icon: "warning-outline" },
+  { href: "/admin/dashboard/traffic", label: "Traffic", icon: "pulse-outline" },
+];
+
+const SETTINGS_WEBSITE: { href: string; label: string; icon: string; external?: boolean }[] = [
+  { href: "/admin/dashboard/design", label: "Design", icon: "color-palette-outline" },
+  { href: "/admin/dashboard/site-images", label: "Site Images", icon: "images-outline" },
+  { href: "/", label: "See Website", icon: "globe-outline", external: true },
+];
+
+const SIDEBAR_SECTIONS: { divider: string; items: SidebarItem[] }[] = [
   {
-    divider: "NW Community",
+    divider: "INW Community",
     items: [
-      { href: "/admin/dashboard/members", label: "Members" },
-      { href: "/admin/dashboard/mailing-list", label: "Mailing list" },
-      { href: "/admin/dashboard/subscriptions", label: "Subscriptions" },
-      { href: "/admin/dashboard/sponsors", label: "Business subscriptions" },
-      { href: "/admin/dashboard/businesses", label: "Businesses" },
-      { href: "/admin/dashboard/sellers", label: "Sellers" },
+      { href: "/admin/dashboard/members", label: "Members", icon: "people-outline" },
+      { href: "/admin/dashboard/mailing-list", label: "Mailing List", icon: "mail-outline" },
+      { href: "/admin/dashboard/subscriptions", label: "Subscriptions", icon: "card-outline" },
+      { href: "/admin/dashboard/sponsors", label: "Business Subscriptions", icon: "business-outline" },
+      { href: "/admin/dashboard/businesses", label: "Businesses", icon: "storefront-outline" },
+      { href: "/admin/dashboard/sellers", label: "Sellers", icon: "bag-handle-outline" },
     ],
   },
   {
     divider: "Incentives",
     items: [
-      { href: "/admin/dashboard/coupons", label: "Coupons" },
-      { href: "/admin/dashboard/top5", label: "NWC Top 10 Prizes" },
-      { href: "/admin/dashboard/points-config", label: "Points" },
-      { href: "/admin/dashboard/badges", label: "Badges" },
+      { href: "/admin/dashboard/coupons", label: "Coupons", icon: "pricetag-outline" },
+      { href: "/admin/dashboard/top5", label: "NWC Top 10 Prizes", icon: "trophy-outline" },
+      { href: "/admin/dashboard/points-config", label: "Points", icon: "star-outline" },
+      { href: "/admin/dashboard/badges", label: "Badges", icon: "ribbon-outline" },
     ],
   },
   {
     divider: "Community",
     items: [
-      { href: "/admin/dashboard/group-requests", label: "Group requests" },
-      { href: "/admin/dashboard/group-deletion-requests", label: "Group deletions" },
-      { href: "/admin/dashboard/events", label: "Events" },
-      { href: "/admin/dashboard/blogs", label: "Blogs" },
-      { href: "/admin/dashboard/posts", label: "Posts" },
-      { href: "/admin/dashboard/tags", label: "Tags" },
-      { href: "/admin/dashboard/flagged", label: "Flagged" },
-      { href: "/admin/dashboard/reports", label: "Reports" },
-      { href: "/admin/dashboard/nwc-requests", label: "Support requests" },
-      { href: "/admin/dashboard/content-policy", label: "Content policy" },
-    ],
-  },
-  {
-    divider: "My Business",
-    items: [
-      { href: "/admin/dashboard/business-info", label: "Business Info" },
-      { href: "/admin/dashboard/disputes", label: "Disputes" },
-      { href: "/admin/dashboard/traffic", label: "Traffic" },
-    ],
-  },
-  {
-    divider: "Website",
-    items: [
-      { href: "/admin/dashboard/design", label: "Design" },
-      { href: "/admin/dashboard/site-images", label: "Site Images" },
-      { href: "/", label: "See Website", external: true },
+      { href: "/admin/dashboard/group-requests", label: "Group Requests", icon: "people-circle-outline" },
+      { href: "/admin/dashboard/group-deletion-requests", label: "Group Deletions", icon: "trash-outline" },
+      { href: "/admin/dashboard/events", label: "Events", icon: "calendar-outline" },
+      { href: "/admin/dashboard/blogs", label: "Blogs", icon: "newspaper-outline" },
+      { href: "/admin/dashboard/posts", label: "Posts", icon: "document-text-outline" },
+      { href: "/admin/dashboard/tags", label: "Tags", icon: "pricetags-outline" },
+      { href: "/admin/dashboard/flagged", label: "Flagged", icon: "flag-outline" },
+      { href: "/admin/dashboard/reports", label: "Reports", icon: "bar-chart-outline" },
+      { href: "/admin/dashboard/nwc-requests", label: "Support Requests", icon: "help-buoy-outline" },
+      { href: "/admin/dashboard/content-policy", label: "Content Policy", icon: "shield-checkmark-outline" },
     ],
   },
 ];
@@ -70,10 +69,29 @@ export default function AdminDashboardLayout({
 }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [isLive, setIsLive] = useState<boolean | null>(null);
   useEffect(() => {
     setIsLive(typeof window !== "undefined" && !window.location.origin.includes("localhost"));
   }, []);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      const t = e.target as HTMLElement;
+      if (t.closest?.("[data-admin-settings-root]")) return;
+      setSettingsOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setSettingsOpen(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [settingsOpen]);
 
   function isActive(href: string) {
     if (href.startsWith("http")) return false;
@@ -85,14 +103,15 @@ export default function AdminDashboardLayout({
     <nav className="flex flex-col gap-1 py-4">
       <Link
         href="/admin/dashboard"
-        className={`px-4 py-2 text-sm font-medium rounded-r ${
+        className={`flex items-center gap-2.5 px-4 py-2 text-sm font-medium rounded-r ${
           isActive("/admin/dashboard")
             ? "border-l-4"
             : "hover:bg-[#FDEDCC]/30"
         }`}
         style={isActive("/admin/dashboard") ? { backgroundColor: "#FDEDCC", color: "#3E432F", borderColor: "#505542" } : { color: "#505542" }}
       >
-        Dashboard
+        <IonIcon name="home-outline" size={20} className="opacity-90 shrink-0" />
+        <span>Dashboard</span>
       </Link>
       {SIDEBAR_SECTIONS.map((section) => (
         <div key={section.divider} className="mt-4">
@@ -107,16 +126,18 @@ export default function AdminDashboardLayout({
                   href={item.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block px-4 py-2 text-sm font-medium rounded-r hover:bg-[#FDEDCC]/30"
+                  className="flex items-center gap-2.5 px-4 py-2 text-sm font-medium rounded-r hover:bg-[#FDEDCC]/30"
                   style={{ color: "#505542" }}
                 >
-                  {item.label}
+                  <IonIcon name={item.icon} size={20} className="opacity-90 shrink-0" />
+                  <span className="truncate">{item.label}</span>
                 </a>
               ) : item.href === "/admin/dashboard/blogs" ? (
                 <BlogsNavItem
                   key={item.href}
                   href={item.href}
                   label={item.label}
+                  icon={item.icon}
                   isActive={isActive(item.href)}
                   onClick={() => setSidebarOpen(false)}
                 />
@@ -125,6 +146,7 @@ export default function AdminDashboardLayout({
                   key={item.href}
                   href={item.href}
                   label={item.label}
+                  icon={item.icon}
                   isActive={isActive(item.href)}
                   onClick={() => setSidebarOpen(false)}
                 />
@@ -133,14 +155,15 @@ export default function AdminDashboardLayout({
                   key={item.href}
                   href={item.href}
                   onClick={() => setSidebarOpen(false)}
-                  className={`block px-4 py-2 text-sm font-medium rounded-r ${
+                  className={`flex items-center gap-2.5 px-4 py-2 text-sm font-medium rounded-r ${
                     isActive(item.href)
                       ? "border-l-4"
                       : "hover:bg-[#FDEDCC]/30"
                   }`}
                   style={isActive(item.href) ? { backgroundColor: "#FDEDCC", color: "#3E432F", borderColor: "#505542" } : { color: "#505542" }}
                 >
-                  {item.label}
+                  <IonIcon name={item.icon} size={20} className="opacity-90 shrink-0" />
+                  <span className="truncate">{item.label}</span>
                 </Link>
               )
             )}
@@ -150,29 +173,35 @@ export default function AdminDashboardLayout({
     </nav>
   );
 
-  // Match main site header height so sidebar starts below it (Header is sticky with py-3 sm:py-4)
-  const headerOffset = "4rem";
-
   return (
-    <div className="min-h-screen flex overflow-x-hidden">
-      {/* Desktop sidebar: below main site header */}
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#f5f5f4]">
+      {isLive === false && (
+        <div className="shrink-0 bg-amber-100 border-b border-amber-200 px-4 py-2 text-sm text-amber-800 z-50">
+          You&apos;re editing the <strong>local</strong> site. To edit the live site, go to{" "}
+          <a href={`${LIVE_ADMIN_URL}/admin`} className="font-medium underline hover:no-underline">{LIVE_ADMIN_URL}/admin</a>
+        </div>
+      )}
+
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* Desktop sidebar: flex sibling of main so top row aligns with toolbar below banner */}
       <aside
-        className="hidden md:flex md:flex-col md:w-60 md:fixed md:left-0 md:bottom-0 bg-white border-r"
-        style={{ borderColor: "#e5e3df", top: headerOffset }}
+        className="hidden md:flex md:flex-col md:w-60 md:shrink-0 bg-white border-r"
+        style={{ borderColor: "#e5e3df" }}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "#e5e3df" }}>
-          <span className="font-bold" style={{ color: "#3E432F" }}>NWC Admin</span>
+        <div className="flex h-[52px] shrink-0 items-center px-4 border-b" style={{ borderColor: "#e5e3df" }}>
+          <span className="text-sm font-bold leading-tight" style={{ color: "#3E432F" }}>NWC ADMIN HUB</span>
         </div>
         <div className="flex-1 overflow-y-auto min-h-0">
           <SidebarNav />
         </div>
         <div className="p-4 border-t shrink-0" style={{ borderColor: "#e5e3df" }}>
           <Link
-            href="/api/auth/signout?callbackUrl=%2F"
-            className="block w-full text-sm hover:underline py-2"
+            href="/"
+            className="flex w-full items-center gap-2.5 py-2 text-sm font-medium hover:underline"
             style={{ color: "#505542" }}
           >
-            Log out
+            <IonIcon name="home-outline" size={20} className="opacity-90 shrink-0" />
+            <span>NWC Home</span>
           </Link>
         </div>
       </aside>
@@ -193,7 +222,7 @@ export default function AdminDashboardLayout({
         }`}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "#e5e3df" }}>
-          <span className="font-bold" style={{ color: "#3E432F" }}>NWC Admin</span>
+          <span className="text-sm font-bold leading-tight" style={{ color: "#3E432F" }}>NWC ADMIN HUB</span>
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
@@ -208,35 +237,101 @@ export default function AdminDashboardLayout({
         </div>
         <div className="p-4 border-t">
           <Link
-            href="/api/auth/signout?callbackUrl=%2F"
-            className="block w-full text-sm text-gray-600 hover:text-gray-900 hover:underline py-2"
+            href="/"
+            className="flex w-full items-center gap-2.5 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:underline"
           >
-            Log out
+            <IonIcon name="home-outline" size={20} className="opacity-90 shrink-0" />
+            <span>NWC Home</span>
           </Link>
         </div>
       </aside>
 
       {/* basis-0 + overflow-hidden: main column width is bounded so inner admin-x-scroll can overflow-x */}
-      <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden md:pl-60">
-        {isLive === false && (
-          <div className="shrink-0 bg-amber-100 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
-            You&apos;re editing the <strong>local</strong> site. To edit the live site, go to{" "}
-            <a href={`${LIVE_ADMIN_URL}/admin`} className="font-medium underline hover:no-underline">{LIVE_ADMIN_URL}/admin</a>
-          </div>
-        )}
-        <header className="sticky z-30 shrink-0 bg-white border-b px-4 py-3 flex items-center justify-between md:justify-end" style={{ borderColor: "#e5e3df", top: headerOffset }}>
+      <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden">
+        <header
+          className="sticky top-0 z-30 shrink-0 bg-white border-b px-4 flex items-center gap-2 h-[52px]"
+          style={{ borderColor: "#e5e3df" }}
+        >
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="md:hidden p-2 hover:bg-[#FDEDCC]/30 rounded"
+            className="md:hidden p-2 hover:bg-[#FDEDCC]/30 rounded shrink-0"
             style={{ color: "#505542" }}
             aria-label="Open menu"
           >
             ☰
           </button>
-          <div className="md:hidden w-8" />
+          <div className="flex-1 min-w-0" aria-hidden />
+          <div className="relative shrink-0" data-admin-settings-root>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((o) => !o)}
+              className="flex items-center justify-center p-2 rounded hover:bg-[#FDEDCC]/40"
+              style={{ color: "#505542" }}
+              aria-expanded={settingsOpen}
+              aria-haspopup="true"
+              aria-label="Settings menu"
+            >
+              <IonIcon name="settings-outline" size={22} className="opacity-90" />
+            </button>
+            {settingsOpen ? (
+              <div
+                className="absolute right-0 top-full mt-1 w-56 rounded-lg border bg-white py-2 shadow-lg z-50"
+                style={{ borderColor: "#e5e3df" }}
+                role="menu"
+              >
+                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">My Business</div>
+                {SETTINGS_MY_BUSINESS.map((it) => (
+                  <Link
+                    key={it.href}
+                    href={it.href}
+                    role="menuitem"
+                    className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#FDEDCC]/40"
+                    style={{ color: "#3E432F" }}
+                    onClick={() => setSettingsOpen(false)}
+                  >
+                    <IonIcon name={it.icon} size={18} className="opacity-90 shrink-0" />
+                    {it.label}
+                  </Link>
+                ))}
+                <div className="mt-2 border-t pt-2 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500" style={{ borderColor: "#e5e3df" }}>
+                  Website
+                </div>
+                {SETTINGS_WEBSITE.map((it) =>
+                  it.external ? (
+                    <a
+                      key={it.label}
+                      href={it.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      role="menuitem"
+                      className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#FDEDCC]/40"
+                      style={{ color: "#3E432F" }}
+                      onClick={() => setSettingsOpen(false)}
+                    >
+                      <IonIcon name={it.icon} size={18} className="opacity-90 shrink-0" />
+                      {it.label}
+                    </a>
+                  ) : (
+                    <Link
+                      key={it.href}
+                      href={it.href}
+                      role="menuitem"
+                      className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#FDEDCC]/40"
+                      style={{ color: "#3E432F" }}
+                      onClick={() => setSettingsOpen(false)}
+                    >
+                      <IonIcon name={it.icon} size={18} className="opacity-90 shrink-0" />
+                      {it.label}
+                    </Link>
+                  )
+                )}
+              </div>
+            ) : null}
+          </div>
         </header>
         <main className="min-h-0 min-w-0 w-full flex-1 overflow-y-auto overflow-x-hidden p-4">{children}</main>
+      </div>
       </div>
     </div>
   );

@@ -27,7 +27,7 @@ export default function AdminLoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg p-8 max-w-sm w-full">
-        <h1 className="text-2xl font-bold mb-6">NWC Admin</h1>
+        <h1 className="text-2xl font-bold mb-6">NWC ADMIN HUB</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="code" className="block text-sm font-medium mb-1">Admin code</label>

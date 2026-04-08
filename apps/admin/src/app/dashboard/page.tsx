@@ -88,7 +88,10 @@ export default async function DashboardPage() {
 
       {/* To Do List */}
       <div className="bg-white rounded-lg shadow p-4">
-        <h2 className="text-lg font-bold mb-3">To Do List</h2>
+        <h2 className="text-lg font-bold mb-1">To Do List</h2>
+        <p className="text-sm text-gray-600 mb-3">
+          Review reminders show when there is pending work. Checking one off hides it until new items arrive after that.
+        </p>
         <DashboardTodoList />
       </div>
 
