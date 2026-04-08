@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -11,9 +11,14 @@ import {
   Modal,
   Switch,
   RefreshControl,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
 } from "react-native";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import { useHeaderHeight } from "@react-navigation/elements";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
@@ -52,10 +57,21 @@ interface ReportRow {
   post: { id: string; content: string | null; createdAt: string } | null;
 }
 
+interface FriendRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  profilePhotoUrl: string | null;
+  city: string | null;
+}
+
 export default function GroupAdminScreen() {
   const { slug: slugParam } = useLocalSearchParams<{ slug?: string }>();
   const router = useRouter();
   const navigation = useNavigation();
+  const rawHeaderHeight = useHeaderHeight();
+  const headerOffset = rawHeaderHeight > 0 ? rawHeaderHeight : 56;
+  const insets = useSafeAreaInsets();
 
   const [adminGroups, setAdminGroups] = useState<AdminGroup[]>([]);
   const [slug, setSlug] = useState<string>(slugParam ?? "");
@@ -69,9 +85,15 @@ export default function GroupAdminScreen() {
 
   const [rules, setRules] = useState("");
   const [allowBiz, setAllowBiz] = useState(false);
-  const [inviteId, setInviteId] = useState("");
+  const [friends, setFriends] = useState<FriendRow[]>([]);
+  const [friendQuery, setFriendQuery] = useState("");
+  const [inviteSheetOpen, setInviteSheetOpen] = useState(false);
+  const inviteModalInputRef = useRef<TextInput>(null);
+  const [inviteBusyId, setInviteBusyId] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [requestingDel, setRequestingDel] = useState(false);
+  const [dismissBusyId, setDismissBusyId] = useState<string | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const loadAdminGroups = useCallback(async () => {
     try {
@@ -138,6 +160,45 @@ export default function GroupAdminScreen() {
     void loadTabData();
   }, [slug, loadTabData]);
 
+  useEffect(() => {
+    if (tab !== "settings") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await apiGet<{ friends: FriendRow[] }>("/api/me/friends");
+        if (!cancelled) setFriends(Array.isArray(data?.friends) ? data.friends : []);
+      } catch {
+        if (!cancelled) setFriends([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
+
+  useEffect(() => {
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const subShow = Keyboard.addListener(showEvt, (e) => setKeyboardHeight(e.endCoordinates.height));
+    const subHide = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!inviteSheetOpen) return;
+    const t = setTimeout(() => inviteModalInputRef.current?.focus(), 200);
+    return () => clearTimeout(t);
+  }, [inviteSheetOpen]);
+
+  const closeInviteSheet = useCallback(() => {
+    setInviteSheetOpen(false);
+    Keyboard.dismiss();
+    inviteModalInputRef.current?.blur();
+  }, []);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       title: overview?.name ?? "Group admin",
@@ -194,6 +255,24 @@ export default function GroupAdminScreen() {
     ]);
   };
 
+  const dismissReport = (reportId: string) => {
+    setDismissBusyId(reportId);
+    void (async () => {
+      try {
+        await apiPost(`/api/groups/${slug}/admin/reports/${reportId}/dismiss`, {});
+        setReports((prev) => prev.filter((r) => r.id !== reportId));
+      } catch (e) {
+        Alert.alert("Error", (e as { error?: string })?.error ?? "Failed to dismiss");
+      } finally {
+        setDismissBusyId(null);
+      }
+    })();
+  };
+
+  const openReportedPost = (postId: string) => {
+    router.push(`/post/${postId}`);
+  };
+
   const saveSettings = async () => {
     setSavingSettings(true);
     try {
@@ -209,18 +288,20 @@ export default function GroupAdminScreen() {
     }
   };
 
-  const sendInvite = async () => {
-    const id = inviteId.trim();
-    if (!id) {
-      Alert.alert("Invite", "Enter the member ID to invite as co-admin.");
-      return;
-    }
+  const inviteFriend = async (friendId: string) => {
+    setInviteBusyId(friendId);
     try {
-      await apiPost(`/api/groups/${slug}/invite-admin`, { inviteeId: id });
-      setInviteId("");
-      Alert.alert("Sent", "An invite was sent. They will also get a message with a link to accept.");
+      await apiPost(`/api/groups/${slug}/invite-admin`, { inviteeId: friendId });
+      setFriendQuery("");
+      closeInviteSheet();
+      Alert.alert(
+        "Sent",
+        "They can accept or decline from the site banner or the message link. They are not co-admin until they accept."
+      );
     } catch (e) {
       Alert.alert("Error", (e as { error?: string })?.error ?? "Failed");
+    } finally {
+      setInviteBusyId(null);
     }
   };
 
@@ -264,6 +345,17 @@ export default function GroupAdminScreen() {
     );
   }
 
+  const adminMemberIds = new Set(
+    members.filter((m) => m.isCreator || m.role === "admin").map((m) => m.memberId)
+  );
+  const friendSearchQ = friendQuery.trim().toLowerCase();
+  const filteredFriends =
+    friendSearchQ.length >= 1
+      ? friends.filter((f) => `${f.firstName} ${f.lastName}`.toLowerCase().includes(friendSearchQ))
+      : [];
+
+  const scrollBottomPad = 40 + keyboardHeight;
+
   return (
     <View style={styles.root}>
       <View style={styles.tabs}>
@@ -280,13 +372,20 @@ export default function GroupAdminScreen() {
         ))}
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void refreshAll()} colors={[theme.colors.primary]} />
-        }
+      <KeyboardAvoidingView
+        style={styles.keyboardFlex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={headerOffset}
       >
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPad }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => void refreshAll()} colors={[theme.colors.primary]} />
+          }
+        >
         {tab === "members" && (
           <View>
             {members.length === 0 ? (
@@ -325,17 +424,47 @@ export default function GroupAdminScreen() {
                   <Text style={styles.cardMeta}>
                     Reported by {r.reporter.firstName} {r.reporter.lastName}
                   </Text>
-                  {r.post?.content ? (
+                  {r.post?.id ? (
+                    <Pressable
+                      onPress={() => openReportedPost(r.post!.id)}
+                      style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}
+                    >
+                      {r.post?.content ? (
+                        <Text style={styles.cardBody} numberOfLines={4}>
+                          {r.post.content}
+                        </Text>
+                      ) : (
+                        <Text style={[styles.cardBody, styles.tapHint]}>(No text in preview — open for full post)</Text>
+                      )}
+                      <Text style={styles.tapHint}>Tap to view full post</Text>
+                    </Pressable>
+                  ) : r.post?.content ? (
                     <Text style={styles.cardBody} numberOfLines={4}>
                       {r.post.content}
                     </Text>
                   ) : null}
                   {r.details ? <Text style={styles.cardHint}>{r.details}</Text> : null}
-                  {r.post?.id ? (
-                    <Pressable style={styles.dangerBtn} onPress={() => deleteReportedPost(r.post!.id)}>
-                      <Text style={styles.dangerBtnText}>Delete post</Text>
+                  <View style={styles.cardActions}>
+                    {r.post?.id ? (
+                      <Pressable style={styles.secondaryBtn} onPress={() => openReportedPost(r.post!.id)}>
+                        <Text style={styles.secondaryBtnText}>View</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      style={[styles.secondaryBtn, dismissBusyId === r.id && styles.btnDisabled]}
+                      disabled={dismissBusyId === r.id}
+                      onPress={() => dismissReport(r.id)}
+                    >
+                      <Text style={styles.secondaryBtnText}>
+                        {dismissBusyId === r.id ? "…" : "Dismiss"}
+                      </Text>
                     </Pressable>
-                  ) : null}
+                    {r.post?.id ? (
+                      <Pressable style={styles.dangerBtn} onPress={() => deleteReportedPost(r.post!.id)}>
+                        <Text style={styles.dangerBtnText}>Delete</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </View>
               ))
             )}
@@ -366,17 +495,21 @@ export default function GroupAdminScreen() {
             </Pressable>
 
             <Text style={[styles.label, { marginTop: 24 }]}>Invite co-admin</Text>
-            <Text style={styles.hint}>Enter member ID. They must be a member; they will get a DM with a link.</Text>
-            <TextInput
-              style={styles.input}
-              value={inviteId}
-              onChangeText={setInviteId}
-              placeholder="Member ID"
-              placeholderTextColor={theme.colors.placeholder}
-              autoCapitalize="none"
-            />
-            <Pressable style={styles.primaryBtn} onPress={() => void sendInvite()}>
-              <Text style={styles.primaryBtnText}>Send invite</Text>
+            <Text style={styles.hint}>
+              Open search, type a name, then tap Invite. They must accept or decline before becoming co-admin.
+            </Text>
+            <Pressable
+              style={styles.inviteSearchTrigger}
+              onPress={() => setInviteSheetOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Search friends to invite as co-admin"
+            >
+              <Text
+                style={friendQuery.trim() ? styles.inviteSearchTriggerText : styles.inviteSearchTriggerPlaceholder}
+                numberOfLines={1}
+              >
+                {friendQuery.trim() ? friendQuery : "Tap to search friends…"}
+              </Text>
             </Pressable>
 
             {overview?.isCreator && (
@@ -403,7 +536,8 @@ export default function GroupAdminScreen() {
             )}
           </View>
         )}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <Modal visible={pickerOpen} transparent animationType="fade">
         <Pressable style={styles.modalBackdrop} onPress={() => setPickerOpen(false)} />
@@ -428,12 +562,90 @@ export default function GroupAdminScreen() {
           </Pressable>
         </View>
       </Modal>
+
+      <Modal
+        visible={inviteSheetOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={closeInviteSheet}
+      >
+        <KeyboardAvoidingView
+          style={styles.inviteModalOuter}
+          behavior={Platform.OS === "ios" ? "padding" : "padding"}
+          keyboardVerticalOffset={0}
+        >
+          <View style={styles.inviteModalInner}>
+            <Pressable style={styles.inviteModalBackdrop} onPress={closeInviteSheet} accessibilityLabel="Close" />
+            <View style={[styles.inviteModalCard, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
+              <View style={styles.inviteModalHeaderRow}>
+                <Text style={styles.inviteModalTitle}>Invite co-admin</Text>
+                <Pressable onPress={closeInviteSheet} hitSlop={12} accessibilityRole="button" accessibilityLabel="Done">
+                  <Text style={styles.inviteModalDone}>Done</Text>
+                </Pressable>
+              </View>
+              <TextInput
+                ref={inviteModalInputRef}
+                style={styles.input}
+                value={friendQuery}
+                onChangeText={setFriendQuery}
+                placeholder="Start typing a name…"
+                placeholderTextColor={theme.colors.placeholder}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <ScrollView
+                style={styles.inviteModalScroll}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+              >
+                {friendSearchQ.length < 1 ? (
+                  <Text style={styles.inviteModalListHint}>Type at least one letter to filter friends.</Text>
+                ) : filteredFriends.length === 0 ? (
+                  <Text style={styles.friendDropdownEmpty}>No matching friends.</Text>
+                ) : (
+                  filteredFriends.map((f) => {
+                    const already = adminMemberIds.has(f.id);
+                    const busy = inviteBusyId === f.id;
+                    return (
+                      <View key={f.id} style={styles.friendRow}>
+                        <View style={styles.friendRowNameCell}>
+                          <Text style={styles.friendRowText} numberOfLines={2}>
+                            {f.firstName} {f.lastName}
+                            {f.city ? ` · ${f.city}` : ""}
+                          </Text>
+                        </View>
+                        <View style={styles.friendRowDivider} />
+                        <View style={styles.friendRowActionCell}>
+                          {already ? (
+                            <Text style={styles.friendRowMuted}>Admin</Text>
+                          ) : (
+                            <Pressable
+                              style={[styles.friendRowInviteBtn, busy && styles.btnDisabled]}
+                              disabled={busy}
+                              onPress={() => void inviteFriend(f.id)}
+                            >
+                              <Text style={styles.friendRowInviteBtnText}>{busy ? "…" : "Invite"}</Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fff" },
+  keyboardFlex: { flex: 1 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   centerPad: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
   muted: { color: theme.colors.placeholder, textAlign: "center" },
@@ -443,7 +655,7 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 14, color: theme.colors.placeholder },
   tabTextActive: { color: theme.colors.primary, fontWeight: "700" },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 40 },
+  scrollContent: { padding: 16 },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -464,6 +676,95 @@ const styles = StyleSheet.create({
   cardMeta: { fontSize: 12, color: theme.colors.placeholder, marginBottom: 4 },
   cardBody: { fontSize: 15, color: theme.colors.text, marginVertical: 8 },
   cardHint: { fontSize: 13, color: theme.colors.text, marginBottom: 8 },
+  tapHint: { fontSize: 12, color: theme.colors.primary, marginBottom: 6, fontWeight: "600" },
+  cardActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  secondaryBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+  },
+  secondaryBtnText: { color: theme.colors.primary, fontWeight: "600", fontSize: 13 },
+  inviteSearchTrigger: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    justifyContent: "center",
+    minHeight: 48,
+  },
+  inviteSearchTriggerText: { fontSize: 16, color: theme.colors.text },
+  inviteSearchTriggerPlaceholder: { fontSize: 16, color: theme.colors.placeholder },
+  inviteModalOuter: { flex: 1 },
+  inviteModalInner: { flex: 1, justifyContent: "flex-end" },
+  inviteModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
+  inviteModalCard: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    maxHeight: "78%",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: "#ccc",
+  },
+  inviteModalHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  inviteModalTitle: { fontSize: 18, fontWeight: "700", color: theme.colors.heading },
+  inviteModalDone: { fontSize: 16, fontWeight: "600", color: theme.colors.primary },
+  inviteModalScroll: { flexGrow: 0, maxHeight: 340 },
+  inviteModalListHint: { fontSize: 14, color: theme.colors.placeholder, paddingVertical: 12 },
+  friendDropdownEmpty: {
+    fontSize: 13,
+    color: theme.colors.placeholder,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  friendRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    minHeight: 48,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#ccc",
+  },
+  friendRowNameCell: {
+    flex: 1,
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingLeft: 12,
+    paddingRight: 10,
+  },
+  friendRowDivider: {
+    width: 1,
+    backgroundColor: "#9e9e9e",
+  },
+  friendRowActionCell: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 100,
+  },
+  friendRowText: { fontSize: 15, color: theme.colors.text },
+  friendRowMuted: { fontSize: 13, color: theme.colors.placeholder, textAlign: "center" },
+  friendRowInviteBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+    minWidth: 88,
+    alignItems: "center",
+  },
+  friendRowInviteBtnText: { color: theme.colors.primary, fontWeight: "700", fontSize: 14 },
   label: { fontSize: 15, fontWeight: "600", color: theme.colors.heading, marginBottom: 8 },
   hint: { fontSize: 13, color: theme.colors.placeholder, marginBottom: 8 },
   input: {

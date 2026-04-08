@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
-import {
-  sendGroupAdminInviteChatMessage,
-  sendGroupCoAdminPromotedChatMessage,
-} from "@/lib/send-group-admin-invite-chat";
+import { sendGroupAdminInviteChatMessage } from "@/lib/send-group-admin-invite-chat";
 import { z } from "zod";
 
 function isCuid(s: string): boolean {
@@ -61,26 +58,17 @@ export async function POST(
       return NextResponse.json({ error: "Member not found" }, { status: 404 });
     }
 
+    if (group.createdById === inviteeId) {
+      return NextResponse.json({ error: "Group creator is already an admin" }, { status: 400 });
+    }
+
     const existingMembership = await prisma.groupMember.findUnique({
       where: {
         groupId_memberId: { groupId: group.id, memberId: inviteeId },
       },
     });
-    if (existingMembership) {
-      if (existingMembership.role === "admin") {
-        return NextResponse.json({ error: "Already an admin" }, { status: 400 });
-      }
-      await prisma.groupMember.update({
-        where: { id: existingMembership.id },
-        data: { role: "admin", invitedById: session.user.id },
-      });
-      void sendGroupCoAdminPromotedChatMessage({
-        inviterId: session.user.id,
-        inviteeId,
-        groupSlug: group.slug,
-        groupName: group.name,
-      });
-      return NextResponse.json({ ok: true, role: "admin" });
+    if (existingMembership?.role === "admin") {
+      return NextResponse.json({ error: "Already an admin" }, { status: 400 });
     }
 
     const existingInvite = await prisma.groupAdminInvite.findUnique({
@@ -88,10 +76,8 @@ export async function POST(
         groupId_inviteeId: { groupId: group.id, inviteeId },
       },
     });
-    if (existingInvite) {
-      if (existingInvite.status === "pending") {
-        return NextResponse.json({ error: "Invite already sent" }, { status: 400 });
-      }
+    if (existingInvite?.status === "pending") {
+      return NextResponse.json({ error: "Invite already sent" }, { status: 400 });
     }
 
     await prisma.groupAdminInvite.upsert({

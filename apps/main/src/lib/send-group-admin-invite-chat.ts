@@ -67,7 +67,7 @@ export async function sendGroupAdminInviteChatMessage(opts: {
   }
 }
 
-/** DM when an existing member is promoted to co-admin immediately (no pending invite). */
+/** Optional DM if co-admin role is granted without a pending invite (not used by invite-admin; co-admins accept via GroupAdminInvite). */
 export async function sendGroupCoAdminPromotedChatMessage(opts: {
   inviterId: string;
   inviteeId: string;

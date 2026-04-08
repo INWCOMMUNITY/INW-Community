@@ -33,6 +33,8 @@ const SIDEBAR_SECTIONS = [
   {
     divider: "Community",
     items: [
+      { href: "/admin/dashboard/group-requests", label: "Group requests" },
+      { href: "/admin/dashboard/group-deletion-requests", label: "Group deletions" },
       { href: "/admin/dashboard/events", label: "Events" },
       { href: "/admin/dashboard/blogs", label: "Blogs" },
       { href: "/admin/dashboard/posts", label: "Posts" },
@@ -84,7 +86,7 @@ export default function AdminDashboardLayout({
       <Link
         href="/admin/dashboard"
         className={`px-4 py-2 text-sm font-medium rounded-r ${
-          isActive("/dashboard")
+          isActive("/admin/dashboard")
             ? "border-l-4"
             : "hover:bg-[#FDEDCC]/30"
         }`}

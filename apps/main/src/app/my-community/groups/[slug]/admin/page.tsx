@@ -39,6 +39,34 @@ interface ReportRow {
   post: { id: string; content: string | null; createdAt: string } | null;
 }
 
+interface FriendRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  profilePhotoUrl: string | null;
+  city: string | null;
+}
+
+function PostPreviewModalBody({ post }: { post: Record<string, unknown> }) {
+  const author = post.author as { firstName?: string; lastName?: string } | undefined;
+  const name = author ? `${author.firstName ?? ""} ${author.lastName ?? ""}`.trim() : "Member";
+  const content = typeof post.content === "string" ? post.content : "";
+  const photos = Array.isArray(post.photos)
+    ? post.photos.filter((x): x is string => typeof x === "string")
+    : [];
+  return (
+    <>
+      <p className="text-sm text-gray-500 mb-2">{name || "Member"}</p>
+      {content ? <p className="whitespace-pre-wrap text-sm">{content}</p> : <p className="text-sm text-gray-400">No text</p>}
+      <div className="mt-3 space-y-2">
+        {photos.map((url) => (
+          <img key={url} src={url} alt="" className="max-h-64 w-full object-contain rounded border" />
+        ))}
+      </div>
+    </>
+  );
+}
+
 function GroupAdminHubContent() {
   const params = useParams();
   const slug = params.slug as string;
@@ -63,10 +91,21 @@ function GroupAdminHubContent() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [inviteeId, setInviteeId] = useState("");
-  const [inviteLoading, setInviteLoading] = useState(false);
+  const [friends, setFriends] = useState<FriendRow[]>([]);
+  const [friendQuery, setFriendQuery] = useState("");
+  /** Dropdown only while the search field is focused (not merely when text remains). */
+  const [inviteFieldFocused, setInviteFieldFocused] = useState(false);
+  const inviteComboboxRef = useRef<HTMLDivElement>(null);
+  const inviteFriendInputRef = useRef<HTMLInputElement>(null);
+  const inviteFieldBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [inviteBusyId, setInviteBusyId] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState("");
   const [requestDelBusy, setRequestDelBusy] = useState(false);
+
+  const [postModalId, setPostModalId] = useState<string | null>(null);
+  const [postModalData, setPostModalData] = useState<Record<string, unknown> | null>(null);
+  const [postModalLoading, setPostModalLoading] = useState(false);
+  const [dismissBusyId, setDismissBusyId] = useState<string | null>(null);
 
   const loadAdminGroups = useCallback(async () => {
     try {
@@ -118,6 +157,25 @@ function GroupAdminHubContent() {
   }, [loadAdminGroups]);
 
   useEffect(() => {
+    if (tab !== "settings") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/me/friends");
+        const data = await res.json();
+        if (!cancelled && res.ok && Array.isArray(data.friends)) {
+          setFriends(data.friends as FriendRow[]);
+        }
+      } catch {
+        if (!cancelled) setFriends([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
+
+  useEffect(() => {
     setLoading(true);
     void loadData().finally(() => setLoading(false));
   }, [loadData]);
@@ -144,6 +202,33 @@ function GroupAdminHubContent() {
       }
     })();
   }, [searchParams, slug, loadData]);
+
+  useEffect(() => {
+    if (!postModalId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPostModalId(null);
+        setPostModalData(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [postModalId]);
+
+  useEffect(() => {
+    if (!inviteFieldFocused) return;
+    const onDoc = (e: MouseEvent) => {
+      if (inviteComboboxRef.current?.contains(e.target as Node)) return;
+      if (inviteFieldBlurTimerRef.current) {
+        clearTimeout(inviteFieldBlurTimerRef.current);
+        inviteFieldBlurTimerRef.current = null;
+      }
+      setInviteFieldFocused(false);
+      inviteFriendInputRef.current?.blur();
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [inviteFieldFocused]);
 
   async function handleCoverUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -210,7 +295,8 @@ function GroupAdminHubContent() {
     }
   }
 
-  async function deletePost(postId: string) {
+  async function deletePost(postId: string, e?: React.MouseEvent) {
+    e?.stopPropagation();
     if (!confirm("Delete this post from the group?")) return;
     try {
       const res = await fetch(`/api/posts/${postId}`, { method: "DELETE" });
@@ -225,26 +311,64 @@ function GroupAdminHubContent() {
     }
   }
 
-  async function handleInvite(e: React.FormEvent) {
-    e.preventDefault();
-    if (!inviteeId.trim()) return;
-    setInviteLoading(true);
+  async function openPostModal(postId: string) {
+    setPostModalId(postId);
+    setPostModalData(null);
+    setPostModalLoading(true);
+    try {
+      const res = await fetch(`/api/posts/${postId}`);
+      const data = await res.json();
+      if (res.ok && data.post && typeof data.post === "object") {
+        setPostModalData(data.post as Record<string, unknown>);
+      }
+    } finally {
+      setPostModalLoading(false);
+    }
+  }
+
+  function closePostModal() {
+    setPostModalId(null);
+    setPostModalData(null);
+  }
+
+  async function dismissReport(reportId: string, e?: React.MouseEvent) {
+    e?.stopPropagation();
+    setDismissBusyId(reportId);
+    try {
+      const res = await fetch(`/api/groups/${slug}/admin/reports/${reportId}/dismiss`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(getErrorMessage(data.error, "Could not dismiss"));
+        return;
+      }
+      setReports((prev) => prev.filter((r) => r.id !== reportId));
+    } catch {
+      alert("Could not dismiss");
+    } finally {
+      setDismissBusyId(null);
+    }
+  }
+
+  async function inviteFriend(friendId: string) {
+    setInviteBusyId(friendId);
     setInviteError("");
     try {
       const res = await fetch(`/api/groups/${slug}/invite-admin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inviteeId: inviteeId.trim() }),
+        body: JSON.stringify({ inviteeId: friendId }),
       });
       const data = await res.json();
       if (res.ok) {
-        setInviteeId("");
-        alert("Invite sent. They will get a message with a link to accept.");
+        setFriendQuery("");
+        setInviteFieldFocused(false);
+        inviteFriendInputRef.current?.blur();
+        alert("Invite sent. They can accept or decline from their account (banner or message link).");
       } else {
         setInviteError(getErrorMessage(data.error, "Failed to invite"));
       }
     } finally {
-      setInviteLoading(false);
+      setInviteBusyId(null);
     }
   }
 
@@ -264,6 +388,15 @@ function GroupAdminHubContent() {
       setRequestDelBusy(false);
     }
   }
+
+  const adminMemberIds = new Set(
+    members.filter((m) => m.isCreator || m.role === "admin").map((m) => m.memberId)
+  );
+  const friendSearchQ = friendQuery.trim().toLowerCase();
+  const filteredFriends =
+    friendSearchQ.length >= 1
+      ? friends.filter((f) => `${f.firstName} ${f.lastName}`.toLowerCase().includes(friendSearchQ))
+      : [];
 
   if (loading) return <p className="text-gray-500">Loading…</p>;
   if (error && !overview) {
@@ -361,18 +494,58 @@ function GroupAdminHubContent() {
             <p className="text-gray-500">No pending post reports in this group.</p>
           ) : (
             reports.map((r) => (
-              <li key={r.id} className="border rounded-lg p-4 space-y-2">
+              <li
+                key={r.id}
+                className={`border rounded-lg p-4 space-y-2 ${r.post?.id ? "cursor-pointer hover:bg-gray-50/80" : ""}`}
+                onClick={() => {
+                  if (r.post?.id) void openPostModal(r.post.id);
+                }}
+                onKeyDown={(e) => {
+                  if (r.post?.id && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    void openPostModal(r.post.id);
+                  }
+                }}
+                role={r.post?.id ? "button" : undefined}
+                tabIndex={r.post?.id ? 0 : undefined}
+              >
                 <p className="text-sm text-gray-600">
                   {r.reason} · {new Date(r.createdAt).toLocaleString()} · Reported by {r.reporter.firstName}{" "}
                   {r.reporter.lastName}
                 </p>
                 {r.post?.content && <p className="text-sm whitespace-pre-wrap line-clamp-6">{r.post.content}</p>}
                 {r.details && <p className="text-xs text-gray-500">{r.details}</p>}
-                {r.post?.id && (
-                  <button type="button" className="btn bg-red-600 text-white hover:bg-red-700 text-sm" onClick={() => deletePost(r.post!.id)}>
-                    Delete post
+                {r.post?.id ? (
+                  <p className="text-xs text-gray-400">Click the card to view the full post.</p>
+                ) : null}
+                <div className="flex flex-wrap gap-2 pt-1" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                  {r.post?.id && (
+                    <button
+                      type="button"
+                      className="btn border text-sm"
+                      onClick={() => void openPostModal(r.post!.id)}
+                    >
+                      View post
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn border text-sm"
+                    disabled={dismissBusyId === r.id}
+                    onClick={(e) => void dismissReport(r.id, e)}
+                  >
+                    {dismissBusyId === r.id ? "Dismissing…" : "Dismiss report"}
                   </button>
-                )}
+                  {r.post?.id && (
+                    <button
+                      type="button"
+                      className="btn bg-red-600 text-white hover:bg-red-700 text-sm"
+                      onClick={(e) => void deletePost(r.post!.id, e)}
+                    >
+                      Delete post
+                    </button>
+                  )}
+                </div>
               </li>
             ))
           )}
@@ -499,21 +672,81 @@ function GroupAdminHubContent() {
           <div className="border-t pt-8">
             <h2 className="text-xl font-bold mb-2">Invite co-admin</h2>
             <p className="text-gray-600 text-sm mb-4">
-              Enter a member ID. They will receive a direct message with a link to accept.
+              Type a friend&apos;s name to find them. They get a message with a link and must accept or decline — they are
+              not added as admin until they accept.
             </p>
-            <form onSubmit={handleInvite} className="flex flex-wrap gap-2 max-w-xl">
+            <div ref={inviteComboboxRef} className="relative max-w-md">
+              <label htmlFor="ga-invite-friend" className="sr-only">
+                Search friends to invite as co-admin
+              </label>
               <input
-                type="text"
-                value={inviteeId}
-                onChange={(e) => setInviteeId(e.target.value)}
-                placeholder="Member ID"
-                className="border rounded px-3 py-2 flex-1 min-w-[200px]"
+                ref={inviteFriendInputRef}
+                id="ga-invite-friend"
+                type="search"
+                value={friendQuery}
+                onChange={(e) => setFriendQuery(e.target.value)}
+                onFocus={() => {
+                  if (inviteFieldBlurTimerRef.current) {
+                    clearTimeout(inviteFieldBlurTimerRef.current);
+                    inviteFieldBlurTimerRef.current = null;
+                  }
+                  setInviteFieldFocused(true);
+                }}
+                onBlur={() => {
+                  inviteFieldBlurTimerRef.current = setTimeout(() => {
+                    setInviteFieldFocused(false);
+                    inviteFieldBlurTimerRef.current = null;
+                  }, 200);
+                }}
+                placeholder="Start typing a name…"
+                className="border rounded px-3 py-2 w-full"
+                autoComplete="off"
               />
-              <button type="submit" disabled={inviteLoading} className="btn">
-                {inviteLoading ? "Sending…" : "Send invite"}
-              </button>
-            </form>
-            {inviteError && <p className="text-red-600 text-sm mt-2">{inviteError}</p>}
+              {inviteFieldFocused && friendSearchQ.length >= 1 && (
+                <ul
+                  className="absolute z-30 top-full left-0 right-0 mt-1 border rounded-lg bg-white shadow-lg max-h-56 overflow-y-auto py-1"
+                  role="listbox"
+                >
+                  {filteredFriends.length === 0 ? (
+                    <li className="px-3 py-2 text-sm text-gray-500">No matching friends.</li>
+                  ) : (
+                    filteredFriends.map((f) => {
+                      const already = adminMemberIds.has(f.id);
+                      const busy = inviteBusyId === f.id;
+                      return (
+                        <li
+                          key={f.id}
+                          className="flex items-stretch min-h-[3rem] border-b border-gray-200 last:border-b-0 hover:bg-gray-50"
+                          role="option"
+                        >
+                          <span className="text-sm flex-1 flex items-center px-3 py-2 min-w-0">
+                            {f.firstName} {f.lastName}
+                            {f.city ? <span className="text-gray-500"> · {f.city}</span> : null}
+                          </span>
+                          <span className="w-px shrink-0 bg-gray-400 self-stretch my-1" aria-hidden />
+                          <span className="shrink-0 flex items-center justify-center px-3 min-w-[6.5rem]">
+                            {already ? (
+                              <span className="text-xs text-gray-400 text-center">Already admin</span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                className="btn text-sm py-1.5 px-3 w-full max-w-[5.5rem]"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => void inviteFriend(f.id)}
+                              >
+                                {busy ? "Sending…" : "Invite"}
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              )}
+            </div>
+            {inviteError && <p className="text-red-600 text-sm mt-2 max-w-md">{inviteError}</p>}
           </div>
 
           {overview?.isCreator && (
@@ -539,6 +772,35 @@ function GroupAdminHubContent() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {postModalId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="post-modal-title"
+          onClick={closePostModal}
+        >
+          <div
+            className="bg-white rounded-lg max-w-lg w-full max-h-[85vh] overflow-y-auto p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-3 gap-2">
+              <h2 id="post-modal-title" className="text-lg font-semibold">
+                Post
+              </h2>
+              <button type="button" className="text-gray-500 hover:text-gray-800 text-sm shrink-0" onClick={closePostModal}>
+                Close
+              </button>
+            </div>
+            {postModalLoading && <p className="text-gray-500 text-sm">Loading…</p>}
+            {!postModalLoading && !postModalData && (
+              <p className="text-red-600 text-sm">Could not load this post.</p>
+            )}
+            {!postModalLoading && postModalData && <PostPreviewModalBody post={postModalData} />}
+          </div>
         </div>
       )}
     </div>

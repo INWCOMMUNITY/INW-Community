@@ -44,9 +44,10 @@ export async function PATCH(
     const body = await req.json();
     const { action } = bodySchema.parse(body);
 
+    const nextStatus = action === "accept" ? "accepted" : "declined";
     await prisma.groupAdminInvite.update({
       where: { id: invite.id },
-      data: { status: action },
+      data: { status: nextStatus },
     });
 
     if (action === "accept") {

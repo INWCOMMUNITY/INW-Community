@@ -37,3 +37,19 @@ export async function getGroupAdminContext(
     isCreator: group.createdById === userId,
   };
 }
+
+/** True if the member is the group creator or has role admin (for feed/post access checks). */
+export async function isMemberGroupAdminForGroup(memberId: string, groupId: string): Promise<boolean> {
+  const group = await prisma.group.findUnique({
+    where: { id: groupId },
+    select: { createdById: true },
+  });
+  if (!group) return false;
+  if (group.createdById === memberId) return true;
+  const membership = await prisma.groupMember.findUnique({
+    where: { groupId_memberId: { groupId, memberId } },
+    select: { role: true },
+  });
+  return membership?.role === "admin";
+}
+

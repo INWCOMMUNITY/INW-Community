@@ -10,6 +10,7 @@ import {
   canUnauthenticatedViewerSeeFeedItem,
 } from "@/lib/feed-post-viewer-access";
 import { canMemberDeletePost } from "@/lib/post-delete-permission";
+import { isMemberGroupAdminForGroup } from "@/lib/group-admin-context";
 import { z } from "zod";
 import { memberIsSiteVisible } from "@/lib/member-public-visibility";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
@@ -77,7 +78,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
   } else {
-    const ok = canViewerSeeFeedItem(
+    let ok = canViewerSeeFeedItem(
       {
         type: hydrated.type,
         author: hydrated.author as { id?: string; privacyLevel?: string | null },
@@ -91,6 +92,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       friendIds,
       groupIds
     );
+
+    if (
+      !ok &&
+      viewerId &&
+      raw.groupId &&
+      (await isMemberGroupAdminForGroup(viewerId, raw.groupId))
+    ) {
+      ok = true;
+    }
 
     if (!ok) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
