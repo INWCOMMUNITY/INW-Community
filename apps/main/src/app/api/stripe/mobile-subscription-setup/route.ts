@@ -214,6 +214,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let priceDetails: Stripe.Price;
+    try {
+      priceDetails = await stripe.prices.retrieve(priceId);
+    } catch (retrieveErr) {
+      console.error("[mobile-subscription-setup] price retrieve:", priceId, retrieveErr);
+      return NextResponse.json(
+        {
+          error:
+            "Could not load this plan’s Stripe price. Confirm STRIPE_PRICE_* env vars match active (non-archived) price IDs in your Stripe Dashboard.",
+        },
+        { status: 400 }
+      );
+    }
+    if (!priceDetails.active) {
+      return NextResponse.json(
+        {
+          error:
+            interval === "yearly"
+              ? "Yearly billing is unavailable: the Stripe price in STRIPE_PRICE_*_YEARLY is archived. Use monthly, or set that env var to an active yearly price (or re-activate the price in Stripe)."
+              : "This plan is unavailable: the Stripe price in STRIPE_PRICE_* is archived. Set the env var to an active price or re-activate it in Stripe Dashboard → Products.",
+        },
+        { status: 400 }
+      );
+    }
+    if (priceDetails.type !== "recurring") {
+      return NextResponse.json(
+        { error: "The configured Stripe price is not a recurring subscription price." },
+        { status: 400 }
+      );
+    }
+    const recurring = priceDetails.recurring;
+    const applePayIntervals = applePayPresentationIntervals(recurring ?? null);
+
     let businessId: string | undefined;
     let stripeSetupEarnedBadges: EarnedBadge[] = [];
     if (
@@ -234,10 +267,6 @@ export async function POST(req: NextRequest) {
     }
 
     console.log("[mobile-subscription-setup] Using priceId:", priceId, "for plan:", planId, "interval:", interval);
-
-    const priceDetails = await stripe.prices.retrieve(priceId);
-    const recurring = priceDetails.recurring;
-    const applePayIntervals = applePayPresentationIntervals(recurring ?? null);
 
     const subscriptionParams: Stripe.SubscriptionCreateParams = {
       customer: customerId,
@@ -344,11 +373,19 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (e) {
-    const err = e as Error;
-    console.error("[mobile-subscription-setup]", err);
-    return NextResponse.json(
-      { error: err.message ?? "Setup failed" },
-      { status: 500 }
-    );
+    const err = e as Error & { statusCode?: number };
+    console.error("[mobile-subscription-setup]", e);
+    const msg = err.message ?? "";
+    if (/inactive/i.test(msg) && /price/i.test(msg)) {
+      return NextResponse.json(
+        {
+          error:
+            "The Stripe price for this plan is archived (inactive). Point STRIPE_PRICE_* (or *_YEARLY) at an active price in Stripe Dashboard, or re-activate the price on the product.",
+        },
+        { status: 400 }
+      );
+    }
+    const status = typeof err.statusCode === "number" && err.statusCode >= 400 && err.statusCode < 600 ? err.statusCode : 500;
+    return NextResponse.json({ error: msg || "Setup failed" }, { status: status === 400 ? 400 : 500 });
   }
 }

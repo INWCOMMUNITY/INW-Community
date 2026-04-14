@@ -156,6 +156,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    try {
+      const priceDetails = await stripe.prices.retrieve(priceId);
+      if (!priceDetails.active) {
+        return NextResponse.json(
+          {
+            error:
+              interval === "yearly"
+                ? "Yearly billing is unavailable: the Stripe price in STRIPE_PRICE_*_YEARLY is archived. Try monthly, or update that env var to an active yearly price."
+                : "This plan is unavailable: the Stripe price in STRIPE_PRICE_* is archived. Update env vars or re-activate the price in Stripe Dashboard → Products.",
+          },
+          { status: 400 }
+        );
+      }
+      if (priceDetails.type !== "recurring") {
+        return NextResponse.json(
+          { error: "The configured Stripe price is not a recurring subscription price." },
+          { status: 400 }
+        );
+      }
+    } catch (retrieveErr) {
+      console.error("[stripe/checkout] price retrieve:", priceId, retrieveErr);
+      return NextResponse.json(
+        {
+          error:
+            "Could not load this plan’s Stripe price. Confirm STRIPE_PRICE_* env vars match active price IDs in Stripe Dashboard.",
+        },
+        { status: 400 }
+      );
+    }
+
     const metadata: Record<string, string> = {
       memberId: session.user.id,
       planId,
@@ -208,6 +238,23 @@ export async function POST(req: NextRequest) {
     console.error("[stripe/checkout]", e);
     const msg =
       e instanceof Error ? e.message : typeof e === "object" && e !== null && "message" in e ? String((e as { message: unknown }).message) : "Checkout failed. Please try again.";
-    return NextResponse.json({ error: msg || "Checkout failed. Please try again." }, { status: 500 });
+    const m = msg || "";
+    if (/inactive/i.test(m) && /price/i.test(m)) {
+      return NextResponse.json(
+        {
+          error:
+            "The Stripe price for this plan is archived (inactive). Point STRIPE_PRICE_* (or *_YEARLY) at an active price in Stripe Dashboard, or re-activate the price on the product.",
+        },
+        { status: 400 }
+      );
+    }
+    const statusCode =
+      typeof e === "object" && e !== null && "statusCode" in e && typeof (e as { statusCode: unknown }).statusCode === "number"
+        ? (e as { statusCode: number }).statusCode
+        : 500;
+    return NextResponse.json(
+      { error: m || "Checkout failed. Please try again." },
+      { status: statusCode === 400 ? 400 : 500 }
+    );
   }
 }
