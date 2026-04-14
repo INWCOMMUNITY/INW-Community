@@ -14,21 +14,44 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
 
 type BillingInterval = "monthly" | "yearly";
 
+function trimPriceId(raw: string | undefined): string {
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
 function getPlans(): Record<string, { priceId: string; priceIdYearly?: string }> {
   return {
     subscribe: {
-      priceId: process.env.STRIPE_PRICE_SUBSCRIBE ?? "",
-      priceIdYearly: process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY ?? "",
+      priceId: trimPriceId(process.env.STRIPE_PRICE_SUBSCRIBE),
+      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY),
     },
     sponsor: {
-      priceId: process.env.STRIPE_PRICE_SPONSOR ?? "",
-      priceIdYearly: process.env.STRIPE_PRICE_SPONSOR_YEARLY ?? "",
+      priceId: trimPriceId(process.env.STRIPE_PRICE_SPONSOR),
+      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SPONSOR_YEARLY),
     },
     seller: {
-      priceId: process.env.STRIPE_PRICE_SELLER ?? "",
-      priceIdYearly: process.env.STRIPE_PRICE_SELLER_YEARLY ?? "",
+      priceId: trimPriceId(process.env.STRIPE_PRICE_SELLER),
+      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SELLER_YEARLY),
     },
   };
+}
+
+/**
+ * Apple Pay / Payment Sheet on iOS can fail with Stripe yearly prices (interval year, count 1).
+ * Express the same cadence as month × 12 for the wallet recurring summary (amount still matches the invoice).
+ */
+function applePayPresentationIntervals(recurring: Stripe.Price.Recurring | null | undefined): {
+  intervalUnit: "month" | "year";
+  intervalCount: number;
+} {
+  const unit = recurring?.interval;
+  const count = recurring?.interval_count ?? 1;
+  if (unit === "year" && count === 1) {
+    return { intervalUnit: "month", intervalCount: 12 };
+  }
+  if (unit === "year") {
+    return { intervalUnit: "year", intervalCount: Math.max(1, count) };
+  }
+  return { intervalUnit: "month", intervalCount: Math.max(1, count) };
 }
 
 function slugify(s: string): string {
@@ -101,14 +124,8 @@ async function createBusinessDraftInDb(
       hoursOfOperation,
     },
   });
-  const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-  let earnedBadges: EarnedBadge[] = [];
-  try {
-    earnedBadges = await awardBusinessSignupBadges(business.id);
-  } catch {
-    /* best-effort */
-  }
-  return { businessId: business.id, earnedBadges };
+  /** Badges are awarded after payment succeeds (see Stripe webhook), not while checkout is in progress. */
+  return { businessId: business.id, earnedBadges: [] };
 }
 
 export async function POST(req: NextRequest) {
@@ -133,7 +150,8 @@ export async function POST(req: NextRequest) {
 
     const plans = getPlans();
     const plan = plans[planId];
-    const priceId = interval === "yearly" && plan?.priceIdYearly ? plan.priceIdYearly : plan?.priceId;
+    const priceId =
+      interval === "yearly" && plan?.priceIdYearly ? plan.priceIdYearly : plan?.priceId;
     if (!priceId) {
       return NextResponse.json(
         { error: interval === "yearly" ? "Yearly plan not configured" : "Invalid plan or Stripe not configured" },
@@ -219,6 +237,7 @@ export async function POST(req: NextRequest) {
 
     const priceDetails = await stripe.prices.retrieve(priceId);
     const recurring = priceDetails.recurring;
+    const applePayIntervals = applePayPresentationIntervals(recurring ?? null);
 
     const subscriptionParams: Stripe.SubscriptionCreateParams = {
       customer: customerId,
@@ -264,16 +283,26 @@ export async function POST(req: NextRequest) {
             status: "active",
           },
         });
-        
+
+        let trialEarned = stripeSetupEarnedBadges;
+        if (businessId) {
+          try {
+            const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
+            trialEarned = await awardBusinessSignupBadges(businessId);
+          } catch {
+            /* best-effort */
+          }
+        }
+
         return NextResponse.json({
           completed: true,
           subscriptionId: subscription.id,
-          earnedBadges: stripeSetupEarnedBadges,
+          earnedBadges: trialEarned,
           applePayPresentation: {
             amountCents: 0,
             currency: "usd",
-            intervalUnit: recurring?.interval === "year" ? "year" : "month",
-            intervalCount: recurring?.interval_count ?? 1,
+            intervalUnit: applePayIntervals.intervalUnit,
+            intervalCount: applePayIntervals.intervalCount,
             planLabel:
               planId === "subscribe"
                 ? "NWC Resident Subscribe"
@@ -304,8 +333,8 @@ export async function POST(req: NextRequest) {
       applePayPresentation: {
         amountCents: paymentIntent.amount,
         currency: paymentIntent.currency,
-        intervalUnit: recurring?.interval === "year" ? "year" : "month",
-        intervalCount: recurring?.interval_count ?? 1,
+        intervalUnit: applePayIntervals.intervalUnit,
+        intervalCount: applePayIntervals.intervalCount,
         planLabel:
           planId === "subscribe"
             ? "NWC Resident Subscribe"

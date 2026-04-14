@@ -16,19 +16,23 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
 
 type BillingInterval = "monthly" | "yearly";
 
+function trimPriceId(raw: string | undefined): string {
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
 function getPlans(): Record<string, { priceId: string; priceIdYearly?: string }> {
   return {
     subscribe: {
-      priceId: process.env.STRIPE_PRICE_SUBSCRIBE ?? "",
-      priceIdYearly: process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY ?? "",
+      priceId: trimPriceId(process.env.STRIPE_PRICE_SUBSCRIBE),
+      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY),
     },
     sponsor: {
-      priceId: process.env.STRIPE_PRICE_SPONSOR ?? "",
-      priceIdYearly: process.env.STRIPE_PRICE_SPONSOR_YEARLY ?? "",
+      priceId: trimPriceId(process.env.STRIPE_PRICE_SPONSOR),
+      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SPONSOR_YEARLY),
     },
     seller: {
-      priceId: process.env.STRIPE_PRICE_SELLER ?? "",
-      priceIdYearly: process.env.STRIPE_PRICE_SELLER_YEARLY ?? "",
+      priceId: trimPriceId(process.env.STRIPE_PRICE_SELLER),
+      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SELLER_YEARLY),
     },
   };
 }
@@ -100,14 +104,8 @@ async function createBusinessDraftInDb(
       hoursOfOperation: data.hoursOfOperation && typeof data.hoursOfOperation === "object" ? (data.hoursOfOperation as Record<string, string>) : undefined,
     },
   });
-  const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-  let earnedBadges: EarnedBadge[] = [];
-  try {
-    earnedBadges = await awardBusinessSignupBadges(business.id);
-  } catch {
-    /* best-effort */
-  }
-  return { businessId: business.id, earnedBadges };
+  /** Badges are awarded after payment succeeds (see Stripe webhook), not while checkout is in progress. */
+  return { businessId: business.id, earnedBadges: [] };
 }
 
 export async function POST(req: NextRequest) {

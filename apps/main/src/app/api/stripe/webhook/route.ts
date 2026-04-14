@@ -370,6 +370,12 @@ export async function POST(req: NextRequest) {
         }
       } else if ((planId === "sponsor" || planId === "seller") && businessIdFromMeta) {
         if (process.env.NODE_ENV === "development") console.log("[webhook] Business already created as draft:", businessIdFromMeta);
+        try {
+          const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
+          await awardBusinessSignupBadges(businessIdFromMeta);
+        } catch (badgeErr) {
+          console.error("[webhook] checkout.session.completed: business signup badges", badgeErr);
+        }
       }
       if (planId === "seller") {
         migrateResaleItemsForSellerMember(memberId).catch((err) =>
@@ -1207,6 +1213,12 @@ export async function POST(req: NextRequest) {
               }
             } else if ((planId === "sponsor" || planId === "seller") && businessIdFromSub) {
               if (process.env.NODE_ENV === "development") console.log("[webhook] Business already created as draft:", businessIdFromSub);
+              try {
+                const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
+                await awardBusinessSignupBadges(businessIdFromSub);
+              } catch (badgeErr) {
+                console.error("[webhook] invoice.payment_succeeded: business signup badges", badgeErr);
+              }
             }
           } else {
             console.warn("[stripe/webhook] invoice.payment_succeeded: subscription row not created (missing memberId or planId)", {
@@ -1217,6 +1229,28 @@ export async function POST(req: NextRequest) {
           }
         } catch (err) {
           console.error("[webhook] invoice.payment_succeeded subscription handle:", err);
+        }
+      } else if (invoice.billing_reason === "subscription_create") {
+        /** Row may exist from client sync (`/api/stripe/sync-subscriptions`) before this webhook — still award draft signup badges once (idempotent). */
+        try {
+          const sub = await stripe.subscriptions.retrieve(subIdStr);
+          let planId = sub.metadata?.planId?.trim() as "subscribe" | "sponsor" | "seller" | undefined;
+          if (planId && !["subscribe", "sponsor", "seller"].includes(planId)) {
+            planId = undefined;
+          }
+          if (!planId) {
+            const raw = sub.items.data[0]?.price;
+            const priceId = typeof raw === "string" ? raw : raw?.id ?? null;
+            const p = planFromStripePriceId(priceId);
+            if (p) planId = p;
+          }
+          const businessIdFromSub = sub.metadata?.businessId?.trim();
+          if ((planId === "sponsor" || planId === "seller") && businessIdFromSub) {
+            const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
+            await awardBusinessSignupBadges(businessIdFromSub);
+          }
+        } catch (badgeFollowUpErr) {
+          console.error("[webhook] invoice.payment_succeeded: draft business badges (existing sub row)", badgeFollowUpErr);
         }
       }
     }
