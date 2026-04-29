@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { FeedPostCard } from "@/components/FeedPostCard";
@@ -11,7 +11,9 @@ type PostShape = Parameters<typeof FeedPostCard>[0]["post"];
 
 export default function SingleCommunityPostPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = typeof params?.id === "string" ? params.id : "";
+  const initialCommentId = searchParams.get("comment");
   const { data: session } = useSession();
   const viewerUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
 
@@ -125,6 +127,7 @@ export default function SingleCommunityPostPage() {
         viewerUserId={viewerUserId}
         onEditPost={openEditFeedPost}
         onDeletePost={handleDeletePost}
+        initialCommentId={initialCommentId}
         onCommentAdded={(postId) => {
           setPost((p) =>
             p && p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p

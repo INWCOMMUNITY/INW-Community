@@ -1,5 +1,5 @@
 /**
- * Community tab sidebar - Create Post, My Friends, Groups, Blogs, Invites, Badges, etc.
+ * Community tab sidebar - Notifications, Create Post, My Friends, Groups, Blogs, Invites, Badges, etc.
  */
 import {
   Modal,
@@ -47,6 +47,8 @@ export function CommunitySideMenu({
   };
 
   const allItems: { label: string; href: string; icon: keyof typeof Ionicons.glyphMap; guest?: boolean }[] = [
+    /** `guest: true` so it shows before `/api/me` populates `member` (same as Create Post). */
+    { label: "Notifications", href: "/notifications", icon: "notifications-outline", guest: true },
     { label: "Create Post", href: "create-post", icon: "create", guest: true },
     { label: "My Friends", href: "/community/my-friends", icon: "people" },
     { label: "Friend Requests", href: "/community/friend-requests", icon: "person-add" },
@@ -83,7 +85,7 @@ export function CommunitySideMenu({
           >
             {items.map((item) => (
               <Pressable
-                key={item.href}
+                key={`${item.label}-${item.href}`}
                 onPress={() =>
                   item.href === "create-post" ? handleCreatePost() : handleNav(item.href)
                 }

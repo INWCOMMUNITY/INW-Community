@@ -1191,6 +1191,29 @@ export default function MyCommunityScreen() {
             {member.bio || "Add a bio in Edit Profile"}
           </ThemedText>
           <View style={styles.profileDivider} />
+          <RNView style={styles.profileBioActionRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.profileBioActionButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => router.push("/profile-edit")}
+            >
+              <Ionicons name="create-outline" size={20} color="#fff" />
+              <ThemedText style={styles.editProfileButtonText}>Edit Profile</ThemedText>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.profileBioActionButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => (router.push as (href: string) => void)("/notifications")}
+            >
+              <Ionicons name="notifications-outline" size={20} color="#fff" />
+              <ThemedText style={styles.editProfileButtonText}>Notifications</ThemedText>
+            </Pressable>
+          </RNView>
+          <View style={styles.profileDivider} />
         </View>
 
         <View style={styles.pointsRow}>
@@ -1235,13 +1258,6 @@ export default function MyCommunityScreen() {
         >
           <ThemedText style={styles.postsBoxText}>Posted Photos / Posts</ThemedText>
           <Ionicons name="chevron-forward" size={20} color="#000" />
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [styles.editProfileButton, pressed && styles.buttonPressed]}
-          onPress={() => router.push("/profile-edit")}
-        >
-          <ThemedText style={styles.editProfileButtonText}>Edit Profile</ThemedText>
         </Pressable>
       </View>
 
@@ -1529,12 +1545,30 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 16,
     minHeight: 80,
-    marginBottom: 24,
+    /** Same vertical gap as pointsRow → badges row → posts (see `pointsRow`, `badgesProfileRow`). */
+    marginBottom: 12,
   },
   postsBoxText: {
     fontSize: 16,
     fontWeight: "600",
     color: "#000",
+  },
+  profileBioActionRow: {
+    flexDirection: "row",
+    gap: 12,
+    alignSelf: "stretch",
+  },
+  profileBioActionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    minHeight: 44,
   },
   editProfileButton: {
     backgroundColor: theme.colors.primary,
@@ -1543,7 +1577,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 4,
     alignSelf: "flex-start",
-    marginTop: 24,
+    marginTop: 0,
   },
   editProfileButtonText: {
     color: "#ffffff",

@@ -25,8 +25,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
 
 export default function SinglePostScreen() {
-  const { id: rawId } = useLocalSearchParams<{ id: string }>();
+  const { id: rawId, commentId: rawCommentId } = useLocalSearchParams<{
+    id: string;
+    commentId?: string;
+  }>();
   const id = typeof rawId === "string" ? rawId : rawId?.[0];
+  const commentIdFromUrl =
+    typeof rawCommentId === "string" ? rawCommentId : rawCommentId?.[0];
   const router = useRouter();
   const navigation = useNavigation();
   const { member } = useAuth();
@@ -72,6 +77,12 @@ export default function SinglePostScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (post?.id && id && post.id === id && commentIdFromUrl) {
+      setCommentPostId(post.id);
+    }
+  }, [post?.id, id, commentIdFromUrl]);
 
   const handleLike = useCallback(
     async (postId: string) => {
@@ -171,7 +182,16 @@ export default function SinglePostScreen() {
           postId={commentPostId}
           post={post}
           initialCommentCount={post.commentCount}
-          onClose={() => setCommentPostId(null)}
+          highlightCommentId={commentIdFromUrl ?? null}
+          onHighlightConsumed={() => {
+            router.setParams({ commentId: undefined } as never);
+          }}
+          onClose={() => {
+            setCommentPostId(null);
+            if (commentIdFromUrl) {
+              router.setParams({ commentId: undefined } as never);
+            }
+          }}
           onCommentAdded={() =>
             setPost((p) =>
               p && p.id === commentPostId

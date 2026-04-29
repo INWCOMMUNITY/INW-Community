@@ -94,8 +94,8 @@ function HeaderSideSlot({
         alignSelf: "stretch",
         justifyContent: "center",
         alignItems: side === "left" ? "flex-start" : "flex-end",
-        paddingLeft: side === "left" ? 10 : 0,
-        paddingRight: side === "right" ? 10 : 0,
+        paddingLeft: side === "left" ? 16 : 0,
+        paddingRight: side === "right" ? 16 : 0,
       }}
     >
       {children}
@@ -627,12 +627,12 @@ function TabLayoutInner() {
             node = (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Open scanner"
+                accessibilityLabel="Notifications"
                 hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
                 style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}
-                onPress={() => router.push("/scanner" as import("expo-router").Href)}
+                onPress={() => router.push("/notifications" as import("expo-router").Href)}
               >
-                <Ionicons name="camera" size={22} color="#ffffff" />
+                <Ionicons name="notifications" size={22} color="#FFFFFF" />
               </Pressable>
             );
           } else if (route.name === "my-community" || route.name === "index") {
@@ -640,14 +640,9 @@ function TabLayoutInner() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Messages"
-                hitSlop={{ top: 14, bottom: 14, left: 4, right: 8 }}
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
                 style={({ pressed }) => ({
                   paddingVertical: 8,
-                  paddingHorizontal: 4,
-                  minWidth: 44,
-                  minHeight: 44,
-                  justifyContent: "center",
-                  alignItems: "center",
                   opacity: pressed ? 0.75 : 1,
                 })}
                 onPress={() => router.push("/messages")}

@@ -25,7 +25,8 @@
     "import-businesses": "node scripts/import-businesses-admin.js scripts/import-businesses.json",
     "update:hub-logos": "node scripts/update-business-logos-from-hub-hero.js",
     "revert:coach-boe-logo": "node scripts/revert-coach-boe-logo.js",
-    "update:pnw-sponsor-logos": "node scripts/update-sponsor-logos-from-pnw-wix.js"
+    "update:pnw-sponsor-logos": "node scripts/update-sponsor-logos-from-pnw-wix.js",
+    "update:djs-coins-gallery": "node scripts/update-djs-coins-gallery-from-pnw-wix.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

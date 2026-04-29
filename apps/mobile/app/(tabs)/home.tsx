@@ -13,6 +13,7 @@ import {
   Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Asset } from "expo-asset";
 import { View as ThemedView } from "@/components/Themed";
 import { theme } from "@/lib/theme";
 import { CALENDAR_TYPES, getCalendarImage, type CalendarType } from "@/lib/calendars";
@@ -65,7 +66,7 @@ function resolveUrl(path: string | null | undefined): string | undefined {
 }
 
 const logoSource = require("@/assets/images/nwc-logo-home.png");
-const logoDims = Image.resolveAssetSource(logoSource);
+const logoAsset = Asset.fromModule(logoSource);
 
 const homeShortcutGap = 12;
 
@@ -76,7 +77,7 @@ export default function HomeScreen() {
     const tileSize = (width - boxEdgeGap * 2 - 2 * boxPaddingPx - gap) / cols;
     const homeShortcutCellWidthCalc = (width - containerPadding * 2 - homeShortcutGap) / 2;
     const logoHeightCalc =
-      logoDims?.width && logoDims?.height ? (width * logoDims.height) / logoDims.width : width;
+      logoAsset?.width && logoAsset?.height ? (width * logoAsset.height) / logoAsset.width : width;
     const top10PrizePreviewSize = Math.min(220, width - 64);
 
     const s = StyleSheet.create({
@@ -100,6 +101,25 @@ export default function HomeScreen() {
   buttons: {
     width: "100%",
     marginBottom: 32,
+  },
+  homeScanQrSection: {
+    width: "100%",
+    marginBottom: 20,
+  },
+  /** Matches `scanBtn` / `scanBtnText` on `app/rewards/index.tsx`. */
+  homeScanQrButton: {
+    width: "100%",
+    paddingVertical: 18,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  homeScanQrBtnText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#fff",
   },
   buttonGrid: {
     flexDirection: "row",
@@ -797,6 +817,22 @@ export default function HomeScreen() {
           )}
         </View>
       )}
+
+      <View style={styles.homeScanQrSection}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.homeScanQrButton,
+            { backgroundColor: theme.colors.primary },
+            pressed && styles.buttonPressed,
+          ]}
+          onPress={() => (router.push as (href: string) => void)("/scanner")}
+          accessibilityRole="button"
+          accessibilityLabel="Scan QR code"
+        >
+          <Ionicons name="camera" size={32} color="#fff" />
+          <Text style={styles.homeScanQrBtnText}>Scan QR Code</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.top10Section}>
         <View style={styles.toggleRow}>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   Modal,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   Text,
   Pressable,
   ScrollView,
+  FlatList,
   Image,
   ActivityIndicator,
   TextInput,
@@ -44,6 +45,10 @@ interface FeedCommentsModalProps {
   postId: string;
   post?: FeedPost | null;
   initialCommentCount?: number;
+  /** When set, scrolls the thread to this comment after load (e.g. from notifications). */
+  highlightCommentId?: string | null;
+  /** Called once after attempting to scroll to `highlightCommentId` (so the parent can clear URL params). */
+  onHighlightConsumed?: () => void;
   onClose: () => void;
   onCommentAdded?: () => void;
 }
@@ -135,6 +140,7 @@ function PostPreview({ post }: { post: FeedPost }) {
 interface CommentRowProps {
   comment: FeedComment;
   isReply?: boolean;
+  highlighted?: boolean;
   postId: string;
   onLike: (commentId: string) => void;
   onReply: (comment: FeedComment) => void;
@@ -142,7 +148,16 @@ interface CommentRowProps {
   onDeleteComment?: (commentId: string) => void;
 }
 
-function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment, onDeleteComment }: CommentRowProps) {
+function CommentRow({
+  comment,
+  isReply,
+  highlighted,
+  postId,
+  onLike,
+  onReply,
+  onReportComment,
+  onDeleteComment,
+}: CommentRowProps) {
   const name = `${comment.member.firstName ?? ""} ${comment.member.lastName ?? ""}`.trim() || "Member";
   const initials = [comment.member.firstName?.[0], comment.member.lastName?.[0]]
     .filter(Boolean)
@@ -153,7 +168,13 @@ function CommentRow({ comment, isReply, postId, onLike, onReply, onReportComment
   const liked = comment.liked ?? false;
 
   return (
-    <View style={[styles.commentRow, isReply && styles.commentRowReply]}>
+    <View
+      style={[
+        styles.commentRow,
+        isReply && styles.commentRowReply,
+        highlighted && styles.commentRowHighlighted,
+      ]}
+    >
       {comment.member.profilePhotoUrl ? (
         <Image
           source={{ uri: resolveUri(comment.member.profilePhotoUrl) }}
@@ -251,6 +272,8 @@ export function FeedCommentsModal({
   visible,
   postId,
   post,
+  highlightCommentId,
+  onHighlightConsumed,
   onClose,
   onCommentAdded,
 }: FeedCommentsModalProps) {
@@ -265,9 +288,25 @@ export function FeedCommentsModal({
   const { member } = useAuth();
   const isPostOwner = !!(member && post?.author?.id === member.id);
   const slideAnim = useRef(new Animated.Value(SHEET_HEIGHT)).current;
+  const listRef = useRef<FlatList<{ comment: FeedComment; isReply: boolean }>>(null);
+  const highlightScrollDoneRef = useRef(false);
+
+  const flatRows = useMemo(() => {
+    const top = comments.filter((c) => !c.parentId);
+    const repliesOf = (id: string) => comments.filter((c) => c.parentId === id);
+    const rows: { comment: FeedComment; isReply: boolean }[] = [];
+    for (const c of top) {
+      rows.push({ comment: c, isReply: false });
+      for (const r of repliesOf(c.id)) {
+        rows.push({ comment: r, isReply: true });
+      }
+    }
+    return rows;
+  }, [comments]);
 
   useEffect(() => {
     if (!visible || !postId) return;
+    highlightScrollDoneRef.current = false;
     setComments([]);
     setInput("");
     setPhotos([]);
@@ -285,6 +324,22 @@ export function FeedCommentsModal({
       .catch(() => setComments([]))
       .finally(() => setLoading(false));
   }, [visible, postId]);
+
+  useEffect(() => {
+    if (loading || !highlightCommentId || highlightScrollDoneRef.current) return;
+    const idx = flatRows.findIndex((r) => r.comment.id === highlightCommentId);
+    if (idx < 0) {
+      highlightScrollDoneRef.current = true;
+      onHighlightConsumed?.();
+      return;
+    }
+    const t = setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: idx, viewPosition: 0.12, animated: true });
+      highlightScrollDoneRef.current = true;
+      onHighlightConsumed?.();
+    }, 120);
+    return () => clearTimeout(t);
+  }, [loading, highlightCommentId, flatRows, onHighlightConsumed]);
 
   const handleClose = () => {
     Animated.timing(slideAnim, {
@@ -464,10 +519,6 @@ export function FeedCommentsModal({
 
   const canSubmit = (input.trim().length > 0 || photos.length > 0) && !submitting;
 
-  // Build tree: top-level comments + nested replies
-  const topLevel = comments.filter((c) => !c.parentId);
-  const getReplies = (id: string) => comments.filter((c) => c.parentId === id);
-
   if (!visible) return null;
 
   return (
@@ -514,44 +565,44 @@ export function FeedCommentsModal({
               <ActivityIndicator size="large" color={theme.colors.primary} />
             </View>
           ) : (
-            <ScrollView
+            <FlatList
+              ref={listRef}
               style={styles.scroll}
               contentContainerStyle={styles.scrollContent}
               keyboardShouldPersistTaps="handled"
-            >
-              {post && <PostPreview post={post} />}
-              <View style={styles.commentsSection}>
-                <Text style={styles.commentsLabel}>
-                  {comments.length === 0
-                    ? "No comments yet. Be the first!"
-                    : "Comments"}
-                </Text>
-                {topLevel.map((c) => (
-                  <View key={c.id}>
-                    <CommentRow
-                      comment={c}
-                      postId={postId}
-                      onLike={handleLike}
-                      onReply={handleReply}
-                      onReportComment={handleReportComment}
-                      onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
-                    />
-                    {getReplies(c.id).map((r) => (
-                      <CommentRow
-                        key={r.id}
-                        comment={r}
-                        isReply
-                        postId={postId}
-                        onLike={handleLike}
-                        onReply={handleReply}
-                        onReportComment={handleReportComment}
-                        onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
-                      />
-                    ))}
+              data={flatRows}
+              keyExtractor={(row) => row.comment.id}
+              ListHeaderComponent={
+                <>
+                  {post && <PostPreview post={post} />}
+                  <View style={styles.commentsSection}>
+                    <Text style={styles.commentsLabel}>
+                      {comments.length === 0
+                        ? "No comments yet. Be the first!"
+                        : "Comments"}
+                    </Text>
                   </View>
-                ))}
-              </View>
-            </ScrollView>
+                </>
+              }
+              renderItem={({ item }) => (
+                <View style={styles.commentFlatRow}>
+                  <CommentRow
+                    comment={item.comment}
+                    isReply={item.isReply}
+                    highlighted={highlightCommentId === item.comment.id}
+                    postId={postId}
+                    onLike={handleLike}
+                    onReply={handleReply}
+                    onReportComment={handleReportComment}
+                    onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
+                  />
+                </View>
+              )}
+              onScrollToIndexFailed={(info) => {
+                const approx = Math.max(0, info.averageItemLength * info.index);
+                listRef.current?.scrollToOffset({ offset: approx, animated: true });
+              }}
+            />
           )}
           <View style={styles.inputSection}>
             {replyingTo && (
@@ -771,10 +822,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: theme.colors.placeholder,
   },
+  commentFlatRow: {
+    paddingHorizontal: 16,
+  },
   commentRow: {
     flexDirection: "row",
     gap: 12,
     marginBottom: 16,
+  },
+  commentRowHighlighted: {
+    backgroundColor: "#eaf6ef",
+    borderRadius: 10,
+    paddingVertical: 6,
+    marginBottom: 10,
+    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.primary,
   },
   commentAvatar: {
     width: 36,

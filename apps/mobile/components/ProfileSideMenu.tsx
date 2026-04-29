@@ -131,6 +131,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSide
 
   // My Friends + Friend Requests combined into one link to my-friends (that screen shows both).
   const communityItems: NavItem[] = [
+    { href: "/notifications", label: "Notifications", icon: "notifications-outline" },
     { href: "/messages", label: "Inbox", icon: "mail-unread-outline", badgeCount: unreadMessages || undefined },
     {
       href: "/community/my-friends",

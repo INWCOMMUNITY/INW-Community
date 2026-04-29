@@ -210,14 +210,13 @@ async function main() {
       logoUrl:
         "https://static.wixstatic.com/media/2bdd49_547da7a129704e16be9263c35822a2a4~mv2.jpg/v1/fill/w_400,h_400,al_c,q_80,enc_avif,quality_auto/eeeee861d3be78f34739314f83d3a5f0_edited.jpg",
       photos: [
-        "https://static.wixstatic.com/media/2bdd49_547da7a129704e16be9263c35822a2a4~mv2.jpg/v1/fill/w_600,h_600,al_c,q_85,enc_avif,quality_auto/0023_22a.jpg",
         "https://static.wixstatic.com/media/2bdd49_2fa6bb1636484e0eb2bee8348d7ecd41~mv2.webp/v1/fit/w_960,h_960,q_90,enc_avif,quality_auto/2bdd49_2fa6bb1636484e0eb2bee8348d7ecd41~mv2.webp",
         "https://static.wixstatic.com/media/2bdd49_d16bfd51c06e409994284b5c6a9f7f14~mv2.webp/v1/fit/w_960,h_960,q_90,enc_avif,quality_auto/2bdd49_d16bfd51c06e409994284b5c6a9f7f14~mv2.webp",
         "https://static.wixstatic.com/media/2bdd49_9f1fdb0897de4ac091366c2cfdff53f5~mv2.webp/v1/fit/w_960,h_960,q_90,enc_avif,quality_auto/2bdd49_9f1fdb0897de4ac091366c2cfdff53f5~mv2.webp",
         "https://static.wixstatic.com/media/2bdd49_dcddd7f7f6b642febe8118f45b232ea9~mv2.webp/v1/fit/w_960,h_960,q_90,enc_avif,quality_auto/2bdd49_dcddd7f7f6b642febe8118f45b232ea9~mv2.webp",
         "https://static.wixstatic.com/media/2bdd49_af5e9b51952f4248b54463f80f899912~mv2.webp/v1/fit/w_779,h_782,q_90,enc_avif,quality_auto/2bdd49_af5e9b51952f4248b54463f80f899912~mv2.webp",
         "https://static.wixstatic.com/media/2bdd49_4ad6fc4507454d819d5f361b2038256b~mv2.webp/v1/fit/w_960,h_960,q_90,enc_avif,quality_auto/2bdd49_4ad6fc4507454d819d5f361b2038256b~mv2.webp",
-        "https://static.wixstatic.com/media/2bdd49_1d9f85617ef746b8a490fb0b801e87ce~mv2.webp/v1/fit/w_780,h_780,q_90,enc_avif,quality_auto/2bdd49_1d9f85617ef746b8a490fb0b801e87ce~mv2.webp",
+        "https://static.wixstatic.com/media/2bdd49_1d9f85617ef746b8a490fb0b801e87ce~mv2.webp/v1/fit/w_960,h_960,q_90,enc_avif,quality_auto/2bdd49_1d9f85617ef746b8a490fb0b801e87ce~mv2.webp",
         "https://static.wixstatic.com/media/2bdd49_4b30e3e892ad4438823a7c8f9afad055~mv2.webp/v1/fit/w_780,h_780,q_90,enc_avif,quality_auto/2bdd49_4b30e3e892ad4438823a7c8f9afad055~mv2.webp",
         "https://static.wixstatic.com/media/2bdd49_99aafbc9303c442f92004ba43e5fe83c~mv2.webp/v1/fit/w_780,h_780,q_90,enc_avif,quality_auto/2bdd49_99aafbc9303c442f92004ba43e5fe83c~mv2.webp",
       ],

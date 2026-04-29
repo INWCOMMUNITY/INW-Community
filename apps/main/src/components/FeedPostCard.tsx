@@ -64,6 +64,8 @@ interface FeedPostCardProps {
   onDeletePost?: (postId: string) => void;
   /** Signed-out feed: show content and comment thread read-only; no like/share/post comment. */
   readOnlyInteractions?: boolean;
+  /** Open comments and scroll to this comment id (e.g. `?comment=` on single post URL). */
+  initialCommentId?: string | null;
 }
 
 function isVideoUrl(url: string) {
@@ -72,6 +74,7 @@ function isVideoUrl(url: string) {
 
 type CommentItem = {
   id: string;
+  parentId?: string | null;
   content: string;
   createdAt: string;
   member: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
@@ -89,6 +92,7 @@ export function FeedPostCard({
   onEditPost,
   onDeletePost,
   readOnlyInteractions = false,
+  initialCommentId = null,
 }: FeedPostCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [postMenuOpen, setPostMenuOpen] = useState(false);
@@ -96,7 +100,7 @@ export function FeedPostCard({
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryMedia, setGalleryMedia] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(() => Boolean(initialCommentId));
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentText, setCommentText] = useState("");
@@ -124,6 +128,21 @@ export function FeedPostCard({
       .catch(() => setComments([]))
       .finally(() => setCommentsLoading(false));
   }, [commentsOpen, post.id]);
+
+  useEffect(() => {
+    if (initialCommentId) setCommentsOpen(true);
+  }, [initialCommentId]);
+
+  useEffect(() => {
+    if (!initialCommentId || !commentsOpen || commentsLoading) return;
+    const t = window.setTimeout(() => {
+      document.getElementById(`post-comment-${initialCommentId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [initialCommentId, commentsOpen, commentsLoading, comments]);
 
   async function submitComment(e: React.FormEvent) {
     e.preventDefault();
@@ -649,7 +668,15 @@ export function FeedPostCard({
           ) : (
             <ul className="space-y-2">
               {comments.map((c) => (
-                <li key={c.id} className="flex gap-2">
+                <li
+                  key={c.id}
+                  id={`post-comment-${c.id}`}
+                  className={`flex gap-2 scroll-mt-24 rounded-lg p-1 -m-1 ${
+                    initialCommentId === c.id
+                      ? "ring-2 ring-emerald-600/40 bg-emerald-50/80"
+                      : ""
+                  }`}
+                >
                   {c.member.profilePhotoUrl ? (
                     <Image src={c.member.profilePhotoUrl} alt="" width={28} height={28} className="w-7 h-7 rounded-full object-cover shrink-0" />
                   ) : (
