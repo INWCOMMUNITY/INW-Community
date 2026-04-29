@@ -4,7 +4,7 @@ const TAKE_EACH = 22;
 const ORDER_WINDOW_DAYS = 90;
 
 export type ActivityNav =
-  | { kind: "friend_requests" }
+  | { kind: "friend_request"; requestId: string }
   | { kind: "post"; postId: string; commentId?: string }
   | { kind: "blog"; slug: string }
   | { kind: "event_invites" }
@@ -15,7 +15,15 @@ export type ActivityNav =
   | { kind: "seller_order"; orderId: string }
   | { kind: "group"; slug: string }
   | { kind: "resale_chat"; conversationId: string }
+  | { kind: "direct_message"; conversationId: string }
   | { kind: "none" };
+
+export type ActivityLikeGroupMember = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  profilePhotoUrl: string | null;
+};
 
 export type ActivityFeedItem = {
   id: string;
@@ -31,10 +39,41 @@ export type ActivityFeedItem = {
     profilePhotoUrl: string | null;
   } | null;
   nav: ActivityNav;
+  /**
+   * Multiple likers on the same post/comment, shown as up to 3 names + “and N others”.
+   * `title` is a plain-language duplicate for non-interactive clients / accessibility.
+   */
+  likeGroup?: {
+    members: ActivityLikeGroupMember[];
+    othersCount: number;
+    target: "post" | "comment";
+  };
 };
 
 function memberName(m: { firstName: string; lastName: string }): string {
   return [m.firstName, m.lastName].filter(Boolean).join(" ").trim() || "Someone";
+}
+
+/** Plain sentence for grouped likes (Instagram-style). */
+export function aggregatedLikesPlainTitle(
+  shownMembers: { firstName: string; lastName: string }[],
+  othersCount: number,
+  target: "post" | "comment"
+): string {
+  const suffix = target === "post" ? "liked your post" : "liked your comment";
+  const names = shownMembers.map((m) => memberName(m));
+  if (othersCount > 0) {
+    if (names.length === 0) {
+      return `${othersCount} ${othersCount === 1 ? "person" : "people"} ${suffix}`;
+    }
+    if (names.length === 1) {
+      return `${names[0]} and ${othersCount} ${othersCount === 1 ? "other" : "others"} ${suffix}`;
+    }
+    return `${names.join(", ")}, and ${othersCount} ${othersCount === 1 ? "other" : "others"} ${suffix}`;
+  }
+  if (names.length === 1) return `${names[0]} ${suffix}`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} ${suffix}`;
+  return `${names[0]}, ${names[1]}, and ${names[2]} ${suffix}`;
 }
 
 function orderStatusLine(status: string): string {
@@ -219,7 +258,7 @@ export async function getMeActivityFeed(
       subtitle: `${memberName(fr.requester)} wants to connect`,
       occurredAt: fr.createdAt.toISOString(),
       actor: fr.requester,
-      nav: { kind: "friend_requests" },
+      nav: { kind: "friend_request", requestId: fr.id },
     });
   }
 
@@ -238,33 +277,104 @@ export async function getMeActivityFeed(
     });
   }
 
+  const postLikesByPost = new Map<string, (typeof postLikes)[number][]>();
   for (const like of postLikes) {
     if (skipActor(like.member.id)) continue;
-    const liker = memberName(like.member);
+    const pid = like.post.id;
+    if (!postLikesByPost.has(pid)) postLikesByPost.set(pid, []);
+    postLikesByPost.get(pid)!.push(like);
+  }
+  for (const [postId, likes] of postLikesByPost) {
+    const sorted = [...likes].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    if (sorted.length === 0) continue;
+    if (sorted.length === 1) {
+      const like = sorted[0];
+      const liker = memberName(like.member);
+      items.push({
+        id: `post_like:${like.id}`,
+        type: "post_like",
+        category: "content",
+        title: `${liker} liked your post`,
+        subtitle: null,
+        occurredAt: like.createdAt.toISOString(),
+        actor: like.member,
+        nav: { kind: "post", postId: like.post.id },
+      });
+      continue;
+    }
+    const shown = sorted.slice(0, 3).map((l) => l.member);
+    const othersCount = Math.max(0, sorted.length - 3);
+    const likeGroup = {
+      members: shown.map((m) => ({
+        id: m.id,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        profilePhotoUrl: m.profilePhotoUrl,
+      })),
+      othersCount,
+      target: "post" as const,
+    };
     items.push({
-      id: `post_like:${like.id}`,
-      type: "post_like",
+      id: `post_likes_group:${postId}`,
+      type: "post_likes_group",
       category: "content",
-      title: `${liker} liked your post`,
+      title: aggregatedLikesPlainTitle(shown, othersCount, "post"),
       subtitle: null,
-      occurredAt: like.createdAt.toISOString(),
-      actor: like.member,
-      nav: { kind: "post", postId: like.post.id },
+      occurredAt: sorted[0].createdAt.toISOString(),
+      actor: sorted[0].member,
+      nav: { kind: "post", postId },
+      likeGroup,
     });
   }
 
+  const commentLikesByComment = new Map<string, (typeof commentLikes)[number][]>();
   for (const lk of commentLikes) {
     if (skipActor(lk.member.id)) continue;
-    const liker = memberName(lk.member);
+    const cid = lk.commentId;
+    if (!commentLikesByComment.has(cid)) commentLikesByComment.set(cid, []);
+    commentLikesByComment.get(cid)!.push(lk);
+  }
+  for (const [commentId, likes] of commentLikesByComment) {
+    const sorted = [...likes].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    if (sorted.length === 0) continue;
+    const postId = sorted[0].comment.postId;
+    if (sorted.length === 1) {
+      const lk = sorted[0];
+      const liker = memberName(lk.member);
+      items.push({
+        id: `comment_like:${lk.id}`,
+        type: "comment_like",
+        category: "content",
+        title: `${liker} liked your comment`,
+        subtitle: null,
+        occurredAt: lk.createdAt.toISOString(),
+        actor: lk.member,
+        nav: { kind: "post", postId, commentId },
+      });
+      continue;
+    }
+    const shown = sorted.slice(0, 3).map((l) => l.member);
+    const othersCount = Math.max(0, sorted.length - 3);
+    const likeGroup = {
+      members: shown.map((m) => ({
+        id: m.id,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        profilePhotoUrl: m.profilePhotoUrl,
+      })),
+      othersCount,
+      target: "comment" as const,
+    };
     items.push({
-      id: `comment_like:${lk.id}`,
-      type: "comment_like",
+      id: `comment_likes_group:${commentId}`,
+      type: "comment_likes_group",
       category: "content",
-      title: `${liker} liked your comment`,
+      title: aggregatedLikesPlainTitle(shown, othersCount, "comment"),
       subtitle: null,
-      occurredAt: lk.createdAt.toISOString(),
-      actor: lk.member,
-      nav: { kind: "post", postId: lk.comment.postId, commentId: lk.commentId },
+      occurredAt: sorted[0].createdAt.toISOString(),
+      actor: sorted[0].member,
+      nav: { kind: "post", postId, commentId },
+      likeGroup,
     });
   }
 
@@ -377,6 +487,41 @@ export async function getMeActivityFeed(
       occurredAt: when.toISOString(),
       actor: seller,
       nav: convId ? { kind: "resale_chat", conversationId: convId } : { kind: "my_orders" },
+    });
+  }
+
+  const excludedSenders = new Set<string>([memberId, ...blockedIds]);
+  const directIncomingMessages = await prisma.directMessage.findMany({
+    where: {
+      senderId: { notIn: [...excludedSenders] },
+      conversation: {
+        OR: [{ memberAId: memberId }, { memberBId: memberId }],
+      },
+    },
+    include: {
+      sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+      conversation: { select: { id: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: TAKE_EACH * 2,
+  });
+  const seenDmConv = new Set<string>();
+  for (const dm of directIncomingMessages) {
+    if (seenDmConv.has(dm.conversationId)) continue;
+    if (skipActor(dm.sender.id)) continue;
+    seenDmConv.add(dm.conversationId);
+    const raw = dm.content.replace(/\s+/g, " ").trim();
+    const preview = raw.slice(0, 100);
+    items.push({
+      id: `direct_message:${dm.id}`,
+      type: "direct_message",
+      category: "social",
+      title: `${memberName(dm.sender)} sent you a message`,
+      subtitle:
+        preview.length > 0 ? `${preview}${raw.length > 100 ? "…" : ""}` : null,
+      occurredAt: dm.createdAt.toISOString(),
+      actor: dm.sender,
+      nav: { kind: "direct_message", conversationId: dm.conversation.id },
     });
   }
 
