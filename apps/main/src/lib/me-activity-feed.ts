@@ -48,10 +48,18 @@ export type ActivityFeedItem = {
     othersCount: number;
     target: "post" | "comment";
   };
+  /** First listing photo for storefront / resale commerce rows */
+  storeItemPhotoUrl?: string | null;
 };
 
 function memberName(m: { firstName: string; lastName: string }): string {
   return [m.firstName, m.lastName].filter(Boolean).join(" ").trim() || "Someone";
+}
+
+function firstListingPhoto(photos: string[] | null | undefined): string | null {
+  if (!photos?.length) return null;
+  const p = photos.find((x) => typeof x === "string" && x.trim().length > 0);
+  return p?.trim() ?? null;
 }
 
 /** Plain sentence for grouped likes (Instagram-style). */
@@ -180,7 +188,7 @@ export async function getMeActivityFeed(
       where: { buyerId: memberId, createdAt: { gte: orderSince } },
       include: {
         seller: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-        items: { take: 1, select: { storeItem: { select: { title: true } } } },
+        items: { take: 1, select: { storeItem: { select: { title: true, photos: true } } } },
       },
       orderBy: { createdAt: "desc" },
       take: TAKE_EACH,
@@ -189,7 +197,7 @@ export async function getMeActivityFeed(
       where: { sellerId: memberId, createdAt: { gte: orderSince } },
       include: {
         buyer: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-        items: { take: 1, select: { storeItem: { select: { title: true } } } },
+        items: { take: 1, select: { storeItem: { select: { title: true, photos: true } } } },
       },
       orderBy: { createdAt: "desc" },
       take: TAKE_EACH,
@@ -201,7 +209,7 @@ export async function getMeActivityFeed(
       },
       include: {
         buyer: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-        storeItem: { select: { id: true, title: true } },
+        storeItem: { select: { id: true, title: true, photos: true } },
       },
       orderBy: { createdAt: "desc" },
       take: TAKE_EACH,
@@ -213,7 +221,12 @@ export async function getMeActivityFeed(
       },
       include: {
         storeItem: {
-          select: { id: true, title: true, member: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
+          select: {
+            id: true,
+            title: true,
+            photos: true,
+            member: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+          },
         },
       },
       orderBy: { respondedAt: "desc" },
@@ -423,6 +436,7 @@ export async function getMeActivityFeed(
 
   for (const ord of buyerOrders) {
     const label = ord.items[0]?.storeItem?.title ?? "Order";
+    const storeItemPhotoUrl = firstListingPhoto(ord.items[0]?.storeItem?.photos);
     items.push({
       id: `order_buyer:${ord.id}`,
       type: "order_purchase",
@@ -432,12 +446,14 @@ export async function getMeActivityFeed(
       occurredAt: ord.createdAt.toISOString(),
       actor: ord.seller,
       nav: { kind: "buyer_order", orderId: ord.id },
+      storeItemPhotoUrl,
     });
   }
 
   for (const ord of sellerOrders) {
     if (skipActor(ord.buyer.id)) continue;
     const label = ord.items[0]?.storeItem?.title ?? "Order";
+    const storeItemPhotoUrl = firstListingPhoto(ord.items[0]?.storeItem?.photos);
     items.push({
       id: `order_seller:${ord.id}`,
       type: "order_sale",
@@ -447,12 +463,14 @@ export async function getMeActivityFeed(
       occurredAt: ord.createdAt.toISOString(),
       actor: ord.buyer,
       nav: { kind: "seller_order", orderId: ord.id },
+      storeItemPhotoUrl,
     });
   }
 
   for (const off of resaleOffersSeller) {
     if (skipActor(off.buyer.id)) continue;
     const convId = resaleConvIds.get(`${off.storeItemId}\t${off.buyerId}`);
+    const storeItemPhotoUrl = firstListingPhoto(off.storeItem.photos);
     items.push({
       id: `resale_offer_in:${off.id}`,
       type: "resale_offer_in",
@@ -462,6 +480,7 @@ export async function getMeActivityFeed(
       occurredAt: off.createdAt.toISOString(),
       actor: off.buyer,
       nav: convId ? { kind: "resale_chat", conversationId: convId } : { kind: "seller_orders" },
+      storeItemPhotoUrl,
     });
   }
 
@@ -478,6 +497,7 @@ export async function getMeActivityFeed(
             ? "Counteroffer"
             : off.status;
     const convId = resaleConvIds.get(`${off.storeItemId}\t${off.buyerId}`);
+    const storeItemPhotoUrl = firstListingPhoto(off.storeItem.photos);
     items.push({
       id: `resale_offer_out:${off.id}`,
       type: "resale_offer_out",
@@ -487,6 +507,7 @@ export async function getMeActivityFeed(
       occurredAt: when.toISOString(),
       actor: seller,
       nav: convId ? { kind: "resale_chat", conversationId: convId } : { kind: "my_orders" },
+      storeItemPhotoUrl,
     });
   }
 

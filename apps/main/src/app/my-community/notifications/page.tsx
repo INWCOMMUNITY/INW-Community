@@ -45,6 +45,7 @@ interface ActivityItem {
     othersCount: number;
     target: "post" | "comment";
   };
+  storeItemPhotoUrl?: string | null;
 }
 
 function webHrefFromNav(nav: ActivityNav): string | null {
@@ -152,39 +153,97 @@ function resolveMemberPhotoUrl(path: string | null | undefined): string | undefi
   return path.startsWith("/") ? path : `/${path}`;
 }
 
+function ListingThumb({ url }: { url: string | null | undefined }) {
+  const src = url ? resolveMemberPhotoUrl(url) : undefined;
+  if (!src) return null;
+  return (
+    <img
+      src={src}
+      alt=""
+      className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-gray-200 bg-gray-100"
+      width={48}
+      height={48}
+    />
+  );
+}
+
 function memberInitials(m: { firstName: string; lastName: string }): string {
   return `${m.firstName?.[0] ?? ""}${m.lastName?.[0] ?? ""}`.toUpperCase() || "?";
 }
 
-/** Oldest → newest left→right so the last ring (most recent) paints on top. */
-function StackedLikeAvatars({ members }: { members: ActivityLikeGroupMember[] }) {
-  const ordered = [...members].reverse();
+function PyramidFace({
+  m,
+  z,
+  className,
+}: {
+  m: ActivityLikeGroupMember;
+  z: number;
+  className?: string;
+}) {
+  const src = resolveMemberPhotoUrl(m.profilePhotoUrl);
   return (
-    <div className="flex shrink-0 items-center pr-1" aria-label="People who liked this">
-      {ordered.map((m, i) => {
-        const src = resolveMemberPhotoUrl(m.profilePhotoUrl);
-        return (
-          <Link
-            key={m.id}
-            href={`/members/${m.id}`}
-            className={`relative rounded-full ring-2 ring-white bg-gray-200 shadow-sm ${
-              i > 0 ? "-ml-2.5" : ""
-            }`}
-            style={{ zIndex: i + 1 }}
-            aria-label={`${displayMemberName(m)} profile`}
-          >
-            {src ? (
-              <img src={src} alt="" className="h-9 w-9 rounded-full object-cover" width={36} height={36} />
-            ) : (
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-200 text-xs font-bold text-gray-600">
-                {memberInitials(m)}
-              </div>
-            )}
-          </Link>
-        );
-      })}
-    </div>
+    <Link
+      href={`/members/${m.id}`}
+      className={`relative shrink-0 rounded-full ring-2 ring-white bg-gray-200 shadow-sm ${className ?? ""}`}
+      style={{ zIndex: z }}
+      aria-label={`${displayMemberName(m)} profile`}
+    >
+      {src ? (
+        <img src={src} alt="" className="h-[34px] w-[34px] rounded-full object-cover" width={34} height={34} />
+      ) : (
+        <div className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-gray-200 text-[11px] font-bold text-gray-600">
+          {memberInitials(m)}
+        </div>
+      )}
+    </Link>
   );
+}
+
+/** Apex = most recent liker; base row = older likers (2-wide pyramid). */
+function PyramidLikeAvatars({ members }: { members: ActivityLikeGroupMember[] }) {
+  if (members.length === 1) {
+    return (
+      <div
+        className="flex w-[76px] shrink-0 items-center justify-center"
+        aria-label="People who liked this"
+      >
+        <PyramidFace m={members[0]} z={1} />
+      </div>
+    );
+  }
+  if (members.length >= 3) {
+    const [top, leftBase, rightBase] = [members[0], members[1], members[2]];
+    return (
+      <div
+        className="flex w-[76px] shrink-0 flex-col items-center justify-end pb-0.5"
+        aria-label="People who liked this"
+      >
+        <div className="relative z-[5] -mb-3 flex justify-center">
+          <PyramidFace m={top} z={50} />
+        </div>
+        <div className="relative z-[1] flex flex-row justify-center">
+          <PyramidFace m={leftBase} z={30} className="-mr-[11px]" />
+          <PyramidFace m={rightBase} z={40} />
+        </div>
+      </div>
+    );
+  }
+  if (members.length === 2) {
+    return (
+      <div
+        className="flex w-[76px] shrink-0 flex-col items-center justify-end pb-0.5"
+        aria-label="People who liked this"
+      >
+        <div className="relative z-[4] -mb-3 flex justify-center">
+          <PyramidFace m={members[0]} z={40} />
+        </div>
+        <div className="relative z-[1] flex justify-center">
+          <PyramidFace m={members[1]} z={20} />
+        </div>
+      </div>
+    );
+  }
+  return null;
 }
 
 function renderAggregatedLikeTitleWeb(item: ActivityItem): ReactNode {
@@ -468,8 +527,10 @@ export default function NotificationsPage() {
               <>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 flex-1 gap-3">
-                    {item.likeGroup && item.likeGroup.members.length > 0 ? (
-                      <StackedLikeAvatars members={item.likeGroup.members} />
+                    {resolveMemberPhotoUrl(item.storeItemPhotoUrl ?? undefined) ? (
+                      <ListingThumb url={item.storeItemPhotoUrl} />
+                    ) : item.likeGroup && item.likeGroup.members.length > 0 ? (
+                      <PyramidLikeAvatars members={item.likeGroup.members} />
                     ) : null}
                     <div className="min-w-0 flex-1">
                       <span className="text-xs font-semibold uppercase tracking-wide text-emerald-800/80 inline-flex items-center gap-1">
