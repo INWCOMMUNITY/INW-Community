@@ -26,12 +26,21 @@ import { PostEventAsPickerPanel } from "@/components/PostEventAsPickerModal";
 import { createPost, updatePost, type FeedPost } from "@/lib/feed-api";
 import { useEventInvitePopupSuppression } from "@/contexts/EventInvitePopupSuppressionContext";
 import { ScaledImageFit } from "@/components/ScaledImageFit";
+import { Video, ResizeMode } from "expo-av";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 function toFullUrl(url: string): string {
   return url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+function videoUploadName(uri: string, fileName: string | null | undefined): string {
+  if (fileName && fileName.trim()) return fileName.trim();
+  const u = uri.toLowerCase();
+  if (u.endsWith(".mov")) return "video.mov";
+  if (u.endsWith(".webm")) return "video.webm";
+  return "video.mp4";
 }
 
 interface TagItem {
@@ -80,8 +89,10 @@ export function CreatePostModal({
   const { member } = useAuth();
   const [content, setContent] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
+  const [videos, setVideos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [uploadingKind, setUploadingKind] = useState<null | "photo" | "video">(null);
   const [error, setError] = useState("");
 
   // Tags
@@ -182,6 +193,7 @@ export function CreatePostModal({
     if (editingPost) {
       setContent(editingPost.content ?? "");
       setPhotos((editingPost.photos ?? []).map((u) => toFullUrl(u)));
+      setVideos((editingPost.videos ?? []).map((u) => toFullUrl(u)));
       setSelectedTags(editingPost.tags?.map((t) => t.name) ?? []);
       setSelectedFriends([]);
       setError("");
@@ -198,6 +210,7 @@ export function CreatePostModal({
     }
     setContent("");
     setPhotos([]);
+    setVideos([]);
     setSelectedTags([]);
     setSelectedFriends([]);
     setError("");
@@ -261,7 +274,8 @@ export function CreatePostModal({
       quality: 0.8,
     });
     if (result.canceled) return;
-    setUploadingPhoto(true);
+    setUploadingAttachment(true);
+    setUploadingKind("photo");
     setError("");
     try {
       const token = await getToken();
@@ -310,7 +324,71 @@ export function CreatePostModal({
         (e as { error?: string }).error ?? "Photo upload failed. Try again."
       );
     } finally {
-      setUploadingPhoto(false);
+      setUploadingAttachment(false);
+      setUploadingKind(null);
+    }
+  };
+
+  const pickVideo = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow access to your library to add videos.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["videos"],
+      allowsMultipleSelection: true,
+    });
+    if (result.canceled) return;
+    setUploadingAttachment(true);
+    setUploadingKind("video");
+    setError("");
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError("Sign in to upload videos.");
+        return;
+      }
+      const cacheDir = FileSystem.cacheDirectory;
+      for (let i = 0; i < result.assets.length; i++) {
+        const asset = result.assets[i];
+        let uriToUpload = asset.uri;
+        if (cacheDir) {
+          try {
+            const extFromUri = asset.uri.toLowerCase().match(/\.(mov|mp4|webm)(\?|$)/i);
+            const ext = extFromUri?.[1] ? `.${extFromUri[1].toLowerCase()}` : ".mp4";
+            const tempUri = `${cacheDir}post-video-${Date.now()}-${i}${ext}`;
+            await FileSystem.copyAsync({ from: uriToUpload, to: tempUri });
+            uriToUpload = tempUri;
+          } catch {
+            // use asset uri if copy fails
+          }
+        }
+        const mime =
+          asset.mimeType ??
+          (uriToUpload.toLowerCase().includes(".mov")
+            ? "video/quicktime"
+            : uriToUpload.toLowerCase().includes(".webm")
+              ? "video/webm"
+              : "video/mp4");
+        const formData = new FormData();
+        formData.append("file", {
+          uri: uriToUpload,
+          type: mime,
+          name: videoUploadName(uriToUpload, asset.fileName ?? null),
+        } as unknown as Blob);
+        formData.append("type", "video");
+        const { url } = await apiUploadFile("/api/upload/post", formData);
+        const fullUrl = toFullUrl(url);
+        setVideos((v) => (v.includes(fullUrl) ? v : [...v, fullUrl]));
+      }
+    } catch (e) {
+      setError(
+        (e as { error?: string }).error ?? "Video upload failed. Try a shorter clip or MP4/MOV."
+      );
+    } finally {
+      setUploadingAttachment(false);
+      setUploadingKind(null);
     }
   };
 
@@ -318,10 +396,14 @@ export function CreatePostModal({
     setPhotos((p) => p.filter((_, idx) => idx !== i));
   };
 
+  const removeVideo = (i: number) => {
+    setVideos((v) => v.filter((_, idx) => idx !== i));
+  };
+
   const handleSubmit = async () => {
     setError("");
-    if (!content.trim() && photos.length === 0) {
-      setError("Add some text or photos to post.");
+    if (!content.trim() && photos.length === 0 && videos.length === 0) {
+      setError("Add some text, photos, or a video to post.");
       return;
     }
     setSubmitting(true);
@@ -330,6 +412,7 @@ export function CreatePostModal({
         await updatePost(editingPost.id, {
           content: content.trim() || null,
           photos,
+          videos,
           tags: selectedTags,
           taggedMemberIds: selectedFriends.map((f) => f.id),
         });
@@ -337,6 +420,7 @@ export function CreatePostModal({
         await createPost({
           content: content.trim() || null,
           photos: photos.length ? photos : undefined,
+          videos: videos.length ? videos : undefined,
           tags: selectedTags.length ? selectedTags : undefined,
           taggedMemberIds: selectedFriends.length ? selectedFriends.map((f) => f.id) : undefined,
           ...(selectedBusiness
@@ -361,6 +445,7 @@ export function CreatePostModal({
   const resetForm = () => {
     setContent("");
     setPhotos([]);
+    setVideos([]);
     setSelectedTags([]);
     setSelectedFriends([]);
     setSelectedBusiness(null);
@@ -444,13 +529,13 @@ export function CreatePostModal({
             disabled={
               submitting ||
               composePhase === "checking" ||
-              (!content.trim() && photos.length === 0)
+              (!content.trim() && photos.length === 0 && videos.length === 0)
             }
             style={({ pressed }) => [
               styles.submitBtn,
               (submitting ||
                 composePhase === "checking" ||
-                (!content.trim() && photos.length === 0)) &&
+                (!content.trim() && photos.length === 0 && videos.length === 0)) &&
                 styles.submitBtnDisabled,
               pressed && styles.pressed,
             ]}
@@ -538,18 +623,36 @@ export function CreatePostModal({
             </View>
           )}
 
-          {photos.length > 0 && (
+          {(photos.length > 0 || videos.length > 0) && (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               style={styles.photosRow}
             >
               {photos.map((uri, i) => (
-                <View key={uri} style={styles.photoWrap}>
+                <View key={`p-${uri}-${i}`} style={styles.photoWrap}>
                   <ScaledImageFit uri={uri} maxWidth={100} maxHeight={100} style={styles.photoFit} />
                   <Pressable
                     style={styles.removePhoto}
                     onPress={() => removePhoto(i)}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.removePhotoText}>×</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {videos.map((uri, i) => (
+                <View key={`v-${uri}-${i}`} style={styles.photoWrap}>
+                  <Video
+                    source={{ uri }}
+                    style={styles.videoPreview}
+                    useNativeControls={false}
+                    resizeMode={ResizeMode.COVER}
+                    isMuted
+                  />
+                  <Pressable
+                    style={styles.removePhoto}
+                    onPress={() => removeVideo(i)}
                     hitSlop={8}
                   >
                     <Text style={styles.removePhotoText}>×</Text>
@@ -565,17 +668,36 @@ export function CreatePostModal({
               style={({ pressed }) => [
                 styles.actionBtn,
                 pressed && styles.pressed,
-                uploadingPhoto && styles.actionBtnDisabled,
+                uploadingAttachment && styles.actionBtnDisabled,
               ]}
               onPress={pickImage}
-              disabled={uploadingPhoto}
+              disabled={uploadingAttachment}
             >
-              {uploadingPhoto ? (
+              {uploadingAttachment && uploadingKind === "photo" ? (
                 <ActivityIndicator size="small" color={theme.colors.primary} />
               ) : (
                 <>
                   <Ionicons name="image" size={18} color={theme.colors.primary} />
                   <Text style={styles.actionBtnText}>Photo</Text>
+                </>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.actionBtn,
+                pressed && styles.pressed,
+                uploadingAttachment && styles.actionBtnDisabled,
+              ]}
+              onPress={pickVideo}
+              disabled={uploadingAttachment}
+            >
+              {uploadingAttachment && uploadingKind === "video" ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <>
+                  <Ionicons name="videocam" size={18} color={theme.colors.primary} />
+                  <Text style={styles.actionBtnText}>Video</Text>
                 </>
               )}
             </Pressable>
@@ -904,6 +1026,12 @@ const styles = StyleSheet.create({
   photoFit: {
     borderRadius: 8,
     overflow: "hidden",
+  },
+  videoPreview: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: "#111",
   },
   removePhoto: {
     position: "absolute",

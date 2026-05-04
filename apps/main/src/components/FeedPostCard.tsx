@@ -7,6 +7,34 @@ import { useLockBodyScroll } from "@/lib/scroll-lock";
 
 const TRUNCATE_LENGTH = 200;
 
+/** NWC-style leaf for post likes (outline stroke). */
+function LeafLikeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden
+    >
+      <path
+        d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4 19 2c1 2 2 4.2 2 6.5 0 5.7-4.5 10.3-10.1 11.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M2 21c0-3 1.5-5.5 4-7 3-2 6.5-3 10-3"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 type SourcePostAuthor = { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
 type SourceBlog = {
   id: string;
@@ -612,8 +640,11 @@ export function FeedPostCard({
       <div className="border-t flex divide-x">
         {readOnlyInteractions ? (
           <>
-            <span className="flex-1 py-2 text-sm font-medium text-gray-500 text-center">
-              {post.likeCount} like{post.likeCount === 1 ? "" : "s"}
+            <span className="flex-1 py-2 text-sm font-medium text-gray-500 text-center inline-flex items-center justify-center gap-1.5">
+              <LeafLikeIcon className="w-5 h-5 shrink-0 text-gray-400" />
+              <span>
+                {post.likeCount} like{post.likeCount === 1 ? "" : "s"}
+              </span>
             </span>
             <button
               type="button"
@@ -629,10 +660,20 @@ export function FeedPostCard({
             <button
               type="button"
               onClick={() => onLike(post.id)}
-              className={`flex-1 py-2 text-sm font-medium ${post.liked ? "" : "text-gray-600 hover:bg-gray-50"}`}
+              className={`flex-1 py-2 text-sm font-medium inline-flex items-center justify-center gap-1.5 ${
+                post.liked ? "" : "text-gray-600 hover:bg-gray-50"
+              }`}
               style={post.liked ? { color: "var(--color-primary)" } : undefined}
+              aria-label={
+                post.liked
+                  ? `Unlike post${post.likeCount > 0 ? `, ${post.likeCount} likes` : ""}`
+                  : `Like post${post.likeCount > 0 ? `, ${post.likeCount} likes` : ""}`
+              }
             >
-              Like {post.likeCount > 0 && `(${post.likeCount})`}
+              <LeafLikeIcon className="w-5 h-5 shrink-0" />
+              {post.likeCount > 0 ? (
+                <span className="tabular-nums">{post.likeCount}</span>
+              ) : null}
             </button>
             <button
               type="button"

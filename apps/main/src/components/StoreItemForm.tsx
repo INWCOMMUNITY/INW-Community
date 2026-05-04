@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
@@ -122,8 +122,11 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
   const [acceptOffers, setAcceptOffers] = useState(
     existing?.acceptOffers ?? true
   );
-  const [minOfferDollars, setMinOfferDollars] = useState(
-    existing?.minOfferCents != null ? (existing.minOfferCents / 100).toFixed(2) : ""
+  /** Whole dollars, 0 = no minimum (accept any offer). Max follows list price when set. */
+  const [minOfferSliderDollars, setMinOfferSliderDollars] = useState(() =>
+    existing?.minOfferCents != null && existing.minOfferCents > 0
+      ? Math.round(existing.minOfferCents / 100)
+      : 0
   );
   const [acceptCashForPickupDelivery, setAcceptCashForPickupDelivery] = useState(true);
   const [offerShipping, setOfferShipping] = useState(true);
@@ -178,6 +181,17 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
   }, [resaleOnly, existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms]);
 
   useLockBodyScroll(showSuccessModal || listingBadgePopupIndex >= 0);
+
+  const minOfferSliderMax = useMemo(() => {
+    const raw = priceDollars.replace(/,/g, "").trim();
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n) || n <= 0) return 500;
+    return Math.min(5000, Math.max(1, Math.ceil(n)));
+  }, [priceDollars]);
+
+  useEffect(() => {
+    setMinOfferSliderDollars((v) => Math.min(v, minOfferSliderMax));
+  }, [minOfferSliderMax]);
 
   const activeListingBadge =
     listingBadgePopupIndex >= 0 && listingBadgePopupIndex < listingEarnedBadges.length
@@ -364,9 +378,10 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
           ? {
               acceptOffers,
               minOfferCents: (() => {
-                if (!acceptOffers || !minOfferDollars.trim()) return null;
-                const cents = Math.round(parseFloat(minOfferDollars) * 100);
-                return Number.isInteger(cents) && cents >= 0 ? cents : null;
+                if (!acceptOffers || minOfferSliderDollars <= 0) return null;
+                const capped = Math.min(minOfferSliderDollars, minOfferSliderMax);
+                const cents = capped * 100;
+                return cents >= 0 ? cents : null;
               })(),
             }
           : {}),
@@ -863,21 +878,39 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
           </div>
           {acceptOffers && (
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Automatically decline offers less than ($)
+              <label className="block text-sm font-medium mb-1" htmlFor="store-min-offer-range">
+                Automatically decline offers less than
               </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={minOfferDollars}
-                onChange={(e) => setMinOfferDollars(e.target.value)}
-                className="w-full border rounded px-3 py-2 max-w-xs"
-                placeholder="e.g. 10.00"
-              />
-              <p className="text-xs text-gray-500 mt-0.5">
-                Leave blank to accept any offer amount.
-              </p>
+              <div className="w-full max-w-xs space-y-2 pt-1">
+                <input
+                  id="store-min-offer-range"
+                  type="range"
+                  min={0}
+                  max={minOfferSliderMax}
+                  step={1}
+                  value={Math.min(minOfferSliderDollars, minOfferSliderMax)}
+                  onChange={(e) => setMinOfferSliderDollars(Number(e.target.value))}
+                  className="store-min-offer-range w-full"
+                  style={
+                    {
+                      ["--range-pct" as string]: `${
+                        minOfferSliderMax > 0
+                          ? (Math.min(minOfferSliderDollars, minOfferSliderMax) / minOfferSliderMax) * 100
+                          : 0
+                      }%`,
+                    } as CSSProperties
+                  }
+                />
+                <p className="text-sm font-semibold text-gray-900">
+                  {minOfferSliderDollars <= 0
+                    ? "$0 — accept any offer"
+                    : `Minimum offer: $${Math.min(minOfferSliderDollars, minOfferSliderMax).toFixed(2)}`}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Slide to set a floor, or leave at $0 to accept any amount. Upper end matches your list price
+                  (or up to $500 until a price is set).
+                </p>
+              </div>
             </div>
           )}
           <div>

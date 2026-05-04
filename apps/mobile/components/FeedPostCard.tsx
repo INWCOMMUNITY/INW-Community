@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
 import { ScaledImageFit } from "@/components/ScaledImageFit";
+import { Video, ResizeMode } from "expo-av";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -94,7 +95,11 @@ export function FeedPostCard({
       : Math.min(Math.round(windowWidth * 1.38), maxCarouselHeightCap);
   /** Tallest scaled photo height for this post only (carousel pages share this height). */
   const [perPostCarouselH, setPerPostCarouselH] = useState<number | null>(null);
-  const photosSig = post.photos?.join("\u0001") ?? "";
+  const feedMedia = [
+    ...(post.photos ?? []).map((url) => ({ url, isVideo: false as const })),
+    ...(post.videos ?? []).map((url) => ({ url, isVideo: true as const })),
+  ];
+  const mediaSig = feedMedia.map((m) => `${m.isVideo ? "v" : "p"}:${m.url}`).join("\u0001");
   const carouselDisplayH =
     perPostCarouselH != null ? perPostCarouselH : placeholderCarouselH;
 
@@ -114,37 +119,41 @@ export function FeedPostCard({
   }, [post.id]);
 
   useEffect(() => {
-    if (slideW <= 0 || !post.photos?.length) {
+    if (slideW <= 0 || feedMedia.length === 0) {
       setPerPostCarouselH(null);
       return;
     }
     setPerPostCarouselH(null);
     let cancelled = false;
-    const uris = post.photos.map((u) => resolveUri(u));
 
     void Promise.all(
-      uris.map(
-        (uri) =>
-          new Promise<number>((resolve) => {
-            Image.getSize(
-              uri,
-              (nw, nh) => {
-                if (nw <= 0 || nh <= 0) {
-                  resolve(
-                    Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap)
-                  );
-                  return;
-                }
-                const scale = Math.min(slideW / nw, maxCarouselHeightCap / nh);
-                resolve(Math.max(1, Math.round(nh * scale)));
-              },
-              () =>
+      feedMedia.map((item) => {
+        if (item.isVideo) {
+          return Promise.resolve(
+            Math.min(Math.max(1, Math.round((slideW * 9) / 16)), maxCarouselHeightCap)
+          );
+        }
+        const uri = resolveUri(item.url);
+        return new Promise<number>((resolve) => {
+          Image.getSize(
+            uri,
+            (nw, nh) => {
+              if (nw <= 0 || nh <= 0) {
                 resolve(
                   Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap)
-                )
-            );
-          })
-      )
+                );
+                return;
+              }
+              const scale = Math.min(slideW / nw, maxCarouselHeightCap / nh);
+              resolve(Math.max(1, Math.round(nh * scale)));
+            },
+            () =>
+              resolve(
+                Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap)
+              )
+          );
+        });
+      })
     ).then((heights) => {
       if (cancelled) return;
       const H = Math.min(Math.max(...heights), maxCarouselHeightCap);
@@ -154,7 +163,7 @@ export function FeedPostCard({
     return () => {
       cancelled = true;
     };
-  }, [slideW, post.id, photosSig, maxCarouselHeightCap]);
+  }, [slideW, post.id, mediaSig, maxCarouselHeightCap]);
 
   const blog = post.type === "shared_blog" ? post.sourceBlog : null;
 
@@ -530,6 +539,17 @@ export function FeedPostCard({
               : nestedFallbackW;
           const nestedSlideH = Math.round(Math.min(nestedSlideW * 0.75, 320));
 
+          const nestedMedia = [
+            ...(Array.isArray(sourcePost.photos) ? sourcePost.photos : []).map((url: string) => ({
+              url,
+              isVideo: false as const,
+            })),
+            ...(Array.isArray(sourcePost.videos) ? sourcePost.videos : []).map((url: string) => ({
+              url,
+              isVideo: true as const,
+            })),
+          ];
+
           return (
             <View style={[styles.sourceCard, { backgroundColor: "#f7f7f7" }]}>
               <Pressable
@@ -666,7 +686,7 @@ export function FeedPostCard({
                 ) : null}
               </Pressable>
 
-              {(sourcePost.photos?.length ?? 0) > 0 ? (
+              {nestedMedia.length > 0 ? (
                 <View
                   style={{ width: "100%" }}
                   onLayout={(e) => {
@@ -685,27 +705,39 @@ export function FeedPostCard({
                       }}
                       style={[styles.photoCarousel, { width: nestedSlideW }]}
                     >
-                      {sourcePost.photos.map((url: string, i: number) => (
-                        <Pressable
-                          key={i}
-                          onPress={() => originalId && openOriginalPost(originalId)}
-                          accessibilityRole="button"
-                          accessibilityLabel="View original post"
-                        >
-                          <Image
-                            source={{ uri: resolveUri(url) }}
-                            style={[
-                              styles.photoCarouselImage,
-                              { width: nestedSlideW, height: nestedSlideH },
-                            ]}
-                            resizeMode="cover"
-                          />
-                        </Pressable>
-                      ))}
+                      {nestedMedia.map((item, i) =>
+                        item.isVideo ? (
+                          <View key={`${item.url}-${i}`} style={{ width: nestedSlideW }}>
+                            <Video
+                              source={{ uri: resolveUri(item.url) }}
+                              style={{ width: nestedSlideW, height: nestedSlideH }}
+                              useNativeControls
+                              resizeMode={ResizeMode.COVER}
+                              isLooping
+                            />
+                          </View>
+                        ) : (
+                          <Pressable
+                            key={`${item.url}-${i}`}
+                            onPress={() => originalId && openOriginalPost(originalId)}
+                            accessibilityRole="button"
+                            accessibilityLabel="View original post"
+                          >
+                            <Image
+                              source={{ uri: resolveUri(item.url) }}
+                              style={[
+                                styles.photoCarouselImage,
+                                { width: nestedSlideW, height: nestedSlideH },
+                              ]}
+                              resizeMode="cover"
+                            />
+                          </Pressable>
+                        )
+                      )}
                     </ScrollView>
-                    {sourcePost.photos.length > 1 ? (
+                    {nestedMedia.length > 1 ? (
                       <View style={styles.carouselDots}>
-                        {sourcePost.photos.map((_: string, i: number) => (
+                        {nestedMedia.map((_, i) => (
                           <View
                             key={i}
                             style={[
@@ -758,7 +790,7 @@ export function FeedPostCard({
         </View>
       ) : null}
 
-      {(post.photos?.length ?? 0) > 0 ? (
+      {feedMedia.length > 0 ? (
         <View
           style={styles.photoCarouselWrap}
           onLayout={(e) => {
@@ -777,22 +809,41 @@ export function FeedPostCard({
               }}
               style={[styles.photoCarousel, { width: slideW }]}
             >
-              {post.photos!.map((url, i) => (
-                <View key={`${url}-${i}`} style={{ width: slideW }}>
-                  <ScaledImageFit
-                    uri={resolveUri(url)}
-                    maxWidth={slideW}
-                    maxHeight={carouselDisplayH}
-                  />
+              {feedMedia.map((item, i) => (
+                <View key={`${item.url}-${i}`} style={{ width: slideW }}>
+                  {item.isVideo ? (
+                    <View
+                      style={{
+                        width: slideW,
+                        height: carouselDisplayH,
+                        backgroundColor: "#111",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Video
+                        source={{ uri: resolveUri(item.url) }}
+                        style={{ width: slideW, height: carouselDisplayH }}
+                        useNativeControls
+                        resizeMode={ResizeMode.CONTAIN}
+                        isLooping
+                      />
+                    </View>
+                  ) : (
+                    <ScaledImageFit
+                      uri={resolveUri(item.url)}
+                      maxWidth={slideW}
+                      maxHeight={carouselDisplayH}
+                    />
+                  )}
                 </View>
               ))}
             </ScrollView>
           ) : (
             <View style={{ height: placeholderCarouselH, backgroundColor: "#eee" }} />
           )}
-          {post.photos!.length > 1 && slideW > 0 ? (
+          {feedMedia.length > 1 && slideW > 0 ? (
             <View style={styles.carouselDots}>
-              {post.photos!.map((_, i) => (
+              {feedMedia.map((_, i) => (
                 <View
                   key={i}
                   style={[
@@ -804,32 +855,27 @@ export function FeedPostCard({
             </View>
           ) : null}
         </View>
-      ) : (post.videos?.length ?? 0) > 0 ? (
-        <View style={styles.mediaGrid}>
-          {post.videos!.slice(0, 4).map((url, i) => (
-            <Image
-              key={i}
-              source={{ uri: resolveUri(url) }}
-              style={styles.mediaImage}
-              resizeMode="cover"
-            />
-          ))}
-        </View>
       ) : null}
 
       <View style={styles.actions}>
         <Pressable
           style={styles.actionBtn}
           onPress={() => onLike(post.id)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            post.liked
+              ? `Unlike${post.likeCount > 0 ? `, ${post.likeCount} likes` : ""}`
+              : `Like${post.likeCount > 0 ? `, ${post.likeCount} likes` : ""}`
+          }
         >
-          <Text
-            style={[
-              styles.actionText,
-              post.liked && styles.actionTextActive,
-            ]}
-          >
-            Like {post.likeCount > 0 ? `(${post.likeCount})` : ""}
-          </Text>
+          <View style={styles.actionRow}>
+            <Ionicons name="leaf" size={20} color={post.liked ? theme.colors.primary : "#666"} />
+            {post.likeCount > 0 ? (
+              <Text style={[styles.actionCount, post.liked && styles.actionTextActive]}>
+                {post.likeCount}
+              </Text>
+            ) : null}
+          </View>
         </Pressable>
         <Pressable
           style={styles.actionBtn}
@@ -1044,30 +1090,6 @@ const styles = StyleSheet.create({
     height: 9,
     borderRadius: 4.5,
   },
-  mediaGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 4,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-  },
-  nestedMediaGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 4,
-    marginTop: 10,
-  },
-  nestedMediaImage: {
-    width: (width - CARD_PADDING * 2 - 24 - 12) / 2,
-    height: (width - CARD_PADDING * 2 - 24 - 12) / 2,
-    borderRadius: 6,
-    backgroundColor: "#eee",
-  },
-  mediaImage: {
-    width: (width - CARD_PADDING * 2 - 24 - 12) / 2,
-    height: (width - CARD_PADDING * 2 - 24 - 12) / 2,
-    borderRadius: 6,
-  },
   actions: {
     flexDirection: "row",
     borderTopWidth: 1,
@@ -1079,6 +1101,17 @@ const styles = StyleSheet.create({
   actionBtn: {
     paddingVertical: 4,
     paddingHorizontal: 8,
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  actionCount: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#666",
   },
   actionText: {
     fontSize: 14,
