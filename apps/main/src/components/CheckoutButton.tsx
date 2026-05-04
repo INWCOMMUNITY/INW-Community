@@ -9,6 +9,8 @@ interface CheckoutButtonProps {
   planId: string;
   /** Billing interval (default: monthly) */
   interval?: BillingInterval;
+  /** Resident monthly: dollar amount 1–15 (maps to STRIPE_PRICE_SUBSCRIBE_TIER_XX on the server). */
+  subscribeTierDollars?: number;
   children?: React.ReactNode;
   className?: string;
 }
@@ -16,6 +18,7 @@ interface CheckoutButtonProps {
 export function CheckoutButton({
   planId,
   interval = "monthly",
+  subscribeTierDollars,
   children = "Subscribe",
   className = "btn",
 }: CheckoutButtonProps) {
@@ -26,17 +29,28 @@ export function CheckoutButton({
   async function handleClick() {
     if (status !== "authenticated" || !session) {
       window.location.href = `/login?callbackUrl=${encodeURIComponent(
-        typeof window !== "undefined" ? window.location.pathname + window.location.search : "/support-nwc"
+        typeof window !== "undefined"
+          ? window.location.pathname + window.location.search + window.location.hash
+          : "/support-nwc"
       )}`;
       return;
     }
     setError(null);
     setLoading(true);
     try {
+      const payload: Record<string, unknown> = { planId, interval };
+      if (
+        planId === "subscribe" &&
+        interval === "monthly" &&
+        typeof subscribeTierDollars === "number" &&
+        Number.isInteger(subscribeTierDollars)
+      ) {
+        payload.subscribeTierDollars = subscribeTierDollars;
+      }
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId, interval }),
+        body: JSON.stringify(payload),
         credentials: "same-origin",
       });
       const data = await res.json().catch(() => ({}));
@@ -46,7 +60,9 @@ export function CheckoutButton({
       }
       if (res.status === 401) {
         window.location.href = `/login?callbackUrl=${encodeURIComponent(
-          typeof window !== "undefined" ? window.location.pathname : "/support-nwc"
+          typeof window !== "undefined"
+            ? window.location.pathname + window.location.search + window.location.hash
+            : "/support-nwc"
         )}`;
         return;
       }

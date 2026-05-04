@@ -93,10 +93,11 @@ STRIPE_PRICE_SUBSCRIBE="price_xxxxxxxxxxxx"
 STRIPE_PRICE_SPONSOR="price_xxxxxxxxxxxx"
 STRIPE_PRICE_SELLER="price_xxxxxxxxxxxx"
 
-# Optional – yearly prices (enables Monthly/Yearly toggle on support page)
+# Optional – resident yearly (omit if residents are monthly-only)
 # STRIPE_PRICE_SUBSCRIBE_YEARLY="price_xxxxxxxxxxxx"
-# STRIPE_PRICE_SPONSOR_YEARLY="price_xxxxxxxxxxxx"
-# STRIPE_PRICE_SELLER_YEARLY="price_xxxxxxxxxxxx"
+# Business & Seller “yearly” checkout uses Summer Startup annual prices:
+# STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY="price_xxxxxxxxxxxx"
+# STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY="price_xxxxxxxxxxxx"
 
 # From Step 2 – webhook signing secret (platform events, e.g. checkout.session.completed)
 STRIPE_WEBHOOK_SECRET="whsec_xxxxxxxxxxxx"
@@ -234,7 +235,7 @@ The native Stripe Payment Sheet (`@stripe/stripe-react-native`) does not work in
 1. **Sign in first**: The Subscribe/Sponsor/Seller buttons require you to be signed in. If not signed in, you'll be redirected to login. After signing in, you'll return to support-nwc—click the plan button again to go to checkout.
 2. **Environment variables**: In Vercel (or your host), ensure all Stripe variables are set:
    - `STRIPE_SECRET_KEY`, `STRIPE_PRICE_SUBSCRIBE`, `STRIPE_PRICE_SPONSOR`, `STRIPE_PRICE_SELLER`
-   - Yearly plans: `STRIPE_PRICE_SUBSCRIBE_YEARLY`, etc. if you use yearly billing
+   - Annual (Summer Startup): `STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY`, `STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY`; optional resident yearly: `STRIPE_PRICE_SUBSCRIBE_YEARLY`
 3. **NEXTAUTH_URL**: Must exactly match your live site URL (e.g. `https://inwcommunity.com`). No trailing slash. If using `www`, include it. Mismatch can cause session/cookie issues.
 4. **Error message**: If the button shows an error (red text), that indicates the API response—e.g. "Invalid plan or Stripe not configured" means price IDs are missing.
 

@@ -9,6 +9,13 @@ import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import type { EarnedBadge } from "@/lib/badge-award";
+import {
+  describeStripeSubscriptionConfigError,
+  getStripeSubscriptionPlanPriceIds,
+  resolveStripeSubscriptionPriceId,
+  resolveSubscribeMonthlyPriceForTierSelection,
+} from "@/lib/stripe-subscription-plan-env";
+import { resolveFirstActiveYearlySponsorSellerPrice } from "@/lib/stripe-active-yearly-price";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -16,25 +23,43 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
 
 type BillingInterval = "monthly" | "yearly";
 
-function trimPriceId(raw: string | undefined): string {
-  return typeof raw === "string" ? raw.trim() : "";
+function jsonCheckout400(error: string, logLabel: string, fields?: Record<string, unknown>) {
+  console.warn(`[stripe/checkout] 400 ${logLabel}`, { ...fields, responseErrorPreview: error.slice(0, 400) });
+  return NextResponse.json({ error, code: logLabel }, { status: 400 });
 }
 
-function getPlans(): Record<string, { priceId: string; priceIdYearly?: string }> {
-  return {
-    subscribe: {
-      priceId: trimPriceId(process.env.STRIPE_PRICE_SUBSCRIBE),
-      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY),
-    },
-    sponsor: {
-      priceId: trimPriceId(process.env.STRIPE_PRICE_SPONSOR),
-      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SPONSOR_YEARLY),
-    },
-    seller: {
-      priceId: trimPriceId(process.env.STRIPE_PRICE_SELLER),
-      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SELLER_YEARLY),
-    },
-  };
+function stripeThrownMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "object" && err !== null && "message" in err) return String((err as { message: unknown }).message);
+  return String(err);
+}
+
+/** Hosted Checkout: optional Tax; retry without tax when Stripe rejects automatic_tax (common if Tax isn’t fully set up). */
+async function createSubscriptionCheckoutSession(
+  stripe: Stripe,
+  params: Stripe.Checkout.SessionCreateParams,
+  branding: ReturnType<typeof getStripeCheckoutBranding>
+): Promise<Stripe.Checkout.Session> {
+  const applyBranding = (p: Stripe.Checkout.SessionCreateParams) =>
+    ({ ...p, ...(branding ? { branding_settings: branding } : {}) } as Stripe.Checkout.SessionCreateParams);
+
+  const taxExplicitlyOff =
+    process.env.STRIPE_CHECKOUT_AUTOMATIC_TAX === "false" || process.env.STRIPE_CHECKOUT_AUTOMATIC_TAX === "0";
+  const baseParams: Stripe.Checkout.SessionCreateParams = taxExplicitlyOff
+    ? { ...params, automatic_tax: { enabled: false } }
+    : params;
+
+  try {
+    return await stripe.checkout.sessions.create(applyBranding(baseParams));
+  } catch (e) {
+    const msg = stripeThrownMessage(e);
+    if (!taxExplicitlyOff && baseParams.automatic_tax?.enabled === true && /tax/i.test(msg)) {
+      console.warn("[stripe/checkout] sessions.create failed (tax); retrying without automatic_tax:", msg.slice(0, 500));
+      const noTax = { ...baseParams, automatic_tax: { enabled: false } };
+      return await stripe.checkout.sessions.create(applyBranding(noTax));
+    }
+    throw e;
+  }
 }
 
 function isValidEmail(s: string): boolean {
@@ -114,27 +139,57 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!isValidEmail(session.user.email)) {
-    return NextResponse.json(
-      {
-        error:
-          "Your account needs a valid email address to checkout. Please sign in with an account that has a real email, or update your profile email.",
-      },
-      { status: 400 }
+    return jsonCheckout400(
+      "Your account needs a valid email address to checkout. Please sign in with an account that has a real email, or update your profile email.",
+      "invalid_profile_email",
+      { memberId: session.user.id }
     );
   }
   try {
     const body = await req.json();
-    const planId = body.planId as string;
+    const planIdRaw = typeof body.planId === "string" ? body.planId.trim().toLowerCase() : "";
+    if (planIdRaw !== "subscribe" && planIdRaw !== "sponsor" && planIdRaw !== "seller") {
+      return jsonCheckout400(
+        describeStripeSubscriptionConfigError(planIdRaw || "unknown", "monthly"),
+        "invalid_plan_id",
+        { planIdRaw }
+      );
+    }
+    const planId = planIdRaw;
     const interval = (body.interval as BillingInterval) || "monthly";
     const businessData = body.businessData as Record<string, unknown> | undefined;
     const baseUrl = resolveAllowedCheckoutBaseUrl(body.returnBaseUrl as string | undefined);
-    const plans = getPlans();
-    const plan = plans[planId];
-    const priceId = interval === "yearly" && plan?.priceIdYearly ? plan.priceIdYearly : plan?.priceId;
-    if (!priceId) {
-      return NextResponse.json(
-        { error: interval === "yearly" ? "Yearly plan not configured" : "Invalid plan or Stripe not configured" },
-        { status: 400 }
+    const plans = getStripeSubscriptionPlanPriceIds();
+    let priceId = resolveStripeSubscriptionPriceId(plans, planId, interval);
+    if (planId === "subscribe" && interval === "monthly") {
+      const raw = body.subscribeTierDollars ?? body.subscribeTier;
+      if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+        const parsed = typeof raw === "string" ? parseInt(String(raw).trim(), 10) : Number(raw);
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 15) {
+          return jsonCheckout400(
+            "Choose a monthly amount between $1 and $15.",
+            "subscribe_tier_invalid_range",
+            { raw }
+          );
+        }
+        const tierOrSingle = resolveSubscribeMonthlyPriceForTierSelection(parsed);
+        if (!tierOrSingle) {
+          return jsonCheckout400(
+            `No Stripe price is configured for $${parsed}/mo. Add STRIPE_PRICE_SUBSCRIBE_TIER_${String(parsed).padStart(2, "0")} (or TIER_${parsed} for amounts 1–9), or set STRIPE_PRICE_SUBSCRIBE for a single monthly price.`,
+            "subscribe_tier_env_missing",
+            { dollars: parsed }
+          );
+        }
+        priceId = tierOrSingle;
+      }
+    }
+    const yearlySponsorSeller = interval === "yearly" && (planId === "sponsor" || planId === "seller");
+    // Yearly Business/Seller prices come only from Summer (± optional legacy) envs resolved in Stripe next step.
+    if (!priceId && !yearlySponsorSeller) {
+      return jsonCheckout400(
+        describeStripeSubscriptionConfigError(planId, interval),
+        "stripe_price_not_configured",
+        { planId, interval }
       );
     }
 
@@ -147,48 +202,67 @@ export async function POST(req: NextRequest) {
       },
     });
     if (existingSamePlan) {
-      return NextResponse.json(
-        {
-          error:
-            "You already have an active subscription for this plan. To change billing or cancel, go to Inland Northwest Community → Subscriptions.",
-        },
-        { status: 400 }
+      return jsonCheckout400(
+        "You already have an active subscription for this plan. To change billing or cancel, go to Inland Northwest Community → Subscriptions.",
+        "already_subscribed_same_plan",
+        { planId, memberId: session.user.id, subscriptionId: existingSamePlan.id }
       );
     }
 
+    let priceDetails: Stripe.Price;
     try {
-      const priceDetails = await stripe.prices.retrieve(priceId);
-      if (!priceDetails.active) {
-        return NextResponse.json(
-          {
-            error:
-              interval === "yearly"
-                ? "Yearly billing is unavailable: the Stripe price in STRIPE_PRICE_*_YEARLY is archived. Try monthly, or update that env var to an active yearly price."
-                : "This plan is unavailable: the Stripe price in STRIPE_PRICE_* is archived. Update env vars or re-activate the price in Stripe Dashboard → Products.",
-          },
-          { status: 400 }
-        );
-      }
-      if (priceDetails.type !== "recurring") {
-        return NextResponse.json(
-          { error: "The configured Stripe price is not a recurring subscription price." },
-          { status: 400 }
-        );
+      if (interval === "yearly" && (planId === "sponsor" || planId === "seller")) {
+        const yearly = await resolveFirstActiveYearlySponsorSellerPrice(stripe, planId);
+        if (!yearly.ok) {
+          return jsonCheckout400(yearly.error, "stripe_yearly_no_active_price", {
+            planId,
+            triedPriceIds: yearly.triedPriceIds,
+          });
+        }
+        priceId = yearly.priceId;
+        priceDetails = yearly.price;
+      } else {
+        if (!priceId) {
+          return jsonCheckout400(
+            describeStripeSubscriptionConfigError(planId, interval),
+            "stripe_price_not_configured",
+            { planId, interval }
+          );
+        }
+        priceDetails = await stripe.prices.retrieve(priceId);
+        if (!priceDetails.active) {
+          return jsonCheckout400(
+            interval === "yearly" && planId === "subscribe"
+              ? `Yearly billing is unavailable: this Stripe price is archived (inactive). Set STRIPE_PRICE_SUBSCRIBE_YEARLY to an active recurring yearly price in Stripe, or use monthly billing. Price id: ${priceId}.`
+              : `This plan is unavailable: the Stripe price is archived (inactive). Update the matching STRIPE_PRICE_* env var or re-activate the price in Stripe Dashboard → Products. Price id: ${priceId}.`,
+            "stripe_price_inactive",
+            { planId, interval, priceId }
+          );
+        }
+        if (priceDetails.type !== "recurring") {
+          return jsonCheckout400(
+            "The configured Stripe price is not a recurring subscription price.",
+            "stripe_price_not_recurring",
+            { planId, interval, priceId }
+          );
+        }
       }
     } catch (retrieveErr) {
       console.error("[stripe/checkout] price retrieve:", priceId, retrieveErr);
-      return NextResponse.json(
-        {
-          error:
-            "Could not load this plan’s Stripe price. Confirm STRIPE_PRICE_* env vars match active price IDs in Stripe Dashboard.",
-        },
-        { status: 400 }
+      return jsonCheckout400(
+        "Could not load this plan’s Stripe price. Confirm STRIPE_PRICE_* env vars match active price IDs in Stripe Dashboard.",
+        "stripe_price_retrieve_failed",
+        { planId, interval, priceId }
       );
     }
+
+    console.info("[stripe/checkout]", { planId, interval, priceId });
 
     const metadata: Record<string, string> = {
       memberId: session.user.id,
       planId,
+      stripePriceId: priceId,
+      billingInterval: interval,
     };
     let checkoutEarnedBadges: EarnedBadge[] = [];
     if (
@@ -218,17 +292,18 @@ export async function POST(req: NextRequest) {
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/my-community?success=1`,
       cancel_url: `${baseUrl}/support-nwc?canceled=1`,
-      automatic_tax: { enabled: true },
+      automatic_tax: {
+        enabled:
+          process.env.STRIPE_CHECKOUT_AUTOMATIC_TAX !== "false" &&
+          process.env.STRIPE_CHECKOUT_AUTOMATIC_TAX !== "0",
+      },
       billing_address_collection: "required",
       metadata,
       // Session metadata alone is not copied onto the Subscription; invoice/webhook fallbacks need this.
       subscription_data: { metadata: { ...metadata } },
     };
     const branding = getStripeCheckoutBranding();
-    const createParams = { ...params, ...(branding && { branding_settings: branding }) };
-    const checkout = await stripe.checkout.sessions.create(
-      createParams as Stripe.Checkout.SessionCreateParams
-    );
+    const checkout = await createSubscriptionCheckoutSession(stripe, params, branding);
     if (!checkout.url) {
       console.error("[stripe/checkout] No URL in checkout session:", checkout.id);
       return NextResponse.json({ error: "Checkout could not be created" }, { status: 500 });
@@ -240,21 +315,35 @@ export async function POST(req: NextRequest) {
       e instanceof Error ? e.message : typeof e === "object" && e !== null && "message" in e ? String((e as { message: unknown }).message) : "Checkout failed. Please try again.";
     const m = msg || "";
     if (/inactive/i.test(m) && /price/i.test(m)) {
+      return jsonCheckout400(
+        "The Stripe price for this plan is archived (inactive). Point STRIPE_PRICE_* (or *_YEARLY) at an active price in Stripe Dashboard, or re-activate the price on the product.",
+        "stripe_checkout_inactive_price",
+        { message: m.slice(0, 200) }
+      );
+    }
+    const errObj = typeof e === "object" && e !== null ? (e as { statusCode?: number; type?: string }) : {};
+    const rawStatus = typeof errObj.statusCode === "number" ? errObj.statusCode : undefined;
+    const stripeType = errObj.type ?? "";
+    const isStripeInvalidRequest = /StripeInvalidRequestError/i.test(stripeType);
+    if (rawStatus === 400 || isStripeInvalidRequest) {
+      console.warn("[stripe/checkout] stripe client error (returning 400 to client)", {
+        message: m.slice(0, 500),
+        type: stripeType,
+        statusCode: rawStatus,
+      });
       return NextResponse.json(
         {
           error:
-            "The Stripe price for this plan is archived (inactive). Point STRIPE_PRICE_* (or *_YEARLY) at an active price in Stripe Dashboard, or re-activate the price on the product.",
+            m ||
+            "Checkout was rejected by Stripe. If this mentions tax, set STRIPE_CHECKOUT_AUTOMATIC_TAX=false on the server or finish Stripe Tax setup.",
+          code: "stripe_checkout_session_failed",
         },
         { status: 400 }
       );
     }
-    const statusCode =
-      typeof e === "object" && e !== null && "statusCode" in e && typeof (e as { statusCode: unknown }).statusCode === "number"
-        ? (e as { statusCode: number }).statusCode
-        : 500;
     return NextResponse.json(
-      { error: m || "Checkout failed. Please try again." },
-      { status: statusCode === 400 ? 400 : 500 }
+      { error: m || "Checkout failed. Please try again.", code: "stripe_checkout_server_error" },
+      { status: 500 }
     );
   }
 }

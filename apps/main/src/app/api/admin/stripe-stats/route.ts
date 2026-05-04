@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { requireAdmin } from "@/lib/admin-auth";
+import { collectSubscribeStripePriceIds } from "@/lib/stripe-subscription-plan-env";
 
 const stripe =
   process.env.STRIPE_SECRET_KEY
@@ -9,14 +10,19 @@ const stripe =
       })
     : null;
 
-const PRICE_IDS = [
-  process.env.STRIPE_PRICE_SUBSCRIBE,
-  process.env.STRIPE_PRICE_SPONSOR,
-  process.env.STRIPE_PRICE_SELLER,
-  process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY,
-  process.env.STRIPE_PRICE_SPONSOR_YEARLY,
-  process.env.STRIPE_PRICE_SELLER_YEARLY,
-].filter(Boolean) as string[];
+function subscriptionPriceIdsForStats(): string[] {
+  return [
+    ...collectSubscribeStripePriceIds(),
+    process.env.STRIPE_PRICE_SPONSOR?.trim(),
+    process.env.STRIPE_PRICE_SELLER?.trim(),
+    process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY?.trim(),
+    process.env.STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY?.trim(),
+    process.env.STRIPE_PRICE_SPONSOR_SUMMER_STARTUP_YEARLY?.trim(),
+    process.env.STRIPE_PRICE_SPONSOR_YEARLY?.trim(),
+    process.env.STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY?.trim(),
+    process.env.STRIPE_PRICE_SELLER_YEARLY?.trim(),
+  ].filter((x): x is string => Boolean(x));
+}
 
 function startOfMonth(d: Date) {
   return Math.floor(new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000);
@@ -29,6 +35,7 @@ function endOfMonth(d: Date) {
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const PRICE_IDS = subscriptionPriceIdsForStats();
   if (!stripe || PRICE_IDS.length === 0) {
     return NextResponse.json({
       subscriptionRevenueCents: 0,

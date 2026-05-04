@@ -4,7 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { WIX_IMG } from "@/lib/wix-media";
 import { CheckoutButton } from "@/components/CheckoutButton";
-import { formatSubscriptionPriceForInterval } from "@/lib/subscription-plan-prices";
+import { ResidentSubscribeTierPicker } from "@/components/ResidentSubscribeTierPicker";
+import {
+  defaultYearlyToggleLabel,
+  formatSubscriptionPriceForInterval,
+  planHasYearlyBilling,
+} from "@/lib/subscription-plan-prices";
 
 interface InfoPageSignupBannerProps {
   /** Wix media path for wall-to-wall background (use with GALLERY_CTA_BACKGROUND). */
@@ -17,6 +22,8 @@ interface InfoPageSignupBannerProps {
   buttonHref?: string;
   /** e.g. "Sign Up Now" */
   buttonLabel: string;
+  /** Label for the annual option when the plan has yearly billing (e.g. Summer Startup). */
+  yearlyButtonLabel?: string;
 }
 
 export function InfoPageSignupBanner({
@@ -25,9 +32,13 @@ export function InfoPageSignupBanner({
   planId,
   buttonHref,
   buttonLabel,
+  yearlyButtonLabel,
 }: InfoPageSignupBannerProps) {
+  const hasYearly = planId ? planHasYearlyBilling(planId) : false;
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
-  const priceLines = planId ? formatSubscriptionPriceForInterval(planId, interval) : null;
+  const yearlyToggleLabel =
+    yearlyButtonLabel ?? (planId ? defaultYearlyToggleLabel(planId) : "Yearly");
+  const priceLines = planId ? formatSubscriptionPriceForInterval(planId, hasYearly ? interval : "monthly") : null;
 
   return (
     <section
@@ -49,30 +60,32 @@ export function InfoPageSignupBanner({
         </h2>
         {planId ? (
           <div className="flex flex-col items-center gap-4 w-full">
-            <div className="flex justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => setInterval("monthly")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  interval === "monthly"
-                    ? "bg-[var(--color-primary)] text-white"
-                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                }`}
-              >
-                Monthly
-              </button>
-              <button
-                type="button"
-                onClick={() => setInterval("yearly")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  interval === "yearly"
-                    ? "bg-[var(--color-primary)] text-white"
-                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                }`}
-              >
-                Yearly
-              </button>
-            </div>
+            {hasYearly ? (
+              <div className="flex justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setInterval("monthly")}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    interval === "monthly"
+                      ? "bg-[var(--color-primary)] text-white"
+                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                  }`}
+                >
+                  Monthly
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInterval("yearly")}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    interval === "yearly"
+                      ? "bg-[var(--color-primary)] text-white"
+                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                  }`}
+                >
+                  {yearlyToggleLabel}
+                </button>
+              </div>
+            ) : null}
             {priceLines ? (
               <div className="w-full text-center px-1">
                 <p className="text-base font-semibold" style={{ color: "var(--color-heading)" }}>
@@ -83,9 +96,13 @@ export function InfoPageSignupBanner({
                 ) : null}
               </div>
             ) : null}
-            <CheckoutButton planId={planId} interval={interval} className="btn">
-              {buttonLabel}
-            </CheckoutButton>
+            {planId === "subscribe" ? (
+              <ResidentSubscribeTierPicker variant="plain" buttonClassName="btn" />
+            ) : (
+              <CheckoutButton planId={planId} interval={hasYearly ? interval : "monthly"} className="btn">
+                {buttonLabel}
+              </CheckoutButton>
+            )}
           </div>
         ) : (
           <Link href={buttonHref ?? "/support-nwc"} className="btn">

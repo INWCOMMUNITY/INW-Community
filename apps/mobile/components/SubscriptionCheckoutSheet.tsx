@@ -74,6 +74,8 @@ interface SubscriptionCheckoutSheetProps {
   planId: "subscribe" | "sponsor" | "seller";
   businessData?: Record<string, unknown>;
   interval?: "monthly" | "yearly";
+  /** Resident monthly: 1–15 (Stripe tier env on server). */
+  subscribeTierDollars?: number;
   onSuccess: () => void;
   onError?: (message: string) => void;
   refreshMember?: () => Promise<void>;
@@ -85,6 +87,7 @@ export function SubscriptionCheckoutSheet({
   planId,
   businessData,
   interval,
+  subscribeTierDollars,
   onSuccess,
   onError,
   refreshMember,
@@ -124,6 +127,12 @@ export function SubscriptionCheckoutSheet({
         planId,
         interval: interval ?? "monthly",
         businessData: businessData ?? undefined,
+        ...(planId === "subscribe" &&
+        (interval ?? "monthly") === "monthly" &&
+        typeof subscribeTierDollars === "number" &&
+        Number.isInteger(subscribeTierDollars)
+          ? { subscribeTierDollars }
+          : {}),
       });
 
       if (data.completed) {

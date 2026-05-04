@@ -316,11 +316,11 @@ export default function SignupBusinessPage() {
           <div className="flex flex-col items-center gap-4 mb-6">
             <div className="flex flex-col items-center gap-1 mb-2">
               <p className="text-3xl md:text-4xl font-bold text-gray-900 text-center">
-                {interval === "monthly" ? "$25.00" : "$250.00"}
+                {interval === "monthly" ? "$25.00" : "$100.00"}
                 <span className="text-lg font-normal text-gray-600 ml-1">{interval === "monthly" ? "per month" : "per year"}</span>
               </p>
               {interval === "yearly" && (
-                <p className="text-base text-gray-500">$20.83 / month billed annually</p>
+                <p className="text-base text-gray-500">Summer Startup Promo — about $8.33/mo billed annually</p>
               )}
             </div>
             <div className="flex gap-2">
@@ -344,7 +344,7 @@ export default function SignupBusinessPage() {
                     : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                 }`}
               >
-                Yearly ($250)
+                Annual (Summer $100)
               </button>
             </div>
           </div>

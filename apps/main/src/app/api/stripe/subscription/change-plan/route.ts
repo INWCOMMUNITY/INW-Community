@@ -7,6 +7,10 @@ import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 import { syncStripeSubscriptionsForMember } from "@/lib/sync-stripe-subscriptions-for-member";
 import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
 import { nwcPlanRank } from "@/lib/nwc-plan-rank";
+import {
+  getStripeSubscriptionPlanPriceIds,
+  resolveStripeSubscriptionPriceId,
+} from "@/lib/stripe-subscription-plan-env";
 
 export const dynamic = "force-dynamic";
 
@@ -20,23 +24,8 @@ const PLAN_SWITCH_MAX_PER_WINDOW = 2;
 type BillingInterval = "monthly" | "yearly";
 
 function priceIdForPlan(planId: string, interval: BillingInterval): string | null {
-  const plans: Record<string, { priceId: string; priceIdYearly?: string }> = {
-    subscribe: {
-      priceId: process.env.STRIPE_PRICE_SUBSCRIBE ?? "",
-      priceIdYearly: process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY ?? "",
-    },
-    sponsor: {
-      priceId: process.env.STRIPE_PRICE_SPONSOR ?? "",
-      priceIdYearly: process.env.STRIPE_PRICE_SPONSOR_YEARLY ?? "",
-    },
-    seller: {
-      priceId: process.env.STRIPE_PRICE_SELLER ?? "",
-      priceIdYearly: process.env.STRIPE_PRICE_SELLER_YEARLY ?? "",
-    },
-  };
-  const p = plans[planId];
-  if (!p?.priceId) return null;
-  return interval === "yearly" && p.priceIdYearly ? p.priceIdYearly : p.priceId;
+  const plans = getStripeSubscriptionPlanPriceIds();
+  return resolveStripeSubscriptionPriceId(plans, planId, interval);
 }
 
 function isAdminBypass(req: NextRequest): boolean {

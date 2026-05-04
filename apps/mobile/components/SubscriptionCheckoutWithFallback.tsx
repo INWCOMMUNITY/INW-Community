@@ -18,6 +18,7 @@ interface SubscriptionCheckoutWithFallbackProps {
   planId: "subscribe" | "sponsor" | "seller";
   businessData?: Record<string, unknown>;
   interval?: "monthly" | "yearly";
+  subscribeTierDollars?: number;
   onSuccess: () => void;
   onError?: (message: string) => void;
   refreshMember?: () => Promise<void>;
@@ -40,12 +41,21 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
     setError("");
     setLoading(true);
     try {
-      const data = await apiPost<{ url?: string }>("/api/stripe/checkout", {
+      const payload: Record<string, unknown> = {
         planId: props.planId,
         interval: props.interval ?? "monthly",
         businessData: props.businessData ?? undefined,
         returnBaseUrl: siteBase,
-      });
+      };
+      if (
+        props.planId === "subscribe" &&
+        (props.interval ?? "monthly") === "monthly" &&
+        typeof props.subscribeTierDollars === "number" &&
+        Number.isInteger(props.subscribeTierDollars)
+      ) {
+        payload.subscribeTierDollars = props.subscribeTierDollars;
+      }
+      const data = await apiPost<{ url?: string }>("/api/stripe/checkout", payload);
       if (!data?.url) {
         setError("Could not start checkout. Try again.");
         return;
@@ -64,7 +74,15 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
     } finally {
       setLoading(false);
     }
-  }, [props.planId, props.interval, props.businessData, props.onError, props.onExternalCheckoutStart, router]);
+  }, [
+    props.planId,
+    props.interval,
+    props.subscribeTierDollars,
+    props.businessData,
+    props.onError,
+    props.onExternalCheckoutStart,
+    router,
+  ]);
 
   return (
     <View style={styles.fallback}>
@@ -132,7 +150,13 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
   >(null);
   type SheetProps = Pick<
     SubscriptionCheckoutWithFallbackProps,
-    "planId" | "businessData" | "interval" | "onSuccess" | "onError" | "refreshMember"
+    | "planId"
+    | "businessData"
+    | "interval"
+    | "subscribeTierDollars"
+    | "onSuccess"
+    | "onError"
+    | "refreshMember"
   > & { onCheckoutUiOpening?: () => void };
   const [SubscriptionCheckoutSheet, setSubscriptionCheckoutSheet] = useState<
     React.ComponentType<SheetProps> | null
@@ -201,6 +225,7 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
           planId={props.planId}
           businessData={props.businessData}
           interval={props.interval}
+          subscribeTierDollars={props.subscribeTierDollars}
           onSuccess={props.onSuccess}
           onError={props.onError}
           refreshMember={props.refreshMember}

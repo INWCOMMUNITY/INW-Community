@@ -48,6 +48,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
+    const msg = String(e);
+    const isDbUnreachable = /P1001|ECONNREFUSED|connect|Can't reach database server/i.test(msg);
+    if (isDbUnreachable) {
+      console.warn("[analytics/track] database unreachable, event dropped");
+      return NextResponse.json({ ok: false, skipped: true }, { status: 503 });
+    }
     console.error("[analytics/track]", e);
     return NextResponse.json({ error: "Failed to track" }, { status: 500 });
   }

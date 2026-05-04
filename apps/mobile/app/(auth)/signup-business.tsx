@@ -552,7 +552,7 @@ export default function SignupBusinessScreen() {
               style={[styles.intervalBtn, billingInterval === "yearly" && styles.intervalBtnActive]}
               onPress={() => setBillingInterval("yearly")}
             >
-              <Text style={[styles.intervalBtnText, billingInterval === "yearly" && styles.intervalBtnTextActive]}>Yearly</Text>
+              <Text style={[styles.intervalBtnText, billingInterval === "yearly" && styles.intervalBtnTextActive]}>Annual (Summer)</Text>
             </Pressable>
           </View>
           <View style={styles.priceCard}>
@@ -560,8 +560,8 @@ export default function SignupBusinessScreen() {
               <Text style={styles.priceText}><Text style={styles.priceAmount}>$25</Text> a month</Text>
             ) : (
               <>
-                <Text style={styles.priceText}><Text style={styles.priceAmount}>$250</Text> a year</Text>
-                <Text style={styles.priceSavings}>Save $50 a year</Text>
+                <Text style={styles.priceText}><Text style={styles.priceAmount}>$100</Text> a year</Text>
+                <Text style={styles.priceSavings}>Summer Startup Promo</Text>
               </>
             )}
           </View>

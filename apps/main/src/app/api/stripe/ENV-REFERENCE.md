@@ -28,9 +28,10 @@ STRIPE_CONNECT_WEBHOOK_SECRET="whsec_..."
 STRIPE_PRICE_SUBSCRIBE="price_..."
 STRIPE_PRICE_SPONSOR="price_..."
 STRIPE_PRICE_SELLER="price_..."
-STRIPE_PRICE_SUBSCRIBE_YEARLY="price_..."
-STRIPE_PRICE_SPONSOR_YEARLY="price_..."
-STRIPE_PRICE_SELLER_YEARLY="price_..."
+# Optional: resident yearly (omit if monthly-only)
+# STRIPE_PRICE_SUBSCRIBE_YEARLY="price_..."
+STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY="price_..."
+STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY="price_..."
 
 # Shippo (platform address validation; seller keys stored in DB)
 SHIPPO_API_KEY=""
@@ -88,9 +89,10 @@ STRIPE_CONNECT_WEBHOOK_SECRET="whsec_..."
 STRIPE_PRICE_SUBSCRIBE="price_..."
 STRIPE_PRICE_SPONSOR="price_..."
 STRIPE_PRICE_SELLER="price_..."
-STRIPE_PRICE_SUBSCRIBE_YEARLY="price_..."
-STRIPE_PRICE_SPONSOR_YEARLY="price_..."
-STRIPE_PRICE_SELLER_YEARLY="price_..."
+# Optional: resident yearly (omit if monthly-only)
+# STRIPE_PRICE_SUBSCRIBE_YEARLY="price_..."
+STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY="price_..."
+STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY="price_..."
 
 # Shippo / Resend / Admin – use production values
 SHIPPO_API_KEY=""

@@ -7,33 +7,19 @@ import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import type { EarnedBadge } from "@/lib/badge-award";
+import {
+  describeStripeSubscriptionConfigError,
+  getStripeSubscriptionPlanPriceIds,
+  resolveStripeSubscriptionPriceId,
+  resolveSubscribeMonthlyPriceForTierSelection,
+} from "@/lib/stripe-subscription-plan-env";
+import { resolveFirstActiveYearlySponsorSellerPrice } from "@/lib/stripe-active-yearly-price";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
 });
 
 type BillingInterval = "monthly" | "yearly";
-
-function trimPriceId(raw: string | undefined): string {
-  return typeof raw === "string" ? raw.trim() : "";
-}
-
-function getPlans(): Record<string, { priceId: string; priceIdYearly?: string }> {
-  return {
-    subscribe: {
-      priceId: trimPriceId(process.env.STRIPE_PRICE_SUBSCRIBE),
-      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY),
-    },
-    sponsor: {
-      priceId: trimPriceId(process.env.STRIPE_PRICE_SPONSOR),
-      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SPONSOR_YEARLY),
-    },
-    seller: {
-      priceId: trimPriceId(process.env.STRIPE_PRICE_SELLER),
-      priceIdYearly: trimPriceId(process.env.STRIPE_PRICE_SELLER_YEARLY),
-    },
-  };
-}
 
 /**
  * Apple Pay / Payment Sheet on iOS can fail with Stripe yearly prices (interval year, count 1).
@@ -144,23 +130,41 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const planId = body.planId as string;
-    const interval = (body.interval as BillingInterval) || "monthly";
-    const businessData = body.businessData as Record<string, unknown> | undefined;
-
-    const plans = getPlans();
-    const plan = plans[planId];
-    const priceId =
-      interval === "yearly" && plan?.priceIdYearly ? plan.priceIdYearly : plan?.priceId;
-    if (!priceId) {
+    const planIdRaw = typeof body.planId === "string" ? body.planId.trim().toLowerCase() : "";
+    if (planIdRaw !== "subscribe" && planIdRaw !== "sponsor" && planIdRaw !== "seller") {
       return NextResponse.json(
-        { error: interval === "yearly" ? "Yearly plan not configured" : "Invalid plan or Stripe not configured" },
+        { error: describeStripeSubscriptionConfigError(planIdRaw || "unknown", "monthly") },
         { status: 400 }
       );
     }
+    const planId = planIdRaw;
+    const interval = (body.interval as BillingInterval) || "monthly";
+    const businessData = body.businessData as Record<string, unknown> | undefined;
 
-    if (planId !== "subscribe" && planId !== "sponsor" && planId !== "seller") {
-      return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+    const plans = getStripeSubscriptionPlanPriceIds();
+    let priceId = resolveStripeSubscriptionPriceId(plans, planId, interval);
+    if (planId === "subscribe" && interval === "monthly") {
+      const raw = body.subscribeTierDollars ?? body.subscribeTier;
+      if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+        const parsed = typeof raw === "string" ? parseInt(String(raw).trim(), 10) : Number(raw);
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 15) {
+          return NextResponse.json({ error: "Choose a monthly amount between $1 and $15." }, { status: 400 });
+        }
+        const tierOrSingle = resolveSubscribeMonthlyPriceForTierSelection(parsed);
+        if (!tierOrSingle) {
+          return NextResponse.json(
+            {
+              error: `No Stripe price is configured for $${parsed}/mo. Add STRIPE_PRICE_SUBSCRIBE_TIER_${String(parsed).padStart(2, "0")} or set STRIPE_PRICE_SUBSCRIBE for a single monthly price.`,
+            },
+            { status: 400 }
+          );
+        }
+        priceId = tierOrSingle;
+      }
+    }
+    const yearlySponsorSeller = interval === "yearly" && (planId === "sponsor" || planId === "seller");
+    if (!priceId && !yearlySponsorSeller) {
+      return NextResponse.json({ error: describeStripeSubscriptionConfigError(planId, interval) }, { status: 400 });
     }
 
     const member = await prisma.member.findUnique({
@@ -216,7 +220,19 @@ export async function POST(req: NextRequest) {
 
     let priceDetails: Stripe.Price;
     try {
-      priceDetails = await stripe.prices.retrieve(priceId);
+      if (interval === "yearly" && (planId === "sponsor" || planId === "seller")) {
+        const yearly = await resolveFirstActiveYearlySponsorSellerPrice(stripe, planId);
+        if (!yearly.ok) {
+          return NextResponse.json({ error: yearly.error }, { status: 400 });
+        }
+        priceId = yearly.priceId;
+        priceDetails = yearly.price;
+      } else {
+        if (!priceId) {
+          return NextResponse.json({ error: describeStripeSubscriptionConfigError(planId, interval) }, { status: 400 });
+        }
+        priceDetails = await stripe.prices.retrieve(priceId);
+      }
     } catch (retrieveErr) {
       console.error("[mobile-subscription-setup] price retrieve:", priceId, retrieveErr);
       return NextResponse.json(
@@ -227,22 +243,24 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (!priceDetails.active) {
-      return NextResponse.json(
-        {
-          error:
-            interval === "yearly"
-              ? "Yearly billing is unavailable: the Stripe price in STRIPE_PRICE_*_YEARLY is archived. Use monthly, or set that env var to an active yearly price (or re-activate the price in Stripe)."
-              : "This plan is unavailable: the Stripe price in STRIPE_PRICE_* is archived. Set the env var to an active price or re-activate it in Stripe Dashboard → Products.",
-        },
-        { status: 400 }
-      );
-    }
-    if (priceDetails.type !== "recurring") {
-      return NextResponse.json(
-        { error: "The configured Stripe price is not a recurring subscription price." },
-        { status: 400 }
-      );
+    if (interval !== "yearly" || (planId !== "sponsor" && planId !== "seller")) {
+      if (!priceDetails.active) {
+        return NextResponse.json(
+          {
+            error:
+              interval === "yearly"
+                ? "Yearly billing is unavailable: the Stripe price in STRIPE_PRICE_*_YEARLY is archived. Use monthly, or set that env var to an active yearly price (or re-activate the price in Stripe)."
+                : "This plan is unavailable: the Stripe price in STRIPE_PRICE_* is archived. Set the env var to an active price or re-activate it in Stripe Dashboard → Products.",
+          },
+          { status: 400 }
+        );
+      }
+      if (priceDetails.type !== "recurring") {
+        return NextResponse.json(
+          { error: "The configured Stripe price is not a recurring subscription price." },
+          { status: 400 }
+        );
+      }
     }
     const recurring = priceDetails.recurring;
     const applePayIntervals = applePayPresentationIntervals(recurring ?? null);

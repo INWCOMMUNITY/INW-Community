@@ -48,12 +48,13 @@ export default async function SponsorNWCPage() {
         heading="Get the Business subscription"
         planId="sponsor"
         buttonLabel="Sign Up Now"
+        yearlyButtonLabel="Annual (Summer)"
       />
 
       <InfoPageContact />
       <section className="py-10 px-12 md:px-20 lg:px-24 text-center" style={{ padding: "var(--section-padding)" }}>
         <div className="flex flex-wrap gap-4 justify-center">
-          <BillingIntervalCheckout planId="sponsor" className="btn">
+          <BillingIntervalCheckout planId="sponsor" className="btn" yearlyButtonLabel="Annual (Summer)">
             Get Business subscription
           </BillingIntervalCheckout>
           <Link href="/support-nwc" className="btn-sponsors-light inline-block">
