@@ -22,6 +22,20 @@
    ```
    Keep this private; it is gitignored.
 
+## Vercel build command (`scripts/vercel-build.mjs`)
+
+Production builds run **`node scripts/vercel-build.mjs`** (from the repo root), which:
+
+1. Runs **`pnpm db:migrate:deploy`** against **`DATABASE_URL`**, unless  
+2. **`SKIP_DB_MIGRATE_ON_VERCEL_BUILD=1`** is set — then migrations are skipped and only **`pnpm --filter main build`** runs (use only if you apply migrations another way).
+
+**If the deployment fails at build:**
+
+- Ensure **`DATABASE_URL`** exists for **Production** on Vercel (and **Preview** if you build previews). Marking a variable as **Sensitive** hides it in the dashboard but it must still be defined for the environment that runs the build.
+- Read the log for **`[vercel-build]`** — a missing `DATABASE_URL` prints an explicit error before Prisma runs.
+- Migration errors (**P3018**, **P1001**, advisory lock / Neon): see the Prisma section below and `scripts/migrate-deploy.mjs`.
+- To match this repo’s layout, **Root Directory** should be **empty** (monorepo root) per “One-time Vercel setup” above. If the project instead uses **`apps/main`** as the root directory, `apps/main/vercel.json` runs the same build script via `cd ../.. && node scripts/vercel-build.mjs`.
+
 ## Editing the live site
 
 The admin dashboard edits **the same site it runs on**:

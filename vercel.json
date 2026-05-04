@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm db:migrate:deploy && pnpm --filter main build",
+  "buildCommand": "node scripts/vercel-build.mjs",
   "outputDirectory": "apps/main/.next",
   "installCommand": "pnpm install",
   "framework": "nextjs"
