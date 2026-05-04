@@ -17,3 +17,4 @@ last-vercel-build.log
 .env.production
 .env.development
 node_modules
+.vercel
