@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   StyleSheet,
-  FlatList,
   Text,
   View,
   Pressable,
@@ -9,6 +8,7 @@ import {
   RefreshControl,
   Alert,
   Platform,
+  FlatList,
   type ListRenderItemInfo,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -57,7 +57,6 @@ export default function CommunityScreen() {
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
   const [pendingIncomingFriendRequests, setPendingIncomingFriendRequests] = useState(0);
-
   const loadPendingFriendRequests = useCallback(() => {
     if (signedIn === false) {
       setPendingIncomingFriendRequests(0);
@@ -536,12 +535,12 @@ export default function CommunityScreen() {
         }
         onEndReached={onEndReachedFeed}
         onEndReachedThreshold={0.35}
-        style={styles.scroll}
+        style={[styles.scroll, styles.scrollOverflowVisible]}
         contentContainerStyle={[
           styles.scrollContent,
           posts.length === 0 && !loading ? styles.scrollContentEmpty : null,
         ]}
-        removeClippedSubviews={Platform.OS === "android"}
+        removeClippedSubviews={false}
         windowSize={9}
         maxToRenderPerBatch={6}
         initialNumToRender={4}
@@ -594,6 +593,9 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
     backgroundColor: "#fafafa",
+  },
+  scrollOverflowVisible: {
+    overflow: "visible",
   },
   scrollContent: {
     padding: 16,

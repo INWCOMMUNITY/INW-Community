@@ -1,5 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
-import { Alert, Modal, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from "react-native";
+import { useState, useEffect } from "react";
+import {
+  Alert,
+  Modal,
+  ScrollView,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  Platform,
+} from "react-native";
+import { ScrollView as GHScrollView } from "react-native-gesture-handler";
 import {
   StyleSheet,
   View,
@@ -16,8 +24,8 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
+import { FeedPinchZoomPhoto } from "@/components/FeedPinchZoomPhoto";
 import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
-import { ScaledImageFit } from "@/components/ScaledImageFit";
 import { Video, ResizeMode } from "expo-av";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -95,6 +103,12 @@ export function FeedPostCard({
       : Math.min(Math.round(windowWidth * 1.38), maxCarouselHeightCap);
   /** Tallest scaled photo height for this post only (carousel pages share this height). */
   const [perPostCarouselH, setPerPostCarouselH] = useState<number | null>(null);
+  /** Intrinsic pixel size per feed media item (null for videos / unknown). */
+  const [feedPhotoIntrinsics, setFeedPhotoIntrinsics] = useState<
+    Array<{ width: number; height: number } | null>
+  >([]);
+  /** Feed pinch-zoom overlay open — lifts card so scaled pixels aren’t clipped by the feed row. */
+  const [feedPhotoZoomActive, setFeedPhotoZoomActive] = useState(false);
   const feedMedia = [
     ...(post.photos ?? []).map((url) => ({ url, isVideo: false as const })),
     ...(post.videos ?? []).map((url) => ({ url, isVideo: true as const })),
@@ -121,43 +135,56 @@ export function FeedPostCard({
   useEffect(() => {
     if (slideW <= 0 || feedMedia.length === 0) {
       setPerPostCarouselH(null);
+      setFeedPhotoIntrinsics([]);
       return;
     }
     setPerPostCarouselH(null);
+    setFeedPhotoIntrinsics([]);
     let cancelled = false;
 
+    type Row = { scaledHeight: number; intrinsic: { width: number; height: number } | null };
+
     void Promise.all(
-      feedMedia.map((item) => {
+      feedMedia.map((item): Promise<Row> => {
         if (item.isVideo) {
-          return Promise.resolve(
-            Math.min(Math.max(1, Math.round((slideW * 9) / 16)), maxCarouselHeightCap)
-          );
+          const vh = Math.min(Math.max(1, Math.round((slideW * 9) / 16)), maxCarouselHeightCap);
+          return Promise.resolve({ scaledHeight: vh, intrinsic: null });
         }
         const uri = resolveUri(item.url);
-        return new Promise<number>((resolve) => {
+        return new Promise<Row>((resolve) => {
           Image.getSize(
             uri,
             (nw, nh) => {
               if (nw <= 0 || nh <= 0) {
-                resolve(
-                  Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap)
-                );
+                const fh = Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap);
+                resolve({
+                  scaledHeight: Math.max(1, fh),
+                  intrinsic: { width: slideW, height: Math.max(1, Math.round(slideW / 1.38)) },
+                });
                 return;
               }
               const scale = Math.min(slideW / nw, maxCarouselHeightCap / nh);
-              resolve(Math.max(1, Math.round(nh * scale)));
+              resolve({
+                scaledHeight: Math.max(1, Math.round(nh * scale)),
+                intrinsic: { width: nw, height: nh },
+              });
             },
-            () =>
-              resolve(
-                Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap)
-              )
+            () => {
+              const fh = Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap);
+              resolve({
+                scaledHeight: Math.max(1, fh),
+                intrinsic: { width: slideW, height: Math.max(1, Math.round(slideW / 1.38)) },
+              });
+            }
           );
         });
       })
-    ).then((heights) => {
+    ).then((rows) => {
       if (cancelled) return;
+      const heights = rows.map((r) => r.scaledHeight);
       const H = Math.min(Math.max(...heights), maxCarouselHeightCap);
       setPerPostCarouselH(H);
+      setFeedPhotoIntrinsics(rows.map((r) => r.intrinsic));
     });
 
     return () => {
@@ -240,7 +267,7 @@ export function FeedPostCard({
   };
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, feedPhotoZoomActive && styles.cardFeedZoomLift]}>
       <View style={styles.header}>
         <Pressable
           onPress={() =>
@@ -799,9 +826,10 @@ export function FeedPostCard({
           }}
         >
           {slideW > 0 ? (
-            <ScrollView
+            <GHScrollView
               horizontal
               pagingEnabled
+              nestedScrollEnabled={Platform.OS === "android"}
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
                 const index = Math.round(e.nativeEvent.contentOffset.x / slideW);
@@ -809,35 +837,43 @@ export function FeedPostCard({
               }}
               style={[styles.photoCarousel, { width: slideW }]}
             >
-              {feedMedia.map((item, i) => (
-                <View key={`${item.url}-${i}`} style={{ width: slideW }}>
-                  {item.isVideo ? (
-                    <View
-                      style={{
-                        width: slideW,
-                        height: carouselDisplayH,
-                        backgroundColor: "#111",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Video
-                        source={{ uri: resolveUri(item.url) }}
-                        style={{ width: slideW, height: carouselDisplayH }}
-                        useNativeControls
-                        resizeMode={ResizeMode.CONTAIN}
-                        isLooping
+              {feedMedia.map((item, i) => {
+                const intrinsic = feedPhotoIntrinsics[i];
+                const iw = intrinsic?.width ?? slideW;
+                const ih = intrinsic?.height ?? Math.max(1, Math.round(slideW / 1.38));
+                return (
+                  <View key={`${item.url}-${i}`} style={{ width: slideW }}>
+                    {item.isVideo ? (
+                      <View
+                        style={{
+                          width: slideW,
+                          height: carouselDisplayH,
+                          backgroundColor: "#111",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Video
+                          source={{ uri: resolveUri(item.url) }}
+                          style={{ width: slideW, height: carouselDisplayH }}
+                          useNativeControls
+                          resizeMode={ResizeMode.CONTAIN}
+                          isLooping
+                        />
+                      </View>
+                    ) : (
+                      <FeedPinchZoomPhoto
+                        uri={resolveUri(item.url)}
+                        thumbWidth={slideW}
+                        thumbHeight={carouselDisplayH}
+                        intrinsicW={iw}
+                        intrinsicH={ih}
+                        onZoomSessionChange={setFeedPhotoZoomActive}
                       />
-                    </View>
-                  ) : (
-                    <ScaledImageFit
-                      uri={resolveUri(item.url)}
-                      maxWidth={slideW}
-                      maxHeight={carouselDisplayH}
-                    />
-                  )}
-                </View>
-              ))}
-            </ScrollView>
+                    )}
+                  </View>
+                );
+              })}
+            </GHScrollView>
           ) : (
             <View style={{ height: placeholderCarouselH, backgroundColor: "#eee" }} />
           )}
@@ -880,20 +916,34 @@ export function FeedPostCard({
         <Pressable
           style={styles.actionBtn}
           onPress={() => onComment?.(post.id)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            post.commentCount > 0
+              ? `Comment, ${post.commentCount} comments`
+              : "Comment"
+          }
         >
-          <Text style={styles.actionText}>
-            Comment {post.commentCount > 0 ? `(${post.commentCount})` : ""}
-          </Text>
+          <View style={styles.actionRow}>
+            <Ionicons name="chatbubble-outline" size={20} color="#666" />
+            {post.commentCount > 0 ? (
+              <Text style={styles.actionCount}>{post.commentCount}</Text>
+            ) : null}
+          </View>
         </Pressable>
         {onShare ? (
           <Pressable
             style={styles.actionBtn}
             onPress={() => onShare(post.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Share post"
           >
-            <Text style={styles.actionText}>Share</Text>
+            <View style={styles.actionRow}>
+              <Ionicons name="share-outline" size={20} color="#666" />
+            </View>
           </Pressable>
         ) : null}
       </View>
+
     </View>
   );
 }
@@ -906,6 +956,11 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
     overflow: "hidden",
     marginBottom: 16,
+  },
+  cardFeedZoomLift: {
+    overflow: "visible",
+    zIndex: 40,
+    elevation: 24,
   },
   header: {
     flexDirection: "row",
