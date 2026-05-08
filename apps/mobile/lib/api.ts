@@ -212,7 +212,14 @@ function parseError(res: Response, data: unknown): string {
   if (raw != null) {
     if (typeof raw === "string") return sanitizeError(raw);
     if (typeof raw === "object") {
-      const obj = raw as { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
+      const obj = raw as {
+        message?: unknown;
+        formErrors?: string[];
+        fieldErrors?: Record<string, string[]>;
+      };
+      if (typeof obj.message === "string" && obj.message.trim()) {
+        return sanitizeError(obj.message);
+      }
       if (Array.isArray(obj.formErrors) && obj.formErrors[0]) return obj.formErrors[0];
       if (obj.fieldErrors && typeof obj.fieldErrors === "object") {
         const first = Object.values(obj.fieldErrors).flat().find(Boolean);
@@ -345,7 +352,7 @@ export async function apiDelete<T = unknown>(path: string): Promise<T> {
 /** Timeout for file uploads (longer than default to allow large images on slow connections). */
 const UPLOAD_TIMEOUT_MS = 120000; // 2 minutes
 
-/** Upload file via FormData. Does not set Content-Type (browser sets multipart boundary). */
+/** Upload file via FormData. Does not set Content-Type (RN/fetch sets multipart boundary). */
 export async function apiUploadFile(
   path: string,
   formData: FormData,
@@ -353,7 +360,17 @@ export async function apiUploadFile(
 ): Promise<{ url: string }> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
   const doUpload = async (authToken: string | null) => {
-    const headers: Record<string, string> = { ...extraHeaders };
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "User-Agent": USER_AGENT,
+      ...(API_BASE.includes("inwcommunity.com")
+        ? {
+            Origin: "https://www.inwcommunity.com",
+            Referer: "https://www.inwcommunity.com/",
+          }
+        : {}),
+      ...extraHeaders,
+    };
     if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
     if (API_BASE.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
     if (API_BASE.includes("loca.lt")) headers["Bypass-Tunnel-Reminder"] = "true";
@@ -372,7 +389,7 @@ export async function apiUploadFile(
   ensureJsonResponse(res);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw { error: (data as { error?: string }).error ?? "Upload failed", status: res.status };
+    throw { error: parseError(res, data), status: res.status };
   }
   return data as { url: string };
 }

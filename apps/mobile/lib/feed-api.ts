@@ -36,6 +36,14 @@ export interface FeedPost {
     shortDescription: string | null;
     logoUrl: string | null;
   } | null;
+  /** Businesses mentioned via Tag Business (saved listings), not "post as business". */
+  taggedBusinesses?: {
+    id: string;
+    name: string;
+    slug: string;
+    shortDescription: string | null;
+    logoUrl: string | null;
+  }[];
   sourceCoupon?: {
     id: string;
     name: string;
@@ -220,6 +228,7 @@ export interface CreatePostBody {
   videos?: string[];
   tags?: string[];
   taggedMemberIds?: string[];
+  taggedBusinessIds?: string[];
   /** When set, create this post as a group post (must be a member). */
   groupId?: string | null;
   sharedItemType?: "business" | "coupon" | "reward" | "store_item";
@@ -236,6 +245,7 @@ export interface UpdatePostBody {
   videos?: string[];
   tags?: string[];
   taggedMemberIds?: string[];
+  taggedBusinessIds?: string[];
 }
 
 export async function updatePost(

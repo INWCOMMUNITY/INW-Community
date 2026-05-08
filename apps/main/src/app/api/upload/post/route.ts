@@ -4,43 +4,11 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireBlobStorage } from "@/lib/upload";
 import path from "path";
 import fs from "fs/promises";
-
-const MAX_SIZE_IMAGE = 60 * 1024 * 1024; // 60MB per image
-const MAX_SIZE_VIDEO = 100 * 1024 * 1024; // 100MB per video
-const ALLOWED_IMAGE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "image/heic",
-  "image/heif",
-];
-const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
-
-function effectiveMime(rawType: string, fileName: string, isVideo: boolean): string | null {
-  const t = (rawType || "").toLowerCase().trim();
-  const allowed = isVideo ? ALLOWED_VIDEO_TYPES : ALLOWED_IMAGE_TYPES;
-  if (allowed.includes(t)) return t;
-  if (t !== "" && t !== "application/octet-stream") return null;
-  const ext = path.extname(fileName).toLowerCase();
-  const imageExt: Record<string, string> = {
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-    ".heic": "image/heic",
-    ".heif": "image/heif",
-  };
-  const videoExt: Record<string, string> = {
-    ".mp4": "video/mp4",
-    ".webm": "video/webm",
-    ".mov": "video/quicktime",
-  };
-  const map = isVideo ? videoExt : imageExt;
-  const inferred = map[ext];
-  return inferred && allowed.includes(inferred) ? inferred : null;
-}
+import {
+  POST_UPLOAD_MAX_IMAGE_BYTES,
+  POST_UPLOAD_MAX_VIDEO_BYTES,
+  postUploadEffectiveMime,
+} from "@/lib/post-upload";
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -49,28 +17,35 @@ export async function POST(req: NextRequest) {
   }
 
   const formData = await req.formData();
+  const uploadKind = ((formData.get("type") as string) || "image").toLowerCase(); // image | video
+  const isVideoRequest = uploadKind === "video";
   const filePart = formData.get("file") as unknown;
-  const type = (formData.get("type") as string) || "image"; // image | video
-  // Accept File or Blob (React Native / some runtimes send Blob for multipart file parts)
+
+  // Accept File or Blob (React Native often sends Blob; default name/mime must match upload kind)
+  const blobFallbackName = isVideoRequest ? "upload.mp4" : "upload.jpg";
+  const blobFallbackMime = isVideoRequest ? "video/mp4" : "image/jpeg";
+
   let file: File | null = null;
   if (filePart instanceof File) {
     file = filePart;
   } else if (filePart instanceof Blob) {
-    file = new File([filePart], "upload.jpg", { type: filePart.type || "image/jpeg" });
+    file = new File([filePart], blobFallbackName, {
+      type: filePart.type || blobFallbackMime,
+    });
   }
   if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
-  const isVideo = type === "video";
-  const maxSize = isVideo ? MAX_SIZE_VIDEO : MAX_SIZE_IMAGE;
+  const isVideo = isVideoRequest;
+  const maxSize = isVideo ? POST_UPLOAD_MAX_VIDEO_BYTES : POST_UPLOAD_MAX_IMAGE_BYTES;
 
   if (file.size > maxSize) {
     return NextResponse.json({ error: `File too large (max ${isVideo ? "100" : "60"}MB)` }, { status: 400 });
   }
 
   const name = file instanceof File ? file.name : "upload.jpg";
-  const normalizedType = effectiveMime(file.type, name, isVideo);
+  const normalizedType = postUploadEffectiveMime(file.type, name, isVideo);
   if (!normalizedType) {
     return NextResponse.json({
       error: isVideo

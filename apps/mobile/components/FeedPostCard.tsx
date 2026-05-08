@@ -1,4 +1,11 @@
-import { useState, useEffect } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  Fragment,
+} from "react";
 import {
   Alert,
   Modal,
@@ -24,12 +31,22 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
-import { FeedPinchZoomPhoto } from "@/components/FeedPinchZoomPhoto";
+import {
+  FeedPinchZoomPhoto,
+  type FeedGalleryPhotoEntry,
+} from "@/components/FeedPinchZoomPhoto";
 import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
-import { Video, ResizeMode } from "expo-av";
+import { Video, ResizeMode, type VideoReadyForDisplayEvent } from "expo-av";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+/** Between tagged business names in "X is with A, B, and C". */
+function taggedBusinessListSeparator(index: number, total: number): string {
+  if (index === 0) return "";
+  if (index === total - 1) return total === 2 ? " and " : ", and ";
+  return ", ";
+}
 const resolveUri = (u: string) =>
   u.startsWith("http") ? u : `${siteBase}${u.startsWith("/") ? "" : "/"}${u}`;
 const { width } = Dimensions.get("window");
@@ -75,6 +92,11 @@ interface FeedPostCardProps {
   viewerManagedBusinessIds?: string[];
   onDeleteComment?: (commentId: string) => void;
   onOpenCoupon?: (couponId: string) => void;
+  /**
+   * When false, main-feed videos do not autoplay (card scrolled off-screen).
+   * Omit or true for modals / single-post screens / ScrollView lists without tracking.
+   */
+  isFeedCardVisible?: boolean;
 }
 
 export function FeedPostCard({
@@ -89,6 +111,7 @@ export function FeedPostCard({
   onDeletePost,
   viewerManagedBusinessIds,
   onOpenCoupon,
+  isFeedCardVisible = true,
 }: FeedPostCardProps) {
   const router = useRouter();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -101,10 +124,8 @@ export function FeedPostCard({
     slideW > 0
       ? Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap)
       : Math.min(Math.round(windowWidth * 1.38), maxCarouselHeightCap);
-  /** Tallest scaled photo height for this post only (carousel pages share this height). */
-  const [perPostCarouselH, setPerPostCarouselH] = useState<number | null>(null);
-  /** Intrinsic pixel size per feed media item (null for videos / unknown). */
-  const [feedPhotoIntrinsics, setFeedPhotoIntrinsics] = useState<
+  /** Intrinsic pixel size per carousel media item (photos from Image.getSize; videos from onReadyForDisplay). */
+  const [feedMediaIntrinsics, setFeedMediaIntrinsics] = useState<
     Array<{ width: number; height: number } | null>
   >([]);
   /** Feed pinch-zoom overlay open — lifts card so scaled pixels aren’t clipped by the feed row. */
@@ -114,8 +135,28 @@ export function FeedPostCard({
     ...(post.videos ?? []).map((url) => ({ url, isVideo: true as const })),
   ];
   const mediaSig = feedMedia.map((m) => `${m.isVideo ? "v" : "p"}:${m.url}`).join("\u0001");
-  const carouselDisplayH =
-    perPostCarouselH != null ? perPostCarouselH : placeholderCarouselH;
+  const feedMediaLenRef = useRef(0);
+  feedMediaLenRef.current = feedMedia.length;
+
+  const carouselDisplayH = useMemo(() => {
+    if (slideW <= 0 || feedMedia.length === 0) return placeholderCarouselH;
+    const heights = feedMedia.map((item, i) => {
+      const intrinsic = feedMediaIntrinsics[i];
+      if (item.isVideo) {
+        if (intrinsic && intrinsic.width > 0 && intrinsic.height > 0) {
+          const scale = Math.min(slideW / intrinsic.width, maxCarouselHeightCap / intrinsic.height);
+          return Math.max(1, Math.round(intrinsic.height * scale));
+        }
+        return Math.min(Math.round((slideW * 16) / 9), maxCarouselHeightCap);
+      }
+      if (intrinsic && intrinsic.width > 0 && intrinsic.height > 0) {
+        const scale = Math.min(slideW / intrinsic.width, maxCarouselHeightCap / intrinsic.height);
+        return Math.max(1, Math.round(intrinsic.height * scale));
+      }
+      return Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap);
+    });
+    return Math.min(Math.max(...heights), maxCarouselHeightCap);
+  }, [slideW, feedMedia, feedMediaIntrinsics, maxCarouselHeightCap, placeholderCarouselH]);
 
   const { member } = useAuth();
   const [blogSaved, setBlogSaved] = useState(false);
@@ -134,63 +175,91 @@ export function FeedPostCard({
 
   useEffect(() => {
     if (slideW <= 0 || feedMedia.length === 0) {
-      setPerPostCarouselH(null);
-      setFeedPhotoIntrinsics([]);
+      setFeedMediaIntrinsics([]);
       return;
     }
-    setPerPostCarouselH(null);
-    setFeedPhotoIntrinsics([]);
+    const len = feedMedia.length;
+    setFeedMediaIntrinsics(Array.from({ length: len }, () => null));
     let cancelled = false;
 
-    type Row = { scaledHeight: number; intrinsic: { width: number; height: number } | null };
-
-    void Promise.all(
-      feedMedia.map((item): Promise<Row> => {
-        if (item.isVideo) {
-          const vh = Math.min(Math.max(1, Math.round((slideW * 9) / 16)), maxCarouselHeightCap);
-          return Promise.resolve({ scaledHeight: vh, intrinsic: null });
-        }
-        const uri = resolveUri(item.url);
-        return new Promise<Row>((resolve) => {
-          Image.getSize(
-            uri,
-            (nw, nh) => {
-              if (nw <= 0 || nh <= 0) {
-                const fh = Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap);
-                resolve({
-                  scaledHeight: Math.max(1, fh),
-                  intrinsic: { width: slideW, height: Math.max(1, Math.round(slideW / 1.38)) },
-                });
-                return;
-              }
-              const scale = Math.min(slideW / nw, maxCarouselHeightCap / nh);
-              resolve({
-                scaledHeight: Math.max(1, Math.round(nh * scale)),
-                intrinsic: { width: nw, height: nh },
-              });
-            },
-            () => {
-              const fh = Math.min(Math.round(slideW * 1.38), maxCarouselHeightCap);
-              resolve({
-                scaledHeight: Math.max(1, fh),
-                intrinsic: { width: slideW, height: Math.max(1, Math.round(slideW / 1.38)) },
-              });
+    feedMedia.forEach((item, idx) => {
+      if (item.isVideo) return;
+      const uri = resolveUri(item.url);
+      Image.getSize(
+        uri,
+        (nw, nh) => {
+          if (cancelled) return;
+          setFeedMediaIntrinsics((prev) => {
+            const L = feedMediaLenRef.current;
+            const next = prev.length === L ? [...prev] : Array.from({ length: L }, (_, j) => prev[j] ?? null);
+            if (nw <= 0 || nh <= 0) {
+              next[idx] = { width: slideW, height: Math.max(1, Math.round(slideW / 1.38)) };
+            } else {
+              next[idx] = { width: nw, height: nh };
             }
-          );
-        });
-      })
-    ).then((rows) => {
-      if (cancelled) return;
-      const heights = rows.map((r) => r.scaledHeight);
-      const H = Math.min(Math.max(...heights), maxCarouselHeightCap);
-      setPerPostCarouselH(H);
-      setFeedPhotoIntrinsics(rows.map((r) => r.intrinsic));
+            return next;
+          });
+        },
+        () => {
+          if (cancelled) return;
+          setFeedMediaIntrinsics((prev) => {
+            const L = feedMediaLenRef.current;
+            const next = prev.length === L ? [...prev] : Array.from({ length: L }, (_, j) => prev[j] ?? null);
+            next[idx] = { width: slideW, height: Math.max(1, Math.round(slideW / 1.38)) };
+            return next;
+          });
+        }
+      );
     });
 
     return () => {
       cancelled = true;
     };
-  }, [slideW, post.id, mediaSig, maxCarouselHeightCap]);
+  }, [slideW, post.id, mediaSig]);
+
+  const handleFeedVideoReadyForDisplay = useCallback((index: number) => {
+    return (e: VideoReadyForDisplayEvent) => {
+      const nw = e.naturalSize.width;
+      const nh = e.naturalSize.height;
+      if (nw <= 0 || nh <= 0) return;
+      setFeedMediaIntrinsics((prev) => {
+        const L = feedMediaLenRef.current;
+        if (prev.length !== L) return prev;
+        const cur = prev[index];
+        if (cur && cur.width === nw && cur.height === nh) return prev;
+        const next = [...prev];
+        next[index] = { width: nw, height: nh };
+        return next;
+      });
+    };
+  }, []);
+
+  const galleryThumbWrapRefs = useRef<(View | null)[]>([]);
+  const carouselScrollRef = useRef<GHScrollView>(null);
+
+  const photoGallery = useMemo(() => {
+    const entries: FeedGalleryPhotoEntry[] = [];
+    const feedIndexToSlot: number[] = [];
+    const slotToFeedIndex: number[] = [];
+    feedMedia.forEach((item, feedIdx) => {
+      if (item.isVideo) {
+        feedIndexToSlot[feedIdx] = -1;
+        return;
+      }
+      const intrinsic = feedMediaIntrinsics[feedIdx];
+      const iw = intrinsic?.width ?? slideW;
+      const ih = intrinsic?.height ?? Math.max(1, Math.round(slideW / 1.38));
+      const slot = entries.length;
+      feedIndexToSlot[feedIdx] = slot;
+      slotToFeedIndex[slot] = feedIdx;
+      entries.push({
+        uri: resolveUri(item.url),
+        intrinsicW: iw,
+        intrinsicH: ih,
+      });
+    });
+    return { entries, feedIndexToSlot, slotToFeedIndex };
+  }, [feedMedia, feedMediaIntrinsics, slideW]);
 
   const blog = post.type === "shared_blog" ? post.sourceBlog : null;
 
@@ -240,6 +309,9 @@ export function FeedPostCard({
   const authorName = businessAsAuthor
     ? businessAsAuthor.name
     : `${post.author.firstName ?? ""} ${post.author.lastName ?? ""}`.trim();
+  const taggedBusinessesHeader =
+    post.taggedBusinesses?.filter((b): b is NonNullable<typeof b> => !!b?.name) ??
+    [];
   const initials = businessAsAuthor
     ? businessInitials(businessAsAuthor.name)
     : [
@@ -301,17 +373,43 @@ export function FeedPostCard({
           )}
         </Pressable>
         <View style={styles.headerText}>
-          <Pressable
-            onPress={() =>
-              businessAsAuthor
-                ? openBusinessPage(businessAsAuthor.slug)
-                : openProfile(post.author.id)
-            }
-          >
-            <Text style={styles.authorName} numberOfLines={1}>
-              {authorName}
+          {taggedBusinessesHeader.length > 0 ? (
+            <Text style={styles.authorName} numberOfLines={3}>
+              <Text
+                onPress={() =>
+                  businessAsAuthor
+                    ? openBusinessPage(businessAsAuthor.slug)
+                    : openProfile(post.author.id)
+                }
+              >
+                {authorName}
+              </Text>
+              <Text> is with </Text>
+              {taggedBusinessesHeader.map((b, i) => (
+                <Fragment key={b.id}>
+                  <Text>{taggedBusinessListSeparator(i, taggedBusinessesHeader.length)}</Text>
+                  <Text
+                    style={styles.taggedBusinessInlineName}
+                    onPress={() => openBusinessPage(b.slug)}
+                  >
+                    {b.name}
+                  </Text>
+                </Fragment>
+              ))}
             </Text>
-          </Pressable>
+          ) : (
+            <Pressable
+              onPress={() =>
+                businessAsAuthor
+                  ? openBusinessPage(businessAsAuthor.slug)
+                  : openProfile(post.author.id)
+              }
+            >
+              <Text style={styles.authorName} numberOfLines={1}>
+                {authorName}
+              </Text>
+            </Pressable>
+          )}
           <Text style={styles.date}>
             {new Date(post.createdAt).toLocaleDateString()}
           </Text>
@@ -564,7 +662,9 @@ export function FeedPostCard({
             sharedPostCarouselWidth != null && sharedPostCarouselWidth > 0
               ? sharedPostCarouselWidth
               : nestedFallbackW;
-          const nestedSlideH = Math.round(Math.min(nestedSlideW * 0.75, 320));
+          const nestedSlideH = Math.round(
+            Math.min((nestedSlideW * 16) / 9, windowHeight * 0.58, 560)
+          );
 
           const nestedMedia = [
             ...(Array.isArray(sourcePost.photos) ? sourcePost.photos : []).map((url: string) => ({
@@ -576,6 +676,10 @@ export function FeedPostCard({
               isVideo: true as const,
             })),
           ];
+
+          const nestedTaggedBusinesses = (
+            Array.isArray(sourcePost?.taggedBusinesses) ? sourcePost.taggedBusinesses : []
+          ).filter((b: { id?: string; name?: string; slug?: string }) => !!b?.name);
 
           return (
             <View style={[styles.sourceCard, { backgroundColor: "#f7f7f7" }]}>
@@ -612,17 +716,47 @@ export function FeedPostCard({
                     )}
 
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Pressable
-                        onPress={() =>
-                          nestedBiz
-                            ? openBusinessPage(nestedBiz.slug)
-                            : sourceAuthor?.id && openProfile(sourceAuthor.id)
-                        }
-                      >
-                        <Text style={styles.sourceAuthorName} numberOfLines={1}>
-                          {nestedHeaderName}
+                      {nestedTaggedBusinesses.length > 0 ? (
+                        <Text style={styles.sourceAuthorName} numberOfLines={3}>
+                          <Text
+                            onPress={() =>
+                              nestedBiz
+                                ? openBusinessPage(nestedBiz.slug)
+                                : sourceAuthor?.id && openProfile(sourceAuthor.id)
+                            }
+                          >
+                            {nestedHeaderName}
+                          </Text>
+                          <Text> is with </Text>
+                          {nestedTaggedBusinesses.map(
+                            (b: { id: string; name: string; slug: string }, i: number) => (
+                              <Fragment key={b.id}>
+                                <Text>
+                                  {taggedBusinessListSeparator(i, nestedTaggedBusinesses.length)}
+                                </Text>
+                                <Text
+                                  style={styles.nestedTaggedBusinessName}
+                                  onPress={() => openBusinessPage(b.slug)}
+                                >
+                                  {b.name}
+                                </Text>
+                              </Fragment>
+                            )
+                          )}
                         </Text>
-                      </Pressable>
+                      ) : (
+                        <Pressable
+                          onPress={() =>
+                            nestedBiz
+                              ? openBusinessPage(nestedBiz.slug)
+                              : sourceAuthor?.id && openProfile(sourceAuthor.id)
+                          }
+                        >
+                          <Text style={styles.sourceAuthorName} numberOfLines={1}>
+                            {nestedHeaderName}
+                          </Text>
+                        </Pressable>
+                      )}
                       {sourcePost?.createdAt ? (
                         <Text style={styles.sourceMeta}>
                           {new Date(sourcePost.createdAt).toLocaleDateString()}
@@ -734,13 +868,18 @@ export function FeedPostCard({
                     >
                       {nestedMedia.map((item, i) =>
                         item.isVideo ? (
-                          <View key={`${item.url}-${i}`} style={{ width: nestedSlideW }}>
+                          <View
+                            key={`${item.url}-${i}`}
+                            style={{ width: nestedSlideW, overflow: "hidden", backgroundColor: "#0a0a0a" }}
+                          >
                             <Video
                               source={{ uri: resolveUri(item.url) }}
                               style={{ width: nestedSlideW, height: nestedSlideH }}
+                              shouldPlay={isFeedCardVisible && nestedPhotoCarouselIndex === i}
+                              isMuted
+                              isLooping
                               useNativeControls
                               resizeMode={ResizeMode.COVER}
-                              isLooping
                             />
                           </View>
                         ) : (
@@ -827,6 +966,7 @@ export function FeedPostCard({
         >
           {slideW > 0 ? (
             <GHScrollView
+              ref={carouselScrollRef}
               horizontal
               pagingEnabled
               nestedScrollEnabled={Platform.OS === "android"}
@@ -838,26 +978,40 @@ export function FeedPostCard({
               style={[styles.photoCarousel, { width: slideW }]}
             >
               {feedMedia.map((item, i) => {
-                const intrinsic = feedPhotoIntrinsics[i];
+                const intrinsic = feedMediaIntrinsics[i];
                 const iw = intrinsic?.width ?? slideW;
                 const ih = intrinsic?.height ?? Math.max(1, Math.round(slideW / 1.38));
+                const multiPhotoZoom = photoGallery.entries.length > 1;
+                const gallerySlot = photoGallery.feedIndexToSlot[i];
                 return (
-                  <View key={`${item.url}-${i}`} style={{ width: slideW }}>
+                  <View
+                    key={`${item.url}-${i}`}
+                    style={{ width: slideW }}
+                    collapsable={false}
+                    ref={(el) => {
+                      if (gallerySlot != null && gallerySlot >= 0) {
+                        galleryThumbWrapRefs.current[gallerySlot] = el;
+                      }
+                    }}
+                  >
                     {item.isVideo ? (
                       <View
                         style={{
                           width: slideW,
                           height: carouselDisplayH,
-                          backgroundColor: "#111",
-                          justifyContent: "center",
+                          backgroundColor: "#0a0a0a",
+                          overflow: "hidden",
                         }}
                       >
                         <Video
                           source={{ uri: resolveUri(item.url) }}
                           style={{ width: slideW, height: carouselDisplayH }}
-                          useNativeControls
-                          resizeMode={ResizeMode.CONTAIN}
+                          shouldPlay={isFeedCardVisible && photoCarouselIndex === i}
+                          isMuted
                           isLooping
+                          useNativeControls
+                          resizeMode={ResizeMode.COVER}
+                          onReadyForDisplay={handleFeedVideoReadyForDisplay(i)}
                         />
                       </View>
                     ) : (
@@ -868,6 +1022,22 @@ export function FeedPostCard({
                         intrinsicW={iw}
                         intrinsicH={ih}
                         onZoomSessionChange={setFeedPhotoZoomActive}
+                        {...(multiPhotoZoom && gallerySlot != null && gallerySlot >= 0
+                          ? {
+                              galleryPhotos: photoGallery.entries,
+                              gallerySlotIndex: gallerySlot,
+                              galleryThumbWrapRefs,
+                              onGalleryIndexChange: (slotIdx: number) => {
+                                const fi = photoGallery.slotToFeedIndex[slotIdx];
+                                if (fi === undefined) return;
+                                carouselScrollRef.current?.scrollTo({
+                                  x: fi * slideW,
+                                  animated: true,
+                                });
+                                setPhotoCarouselIndex(fi);
+                              },
+                            }
+                          : {})}
                       />
                     )}
                   </View>
@@ -991,6 +1161,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: theme.colors.heading,
+    fontFamily: theme.fonts.heading,
+  },
+  taggedBusinessInlineName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    fontFamily: theme.fonts.heading,
+  },
+  nestedTaggedBusinessName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.colors.primary,
     fontFamily: theme.fonts.heading,
   },
   date: {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   FlatList,
   RefreshControl,
   Alert,
+  type ViewToken,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -39,6 +40,26 @@ export default function BusinessHubMyPostsScreen() {
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState<FeedPost | null>(null);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+  const [hubFeedVisibleIds, setHubFeedVisibleIds] = useState<Set<string>>(new Set());
+  const [hubFeedViewabilityReady, setHubFeedViewabilityReady] = useState(false);
+  const hubFeedViewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 40,
+    minimumViewTime: 100,
+  }).current;
+
+  const onHubFeedViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const next = new Set<string>();
+      for (const v of viewableItems) {
+        if (v.isViewable && v.item && typeof (v.item as FeedPost).id === "string") {
+          next.add((v.item as FeedPost).id);
+        }
+      }
+      setHubFeedVisibleIds(next);
+      setHubFeedViewabilityReady(true);
+    },
+    []
+  );
 
   useEffect(() => {
     if (!member) {
@@ -162,6 +183,8 @@ export default function BusinessHubMyPostsScreen() {
         <FlatList
           data={posts}
           keyExtractor={(item) => item.id}
+          viewabilityConfig={hubFeedViewabilityConfig}
+          onViewableItemsChanged={onHubFeedViewableItemsChanged}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
           }
@@ -181,6 +204,9 @@ export default function BusinessHubMyPostsScreen() {
           renderItem={({ item }) => (
             <FeedPostCard
               post={item}
+              isFeedCardVisible={
+                !hubFeedViewabilityReady ? false : hubFeedVisibleIds.has(item.id)
+              }
               onLike={handleLike}
               onComment={(pid) => {
                 if (!signedIn) {

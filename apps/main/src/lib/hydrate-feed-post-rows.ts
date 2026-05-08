@@ -1,5 +1,10 @@
 import { prisma } from "database";
 import type { Prisma } from "database";
+import {
+  collectTaggedBusinessIdsFromPosts,
+  mergePostBusinessLookupIds,
+  taggedBusinessesFromIds,
+} from "@/lib/feed-tagged-businesses";
 
 /** Matches feed / group-feed includes for hydration + API responses. */
 export const feedPostListInclude = {
@@ -37,6 +42,8 @@ export async function hydrateFeedPostRows(
   const postIds = items.map((p) => p.id);
   const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
   const sourceBusinessIds = items.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
+  const taggedBizFlat = collectTaggedBusinessIdsFromPosts(items);
+  const businessLookupIds = mergePostBusinessLookupIds(sourceBusinessIds, taggedBizFlat);
   const sourceCouponIds = items.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
   const sourceRewardIds = items.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
@@ -55,9 +62,9 @@ export async function hydrateFeedPostRows(
             },
           })
         : [],
-      sourceBusinessIds.length > 0
+      businessLookupIds.length > 0
         ? prisma.business.findMany({
-            where: { id: { in: sourceBusinessIds } },
+            where: { id: { in: businessLookupIds } },
             select: { id: true, name: true, slug: true, shortDescription: true, logoUrl: true },
           })
         : [],
@@ -209,6 +216,7 @@ export async function hydrateFeedPostRows(
     tags: p.postTags?.map((pt) => pt.tag) ?? [],
     sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
     sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
+    taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
     sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
     sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
     sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,

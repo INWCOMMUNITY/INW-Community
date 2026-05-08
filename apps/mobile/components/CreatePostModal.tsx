@@ -20,7 +20,8 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { getToken, apiUploadFile, apiGet } from "@/lib/api";
+import { getToken, apiGet } from "@/lib/api";
+import { uploadPostMediaFile } from "@/lib/upload-post-media";
 import { useAuth } from "@/contexts/AuthContext";
 import { PostEventAsPickerPanel } from "@/components/PostEventAsPickerModal";
 import { createPost, updatePost, type FeedPost } from "@/lib/feed-api";
@@ -35,12 +36,41 @@ function toFullUrl(url: string): string {
   return url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
-function videoUploadName(uri: string, fileName: string | null | undefined): string {
-  if (fileName && fileName.trim()) return fileName.trim();
+function videoExtensionFromUri(uri: string): ".mov" | ".webm" | ".m4v" | ".mp4" {
   const u = uri.toLowerCase();
-  if (u.endsWith(".mov")) return "video.mov";
-  if (u.endsWith(".webm")) return "video.webm";
-  return "video.mp4";
+  if (u.includes(".mov")) return ".mov";
+  if (u.includes(".webm")) return ".webm";
+  if (u.includes(".m4v")) return ".m4v";
+  return ".mp4";
+}
+
+/** Filenames without an extension break server MIME inference for RN multipart uploads. */
+function videoUploadName(uri: string, fileName: string | null | undefined): string {
+  const ext = videoExtensionFromUri(uri);
+  if (fileName?.trim()) {
+    const t = fileName.trim();
+    if (/\.(mov|mp4|webm|m4v)$/i.test(t)) return t;
+    const base = t.replace(/\.[^/.]+$/, "");
+    return `${base || "video"}${ext}`;
+  }
+  return `video${ext}`;
+}
+
+/** API errors may be `{ error: { code, message } }`; never pass objects into `<Text>`. */
+function thrownErrorMessage(e: unknown, fallback: string): string {
+  if (typeof e === "object" && e !== null && "error" in e) {
+    const err = (e as { error?: unknown }).error;
+    if (typeof err === "string") return err;
+    if (typeof err === "object" && err !== null && "message" in err) {
+      const m = (err as { message?: unknown }).message;
+      if (typeof m === "string") return m;
+    }
+  }
+  if (typeof e === "object" && e !== null && "message" in e) {
+    const m = (e as { message?: unknown }).message;
+    if (typeof m === "string") return m;
+  }
+  return fallback;
 }
 
 interface TagItem {
@@ -110,7 +140,10 @@ export function CreatePostModal({
   const [friendLoading, setFriendLoading] = useState(false);
 
   // Businesses
-  const [selectedBusiness, setSelectedBusiness] = useState<BusinessItem | null>(null);
+  /** Promotional / identity: post as your own directory business (`shared_business`). */
+  const [postAsBusiness, setPostAsBusiness] = useState<BusinessItem | null>(null);
+  /** Mention a saved business without posting as them. */
+  const [taggedBusiness, setTaggedBusiness] = useState<BusinessItem | null>(null);
   const [businessPickerOpen, setBusinessPickerOpen] = useState(false);
   const [myBusinesses, setMyBusinesses] = useState<BusinessItem[]>([]);
   const [businessLoading, setBusinessLoading] = useState(false);
@@ -198,14 +231,18 @@ export function CreatePostModal({
       setSelectedFriends([]);
       setError("");
       if (editingPost.type === "shared_business" && editingPost.sourceBusiness) {
-        setSelectedBusiness({
+        setPostAsBusiness({
           id: editingPost.sourceBusiness.id,
           name: editingPost.sourceBusiness.name,
           slug: editingPost.sourceBusiness.slug ?? "",
         });
       } else {
-        setSelectedBusiness(null);
+        setPostAsBusiness(null);
       }
+      const tagged = editingPost.taggedBusinesses?.[0];
+      setTaggedBusiness(
+        tagged ? { id: tagged.id, name: tagged.name, slug: tagged.slug ?? "" } : null
+      );
       return;
     }
     setContent("");
@@ -214,11 +251,12 @@ export function CreatePostModal({
     setSelectedTags([]);
     setSelectedFriends([]);
     setError("");
-    setSelectedBusiness(
+    setPostAsBusiness(
       initialBusinessForPost
         ? { id: initialBusinessForPost.id, name: initialBusinessForPost.name, slug: "" }
         : null
     );
+    setTaggedBusiness(null);
   }, [visible, editingPost?.id, initialBusinessForPost?.id, initialGroupId]);
 
   useEffect(() => {
@@ -308,21 +346,17 @@ export function CreatePostModal({
             // use current uri if copy fails
           }
         }
-        const formData = new FormData();
-        formData.append("file", {
-          uri: uriToUpload,
-          type: asset.mimeType ?? "image/jpeg",
-          name: "photo.jpg",
-        } as unknown as Blob);
-        formData.append("type", "image");
-        const { url } = await apiUploadFile("/api/upload/post", formData);
+        const { url } = await uploadPostMediaFile({
+          localUri: uriToUpload,
+          uploadKind: "image",
+          mimeType: asset.mimeType ?? "image/jpeg",
+          multipartFileName: "photo.jpg",
+        });
         const fullUrl = toFullUrl(url);
         setPhotos((p) => (p.includes(fullUrl) ? p : [...p, fullUrl]));
       }
     } catch (e) {
-      setError(
-        (e as { error?: string }).error ?? "Photo upload failed. Try again."
-      );
+      setError(thrownErrorMessage(e, "Photo upload failed. Try again."));
     } finally {
       setUploadingAttachment(false);
       setUploadingKind(null);
@@ -338,6 +372,15 @@ export function CreatePostModal({
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["videos"],
       allowsMultipleSelection: true,
+      ...(Platform.OS === "ios"
+        ? {
+            /** Compatible URLs/files read reliably for multipart upload (Passthrough/Current can break copy/upload). */
+            preferredAssetRepresentationMode:
+              ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+            /** HighestQuality still beats MediumQuality; Passthrough caused failed uploads for some library assets. */
+            videoExportPreset: ImagePicker.VideoExportPreset.HighestQuality,
+          }
+        : {}),
     });
     if (result.canceled) return;
     setUploadingAttachment(true);
@@ -355,7 +398,7 @@ export function CreatePostModal({
         let uriToUpload = asset.uri;
         if (cacheDir) {
           try {
-            const extFromUri = asset.uri.toLowerCase().match(/\.(mov|mp4|webm)(\?|$)/i);
+            const extFromUri = asset.uri.toLowerCase().match(/\.(mov|mp4|webm|m4v)(\?|$)/i);
             const ext = extFromUri?.[1] ? `.${extFromUri[1].toLowerCase()}` : ".mp4";
             const tempUri = `${cacheDir}post-video-${Date.now()}-${i}${ext}`;
             await FileSystem.copyAsync({ from: uriToUpload, to: tempUri });
@@ -364,27 +407,28 @@ export function CreatePostModal({
             // use asset uri if copy fails
           }
         }
+        const lowerUri = uriToUpload.toLowerCase();
         const mime =
           asset.mimeType ??
-          (uriToUpload.toLowerCase().includes(".mov")
+          (lowerUri.includes(".mov")
             ? "video/quicktime"
-            : uriToUpload.toLowerCase().includes(".webm")
+            : lowerUri.includes(".webm")
               ? "video/webm"
-              : "video/mp4");
-        const formData = new FormData();
-        formData.append("file", {
-          uri: uriToUpload,
-          type: mime,
-          name: videoUploadName(uriToUpload, asset.fileName ?? null),
-        } as unknown as Blob);
-        formData.append("type", "video");
-        const { url } = await apiUploadFile("/api/upload/post", formData);
+              : lowerUri.includes(".m4v")
+                ? "video/mp4"
+                : "video/mp4");
+        const { url } = await uploadPostMediaFile({
+          localUri: uriToUpload,
+          uploadKind: "video",
+          mimeType: mime,
+          multipartFileName: videoUploadName(uriToUpload, asset.fileName ?? null),
+        });
         const fullUrl = toFullUrl(url);
         setVideos((v) => (v.includes(fullUrl) ? v : [...v, fullUrl]));
       }
     } catch (e) {
       setError(
-        (e as { error?: string }).error ?? "Video upload failed. Try a shorter clip or MP4/MOV."
+        thrownErrorMessage(e, "Video upload failed. Try a shorter clip or MP4/MOV.")
       );
     } finally {
       setUploadingAttachment(false);
@@ -415,6 +459,7 @@ export function CreatePostModal({
           videos,
           tags: selectedTags,
           taggedMemberIds: selectedFriends.map((f) => f.id),
+          taggedBusinessIds: taggedBusiness ? [taggedBusiness.id] : [],
         });
       } else {
         await createPost({
@@ -423,8 +468,9 @@ export function CreatePostModal({
           videos: videos.length ? videos : undefined,
           tags: selectedTags.length ? selectedTags : undefined,
           taggedMemberIds: selectedFriends.length ? selectedFriends.map((f) => f.id) : undefined,
-          ...(selectedBusiness
-            ? { sharedItemType: "business" as const, sharedItemId: selectedBusiness.id }
+          ...(taggedBusiness ? { taggedBusinessIds: [taggedBusiness.id] } : {}),
+          ...(postAsBusiness
+            ? { sharedItemType: "business" as const, sharedItemId: postAsBusiness.id }
             : {}),
           ...(initialGroupId ? { groupId: initialGroupId } : {}),
         });
@@ -434,8 +480,10 @@ export function CreatePostModal({
       onSuccess?.();
     } catch (e) {
       setError(
-        (e as { error?: string }).error ??
-          (isEditing ? "Failed to update post. Try again." : "Failed to create post. Try again.")
+        thrownErrorMessage(
+          e,
+          isEditing ? "Failed to update post. Try again." : "Failed to create post. Try again."
+        )
       );
     } finally {
       setSubmitting(false);
@@ -448,7 +496,8 @@ export function CreatePostModal({
     setVideos([]);
     setSelectedTags([]);
     setSelectedFriends([]);
-    setSelectedBusiness(null);
+    setPostAsBusiness(null);
+    setTaggedBusiness(null);
     setError("");
   };
 
@@ -499,11 +548,11 @@ export function CreatePostModal({
             title="Create post"
             subtitle="Choose who is posting so it appears under the right name in the feed."
             onSelectPersonal={() => {
-              setSelectedBusiness(null);
+              setPostAsBusiness(null);
               setComposePhase("ready");
             }}
             onSelectBusiness={(b) => {
-              setSelectedBusiness({ id: b.id, name: b.name, slug: b.slug ?? "" });
+              setPostAsBusiness({ id: b.id, name: b.name, slug: b.slug ?? "" });
               setComposePhase("ready");
             }}
           />
@@ -604,21 +653,32 @@ export function CreatePostModal({
             </View>
           )}
 
-          {/* Selected business display */}
-          {selectedBusiness && (
+          {/* Post as business (your listing) — set from identity picker or Business Hub */}
+          {postAsBusiness && (
             <View style={styles.chipRow}>
               <Pressable
                 style={styles.chip}
                 onPress={() => {
                   if (isEditing && editingPost?.type === "shared_business") return;
-                  setSelectedBusiness(null);
+                  setPostAsBusiness(null);
                 }}
               >
-                <Ionicons name="storefront" size={12} color={theme.colors.primary} />
-                <Text style={styles.chipText}>{selectedBusiness.name}</Text>
+                <Ionicons name="briefcase" size={12} color={theme.colors.primary} />
+                <Text style={styles.chipText}>Posting as {postAsBusiness.name}</Text>
                 {!(isEditing && editingPost?.type === "shared_business") ? (
                   <Ionicons name="close-circle" size={14} color="#999" />
                 ) : null}
+              </Pressable>
+            </View>
+          )}
+
+          {/* Tagged saved business (mention only) */}
+          {taggedBusiness && (
+            <View style={styles.chipRow}>
+              <Pressable style={styles.chip} onPress={() => setTaggedBusiness(null)}>
+                <Ionicons name="storefront" size={12} color={theme.colors.primary} />
+                <Text style={styles.chipText}>Tagging {taggedBusiness.name}</Text>
+                <Ionicons name="close-circle" size={14} color="#999" />
               </Pressable>
             </View>
           )}
@@ -902,12 +962,12 @@ export function CreatePostModal({
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => {
-                const selected = selectedBusiness?.id === item.id;
+                const selected = taggedBusiness?.id === item.id;
                 return (
                   <Pressable
                     style={[styles.pickerRow, selected && styles.pickerRowSelected]}
                     onPress={() => {
-                      setSelectedBusiness(selected ? null : item);
+                      setTaggedBusiness(selected ? null : item);
                       setBusinessPickerOpen(false);
                     }}
                   >

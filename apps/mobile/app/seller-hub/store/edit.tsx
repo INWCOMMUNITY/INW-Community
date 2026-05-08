@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -14,7 +14,7 @@ import {
   Switch,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
+import { useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiUploadFile, getToken } from "@/lib/api";
@@ -45,6 +45,7 @@ interface SellerProfile {
 
 export default function EditSellerProfileScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -144,7 +145,7 @@ export default function EditSellerProfileScreen() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     setError("");
     setSaving(true);
     try {
@@ -167,7 +168,38 @@ export default function EditSellerProfileScreen() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [
+    router,
+    acceptOffersOnResale,
+    name,
+    phone,
+    email,
+    fullDescription,
+    website,
+    address,
+    logoUrl,
+    coverPhotoUrl,
+  ]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable
+          onPress={() => void handleSave()}
+          disabled={saving}
+          style={[styles.headerSaveBtn, saving && styles.disabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Save seller profile"
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.headerSaveBtnText}>Save</Text>
+          )}
+        </Pressable>
+      ),
+    });
+  }, [navigation, saving, handleSave]);
 
   if (loading) {
     return (
@@ -184,26 +216,8 @@ export default function EditSellerProfileScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
     >
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.heading} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Edit Seller Profile</Text>
-        <Pressable
-          onPress={handleSave}
-          disabled={saving}
-          style={[styles.saveBtn, saving && styles.disabled]}
-        >
-          {saving ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.saveBtnText}>Save</Text>
-          )}
-        </Pressable>
-      </View>
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -351,31 +365,14 @@ export default function EditSellerProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    paddingTop: 48,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    backgroundColor: "#fff",
-  },
-  backBtn: { padding: 8 },
-  headerTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#333",
-    textAlign: "center",
-  },
-  saveBtn: {
-    paddingHorizontal: 16,
+  headerSaveBtn: {
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    marginRight: 4,
     borderRadius: 8,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: "rgba(255,255,255,0.22)",
   },
-  saveBtnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
+  headerSaveBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   disabled: { opacity: 0.6 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16 },

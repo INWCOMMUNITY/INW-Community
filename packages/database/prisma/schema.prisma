@@ -722,9 +722,11 @@ model Post {
   sourceCouponId  String?  @map("source_coupon_id")
   sourceRewardId  String?  @map("source_reward_id")
   sourceStoreItemId String? @map("source_store_item_id")
-  groupId         String?  @map("group_id")
-  taggedMemberIds String[] @default([]) @map("tagged_member_ids")
-  createdAt       DateTime @default(now()) @map("created_at")
+  groupId             String?  @map("group_id")
+  taggedMemberIds     String[] @default([]) @map("tagged_member_ids")
+  /// Saved-directory businesses the author tagged (distinct from shared_business / posting-as).
+  taggedBusinessIds   String[] @default([]) @map("tagged_business_ids")
+  createdAt           DateTime @default(now()) @map("created_at")
 
   author       Member        @relation(fields: [authorId], references: [id], onDelete: Cascade)
   comments     PostComment[]

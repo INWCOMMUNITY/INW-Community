@@ -119,6 +119,7 @@ const patchSchema = z.object({
     .optional(),
   tags: z.array(z.string()).optional(),
   taggedMemberIds: z.array(z.string()).optional(),
+  taggedBusinessIds: z.array(z.string()).max(10).optional(),
 });
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -183,6 +184,28 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       }
     }
 
+    let taggedBusinessIds: string[] | undefined;
+    if (data.taggedBusinessIds !== undefined) {
+      const raw = data.taggedBusinessIds;
+      if (raw.length) {
+        const uniq = [
+          ...new Set(raw.filter((id): id is string => typeof id === "string" && id.length > 0)),
+        ].slice(0, 10);
+        const savedRows = await prisma.savedItem.findMany({
+          where: {
+            memberId: session.user.id,
+            type: "business",
+            referenceId: { in: uniq },
+          },
+          select: { referenceId: true },
+        });
+        const allowedBiz = new Set(savedRows.map((s) => s.referenceId));
+        taggedBusinessIds = uniq.filter((id) => allowedBiz.has(id));
+      } else {
+        taggedBusinessIds = [];
+      }
+    }
+
     const photos =
       data.photos !== undefined ? data.photos.filter((p): p is string => typeof p === "string" && p.length > 0) : undefined;
     const videos =
@@ -200,6 +223,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         ...(videos !== undefined ? { videos } : {}),
         ...(links !== undefined ? { links: links.length ? (links as object) : undefined } : {}),
         ...(taggedMemberIds !== undefined ? { taggedMemberIds } : {}),
+        ...(taggedBusinessIds !== undefined ? { taggedBusinessIds } : {}),
       },
     });
 

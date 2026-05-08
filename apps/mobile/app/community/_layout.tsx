@@ -36,7 +36,26 @@ export default function CommunityLayout() {
           ),
         }}
       />
-      <Stack.Screen name="groups" options={{ title: "Community Groups" }} />
+      <Stack.Screen
+        name="groups"
+        options={{
+          title: "Community Groups",
+          headerLeft: () => (
+            <Pressable
+              onPress={() => router.back()}
+              hitSlop={12}
+              style={({ pressed }) => [{ padding: 4, opacity: pressed ? 0.85 : 1 }]}
+              {...(Platform.OS === "android"
+                ? { android_ripple: { color: "rgba(255,255,255,0.2)", borderless: true } }
+                : {})}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+            </Pressable>
+          ),
+        }}
+      />
       <Stack.Screen name="group-admin" options={{ title: "Group admin" }} />
       <Stack.Screen
         name="group/[slug]"

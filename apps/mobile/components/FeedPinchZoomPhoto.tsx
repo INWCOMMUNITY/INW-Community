@@ -7,22 +7,33 @@ import {
   Platform,
   Pressable,
   useWindowDimensions,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from "react-native";
+import type { MutableRefObject } from "react";
+import { FeedPinchZoomGalleryPage } from "@/components/FeedPinchZoomGalleryPage";
 import { Ionicons } from "@expo/vector-icons";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  Gesture,
+  GestureDetector,
+  ScrollView as GHScrollView,
+} from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
   interpolate,
   runOnJS,
+  runOnUI,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   withTiming,
+  type SharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const MEANINGFUL_ZOOM = 1.06;
 const MAX_SCALE = 5;
+const PINCH_GESTURE_MIN_SCALE = 0.82;
 const SNAP_MS = 220;
 const LIFT_MS = 280;
 const DOUBLE_TAP_PEAK = 2.25;
@@ -97,6 +108,93 @@ function liftScaleWorklet(liftP: number, originLS: number): number {
   return originLS + (1 - originLS) * liftP;
 }
 
+export type FeedGalleryPhotoEntry = {
+  uri: string;
+  intrinsicW: number;
+  intrinsicH: number;
+};
+
+type FeedGalleryZoomSlotProps = {
+  slotIdx: number;
+  photo: FeedGalleryPhotoEntry;
+  fittedW: number;
+  fittedH: number;
+  availW: number;
+  availH: number;
+  liftAnimTargetSlotSV: SharedValue<number>;
+  liftProgress: SharedValue<number>;
+  originLiftScale: SharedValue<number>;
+  originLiftTX: SharedValue<number>;
+  originLiftTY: SharedValue<number>;
+  activeGalleryIndexSV: SharedValue<number>;
+  galleryDismissScale: SharedValue<number>;
+  galleryInteractionNonceSV: SharedValue<number>;
+  isActive: boolean;
+  onPagerLockedChange: (locked: boolean) => void;
+  onPulseSnapComplete: () => void;
+};
+
+function FeedGalleryZoomSlot({
+  slotIdx,
+  photo,
+  fittedW,
+  fittedH,
+  availW,
+  availH,
+  liftAnimTargetSlotSV,
+  liftProgress,
+  originLiftScale,
+  originLiftTX,
+  originLiftTY,
+  activeGalleryIndexSV,
+  galleryDismissScale,
+  galleryInteractionNonceSV,
+  isActive,
+  onPagerLockedChange,
+  onPulseSnapComplete,
+}: FeedGalleryZoomSlotProps) {
+  const liftShellStyle = useAnimatedStyle(() => {
+    if (liftAnimTargetSlotSV.value !== slotIdx) {
+      return {};
+    }
+    const ls = liftScaleWorklet(liftProgress.value, originLiftScale.value);
+    const tx = interpolate(liftProgress.value, [0, 1], [originLiftTX.value, 0]);
+    const ty = interpolate(liftProgress.value, [0, 1], [originLiftTY.value, 0]);
+    return {
+      transform: [{ translateX: tx }, { translateY: ty }, { scale: ls }],
+    };
+  });
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={{
+        width: availW,
+        height: availH,
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <Animated.View style={[styles.liftWrap, liftShellStyle]}>
+        <FeedPinchZoomGalleryPage
+          uri={photo.uri}
+          fittedW={fittedW}
+          fittedH={fittedH}
+          availW={availW}
+          availH={availH}
+          slotIndex={slotIdx}
+          isActive={isActive}
+          activeGalleryIndexSV={activeGalleryIndexSV}
+          galleryDismissScale={galleryDismissScale}
+          resetNonceSV={galleryInteractionNonceSV}
+          onPagerLockedChange={onPagerLockedChange}
+          onPulseSnapComplete={onPulseSnapComplete}
+        />
+      </Animated.View>
+    </View>
+  );
+}
+
 export type FeedPinchZoomPhotoProps = {
   uri: string;
   thumbWidth: number;
@@ -104,6 +202,14 @@ export type FeedPinchZoomPhotoProps = {
   intrinsicW: number;
   intrinsicH: number;
   onZoomSessionChange?: (active: boolean) => void;
+  /** Multiple photos: horizontal pager inside zoom + glide-close to the visible thumbnail. */
+  galleryPhotos?: FeedGalleryPhotoEntry[];
+  /** Index within `galleryPhotos` for this thumbnail. */
+  gallerySlotIndex?: number;
+  /** Parallel to `galleryPhotos` — wrapper views for measureInWindow when closing. */
+  galleryThumbWrapRefs?: MutableRefObject<(View | null)[]>;
+  /** Fires when the user changes photo inside zoom (sync feed carousel). */
+  onGalleryIndexChange?: (gallerySlotIndex: number) => void;
 };
 
 export function FeedPinchZoomPhoto({
@@ -113,11 +219,25 @@ export function FeedPinchZoomPhoto({
   intrinsicW,
   intrinsicH,
   onZoomSessionChange,
+  galleryPhotos,
+  gallerySlotIndex = 0,
+  galleryThumbWrapRefs,
+  onGalleryIndexChange,
 }: FeedPinchZoomPhotoProps) {
   const { width: sw, height: sh } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [modalVisible, setModalVisible] = useState(false);
   const thumbRef = useRef<View>(null);
+  const isClosingRef = useRef(false);
+  const galleryMode = Boolean(galleryPhotos && galleryPhotos.length > 1);
+  const galleryScrollRef = useRef<GHScrollView>(null);
+  const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
+  const activeGalleryIndexRef = useRef(0);
+  const activeGalleryIndexSV = useSharedValue(0);
+  const galleryDismissScale = useSharedValue(1);
+  const liftAnimTargetSlotSV = useSharedValue(0);
+  const galleryInteractionNonceSV = useSharedValue(0);
+  const [galleryPagerLocked, setGalleryPagerLocked] = useState(false);
 
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -153,6 +273,29 @@ export function FeedPinchZoomPhoto({
     };
   }, [intrinsicW, intrinsicH, thumbWidth, thumbHeight, availW, availH]);
 
+  const fittedGallery = useMemo(() => {
+    if (!galleryPhotos?.length) return [];
+    return galleryPhotos.map((p) => {
+      const iw = p.intrinsicW > 0 ? p.intrinsicW : thumbWidth;
+      const ih = p.intrinsicH > 0 ? p.intrinsicH : thumbHeight;
+      const fit = Math.min(availW / iw, availH / ih);
+      return { fittedW: iw * fit, fittedH: ih * fit };
+    });
+  }, [galleryPhotos, availW, availH, thumbWidth, thumbHeight]);
+
+  useEffect(() => {
+    activeGalleryIndexRef.current = activeGalleryIndex;
+  }, [activeGalleryIndex]);
+
+  useEffect(() => {
+    activeGalleryIndexSV.value = activeGalleryIndex;
+  }, [activeGalleryIndex, activeGalleryIndexSV]);
+
+  useEffect(() => {
+    if (!galleryMode || !modalVisible) return;
+    galleryDismissScale.value = 1;
+  }, [activeGalleryIndex, galleryDismissScale, galleryMode, modalVisible]);
+
   const notifyActive = useCallback(
     (active: boolean) => {
       onZoomSessionChange?.(active);
@@ -160,34 +303,12 @@ export function FeedPinchZoomPhoto({
     [onZoomSessionChange]
   );
 
-  const handleRequestClose = useCallback(() => {
-    scale.value = 1;
-    translateX.value = 0;
-    translateY.value = 0;
-    liftProgress.value = 0;
-    dismissY.value = 0;
-    setModalVisible(false);
-    notifyActive(false);
-  }, [scale, translateX, translateY, liftProgress, dismissY, notifyActive]);
-
-  const finishSnapBack = useCallback(() => {
+  const finishHideAfterGlide = useCallback(() => {
+    isClosingRef.current = false;
     dismissY.value = 0;
     setModalVisible(false);
     notifyActive(false);
   }, [dismissY, notifyActive]);
-
-  /** Swipe-away dismiss (matches ImageGalleryViewer: fly off then hide). */
-  const handleDismissSwipe = useCallback(() => {
-    scale.value = 1;
-    translateX.value = 0;
-    translateY.value = 0;
-    liftProgress.value = 0;
-    setModalVisible(false);
-    notifyActive(false);
-    setTimeout(() => {
-      dismissY.value = 0;
-    }, 250);
-  }, [dismissY, scale, translateX, translateY, liftProgress, notifyActive]);
 
   const applyMeasuredThumbWindow = useCallback(
     (boxX: number, boxY: number, boxW: number, boxH: number) => {
@@ -221,6 +342,138 @@ export function FeedPinchZoomPhoto({
     ]
   );
 
+  const applyMeasuredGallerySlot = useCallback(
+    (slotIdx: number, boxX: number, boxY: number, boxW: number, boxH: number) => {
+      const photo = galleryPhotos?.[slotIdx];
+      const fitted = fittedGallery[slotIdx];
+      if (!photo || !fitted) return;
+      const iw = photo.intrinsicW > 0 ? photo.intrinsicW : thumbWidth;
+      const ih = photo.intrinsicH > 0 ? photo.intrinsicH : thumbHeight;
+      const fit = Math.min(boxW / iw, boxH / ih);
+      const ww = iw * fit;
+      const wh = ih * fit;
+      const ox = (boxW - ww) / 2;
+      const oy = (boxH - wh) / 2;
+      const wx = boxX + ox;
+      const wy = boxY + oy;
+      const cx = wx + ww / 2;
+      const cy = wy + wh / 2;
+      const fw = fitted.fittedW > 0 ? fitted.fittedW : ww;
+      originLiftScale.value = Math.max(ww / fw, 1e-4);
+      originLiftTX.value = cx - sw / 2;
+      originLiftTY.value = cy - stageCenterY;
+    },
+    [
+      galleryPhotos,
+      fittedGallery,
+      thumbWidth,
+      thumbHeight,
+      originLiftScale,
+      originLiftTX,
+      originLiftTY,
+      sw,
+      stageCenterY,
+    ]
+  );
+
+  /** Glide overlay image back to the thumbnail (reverse open), then unmount modal. */
+  const glideCloseToThumbnail = useCallback(
+    (skipPinchReset: boolean) => {
+      if (!modalVisible || isClosingRef.current) return;
+      isClosingRef.current = true;
+
+      const runLiftDownInner = () => {
+        const idx = activeGalleryIndexRef.current;
+        const wrapEl =
+          galleryMode && galleryThumbWrapRefs?.current?.[idx] != null
+            ? galleryThumbWrapRefs.current[idx]
+            : thumbRef.current;
+        wrapEl?.measureInWindow((x, y, w, h) => {
+          if (galleryMode && galleryPhotos?.length) {
+            applyMeasuredGallerySlot(idx, x, y, w, h);
+          } else {
+            applyMeasuredThumbWindow(x, y, w, h);
+          }
+          liftProgress.value = withTiming(0, { duration: LIFT_MS }, (finished) => {
+            if (finished) runOnJS(finishHideAfterGlide)();
+          });
+        });
+      };
+
+      const prepGalleryClose = () => {
+        if (!galleryMode) return;
+        galleryDismissScale.value = 1;
+        liftAnimTargetSlotSV.value = activeGalleryIndexRef.current;
+      };
+
+      if (galleryMode) {
+        prepGalleryClose();
+        runLiftDownInner();
+        return;
+      }
+
+      if (skipPinchReset) {
+        runLiftDownInner();
+        return;
+      }
+
+      runOnUI(() => {
+        "worklet";
+        const zoomed =
+          scale.value > MEANINGFUL_ZOOM ||
+          Math.abs(translateX.value) > 1 ||
+          Math.abs(translateY.value) > 1;
+        if (zoomed) {
+          translateX.value = withTiming(0, { duration: SNAP_MS });
+          translateY.value = withTiming(0, { duration: SNAP_MS });
+          scale.value = withTiming(1, { duration: SNAP_MS }, (done) => {
+            if (done) runOnJS(runLiftDownInner)();
+          });
+        } else {
+          runOnJS(runLiftDownInner)();
+        }
+      })();
+    },
+    [
+      modalVisible,
+      galleryMode,
+      galleryPhotos,
+      galleryThumbWrapRefs,
+      galleryDismissScale,
+      liftAnimTargetSlotSV,
+      applyMeasuredGallerySlot,
+      applyMeasuredThumbWindow,
+      liftProgress,
+      scale,
+      translateX,
+      translateY,
+      finishHideAfterGlide,
+    ]
+  );
+
+  const handleRequestClose = useCallback(() => {
+    glideCloseToThumbnail(false);
+  }, [glideCloseToThumbnail]);
+
+  const finishSnapBack = useCallback(() => {
+    dismissY.value = 0;
+    glideCloseToThumbnail(true);
+  }, [dismissY, glideCloseToThumbnail]);
+
+  /** Swipe-away dismiss (matches ImageGalleryViewer: fly off then hide). */
+  const handleDismissSwipe = useCallback(() => {
+    isClosingRef.current = false;
+    scale.value = 1;
+    translateX.value = 0;
+    translateY.value = 0;
+    liftProgress.value = 0;
+    setModalVisible(false);
+    notifyActive(false);
+    setTimeout(() => {
+      dismissY.value = 0;
+    }, 250);
+  }, [dismissY, scale, translateX, translateY, liftProgress, notifyActive]);
+
   const runDoubleTapPulse = useCallback(
     (fx: number, fy: number) => {
       const peak = DOUBLE_TAP_PEAK;
@@ -242,7 +495,7 @@ export function FeedPinchZoomPhoto({
 
   const onThumbnailDoubleTap = useCallback(
     (absoluteX: number, absoluteY: number) => {
-      if (modalVisible) return;
+      if (modalVisible || isClosingRef.current) return;
       thumbRef.current?.measureInWindow((x, y, w, h) => {
         applyMeasuredThumbWindow(x, y, w, h);
         const iw = intrinsicW > 0 ? intrinsicW : thumbWidth;
@@ -262,11 +515,14 @@ export function FeedPinchZoomPhoto({
         setModalVisible(true);
         notifyActive(true);
         // Run zoom after lift settles so focal offsets match the centered stage.
-        setTimeout(() => runDoubleTapPulse(fx, fy), LIFT_MS);
+        if (!galleryMode) {
+          setTimeout(() => runDoubleTapPulse(fx, fy), LIFT_MS);
+        }
       });
     },
     [
       modalVisible,
+      galleryMode,
       applyMeasuredThumbWindow,
       notifyActive,
       runDoubleTapPulse,
@@ -280,7 +536,7 @@ export function FeedPinchZoomPhoto({
   );
 
   const openZoomFromSingleTap = useCallback(() => {
-    if (modalVisible) return;
+    if (modalVisible || isClosingRef.current) return;
     thumbRef.current?.measureInWindow((x, y, w, h) => {
       applyMeasuredThumbWindow(x, y, w, h);
       setModalVisible(true);
@@ -295,12 +551,36 @@ export function FeedPinchZoomPhoto({
       translateY.value = 0;
       liftProgress.value = 0;
       dismissY.value = 0;
+      isClosingRef.current = false;
+      setGalleryPagerLocked(false);
       return;
     }
+
     dismissY.value = 0;
+
+    if (galleryMode && galleryPhotos?.length) {
+      liftProgress.value = 0;
+      const idx = Math.min(Math.max(0, gallerySlotIndex), galleryPhotos.length - 1);
+      activeGalleryIndexRef.current = idx;
+      setActiveGalleryIndex(idx);
+      activeGalleryIndexSV.value = idx;
+      liftAnimTargetSlotSV.value = idx;
+      galleryDismissScale.value = 1;
+      galleryInteractionNonceSV.value += 1;
+      scale.value = 1;
+      translateX.value = 0;
+      translateY.value = 0;
+      queueMicrotask(() => {
+        galleryScrollRef.current?.scrollTo({ x: idx * sw, animated: false });
+      });
+      liftProgress.value = withTiming(1, { duration: LIFT_MS });
+      return;
+    }
+
     liftProgress.value = 0;
     liftProgress.value = withTiming(1, { duration: LIFT_MS });
-  }, [modalVisible, scale, translateX, translateY, liftProgress, dismissY]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run open setup only when modal toggles on; `galleryPhotos` ref churn from parent was resetting the pager mid-session
+  }, [modalVisible]);
 
   const thumbThumbnailGestures = useMemo(
     () =>
@@ -330,7 +610,7 @@ export function FeedPinchZoomPhoto({
           const oldScale = scale.value;
           const newScale = Math.min(
             MAX_SCALE,
-            Math.max(0.92, pinchBaseScale.value * e.scale)
+            Math.max(PINCH_GESTURE_MIN_SCALE, pinchBaseScale.value * e.scale)
           );
           const ls = liftScaleWorklet(liftProgress.value, originLiftScale.value);
           const effOld = ls * oldScale;
@@ -372,10 +652,12 @@ export function FeedPinchZoomPhoto({
   const panGesture = useMemo(
     () =>
       Gesture.Pan()
+        .maxPointers(1)
+        .averageTouches(Platform.OS === "android")
         .manualActivation(true)
         .onTouchesMove((_e, state) => {
           const ls = liftScaleWorklet(liftProgress.value, originLiftScale.value);
-          if (ls * scale.value > 1.02) {
+          if (ls * scale.value > 1.03) {
             state.activate();
           } else {
             state.fail();
@@ -438,7 +720,8 @@ export function FeedPinchZoomPhoto({
         })
         .onTouchesMove((e, state) => {
           const ls = liftScaleWorklet(liftProgress.value, originLiftScale.value);
-          if (ls * scale.value >= MEANINGFUL_ZOOM || e.allTouches.length > 1) {
+          const zs = galleryMode ? galleryDismissScale.value : scale.value;
+          if (ls * zs >= MEANINGFUL_ZOOM || e.allTouches.length > 1) {
             state.fail();
             return;
           }
@@ -476,7 +759,7 @@ export function FeedPinchZoomPhoto({
             dismissY.value = withTiming(0, { duration: 200 });
           }
         }),
-    [sh, handleDismissSwipe]
+    [sh, handleDismissSwipe, galleryMode, galleryDismissScale, scale]
   );
 
   const modalDoubleTapGesture = useMemo(
@@ -544,8 +827,9 @@ export function FeedPinchZoomPhoto({
       [0, 0.18, 0.52, 0.88],
       Extrapolation.CLAMP
     );
+    const zs = galleryMode ? galleryDismissScale.value : scale.value;
     const pinchBoost = interpolate(
-      scale.value,
+      zs,
       [1, MEANINGFUL_ZOOM, MAX_SCALE],
       [0, 0.06, 0.12],
       Extrapolation.CLAMP
@@ -560,7 +844,23 @@ export function FeedPinchZoomPhoto({
     return {
       opacity: base * dismissFade,
     };
-  });
+  }, [galleryMode]);
+
+  const handleGalleryMomentumEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!galleryPhotos?.length) return;
+      const idx = Math.round(e.nativeEvent.contentOffset.x / sw);
+      const clamped = Math.max(0, Math.min(idx, galleryPhotos.length - 1));
+      setActiveGalleryIndex(clamped);
+      liftAnimTargetSlotSV.value = clamped;
+      onGalleryIndexChange?.(clamped);
+    },
+    [galleryPhotos, sw, onGalleryIndexChange, liftAnimTargetSlotSV]
+  );
+
+  const handleGalleryPulseSnapComplete = useCallback(() => {
+    glideCloseToThumbnail(true);
+  }, [glideCloseToThumbnail]);
 
   return (
     <>
@@ -597,22 +897,83 @@ export function FeedPinchZoomPhoto({
           >
             <Animated.View pointerEvents="none" style={[styles.modalBackdrop, backdropAnimStyle]} />
           </Pressable>
-          <GestureDetector gesture={composedModalGesture}>
-            <Animated.View
-              pointerEvents="box-none"
-              style={[styles.modalGestureLayer, dismissDragStyle]}
-            >
-              <View pointerEvents="box-none" style={styles.modalGestureInner}>
-                <Animated.View style={[styles.liftWrap, liftAnimStyle]}>
-                  <Animated.View
-                    style={[styles.imageFrame, { width: fittedW, height: fittedH }, pinchPanAnimStyle]}
-                  >
-                    <Image source={{ uri }} style={styles.overlayImage} resizeMode="contain" />
+          {galleryMode && galleryPhotos ? (
+            <GestureDetector gesture={dismissPanGesture}>
+              <Animated.View
+                pointerEvents="box-none"
+                style={[styles.modalGestureLayer, dismissDragStyle]}
+              >
+                <GHScrollView
+                  ref={galleryScrollRef}
+                  horizontal
+                  pagingEnabled
+                  nestedScrollEnabled={Platform.OS === "android"}
+                  scrollEnabled={!galleryPagerLocked}
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  onMomentumScrollEnd={handleGalleryMomentumEnd}
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ flexGrow: 1, minHeight: availH }}
+                >
+                  {galleryPhotos.map((photo, idx) => {
+                    const fitted = fittedGallery[idx];
+                    if (!fitted) return null;
+                    return (
+                      <View
+                        key={`${photo.uri}-${idx}`}
+                        pointerEvents="box-none"
+                        style={{ width: sw, flex: 1, minHeight: availH }}
+                        collapsable={false}
+                      >
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Dismiss photo zoom"
+                          onPress={handleRequestClose}
+                          style={StyleSheet.absoluteFillObject}
+                        />
+                        <FeedGalleryZoomSlot
+                          slotIdx={idx}
+                          photo={photo}
+                          fittedW={fitted.fittedW}
+                          fittedH={fitted.fittedH}
+                          availW={availW}
+                          availH={availH}
+                          liftAnimTargetSlotSV={liftAnimTargetSlotSV}
+                          liftProgress={liftProgress}
+                          originLiftScale={originLiftScale}
+                          originLiftTX={originLiftTX}
+                          originLiftTY={originLiftTY}
+                          activeGalleryIndexSV={activeGalleryIndexSV}
+                          galleryDismissScale={galleryDismissScale}
+                          galleryInteractionNonceSV={galleryInteractionNonceSV}
+                          isActive={activeGalleryIndex === idx}
+                          onPagerLockedChange={setGalleryPagerLocked}
+                          onPulseSnapComplete={handleGalleryPulseSnapComplete}
+                        />
+                      </View>
+                    );
+                  })}
+                </GHScrollView>
+              </Animated.View>
+            </GestureDetector>
+          ) : (
+            <GestureDetector gesture={composedModalGesture}>
+              <Animated.View
+                pointerEvents="box-none"
+                style={[styles.modalGestureLayer, dismissDragStyle]}
+              >
+                <View pointerEvents="box-none" style={styles.modalGestureInner}>
+                  <Animated.View style={[styles.liftWrap, liftAnimStyle]}>
+                    <Animated.View
+                      style={[styles.imageFrame, { width: fittedW, height: fittedH }, pinchPanAnimStyle]}
+                    >
+                      <Image source={{ uri }} style={styles.overlayImage} resizeMode="contain" />
+                    </Animated.View>
                   </Animated.View>
-                </Animated.View>
-              </View>
-            </Animated.View>
-          </GestureDetector>
+                </View>
+              </Animated.View>
+            </GestureDetector>
+          )}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close photo zoom"

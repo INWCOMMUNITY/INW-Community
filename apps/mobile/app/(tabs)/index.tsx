@@ -10,6 +10,7 @@ import {
   Platform,
   FlatList,
   type ListRenderItemInfo,
+  type ViewToken,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
@@ -56,6 +57,9 @@ export default function CommunityScreen() {
   const [shareToChatPost, setShareToChatPost] = useState<{ id: string; slug?: string } | null>(null);
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+  /** Feed videos autoplay only when their card is sufficiently on-screen. */
+  const [feedVisiblePostIds, setFeedVisiblePostIds] = useState<Set<string>>(new Set());
+  const [feedViewabilityReady, setFeedViewabilityReady] = useState(false);
   const [pendingIncomingFriendRequests, setPendingIncomingFriendRequests] = useState(0);
   const loadPendingFriendRequests = useCallback(() => {
     if (signedIn === false) {
@@ -473,6 +477,25 @@ export default function CommunityScreen() {
     loadMore();
   }, [nextCursor, loadingMore, loading, loadMore]);
 
+  const onFeedViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const next = new Set<string>();
+      for (const v of viewableItems) {
+        if (v.isViewable && v.item && typeof (v.item as FeedPost).id === "string") {
+          next.add((v.item as FeedPost).id);
+        }
+      }
+      setFeedVisiblePostIds(next);
+      setFeedViewabilityReady(true);
+    },
+    []
+  );
+
+  const feedViewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 40,
+    minimumViewTime: 100,
+  }).current;
+
   const renderPost = useCallback(
     ({ item }: ListRenderItemInfo<FeedPost>) => (
       <FeedPostCard
@@ -487,6 +510,9 @@ export default function CommunityScreen() {
         onDeletePost={handleDeletePost}
         viewerManagedBusinessIds={viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined}
         onOpenCoupon={(id) => setCouponPopupId(id)}
+        isFeedCardVisible={
+          !feedViewabilityReady ? false : feedVisiblePostIds.has(item.id)
+        }
       />
     ),
     [
@@ -500,6 +526,8 @@ export default function CommunityScreen() {
       handleDeletePost,
       viewerManagedBusinessIds,
       signedIn,
+      feedViewabilityReady,
+      feedVisiblePostIds,
     ]
   );
 
@@ -523,6 +551,8 @@ export default function CommunityScreen() {
         data={posts}
         keyExtractor={(item) => item.id}
         renderItem={renderPost}
+        viewabilityConfig={feedViewabilityConfig}
+        onViewableItemsChanged={onFeedViewableItemsChanged}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={listEmpty}
         ListFooterComponent={listFooter}

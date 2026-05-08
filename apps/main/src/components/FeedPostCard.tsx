@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
-
+import { IonIcon } from "@/components/IonIcon";
 const TRUNCATE_LENGTH = 200;
 
 /** NWC-style leaf for post likes (outline stroke). */
@@ -553,20 +553,37 @@ export function FeedPostCard({
                   : "grid-cols-2"
               }`}
             >
-              {displayMedia.map((url, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => openGallery(allMedia, i)}
-                  className="relative aspect-square w-full text-left rounded overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-gray-400 cursor-zoom-in"
-                >
-                  {isVideoUrl(url) ? (
+              {displayMedia.map((url, i) =>
+                isVideoUrl(url) ? (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => openGallery(allMedia, i)}
+                    className="relative aspect-square w-full text-left rounded overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-gray-400"
+                  >
                     <video src={url} className="w-full h-full object-cover pointer-events-none" />
-                  ) : (
-                    <Image src={url} alt="" fill className="object-cover" sizes="(max-width: 640px) 50vw, 600px" quality={95} />
-                  )}
-                </button>
-              ))}
+                  </button>
+                ) : (
+                  <div
+                    key={i}
+                    className="relative aspect-square w-full rounded overflow-hidden bg-neutral-100 touch-manipulation"
+                    role="img"
+                    aria-label={`Photo ${i + 1} of ${displayMedia.length}.`}
+                  >
+                    <div className="relative w-full h-full min-h-[80px]">
+                      <Image
+                        src={url}
+                        alt=""
+                        fill
+                        className="object-cover select-none"
+                        sizes="(max-width: 640px) 50vw, 600px"
+                        quality={95}
+                        draggable={false}
+                      />
+                    </div>
+                  </div>
+                )
+              )}
             </div>
             {hasMoreMedia && !showAllPhotos && (
               <button
@@ -626,7 +643,13 @@ export function FeedPostCard({
               {isVideoUrl(galleryItem) ? (
                 <video src={galleryItem} className="max-w-full max-h-[85vh] rounded" controls autoPlay />
               ) : (
-                <img src={galleryItem} alt="" className="max-w-full max-h-[85vh] object-contain rounded" />
+                <img
+                  key={`${galleryIndex}-${galleryItem}`}
+                  src={galleryItem}
+                  alt=""
+                  className="max-w-full max-h-[85vh] w-auto h-auto object-contain rounded select-none"
+                  draggable={false}
+                />
               )}
             </div>
             {galleryMedia.length > 1 && (
@@ -649,9 +672,17 @@ export function FeedPostCard({
             <button
               type="button"
               onClick={() => setCommentsOpen((open) => !open)}
-              className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1.5"
+              aria-label={
+                post.commentCount > 0
+                  ? `View comments, ${post.commentCount} comments`
+                  : "View comments"
+              }
             >
-              Comment{post.commentCount > 0 ? ` (${post.commentCount})` : "s"}
+              <IonIcon name="chatbubble-outline" size={20} className="text-gray-500" />
+              {post.commentCount > 0 ? (
+                <span className="tabular-nums text-gray-600">{post.commentCount}</span>
+              ) : null}
             </button>
             <span className="flex-1 py-2 text-sm text-gray-400 text-center">—</span>
           </>
@@ -678,17 +709,26 @@ export function FeedPostCard({
             <button
               type="button"
               onClick={() => setCommentsOpen((open) => !open)}
-              className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1.5"
+              aria-label={
+                post.commentCount > 0
+                  ? `Comment, ${post.commentCount} comments`
+                  : "Comment"
+              }
             >
-              Comment {post.commentCount > 0 && `(${post.commentCount})`}
+              <IonIcon name="chatbubble-outline" size={20} className="text-gray-500" />
+              {post.commentCount > 0 ? (
+                <span className="tabular-nums">{post.commentCount}</span>
+              ) : null}
             </button>
             {onShare && (
               <button
                 type="button"
                 onClick={() => onShare(post.id)}
-                className="flex-1 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                className="flex-1 py-2 text-sm text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1.5"
+                aria-label="Share post"
               >
-                Share
+                <IonIcon name="share-outline" size={20} className="text-gray-500" />
               </button>
             )}
           </>

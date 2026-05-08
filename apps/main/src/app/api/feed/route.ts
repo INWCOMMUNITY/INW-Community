@@ -5,6 +5,11 @@ import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 import { isFeedPostRenderable } from "@/lib/feed-post-visible";
 import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
 import { verifiedMemberWhere } from "@/lib/member-public-visibility";
+import {
+  collectTaggedBusinessIdsFromPosts,
+  mergePostBusinessLookupIds,
+  taggedBusinessesFromIds,
+} from "@/lib/feed-tagged-businesses";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -32,6 +37,10 @@ export async function GET(req: NextRequest) {
     const postIds = items.map((p) => p.id);
     const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
     const sourceBusinessIds = items.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
+    const businessLookupIdsPublic = mergePostBusinessLookupIds(
+      sourceBusinessIds,
+      collectTaggedBusinessIdsFromPosts(items)
+    );
     const sourceCouponIds = items.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
     const sourceRewardIds = items.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
     const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
@@ -47,9 +56,9 @@ export async function GET(req: NextRequest) {
             },
           })
         : [],
-      sourceBusinessIds.length > 0
+      businessLookupIdsPublic.length > 0
         ? prisma.business.findMany({
-            where: { id: { in: sourceBusinessIds } },
+            where: { id: { in: businessLookupIdsPublic } },
             select: { id: true, name: true, slug: true, shortDescription: true, logoUrl: true },
           })
         : [],
@@ -123,6 +132,7 @@ export async function GET(req: NextRequest) {
         tags: p.postTags?.map((pt) => pt.tag) ?? [],
         sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
         sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
+        taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
         sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
         sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
         sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
@@ -291,6 +301,10 @@ export async function GET(req: NextRequest) {
   const postIds = items.map((p) => p.id);
   const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
   const sourceBusinessIds = items.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
+  const businessLookupIdsAuth = mergePostBusinessLookupIds(
+    sourceBusinessIds,
+    collectTaggedBusinessIdsFromPosts(items)
+  );
   const sourceCouponIds = items.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
   const sourceRewardIds = items.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
@@ -308,9 +322,9 @@ export async function GET(req: NextRequest) {
           },
         })
       : [],
-    sourceBusinessIds.length > 0
+    businessLookupIdsAuth.length > 0
       ? prisma.business.findMany({
-          where: { id: { in: sourceBusinessIds } },
+          where: { id: { in: businessLookupIdsAuth } },
           select: { id: true, name: true, slug: true, shortDescription: true, logoUrl: true },
         })
       : [],
@@ -454,6 +468,7 @@ export async function GET(req: NextRequest) {
       tags: p.postTags?.map((pt) => pt.tag) ?? [],
       sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
       sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
+      taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
       sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
       sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
       sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,

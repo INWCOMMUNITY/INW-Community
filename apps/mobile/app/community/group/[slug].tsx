@@ -12,6 +12,7 @@ import {
   RefreshControl,
   FlatList,
   Platform,
+  type ViewToken,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -72,6 +73,26 @@ export default function GroupDetailScreen() {
   const [coverGalleryIndex, setCoverGalleryIndex] = useState(0);
   const [shareToChatPost, setShareToChatPost] = useState<{ id: string } | null>(null);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+  const [groupFeedVisibleIds, setGroupFeedVisibleIds] = useState<Set<string>>(new Set());
+  const [groupFeedViewabilityReady, setGroupFeedViewabilityReady] = useState(false);
+  const groupFeedViewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 40,
+    minimumViewTime: 100,
+  }).current;
+
+  const onGroupFeedViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const next = new Set<string>();
+      for (const v of viewableItems) {
+        if (v.isViewable && v.item && typeof (v.item as FeedPost).id === "string") {
+          next.add((v.item as FeedPost).id);
+        }
+      }
+      setGroupFeedVisibleIds(next);
+      setGroupFeedViewabilityReady(true);
+    },
+    []
+  );
 
   useEffect(() => {
     if (!member) {
@@ -540,6 +561,8 @@ export default function GroupDetailScreen() {
       contentContainerStyle={styles.content}
       data={group.isMember ? posts : []}
       keyExtractor={(item) => item.id}
+      viewabilityConfig={groupFeedViewabilityConfig}
+      onViewableItemsChanged={onGroupFeedViewableItemsChanged}
       renderItem={({ item }) => (
         <View style={styles.feedPostWrap}>
           <FeedPostCard
@@ -554,6 +577,9 @@ export default function GroupDetailScreen() {
             onDeletePost={handleDeletePost}
             viewerManagedBusinessIds={
               viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+            }
+            isFeedCardVisible={
+              !groupFeedViewabilityReady ? false : groupFeedVisibleIds.has(item.id)
             }
           />
         </View>
