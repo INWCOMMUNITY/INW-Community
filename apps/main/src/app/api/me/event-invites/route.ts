@@ -20,9 +20,11 @@ export async function GET(req: NextRequest) {
         ? { status: { in: ["accepted", "declined", "maybe"] } }
         : {};
 
+  /** Friend invites only — self-RSVP rows (inviter === invitee) stay on My Events, not Invites. */
   const invites = await prisma.eventInvite.findMany({
     where: {
       inviteeId: session.user.id,
+      inviterId: { not: session.user.id },
       ...whereStatus,
     },
     include: {

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { apiPost, apiDelete, getToken } from "@/lib/api";
+import { theme } from "@/lib/theme";
 
 interface HeartSaveButtonProps {
   type: "event" | "business" | "coupon" | "store_item" | "reward";
@@ -69,7 +70,7 @@ export function HeartSaveButton({
       <Ionicons
         name={saved ? "heart" : "heart-outline"}
         size={size}
-        color={saved ? "#e74c3c" : "#555"}
+        color={saved ? theme.colors.cream : "#555"}
       />
     </Pressable>
   );

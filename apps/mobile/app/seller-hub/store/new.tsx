@@ -13,9 +13,12 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
+import { useHeaderHeight } from "@react-navigation/elements";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import {
   theme as defaultTheme,
@@ -91,6 +94,9 @@ export default function ListItemScreen() {
   const theme = useTheme();
   const router = useRouter();
   const navigation = useNavigation();
+  const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const params = useLocalSearchParams<{ draftId?: string; edit?: string; listingType?: string }>();
   const draftId = params.draftId;
   const editId = params.edit?.trim() || undefined;
@@ -427,6 +433,19 @@ export default function ListItemScreen() {
       })
       .catch(() => {})
       .finally(() => setPoliciesLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const subShow = Keyboard.addListener(showEvt, (e) =>
+      setKeyboardHeight(e.endCoordinates?.height ?? 0)
+    );
+    const subHide = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
   }, []);
 
   const syncShippingPolicy = () => {
@@ -778,14 +797,17 @@ export default function ListItemScreen() {
     </Modal>
     <KeyboardAvoidingView
       style={styles.keyboardAvoid}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(headerHeight, 56) : 0}
     >
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: 40 + insets.bottom + keyboardHeight },
+      ]}
       keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
     >
       <View style={styles.typeRow}>
         <Text style={styles.label}>Listing type</Text>
@@ -885,7 +907,9 @@ export default function ListItemScreen() {
         value={description}
         onChangeText={setDescription}
         multiline
+        scrollEnabled={false}
         numberOfLines={4}
+        textAlignVertical="top"
         autoCorrect={true}
       />
 
@@ -1184,8 +1208,10 @@ export default function ListItemScreen() {
                     }}
                     editable={!useSellerProfileShipping}
                     multiline
+                    scrollEnabled={false}
                     autoCorrect={true}
                     numberOfLines={3}
+                    textAlignVertical="top"
                   />
                   <Pressable
                     style={({ pressed }) => [
@@ -1270,7 +1296,9 @@ export default function ListItemScreen() {
                     autoCorrect={true}
                     editable={!useSellerProfileLocalDelivery}
                     multiline
+                    scrollEnabled={false}
                     numberOfLines={3}
+                    textAlignVertical="top"
                   />
                   <Pressable
                     style={({ pressed }) => [styles.syncBtn, pressed && { opacity: 0.8 }]}
@@ -1337,8 +1365,10 @@ export default function ListItemScreen() {
                     }}
                     editable={!useSellerProfilePickup}
                     multiline
+                    scrollEnabled={false}
                     autoCorrect={true}
                     numberOfLines={3}
+                    textAlignVertical="top"
                   />
                   <Pressable
                     style={({ pressed }) => [

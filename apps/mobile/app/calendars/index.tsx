@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Pressable, Image, Dimensions, Text } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ScrollView,
+  StyleSheet,
+  Pressable,
+  Image,
+  Dimensions,
+  Text,
+  ActivityIndicator,
+} from "react-native";
 import { View } from "@/components/Themed";
 import { theme } from "@/lib/theme";
 import { CALENDAR_TYPES, getCalendarImage, type CalendarType } from "@/lib/calendars";
-import { fetchEvents } from "@/lib/events-api";
-import { useRouter } from "expo-router";
+import { fetchEvents, fetchEventsAllCalendars, type EventItem } from "@/lib/events-api";
+import { formatTime12h } from "@/lib/format-time";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { PopupModal } from "@/components/PopupModal";
 import { PostEventForm, type PostEventAsContext } from "@/components/PostEventForm";
@@ -12,17 +21,64 @@ import { PostEventAsPickerModal } from "@/components/PostEventAsPickerModal";
 import { getToken, apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
+const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
 const { width } = Dimensions.get("window");
 const gap = 12;
 const padding = 16;
 const cols = 2;
 const tileSize = (width - padding * 2 - gap * (cols - 1)) / cols;
 
+const UPCOMING_THUMB = 56;
+
+function resolveEventPhotoUrl(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith("http")
+    ? path
+    : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 function endOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function endOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
+/** YYYY-MM-DD in local time (not UTC) for range checks. */
+function toYmdLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Date portion from API (ISO or date-only). */
+function eventDateKeyFromApi(isoDate: string): string {
+  return (isoDate?.split("T")[0] ?? isoDate?.slice(0, 10) ?? "").trim();
+}
+
+/** Today through two days ahead = 3 calendar days inclusive. */
+function upcomingEventsRange(): { from: Date; to: Date; fromKey: string; toKey: string } {
+  const now = new Date();
+  const from = startOfDay(now);
+  const lastDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+  const to = endOfDay(lastDay);
+  return {
+    from,
+    to,
+    fromKey: toYmdLocal(from),
+    toKey: toYmdLocal(lastDay),
+  };
 }
 
 function profileDisplayNameFromMember(
@@ -35,7 +91,15 @@ function profileDisplayNameFromMember(
 
 export default function CalendarsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ section?: string | string[] }>();
+  const scrollRef = useRef<ScrollView>(null);
   const { member } = useAuth();
+
+  const sectionParam = useMemo(() => {
+    const s = params.section;
+    if (Array.isArray(s)) return s[0];
+    return s;
+  }, [params.section]);
   const [postEventModalVisible, setPostEventModalVisible] = useState(false);
   const [postAsPickerVisible, setPostAsPickerVisible] = useState(false);
   const [postAsPickerBusinesses, setPostAsPickerBusinesses] = useState<
@@ -43,6 +107,9 @@ export default function CalendarsScreen() {
   >([]);
   const [postEventAs, setPostEventAs] = useState<PostEventAsContext | null>(null);
   const [postEventFormSeed, setPostEventFormSeed] = useState(0);
+  const [upcomingEvents, setUpcomingEvents] = useState<EventItem[]>([]);
+  const [upcomingLoading, setUpcomingLoading] = useState(true);
+  const [upcomingError, setUpcomingError] = useState(false);
 
   // Prefetch current month for first calendar so it loads instantly when tapped
   useEffect(() => {
@@ -52,6 +119,63 @@ export default function CalendarsScreen() {
       fetchEvents(firstType, startOfMonth(now), endOfMonth(now)).catch(() => {});
     }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setUpcomingLoading(true);
+      setUpcomingError(false);
+      const { from, to, fromKey, toKey } = upcomingEventsRange();
+      try {
+        const list = await fetchEventsAllCalendars(from, to);
+        if (cancelled) return;
+        const inWindow = list.filter((e) => {
+          const k = eventDateKeyFromApi(e.date);
+          return k >= fromKey && k <= toKey;
+        });
+        inWindow.sort((a, b) => {
+          const da = eventDateKeyFromApi(a.date).localeCompare(eventDateKeyFromApi(b.date));
+          if (da !== 0) return da;
+          return (a.time ?? "").localeCompare(b.time ?? "");
+        });
+        setUpcomingEvents(inWindow);
+      } catch {
+        if (!cancelled) {
+          setUpcomingError(true);
+          setUpcomingEvents([]);
+        }
+      } finally {
+        if (!cancelled) setUpcomingLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [member?.id]);
+
+  const [upcomingSectionY, setUpcomingSectionY] = useState(0);
+
+  useEffect(() => {
+    if (sectionParam !== "upcoming") return;
+    const scrollUpcoming = () => {
+      const y = upcomingSectionY;
+      if (y <= 0) return;
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+    };
+    const t1 = requestAnimationFrame(() => scrollUpcoming());
+    const t2 = setTimeout(scrollUpcoming, 250);
+    const t3 = setTimeout(scrollUpcoming, 600);
+    return () => {
+      cancelAnimationFrame(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [
+    sectionParam,
+    upcomingSectionY,
+    upcomingLoading,
+    upcomingEvents.length,
+  ]);
 
   const profileName = profileDisplayNameFromMember(member);
 
@@ -91,7 +215,11 @@ export default function CalendarsScreen() {
   }, []);
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.scroll}
+      contentContainerStyle={styles.container}
+    >
       <View style={styles.header} lightColor="#fff" darkColor="#fff">
         <Text style={styles.title}>Northwest Community Calendars</Text>
         <Text style={styles.subtitle}>
@@ -152,6 +280,81 @@ export default function CalendarsScreen() {
             </Pressable>
           );
         })}
+      </View>
+
+      <View
+        style={styles.upcomingSection}
+        lightColor="#fff"
+        darkColor="#fff"
+        onLayout={(e) => setUpcomingSectionY(e.nativeEvent.layout.y)}
+      >
+        <Text style={styles.upcomingTitle}>Upcoming</Text>
+        <Text style={styles.upcomingSubtitle}>Events in the next 3 days on any calendar</Text>
+        {upcomingLoading ? (
+          <View style={styles.upcomingLoadingWrap}>
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+          </View>
+        ) : upcomingError ? (
+          <Text style={styles.upcomingEmpty}>Could not load upcoming events.</Text>
+        ) : upcomingEvents.length === 0 ? (
+          <Text style={styles.upcomingEmpty}>No events scheduled in the next 3 days.</Text>
+        ) : (
+          upcomingEvents.map((ev) => {
+            const calLabel =
+              CALENDAR_TYPES.find((c) => c.value === ev.calendarType)?.label ?? null;
+            const when = new Date(ev.date).toLocaleDateString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            });
+            const timeLine =
+              ev.time != null && ev.time !== ""
+                ? ev.endTime
+                  ? `${formatTime12h(ev.time)} – ${formatTime12h(ev.endTime)}`
+                  : formatTime12h(ev.time)
+                : null;
+            const thumbUri = resolveEventPhotoUrl(ev.photos?.[0]);
+            return (
+              <Pressable
+                key={ev.id}
+                style={({ pressed }) => [
+                  styles.upcomingRow,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={() => (router.push as (href: string) => void)(`/event/${ev.slug}`)}
+              >
+                <View style={styles.upcomingThumbWrap} lightColor="#eee" darkColor="#eee">
+                  {thumbUri ? (
+                    <Image
+                      source={{ uri: thumbUri }}
+                      style={styles.upcomingThumb}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.upcomingThumbPlaceholder} lightColor={theme.colors.creamAlt} darkColor={theme.colors.creamAlt}>
+                      <Ionicons name="calendar-outline" size={26} color={theme.colors.primary} />
+                    </View>
+                  )}
+                </View>
+                <View style={styles.upcomingRowMain} lightColor="transparent" darkColor="transparent">
+                  <Text style={styles.upcomingRowTitle} numberOfLines={2}>
+                    {ev.title}
+                  </Text>
+                  <Text style={styles.upcomingRowWhen}>
+                    {when}
+                    {timeLine ? ` · ${timeLine}` : ""}
+                  </Text>
+                  {calLabel ? (
+                    <Text style={styles.upcomingRowCalendar} numberOfLines={1}>
+                      {calLabel}
+                    </Text>
+                  ) : null}
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.colors.primary} />
+              </Pressable>
+            );
+          })
+        )}
       </View>
 
       <PostEventAsPickerModal
@@ -291,5 +494,84 @@ const styles = StyleSheet.create({
     color: theme.colors.heading,
     fontFamily: theme.fonts.heading,
     textAlign: "center",
+  },
+  upcomingSection: {
+    marginTop: 8,
+    paddingHorizontal: padding,
+    paddingBottom: 8,
+  },
+  upcomingTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    fontFamily: theme.fonts.heading,
+  },
+  upcomingSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    color: theme.colors.text,
+    marginBottom: 12,
+  },
+  upcomingLoadingWrap: {
+    paddingVertical: 20,
+    alignItems: "center",
+  },
+  upcomingEmpty: {
+    fontSize: 14,
+    color: theme.colors.text,
+    fontStyle: "italic",
+    paddingVertical: 8,
+  },
+  upcomingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#000",
+    backgroundColor: "#fff",
+  },
+  upcomingThumbWrap: {
+    width: UPCOMING_THUMB,
+    height: UPCOMING_THUMB,
+    borderRadius: 6,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#000",
+    backgroundColor: "#e8e8e8",
+  },
+  upcomingThumb: {
+    width: UPCOMING_THUMB,
+    height: UPCOMING_THUMB,
+  },
+  upcomingThumbPlaceholder: {
+    width: UPCOMING_THUMB,
+    height: UPCOMING_THUMB,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  upcomingRowMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  upcomingRowTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    fontFamily: theme.fonts.heading,
+  },
+  upcomingRowWhen: {
+    marginTop: 4,
+    fontSize: 13,
+    color: theme.colors.text,
+  },
+  upcomingRowCalendar: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
 });

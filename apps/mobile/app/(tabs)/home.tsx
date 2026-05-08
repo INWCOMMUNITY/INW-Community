@@ -13,6 +13,7 @@ import {
   Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Asset } from "expo-asset";
 import { View as ThemedView } from "@/components/Themed";
 import { theme } from "@/lib/theme";
@@ -430,19 +431,34 @@ export default function HomeScreen() {
     color: theme.colors.text,
     textAlign: "center",
   },
-  postEventButton: {
+  calendarsHomeActionsRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 10,
     marginTop: 16,
     marginBottom: 20,
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 4,
+    width: "100%",
   },
-  postEventButtonText: {
+  calendarsHomeActionBtn: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#000",
+  },
+  calendarsHomeActionBtnText: {
     color: theme.colors.buttonText,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     fontFamily: theme.fonts.heading,
+    textAlign: "center",
   },
   grid: {
     flexDirection: "row",
@@ -485,7 +501,7 @@ export default function HomeScreen() {
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#e5e5e5",
     backgroundColor: theme.colors.primary,
@@ -646,6 +662,7 @@ export default function HomeScreen() {
   }, [width]);
 
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [postEventModalVisible, setPostEventModalVisible] = useState(false);
   const [nwcRequestModalVisible, setNwcRequestModalVisible] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
@@ -949,12 +966,32 @@ export default function HomeScreen() {
         <Text style={styles.calendarsSubtitle}>
           Attend local events in our area or let the community know about your event. See what is happening in our area, or in your city!
         </Text>
-        <Pressable
-          style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
-          onPress={() => setPostEventModalVisible(true)}
-        >
-          <Text style={styles.postEventButtonText}>Post Event</Text>
-        </Pressable>
+        <View style={styles.calendarsHomeActionsRow}>
+          <Pressable
+            style={({ pressed }) => [styles.calendarsHomeActionBtn, pressed && styles.buttonPressed]}
+            onPress={() => setPostEventModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Post event"
+          >
+            <Ionicons name="add-circle-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.calendarsHomeActionBtnText} numberOfLines={1}>
+              Post Event
+            </Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.calendarsHomeActionBtn, pressed && styles.buttonPressed]}
+            onPress={() =>
+              (router.push as (href: string) => void)("/calendars?section=upcoming")
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Upcoming events in the next three days"
+          >
+            <Ionicons name="time-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.calendarsHomeActionBtnText} numberOfLines={1}>
+              Upcoming
+            </Text>
+          </Pressable>
+        </View>
 
         <View style={styles.grid}>
           {CALENDAR_TYPES.map((c) => {
@@ -1037,18 +1074,21 @@ export default function HomeScreen() {
           </Pressable>
         </View>
       </View>
+    </ScrollView>
 
       <Modal
         visible={postEventModalVisible}
         animationType="slide"
+        presentationStyle="fullScreen"
         onRequestClose={() => setPostEventModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
+        <View style={[styles.modalContainer, { paddingBottom: insets.bottom }]}>
+          <View style={[styles.modalHeader, { paddingTop: insets.top + 12 }]}>
             <Text style={styles.modalTitle}>Post Event</Text>
             <Pressable
               onPress={() => setPostEventModalVisible(false)}
               style={styles.modalCloseButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <Text style={styles.modalCloseText}>Close</Text>
             </Pressable>
@@ -1069,7 +1109,10 @@ export default function HomeScreen() {
               </Pressable>
             </View>
           ) : (
-            <PostEventForm onSuccess={() => setPostEventModalVisible(false)} />
+            <PostEventForm
+              onSuccess={() => setPostEventModalVisible(false)}
+              keyboardVerticalOffset={insets.top + 52}
+            />
           )}
         </View>
       </Modal>
@@ -1078,7 +1121,6 @@ export default function HomeScreen() {
         visible={nwcRequestModalVisible}
         onClose={() => setNwcRequestModalVisible(false)}
       />
-    </ScrollView>
 
       <Modal
         visible={!!selectedPrizeForModal && !top10PrizeGalleryOpen}

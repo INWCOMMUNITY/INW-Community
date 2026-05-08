@@ -59,6 +59,8 @@ interface PostEventFormProps {
   /** Calendar “post as” choice (profile vs business). Omit for normal create / Business Hub. */
   postEventAs?: PostEventAsContext;
   onSuccess?: () => void;
+  /** iOS `KeyboardAvoidingView` offset; use when the form sits under a custom header (e.g. home modal). */
+  keyboardVerticalOffset?: number;
 }
 
 function parseTimeToDate(baseDay: Date, timeStr: string | null, fallbackHour: number): Date {
@@ -117,6 +119,7 @@ export function PostEventForm({
   initialEvent,
   postEventAs,
   onSuccess,
+  keyboardVerticalOffset: keyboardVerticalOffsetProp,
 }: PostEventFormProps) {
   const router = useRouter();
   const isEdit = Boolean(editEventId && initialEvent);
@@ -328,11 +331,14 @@ export function PostEventForm({
     }
   };
 
+  const iosKeyboardOffset =
+    Platform.OS === "ios" ? (keyboardVerticalOffsetProp ?? 100) : 0;
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
+      keyboardVerticalOffset={iosKeyboardOffset}
     >
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       {!isEdit && postEventAs ? (

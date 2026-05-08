@@ -191,7 +191,8 @@ export default function InvitesScreen() {
     >
       <Text style={styles.title}>Local Event Invites</Text>
       <Text style={styles.hint}>
-        Invitations and your responses stay here so you can open the event anytime.
+        Invitations from friends and your responses stay here. If you RSVP from an event page, that
+        listing stays under My Events so you can update it there.
       </Text>
 
       {loading ? (

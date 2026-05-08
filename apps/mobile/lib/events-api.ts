@@ -23,6 +23,10 @@ export interface EventItem {
   endTime: string | null;
   location: string | null;
   city: string | null;
+  /** Which community calendar the event is on (omitted on some older payloads). */
+  calendarType?: string;
+  /** First image is shown in list thumbnails when present. */
+  photos?: string[];
   business: { name: string; slug: string; memberId?: string } | null;
   /** Present when the signed-in user owns this event (profile or business). */
   inviteStats?: EventInviteStats;
@@ -140,6 +144,42 @@ export async function fetchEvents(
     const events = Array.isArray(data) ? data : [];
     await setCachedEvents(calendarType, from, to, events, city, authed);
     return events;
+  } catch (e) {
+    throw e instanceof Error ? e : new Error("Failed to load events");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** All approved events in the date range across every calendar (no `calendarType` filter). */
+export async function fetchEventsAllCalendars(
+  from: Date,
+  to: Date,
+  city?: string
+): Promise<EventItem[]> {
+  const params = new URLSearchParams({
+    from: from.toISOString(),
+    to: to.toISOString(),
+  });
+  if (city && city !== "All cities") params.set("city", city);
+  const url = `${API_BASE}/api/events?${params}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  const headers: Record<string, string> = { Accept: "application/json" };
+  try {
+    const token = await getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    const res = await fetch(url, { signal: controller.signal, headers });
+    if (!res.ok) throw new Error(`Server error: ${res.status}`);
+    const ct = res.headers.get("content-type");
+    if (!ct?.includes("application/json"))
+      throw new Error("Server returned non-JSON response");
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   } catch (e) {
     throw e instanceof Error ? e : new Error("Failed to load events");
   } finally {

@@ -236,7 +236,7 @@ export default function EventDetailScreen() {
       } else if (r === "failed") {
         Alert.alert("Could not add event", "Try again or use Google Calendar.", [{ text: "OK" }]);
       } else {
-        Alert.alert("Added to calendar", "The event was saved to your default calendar.", [{ text: "OK" }]);
+        Alert.alert("Added to Calendar", "The event was saved to your default calendar.", [{ text: "OK" }]);
       }
     } finally {
       setCalendarDeviceBusy(false);
@@ -518,7 +518,7 @@ export default function EventDetailScreen() {
               <Ionicons
                 name={saved ? "heart" : "heart-outline"}
                 size={28}
-                color={saved ? "#e74c3c" : "#fff"}
+                color={saved ? theme.colors.cream : "#fff"}
               />
             </Pressable>
           </View>
@@ -551,6 +551,35 @@ export default function EventDetailScreen() {
           />
         </View>
 
+        <Text style={styles.title}>{event.title}</Text>
+
+        {event.business ? (
+          <View style={styles.eventByTitleRow}>
+            <Text style={styles.eventByTitlePrefix}>by </Text>
+            <Pressable
+              onPress={() => router.push(`/business/${event.business.slug}`)}
+              style={({ pressed }) => [styles.eventByTitlePressable, pressed && styles.pressed]}
+            >
+              <Text style={styles.eventByTitleLink}>{event.business.name}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <View style={styles.detailsRow}>
+          <View style={styles.detailBox}>
+            <Text style={styles.detailLabel}>Date</Text>
+            <Text style={[styles.detailValue, styles.detailDateTimeValue]}>{dateStr}</Text>
+          </View>
+          <View style={styles.detailBox}>
+            <Text style={styles.detailLabel}>Time</Text>
+            <Text style={[styles.detailValue, styles.detailDateTimeValue]}>
+              {timeStr || "—"}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.lineAboveShareRow} />
+
         <View style={styles.shareInviteRow}>
           <Pressable
             style={({ pressed }) => [styles.shareInviteBtnBox, pressed && styles.pressed]}
@@ -577,6 +606,14 @@ export default function EventDetailScreen() {
           </Pressable>
         </View>
 
+        <Pressable
+          style={({ pressed }) => [styles.calendarAddBtn, pressed && styles.pressed]}
+          onPress={() => setCalendarModalOpen(true)}
+        >
+          <Ionicons name="calendar-outline" size={20} color="#fff" />
+          <Text style={styles.calendarAddBtnText}>Add to Calendar</Text>
+        </Pressable>
+
         {event.inviteStats ? (
           <View style={styles.inviteStatsSection}>
             <Text style={styles.inviteStatsLabel}>Your invite activity</Text>
@@ -585,21 +622,6 @@ export default function EventDetailScreen() {
         ) : null}
 
         <View style={styles.divider} />
-
-        <Text style={styles.title}>{event.title}</Text>
-
-        <View style={styles.detailsRow}>
-          <View style={styles.detailBox}>
-            <Text style={styles.detailLabel}>Date</Text>
-            <Text style={[styles.detailValue, styles.detailDateTimeValue]}>{dateStr}</Text>
-          </View>
-          <View style={styles.detailBox}>
-            <Text style={styles.detailLabel}>Time</Text>
-            <Text style={[styles.detailValue, styles.detailDateTimeValue]}>
-              {timeStr || "—"}
-            </Text>
-          </View>
-        </View>
 
         {event.description ? (
           <View style={styles.section}>
@@ -623,34 +645,16 @@ export default function EventDetailScreen() {
         ) : null}
 
         {mapsDestination ? (
-          <Pressable
-            style={({ pressed }) => [styles.mapsTakeMeBtn, pressed && styles.pressed]}
-            onPress={() => void openAddressInMaps(mapsDestination)}
-          >
-            <Ionicons name="map" size={20} color="#fff" />
-            <Text style={styles.mapsTakeMeBtnText}>Open in Maps</Text>
-          </Pressable>
-        ) : null}
-
-        <Pressable
-          style={({ pressed }) => [styles.calendarAddOutlineBtn, pressed && styles.pressed]}
-          onPress={() => setCalendarModalOpen(true)}
-        >
-          <Ionicons name="calendar-outline" size={20} color={theme.colors.primary} />
-          <Text style={styles.calendarAddOutlineBtnText}>Add to calendar</Text>
-        </Pressable>
-
-        {event.business ? (
-          <View style={styles.eventByRow}>
-            <Text style={styles.eventByLabel}>Event by </Text>
+          <>
+            <View style={styles.lineAboveMaps} />
             <Pressable
-              onPress={() => router.push(`/business/${event.business!.slug}`)}
-              style={({ pressed }) => [styles.businessLinkInline, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.mapsTakeMeBtn, pressed && styles.pressed]}
+              onPress={() => void openAddressInMaps(mapsDestination)}
             >
-              <Text style={styles.businessLinkText}>{event.business.name}</Text>
-              <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
+              <Ionicons name="map" size={20} color="#fff" />
+              <Text style={styles.mapsTakeMeBtnText}>Open in Maps</Text>
             </Pressable>
-          </View>
+          </>
         ) : null}
       </ScrollView>
 
@@ -721,7 +725,7 @@ export default function EventDetailScreen() {
             onPress={(e) => e.stopPropagation()}
           >
             <View style={styles.rsvpModalHeader}>
-              <Text style={styles.rsvpModalTitle}>Add to calendar</Text>
+              <Text style={styles.rsvpModalTitle}>Add to Calendar</Text>
               <Pressable
                 onPress={() => !calendarDeviceBusy && setCalendarModalOpen(false)}
                 hitSlop={12}
@@ -976,12 +980,20 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.8,
   },
+  lineAboveShareRow: {
+    height: 2,
+    backgroundColor: theme.colors.primary,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+  },
   shareInviteRow: {
     flexDirection: "row",
     alignItems: "stretch",
     gap: 10,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 4,
+    paddingBottom: 4,
     backgroundColor: theme.colors.background,
   },
   shareInviteBtnBox: {
@@ -1198,6 +1210,30 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     marginBottom: 8,
   },
+  eventByTitleRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    marginTop: -4,
+    marginBottom: 10,
+  },
+  eventByTitlePrefix: {
+    fontSize: 13,
+    color: theme.colors.text,
+    fontFamily: theme.fonts.body,
+  },
+  eventByTitlePressable: {
+    maxWidth: "100%",
+  },
+  eventByTitleLink: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    fontFamily: theme.fonts.body,
+    textDecorationLine: "underline",
+  },
   detailsRow: {
     flexDirection: "row",
     padding: 16,
@@ -1222,11 +1258,10 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     lineHeight: 24,
   },
-  /** Larger type for the primary date/time row only */
+  /** Slightly smaller than other detail lines */
   detailDateTimeValue: {
-    fontSize: 20,
-    lineHeight: 28,
-    fontWeight: "600",
+    fontSize: 15,
+    lineHeight: 21,
   },
   section: {
     paddingHorizontal: 16,
@@ -1238,13 +1273,20 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     marginBottom: 6,
   },
+  lineAboveMaps: {
+    height: 2,
+    backgroundColor: theme.colors.primary,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 10,
+  },
   mapsTakeMeBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     marginHorizontal: 16,
-    marginTop: 8,
+    marginTop: 0,
     marginBottom: 8,
     paddingVertical: 12,
     borderRadius: 8,
@@ -1257,56 +1299,23 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#fff",
   },
-  calendarAddOutlineBtn: {
+  calendarAddBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 8,
+    marginTop: 10,
+    marginBottom: 12,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.colors.primary,
     borderWidth: 2,
-    borderColor: theme.colors.primary,
+    borderColor: "#000",
   },
-  calendarAddOutlineBtnText: {
+  calendarAddBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: theme.colors.primary,
-  },
-  businessLink: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 12,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    borderRadius: 8,
-  },
-  eventByRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 4,
-  },
-  eventByLabel: {
-    fontSize: 14,
-    color: theme.colors.text,
-  },
-  businessLinkInline: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  businessLinkText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: theme.colors.primary,
+    color: "#fff",
   },
 });
