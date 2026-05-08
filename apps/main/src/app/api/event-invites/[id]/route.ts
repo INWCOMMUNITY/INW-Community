@@ -52,11 +52,12 @@ export async function PATCH(
     where: { id: inviteId },
     select: {
       inviterId: true,
+      inviteeId: true,
       event: { select: { title: true, slug: true } },
       invitee: { select: { firstName: true, lastName: true } },
     },
   });
-  if (enriched?.event) {
+  if (enriched?.event && enriched.inviterId !== enriched.inviteeId) {
     const inviteeName =
       [enriched.invitee?.firstName, enriched.invitee?.lastName].filter(Boolean).join(" ").trim() ||
       "Someone";

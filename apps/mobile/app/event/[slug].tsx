@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -12,6 +12,7 @@ import {
   Share,
   Modal,
   FlatList,
+  TextInput,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from "react-native";
@@ -27,12 +28,24 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import type { EarnedBadgePayload } from "@/lib/share-utils";
+import { openAddressInMaps } from "@/lib/open-maps";
+import {
+  addEventToDeviceCalendar,
+  openGoogleCalendarAddEvent,
+} from "@/lib/event-calendar-export";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 interface SavedItem {
   referenceId: string;
+}
+
+interface InviteFriendRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  profilePhotoUrl?: string | null;
 }
 
 function resolvePhotoUrl(path: string | undefined): string | undefined {
@@ -58,12 +71,17 @@ export default function EventDetailScreen() {
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const heroPagerRef = useRef<FlatList<string> | null>(null);
-  const [friends, setFriends] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
+  const [friends, setFriends] = useState<InviteFriendRow[]>([]);
+  const [inviteFriendSearch, setInviteFriendSearch] = useState("");
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [inviting, setInviting] = useState(false);
   const [inviteEarnedBadges, setInviteEarnedBadges] = useState<EarnedBadgePayload[]>([]);
   const [inviteBadgePopupIndex, setInviteBadgePopupIndex] = useState(-1);
   const [pendingInviteAlertBody, setPendingInviteAlertBody] = useState<string | null>(null);
+  const [rsvpModalOpen, setRsvpModalOpen] = useState(false);
+  const [rsvpSubmitting, setRsvpSubmitting] = useState(false);
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [calendarDeviceBusy, setCalendarDeviceBusy] = useState(false);
 
   const loadEvent = useCallback(async () => {
     if (!slug) return;
@@ -186,17 +204,98 @@ export default function EventDetailScreen() {
     }
   };
 
+  const openRsvpPicker = useCallback(async () => {
+    if (!event) return;
+    const token = await getToken();
+    if (!token || !member?.id) {
+      Alert.alert(
+        "Sign in required",
+        "Please sign in to RSVP.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
+        ]
+      );
+      return;
+    }
+    setRsvpModalOpen(true);
+  }, [event, member?.id, router]);
+
+  const onAddToDeviceCalendar = useCallback(async () => {
+    if (!event) return;
+    setCalendarDeviceBusy(true);
+    try {
+      const r = await addEventToDeviceCalendar(event, siteBase);
+      setCalendarModalOpen(false);
+      if (r === "denied") {
+        Alert.alert(
+          "Calendar access",
+          "Allow calendar access to save this event on your device, or use Open in Google Calendar instead.",
+          [{ text: "OK" }]
+        );
+      } else if (r === "failed") {
+        Alert.alert("Could not add event", "Try again or use Google Calendar.", [{ text: "OK" }]);
+      } else {
+        Alert.alert("Added to calendar", "The event was saved to your default calendar.", [{ text: "OK" }]);
+      }
+    } finally {
+      setCalendarDeviceBusy(false);
+    }
+  }, [event, siteBase]);
+
+  const onOpenGoogleCalendar = useCallback(async () => {
+    if (!event) return;
+    try {
+      await openGoogleCalendarAddEvent(event, siteBase);
+      setCalendarModalOpen(false);
+    } catch {
+      Alert.alert("Could not open Google Calendar", "Try again in a moment.", [{ text: "OK" }]);
+    }
+  }, [event, siteBase]);
+
+  const submitRsvp = useCallback(
+    async (status: "accepted" | "declined" | "maybe") => {
+      if (!event) return;
+      setRsvpSubmitting(true);
+      try {
+        await apiPost(`/api/events/${event.id}/rsvp`, { status });
+        void loadEvent();
+        setRsvpModalOpen(false);
+      } catch (e) {
+        const err = e as { error?: string };
+        Alert.alert("Could not update RSVP", err?.error ?? "Try again.");
+      } finally {
+        setRsvpSubmitting(false);
+      }
+    },
+    [event, loadEvent]
+  );
+
   const openInviteModal = async () => {
     if (!event || !member?.id) return;
     setInviteModalOpen(true);
+    setInviteFriendSearch("");
     setSelectedFriendIds(new Set());
     try {
-      const data = await apiGet<{ friends: { id: string; firstName: string; lastName: string }[] }>("/api/me/friends");
+      const data = await apiGet<{ friends: InviteFriendRow[] }>("/api/me/friends");
       setFriends(Array.isArray(data?.friends) ? data.friends : []);
     } catch {
       setFriends([]);
     }
   };
+
+  const filteredInviteFriends = useMemo(() => {
+    const q = inviteFriendSearch.trim().toLowerCase();
+    if (!q) return friends;
+    return friends.filter((f) => {
+      const full = `${f.firstName} ${f.lastName}`.trim().toLowerCase();
+      return (
+        full.includes(q) ||
+        f.firstName.toLowerCase().includes(q) ||
+        f.lastName.toLowerCase().includes(q)
+      );
+    });
+  }, [friends, inviteFriendSearch]);
 
   const toggleFriendSelection = (id: string) => {
     setSelectedFriendIds((prev) => {
@@ -269,6 +368,9 @@ export default function EventDetailScreen() {
         : formatTime12h(event.time)
       : ""
     : "";
+
+  const mapsDestination =
+    event?.location?.trim() || event?.city?.trim() || "";
 
   const photos = event?.photos ?? [];
   const photoUrl = resolvePhotoUrl(photos[0]);
@@ -451,21 +553,28 @@ export default function EventDetailScreen() {
 
         <View style={styles.shareInviteRow}>
           <Pressable
-            style={({ pressed }) => [styles.shareInviteBtn, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.shareInviteBtnBox, pressed && styles.pressed]}
             onPress={handleShareEvent}
           >
             <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
-            <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Share</Text>
+            <Text style={styles.shareInviteBtnText}>Share</Text>
           </Pressable>
           {member?.id ? (
             <Pressable
-              style={({ pressed }) => [styles.shareInviteBtn, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.shareInviteBtnBox, pressed && styles.pressed]}
               onPress={openInviteModal}
             >
               <Ionicons name="people-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.shareInviteBtnText, { color: theme.colors.primary }]}>Invite Friends</Text>
+              <Text style={styles.shareInviteBtnText}>Invite</Text>
             </Pressable>
           ) : null}
+          <Pressable
+            style={({ pressed }) => [styles.shareInviteBtnBox, pressed && styles.pressed]}
+            onPress={openRsvpPicker}
+          >
+            <Ionicons name="ticket-outline" size={20} color={theme.colors.primary} />
+            <Text style={styles.shareInviteBtnText}>RSVP</Text>
+          </Pressable>
         </View>
 
         {event.inviteStats ? (
@@ -482,11 +591,11 @@ export default function EventDetailScreen() {
         <View style={styles.detailsRow}>
           <View style={styles.detailBox}>
             <Text style={styles.detailLabel}>Date</Text>
-            <Text style={styles.detailValue}>{dateStr}</Text>
+            <Text style={[styles.detailValue, styles.detailDateTimeValue]}>{dateStr}</Text>
           </View>
           <View style={styles.detailBox}>
             <Text style={styles.detailLabel}>Time</Text>
-            <Text style={styles.detailValue}>
+            <Text style={[styles.detailValue, styles.detailDateTimeValue]}>
               {timeStr || "—"}
             </Text>
           </View>
@@ -513,6 +622,24 @@ export default function EventDetailScreen() {
           </View>
         ) : null}
 
+        {mapsDestination ? (
+          <Pressable
+            style={({ pressed }) => [styles.mapsTakeMeBtn, pressed && styles.pressed]}
+            onPress={() => void openAddressInMaps(mapsDestination)}
+          >
+            <Ionicons name="map" size={20} color="#fff" />
+            <Text style={styles.mapsTakeMeBtnText}>Open in Maps</Text>
+          </Pressable>
+        ) : null}
+
+        <Pressable
+          style={({ pressed }) => [styles.calendarAddOutlineBtn, pressed && styles.pressed]}
+          onPress={() => setCalendarModalOpen(true)}
+        >
+          <Ionicons name="calendar-outline" size={20} color={theme.colors.primary} />
+          <Text style={styles.calendarAddOutlineBtnText}>Add to calendar</Text>
+        </Pressable>
+
         {event.business ? (
           <View style={styles.eventByRow}>
             <Text style={styles.eventByLabel}>Event by </Text>
@@ -528,6 +655,109 @@ export default function EventDetailScreen() {
       </ScrollView>
 
       <Modal
+        visible={rsvpModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => !rsvpSubmitting && setRsvpModalOpen(false)}
+      >
+        <Pressable
+          style={styles.inviteModalOverlay}
+          onPress={() => !rsvpSubmitting && setRsvpModalOpen(false)}
+        >
+          <Pressable style={[styles.rsvpModalSheet, { paddingBottom: insets.bottom + 24 }]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.rsvpModalHeader}>
+              <Text style={styles.rsvpModalTitle}>RSVP</Text>
+              <Pressable
+                onPress={() => !rsvpSubmitting && setRsvpModalOpen(false)}
+                hitSlop={12}
+                disabled={rsvpSubmitting}
+              >
+                <Ionicons name="close" size={28} color={theme.colors.text} />
+              </Pressable>
+            </View>
+            <Text style={styles.rsvpModalSubtitle}>How would you like to respond?</Text>
+            {rsvpSubmitting ? (
+              <View style={styles.rsvpSubmittingWrap}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+              </View>
+            ) : (
+              <>
+                <Pressable
+                  style={({ pressed }) => [styles.rsvpOptionGoing, pressed && styles.pressed]}
+                  onPress={() => submitRsvp("accepted")}
+                >
+                  <Text style={styles.rsvpOptionGoingText}>Going</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.rsvpOptionMaybe, pressed && styles.pressed]}
+                  onPress={() => submitRsvp("maybe")}
+                >
+                  <Text style={styles.rsvpOptionMaybeText}>Maybe</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.rsvpOptionDecline, pressed && styles.pressed]}
+                  onPress={() => submitRsvp("declined")}
+                >
+                  <Text style={styles.rsvpOptionDeclineText}>Can't make it</Text>
+                </Pressable>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={calendarModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => !calendarDeviceBusy && setCalendarModalOpen(false)}
+      >
+        <Pressable
+          style={styles.inviteModalOverlay}
+          onPress={() => !calendarDeviceBusy && setCalendarModalOpen(false)}
+        >
+          <Pressable
+            style={[styles.rsvpModalSheet, { paddingBottom: insets.bottom + 24 }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.rsvpModalHeader}>
+              <Text style={styles.rsvpModalTitle}>Add to calendar</Text>
+              <Pressable
+                onPress={() => !calendarDeviceBusy && setCalendarModalOpen(false)}
+                hitSlop={12}
+                disabled={calendarDeviceBusy}
+              >
+                <Ionicons name="close" size={28} color={theme.colors.text} />
+              </Pressable>
+            </View>
+            <Text style={styles.rsvpModalSubtitle}>
+              Save date, time, location, and details to your calendar or Google Calendar.
+            </Text>
+            {calendarDeviceBusy ? (
+              <View style={styles.rsvpSubmittingWrap}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+              </View>
+            ) : (
+              <>
+                <Pressable
+                  style={({ pressed }) => [styles.rsvpOptionGoing, pressed && styles.pressed]}
+                  onPress={() => void onAddToDeviceCalendar()}
+                >
+                  <Text style={styles.rsvpOptionGoingText}>Add to My Calendar</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.rsvpOptionMaybe, pressed && styles.pressed]}
+                  onPress={() => void onOpenGoogleCalendar()}
+                >
+                  <Text style={styles.rsvpOptionMaybeText}>Open in Google Calendar</Text>
+                </Pressable>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
         visible={inviteModalOpen}
         animationType="slide"
         transparent
@@ -536,7 +766,7 @@ export default function EventDetailScreen() {
         <Pressable style={styles.inviteModalOverlay} onPress={() => setInviteModalOpen(false)}>
           <Pressable style={styles.inviteModalContent} onPress={(e) => e.stopPropagation()}>
             <View style={styles.inviteModalHeader}>
-              <Text style={styles.inviteModalTitle}>Invite Friends</Text>
+              <Text style={styles.inviteModalTitle}>Invite</Text>
               <Pressable onPress={() => setInviteModalOpen(false)} hitSlop={12}>
                 <Ionicons name="close" size={28} color={theme.colors.text} />
               </Pressable>
@@ -544,24 +774,55 @@ export default function EventDetailScreen() {
             {friends.length === 0 ? (
               <Text style={styles.inviteModalEmpty}>No friends to invite. Add friends from Community.</Text>
             ) : (
-              <ScrollView style={styles.inviteModalList}>
-                {friends.map((f) => (
-                  <Pressable
-                    key={f.id}
-                    style={styles.inviteFriendRow}
-                    onPress={() => toggleFriendSelection(f.id)}
-                  >
-                    <Ionicons
-                      name={selectedFriendIds.has(f.id) ? "checkbox" : "square-outline"}
-                      size={24}
-                      color={theme.colors.primary}
-                    />
-                    <Text style={styles.inviteFriendName}>
-                      {f.firstName} {f.lastName}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+              <>
+                <View style={styles.inviteSearchWrap}>
+                  <Ionicons name="search-outline" size={20} color={theme.colors.primary} />
+                  <TextInput
+                    style={styles.inviteSearchInput}
+                    placeholder="Search friends"
+                    placeholderTextColor={theme.colors.placeholder}
+                    value={inviteFriendSearch}
+                    onChangeText={setInviteFriendSearch}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    clearButtonMode="while-editing"
+                  />
+                </View>
+                <ScrollView style={styles.inviteModalList} keyboardShouldPersistTaps="handled">
+                  {filteredInviteFriends.length === 0 ? (
+                    <Text style={styles.inviteModalEmpty}>No friends match your search.</Text>
+                  ) : (
+                    filteredInviteFriends.map((f) => {
+                      const avatarUri = resolvePhotoUrl(f.profilePhotoUrl ?? undefined);
+                      const displayName =
+                        `${f.firstName} ${f.lastName}`.trim() || "Friend";
+                      return (
+                        <Pressable
+                          key={f.id}
+                          style={styles.inviteFriendRow}
+                          onPress={() => toggleFriendSelection(f.id)}
+                        >
+                          <Ionicons
+                            name={selectedFriendIds.has(f.id) ? "checkbox" : "square-outline"}
+                            size={24}
+                            color={theme.colors.primary}
+                          />
+                          {avatarUri ? (
+                            <Image source={{ uri: avatarUri }} style={styles.inviteFriendAvatar} />
+                          ) : (
+                            <View style={[styles.inviteFriendAvatar, styles.inviteFriendAvatarPlaceholder]}>
+                              <Ionicons name="person" size={22} color={theme.colors.placeholder} />
+                            </View>
+                          )}
+                          <Text style={styles.inviteFriendName} numberOfLines={1}>
+                            {displayName}
+                          </Text>
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </>
             )}
             <Pressable
               style={[
@@ -717,22 +978,119 @@ const styles = StyleSheet.create({
   },
   shareInviteRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
+    alignItems: "stretch",
+    gap: 10,
     paddingHorizontal: 16,
     paddingTop: 12,
+    backgroundColor: theme.colors.background,
   },
-  shareInviteBtn: {
+  shareInviteBtnBox: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     borderRadius: 8,
     borderWidth: 2,
     borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
   },
-  shareInviteBtnText: { fontSize: 14, fontWeight: "600" },
+  shareInviteBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  rsvpModalSheet: {
+    backgroundColor: theme.colors.creamAlt,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 8,
+    borderTopWidth: 3,
+    borderLeftWidth: 2,
+    borderRightWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  rsvpModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: theme.colors.primary,
+    backgroundColor: theme.colors.creamAlt,
+  },
+  rsvpModalTitle: {
+    fontSize: 20,
+    fontFamily: theme.fonts.heading,
+    color: theme.colors.heading,
+  },
+  rsvpModalSubtitle: {
+    fontSize: 15,
+    color: theme.colors.text,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    fontFamily: theme.fonts.body,
+  },
+  rsvpSubmittingWrap: {
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rsvpOptionGoing: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.primary,
+    borderWidth: 2,
+    borderColor: theme.colors.secondary,
+  },
+  rsvpOptionGoingText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.buttonText,
+    fontFamily: theme.fonts.body,
+  },
+  rsvpOptionMaybe: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.creamAlt,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  rsvpOptionMaybeText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.primary,
+    fontFamily: theme.fonts.body,
+  },
+  rsvpOptionDecline: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.creamAlt,
+    borderWidth: 2,
+    borderColor: theme.colors.secondary,
+  },
+  rsvpOptionDeclineText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.secondary,
+    fontFamily: theme.fonts.body,
+  },
   inviteModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -755,7 +1113,27 @@ const styles = StyleSheet.create({
   },
   inviteModalTitle: { fontSize: 18, fontWeight: "700", color: "#222" },
   inviteModalEmpty: { padding: 24, fontSize: 15, color: "#666", textAlign: "center" },
-  inviteModalList: { maxHeight: 280, padding: 8 },
+  inviteSearchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    backgroundColor: theme.colors.background,
+  },
+  inviteSearchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: theme.colors.text,
+    paddingVertical: 0,
+    fontFamily: theme.fonts.body,
+  },
+  inviteModalList: { maxHeight: 300, paddingHorizontal: 8, paddingBottom: 8 },
   inviteFriendRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -763,7 +1141,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
-  inviteFriendName: { fontSize: 16, color: "#333", flex: 1 },
+  inviteFriendAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.creamAlt,
+    borderWidth: 2,
+    borderColor: "#000",
+  },
+  inviteFriendAvatarPlaceholder: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  inviteFriendName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    flex: 1,
+    fontFamily: theme.fonts.body,
+  },
   inviteSubmitBtn: {
     marginHorizontal: 16,
     marginTop: 16,
@@ -793,10 +1189,11 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   title: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: "bold",
     fontFamily: theme.fonts.heading,
     color: theme.colors.heading,
+    textAlign: "center",
     paddingHorizontal: 16,
     paddingTop: 16,
     marginBottom: 8,
@@ -815,25 +1212,69 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   detailLabel: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "600",
     color: theme.colors.primary,
     marginBottom: 4,
   },
   detailValue: {
-    fontSize: 14,
+    fontSize: 17,
     color: theme.colors.text,
-    lineHeight: 20,
+    lineHeight: 24,
+  },
+  /** Larger type for the primary date/time row only */
+  detailDateTimeValue: {
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: "600",
   },
   section: {
     paddingHorizontal: 16,
     paddingTop: 12,
   },
   sectionLabel: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "600",
     color: theme.colors.primary,
     marginBottom: 6,
+  },
+  mapsTakeMeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+    borderWidth: 2,
+    borderColor: "#000",
+  },
+  mapsTakeMeBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  calendarAddOutlineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: theme.colors.background,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  calendarAddOutlineBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
   businessLink: {
     flexDirection: "row",

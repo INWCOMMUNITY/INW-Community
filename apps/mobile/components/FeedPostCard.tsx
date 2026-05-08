@@ -13,8 +13,13 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   Platform,
+  AppState,
+  type AppStateStatus,
 } from "react-native";
-import { ScrollView as GHScrollView } from "react-native-gesture-handler";
+import {
+  ScrollView as GHScrollView,
+  Pressable as GHPressable,
+} from "react-native-gesture-handler";
 import {
   StyleSheet,
   View,
@@ -25,11 +30,13 @@ import {
   Dimensions,
   useWindowDimensions,
 } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCreatePost } from "@/contexts/CreatePostContext";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import {
   FeedPinchZoomPhoto,
@@ -94,6 +101,7 @@ interface FeedPostCardProps {
   onOpenCoupon?: (couponId: string) => void;
   /**
    * When false, main-feed videos do not autoplay (card scrolled off-screen).
+   * Videos also pause when the navigation screen loses focus or the app is backgrounded.
    * Omit or true for modals / single-post screens / ScrollView lists without tracking.
    */
   isFeedCardVisible?: boolean;
@@ -114,6 +122,18 @@ export function FeedPostCard({
   isFeedCardVisible = true,
 }: FeedPostCardProps) {
   const router = useRouter();
+  const createPostOverlayOpen = useCreatePost()?.createPostVisible ?? false;
+  const isScreenFocused = useIsFocused();
+  const [appIsActive, setAppIsActive] = useState(() => AppState.currentState === "active");
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next: AppStateStatus) => {
+      setAppIsActive(next === "active");
+    });
+    return () => sub.remove();
+  }, []);
+  /** Feed list viewability + route focused + app foreground; modals (e.g. create post) sit above but leave the tab “focused”. */
+  const allowFeedVideoAutoplay =
+    isFeedCardVisible && isScreenFocused && appIsActive && !createPostOverlayOpen;
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   /** Measured width of the carousel row inside the card (not screen width — using window width clips the right side). */
   const [carouselViewportW, setCarouselViewportW] = useState<number | null>(null);
@@ -130,6 +150,9 @@ export function FeedPostCard({
   >([]);
   /** Feed pinch-zoom overlay open — lifts card so scaled pixels aren’t clipped by the feed row. */
   const [feedPhotoZoomActive, setFeedPhotoZoomActive] = useState(false);
+  /** After a brief hold on the video surface, playback pauses until release (overlay replaces native controls). */
+  const [heldMainFeedVideoIndex, setHeldMainFeedVideoIndex] = useState<number | null>(null);
+  const [heldNestedVideoIndex, setHeldNestedVideoIndex] = useState<number | null>(null);
   const feedMedia = [
     ...(post.photos ?? []).map((url) => ({ url, isVideo: false as const })),
     ...(post.videos ?? []).map((url) => ({ url, isVideo: true as const })),
@@ -171,7 +194,17 @@ export function FeedPostCard({
 
   useEffect(() => {
     setPhotoCarouselIndex(0);
+    setHeldMainFeedVideoIndex(null);
+    setHeldNestedVideoIndex(null);
   }, [post.id]);
+
+  useEffect(() => {
+    setHeldMainFeedVideoIndex(null);
+  }, [photoCarouselIndex]);
+
+  useEffect(() => {
+    setHeldNestedVideoIndex(null);
+  }, [nestedPhotoCarouselIndex]);
 
   useEffect(() => {
     if (slideW <= 0 || feedMedia.length === 0) {
@@ -875,11 +908,26 @@ export function FeedPostCard({
                             <Video
                               source={{ uri: resolveUri(item.url) }}
                               style={{ width: nestedSlideW, height: nestedSlideH }}
-                              shouldPlay={isFeedCardVisible && nestedPhotoCarouselIndex === i}
-                              isMuted
+                              shouldPlay={
+                                allowFeedVideoAutoplay &&
+                                nestedPhotoCarouselIndex === i &&
+                                heldNestedVideoIndex !== i
+                              }
+                              isMuted={false}
+                              volume={1}
                               isLooping
-                              useNativeControls
+                              useNativeControls={false}
                               resizeMode={ResizeMode.COVER}
+                            />
+                            <GHPressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Shared post video ${i + 1}`}
+                              accessibilityHint="Touch and hold to pause. Release to resume."
+                              onPressIn={() => setHeldNestedVideoIndex(i)}
+                              onPressOut={() =>
+                                setHeldNestedVideoIndex((prev) => (prev === i ? null : prev))
+                              }
+                              style={StyleSheet.absoluteFillObject}
                             />
                           </View>
                         ) : (
@@ -1006,12 +1054,27 @@ export function FeedPostCard({
                         <Video
                           source={{ uri: resolveUri(item.url) }}
                           style={{ width: slideW, height: carouselDisplayH }}
-                          shouldPlay={isFeedCardVisible && photoCarouselIndex === i}
-                          isMuted
+                          shouldPlay={
+                            allowFeedVideoAutoplay &&
+                            photoCarouselIndex === i &&
+                            heldMainFeedVideoIndex !== i
+                          }
+                          isMuted={false}
+                          volume={1}
                           isLooping
-                          useNativeControls
+                          useNativeControls={false}
                           resizeMode={ResizeMode.COVER}
                           onReadyForDisplay={handleFeedVideoReadyForDisplay(i)}
+                        />
+                        <GHPressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Video ${i + 1} of ${feedMedia.length}`}
+                          accessibilityHint="Touch and hold to pause. Release to resume."
+                          onPressIn={() => setHeldMainFeedVideoIndex(i)}
+                          onPressOut={() =>
+                            setHeldMainFeedVideoIndex((prev) => (prev === i ? null : prev))
+                          }
+                          style={StyleSheet.absoluteFillObject}
                         />
                       </View>
                     ) : (

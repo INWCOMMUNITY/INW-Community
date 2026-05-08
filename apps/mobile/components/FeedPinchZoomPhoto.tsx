@@ -17,6 +17,7 @@ import {
   Gesture,
   GestureDetector,
   ScrollView as GHScrollView,
+  type GestureType,
 } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -132,6 +133,9 @@ type FeedGalleryZoomSlotProps = {
   isActive: boolean;
   onPagerLockedChange: (locked: boolean) => void;
   onPulseSnapComplete: () => void;
+  onTapToDismiss: () => void;
+  /** Links this page's gestures with the gallery GHScrollView via simultaneousHandlers (tap-to-dismiss vs horizontal scroll). */
+  scrollSimultaneousRef: MutableRefObject<GestureType | undefined>;
 };
 
 function FeedGalleryZoomSlot({
@@ -152,6 +156,8 @@ function FeedGalleryZoomSlot({
   isActive,
   onPagerLockedChange,
   onPulseSnapComplete,
+  onTapToDismiss,
+  scrollSimultaneousRef,
 }: FeedGalleryZoomSlotProps) {
   const liftShellStyle = useAnimatedStyle(() => {
     if (liftAnimTargetSlotSV.value !== slotIdx) {
@@ -189,6 +195,8 @@ function FeedGalleryZoomSlot({
           resetNonceSV={galleryInteractionNonceSV}
           onPagerLockedChange={onPagerLockedChange}
           onPulseSnapComplete={onPulseSnapComplete}
+          onTapToDismiss={onTapToDismiss}
+          scrollSimultaneousRef={scrollSimultaneousRef}
         />
       </Animated.View>
     </View>
@@ -238,6 +246,21 @@ export function FeedPinchZoomPhoto({
   const liftAnimTargetSlotSV = useSharedValue(0);
   const galleryInteractionNonceSV = useSharedValue(0);
   const [galleryPagerLocked, setGalleryPagerLocked] = useState(false);
+
+  /** Per pager page: RNGH ScrollView must recognize these simultaneously or it steals taps on the image. */
+  const galleryScrollSimultaneousRefs = useRef<MutableRefObject<GestureType | undefined>[]>([]);
+  const galleryScrollGestureRefsForPager = useMemo(() => {
+    const len = galleryPhotos?.length ?? 0;
+    if (len < 2) return [];
+    const bucket = galleryScrollSimultaneousRefs.current;
+    if (bucket.length !== len) {
+      galleryScrollSimultaneousRefs.current = Array.from(
+        { length: len },
+        (_, i) => bucket[i] ?? { current: undefined }
+      );
+    }
+    return galleryScrollSimultaneousRefs.current;
+  }, [galleryPhotos?.length]);
 
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -911,6 +934,11 @@ export function FeedPinchZoomPhoto({
                   scrollEnabled={!galleryPagerLocked}
                   showsHorizontalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
+                  simultaneousHandlers={
+                    galleryScrollGestureRefsForPager.length > 0
+                      ? galleryScrollGestureRefsForPager
+                      : undefined
+                  }
                   onMomentumScrollEnd={handleGalleryMomentumEnd}
                   style={{ flex: 1 }}
                   contentContainerStyle={{ flexGrow: 1, minHeight: availH }}
@@ -949,6 +977,8 @@ export function FeedPinchZoomPhoto({
                           isActive={activeGalleryIndex === idx}
                           onPagerLockedChange={setGalleryPagerLocked}
                           onPulseSnapComplete={handleGalleryPulseSnapComplete}
+                          onTapToDismiss={handleRequestClose}
+                          scrollSimultaneousRef={galleryScrollGestureRefsForPager[idx]!}
                         />
                       </View>
                     );

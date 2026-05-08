@@ -12,6 +12,7 @@ import {
 import { canMemberDeletePost } from "@/lib/post-delete-permission";
 import { isMemberGroupAdminForGroup } from "@/lib/group-admin-context";
 import { z } from "zod";
+import { filterToPublicDirectoryBusinessIds } from "@/lib/public-business-directory";
 import { memberIsSiteVisible } from "@/lib/member-public-visibility";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 
@@ -191,16 +192,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         const uniq = [
           ...new Set(raw.filter((id): id is string => typeof id === "string" && id.length > 0)),
         ].slice(0, 10);
-        const savedRows = await prisma.savedItem.findMany({
-          where: {
-            memberId: session.user.id,
-            type: "business",
-            referenceId: { in: uniq },
-          },
-          select: { referenceId: true },
-        });
-        const allowedBiz = new Set(savedRows.map((s) => s.referenceId));
-        taggedBusinessIds = uniq.filter((id) => allowedBiz.has(id));
+        taggedBusinessIds = await filterToPublicDirectoryBusinessIds(uniq);
       } else {
         taggedBusinessIds = [];
       }

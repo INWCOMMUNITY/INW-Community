@@ -1,6 +1,10 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type MutableRefObject } from "react";
 import { View, Image, StyleSheet, Platform } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  Gesture,
+  GestureDetector,
+  type GestureType,
+} from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
   useAnimatedReaction,
@@ -55,6 +59,10 @@ export type FeedPinchZoomGalleryPageProps = {
   resetNonceSV: SharedValue<number>;
   onPagerLockedChange: (locked: boolean) => void;
   onPulseSnapComplete: () => void;
+  /** Single tap on the photo (when not zoomed) closes the gallery — backdrop taps alone miss the image area in multi-photo mode. */
+  onTapToDismiss?: () => void;
+  /** Registered on parent GHScrollView `simultaneousHandlers` so taps work inside the horizontal pager. */
+  scrollSimultaneousRef: MutableRefObject<GestureType | undefined>;
 };
 
 export function FeedPinchZoomGalleryPage({
@@ -70,6 +78,8 @@ export function FeedPinchZoomGalleryPage({
   resetNonceSV,
   onPagerLockedChange,
   onPulseSnapComplete,
+  onTapToDismiss,
+  scrollSimultaneousRef,
 }: FeedPinchZoomGalleryPageProps) {
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -240,9 +250,28 @@ export function FeedPinchZoomGalleryPage({
     [fittedW, fittedH, onPulseSnapComplete]
   );
 
+  const singleTapDismissGesture = useMemo(() => {
+    if (!onTapToDismiss) return null;
+    return Gesture.Tap()
+      .numberOfTaps(1)
+      .maxDistance(22)
+      .withRef(scrollSimultaneousRef)
+      .onEnd((_e, success) => {
+        if (!success || scale.value >= MEANINGFUL_ZOOM) return;
+        runOnJS(onTapToDismiss)();
+      });
+  }, [onTapToDismiss, scrollSimultaneousRef]);
+
+  const zoomTapGroup = useMemo(() => {
+    if (singleTapDismissGesture) {
+      return Gesture.Exclusive(doubleTapGesture, singleTapDismissGesture);
+    }
+    return doubleTapGesture;
+  }, [doubleTapGesture, singleTapDismissGesture]);
+
   const composed = useMemo(
-    () => Gesture.Simultaneous(pinchGesture, panGesture, doubleTapGesture),
-    [pinchGesture, panGesture, doubleTapGesture]
+    () => Gesture.Simultaneous(pinchGesture, panGesture, zoomTapGroup),
+    [pinchGesture, panGesture, zoomTapGroup]
   );
 
   const pinchPanStyle = useAnimatedStyle(() => ({

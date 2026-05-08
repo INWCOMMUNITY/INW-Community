@@ -145,7 +145,8 @@ export function CreatePostModal({
   /** Mention a saved business without posting as them. */
   const [taggedBusiness, setTaggedBusiness] = useState<BusinessItem | null>(null);
   const [businessPickerOpen, setBusinessPickerOpen] = useState(false);
-  const [myBusinesses, setMyBusinesses] = useState<BusinessItem[]>([]);
+  const [businessPickerSearch, setBusinessPickerSearch] = useState("");
+  const [directoryBusinesses, setDirectoryBusinesses] = useState<BusinessItem[]>([]);
   const [businessLoading, setBusinessLoading] = useState(false);
 
   const [composePhase, setComposePhase] = useState<"checking" | "picker" | "ready">("checking");
@@ -288,17 +289,36 @@ export function CreatePostModal({
     }
   }, []);
 
-  const loadBusinesses = useCallback(async () => {
+  const loadBusinesses = useCallback(async (searchQuery = "") => {
+    const q = searchQuery.trim();
     setBusinessLoading(true);
     try {
-      const data = await apiGet<{ businesses: BusinessItem[] }>("/api/me/saved-businesses");
-      setMyBusinesses(data.businesses ?? []);
+      const path =
+        q.length > 0 ? `/api/businesses?search=${encodeURIComponent(q)}` : "/api/businesses";
+      const data = await apiGet<Array<{ id: string; name: string; slug: string }>>(path);
+      const list = Array.isArray(data) ? data : [];
+      setDirectoryBusinesses(
+        list.map((b) => ({ id: b.id, name: b.name, slug: b.slug ?? "" }))
+      );
     } catch {
-      setMyBusinesses([]);
+      setDirectoryBusinesses([]);
     } finally {
       setBusinessLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!businessPickerOpen) {
+      setBusinessPickerSearch("");
+      return;
+    }
+    const q = businessPickerSearch.trim();
+    const delayMs = q.length > 0 ? 300 : 0;
+    const timeout = setTimeout(() => {
+      void loadBusinesses(q);
+    }, delayMs);
+    return () => clearTimeout(timeout);
+  }, [businessPickerOpen, businessPickerSearch, loadBusinesses]);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -784,10 +804,7 @@ export function CreatePostModal({
             {!isEditing && !(initialGroupId && !allowBusinessPostsInGroup) ? (
               <Pressable
                 style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-                onPress={() => {
-                  setBusinessPickerOpen(true);
-                  loadBusinesses();
-                }}
+                onPress={() => setBusinessPickerOpen(true)}
               >
                 <Ionicons name="storefront" size={18} color={theme.colors.primary} />
                 <Text style={styles.actionBtnText}>Tag Business</Text>
@@ -950,15 +967,29 @@ export function CreatePostModal({
               <Text style={styles.pickerDone}>Done</Text>
             </Pressable>
           </View>
+          <View style={[styles.pickerSearchRow, { marginBottom: 8 }]}>
+            <TextInput
+              style={styles.pickerSearch}
+              placeholder="Search directory businesses..."
+              placeholderTextColor="#999"
+              value={businessPickerSearch}
+              onChangeText={setBusinessPickerSearch}
+              autoCorrect={false}
+              autoCapitalize="none"
+              clearButtonMode="while-editing"
+            />
+          </View>
           {businessLoading ? (
             <ActivityIndicator style={{ marginTop: 20 }} color={theme.colors.primary} />
-          ) : myBusinesses.length === 0 ? (
+          ) : directoryBusinesses.length === 0 ? (
             <Text style={styles.pickerEmpty}>
-              No saved businesses yet. Browse Support Local and save businesses to tag them in posts.
+              {businessPickerSearch.trim()
+                ? "No businesses match that search."
+                : "No directory listings available yet."}
             </Text>
           ) : (
             <FlatList
-              data={myBusinesses}
+              data={directoryBusinesses}
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => {

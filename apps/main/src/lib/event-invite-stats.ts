@@ -9,7 +9,8 @@ export type EventInviteStats = {
 
 /**
  * Aggregates EventInvite rows per event (friend invites + RSVPs).
- * `sent` = all invite rows; other fields count by response status (pending excluded from those three).
+ * `sent` = invites to others only (excludes self-RSVP where inviter === invitee).
+ * attending / maybe / declined count all rows with that status (including self-RSVP).
  */
 export async function getEventInviteStatsByEventIds(
   eventIds: string[]
@@ -19,19 +20,22 @@ export async function getEventInviteStatsByEventIds(
   for (const id of eventIds) {
     map.set(id, { sent: 0, attending: 0, maybe: 0, declined: 0 });
   }
-  const groups = await prisma.eventInvite.groupBy({
-    by: ["eventId", "status"],
+  const rows = await prisma.eventInvite.findMany({
     where: { eventId: { in: eventIds } },
-    _count: { id: true },
+    select: {
+      eventId: true,
+      status: true,
+      inviterId: true,
+      inviteeId: true,
+    },
   });
-  for (const g of groups) {
-    const entry = map.get(g.eventId);
+  for (const row of rows) {
+    const entry = map.get(row.eventId);
     if (!entry) continue;
-    const n = g._count.id;
-    entry.sent += n;
-    if (g.status === "accepted") entry.attending += n;
-    else if (g.status === "maybe") entry.maybe += n;
-    else if (g.status === "declined") entry.declined += n;
+    if (row.inviterId !== row.inviteeId) entry.sent += 1;
+    if (row.status === "accepted") entry.attending += 1;
+    else if (row.status === "maybe") entry.maybe += 1;
+    else if (row.status === "declined") entry.declined += 1;
   }
   return map;
 }

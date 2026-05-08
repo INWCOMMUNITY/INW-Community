@@ -204,7 +204,7 @@ export default function HomeScreen() {
   },
   prizeRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
@@ -214,7 +214,6 @@ export default function HomeScreen() {
     flex: 1,
     minWidth: 0,
     justifyContent: "center",
-    paddingTop: 1,
   },
   prizeRowPressed: { opacity: 0.8 },
   top10PrizeModalOverlay: {
@@ -314,13 +313,12 @@ export default function HomeScreen() {
     fontWeight: "bold",
     color: theme.colors.primary,
     width: 28,
-    paddingTop: 8,
+    textAlign: "center",
   },
   prizeThumb: {
     width: 36,
     height: 36,
     borderRadius: 4,
-    marginTop: 4,
   },
   prizeThumbPlaceholder: {
     backgroundColor: "#e5e5e5",

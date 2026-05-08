@@ -6,6 +6,7 @@ import { createFlaggedContent } from "@/lib/flag-content";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { checkMemberRateLimit } from "@/lib/member-rate-limit";
 import { z } from "zod";
+import { filterToPublicDirectoryBusinessIds } from "@/lib/public-business-directory";
 
 const postSchema = z.object({
   content: z.string().max(5000).optional().nullable(),
@@ -18,7 +19,7 @@ const postSchema = z.object({
   groupId: z.string().optional().nullable(),
   tags: z.array(z.string()).optional().default([]), // tag names or slugs
   taggedMemberIds: z.array(z.string()).optional().default([]),
-  /** Saved-directory businesses to mention (must be in author's saved businesses). */
+  /** Directory-listed businesses to mention (public Support Local listings). */
   taggedBusinessIds: z.array(z.string()).max(10).optional().default([]),
   sharedItemType: z.enum(["business", "coupon", "reward", "store_item"]).optional(),
   sharedItemId: z.string().optional(),
@@ -160,16 +161,7 @@ export async function POST(req: NextRequest) {
           rawTaggedBusinessIds.filter((id): id is string => typeof id === "string" && id.length > 0)
         ),
       ].slice(0, 10);
-      const savedRows = await prisma.savedItem.findMany({
-        where: {
-          memberId: session.user.id,
-          type: "business",
-          referenceId: { in: uniq },
-        },
-        select: { referenceId: true },
-      });
-      const allowedBiz = new Set(savedRows.map((s) => s.referenceId));
-      taggedBusinessIds = uniq.filter((id) => allowedBiz.has(id));
+      taggedBusinessIds = await filterToPublicDirectoryBusinessIds(uniq);
     }
 
     const post = await prisma.post.create({

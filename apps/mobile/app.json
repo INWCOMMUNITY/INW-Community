@@ -114,6 +114,12 @@
         {
           "photosPermission": "Allow INW Community to access your photos so you can share images in posts, messages, and your profile."
         }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "INW Community can add events you choose to your calendar. Your calendars are not read or synced."
+        }
       ]
     ],
     "experiments": {

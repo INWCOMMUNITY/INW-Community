@@ -28,6 +28,11 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { trackAppOpen } from '@/lib/api';
 import * as WebBrowser from 'expo-web-browser';
+import {
+  Audio,
+  InterruptionModeAndroid,
+  InterruptionModeIOS,
+} from 'expo-av';
 import { PushNotificationHandler } from '@/components/PushNotificationHandler';
 import { EventInvitePopupHost } from '@/components/EventInvitePopupHost';
 import { theme } from '@/lib/theme';
@@ -141,6 +146,20 @@ export default function RootLayout() {
   useEffect(() => {
     WebBrowser.maybeCompleteAuthSession();
   }, []);
+
+  /** Feed videos autoplay with sound; iOS needs explicit session + silent-switch behavior. */
+  useEffect(() => {
+    if (!loaded) return;
+    void Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: false,
+      staysActiveInBackground: false,
+      interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+      interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    }).catch(() => {});
+  }, [loaded]);
 
   if (!loaded) {
     return null;
