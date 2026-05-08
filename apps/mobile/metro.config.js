@@ -1,18 +1,24 @@
 // Learn more https://docs.expo.io/guides/customizing-metro
 const fs = require("fs");
 const path = require("path");
+const { createRequire } = require("module");
 const { getDefaultConfig } = require("expo/metro-config");
+
+const requireFromMobile = createRequire(path.join(__dirname, "package.json"));
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
 
 /** Monorepo root (…/INW Community). Helps Metro + pnpm find linked packages. */
 const workspaceRoot = path.resolve(__dirname, "../..");
-if (!config.watchFolders?.includes(workspaceRoot)) {
-  config.watchFolders = [...(config.watchFolders ?? []), workspaceRoot];
-}
 const mobileNodeModules = path.resolve(__dirname, "node_modules");
 const rootNodeModules = path.resolve(workspaceRoot, "node_modules");
+const watchExtra = [workspaceRoot, rootNodeModules].filter(
+  (p, i, a) => a.indexOf(p) === i && !config.watchFolders?.includes(p)
+);
+if (watchExtra.length) {
+  config.watchFolders = [...(config.watchFolders ?? []), ...watchExtra];
+}
 config.resolver.nodeModulesPaths = [
   mobileNodeModules,
   rootNodeModules,
@@ -22,8 +28,14 @@ config.resolver.nodeModulesPaths = [
 const stripeWebStub = path.resolve(__dirname, "shims/stripe-react-native-web.js");
 const defaultResolveRequest = config.resolver.resolveRequest;
 
-/** Direct file resolve when the default resolver misses pnpm-linked `expo-calendar`. */
+/** Resolve `expo-calendar` entry via Node (pnpm-safe); fallback to direct path. */
 function resolveExpoCalendarSourceFile() {
+  try {
+    const resolved = requireFromMobile.resolve("expo-calendar");
+    if (resolved && fs.existsSync(resolved)) return resolved;
+  } catch {
+    /* ignore */
+  }
   const main = path.join(mobileNodeModules, "expo-calendar", "build", "Calendar.js");
   try {
     if (fs.existsSync(main) && fs.statSync(main).isFile()) return main;
