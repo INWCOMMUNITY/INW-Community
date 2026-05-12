@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getBlockedMemberIds } from "@/lib/member-block";
+import { sortConversationsByLastMessageDesc } from "@/lib/conversation-inbox-sort";
 import { validateText } from "@/lib/content-moderation";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { checkMemberRateLimit } from "@/lib/member-rate-limit";
@@ -49,14 +50,15 @@ export async function GET(req: NextRequest) {
             select: { id: true, content: true, createdAt: true, senderId: true, sharedContentType: true },
           },
         },
-        orderBy: { updatedAt: "desc" },
       }),
       getBlockedMemberIds(session.user.id),
     ]);
-    const filtered = conversations.filter((c) => {
-      const otherId = c.memberAId === session.user.id ? c.memberBId : c.memberAId;
-      return !blockedIds.has(otherId);
-    });
+    const filtered = sortConversationsByLastMessageDesc(
+      conversations.filter((c) => {
+        const otherId = c.memberAId === session.user.id ? c.memberBId : c.memberAId;
+        return !blockedIds.has(otherId);
+      })
+    );
 
     const messageRequests = filtered.filter(
       (c) => c.status === "pending" && c.requestedByMemberId !== session.user.id

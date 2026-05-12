@@ -16,6 +16,7 @@ type ActivityNav =
   | { kind: "seller_order"; orderId: string }
   | { kind: "group"; slug: string }
   | { kind: "resale_chat"; conversationId: string }
+  | { kind: "buyer_resale_offer"; offerId: string }
   | { kind: "direct_message"; conversationId: string }
   | { kind: "none" };
 
@@ -77,6 +78,8 @@ function webHrefFromNav(nav: ActivityNav): string | null {
       return `/my-community/groups/${nav.slug}?adminInvite=1`;
     case "resale_chat":
       return `/my-community/messages?tab=resale&conversation=${encodeURIComponent(nav.conversationId)}`;
+    case "buyer_resale_offer":
+      return "/cart";
     case "direct_message":
       return `/my-community/messages?direct=${encodeURIComponent(nav.conversationId)}`;
     case "none":

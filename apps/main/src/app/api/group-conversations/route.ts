@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getBlockedMemberIds } from "@/lib/member-block";
 import { verifiedMemberWhere } from "@/lib/member-public-visibility";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import { sortConversationsByLastMessageDesc } from "@/lib/conversation-inbox-sort";
 import { z } from "zod";
 
 export async function GET(req: NextRequest) {
@@ -36,14 +37,15 @@ export async function GET(req: NextRequest) {
           select: { id: true, content: true, createdAt: true, senderId: true, sharedContentType: true },
         },
       },
-      orderBy: { updatedAt: "desc" },
     }),
     getBlockedMemberIds(session.user.id),
   ]);
-  const filtered = conversations.filter((c) => {
-    const otherMemberIds = c.members.map((m) => m.memberId).filter((mid) => mid !== session.user.id);
-    return !otherMemberIds.some((mid) => blockedIds.has(mid));
-  });
+  const filtered = sortConversationsByLastMessageDesc(
+    conversations.filter((c) => {
+      const otherMemberIds = c.members.map((m) => m.memberId).filter((mid) => mid !== session.user.id);
+      return !otherMemberIds.some((mid) => blockedIds.has(mid));
+    })
+  );
 
   const withUnread = await Promise.all(
     filtered.map(async (c) => {

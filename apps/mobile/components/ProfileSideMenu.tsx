@@ -112,6 +112,7 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSide
 
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [incomingFriendRequests, setIncomingFriendRequests] = useState(0);
+  const [commerceAttentionCount, setCommerceAttentionCount] = useState(0);
 
   const handleManageSubscription = () => {
     onClose();
@@ -120,18 +121,33 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSide
 
   useEffect(() => {
     if (visible) {
-      apiGet<{ unreadMessages?: number; incomingFriendRequests?: number }>("/api/me/sidebar-alerts")
+      apiGet<{
+        unreadMessages?: number;
+        incomingFriendRequests?: number;
+        commerceAttentionCount?: number;
+      }>("/api/me/sidebar-alerts")
         .then((d) => {
           setUnreadMessages(Number(d?.unreadMessages) || 0);
           setIncomingFriendRequests(Number(d?.incomingFriendRequests) || 0);
+          setCommerceAttentionCount(Number(d?.commerceAttentionCount) || 0);
         })
         .catch(() => {});
     }
   }, [visible]);
 
   // My Friends + Friend Requests combined into one link to my-friends (that screen shows both).
+  const notificationsMenuBadge =
+    unreadMessages + incomingFriendRequests + commerceAttentionCount > 0
+      ? unreadMessages + incomingFriendRequests + commerceAttentionCount
+      : undefined;
+
   const communityItems: NavItem[] = [
-    { href: "/notifications", label: "Notifications", icon: "notifications-outline" },
+    {
+      href: "/notifications",
+      label: "Notifications",
+      icon: "notifications-outline",
+      ...(notificationsMenuBadge != null ? { badgeCount: notificationsMenuBadge } : {}),
+    },
     { href: "/messages", label: "Inbox", icon: "mail-unread-outline", badgeCount: unreadMessages || undefined },
     {
       href: "/community/my-friends",

@@ -43,6 +43,19 @@ interface DirectConversation {
     sharedContentId?: string | null;
     sharedContentSlug?: string | null;
     sharedBusiness?: { id: string; name: string; slug: string; logoUrl: string | null; shortDescription: string | null } | null;
+    sharedEvent?: {
+      id: string;
+      title: string;
+      slug: string;
+      coverPhotoUrl: string | null;
+    } | null;
+    sharedStoreItem?: {
+      id: string;
+      title: string;
+      slug: string;
+      coverPhotoUrl: string | null;
+      listingType: string;
+    } | null;
     sender?: { id: string; firstName: string; lastName: string };
   }>;
 }
@@ -73,7 +86,12 @@ interface Friend {
   city?: string | null;
 }
 
-function sharedContentLink(msg: { sharedContentType?: string | null; sharedContentId?: string | null; sharedContentSlug?: string | null }) {
+function sharedContentLink(msg: {
+  sharedContentType?: string | null;
+  sharedContentId?: string | null;
+  sharedContentSlug?: string | null;
+  sharedStoreItem?: { slug?: string | null; listingType?: string | null } | null;
+}) {
   if (!msg.sharedContentType) return null;
   const base = typeof window !== "undefined" ? window.location.origin : "";
   switch (msg.sharedContentType) {
@@ -83,8 +101,13 @@ function sharedContentLink(msg: { sharedContentType?: string | null; sharedConte
       return `${base}/support-local/${msg.sharedContentSlug || msg.sharedContentId}`;
     case "blog":
       return `${base}/blog/${msg.sharedContentSlug || msg.sharedContentId}`;
-    case "store_item":
-      return msg.sharedContentSlug ? `${base}/resale/${msg.sharedContentSlug}` : `${base}/storefront`;
+    case "store_item": {
+      const slug = msg.sharedContentSlug || msg.sharedStoreItem?.slug;
+      if (!slug) return `${base}/storefront`;
+      const lt = msg.sharedStoreItem?.listingType ?? "new";
+      const path = lt === "resale" ? "resale" : "storefront";
+      return `${base}/${path}/${slug}`;
+    }
     case "reward":
       return `${base}/rewards`;
     case "post":
@@ -203,6 +226,9 @@ export default function MyCommunityMessagesPage() {
             sharedContentType: p.sharedContentType ?? null,
             sharedContentId: p.sharedContentId ?? null,
             sharedContentSlug: p.sharedContentSlug ?? null,
+            sharedEvent: p.sharedEvent ?? undefined,
+            sharedStoreItem: p.sharedStoreItem ?? undefined,
+            sharedBusiness: p.sharedBusiness ?? undefined,
             sender: p.sender ?? { id: p.senderId, firstName: "", lastName: "" },
           },
         ],
@@ -1176,9 +1202,11 @@ export default function MyCommunityMessagesPage() {
                                 href={link}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-3 p-2.5 rounded-xl border-2 border-black/20 hover:opacity-90 transition-opacity w-full text-left"
-                                style={{ backgroundColor: "var(--color-section-alt)", borderColor: "var(--color-primary)" }}
+                                className="relative flex items-center gap-3 p-2.5 pr-10 rounded-xl border-2 border-black hover:opacity-90 transition-opacity w-full text-left bg-[var(--color-section-alt)]"
                               >
+                                <span className="absolute top-2 right-2 z-[1] flex h-7 w-7 items-center justify-center rounded-full border border-black bg-white/95">
+                                  <IonIcon name="business" size={16} />
+                                </span>
                                 {m.sharedBusiness.logoUrl ? (
                                   <img
                                     src={m.sharedBusiness.logoUrl.startsWith("http") ? m.sharedBusiness.logoUrl : (typeof window !== "undefined" ? window.location.origin : "") + m.sharedBusiness.logoUrl}
@@ -1186,16 +1214,86 @@ export default function MyCommunityMessagesPage() {
                                     className="w-12 h-12 rounded-lg object-cover shrink-0"
                                   />
                                 ) : (
-                                  <div className="w-12 h-12 rounded-lg shrink-0 flex items-center justify-center" style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}>
+                                  <div className="w-12 h-12 rounded-lg shrink-0 flex items-center justify-center bg-gray-100 text-gray-600">
                                     <IonIcon name="business" size={24} />
                                   </div>
                                 )}
                                 <div className="min-w-0 flex-1">
-                                  <p className="font-semibold text-[var(--color-heading)] truncate">{m.sharedBusiness.name}</p>
+                                  <p className="font-semibold text-black truncate">{m.sharedBusiness.name}</p>
                                   {m.sharedBusiness.shortDescription && (
                                     <p className="text-xs text-gray-600 line-clamp-2 mt-0.5">{m.sharedBusiness.shortDescription}</p>
                                   )}
-                                  <p className="text-xs font-medium mt-1" style={{ color: "var(--color-primary)" }}>View business →</p>
+                                  <p className="text-xs font-bold mt-1 text-black flex items-center gap-1">
+                                    See Business Details! <span aria-hidden>→</span>
+                                  </p>
+                                </div>
+                              </Link>
+                            ) : m.sharedContentType === "event" && m.sharedEvent ? (
+                              <Link
+                                href={link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="relative flex items-center gap-3 p-2.5 pr-10 rounded-xl border-2 border-black hover:opacity-90 transition-opacity w-full text-left bg-[var(--color-section-alt)]"
+                              >
+                                <span className="absolute top-2 right-2 z-[1] flex h-7 w-7 items-center justify-center rounded-full border border-black bg-white/95">
+                                  <IonIcon name="calendar-outline" size={16} />
+                                </span>
+                                {m.sharedEvent.coverPhotoUrl ? (
+                                  <img
+                                    src={
+                                      m.sharedEvent.coverPhotoUrl.startsWith("http")
+                                        ? m.sharedEvent.coverPhotoUrl
+                                        : (typeof window !== "undefined" ? window.location.origin : "") +
+                                          m.sharedEvent.coverPhotoUrl
+                                    }
+                                    alt=""
+                                    className="w-12 h-12 rounded-lg object-cover shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-12 h-12 rounded-lg shrink-0 flex items-center justify-center bg-gray-100 text-gray-600">
+                                    <IonIcon name="calendar-outline" size={24} />
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-semibold text-black line-clamp-2">{m.sharedEvent.title}</p>
+                                  <p className="text-xs font-bold mt-1 text-black flex items-center gap-1">
+                                    See Event Details! <span aria-hidden>→</span>
+                                  </p>
+                                </div>
+                              </Link>
+                            ) : m.sharedContentType === "store_item" && (m.sharedStoreItem || m.sharedContentSlug) ? (
+                              <Link
+                                href={link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="relative flex items-center gap-3 p-2.5 pr-10 rounded-xl border-2 border-black hover:opacity-90 transition-opacity w-full text-left bg-[var(--color-section-alt)]"
+                              >
+                                <span className="absolute top-2 right-2 z-[1] flex h-7 w-7 items-center justify-center rounded-full border border-black bg-white/95">
+                                  <IonIcon name="bag-handle" size={16} />
+                                </span>
+                                {m.sharedStoreItem?.coverPhotoUrl ? (
+                                  <img
+                                    src={
+                                      m.sharedStoreItem.coverPhotoUrl.startsWith("http")
+                                        ? m.sharedStoreItem.coverPhotoUrl
+                                        : (typeof window !== "undefined" ? window.location.origin : "") +
+                                          m.sharedStoreItem.coverPhotoUrl
+                                    }
+                                    alt=""
+                                    className="w-12 h-12 rounded-lg object-cover shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-12 h-12 rounded-lg shrink-0 flex items-center justify-center bg-gray-100 text-gray-600">
+                                    <IonIcon name="bag-handle" size={24} />
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-semibold text-black line-clamp-2">
+                                    {m.sharedStoreItem?.title ?? "Store item"}
+                                  </p>
+                                  <p className="text-xs font-bold mt-1 text-black flex items-center gap-1">
+                                    See Item Details! <span aria-hidden>→</span>
+                                  </p>
                                 </div>
                               </Link>
                             ) : (

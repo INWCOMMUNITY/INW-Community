@@ -15,6 +15,7 @@ export type ActivityNav =
   | { kind: "seller_order"; orderId: string }
   | { kind: "group"; slug: string }
   | { kind: "resale_chat"; conversationId: string }
+  | { kind: "buyer_resale_offer"; offerId: string }
   | { kind: "direct_message"; conversationId: string }
   | { kind: "none" };
 
@@ -506,7 +507,7 @@ export async function getMeActivityFeed(
       subtitle: `“${off.storeItem.title}”`,
       occurredAt: when.toISOString(),
       actor: seller,
-      nav: convId ? { kind: "resale_chat", conversationId: convId } : { kind: "my_orders" },
+      nav: { kind: "buyer_resale_offer", offerId: off.id },
       storeItemPhotoUrl,
     });
   }

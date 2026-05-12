@@ -127,14 +127,11 @@ export default function MyItemsScreen() {
     try {
       const data = await apiPost<{ url?: string; error?: string }>(
         "/api/stripe/connect/onboard",
-        { returnBaseUrl: siteBase }
+        { returnBaseUrl: siteBase, mobileReturnPath: "/seller-hub" }
       );
       if (data.url) {
         const webUrl =
-          `/web?url=${encodeURIComponent(data.url)}&title=Payment setup` +
-          `&successPattern=${encodeURIComponent("seller-hub/store")}` +
-          `&successRoute=${encodeURIComponent("/seller-hub/store/payouts")}` +
-          "&refreshOnSuccess=1";
+          `/web?url=${encodeURIComponent(data.url)}&title=${encodeURIComponent("Payment setup")}`;
         router.push(webUrl as never);
       } else {
         setFetchError(

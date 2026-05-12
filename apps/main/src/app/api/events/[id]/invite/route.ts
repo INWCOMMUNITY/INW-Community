@@ -3,9 +3,11 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { z } from "zod";
+import { validateText } from "@/lib/content-moderation";
 
 const bodySchema = z.object({
   friendIds: z.array(z.string().min(1)).min(1).max(50),
+  message: z.string().max(500).optional(),
 });
 
 export async function POST(
@@ -29,7 +31,7 @@ export async function POST(
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
 
-  let body: { friendIds: string[] };
+  let body: z.infer<typeof bodySchema>;
   try {
     body = bodySchema.parse(await req.json());
   } catch (e) {
@@ -37,6 +39,17 @@ export async function POST(
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
     }
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+
+  const messageTrimmed = body.message?.trim() ?? "";
+  if (messageTrimmed.length > 0) {
+    const messageCheck = validateText(messageTrimmed, "message");
+    if (!messageCheck.allowed) {
+      return NextResponse.json(
+        { error: messageCheck.reason ?? "Message not allowed." },
+        { status: 400 }
+      );
+    }
   }
 
   // Verify each friendId is an accepted friend
@@ -135,6 +148,7 @@ export async function POST(
       eventId,
       eventSlug: String(slug),
       eventTitle: String(title),
+      customMessage: messageTrimmed.length > 0 ? messageTrimmed : undefined,
     }).catch(() => {});
   }
 

@@ -13,6 +13,7 @@ import {
   Modal,
   FlatList,
   TextInput,
+  Keyboard,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from "react-native";
@@ -73,6 +74,7 @@ export default function EventDetailScreen() {
   const heroPagerRef = useRef<FlatList<string> | null>(null);
   const [friends, setFriends] = useState<InviteFriendRow[]>([]);
   const [inviteFriendSearch, setInviteFriendSearch] = useState("");
+  const [inviteCustomMessage, setInviteCustomMessage] = useState("");
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [inviting, setInviting] = useState(false);
   const [inviteEarnedBadges, setInviteEarnedBadges] = useState<EarnedBadgePayload[]>([]);
@@ -275,6 +277,7 @@ export default function EventDetailScreen() {
     if (!event || !member?.id) return;
     setInviteModalOpen(true);
     setInviteFriendSearch("");
+    setInviteCustomMessage("");
     setSelectedFriendIds(new Set());
     try {
       const data = await apiGet<{ friends: InviteFriendRow[] }>("/api/me/friends");
@@ -310,12 +313,16 @@ export default function EventDetailScreen() {
     if (!event || selectedFriendIds.size === 0) return;
     setInviting(true);
     try {
+      const payload: { friendIds: string[]; message?: string } = {
+        friendIds: Array.from(selectedFriendIds),
+      };
+      const note = inviteCustomMessage.trim();
+      if (note.length > 0) payload.message = note;
+
       const res = await apiPost<{
         invited?: number;
         earnedBadges?: EarnedBadgePayload[];
-      }>(`/api/events/${event.id}/invite`, {
-        friendIds: Array.from(selectedFriendIds),
-      });
+      }>(`/api/events/${event.id}/invite`, payload);
       const invited = res?.invited ?? selectedFriendIds.size;
       const body = `Invited ${invited} friend(s) to this event.`;
       const badges = (res?.earnedBadges ?? []).filter(
@@ -323,6 +330,7 @@ export default function EventDetailScreen() {
           !!b && typeof b.slug === "string" && typeof b.name === "string"
       );
       setInviteModalOpen(false);
+      setInviteCustomMessage("");
       setSelectedFriendIds(new Set());
       if (badges.length > 0) {
         setPendingInviteAlertBody(body);
@@ -767,11 +775,29 @@ export default function EventDetailScreen() {
         transparent
         onRequestClose={() => setInviteModalOpen(false)}
       >
-        <Pressable style={styles.inviteModalOverlay} onPress={() => setInviteModalOpen(false)}>
-          <Pressable style={styles.inviteModalContent} onPress={(e) => e.stopPropagation()}>
+        <Pressable
+          style={styles.inviteModalOverlay}
+          onPress={() => {
+            Keyboard.dismiss();
+            setInviteModalOpen(false);
+          }}
+        >
+          <Pressable
+            style={styles.inviteModalContent}
+            onPress={(e) => {
+              Keyboard.dismiss();
+              e.stopPropagation?.();
+            }}
+          >
             <View style={styles.inviteModalHeader}>
               <Text style={styles.inviteModalTitle}>Invite</Text>
-              <Pressable onPress={() => setInviteModalOpen(false)} hitSlop={12}>
+              <Pressable
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setInviteModalOpen(false);
+                }}
+                hitSlop={12}
+              >
                 <Ionicons name="close" size={28} color={theme.colors.text} />
               </Pressable>
             </View>
@@ -779,6 +805,19 @@ export default function EventDetailScreen() {
               <Text style={styles.inviteModalEmpty}>No friends to invite. Add friends from Community.</Text>
             ) : (
               <>
+                <View style={styles.inviteMessageBlock}>
+                  <Text style={styles.inviteMessageLabel}>Add a Message with Invite</Text>
+                  <TextInput
+                    style={styles.inviteMessageInput}
+                    placeholder="Say hi or why they might like this event…"
+                    placeholderTextColor={theme.colors.placeholder}
+                    value={inviteCustomMessage}
+                    onChangeText={setInviteCustomMessage}
+                    multiline
+                    maxLength={500}
+                    textAlignVertical="top"
+                  />
+                </View>
                 <View style={styles.inviteSearchWrap}>
                   <Ionicons name="search-outline" size={20} color={theme.colors.primary} />
                   <TextInput
@@ -792,7 +831,11 @@ export default function EventDetailScreen() {
                     clearButtonMode="while-editing"
                   />
                 </View>
-                <ScrollView style={styles.inviteModalList} keyboardShouldPersistTaps="handled">
+                <ScrollView
+                  style={styles.inviteModalList}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                >
                   {filteredInviteFriends.length === 0 ? (
                     <Text style={styles.inviteModalEmpty}>No friends match your search.</Text>
                   ) : (
@@ -804,7 +847,10 @@ export default function EventDetailScreen() {
                         <Pressable
                           key={f.id}
                           style={styles.inviteFriendRow}
-                          onPress={() => toggleFriendSelection(f.id)}
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            toggleFriendSelection(f.id);
+                          }}
                         >
                           <Ionicons
                             name={selectedFriendIds.has(f.id) ? "checkbox" : "square-outline"}
@@ -834,7 +880,10 @@ export default function EventDetailScreen() {
                 { backgroundColor: theme.colors.primary },
                 (selectedFriendIds.size === 0 || inviting) && styles.inviteSubmitDisabled,
               ]}
-              onPress={handleInviteFriends}
+              onPress={() => {
+                Keyboard.dismiss();
+                void handleInviteFriends();
+              }}
               disabled={selectedFriendIds.size === 0 || inviting}
             >
               {inviting ? (
@@ -1125,6 +1174,35 @@ const styles = StyleSheet.create({
   },
   inviteModalTitle: { fontSize: 18, fontWeight: "700", color: "#222" },
   inviteModalEmpty: { padding: 24, fontSize: 15, color: "#666", textAlign: "center" },
+  inviteMessageBlock: {
+    alignItems: "center",
+    gap: 10,
+    marginTop: 16,
+    marginBottom: 22,
+    paddingHorizontal: 16,
+  },
+  inviteMessageLabel: {
+    width: "86%",
+    maxWidth: 340,
+    alignSelf: "center",
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#444",
+  },
+  inviteMessageInput: {
+    width: "86%",
+    maxWidth: 340,
+    minHeight: 72,
+    maxHeight: 120,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: "#222",
+    backgroundColor: "#fafafa",
+  },
   inviteSearchWrap: {
     flexDirection: "row",
     alignItems: "center",

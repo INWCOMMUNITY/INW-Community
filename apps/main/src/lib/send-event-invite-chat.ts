@@ -19,10 +19,17 @@ export async function sendEventInviteChatMessages(opts: {
   eventId: string;
   eventSlug: string;
   eventTitle: string;
+  /** Optional note shown above the standard invite line (friends-only DM). */
+  customMessage?: string | null;
 }): Promise<void> {
-  const { inviterId, inviteeIds, eventId, eventSlug, eventTitle } = opts;
+  const { inviterId, inviteeIds, eventId, eventSlug, eventTitle, customMessage } = opts;
   const titleShort = safeSnippet(eventTitle, 120);
-  const content = `You're invited to "${titleShort}" — open the event to RSVP.`;
+  const defaultLine = `You're invited to "${titleShort}" — open the event to RSVP.`;
+  const trimmedCustom = (customMessage ?? "").replace(/\s+/g, " ").trim();
+  const content =
+    trimmedCustom.length > 0
+      ? `${safeSnippet(trimmedCustom, 500)}\n\n${defaultLine}`
+      : defaultLine;
 
   for (const inviteeId of inviteeIds) {
     if (inviteeId === inviterId) continue;
@@ -41,7 +48,7 @@ export async function sendEventInviteChatMessages(opts: {
         continue;
       }
 
-      await prisma.directMessage.create({
+      const dm = await prisma.directMessage.create({
         data: {
           conversationId: conv.id,
           senderId: inviterId,
@@ -50,11 +57,20 @@ export async function sendEventInviteChatMessages(opts: {
           sharedContentId: eventId,
           sharedContentSlug: eventSlug,
         },
+        include: {
+          sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+        },
       });
       await prisma.directConversation.update({
         where: { id: conv.id },
         data: { updatedAt: new Date() },
       });
+
+      const { buildDirectMessageLivePayload } = await import("@/lib/build-direct-message-live-payload");
+      const { publishDirectConversationMessage } = await import("@/lib/realtime-publish");
+      const { scheduleRealtimePublish } = await import("@/lib/schedule-realtime-publish");
+      const payload = await buildDirectMessageLivePayload(conv.id, dm);
+      scheduleRealtimePublish(publishDirectConversationMessage(conv.id, payload as Record<string, unknown>));
     } catch (e) {
       console.warn("[sendEventInviteChatMessages] failed for invitee", inviteeId, e);
     }

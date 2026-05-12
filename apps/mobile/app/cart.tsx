@@ -110,6 +110,47 @@ interface CartItem {
   unavailableReason?: string;
 }
 
+/** Row from GET /api/resale-offers?role=buyer (cart “Your offers” section). */
+interface CartBuyerOfferRow {
+  id: string;
+  status: string;
+  amountCents: number;
+  counterAmountCents?: number | null;
+  finalAmountCents?: number | null;
+  checkoutDeadlineAt?: string | null;
+  createdAt?: string;
+  storeItem: { id: string; title: string; slug: string; priceCents: number; photos: string[] };
+}
+
+function sortBuyerOffersForCart(offers: CartBuyerOfferRow[]): CartBuyerOfferRow[] {
+  const rank: Record<string, number> = { countered: 0, accepted: 1, pending: 2, declined: 3, expired: 4 };
+  return [...offers].sort((a, b) => {
+    const ra = rank[a.status] ?? 99;
+    const rb = rank[b.status] ?? 99;
+    if (ra !== rb) return ra - rb;
+    const da = new Date(a.createdAt ?? 0).getTime();
+    const db = new Date(b.createdAt ?? 0).getTime();
+    return db - da;
+  });
+}
+
+function buyerOfferStatusLabel(status: string): string {
+  switch (status) {
+    case "pending":
+      return "Waiting for seller";
+    case "countered":
+      return "Counter offer — respond";
+    case "accepted":
+      return "Accepted — checkout";
+    case "declined":
+      return "Declined";
+    case "expired":
+      return "Expired";
+    default:
+      return status;
+  }
+}
+
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
@@ -161,6 +202,7 @@ export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const { member } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
+  const [buyerOffers, setBuyerOffers] = useState<CartBuyerOfferRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -198,16 +240,19 @@ export default function CartScreen() {
       else setLoading(true);
     }
     try {
-      const [cartData, meData] = await Promise.all([
+      const [cartData, meData, offersRaw] = await Promise.all([
         apiGet<CartItem[]>("/api/cart"),
         silent
           ? Promise.resolve(null)
           : apiGet<{ deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string } | null }>(
               "/api/me"
             ).catch(() => null),
+        apiGet<CartBuyerOfferRow[]>(`/api/resale-offers?role=buyer`).catch(() => []),
       ]);
       const list = Array.isArray(cartData) ? cartData : [];
       setItems(list);
+      const offersList = Array.isArray(offersRaw) ? offersRaw : [];
+      setBuyerOffers(sortBuyerOffersForCart(offersList));
       if (!silent && meData) {
         const addr = meData.deliveryAddress;
         if (addr && (addr.street ?? addr.city ?? addr.state ?? addr.zip)) {
@@ -230,9 +275,11 @@ export default function CartScreen() {
         const err = e as { status?: number };
         if (err.status === 401) {
           setItems([]);
+          setBuyerOffers([]);
         } else {
           setError("Could not load cart");
           setItems([]);
+          setBuyerOffers([]);
         }
       }
       return null;
@@ -1141,6 +1188,45 @@ export default function CartScreen() {
             </View>
           ) : null}
 
+          {buyerOffers.length > 0 ? (
+            <View style={styles.offersSection}>
+              <Text style={styles.offersSectionTitle}>Your offers</Text>
+              <Text style={styles.offersSectionHint}>Tap an offer to accept a counter, decline, or go to checkout.</Text>
+              {buyerOffers.map((off) => {
+                const photoUrl = resolvePhotoUrl(off.storeItem.photos?.[0]);
+                const displayCents =
+                  off.status === "countered" && typeof off.counterAmountCents === "number"
+                    ? off.counterAmountCents
+                    : off.status === "accepted" && typeof off.finalAmountCents === "number"
+                      ? off.finalAmountCents
+                      : off.amountCents;
+                return (
+                  <Pressable
+                    key={off.id}
+                    style={({ pressed }) => [styles.offerRow, pressed && { opacity: 0.85 }]}
+                    onPress={() => router.push(`/offers/${off.id}` as never)}
+                  >
+                    {photoUrl ? (
+                      <Image source={{ uri: photoUrl }} style={styles.offerRowImage} />
+                    ) : (
+                      <View style={[styles.offerRowImage, styles.offerRowImagePlaceholder]}>
+                        <Ionicons name="pricetag-outline" size={22} color={theme.colors.primary} />
+                      </View>
+                    )}
+                    <View style={styles.offerRowBody}>
+                      <Text style={styles.offerRowTitle} numberOfLines={2}>
+                        {off.storeItem.title}
+                      </Text>
+                      <Text style={styles.offerRowStatus}>{buyerOfferStatusLabel(off.status)}</Text>
+                      <Text style={styles.offerRowAmount}>{formatPrice(displayCents)}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#999" />
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+
           {items.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="cart-outline" size={64} color={theme.colors.primary} />
@@ -1586,6 +1672,62 @@ const styles = StyleSheet.create({
   warningText: {
     color: "#856404",
     fontSize: 14,
+  },
+  offersSection: {
+    marginBottom: 20,
+  },
+  offersSectionTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.colors.text,
+    marginBottom: 6,
+  },
+  offersSectionHint: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 12,
+  },
+  offerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    marginBottom: 10,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#eee",
+    backgroundColor: "#fafafa",
+    gap: 10,
+  },
+  offerRowImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: "#f0f0f0",
+  },
+  offerRowImagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  offerRowBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  offerRowTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#000",
+  },
+  offerRowStatus: {
+    fontSize: 13,
+    color: theme.colors.primary,
+    marginTop: 2,
+    fontWeight: "500",
+  },
+  offerRowAmount: {
+    fontSize: 14,
+    color: "#333",
+    marginTop: 4,
+    fontWeight: "600",
   },
   unavailableReason: {
     fontSize: 12,

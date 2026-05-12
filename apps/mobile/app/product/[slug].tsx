@@ -84,6 +84,7 @@ interface StoreItem {
   acceptOffers?: boolean;
   minOfferCents?: number | null;
   memberId?: string;
+  listingType?: "new" | "resale";
 }
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
@@ -209,6 +210,12 @@ export default function ProductScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setMessageSellerModalOpen(false);
+    setMessageSellerText("");
+    setMakeOfferModalOpen(false);
+  }, [slug, listingType]);
 
   useEffect(() => {
     if (!member || !item) return;
@@ -355,7 +362,10 @@ export default function ProductScreen() {
       setMakeOfferModalOpen(false);
       setOfferAmountDollars("");
       setOfferMessage("");
-      Alert.alert("Offer sent", "The seller will review your offer. Check Resale Hub → Offers for updates.");
+      Alert.alert(
+        "Offer sent",
+        "The seller will review your offer. You’ll get a notification when they respond."
+      );
     } catch (e) {
       const err = e as { error?: string };
       setOfferError(err?.error ?? "Could not submit offer.");
@@ -486,6 +496,23 @@ export default function ProductScreen() {
     !!effectiveShippingPolicy ||
     !!item.member?.sellerReturnPolicy;
 
+  const isResaleListing = item.listingType === "resale" || listingType === "resale";
+  const isOwnListing = !!(
+    member &&
+    (item.memberId === member.id || item.member?.id === member.id)
+  );
+  const sellerAcceptsOffers = item.acceptOffers !== false;
+  const showResaleBuyerActions = isResaleListing && !itemUnavailable && !isOwnListing;
+  const showSendOfferButton = showResaleBuyerActions && sellerAcceptsOffers;
+
+  const openSendOfferModal = () => {
+    setMessageSellerModalOpen(false);
+    setOfferError("");
+    setOfferAmountDollars("");
+    setOfferMessage("");
+    setMakeOfferModalOpen(true);
+  };
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
@@ -522,6 +549,9 @@ export default function ProductScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
       >
         {itemUnavailable && item && (
           <View style={styles.soldBanner}>
@@ -598,20 +628,6 @@ export default function ProductScreen() {
 
         <View style={styles.body}>
           <Text style={styles.title}>{item.title}</Text>
-          {item.business ? (
-            <Pressable
-              onPress={() => router.push(`/business/${item.business!.slug}`)}
-              style={styles.soldByWrap}
-            >
-              <Text style={styles.soldByLink}>{item.business.name}</Text>
-            </Pressable>
-          ) : item.member ? (
-            <View style={styles.soldByRow}>
-              <Text style={styles.soldByText}>
-                Sold by {item.member.firstName} {item.member.lastName}
-              </Text>
-            </View>
-          ) : null}
           <Text style={styles.price}>{formatPrice(item.priceCents)}</Text>
           {item.category && (
             <View style={styles.categoryChip}>
@@ -778,7 +794,7 @@ export default function ProductScreen() {
             </View>
           ) : null}
 
-          {listingType === "resale" && member && (
+          {showResaleBuyerActions ? (
             <View style={styles.section}>
               <View style={styles.resaleActionsRow}>
                 <Pressable
@@ -791,26 +807,21 @@ export default function ProductScreen() {
                   <Ionicons name="chatbubble-outline" size={18} color="#fff" />
                   <Text style={styles.messageSellerBtnText}>Message Seller</Text>
                 </Pressable>
-                {item?.acceptOffers && item.member?.id !== member.id && (
+                {showSendOfferButton ? (
                   <Pressable
                     style={({ pressed }) => [
                       styles.makeOfferBtn,
                       pressed && { opacity: 0.8 },
                     ]}
-                    onPress={() => {
-                      setOfferError("");
-                      setOfferAmountDollars("");
-                      setOfferMessage("");
-                      setMakeOfferModalOpen(true);
-                    }}
+                    onPress={openSendOfferModal}
                   >
                     <Ionicons name="pricetag-outline" size={18} color={theme.colors.primary} />
-                    <Text style={styles.makeOfferBtnText}>Make Offer</Text>
+                    <Text style={styles.makeOfferBtnText}>Send Offer</Text>
                   </Pressable>
-                )}
+                ) : null}
               </View>
             </View>
-          )}
+          ) : null}
 
           {/* Store Information */}
           {item.business && (
@@ -915,7 +926,34 @@ export default function ProductScreen() {
       </ScrollView>
 
       {!itemUnavailable && (
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) + 10 }]}>
+          {showResaleBuyerActions ? (
+            <View style={styles.footerResaleRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.footerSecondaryBtn,
+                  pressed && { opacity: 0.85 },
+                ]}
+                onPress={() => setMessageSellerModalOpen(true)}
+              >
+                <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} />
+                <Text style={styles.footerSecondaryBtnText}>Message Seller</Text>
+              </Pressable>
+              {showSendOfferButton ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.footerSecondaryBtn,
+                    styles.footerSendOfferBtn,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  onPress={openSendOfferModal}
+                >
+                  <Ionicons name="pricetag-outline" size={18} color={theme.colors.primary} />
+                  <Text style={styles.footerSecondaryBtnText}>Send Offer</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
           <Pressable
             style={[styles.addBtn, addingToCart && styles.addBtnDisabled]}
             onPress={addToCart}
@@ -970,11 +1008,11 @@ export default function ProductScreen() {
             visible={messageSellerModalOpen}
             transparent
             animationType="slide"
-            onRequestClose={() => setMessageSellerModalOpen(false)}
+            onRequestClose={() => !sendingMessage && setMessageSellerModalOpen(false)}
           >
             <Pressable
               style={styles.modalBackdrop}
-              onPress={() => setMessageSellerModalOpen(false)}
+              onPress={() => !sendingMessage && setMessageSellerModalOpen(false)}
             >
               <KeyboardAvoidingView
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -984,19 +1022,17 @@ export default function ProductScreen() {
                   style={styles.messageSellerModal}
                   onPress={(e) => e.stopPropagation()}
                 >
-                  <Text style={styles.messageSellerModalTitle}>
-                    Message seller
-                  </Text>
+                  <Text style={styles.messageSellerModalTitle}>Message Seller</Text>
                   <TextInput
                     style={styles.messageSellerInput}
                     placeholder="Type your message..."
                     placeholderTextColor="#999"
                     multiline
-                    numberOfLines={3}
+                    numberOfLines={4}
                     value={messageSellerText}
                     onChangeText={setMessageSellerText}
                     editable={!sendingMessage}
-                    autoCorrect={true}
+                    autoCorrect
                   />
                   <View style={styles.messageSellerModalActions}>
                     <Pressable
@@ -1046,7 +1082,7 @@ export default function ProductScreen() {
                   style={styles.messageSellerModal}
                   onPress={(e) => e.stopPropagation()}
                 >
-                  <Text style={styles.messageSellerModalTitle}>Make an offer</Text>
+                  <Text style={styles.messageSellerModalTitle}>Send Offer</Text>
                   {item?.minOfferCents != null && item.minOfferCents > 0 && (
                     <Text style={styles.makeOfferMinHint}>
                       Minimum: ${(item.minOfferCents / 100).toFixed(2)}
@@ -1099,7 +1135,7 @@ export default function ProductScreen() {
                       {offerSubmitting ? (
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
-                        <Text style={styles.messageSellerSendText}>Submit offer</Text>
+                        <Text style={styles.messageSellerSendText}>Send Offer</Text>
                       )}
                     </Pressable>
                   </View>
@@ -1115,6 +1151,8 @@ export default function ProductScreen() {
               id: item.id,
               slug: item.slug,
               listingType,
+              title: item.title,
+              previewPhotoUrl: (item.photos ?? []).find((p) => p && String(p).trim() !== "") ?? undefined,
             }}
           />
           <Modal visible={showSavedNote} transparent animationType="fade">
@@ -1217,7 +1255,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   scrollContent: {
-    paddingBottom: 100,
+    paddingBottom: 168,
     backgroundColor: "#fff",
   },
   galleryWrap: {
@@ -1393,25 +1431,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: theme.colors.text,
     lineHeight: 22,
-  },
-  soldByWrap: {
-    marginBottom: 4,
-  },
-  soldByLink: {
-    fontSize: 14,
-    color: theme.colors.primary,
-    textDecorationLine: "underline",
-  },
-  soldByRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 4,
-  },
-  soldByText: {
-    fontSize: 14,
-    color: theme.colors.text,
   },
   resaleActionsRow: {
     flexDirection: "row",
@@ -1637,10 +1656,37 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 16,
-    paddingBottom: 32,
+    paddingTop: 12,
     backgroundColor: "#fff",
     borderTopWidth: 2,
     borderTopColor: "#eee",
+  },
+  footerResaleRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10,
+  },
+  footerSecondaryBtn: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  footerSendOfferBtn: {
+    backgroundColor: theme.colors.cream,
+  },
+  footerSecondaryBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.heading,
   },
   addBtn: {
     flexDirection: "row",

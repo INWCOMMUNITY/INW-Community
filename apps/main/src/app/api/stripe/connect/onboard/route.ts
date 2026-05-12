@@ -9,15 +9,42 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
 });
 
+/** Paths allowed as Stripe return targets for the native app bridge (`/app/stripe-connect-return`). */
+function sanitizeMobileStripeReturnPath(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const path = raw.trim().split("?")[0]?.split("#")[0] ?? "";
+  if (!path.startsWith("/") || path.includes("..") || path.includes("//")) return null;
+  if (!/^\/(seller-hub|resale-hub)(\/|$)/.test(path)) return null;
+  return path;
+}
+
+function stripeConnectAccountLinkUrls(baseUrl: string, mobilePath: string | null): { return_url: string; refresh_url: string } {
+  const payouts = `${baseUrl}/seller-hub/store/payouts`;
+  if (!mobilePath) {
+    return {
+      return_url: `${payouts}?success=1`,
+      refresh_url: `${payouts}?refresh=1`,
+    };
+  }
+  const enc = encodeURIComponent(mobilePath);
+  return {
+    return_url: `${baseUrl}/app/stripe-connect-return?path=${enc}&success=1`,
+    refresh_url: `${baseUrl}/app/stripe-connect-return?path=${enc}&refresh=1`,
+  };
+}
+
 export async function POST(req: NextRequest) {
   let requestedReturn: string | undefined;
+  let mobileReturnPath: string | null = null;
   try {
     const body = await req.json();
     if (typeof body.returnBaseUrl === "string") requestedReturn = body.returnBaseUrl;
+    mobileReturnPath = sanitizeMobileStripeReturnPath(body.mobileReturnPath);
   } catch {
     // no JSON body
   }
   const baseUrl = resolveAllowedCheckoutBaseUrl(requestedReturn);
+  const { return_url, refresh_url } = stripeConnectAccountLinkUrls(baseUrl, mobileReturnPath);
 
   if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY === "sk_test_...") {
     return NextResponse.json(
@@ -104,8 +131,8 @@ export async function POST(req: NextRequest) {
     try {
       accountLink = await stripe.accountLinks.create({
         account: accountId,
-        refresh_url: `${baseUrl}/seller-hub/store/payouts?refresh=1`,
-        return_url: `${baseUrl}/seller-hub/store/payouts?success=1`,
+        refresh_url,
+        return_url,
         type: "account_onboarding",
         collection_options: {
           fields: "currently_due",
@@ -142,8 +169,8 @@ export async function POST(req: NextRequest) {
         });
         accountLink = await stripe.accountLinks.create({
           account: accountId,
-          refresh_url: `${baseUrl}/seller-hub/store/payouts?refresh=1`,
-          return_url: `${baseUrl}/seller-hub/store/payouts?success=1`,
+          refresh_url,
+          return_url,
           type: "account_onboarding",
           collection_options: {
             fields: "currently_due",

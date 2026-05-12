@@ -75,6 +75,14 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+function sortInboxByLastMessage<T extends { messages: InboxLastMessage[]; updatedAt: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const ta = a.messages?.[0]?.createdAt ?? a.updatedAt;
+    const tb = b.messages?.[0]?.createdAt ?? b.updatedAt;
+    return new Date(tb).getTime() - new Date(ta).getTime();
+  });
+}
+
 function formatTime(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
@@ -113,10 +121,14 @@ export default function MessagesInboxScreen() {
         apiGet<ResaleConversation[]>("/api/resale-conversations"),
         apiGet<GroupConversation[]>("/api/group-conversations"),
       ]);
-      setDirect(Array.isArray(directData?.conversations) ? directData.conversations : []);
-      setMessageRequests(Array.isArray(directData?.messageRequests) ? directData.messageRequests : []);
-      setResale(Array.isArray(r) ? r : []);
-      setGroups(Array.isArray(g) ? g : []);
+      setDirect(
+        sortInboxByLastMessage(Array.isArray(directData?.conversations) ? directData.conversations : [])
+      );
+      setMessageRequests(
+        sortInboxByLastMessage(Array.isArray(directData?.messageRequests) ? directData.messageRequests : [])
+      );
+      setResale(sortInboxByLastMessage(Array.isArray(r) ? r : []));
+      setGroups(sortInboxByLastMessage(Array.isArray(g) ? g : []));
     } catch {
       setDirect([]);
       setMessageRequests([]);

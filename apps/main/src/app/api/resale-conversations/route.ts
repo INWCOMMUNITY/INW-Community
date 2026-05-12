@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getBlockedMemberIds } from "@/lib/member-block";
+import { sortConversationsByLastMessageDesc } from "@/lib/conversation-inbox-sort";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -24,14 +25,15 @@ export async function GET(req: NextRequest) {
           select: { id: true, content: true, createdAt: true, senderId: true },
         },
       },
-      orderBy: { updatedAt: "desc" },
     }),
     getBlockedMemberIds(session.user.id),
   ]);
-  const filtered = conversations.filter((c) => {
-    const otherId = c.buyerId === session.user.id ? c.sellerId : c.buyerId;
-    return !blockedIds.has(otherId);
-  });
+  const filtered = sortConversationsByLastMessageDesc(
+    conversations.filter((c) => {
+      const otherId = c.buyerId === session.user.id ? c.sellerId : c.buyerId;
+      return !blockedIds.has(otherId);
+    })
+  );
 
   const withUnread = await Promise.all(
     filtered.map(async (c) => {

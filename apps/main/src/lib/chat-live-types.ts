@@ -16,6 +16,27 @@ export type LiveSocketMessagePayload = {
   sharedContentType?: string | null;
   sharedContentId?: string | null;
   sharedContentSlug?: string | null;
+  /** Present when sharedContentType is "event" — rich preview in chat. */
+  sharedEvent?: {
+    id: string;
+    title: string;
+    slug: string;
+    coverPhotoUrl: string | null;
+  };
+  sharedStoreItem?: {
+    id: string;
+    title: string;
+    slug: string;
+    coverPhotoUrl: string | null;
+    listingType: string;
+  };
+  sharedBusiness?: {
+    id: string;
+    name: string;
+    slug: string;
+    logoUrl: string | null;
+    shortDescription: string | null;
+  };
 };
 
 export function isLiveSocketMessagePayload(p: unknown): p is LiveSocketMessagePayload {

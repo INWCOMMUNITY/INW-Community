@@ -82,6 +82,50 @@ async function placeAcceptedOfferInBuyerCart(
   }).catch(() => {});
 }
 
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSessionForApi(_req);
+  const userId = session?.user?.id;
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const offer = await prisma.resaleOffer.findUnique({
+    where: { id },
+    include: {
+      buyer: { select: { id: true, firstName: true, lastName: true } },
+      storeItem: {
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          photos: true,
+          priceCents: true,
+          listingType: true,
+          memberId: true,
+          status: true,
+          quantity: true,
+          member: { select: { id: true, firstName: true, lastName: true } },
+        },
+      },
+    },
+  });
+
+  if (!offer) {
+    return NextResponse.json({ error: "Offer not found" }, { status: 404 });
+  }
+  const isSeller = offer.storeItem.memberId === userId;
+  const isBuyer = offer.buyerId === userId;
+  if (!isSeller && !isBuyer) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  return NextResponse.json(offer);
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

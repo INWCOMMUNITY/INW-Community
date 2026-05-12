@@ -2,7 +2,7 @@
  * ShareModal - Share content via NWC Messages, to feed, to groups, or externally.
  * Tapping "Share to Feed" opens a compose view with preview + text input.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import {
   Modal,
   View,
@@ -32,6 +32,7 @@ import {
   type ShareContent,
 } from "@/lib/share-utils";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+import { fetchStoreItemPreviewPayload } from "@/lib/fetch-store-item-preview";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -43,6 +44,10 @@ export interface ShareToChatSharedContent {
   id: string;
   slug?: string;
   listingType?: "new" | "resale";
+  /** Shown in share preview (e.g. store listing title instead of generic “Store Item”). */
+  title?: string;
+  /** First listing image for store_item preview (relative site path or absolute URL). */
+  previewPhotoUrl?: string;
 }
 
 interface Friend {
@@ -84,6 +89,8 @@ interface ShareToChatModalProps {
 }
 
 const SHARE_TITLE = "Check this out";
+/** Default DM line when sharing a store listing to a friend (not the listing title). */
+const SHARE_DM_STORE_ITEM = "Check this item out!";
 
 export function ShareToChatModal({
   visible,
@@ -105,6 +112,8 @@ export function ShareToChatModal({
   const [shareToGroupLoading, setShareToGroupLoading] = useState<string | null>(null);
   const [feedEarnedBadges, setFeedEarnedBadges] = useState<EarnedBadgePayload[]>([]);
   const [feedBadgePopupIndex, setFeedBadgePopupIndex] = useState(-1);
+  /** Resolved from API so title + photo always match the listing (parent props can be incomplete). */
+  const [storePreview, setStorePreview] = useState<{ title: string; photo?: string } | null>(null);
 
   const content: ShareContent = {
     type: sharedContent.type,
@@ -114,7 +123,45 @@ export function ShareToChatModal({
   };
   const url = buildShareUrl(content);
   const canShareToGroup = sharedContent.type === "post";
-  const typeLabel = TYPE_LABELS[sharedContent.type] ?? "Content";
+
+  useEffect(() => {
+    if (!visible || sharedContent.type !== "store_item") {
+      setStorePreview(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const row = await fetchStoreItemPreviewPayload({
+        id: sharedContent.id,
+        slug: sharedContent.slug,
+        listingType: sharedContent.listingType,
+      });
+      if (cancelled) return;
+      if (row?.title) {
+        const photo = row.photos?.find((p) => p && String(p).trim() !== "");
+        setStorePreview({ title: row.title, photo });
+      } else {
+        setStorePreview(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, sharedContent.type, sharedContent.id, sharedContent.slug, sharedContent.listingType]);
+
+  const typeLabel = useMemo(() => {
+    if (sharedContent.type === "store_item") {
+      const t = (storePreview?.title ?? sharedContent.title)?.trim();
+      if (t) return t;
+    }
+    return TYPE_LABELS[sharedContent.type] ?? "Content";
+  }, [sharedContent.type, sharedContent.title, storePreview?.title]);
+
+  const previewImageUri = useMemo(() => {
+    if (sharedContent.type !== "store_item") return undefined;
+    const raw = storePreview?.photo ?? sharedContent.previewPhotoUrl;
+    return raw ? resolvePhotoUrl(raw) : undefined;
+  }, [sharedContent.type, sharedContent.previewPhotoUrl, storePreview?.photo]);
 
   const load = useCallback(async () => {
     if (!visible) return;
@@ -145,6 +192,7 @@ export function ShareToChatModal({
       setShareToGroupPicker(false);
       setFeedEarnedBadges([]);
       setFeedBadgePopupIndex(-1);
+      setStorePreview(null);
     }
   }, [visible]);
 
@@ -152,9 +200,11 @@ export function ShareToChatModal({
     const key = `friend-${addresseeId}`;
     setSending(key);
     try {
+      const dmShareText =
+        sharedContent.type === "store_item" ? SHARE_DM_STORE_ITEM : SHARE_TITLE;
       const payload = {
         addresseeId,
-        content: SHARE_TITLE,
+        content: dmShareText,
         sharedContentType: sharedContent.type,
         sharedContentId: sharedContent.id,
         sharedContentSlug: sharedContent.slug ?? undefined,
@@ -162,8 +212,10 @@ export function ShareToChatModal({
       const conv = await apiPost<{ id: string }>("/api/direct-conversations", payload);
       onClose();
       router.push(`/messages/${conv.id}`);
-    } catch {
+    } catch (e) {
       setSending(null);
+      const err = e as { error?: string };
+      Alert.alert("Couldn't send", err?.error ?? "Try again in a moment.");
     }
   };
 
@@ -277,20 +329,24 @@ export function ShareToChatModal({
                 keyboardShouldPersistTaps="handled"
               >
                 <View style={styles.previewCard}>
-                  <View style={styles.previewIconWrap}>
-                    <Ionicons
-                      name={
-                        sharedContent.type === "coupon" ? "pricetag" :
-                        sharedContent.type === "business" ? "business" :
-                        sharedContent.type === "blog" ? "newspaper" :
-                        sharedContent.type === "store_item" ? "bag-handle" :
-                        sharedContent.type === "reward" ? "star" :
-                        "share-social"
-                      }
-                      size={28}
-                      color={theme.colors.primary}
-                    />
-                  </View>
+                  {previewImageUri ? (
+                    <Image source={{ uri: previewImageUri }} style={styles.previewThumb} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.previewIconWrap}>
+                      <Ionicons
+                        name={
+                          sharedContent.type === "coupon" ? "pricetag" :
+                          sharedContent.type === "business" ? "business" :
+                          sharedContent.type === "blog" ? "newspaper" :
+                          sharedContent.type === "store_item" ? "bag" :
+                          sharedContent.type === "reward" ? "star" :
+                          "share-social"
+                        }
+                        size={28}
+                        color={theme.colors.primary}
+                      />
+                    </View>
+                  )}
                   <View style={styles.previewTextWrap}>
                     <Text style={styles.previewType}>Sharing a {typeLabel}</Text>
                     <Text style={styles.previewUrl} numberOfLines={1}>{url}</Text>
@@ -340,6 +396,15 @@ export function ShareToChatModal({
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handle} />
           <Text style={styles.title}>Share</Text>
+
+          {previewImageUri ? (
+            <View style={styles.sheetPreviewRow}>
+              <Image source={{ uri: previewImageUri }} style={styles.sheetPreviewThumb} resizeMode="cover" />
+              <Text style={styles.sheetPreviewTitle} numberOfLines={2}>
+                {typeLabel}
+              </Text>
+            </View>
+          ) : null}
 
           {loading ? (
             <View style={styles.loading}>
@@ -712,6 +777,31 @@ const styles = StyleSheet.create({
     backgroundColor: `${theme.colors.primary}15`,
     alignItems: "center",
     justifyContent: "center",
+  },
+  previewThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: "#e8e8e8",
+  },
+  sheetPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  sheetPreviewThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: "#e8e8e8",
+  },
+  sheetPreviewTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
   },
   previewTextWrap: {
     flex: 1,

@@ -19,6 +19,7 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 import { useColorScheme } from '@/components/useColorScheme';
 import { setToken } from '@/lib/api';
 import { captureReferralCodeFromUrl } from '@/lib/referral-code';
+import { parseStripeConnectReturnUrl } from '@/lib/stripe-connect-deep-link';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import {
@@ -203,6 +204,37 @@ function AuthDeepLinkHandler() {
   return null;
 }
 
+function StripeConnectDeepLinkHandler() {
+  const { refreshMember } = useAuth();
+  const router = useRouter();
+  useEffect(() => {
+    const handleUrl = async (url: string | null) => {
+      const path = url ? parseStripeConnectReturnUrl(url) : null;
+      if (!path) return;
+      await refreshMember?.().catch(() => {});
+      router.replace(path as never);
+    };
+    void Linking.getInitialURL()
+      .then(async (url) => {
+        try {
+          await handleUrl(url);
+        } catch (e) {
+          if (__DEV__) console.warn('[StripeConnectDeepLinkHandler]', e);
+        }
+      })
+      .catch((e) => {
+        if (__DEV__) console.warn('[StripeConnectDeepLinkHandler] getInitialURL', e);
+      });
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      void handleUrl(url).catch((e) => {
+        if (__DEV__) console.warn('[StripeConnectDeepLinkHandler] url event', e);
+      });
+    });
+    return () => sub.remove();
+  }, [refreshMember, router]);
+  return null;
+}
+
 /** Store ?ref= from universal / signup links so the next in-app signup can attribute referrals. */
 function ReferralDeepLinkHandler() {
   useEffect(() => {
@@ -262,6 +294,7 @@ function RootLayoutNav() {
         <Stack.Screen name="product/[slug]" />
         <Stack.Screen name="event/[slug]" />
         <Stack.Screen name="cart" />
+        <Stack.Screen name="offers/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="business/[slug]" />
         <Stack.Screen name="seller/[slug]" />
         <Stack.Screen name="coupons/index" />
@@ -308,6 +341,7 @@ function RootLayoutNav() {
       <GuestRouteGuard>
       <EventInvitePopupSuppressionProvider>
       <AuthDeepLinkHandler />
+      <StripeConnectDeepLinkHandler />
       <ReferralDeepLinkHandler />
       <PushNotificationHandler />
       <EventInvitePopupHost />

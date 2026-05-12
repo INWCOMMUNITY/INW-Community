@@ -15,8 +15,10 @@ function isDirectConversationColumnError(e: unknown): boolean {
 
 /**
  * GET /api/me/sidebar-alerts
- * Returns counts for sidebar badge indicators (unread messages, pending friend requests).
- * Unread = message requests (pending from others) + accepted conversations where last message is from the other person.
+ * Returns counts for sidebar / profile indicators:
+ * - unreadMessages: DM + resale thread unread (same definition as before)
+ * - incomingFriendRequests: pending friend requests to you
+ * - commerceAttentionCount: resale actions needing attention (seller pending offers, buyer countered offers, accepted offers still in cart before checkout deadline)
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -64,7 +66,11 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     if (isDirectConversationColumnError(e)) {
       console.warn("[sidebar-alerts] direct_conversation columns missing (migration not run?), returning zero unread");
-      return NextResponse.json({ unreadMessages: 0, incomingFriendRequests });
+      return NextResponse.json({
+        unreadMessages: 0,
+        incomingFriendRequests: 0,
+        commerceAttentionCount: 0,
+      });
     }
     throw e;
   }
@@ -124,8 +130,41 @@ export async function GET(req: NextRequest) {
 
   const unreadMessages = messageRequestsCount + acceptedWithUnread + resaleUnread;
 
+  const now = new Date();
+  let commerceAttentionCount = 0;
+  try {
+    const [sellerPending, buyerCountered, buyerAcceptedInCart] = await Promise.all([
+      prisma.resaleOffer.count({
+        where: {
+          status: "pending",
+          storeItem: { memberId: session.user.id },
+        },
+      }),
+      prisma.resaleOffer.count({
+        where: { buyerId: session.user.id, status: "countered" },
+      }),
+      prisma.resaleOffer.count({
+        where: {
+          buyerId: session.user.id,
+          status: "accepted",
+          checkoutDeadlineAt: { gt: now },
+          cartItem: { isNot: null },
+        },
+      }),
+    ]);
+    commerceAttentionCount = sellerPending + buyerCountered + buyerAcceptedInCart;
+  } catch (e) {
+    const msg = String((e as { message?: string })?.message ?? "");
+    if ((e as { code?: string })?.code === "P2021" || /resale_offer|cart_item|checkout_deadline/i.test(msg)) {
+      console.warn("[sidebar-alerts] commerce attention counts skipped:", msg);
+    } else {
+      throw e;
+    }
+  }
+
   return NextResponse.json({
     unreadMessages,
     incomingFriendRequests,
+    commerceAttentionCount,
   });
 }

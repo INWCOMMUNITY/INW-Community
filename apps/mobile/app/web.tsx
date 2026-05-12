@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { StyleSheet, View, ActivityIndicator, Pressable, Text, Platform } from "react-native";
+import { StyleSheet, View, ActivityIndicator, Pressable, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useState, useCallback, useRef, useEffect } from "react";
@@ -8,6 +8,10 @@ import { theme } from "@/lib/theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiPost, setToken } from "@/lib/api";
 import { useHubWebviewUri } from "@/lib/use-hub-webview-uri";
+import {
+  STRIPE_CONNECT_RETURN_SCHEME,
+  parseStripeConnectReturnUrl,
+} from "@/lib/stripe-connect-deep-link";
 
 const AUTH_SCHEME = "inwcommunity://auth";
 
@@ -35,6 +39,7 @@ export default function WebScreen() {
   const authHandled = useRef(false);
   const checkoutSuccessHandled = useRef(false);
   const shippoLabelBackHandled = useRef(false);
+  const stripeConnectHandled = useRef(false);
 
   const resolvedUrl = url ? decodeURIComponent(url) : "";
   const resolvedSuccessPattern = successPattern ? decodeURIComponent(successPattern) : "";
@@ -46,6 +51,7 @@ export default function WebScreen() {
   useEffect(() => {
     checkoutSuccessHandled.current = false;
     shippoLabelBackHandled.current = false;
+    stripeConnectHandled.current = false;
   }, [resolvedUrl]);
 
   const runCheckoutSuccessRefresh = useCallback(async () => {
@@ -73,10 +79,25 @@ export default function WebScreen() {
     [shouldRefreshOnSuccess, router, resolvedSuccessRoute, runCheckoutSuccessRefresh]
   );
 
+  const handleStripeConnectReturn = useCallback(
+    async (targetUrl: string) => {
+      const path = parseStripeConnectReturnUrl(targetUrl);
+      if (!path || stripeConnectHandled.current) return;
+      stripeConnectHandled.current = true;
+      await refreshMember?.().catch(() => {});
+      router.replace(path as never);
+    },
+    [refreshMember, router]
+  );
+
   const onNavigationStateChange = useCallback(
     (nav: { url: string }) => {
       if (nav.url.startsWith(AUTH_SCHEME)) {
         handleAuthRedirect(nav.url);
+        return;
+      }
+      if (nav.url.startsWith(STRIPE_CONNECT_RETURN_SCHEME)) {
+        void handleStripeConnectReturn(nav.url);
         return;
       }
       if (!resolvedSuccessPattern || !resolvedSuccessRoute) return;
@@ -88,7 +109,15 @@ export default function WebScreen() {
         router.replace(resolvedSuccessRoute as never);
       })();
     },
-    [resolvedSuccessPattern, resolvedSuccessRoute, shouldRefreshOnSuccess, router, handleAuthRedirect, runCheckoutSuccessRefresh]
+    [
+      resolvedSuccessPattern,
+      resolvedSuccessRoute,
+      shouldRefreshOnSuccess,
+      router,
+      handleAuthRedirect,
+      handleStripeConnectReturn,
+      runCheckoutSuccessRefresh,
+    ]
   );
 
   const onShouldStartLoadWithRequest = useCallback(
@@ -97,9 +126,13 @@ export default function WebScreen() {
         handleAuthRedirect(request.url);
         return false;
       }
+      if (request.url.startsWith(STRIPE_CONNECT_RETURN_SCHEME)) {
+        void handleStripeConnectReturn(request.url);
+        return false;
+      }
       return true;
     },
-    [handleAuthRedirect]
+    [handleAuthRedirect, handleStripeConnectReturn]
   );
 
   const onWebViewMessage = useCallback(
@@ -168,7 +201,7 @@ export default function WebScreen() {
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}
         onNavigationStateChange={onNavigationStateChange}
-        onShouldStartLoadWithRequest={Platform.OS === "ios" ? onShouldStartLoadWithRequest : undefined}
+        onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
         onMessage={onWebViewMessage}
         androidLayerType="hardware"
       />

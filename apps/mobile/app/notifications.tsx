@@ -29,6 +29,7 @@ type ActivityNav =
   | { kind: "seller_order"; orderId: string }
   | { kind: "group"; slug: string }
   | { kind: "resale_chat"; conversationId: string }
+  | { kind: "buyer_resale_offer"; offerId: string }
   | { kind: "direct_message"; conversationId: string }
   | { kind: "none" };
 
@@ -132,6 +133,8 @@ function resolveAppHref(nav: ActivityNav, blogTitle?: string | null): string | n
       return `/community/group/${nav.slug}`;
     case "resale_chat":
       return `/messages/resale/${nav.conversationId}`;
+    case "buyer_resale_offer":
+      return `/offers/${nav.offerId}`;
     case "direct_message":
       return `/messages/${nav.conversationId}`;
     case "none":

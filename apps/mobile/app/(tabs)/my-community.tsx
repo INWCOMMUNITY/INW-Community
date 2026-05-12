@@ -533,6 +533,28 @@ export default function MyCommunityScreen() {
     { id: string; badge: { slug: string; name: string }; displayOnProfile: boolean }[]
   >([]);
   const [pendingIncomingFriendRequests, setPendingIncomingFriendRequests] = useState(0);
+  const [notificationsBellAttention, setNotificationsBellAttention] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!member) {
+        setNotificationsBellAttention(0);
+        return;
+      }
+      apiGet<{
+        unreadMessages?: number;
+        incomingFriendRequests?: number;
+        commerceAttentionCount?: number;
+      }>("/api/me/sidebar-alerts")
+        .then((d) => {
+          const u = Number(d?.unreadMessages) || 0;
+          const f = Number(d?.incomingFriendRequests) || 0;
+          const c = Number(d?.commerceAttentionCount) || 0;
+          setNotificationsBellAttention(u + f + c);
+        })
+        .catch(() => setNotificationsBellAttention(0));
+    }, [member?.id])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -1202,16 +1224,23 @@ export default function MyCommunityScreen() {
               <Ionicons name="create-outline" size={20} color="#fff" />
               <ThemedText style={styles.editProfileButtonText}>Edit Profile</ThemedText>
             </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.profileBioActionButton,
-                pressed && styles.buttonPressed,
-              ]}
-              onPress={() => (router.push as (href: string) => void)("/notifications")}
-            >
-              <Ionicons name="notifications-outline" size={20} color="#fff" />
-              <ThemedText style={styles.editProfileButtonText}>Notifications</ThemedText>
-            </Pressable>
+            <RNView style={styles.profileNotificationsButtonWrap}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.profileBioActionButton,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={() => (router.push as (href: string) => void)("/notifications")}
+              >
+                <Ionicons name="notifications-outline" size={20} color="#fff" />
+                <ThemedText style={styles.editProfileButtonText}>Notifications</ThemedText>
+              </Pressable>
+              {notificationsBellAttention > 0 ? (
+                <RNView style={styles.notificationsBellBadge} pointerEvents="none">
+                  <Text style={styles.notificationsBellBadgeText}>!</Text>
+                </RNView>
+              ) : null}
+            </RNView>
           </RNView>
           <View style={styles.profileDivider} />
         </View>
@@ -1569,6 +1598,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 4,
     minHeight: 44,
+  },
+  profileNotificationsButtonWrap: {
+    flex: 1,
+    position: "relative",
+  },
+  notificationsBellBadge: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: theme.colors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  notificationsBellBadgeText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#fff",
+    marginTop: -1,
   },
   editProfileButton: {
     backgroundColor: theme.colors.primary,

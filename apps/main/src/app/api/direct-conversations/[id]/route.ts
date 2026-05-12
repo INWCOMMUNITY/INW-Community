@@ -3,38 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { publishDirectConversationMessage } from "@/lib/realtime-publish";
 import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
-import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
-
-function liveDirectPayload(
-  conversationId: string,
-  m: {
-    id: string;
-    senderId: string;
-    content: string;
-    createdAt: Date;
-    sharedContentType?: string | null;
-    sharedContentId?: string | null;
-    sharedContentSlug?: string | null;
-    sender: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
-  }
-): LiveSocketMessagePayload {
-  return {
-    conversationId,
-    messageId: m.id,
-    senderId: m.senderId,
-    content: m.content,
-    createdAt: m.createdAt.toISOString(),
-    sender: {
-      id: m.sender.id,
-      firstName: m.sender.firstName,
-      lastName: m.sender.lastName,
-      profilePhotoUrl: m.sender.profilePhotoUrl,
-    },
-    sharedContentType: m.sharedContentType ?? null,
-    sharedContentId: m.sharedContentId ?? null,
-    sharedContentSlug: m.sharedContentSlug ?? null,
-  };
-}
+import { buildDirectMessageLivePayload } from "@/lib/build-direct-message-live-payload";
 import { isBlocked } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
@@ -106,6 +75,51 @@ export async function GET(
     }
   }
 
+  const eventIds = conversation.messages
+    .filter((m) => m.sharedContentType === "event" && m.sharedContentId)
+    .map((m) => m.sharedContentId as string);
+  const eventMap: Record<
+    string,
+    { id: string; title: string; slug: string; coverPhotoUrl: string | null }
+  > = {};
+  if (eventIds.length > 0) {
+    const events = await prisma.event.findMany({
+      where: { id: { in: eventIds } },
+      select: { id: true, title: true, slug: true, photos: true },
+    });
+    for (const ev of events) {
+      eventMap[ev.id] = {
+        id: ev.id,
+        title: ev.title,
+        slug: ev.slug,
+        coverPhotoUrl: ev.photos[0] ?? null,
+      };
+    }
+  }
+
+  const storeItemIds = conversation.messages
+    .filter((m) => m.sharedContentType === "store_item" && m.sharedContentId)
+    .map((m) => m.sharedContentId as string);
+  const storeItemMap: Record<
+    string,
+    { id: string; title: string; slug: string; coverPhotoUrl: string | null; listingType: string }
+  > = {};
+  if (storeItemIds.length > 0) {
+    const items = await prisma.storeItem.findMany({
+      where: { id: { in: storeItemIds } },
+      select: { id: true, title: true, slug: true, photos: true, listingType: true },
+    });
+    for (const si of items) {
+      storeItemMap[si.id] = {
+        id: si.id,
+        title: si.title,
+        slug: si.slug,
+        coverPhotoUrl: si.photos[0] ?? null,
+        listingType: si.listingType,
+      };
+    }
+  }
+
   const messageIds = conversation.messages.map((m) => m.id);
   let likeCountMap: Record<string, number> = {};
   let likedSet = new Set<string>();
@@ -144,6 +158,12 @@ export async function GET(
     const base = { ...m };
     if (m.sharedContentType === "business" && m.sharedContentId && businessMap[m.sharedContentId]) {
       (base as { sharedBusiness?: unknown }).sharedBusiness = businessMap[m.sharedContentId];
+    }
+    if (m.sharedContentType === "event" && m.sharedContentId && eventMap[m.sharedContentId]) {
+      (base as { sharedEvent?: unknown }).sharedEvent = eventMap[m.sharedContentId];
+    }
+    if (m.sharedContentType === "store_item" && m.sharedContentId && storeItemMap[m.sharedContentId]) {
+      (base as { sharedStoreItem?: unknown }).sharedStoreItem = storeItemMap[m.sharedContentId];
     }
     (base as { likeCount?: number; liked?: boolean; likedBy?: { id: string; profilePhotoUrl: string | null; firstName: string }[] }).likeCount = likeCountMap[m.id] ?? 0;
     (base as { liked?: boolean }).liked = likedSet.has(m.id);
@@ -330,9 +350,11 @@ export async function POST(
     }
   }
 
-  scheduleRealtimePublish(publishDirectConversationMessage(id, liveDirectPayload(id, message)));
+  const livePayload = await buildDirectMessageLivePayload(id, message);
+  scheduleRealtimePublish(publishDirectConversationMessage(id, livePayload as Record<string, unknown>));
   if (botReply) {
-    scheduleRealtimePublish(publishDirectConversationMessage(id, liveDirectPayload(id, botReply)));
+    const botPayload = await buildDirectMessageLivePayload(id, botReply);
+    scheduleRealtimePublish(publishDirectConversationMessage(id, botPayload as Record<string, unknown>));
   }
 
   return NextResponse.json(botReply ? { ...message, botReply } : message);

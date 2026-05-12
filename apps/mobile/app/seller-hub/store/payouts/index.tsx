@@ -61,13 +61,11 @@ export default function PayoutsScreen() {
     try {
       const res = await apiPost<{ url?: string }>("/api/stripe/connect/onboard", {
         returnBaseUrl: siteBase,
+        mobileReturnPath: "/seller-hub",
       });
       if (res?.url) {
         const webUrl =
-          `/web?url=${encodeURIComponent(res.url)}&title=Payment setup` +
-          `&successPattern=${encodeURIComponent("seller-hub/store")}` +
-          `&successRoute=${encodeURIComponent("/seller-hub/store/payouts")}` +
-          "&refreshOnSuccess=1";
+          `/web?url=${encodeURIComponent(res.url)}&title=${encodeURIComponent("Payment setup")}`;
         router.push(webUrl as never);
       }
     } catch {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef, useMemo } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo, type ComponentProps } from "react";
 import {
   View,
   Text,
@@ -43,6 +43,8 @@ import {
   type ChatTypingPeer,
 } from "@/components/ChatTypingRow";
 import { GifPickerModal } from "@/components/GifPickerModal";
+import { fetchEventBySlug } from "@/lib/events-api";
+import { fetchStoreItemPreviewPayload, fetchStoreItemsByIdsBatch } from "@/lib/fetch-store-item-preview";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -55,6 +57,21 @@ interface SharedBusiness {
   slug: string;
   logoUrl: string | null;
   shortDescription: string | null;
+}
+
+interface SharedEventPreview {
+  id: string;
+  title: string;
+  slug: string;
+  coverPhotoUrl: string | null;
+}
+
+interface SharedStoreItemPreview {
+  id: string;
+  title: string;
+  slug: string;
+  coverPhotoUrl: string | null;
+  listingType: string;
 }
 
 interface DirectConversation {
@@ -74,6 +91,8 @@ interface DirectConversation {
     sharedContentId?: string | null;
     sharedContentSlug?: string | null;
     sharedBusiness?: SharedBusiness;
+    sharedEvent?: SharedEventPreview;
+    sharedStoreItem?: SharedStoreItemPreview;
     likeCount?: number;
     liked?: boolean;
     likedBy?: { id: string; profilePhotoUrl: string | null; firstName: string }[];
@@ -84,6 +103,114 @@ interface DirectConversation {
 function resolvePhotoUrl(path: string | undefined): string | undefined {
   if (!path) return undefined;
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+/** Matches the standard invite line from `send-event-invite-chat.ts` (may appear after an optional custom note). */
+function parseInviteEventTitle(content: string): string | null {
+  const m = content.match(/You're invited to "([\s\S]*?)"\s*—/);
+  if (!m?.[1]) return null;
+  const t = m[1].replace(/\s+/g, " ").trim();
+  return t.length > 0 ? t : null;
+}
+
+function storePreviewIsComplete(m: DirectConversation["messages"][number]): boolean {
+  if (m.sharedContentType !== "store_item") return true;
+  const s = m.sharedStoreItem;
+  const t = s?.title?.trim();
+  const c = s?.coverPhotoUrl;
+  return !!(t && typeof c === "string" && c.trim() !== "");
+}
+
+function eventSharePreviewIsComplete(m: DirectConversation["messages"][number]): boolean {
+  if (m.sharedContentType !== "event" || !m.sharedContentSlug) return true;
+  const title =
+    (m.sharedEvent?.title && m.sharedEvent.title.trim()) || parseInviteEventTitle(m.content);
+  const cover = m.sharedEvent?.coverPhotoUrl;
+  const hasCover = cover != null && String(cover).trim() !== "";
+  return !!(title && hasCover);
+}
+
+/** If the server drops `sharedStoreItem` on reload, keep the last client-hydrated preview for the same message. */
+function mergeDmConversationPreservingStorePreview(
+  prev: DirectConversation | null,
+  next: DirectConversation,
+  expectedConvId: string
+): DirectConversation {
+  if (next.id !== expectedConvId) return next;
+  if (!prev || prev.id !== next.id) return next;
+  const prevByMsgId = new Map(prev.messages.map((m) => [m.id, m]));
+  return {
+    ...next,
+    messages: next.messages.map((m) => {
+      if (m.sharedContentType !== "store_item" || !m.sharedContentId) return m;
+      if (storePreviewIsComplete(m)) return m;
+      const old = prevByMsgId.get(m.id);
+      const oldS = old?.sharedStoreItem;
+      if (
+        old?.sharedContentType === "store_item" &&
+        old.sharedContentId === m.sharedContentId &&
+        oldS?.title?.trim()
+      ) {
+        return {
+          ...m,
+          sharedStoreItem: {
+            id: oldS.id,
+            title: oldS.title,
+            slug: oldS.slug || m.sharedContentSlug || "",
+            coverPhotoUrl:
+              typeof oldS.coverPhotoUrl === "string" && oldS.coverPhotoUrl.trim() !== ""
+                ? oldS.coverPhotoUrl
+                : null,
+            listingType: oldS.listingType,
+          },
+        };
+      }
+      return m;
+    }),
+  };
+}
+
+/** If the server drops `sharedEvent` on reload, keep the last client-hydrated preview for the same message. */
+function mergeDmConversationPreservingEventPreview(
+  prev: DirectConversation | null,
+  next: DirectConversation,
+  expectedConvId: string
+): DirectConversation {
+  if (next.id !== expectedConvId) return next;
+  if (!prev || prev.id !== next.id) return next;
+  const prevByMsgId = new Map(prev.messages.map((m) => [m.id, m]));
+  return {
+    ...next,
+    messages: next.messages.map((m) => {
+      if (m.sharedContentType !== "event" || !m.sharedContentSlug) return m;
+      if (eventSharePreviewIsComplete(m)) return m;
+      const old = prevByMsgId.get(m.id);
+      const oldE = old?.sharedEvent;
+      const slugMatches =
+        old?.sharedContentType === "event" &&
+        (old.sharedContentSlug === m.sharedContentSlug || oldE?.slug === m.sharedContentSlug);
+      if (slugMatches && oldE?.title?.trim()) {
+        const oldCover =
+          typeof oldE.coverPhotoUrl === "string" && oldE.coverPhotoUrl.trim() !== ""
+            ? oldE.coverPhotoUrl
+            : null;
+        const nextCover =
+          m.sharedEvent?.coverPhotoUrl != null && String(m.sharedEvent.coverPhotoUrl).trim() !== ""
+            ? m.sharedEvent.coverPhotoUrl
+            : null;
+        return {
+          ...m,
+          sharedEvent: {
+            id: oldE.id || m.sharedContentId || "",
+            title: oldE.title,
+            slug: oldE.slug || m.sharedContentSlug,
+            coverPhotoUrl: nextCover ?? oldCover,
+          },
+        };
+      }
+      return m;
+    }),
+  };
 }
 
 function PhotoViewerModal({
@@ -170,6 +297,12 @@ export default function DirectConversationScreen() {
   const composerInputRef = useRef<TextInput | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const lastTapRef = useRef<{ messageId: string; time: number } | null>(null);
+  /** Slugs we already fetched previews for (GET may omit `sharedEvent` on older servers). */
+  const eventPreviewFetchedSlugsRef = useRef<Set<string>>(new Set());
+  /** Store item ids we successfully hydrated or gave up on (avoid duplicate network). */
+  const storeItemPreviewFetchedIdsRef = useRef<Set<string>>(new Set());
+  /** Bumps at each conversation load and when leaving a thread so in-flight hydration never applies stale results. */
+  const dmHydrationGenRef = useRef(0);
   /** Prevents double submit (rapid double-tap, multiline keyboard + send button). */
   const outboundLockRef = useRef(false);
 
@@ -180,10 +313,16 @@ export default function DirectConversationScreen() {
 
   const load = useCallback(async () => {
     if (!convId) return;
+    dmHydrationGenRef.current += 1;
+    eventPreviewFetchedSlugsRef.current.clear();
+    storeItemPreviewFetchedIdsRef.current.clear();
     setLoadError(null);
     try {
       const data = await apiGet<DirectConversation>(`/api/direct-conversations/${convId}`);
-      setConv(data);
+      setConv((prev) => {
+        const withStore = mergeDmConversationPreservingStorePreview(prev, data, convId);
+        return mergeDmConversationPreservingEventPreview(prev, withStore, convId);
+      });
     } catch (e) {
       setConv(null);
       const err = e as { error?: string };
@@ -211,10 +350,139 @@ export default function DirectConversationScreen() {
     if (!convId) {
       setLoading(false);
       setConv(null);
+      dmHydrationGenRef.current += 1;
+      eventPreviewFetchedSlugsRef.current.clear();
+      storeItemPreviewFetchedIdsRef.current.clear();
       return;
     }
     load();
   }, [load, convId]);
+
+  useEffect(() => {
+    if (!conv?.messages?.length) return;
+
+    const genAtStart = dmHydrationGenRef.current;
+
+    const slugList = [
+      ...new Set(
+        conv.messages
+          .filter((m) => {
+            if (m.sharedContentType !== "event" || !m.sharedContentSlug) return false;
+            const slug = m.sharedContentSlug;
+            if (eventSharePreviewIsComplete(m)) return false;
+            if (eventPreviewFetchedSlugsRef.current.has(slug)) return false;
+            return true;
+          })
+          .map((m) => m.sharedContentSlug as string)
+      ),
+    ];
+
+    if (slugList.length === 0) return;
+
+    void (async () => {
+      const details = await Promise.all(slugList.map((slug) => fetchEventBySlug(slug)));
+      if (dmHydrationGenRef.current !== genAtStart) return;
+      slugList.forEach((s) => eventPreviewFetchedSlugsRef.current.add(s));
+      setConv((prev) => {
+        if (!prev || dmHydrationGenRef.current !== genAtStart) return prev;
+        const slugToDetail = new Map(slugList.map((s, i) => [s, details[i]]));
+        return {
+          ...prev,
+          messages: prev.messages.map((m) => {
+            if (m.sharedContentType !== "event" || !m.sharedContentSlug) return m;
+            if (!slugList.includes(m.sharedContentSlug)) return m;
+            const detail = slugToDetail.get(m.sharedContentSlug);
+            const inviteTitle = parseInviteEventTitle(m.content);
+            if (!detail) {
+              if (!inviteTitle && !m.sharedEvent?.title) return m;
+              return {
+                ...m,
+                sharedEvent: {
+                  id: m.sharedContentId ?? "",
+                  title: m.sharedEvent?.title ?? inviteTitle ?? "Event",
+                  slug: m.sharedContentSlug,
+                  coverPhotoUrl: m.sharedEvent?.coverPhotoUrl ?? null,
+                },
+              };
+            }
+            const firstPhoto = detail.photos?.find((p) => p && String(p).trim() !== "");
+            return {
+              ...m,
+              sharedEvent: {
+                id: detail.id,
+                title: m.sharedEvent?.title ?? detail.title ?? inviteTitle ?? "Event",
+                slug: detail.slug,
+                coverPhotoUrl: firstPhoto ?? m.sharedEvent?.coverPhotoUrl ?? null,
+              },
+            };
+          }),
+        };
+      });
+    })();
+  }, [conv]);
+
+  useEffect(() => {
+    if (!conv?.messages?.length) return;
+
+    const genAtStart = dmHydrationGenRef.current;
+
+    const todo = conv.messages.filter((m) => {
+      if (m.sharedContentType !== "store_item" || !m.sharedContentId) return false;
+      if (storeItemPreviewFetchedIdsRef.current.has(m.sharedContentId)) return false;
+      return !storePreviewIsComplete(m);
+    });
+
+    if (todo.length === 0) return;
+
+    const uniqueIds = [...new Set(todo.map((m) => m.sharedContentId as string))].slice(0, 24);
+
+    void (async () => {
+      const rowById = await fetchStoreItemsByIdsBatch(uniqueIds);
+      const missing = uniqueIds.filter((id) => !rowById.has(id));
+      if (missing.length > 0) {
+        const slugRows = await Promise.all(
+          missing.map(async (id) => {
+            const msg = todo.find((t) => t.sharedContentId === id);
+            const row = await fetchStoreItemPreviewPayload({
+              id,
+              slug: msg?.sharedContentSlug ?? undefined,
+              listingType: undefined,
+            });
+            return { id, row };
+          })
+        );
+        for (const { id, row } of slugRows) {
+          if (row?.title) rowById.set(id, row);
+        }
+      }
+
+      if (dmHydrationGenRef.current !== genAtStart) return;
+
+      uniqueIds.forEach((id) => storeItemPreviewFetchedIdsRef.current.add(id));
+
+      setConv((prev) => {
+        if (!prev || dmHydrationGenRef.current !== genAtStart) return prev;
+        return {
+          ...prev,
+          messages: prev.messages.map((m) => {
+            if (m.sharedContentType !== "store_item" || !m.sharedContentId) return m;
+            const row = rowById.get(m.sharedContentId);
+            if (!row?.title) return m;
+            return {
+              ...m,
+              sharedStoreItem: {
+                id: row.id,
+                title: row.title,
+                slug: row.slug,
+                coverPhotoUrl: row.photos?.find((p) => p && String(p).trim() !== "") ?? null,
+                listingType: row.listingType,
+              },
+            };
+          }),
+        };
+      });
+    })();
+  }, [conv]);
 
   const directTypingNames = useMemo(() => {
     if (!conv || !member?.id) return undefined;
@@ -247,6 +515,9 @@ export default function DirectConversationScreen() {
             sharedContentType: p.sharedContentType ?? null,
             sharedContentId: p.sharedContentId ?? null,
             sharedContentSlug: p.sharedContentSlug ?? null,
+            sharedEvent: p.sharedEvent,
+            sharedStoreItem: p.sharedStoreItem,
+            sharedBusiness: p.sharedBusiness,
             sender: p.sender
               ? {
                   id: p.sender.id,
@@ -838,8 +1109,17 @@ export default function DirectConversationScreen() {
         }
         renderItem={({ item }) => {
           const isMe = item.senderId === member?.id;
-          const hasBusinessShare = item.sharedContentType === "business" && (item.sharedBusiness || item.sharedContentSlug);
-          const hasEventShare = item.sharedContentType === "event" && !!item.sharedContentSlug;
+          const hasBusinessShare =
+            item.sharedContentType === "business" &&
+            !!(item.sharedBusiness?.slug || item.sharedContentSlug);
+          const hasEventShare =
+            item.sharedContentType === "event" &&
+            !!(item.sharedEvent?.slug || item.sharedContentSlug);
+          const hasStoreShare =
+            item.sharedContentType === "store_item" &&
+            !!(item.sharedStoreItem?.slug || item.sharedContentSlug);
+          const showSharedLinkCard = hasEventShare || hasStoreShare || hasBusinessShare;
+
           const hasPhotoAttachment =
             item.sharedContentType === "photo" && !!item.sharedContentId;
           const photoUri = hasPhotoAttachment
@@ -849,8 +1129,99 @@ export default function DirectConversationScreen() {
             ? [styles.bubble, styles.bubblePhoto]
             : [styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem];
 
+          const eventDisplayTitle =
+            item.sharedEvent?.title ?? parseInviteEventTitle(item.content) ?? "Event";
+          const eventCoverUri =
+            item.sharedEvent?.coverPhotoUrl != null && String(item.sharedEvent.coverPhotoUrl).trim() !== ""
+              ? resolvePhotoUrl(item.sharedEvent.coverPhotoUrl) ?? item.sharedEvent.coverPhotoUrl
+              : null;
+
+          type IonName = ComponentProps<typeof Ionicons>["name"];
+          let cornerIcon: IonName = "calendar-outline";
+          let heroUri: string | null = null;
+          let heroPlaceholderIcon: IonName = "image-outline";
+          let cardTitle = "";
+          let cardSubtitle: string | null = null;
+          let onOpenShared: (() => void) | undefined;
+
+          if (hasEventShare) {
+            cornerIcon = "calendar-outline";
+            heroPlaceholderIcon = "calendar-outline";
+            heroUri = eventCoverUri;
+            cardTitle = eventDisplayTitle;
+            onOpenShared = () => {
+              const slug = item.sharedEvent?.slug ?? item.sharedContentSlug;
+              if (slug) router.push(`/event/${slug}`);
+            };
+          } else if (hasStoreShare) {
+            cornerIcon = "bag";
+            heroPlaceholderIcon = "bag";
+            const raw = item.sharedStoreItem?.coverPhotoUrl;
+            heroUri =
+              raw != null && String(raw).trim() !== ""
+                ? resolvePhotoUrl(raw) ?? raw
+                : null;
+            cardTitle = item.sharedStoreItem?.title ?? "Store item";
+            onOpenShared = () => {
+              const slug = item.sharedStoreItem?.slug ?? item.sharedContentSlug;
+              if (!slug) return;
+              const lt = item.sharedStoreItem?.listingType === "resale" ? "resale" : "new";
+              router.push(`/product/${slug}?listingType=${lt}`);
+            };
+          } else if (hasBusinessShare) {
+            cornerIcon = "business";
+            heroPlaceholderIcon = "business";
+            const logo = item.sharedBusiness?.logoUrl;
+            heroUri =
+              logo != null && String(logo).trim() !== ""
+                ? resolvePhotoUrl(logo) ?? logo
+                : null;
+            cardTitle = item.sharedBusiness?.name ?? "Local Business";
+            cardSubtitle = item.sharedBusiness?.shortDescription?.trim() || null;
+            onOpenShared = () => {
+              const slug = item.sharedBusiness?.slug ?? item.sharedContentSlug;
+              if (slug) router.push(`/business/${slug}`);
+            };
+          }
+
+          let seeDetailsCta = "See Details!";
+          if (hasEventShare) seeDetailsCta = "See Event Details!";
+          else if (hasStoreShare) seeDetailsCta = "See Item Details!";
+          else if (hasBusinessShare) seeDetailsCta = "See Business Details!";
+
           return (
             <View style={[styles.bubbleWrap, isMe && styles.bubbleWrapMe]}>
+              {showSharedLinkCard && onOpenShared ? (
+                <Pressable
+                  style={({ pressed }) => [styles.sharedChatLinkCard, pressed && { opacity: 0.92 }]}
+                  onPress={onOpenShared}
+                >
+                  <View style={styles.sharedChatLinkCornerIcon} pointerEvents="none">
+                    <Ionicons name={cornerIcon} size={18} color="#111" />
+                  </View>
+                  {heroUri ? (
+                    <Image source={{ uri: heroUri }} style={styles.sharedChatLinkHero} resizeMode="cover" />
+                  ) : (
+                    <View style={[styles.sharedChatLinkHero, styles.sharedChatLinkHeroPlaceholder]}>
+                      <Ionicons name={heroPlaceholderIcon} size={28} color="#888" />
+                    </View>
+                  )}
+                  <View style={styles.sharedChatLinkBody}>
+                    <Text style={styles.sharedChatLinkTitle} numberOfLines={3}>
+                      {cardTitle}
+                    </Text>
+                    {cardSubtitle ? (
+                      <Text style={styles.sharedChatLinkSubtitle} numberOfLines={2}>
+                        {cardSubtitle}
+                      </Text>
+                    ) : null}
+                    <View style={styles.sharedChatLinkCtaRow}>
+                      <Text style={styles.sharedChatLinkCta}>{seeDetailsCta}</Text>
+                      <Ionicons name="arrow-forward" size={18} color="#111" />
+                    </View>
+                  </View>
+                </Pressable>
+              ) : null}
               <TouchableOpacity
                 onPress={() => handleBubblePress(item)}
                 style={bubbleStyle}
@@ -863,55 +1234,6 @@ export default function DirectConversationScreen() {
                     style={styles.sharedPhoto}
                     resizeMode="cover"
                   />
-                )}
-                {hasEventShare && (
-                  <Pressable
-                    style={({ pressed }) => [styles.sharedEventCard, pressed && { opacity: 0.9 }]}
-                    onPress={() => item.sharedContentSlug && router.push(`/event/${item.sharedContentSlug}`)}
-                  >
-                    <View style={[styles.sharedEventIconWrap, isMe && styles.sharedEventIconWrapMe]}>
-                      <Ionicons name="calendar-outline" size={28} color={isMe ? "#fff" : theme.colors.primary} />
-                    </View>
-                    <View style={styles.sharedEventContent}>
-                      <Text style={[styles.sharedEventLabel, isMe && styles.sharedBusinessTextMe]}>
-                        Local event
-                      </Text>
-                      <Text style={[styles.sharedEventLink, isMe && styles.sharedBusinessLinkMe]}>
-                        Open event →
-                      </Text>
-                    </View>
-                  </Pressable>
-                )}
-                {hasBusinessShare && (
-                  <Pressable
-                    style={({ pressed }) => [styles.sharedBusinessCard, pressed && { opacity: 0.9 }]}
-                    onPress={() => item.sharedContentSlug && router.push(`/business/${item.sharedContentSlug}`)}
-                  >
-                    {item.sharedBusiness?.logoUrl ? (
-                      <Image
-                        source={{ uri: resolvePhotoUrl(item.sharedBusiness!.logoUrl) ?? item.sharedBusiness!.logoUrl! }}
-                        style={styles.sharedBusinessLogo}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={[styles.sharedBusinessLogo, styles.sharedBusinessLogoPlaceholder]}>
-                        <Ionicons name="business" size={32} color={theme.colors.primary} />
-                      </View>
-                    )}
-                    <View style={styles.sharedBusinessContent}>
-                      <Text style={[styles.sharedBusinessName, isMe && styles.sharedBusinessTextMe]}>
-                        {item.sharedBusiness?.name ?? "Local Business"}
-                      </Text>
-                      {item.sharedBusiness?.shortDescription ? (
-                        <Text style={[styles.sharedBusinessDesc, isMe && styles.sharedBusinessTextMe]} numberOfLines={2}>
-                          {item.sharedBusiness.shortDescription}
-                        </Text>
-                      ) : null}
-                      <Text style={[styles.sharedBusinessLink, isMe && styles.sharedBusinessLinkMe]}>
-                        View business →
-                      </Text>
-                    </View>
-                  </Pressable>
                 )}
                 {item.content ? (
                   <Text style={[styles.bubbleText, isMe && !hasPhotoAttachment && styles.bubbleTextMe]}>{item.content}</Text>
@@ -1102,84 +1424,68 @@ const styles = StyleSheet.create({
   likedBadgeMe: { alignSelf: "flex-end", marginLeft: 0, marginRight: 4 },
   likedBadgeText: { fontSize: 11, color: theme.colors.primary },
   sharedPhoto: { width: 200, height: 200, borderRadius: 12, marginBottom: 8 },
-  sharedEventCard: {
+  sharedChatLinkCard: {
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 12,
+    gap: 10,
+    padding: 10,
+    paddingTop: 12,
     marginBottom: 8,
-    backgroundColor: "rgba(255,255,255,0.3)",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.1)",
-    minWidth: 200,
-    maxWidth: 260,
+    maxWidth: "85%",
+    backgroundColor: theme.colors.cream ?? "#f8f4ec",
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: "#000",
   },
-  sharedEventIconWrap: {
-    width: 48,
-    height: 48,
+  sharedChatLinkCornerIcon: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    zIndex: 2,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderRadius: 14,
+    padding: 5,
+    borderWidth: 1,
+    borderColor: "#000",
+  },
+  sharedChatLinkHero: {
+    width: 72,
+    height: 72,
     borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.5)",
+    backgroundColor: "#eee",
+  },
+  sharedChatLinkHeroPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#ccc",
   },
-  sharedEventIconWrapMe: {
-    backgroundColor: "rgba(255,255,255,0.2)",
-  },
-  sharedEventContent: { flex: 1, minWidth: 0 },
-  sharedEventLabel: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: theme.colors.heading,
+  sharedChatLinkBody: { flex: 1, minWidth: 0 },
+  sharedChatLinkTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111",
     marginBottom: 4,
+    lineHeight: 21,
+    paddingRight: 28,
   },
-  sharedEventLink: {
-    fontSize: 12,
-    color: theme.colors.primary,
-    fontWeight: "600",
+  sharedChatLinkSubtitle: {
+    fontSize: 13,
+    color: "#555",
+    marginBottom: 6,
+    lineHeight: 18,
   },
-  sharedBusinessCard: {
+  sharedChatLinkCtaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 12,
-    marginBottom: 8,
-    backgroundColor: "rgba(255,255,255,0.3)",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.1)",
-    minWidth: 200,
-    maxWidth: 260,
+    gap: 6,
   },
-  sharedBusinessLogo: {
-    width: 56,
-    height: 56,
-    borderRadius: 8,
+  sharedChatLinkCta: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111",
   },
-  sharedBusinessLogoPlaceholder: {
-    backgroundColor: "rgba(255,255,255,0.5)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sharedBusinessContent: { flex: 1, minWidth: 0 },
-  sharedBusinessName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: theme.colors.heading,
-    marginBottom: 4,
-  },
-  sharedBusinessDesc: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 4,
-  },
-  sharedBusinessTextMe: { color: "#fff" },
-  sharedBusinessLink: {
-    fontSize: 12,
-    color: theme.colors.primary,
-    fontWeight: "600",
-  },
-  sharedBusinessLinkMe: { color: "#fff" },
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",

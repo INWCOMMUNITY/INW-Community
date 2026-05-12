@@ -75,13 +75,11 @@ export default function BeforeYouStartScreen() {
     try {
       const res = await apiPost<{ url?: string; error?: string }>("/api/stripe/connect/onboard", {
         returnBaseUrl: siteBase,
+        mobileReturnPath: "/seller-hub",
       });
       if (res?.url) {
         const webUrl =
-          `/web?url=${encodeURIComponent(res.url)}&title=Payment setup` +
-          `&successPattern=${encodeURIComponent("seller-hub/store")}` +
-          `&successRoute=${encodeURIComponent("/seller-hub/store/payouts")}` +
-          "&refreshOnSuccess=1";
+          `/web?url=${encodeURIComponent(res.url)}&title=${encodeURIComponent("Payment setup")}`;
         router.push(webUrl as never);
       } else if (res?.error) {
         Alert.alert("Setup failed", res.error);
