@@ -17,9 +17,11 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useRouter, useNavigation } from "expo-router";
+import { Image as ExpoImage } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet } from "@/lib/api";
+import { resolveMediaUrl } from "@/lib/resolve-media-url";
 
 const ANIM_DURATION_IOS = 420;
 const ANIM_DURATION_ANDROID = 300;
@@ -35,9 +37,6 @@ const SHORT_LIST_MAX_ITEMS_FOR_SCROLL_COLLAPSE = 2;
 const CARD_GAP = 12;
 const CARD_PADDING = 16;
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-
 interface Business {
   id: string;
   name: string;
@@ -47,6 +46,7 @@ interface Business {
   city: string | null;
   categories: string[];
   logoUrl: string | null;
+  directorySearchMatchNote?: "similar";
 }
 
 interface Seller {
@@ -60,6 +60,7 @@ interface Seller {
   logoUrl: string | null;
   coverPhotoUrl?: string | null;
   itemCount: number;
+  directorySearchMatchNote?: "similar";
 }
 
 interface BusinessesMeta {
@@ -78,6 +79,7 @@ export default function SupportLocalScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>("directory");
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [category, setCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
   const [city, setCity] = useState("");
@@ -131,7 +133,7 @@ export default function SupportLocalScreen() {
       setConnectionError(null);
       try {
         const params = new URLSearchParams();
-        if (search.trim()) params.set("search", search.trim());
+        if (debouncedSearch) params.set("search", debouncedSearch);
         if (category) params.set("category", category);
         if (category && subcategory) params.set("subcategory", subcategory);
         if (city) params.set("city", city);
@@ -160,12 +162,18 @@ export default function SupportLocalScreen() {
         setRefreshing(false);
       }
     },
-    [search, category, subcategory, city, viewMode]
+    [debouncedSearch, category, subcategory, city, viewMode]
   );
 
   useEffect(() => {
     setSubcategory("");
   }, [category]);
+
+  const SEARCH_DEBOUNCE_MS = 320;
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [search]);
 
   useEffect(() => {
     loadMeta();
@@ -292,13 +300,19 @@ export default function SupportLocalScreen() {
     });
   }, [navigation, headerExpanded]);
 
-  const openBusiness = (b: Business) => {
-    router.push(`/business/${b.slug}`);
-  };
+  const openBusiness = useCallback(
+    (b: Business) => {
+      router.push(`/business/${b.slug}`);
+    },
+    [router]
+  );
 
-  const openSeller = (s: Seller) => {
-    router.push(`/seller/${s.slug}`);
-  };
+  const openSeller = useCallback(
+    (s: Seller) => {
+      router.push(`/seller/${s.slug}`);
+    },
+    [router]
+  );
 
   const openCoupons = () => {
     router.push("/coupons");
@@ -306,11 +320,6 @@ export default function SupportLocalScreen() {
 
   const openRewards = () => {
     router.push("/rewards");
-  };
-
-  const resolveLogoUrl = (path: string | null | undefined): string | undefined => {
-    if (!path) return undefined;
-    return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
   };
 
   const cardWidth = (width - CARD_PADDING * 2 - CARD_GAP) / 2;
@@ -507,6 +516,13 @@ export default function SupportLocalScreen() {
           lineHeight: 18,
         },
         cardSub: { fontSize: 11, color: "#666", marginTop: 4 },
+        similarMatchNote: {
+          fontSize: 10,
+          fontStyle: "italic",
+          color: theme.colors.text,
+          marginTop: 6,
+          opacity: 0.85,
+        },
         seeBusinessButton: {
           marginHorizontal: 12,
           marginBottom: 12,
@@ -534,86 +550,112 @@ export default function SupportLocalScreen() {
     [theme, cardWidth]
   );
 
-  const renderBusinessItem = ({ item }: { item: Business }) => {
-    const logoUrl = resolveLogoUrl(item.logoUrl);
-    const location = [item.address, item.city].filter(Boolean).join(", ");
-    return (
-      <Pressable
-        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-        onPress={() => openBusiness(item)}
-      >
-        <View style={styles.cardLogoContainer}>
-          {logoUrl ? (
-            <Image source={{ uri: logoUrl }} style={styles.cardLogo} />
-          ) : (
-            <View style={styles.cardLogoPlaceholder}>
-              <Ionicons name="business" size={40} color={theme.colors.primary} />
-            </View>
-          )}
-        </View>
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {item.name}
-          </Text>
-          {item.shortDescription ? (
-            <Text style={styles.cardDesc} numberOfLines={2}>
-              {item.shortDescription}
+  const renderBusinessItem = useCallback(
+    ({ item }: { item: Business }) => {
+      const logoUrl = resolveMediaUrl(item.logoUrl);
+      const location = [item.address, item.city].filter(Boolean).join(", ");
+      return (
+        <Pressable
+          style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+          onPress={() => openBusiness(item)}
+        >
+          <View style={styles.cardLogoContainer}>
+            {logoUrl ? (
+              <ExpoImage
+                source={{ uri: logoUrl }}
+                style={styles.cardLogo}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={`biz-${item.id}`}
+                transition={0}
+              />
+            ) : (
+              <View style={styles.cardLogoPlaceholder}>
+                <Ionicons name="business" size={40} color={theme.colors.primary} />
+              </View>
+            )}
+          </View>
+          <View style={styles.cardInfo}>
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {item.name}
             </Text>
-          ) : null}
+            {item.shortDescription ? (
+              <Text style={styles.cardDesc} numberOfLines={2}>
+                {item.shortDescription}
+              </Text>
+            ) : null}
           {location ? (
             <Text style={styles.cardSub} numberOfLines={1}>
               {location}
             </Text>
+          ) : null}
+          {item.directorySearchMatchNote === "similar" ? (
+            <Text style={styles.similarMatchNote}>Similar based on search</Text>
           ) : null}
         </View>
         <View style={styles.seeBusinessButton}>
           <Text style={styles.seeBusinessButtonText}>See Business</Text>
-        </View>
-      </Pressable>
-    );
-  };
+          </View>
+        </Pressable>
+      );
+    },
+    [styles, theme.colors.primary, openBusiness]
+  );
 
-  const renderSellerItem = ({ item }: { item: Seller }) => {
-    const logoUrl = resolveLogoUrl(item.logoUrl);
-    const location = [item.address, item.city].filter(Boolean).join(", ");
-    return (
-      <Pressable
-        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-        onPress={() => openSeller(item)}
-      >
-        <View style={styles.cardLogoContainer}>
-          {logoUrl ? (
-            <Image source={{ uri: logoUrl }} style={styles.cardLogo} />
-          ) : (
-            <View style={styles.cardLogoPlaceholder}>
-              <Ionicons name="storefront" size={40} color={theme.colors.primary} />
-            </View>
-          )}
-        </View>
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {item.name}
-          </Text>
-          {item.shortDescription ? (
-            <Text style={styles.cardDesc} numberOfLines={2}>
-              {item.shortDescription}
+  const renderSellerItem = useCallback(
+    ({ item }: { item: Seller }) => {
+      const logoUrl = resolveMediaUrl(item.logoUrl);
+      const location = [item.address, item.city].filter(Boolean).join(", ");
+      return (
+        <Pressable
+          style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+          onPress={() => openSeller(item)}
+        >
+          <View style={styles.cardLogoContainer}>
+            {logoUrl ? (
+              <ExpoImage
+                source={{ uri: logoUrl }}
+                style={styles.cardLogo}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={`seller-${item.id}`}
+                transition={0}
+              />
+            ) : (
+              <View style={styles.cardLogoPlaceholder}>
+                <Ionicons name="storefront" size={40} color={theme.colors.primary} />
+              </View>
+            )}
+          </View>
+          <View style={styles.cardInfo}>
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {item.name}
             </Text>
-          ) : null}
-          {location ? (
-            <Text style={styles.cardSub} numberOfLines={1}>
-              {location}
-            </Text>
-          ) : null}
+            {item.shortDescription ? (
+              <Text style={styles.cardDesc} numberOfLines={2}>
+                {item.shortDescription}
+              </Text>
+            ) : null}
+            {location ? (
+              <Text style={styles.cardSub} numberOfLines={1}>
+                {location}
+              </Text>
+            ) : null}
           {(item.itemCount ?? 0) > 0 ? (
             <Text style={styles.cardSub}>{item.itemCount} items</Text>
+          ) : null}
+          {item.directorySearchMatchNote === "similar" ? (
+            <Text style={styles.similarMatchNote}>Similar based on search</Text>
           ) : null}
         </View>
         <View style={styles.seeBusinessButton}>
           <Text style={styles.seeBusinessButtonText}>View Store</Text>
-        </View>
-      </Pressable>
-    );
-  };
+          </View>
+        </Pressable>
+      );
+    },
+    [styles, theme.colors.primary, openSeller]
+  );
 
   const searchLower = search.trim().toLowerCase();
   const filteredCategories = searchLower
@@ -626,8 +668,14 @@ export default function SupportLocalScreen() {
     : subsForPrimary;
 
   const listData: (Business | Seller)[] = viewMode === "directory" ? businesses : sellers;
-  const renderItem = ({ item }: { item: Business | Seller }) =>
-    viewMode === "directory" ? renderBusinessItem({ item: item as Business }) : renderSellerItem({ item: item as Seller });
+
+  const renderItem = useCallback(
+    ({ item }: { item: Business | Seller }) =>
+      viewMode === "directory"
+        ? renderBusinessItem({ item: item as Business })
+        : renderSellerItem({ item: item as Seller }),
+    [viewMode, renderBusinessItem, renderSellerItem]
+  );
 
   return (
     <View style={styles.container}>
@@ -867,6 +915,11 @@ export default function SupportLocalScreen() {
           numColumns={2}
           columnWrapperStyle={styles.listRow}
           contentContainerStyle={styles.listContent}
+          initialNumToRender={6}
+          maxToRenderPerBatch={6}
+          windowSize={5}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={Platform.OS === "android"}
           {...(Platform.OS === "ios"
             ? {
                 bounces: true,

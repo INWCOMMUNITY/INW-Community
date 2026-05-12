@@ -5,6 +5,7 @@ import { PREBUILT_CITIES } from "./prebuilt-cities";
  * Use when cities from DB may have variants (e.g. "Coeur D'Alene" vs "Coeur d'Alene").
  */
 const CANONICAL_CITIES: Record<string, string> = {
+  /** Common abbreviation for Coeur d'Alene (see directorySearchCityTextVariants). */
   cda: "Coeur d'Alene",
   "coeur d alene": "Coeur d'Alene",
   "coeur d'alene": "Coeur d'Alene",
@@ -92,4 +93,20 @@ export function deduplicateCities(cities: (string | null)[]): string[] {
     result.push(CANONICAL_CITIES[key] ?? display);
   }
   return result.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Extra `city` field substrings for directory free-text search when residents use local
+ * abbreviations (e.g. CDA = Coeur d'Alene). Matched with `contains` + case-insensitive.
+ * Implied-city parsing already maps CDA via {@link normalizeResidentCity}.
+ */
+export function directorySearchCityTextVariants(searchTrimmed: string): readonly string[] {
+  const s = searchTrimmed.trim();
+  if (!s) return [];
+  const variants = new Set<string>();
+  const key = normalizeKey(s);
+  if (key === "cda" || /\bcda\b/i.test(s)) {
+    variants.add("Coeur d'Alene");
+  }
+  return [...variants];
 }

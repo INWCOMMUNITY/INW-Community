@@ -7,6 +7,13 @@ import {
 } from "@/lib/city-utils";
 import { businessMatchesCategoryAndSub, parseSubcategoriesByPrimary } from "@/lib/business-categories";
 import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
+import {
+  buildBusinessDirectorySearchWhere,
+  computeDirectorySearchMatchNote,
+  normalizeSearchForMatching,
+  sortByDirectorySearchRelevance,
+  splitSearchQueryWithImpliedCity,
+} from "@/lib/business-directory-search";
 
 /**
  * GET /api/sellers
@@ -17,9 +24,7 @@ export async function GET(req: NextRequest) {
   try {
     const searchParams = req.nextUrl?.searchParams ?? new URLSearchParams();
     const list = searchParams.get("list");
-    const search = searchParams.get("search")?.trim();
     const category = searchParams.get("category")?.trim() || "";
-    const cityFilter = (searchParams.get("city") ?? "").trim();
 
     const sellerMemberIds = await prisma.subscription.findMany({
       where: { plan: "seller", status: { in: [...NWC_PAID_PLAN_ACCESS_STATUSES] } },
@@ -67,28 +72,37 @@ export async function GET(req: NextRequest) {
 
     const subcategory = searchParams.get("subcategory")?.trim() || "";
 
+    let cityFilter = (searchParams.get("city") ?? "").trim();
+    const searchRaw = searchParams.get("search")?.trim() ?? "";
+    let effectiveSearch = searchRaw;
+    if (searchRaw && !cityFilter) {
+      const sellerCityRows = await prisma.business.findMany({
+        where: { memberId: { in: memberIds }, city: { not: null } },
+        select: { city: true },
+      });
+      const directoryCities = deduplicateCities(sellerCityRows.map((c) => c.city));
+      const split = splitSearchQueryWithImpliedCity(searchRaw, directoryCities);
+      if (split.impliedCity) {
+        cityFilter = split.impliedCity;
+        effectiveSearch = split.textSearch;
+      }
+    }
+
+    const searchWhere = buildBusinessDirectorySearchWhere(effectiveSearch);
+
     // Subcategory only narrows within the selected primary (see /api/businesses).
     const businesses = await prisma.business.findMany({
       where: {
         memberId: { in: memberIds },
         ...(category ? { categories: { has: category } } : {}),
-        ...(search
-          ? {
-              OR: [
-                { name: { contains: search, mode: "insensitive" } },
-                { shortDescription: { contains: search, mode: "insensitive" } },
-                { fullDescription: { contains: search, mode: "insensitive" } },
-                { city: { contains: search, mode: "insensitive" } },
-                { address: { contains: search, mode: "insensitive" } },
-              ],
-            }
-          : {}),
+        ...(searchWhere ? searchWhere : {}),
       },
       select: {
         id: true,
         name: true,
         slug: true,
         shortDescription: true,
+        fullDescription: true,
         address: true,
         city: true,
         categories: true,
@@ -113,23 +127,46 @@ export async function GET(req: NextRequest) {
       sellerRows = sellerRows.filter((b) => businessDisplayCityEquals(b.city, cityFilter));
     }
 
+    if (normalizeSearchForMatching(effectiveSearch).length > 0) {
+      sellerRows = sortByDirectorySearchRelevance(sellerRows, effectiveSearch);
+    }
+
     return NextResponse.json(
-      sellerRows.map((b) => ({
-        id: b.id,
-        name: b.name,
-        slug: b.slug,
-        shortDescription: b.shortDescription,
-        address: b.address,
-        city: extractBusinessDisplayCity(b.city) ?? b.city,
-        categories: b.categories,
-        subcategoriesByPrimary: parseSubcategoriesByPrimary(b.subcategoriesByPrimary),
-        logoUrl: b.logoUrl,
-        coverPhotoUrl: b.coverPhotoUrl,
-        phone: b.phone,
-        email: b.email,
-        website: b.website,
-        itemCount: b._count.storeItems,
-      }))
+      sellerRows.map((b) => {
+        const { fullDescription, ...rest } = b;
+        const note =
+          normalizeSearchForMatching(effectiveSearch).length > 0
+            ? computeDirectorySearchMatchNote(
+                {
+                  name: b.name,
+                  shortDescription: b.shortDescription,
+                  fullDescription: b.fullDescription,
+                  city: b.city,
+                  address: b.address,
+                  categories: b.categories,
+                  subcategoriesByPrimary: b.subcategoriesByPrimary,
+                },
+                effectiveSearch
+              )
+            : undefined;
+        const row = {
+          id: rest.id,
+          name: rest.name,
+          slug: rest.slug,
+          shortDescription: rest.shortDescription,
+          address: rest.address,
+          city: extractBusinessDisplayCity(rest.city) ?? rest.city,
+          categories: rest.categories,
+          subcategoriesByPrimary: parseSubcategoriesByPrimary(rest.subcategoriesByPrimary),
+          logoUrl: rest.logoUrl,
+          coverPhotoUrl: rest.coverPhotoUrl,
+          phone: rest.phone,
+          email: rest.email,
+          website: rest.website,
+          itemCount: rest._count.storeItems,
+        };
+        return note ? { ...row, directorySearchMatchNote: note } : row;
+      })
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Database error";

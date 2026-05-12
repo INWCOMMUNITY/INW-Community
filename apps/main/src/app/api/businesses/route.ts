@@ -20,6 +20,13 @@ import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 import { linkAllUnscopedStoreItemsToBusiness } from "@/lib/migrate-resale-items-for-seller-plan";
 import { photosExcludingLogo } from "@/lib/business-photos";
 import { isCouponActiveByExpiresAt } from "@/lib/coupon-expiration";
+import {
+  buildBusinessDirectorySearchWhere,
+  computeDirectorySearchMatchNote,
+  normalizeSearchForMatching,
+  sortByDirectorySearchRelevance,
+  splitSearchQueryWithImpliedCity,
+} from "@/lib/business-directory-search";
 
 export async function GET(req: NextRequest) {
   try {
@@ -132,26 +139,30 @@ export async function GET(req: NextRequest) {
   }
   const category = searchParams.get("category")?.trim() || "";
   const subcategory = searchParams.get("subcategory")?.trim() || "";
-  const cityFilter = (searchParams.get("city") ?? "").trim();
-  const search = searchParams.get("search")?.trim();
+  let cityFilter = (searchParams.get("city") ?? "").trim();
+  const searchRaw = searchParams.get("search")?.trim() ?? "";
+
+  let effectiveSearch = searchRaw;
+  if (searchRaw && !cityFilter) {
+    const cityRows = await prisma.business.findMany({
+      where: { AND: [publicDirectoryBase, { city: { not: null } }] },
+      select: { city: true },
+    });
+    const directoryCities = deduplicateCities(cityRows.map((c) => c.city));
+    const split = splitSearchQueryWithImpliedCity(searchRaw, directoryCities);
+    if (split.impliedCity) {
+      cityFilter = split.impliedCity;
+      effectiveSearch = split.textSearch;
+    }
+  }
+
+  const searchWhere = buildBusinessDirectorySearchWhere(effectiveSearch);
   const businesses = await prisma.business.findMany({
     where: {
       AND: [
         publicDirectoryBase,
         ...(category ? [{ categories: { has: category } }] : []),
-        ...(search
-          ? [
-              {
-                OR: [
-                  { name: { contains: search, mode: "insensitive" as const } },
-                  { shortDescription: { contains: search, mode: "insensitive" as const } },
-                  { fullDescription: { contains: search, mode: "insensitive" as const } },
-                  { city: { contains: search, mode: "insensitive" as const } },
-                  { address: { contains: search, mode: "insensitive" as const } },
-                ],
-              },
-            ]
-          : []),
+        ...(searchWhere ? [searchWhere] : []),
       ],
     },
     select: {
@@ -159,6 +170,7 @@ export async function GET(req: NextRequest) {
       name: true,
       slug: true,
       shortDescription: true,
+      fullDescription: true,
       address: true,
       city: true,
       categories: true,
@@ -178,11 +190,31 @@ export async function GET(req: NextRequest) {
   if (cityFilter) {
     resultRows = resultRows.filter((b) => businessDisplayCityEquals(b.city, cityFilter));
   }
+  if (normalizeSearchForMatching(effectiveSearch).length > 0) {
+    resultRows = sortByDirectorySearchRelevance(resultRows, effectiveSearch);
+  }
   return NextResponse.json(
-    resultRows.map((b) => ({
-      ...b,
-      city: extractBusinessDisplayCity(b.city) ?? b.city,
-    }))
+    resultRows.map((b) => {
+      const { fullDescription, ...rest } = b;
+      const city = extractBusinessDisplayCity(rest.city) ?? rest.city;
+      const base = { ...rest, city };
+      const note =
+        normalizeSearchForMatching(effectiveSearch).length > 0
+          ? computeDirectorySearchMatchNote(
+              {
+                name: b.name,
+                shortDescription: b.shortDescription,
+                fullDescription: b.fullDescription,
+                city: b.city,
+                address: b.address,
+                categories: b.categories,
+                subcategoriesByPrimary: b.subcategoriesByPrimary,
+              },
+              effectiveSearch
+            )
+          : undefined;
+      return note ? { ...base, directorySearchMatchNote: note } : base;
+    })
   );
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));

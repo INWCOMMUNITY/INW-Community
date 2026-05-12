@@ -124,6 +124,14 @@ export function AppNavMenu({ visible, onClose, hasSeller, hasSubscriber }: AppNa
                 />
               )}
               <MenuRow
+                icon="chatbubbles-outline"
+                label="Messages"
+                onPress={() => {
+                  onClose();
+                  router.push("/messages" as import("expo-router").Href);
+                }}
+              />
+              <MenuRow
                 icon="person-outline"
                 label="Profile"
                 onPress={() => handleNav("profile")}
