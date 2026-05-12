@@ -9,11 +9,13 @@ import {
   RefreshControl,
   Image,
   Alert,
+  Modal,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPatch } from "@/lib/api";
+import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+import { Ionicons } from "@expo/vector-icons";
 interface LocalDeliveryDetails {
   firstName?: string;
   lastName?: string;
@@ -41,7 +43,19 @@ interface OrderWithDelivery {
   localDeliveryDetails: LocalDeliveryDetails | null;
   deliveryConfirmedAt: string | null;
   deliveryBuyerConfirmedAt?: string | null;
-  items: { id?: string; storeItem: { title: string; photos?: string[] }; quantity: number }[];
+  items: {
+    id?: string;
+    fulfillmentType?: string | null;
+    storeItem: { title: string; photos?: string[] };
+    quantity: number;
+  }[];
+}
+
+function canSellerCancelDeliveryFromMenu(o: OrderWithDelivery): boolean {
+  if (o.status !== "paid") return false;
+  if (o.deliveryConfirmedAt) return false;
+  if (o.localDeliveryDetails == null) return false;
+  return o.items.some((i) => (i.fulfillmentType ?? "") === "local_delivery");
 }
 
 /** API only allows fulfillment updates once the order is paid (or later). */
@@ -66,6 +80,8 @@ export default function DeliveriesScreen() {
     { slug: string; name: string; description?: string }[]
   >([]);
   const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+  const [deliveryMenuOrderId, setDeliveryMenuOrderId] = useState<string | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     apiGet<OrderWithDelivery[]>("/api/store-orders?mine=1")
@@ -113,6 +129,40 @@ export default function DeliveriesScreen() {
     }
   };
 
+  const cancelLocalDelivery = (orderId: string) => {
+    const o = orders.find((x) => x.id === orderId);
+    const paidOnline = Boolean(o?.stripePaymentIntentId);
+    Alert.alert(
+      "Cancel this delivery?",
+      paidOnline
+        ? "The buyer will be refunded to their card and listing quantities will be restored. This cannot be undone."
+        : "The cash order will be canceled and quantities restored. Confirm with the buyer if they already paid you in person.",
+      [
+        { text: "Not now", style: "cancel" },
+        {
+          text: "Cancel delivery",
+          style: "destructive",
+          onPress: async () => {
+            setDeliveryMenuOrderId(null);
+            setCancelingId(orderId);
+            try {
+              await apiPost(`/api/store-orders/${encodeURIComponent(orderId)}/seller-cancel-local-delivery`, {});
+              setOrders((prev) => prev.filter((x) => x.id !== orderId));
+            } catch (e) {
+              const msg =
+                typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
+                  ? (e as { error: string }).error
+                  : "Could not cancel this order. Try again or contact support.";
+              Alert.alert("Cancel delivery", msg);
+            } finally {
+              setCancelingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const pending = orders.filter(
     (o) => !(o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt)
   );
@@ -153,8 +203,23 @@ export default function DeliveriesScreen() {
                 const name = [d.firstName, d.lastName].filter(Boolean).join(" ") || "Customer";
                 return (
                   <View key={o.id} style={styles.card}>
-                    <Text style={styles.orderId}>#{o.id.slice(-6)}</Text>
-                    <Text style={styles.date}>{new Date(o.createdAt).toLocaleDateString()}</Text>
+                    <View style={styles.cardHeaderRow}>
+                      <View style={styles.cardHeaderTitles}>
+                        <Text style={styles.orderId}>#{o.id.slice(-6)}</Text>
+                        <Text style={styles.date}>{new Date(o.createdAt).toLocaleDateString()}</Text>
+                      </View>
+                      {canSellerCancelDeliveryFromMenu(o) ? (
+                        <Pressable
+                          accessibilityLabel="Delivery options"
+                          hitSlop={10}
+                          style={({ pressed }) => [styles.cardMenuBtn, pressed && { opacity: 0.7 }]}
+                          onPress={() => setDeliveryMenuOrderId(o.id)}
+                          disabled={cancelingId === o.id}
+                        >
+                          <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
+                        </Pressable>
+                      ) : null}
+                    </View>
                     <Text style={styles.label}>Name</Text>
                     <Text style={styles.value}>{name}</Text>
                     <Text style={styles.label}>Address</Text>
@@ -277,6 +342,31 @@ export default function DeliveriesScreen() {
           badgeDescription={earnedBadges[badgePopupIndex].description}
         />
       )}
+      <Modal
+        visible={deliveryMenuOrderId != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeliveryMenuOrderId(null)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setDeliveryMenuOrderId(null)}>
+          <View onStartShouldSetResponder={() => true} style={styles.modalSheet}>
+            <Pressable
+              style={({ pressed }) => [styles.modalRowDanger, pressed && { opacity: 0.85 }]}
+              onPress={() => {
+                if (deliveryMenuOrderId) cancelLocalDelivery(deliveryMenuOrderId);
+              }}
+            >
+              <Text style={styles.modalRowDangerText}>Cancel delivery</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.modalRow, pressed && { opacity: 0.85 }]}
+              onPress={() => setDeliveryMenuOrderId(null)}
+            >
+              <Text style={styles.modalRowText}>Close</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
@@ -295,6 +385,41 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 4,
+  },
+  cardHeaderTitles: { flex: 1, minWidth: 0 },
+  cardMenuBtn: { padding: 4, marginTop: -4, marginRight: -4 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+    padding: 16,
+    paddingBottom: 32,
+  },
+  modalSheet: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#ddd",
+  },
+  modalRow: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+  },
+  modalRowText: { fontSize: 16, textAlign: "center", color: theme.colors.heading },
+  modalRowDanger: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  modalRowDangerText: { fontSize: 16, textAlign: "center", color: "#b91c1c", fontWeight: "600" },
   completedCard: { backgroundColor: "#f0f0f0" },
   orderId: { fontSize: 14, fontWeight: "600", color: theme.colors.primary, marginBottom: 4 },
   date: { fontSize: 12, color: "#666", marginBottom: 12 },

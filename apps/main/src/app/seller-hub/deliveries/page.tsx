@@ -23,12 +23,19 @@ interface OrderWithDelivery {
   localDeliveryDetails: LocalDeliveryDetails | null;
   deliveryConfirmedAt: string | null;
   deliveryBuyerConfirmedAt?: string | null;
-  items: { storeItem: { title: string }; quantity: number }[];
+  items: { storeItem: { title: string }; quantity: number; fulfillmentType?: string | null }[];
 }
 
 function sellerCanMarkLocalDelivery(o: OrderWithDelivery): boolean {
   if (o.deliveryConfirmedAt) return false;
   return ["paid", "shipped", "delivered"].includes(o.status);
+}
+
+function canSellerCancelDeliveryFromMenu(o: OrderWithDelivery): boolean {
+  if (o.status !== "paid") return false;
+  if (o.deliveryConfirmedAt) return false;
+  if (!o.localDeliveryDetails) return false;
+  return o.items.some((i) => (i.fulfillmentType ?? "") === "local_delivery");
 }
 
 export default function MyDeliveriesPage() {
@@ -39,6 +46,8 @@ export default function MyDeliveriesPage() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeForOverlay[]>([]);
   const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
+  const [deliveryMenuOpenId, setDeliveryMenuOpenId] = useState<string | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   useLockBodyScroll(badgePopupIndex >= 0);
 
@@ -83,6 +92,31 @@ export default function MyDeliveriesPage() {
       );
     } finally {
       setConfirmingId(null);
+    }
+  }
+
+  async function cancelLocalDelivery(orderId: string) {
+    const o = orders.find((x) => x.id === orderId);
+    const paidOnline = Boolean(o?.stripePaymentIntentId);
+    const ok = window.confirm(
+      paidOnline
+        ? "Cancel this delivery? The buyer will be refunded to their card and inventory will be restored."
+        : "Cancel this cash delivery order? Inventory will be restored. Confirm with the buyer if they already paid you in person."
+    );
+    if (!ok) return;
+    setDeliveryMenuOpenId(null);
+    setCancelingId(orderId);
+    setError("");
+    try {
+      const res = await fetch(`/api/store-orders/${orderId}/seller-cancel-local-delivery`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(getErrorMessage(data.error, "Could not cancel"));
+        return;
+      }
+      setOrders((prev) => prev.filter((x) => x.id !== orderId));
+    } finally {
+      setCancelingId(null);
     }
   }
 
@@ -185,7 +219,9 @@ export default function MyDeliveriesPage() {
                               </span>
                             )) ?? "—"}
                           </td>
-                          <td className="py-2 px-3 max-w-[140px]">
+                          <td className="py-2 px-3 max-w-[200px]">
+                            <div className="flex flex-wrap items-start gap-2 justify-between">
+                              <div className="min-w-0 flex-1">
                             {!o.deliveryConfirmedAt && sellerCanMarkLocalDelivery(o) ? (
                               <button
                                 type="button"
@@ -210,6 +246,42 @@ export default function MyDeliveriesPage() {
                                 Marked Delivered
                               </button>
                             )}
+                              </div>
+                              {canSellerCancelDeliveryFromMenu(o) ? (
+                                <div className="relative shrink-0">
+                                  <button
+                                    type="button"
+                                    className="w-9 h-9 rounded border border-gray-300 text-lg leading-none text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                    aria-label="Delivery options"
+                                    disabled={cancelingId === o.id}
+                                    onClick={() =>
+                                      setDeliveryMenuOpenId((id) => (id === o.id ? null : o.id))
+                                    }
+                                  >
+                                    ⋮
+                                  </button>
+                                  {deliveryMenuOpenId === o.id ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="fixed inset-0 z-40 cursor-default"
+                                        aria-label="Close menu"
+                                        onClick={() => setDeliveryMenuOpenId(null)}
+                                      />
+                                      <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-48 text-sm">
+                                        <button
+                                          type="button"
+                                          className="block w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 font-medium"
+                                          onClick={() => void cancelLocalDelivery(o.id)}
+                                        >
+                                          Cancel delivery
+                                        </button>
+                                      </div>
+                                    </>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       );

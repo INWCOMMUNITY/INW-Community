@@ -25,12 +25,40 @@ export async function GET(
   const conversation = await prisma.resaleConversation.findUnique({
     where: { id },
     include: {
-      storeItem: { select: { id: true, title: true, slug: true, photos: true } },
+      storeItem: {
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          photos: true,
+          listingType: true,
+          memberId: true,
+          status: true,
+          quantity: true,
+          acceptOffers: true,
+          minOfferCents: true,
+          priceCents: true,
+        },
+      },
       buyer: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
       seller: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
       messages: {
         orderBy: { createdAt: "asc" },
-        include: { sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
+        include: {
+          sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+          resaleOffer: {
+            select: {
+              id: true,
+              status: true,
+              amountCents: true,
+              counterAmountCents: true,
+              finalAmountCents: true,
+              respondedAt: true,
+              acceptedAt: true,
+              checkoutDeadlineAt: true,
+            },
+          },
+        },
       },
     },
   });

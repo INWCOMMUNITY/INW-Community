@@ -22,7 +22,14 @@ export async function GET(req: NextRequest) {
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { id: true, content: true, createdAt: true, senderId: true },
+          select: {
+            id: true,
+            content: true,
+            createdAt: true,
+            senderId: true,
+            resaleOfferId: true,
+            resaleOffer: { select: { id: true, status: true } },
+          },
         },
       },
     }),

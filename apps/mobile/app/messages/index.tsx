@@ -239,6 +239,7 @@ export default function MessagesInboxScreen() {
     onLiveMessage: patchFromLive,
     onLiveRead: scheduleListRefresh,
     onRefreshLists: scheduleListRefresh,
+    onLiveResaleOfferUpdate: scheduleListRefresh,
   });
 
   const onRefresh = () => {
@@ -274,6 +275,23 @@ export default function MessagesInboxScreen() {
     }
   };
 
+  const directUnreadTotal = useMemo(
+    () =>
+      direct.reduce((s, c) => s + (c.unreadCount ?? 0), 0) +
+      messageRequests.reduce((s, c) => s + (c.unreadCount ?? 0), 0),
+    [direct, messageRequests]
+  );
+  const groupsUnreadTotal = useMemo(
+    () => groups.reduce((s, c) => s + (c.unreadCount ?? 0), 0),
+    [groups]
+  );
+  const resaleUnreadTotal = useMemo(
+    () => resale.reduce((s, c) => s + (c.unreadCount ?? 0), 0),
+    [resale]
+  );
+
+  const formatTabUnread = (n: number) => (n > 99 ? "99+" : String(n));
+
   const isEmpty = list.length === 0;
 
   return (
@@ -306,19 +324,43 @@ export default function MessagesInboxScreen() {
           style={[styles.tab, tab === "direct" && styles.tabActive]}
           onPress={() => setTab("direct")}
         >
-          <Text style={[styles.tabText, tab === "direct" && styles.tabTextActive]}>Direct</Text>
+          <Text style={[styles.tabText, tab === "direct" && styles.tabTextActive]}>
+            Direct
+            {directUnreadTotal > 0 ? (
+              <Text style={[styles.tabUnreadSuffix, tab === "direct" && styles.tabUnreadSuffixActive]}>
+                {" "}
+                {formatTabUnread(directUnreadTotal)}
+              </Text>
+            ) : null}
+          </Text>
         </Pressable>
         <Pressable
           style={[styles.tab, tab === "groups" && styles.tabActive]}
           onPress={() => setTab("groups")}
         >
-          <Text style={[styles.tabText, tab === "groups" && styles.tabTextActive]}>Groups</Text>
+          <Text style={[styles.tabText, tab === "groups" && styles.tabTextActive]}>
+            Groups
+            {groupsUnreadTotal > 0 ? (
+              <Text style={[styles.tabUnreadSuffix, tab === "groups" && styles.tabUnreadSuffixActive]}>
+                {" "}
+                {formatTabUnread(groupsUnreadTotal)}
+              </Text>
+            ) : null}
+          </Text>
         </Pressable>
         <Pressable
           style={[styles.tab, tab === "resale" && styles.tabActive]}
           onPress={() => setTab("resale")}
         >
-          <Text style={[styles.tabText, tab === "resale" && styles.tabTextActive]}>Resale</Text>
+          <Text style={[styles.tabText, tab === "resale" && styles.tabTextActive]}>
+            Resale
+            {resaleUnreadTotal > 0 ? (
+              <Text style={[styles.tabUnreadSuffix, tab === "resale" && styles.tabUnreadSuffixActive]}>
+                {" "}
+                {formatTabUnread(resaleUnreadTotal)}
+              </Text>
+            ) : null}
+          </Text>
         </Pressable>
       </View>
 
@@ -599,6 +641,8 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: theme.colors.primary },
   tabText: { fontSize: 15, fontWeight: "600", color: theme.colors.text },
   tabTextActive: { color: "#fff" },
+  tabUnreadSuffix: { fontWeight: "800", color: theme.colors.primary },
+  tabUnreadSuffixActive: { color: "#fff" },
   center: {
     flex: 1,
     alignItems: "center",

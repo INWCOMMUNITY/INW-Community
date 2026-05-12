@@ -3,7 +3,12 @@ import { Platform } from "react-native";
 import { io, type Socket } from "socket.io-client";
 import { apiGet, getToken } from "./api";
 import { getDirectRealtimeUrl } from "./direct-realtime";
-import { isLiveSocketMessagePayload, type LiveSocketMessagePayload } from "./chat-live-types";
+import {
+  isLiveResaleOfferUpdatePayload,
+  isLiveSocketMessagePayload,
+  type LiveResaleOfferUpdatePayload,
+  type LiveSocketMessagePayload,
+} from "./chat-live-types";
 
 export type InboxTab = "direct" | "resale" | "groups";
 
@@ -38,6 +43,8 @@ export function useMessagesInboxRealtime(options: {
   onLiveRead: (channel: ChatChannel, conversationId: string) => void;
   /** Refetch lists when activity references a conversation we are not showing (e.g. new thread). */
   onRefreshLists: () => void;
+  /** Resale offer card changed in a joined thread (same `messageId`, new status). */
+  onLiveResaleOfferUpdate?: (p: LiveResaleOfferUpdatePayload) => void;
 }): void {
   const {
     tab,
@@ -48,6 +55,7 @@ export function useMessagesInboxRealtime(options: {
     onLiveMessage,
     onLiveRead,
     onRefreshLists,
+    onLiveResaleOfferUpdate,
   } = options;
 
   const socketRef = useRef<Socket | null>(null);
@@ -57,12 +65,14 @@ export function useMessagesInboxRealtime(options: {
   const onLiveMessageRef = useRef(onLiveMessage);
   const onLiveReadRef = useRef(onLiveRead);
   const onRefreshListsRef = useRef(onRefreshLists);
+  const onLiveResaleOfferUpdateRef = useRef(onLiveResaleOfferUpdate);
 
   tabRef.current = tab;
   idsRef.current = conversationIds;
   onLiveMessageRef.current = onLiveMessage;
   onLiveReadRef.current = onLiveRead;
   onRefreshListsRef.current = onRefreshLists;
+  onLiveResaleOfferUpdateRef.current = onLiveResaleOfferUpdate;
 
   useEffect(() => {
     if (!enabled || authLoading) return;
@@ -131,6 +141,18 @@ export function useMessagesInboxRealtime(options: {
       socket.on("direct:read", (payload: unknown) => onRead("direct", payload as { conversationId?: string }));
       socket.on("group:read", (payload: unknown) => onRead("group", payload as { conversationId?: string }));
       socket.on("resale:read", (payload: unknown) => onRead("resale", payload as { conversationId?: string }));
+
+      const onResaleOfferUpdate = (payload: unknown) => {
+        if (!isLiveResaleOfferUpdatePayload(payload)) return;
+        const t = tabRef.current;
+        if (t !== "resale") return;
+        if (!idsRef.current.includes(payload.conversationId)) {
+          onRefreshListsRef.current();
+          return;
+        }
+        onLiveResaleOfferUpdateRef.current?.(payload);
+      };
+      socket.on("resale:offer_update", onResaleOfferUpdate);
 
       const syncJoins = () => {
         const sock = socketRef.current;

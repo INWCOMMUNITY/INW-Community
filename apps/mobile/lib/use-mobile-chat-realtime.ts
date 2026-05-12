@@ -3,10 +3,15 @@ import { InteractionManager, Platform, type FlatList } from "react-native";
 import { io, type Socket } from "socket.io-client";
 import { apiGet, getToken } from "./api";
 import { getDirectRealtimeUrl } from "./direct-realtime";
-import { isLiveSocketMessagePayload, type LiveSocketMessagePayload } from "./chat-live-types";
+import {
+  isLiveResaleOfferUpdatePayload,
+  isLiveSocketMessagePayload,
+  type LiveResaleOfferUpdatePayload,
+  type LiveSocketMessagePayload,
+} from "./chat-live-types";
 import { CHAT_COMPOSER_TYPING_REFRESH_MS, CHAT_PEER_TYPING_INDICATOR_TTL_MS } from "./chat-typing-timers";
 
-export type { LiveSocketMessagePayload };
+export type { LiveResaleOfferUpdatePayload, LiveSocketMessagePayload };
 
 export type MobileChatRealtimeKind = "direct" | "group" | "resale";
 
@@ -55,6 +60,8 @@ export function useMobileChatRealtime(
     authLoading?: boolean;
     /** Append incoming message from Socket.IO without waiting for a full refetch (Instagram-style). */
     onLiveMessage?: (payload: LiveSocketMessagePayload) => void;
+    /** Merge offer card state when server broadcasts `resale:offer_update` (resale threads only). */
+    onLiveOfferUpdate?: (payload: LiveResaleOfferUpdatePayload) => void;
     /** Typing pings only while the composer is actually focused (keyboard session). */
     isComposerFocused?: () => boolean;
   }
@@ -79,6 +86,8 @@ export function useMobileChatRealtime(
   const authLoading = options?.authLoading ?? false;
   const onLiveMessageRef = useRef(options?.onLiveMessage);
   onLiveMessageRef.current = options?.onLiveMessage;
+  const onLiveOfferUpdateRef = useRef(options?.onLiveOfferUpdate);
+  onLiveOfferUpdateRef.current = options?.onLiveOfferUpdate;
   const isComposerFocusedProbeRef = useRef(options?.isComposerFocused);
   isComposerFocusedProbeRef.current = options?.isComposerFocused;
 
@@ -211,6 +220,18 @@ export function useMobileChatRealtime(
           setTimeout(() => fl?.scrollToEnd({ animated: true }), 120);
         });
       });
+
+      if (kind === "resale") {
+        socket.on("resale:offer_update", (payload: unknown) => {
+          const cid = conversationIdRef.current;
+          if (!cid || !isLiveResaleOfferUpdatePayload(payload)) return;
+          if (payload.conversationId !== cid) {
+            void loadRef.current();
+            return;
+          }
+          onLiveOfferUpdateRef.current?.(payload);
+        });
+      }
 
       socket.on(cfg.readListen, (payload: { conversationId?: string } | undefined) => {
         const cid = conversationIdRef.current;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
       (o) =>
         !o.shipment?.id &&
         !o.shippedWithOrderId &&
-        o.items.some((i) => (i.fulfillmentType ?? "ship") === "ship")
+        orderHasShippedLine(o.items)
     ).length;
 
     const sellerOffersPending = pendingSellerOffers > 0;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { scheduleResaleOfferThreadLiveUpdate } from "@/lib/resale-offer-thread-live";
 import { z } from "zod";
 
 const patchBodySchema = z.object({
@@ -193,6 +194,7 @@ export async function PATCH(
         throw err;
       }
       const updated = await prisma.resaleOffer.findUnique({ where: { id } });
+      scheduleResaleOfferThreadLiveUpdate(id);
       return NextResponse.json(updated);
     }
     const updated = await prisma.resaleOffer.update({
@@ -202,6 +204,7 @@ export async function PATCH(
         respondedAt: new Date(),
       },
     });
+    scheduleResaleOfferThreadLiveUpdate(id);
     return NextResponse.json(updated);
   }
 
@@ -248,6 +251,7 @@ export async function PATCH(
       throw err;
     }
     const updated = await prisma.resaleOffer.findUnique({ where: { id } });
+    scheduleResaleOfferThreadLiveUpdate(id);
     return NextResponse.json(updated);
   }
 
@@ -260,5 +264,6 @@ export async function PATCH(
       respondedAt: new Date(),
     },
   });
+  scheduleResaleOfferThreadLiveUpdate(id);
   return NextResponse.json(updated);
 }

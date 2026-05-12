@@ -1,3 +1,34 @@
+export type LiveResaleOfferSnapshot = {
+  id: string;
+  status: string;
+  amountCents: number;
+  counterAmountCents: number | null;
+  finalAmountCents: number | null;
+  respondedAt: string | null;
+  acceptedAt: string | null;
+  checkoutDeadlineAt: string | null;
+};
+
+export type LiveResaleOfferUpdatePayload = {
+  conversationId: string;
+  messageId: string;
+  resaleOffer: LiveResaleOfferSnapshot;
+};
+
+export function isLiveResaleOfferUpdatePayload(p: unknown): p is LiveResaleOfferUpdatePayload {
+  if (!p || typeof p !== "object") return false;
+  const o = p as Record<string, unknown>;
+  if (typeof o.conversationId !== "string" || typeof o.messageId !== "string") return false;
+  const ro = o.resaleOffer;
+  if (!ro || typeof ro !== "object") return false;
+  const r = ro as Record<string, unknown>;
+  return (
+    typeof r.id === "string" &&
+    typeof r.status === "string" &&
+    typeof r.amountCents === "number"
+  );
+}
+
 export type LiveSocketMessagePayload = {
   conversationId: string;
   messageId: string;
@@ -10,6 +41,7 @@ export type LiveSocketMessagePayload = {
     lastName: string;
     profilePhotoUrl?: string | null;
   };
+  resaleOffer?: LiveResaleOfferSnapshot | null;
   sharedContentType?: string | null;
   sharedContentId?: string | null;
   sharedContentSlug?: string | null;

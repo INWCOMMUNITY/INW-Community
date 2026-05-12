@@ -1036,6 +1036,7 @@ model ResaleOffer {
   storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
   buyer     Member    @relation(fields: [buyerId], references: [id], onDelete: Cascade)
   cartItem  CartItem?
+  chatMessages ResaleMessage[]
 
   @@index([storeItemId])
   @@index([buyerId])
@@ -1069,12 +1070,15 @@ model ResaleMessage {
   conversationId String   @map("conversation_id")
   senderId       String   @map("sender_id")
   content        String   @db.Text
+  resaleOfferId  String?  @map("resale_offer_id")
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation ResaleConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       Member             @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  resaleOffer  ResaleOffer?       @relation(fields: [resaleOfferId], references: [id], onDelete: SetNull)
 
   @@index([conversationId])
+  @@index([resaleOfferId])
   @@map("resale_message")
 }
 

@@ -14,6 +14,8 @@ import {
   Easing,
   Platform,
   Modal,
+  Keyboard,
+  TouchableWithoutFeedback,
   useWindowDimensions,
 } from "react-native";
 import { useRouter, useNavigation } from "expo-router";
@@ -183,7 +185,10 @@ export default function SupportLocalScreen() {
     load();
   }, [load]);
 
-  const closeSwitcher = () => setSwitcherVisible(false);
+  const closeSwitcher = () => {
+    Keyboard.dismiss();
+    setSwitcherVisible(false);
+  };
   const selectDirectory = () => {
     setViewMode("directory");
     closeSwitcher();
@@ -252,8 +257,9 @@ export default function SupportLocalScreen() {
     [headerExpanded]
   );
 
-  /** No-op placeholder (keeps HMR / older bundles from crashing if this prop is wired). */
-  const handleScrollBeginDrag = useCallback(() => {}, []);
+  const handleScrollBeginDrag = useCallback(() => {
+    Keyboard.dismiss();
+  }, []);
 
   const handleScroll = useCallback(
     (e: { nativeEvent: { contentOffset: { y: number } } }) => {
@@ -683,7 +689,8 @@ export default function SupportLocalScreen() {
         style={[styles.headerWrap, { height: animatedHeight }]}
         collapsable={false}
       >
-      <View style={styles.header} onLayout={handleHeaderLayout}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.header} onLayout={handleHeaderLayout}>
         <View style={styles.logoRow}>
           <View style={styles.logoRowSideLeft}>
             <Pressable
@@ -744,57 +751,6 @@ export default function SupportLocalScreen() {
             <Ionicons name="chevron-down" size={20} color="#fff" />
           </View>
         </Pressable>
-        <Modal
-          visible={switcherVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={closeSwitcher}
-        >
-          <Pressable
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0,0,0,0.4)",
-              justifyContent: "flex-start",
-              paddingTop: 120,
-              paddingHorizontal: 24,
-              alignItems: "center",
-            }}
-            onPress={closeSwitcher}
-          >
-            <View
-              style={{
-                minWidth: 220,
-                borderRadius: 8,
-                borderWidth: 2,
-                borderColor: theme.colors.primary,
-                overflow: "hidden",
-                backgroundColor: "#ffffff",
-              }}
-            >
-              <Pressable
-                style={{
-                  paddingVertical: 14,
-                  paddingHorizontal: 20,
-                  borderBottomWidth: 1,
-                  borderBottomColor: "#eee",
-                }}
-                onPress={selectDirectory}
-              >
-                <Text style={{ fontSize: 16, fontWeight: "600", color: theme.colors.heading }}>
-                  Local Business Directory
-                </Text>
-              </Pressable>
-              <Pressable
-                style={{ paddingVertical: 14, paddingHorizontal: 20 }}
-                onPress={selectSellers}
-              >
-                <Text style={{ fontSize: 16, fontWeight: "600", color: theme.colors.heading }}>
-                  Local Sellers
-                </Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Modal>
         <TextInput
           style={styles.searchInput}
           placeholder="Search & Filter"
@@ -889,23 +845,30 @@ export default function SupportLocalScreen() {
             ))}
           </ScrollView>
         ) : null}
-      </View>
+        </View>
+      </TouchableWithoutFeedback>
       </Animated.View>
 
       {loading && !refreshing ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-        </View>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
+        </TouchableWithoutFeedback>
       ) : connectionError ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyText}>{connectionError}</Text>
-          <Pressable
-            style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.8 }]}
-            onPress={() => load(true)}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </Pressable>
-        </View>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <View style={{ flex: 1, backgroundColor: "#fff", justifyContent: "center" }}>
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>{connectionError}</Text>
+              <Pressable
+                style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.8 }]}
+                onPress={() => load(true)}
+              >
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </Pressable>
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
       ) : (
         <FlatList<Business | Seller>
           ref={listRef}
@@ -915,6 +878,9 @@ export default function SupportLocalScreen() {
           numColumns={2}
           columnWrapperStyle={styles.listRow}
           contentContainerStyle={styles.listContent}
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="never"
+          keyboardDismissMode="on-drag"
           initialNumToRender={6}
           maxToRenderPerBatch={6}
           windowSize={5}
@@ -951,6 +917,58 @@ export default function SupportLocalScreen() {
           }
         />
       )}
+      <Modal
+        visible={switcherVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeSwitcher}
+        {...(Platform.OS === "ios"
+          ? { presentationStyle: "overFullScreen" as const }
+          : { statusBarTranslucent: true })}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.4)",
+            justifyContent: "flex-start",
+            paddingTop: 120,
+            paddingHorizontal: 24,
+            alignItems: "center",
+          }}
+          onPress={closeSwitcher}
+        >
+          <View
+            style={{
+              minWidth: 220,
+              borderRadius: 8,
+              borderWidth: 2,
+              borderColor: theme.colors.primary,
+              overflow: "hidden",
+              backgroundColor: "#ffffff",
+              ...(Platform.OS === "android" ? { elevation: 24 } : {}),
+            }}
+          >
+            <Pressable
+              style={{
+                paddingVertical: 14,
+                paddingHorizontal: 20,
+                borderBottomWidth: 1,
+                borderBottomColor: "#eee",
+              }}
+              onPress={selectDirectory}
+            >
+              <Text style={{ fontSize: 16, fontWeight: "600", color: theme.colors.heading }}>
+                Local Business Directory
+              </Text>
+            </Pressable>
+            <Pressable style={{ paddingVertical: 14, paddingHorizontal: 20 }} onPress={selectSellers}>
+              <Text style={{ fontSize: 16, fontWeight: "600", color: theme.colors.heading }}>
+                Local Sellers
+              </Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

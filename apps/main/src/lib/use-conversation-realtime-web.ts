@@ -3,9 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { CHAT_PEER_TYPING_INDICATOR_TTL_MS } from "types";
-import { isLiveSocketMessagePayload, type LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import {
+  isLiveResaleOfferUpdatePayload,
+  isLiveSocketMessagePayload,
+  type LiveResaleOfferUpdatePayload,
+  type LiveSocketMessagePayload,
+} from "@/lib/chat-live-types";
 
-export type { LiveSocketMessagePayload };
+export type { LiveResaleOfferUpdatePayload, LiveSocketMessagePayload };
 
 export type ConversationRealtimeKind = "direct" | "group" | "resale";
 
@@ -132,6 +137,7 @@ export function useMessagesPageRealtime(options: {
   applyLiveDirect?: (p: LiveSocketMessagePayload) => void;
   applyLiveGroup?: (p: LiveSocketMessagePayload) => void;
   applyLiveResale?: (p: LiveSocketMessagePayload) => void;
+  applyLiveResaleOfferUpdate?: (p: LiveResaleOfferUpdatePayload) => void;
 }): {
   typingPeerIds: string[];
   /** Member IDs (other than you) currently viewing the open thread — for avatars next to Seen. */
@@ -153,6 +159,7 @@ export function useMessagesPageRealtime(options: {
     applyLiveDirect,
     applyLiveGroup,
     applyLiveResale,
+    applyLiveResaleOfferUpdate,
   } = options;
 
   const activeThread = useMemo(
@@ -184,9 +191,11 @@ export function useMessagesPageRealtime(options: {
   const applyLiveDirectRef = useRef(applyLiveDirect);
   const applyLiveGroupRef = useRef(applyLiveGroup);
   const applyLiveResaleRef = useRef(applyLiveResale);
+  const applyLiveResaleOfferUpdateRef = useRef(applyLiveResaleOfferUpdate);
   applyLiveDirectRef.current = applyLiveDirect;
   applyLiveGroupRef.current = applyLiveGroup;
   applyLiveResaleRef.current = applyLiveResale;
+  applyLiveResaleOfferUpdateRef.current = applyLiveResaleOfferUpdate;
 
   const directIdRef = useRef(directId);
   const groupIdRef = useRef(groupId);
@@ -452,9 +461,31 @@ export function useMessagesPageRealtime(options: {
         }
       };
 
+      const onResaleOfferUpdate = (p: unknown) => {
+        const rid = resaleIdRef.current;
+        if (
+          rid &&
+          isLiveResaleOfferUpdatePayload(p) &&
+          p.conversationId === rid &&
+          applyLiveResaleOfferUpdateRef.current
+        ) {
+          applyLiveResaleOfferUpdateRef.current(p);
+          return;
+        }
+        scheduleSidebarRefresh();
+        const convId =
+          p && typeof p === "object" && typeof (p as { conversationId?: string }).conversationId === "string"
+            ? (p as { conversationId: string }).conversationId
+            : undefined;
+        if (!convId || convId === rid) {
+          refreshResaleRef.current();
+        }
+      };
+
       socket.on("direct:message", onDirectMessage);
       socket.on("group:message", onGroupMessage);
       socket.on("resale:message", onResaleMessage);
+      socket.on("resale:offer_update", onResaleOfferUpdate);
 
       socket.on("direct:read", onDirectRead);
       socket.on("resale:read", onResaleRead);

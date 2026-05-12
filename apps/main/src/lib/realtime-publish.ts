@@ -10,6 +10,7 @@ export type ChatPublishType =
   | "direct:message"
   | "group:message"
   | "resale:message"
+  | "resale:offer_update"
   | "direct:read"
   | "group:read"
   | "resale:read";
@@ -79,6 +80,10 @@ export async function publishGroupConversationMessage(conversationId: string, pa
 
 export async function publishResaleConversationMessage(conversationId: string, payload: Record<string, unknown> = {}): Promise<void> {
   return publishChatEvent("resale:message", conversationId, payload);
+}
+
+export async function publishResaleOfferUpdate(conversationId: string, payload: Record<string, unknown> = {}): Promise<void> {
+  return publishChatEvent("resale:offer_update", conversationId, payload);
 }
 
 export async function publishDirectConversationRead(conversationId: string, readerMemberId: string): Promise<void> {

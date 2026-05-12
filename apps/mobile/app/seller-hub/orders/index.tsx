@@ -18,10 +18,11 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, getToken } from "@/lib/api";
+import { apiGet, getToken, apiPatch } from "@/lib/api";
 import { getOrderStatusLabel } from "@/lib/order-status";
 import { formatShippingAddress } from "@/lib/format-address";
 import { buildHubWebUrl } from "@/lib/seller-hub-web-url";
+import { orderHasShippedLine } from "@/lib/shippo-order-label-eligibility";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -41,8 +42,23 @@ interface StoreOrder {
   orderNumber?: string;
   orderKind?: string;
   shippingAddress?: unknown;
+  shipment?: { id?: string } | null;
+  shippedWithOrderId?: string | null;
   buyer?: { firstName: string; lastName: string; email?: string };
-  items?: { quantity: number; storeItem?: { title: string; slug: string; photos?: string[] } }[];
+  items?: {
+    quantity: number;
+    fulfillmentType?: string | null;
+    storeItem?: { title: string; slug: string; photos?: string[] };
+  }[];
+}
+
+function canMarkShippedWithoutLabel(o: StoreOrder): boolean {
+  return (
+    o.status === "paid" &&
+    !o.shipment &&
+    !o.shippedWithOrderId &&
+    orderHasShippedLine(o.items)
+  );
 }
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
@@ -101,6 +117,7 @@ function ToShipFlowView({
   const [error, setError] = useState<string | null>(null);
   const [savingPackingSlip, setSavingPackingSlip] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set());
+  const [markingShippedId, setMarkingShippedId] = useState<string | null>(null);
 
   useEffect(() => {
     setSelectedOrderIds(new Set(orders.map((o) => o.id)));
@@ -131,6 +148,13 @@ function ToShipFlowView({
   }
 
   const openPurchaseLabelsWeb = () => {
+    if (!connected) {
+      Alert.alert(
+        "Connect Shippo first",
+        "Purchase labels in the app requires a connected Shippo account. You can still mark orders shipped below if you used another carrier."
+      );
+      return;
+    }
     if (selectedIdList.length === 0) {
       Alert.alert("Select orders", "Choose at least one order to buy labels for.");
       return;
@@ -145,6 +169,10 @@ function ToShipFlowView({
   };
 
   const handleSavePackingSlips = async () => {
+    if (!connected) {
+      Alert.alert("Connect Shippo", "Packing slips from this screen need a connected Shippo account.");
+      return;
+    }
     const selectedOrders = orders.filter((o) => selectedOrderIds.has(o.id));
     if (selectedOrders.length === 0) {
       Alert.alert("Select orders", "Choose at least one order for packing slips.");
@@ -195,6 +223,36 @@ function ToShipFlowView({
     }
   };
 
+  const confirmMarkShipped = (orderId: string) => {
+    Alert.alert(
+      "Mark as shipped?",
+      "Use this if you already shipped without buying a label in the app. Reminders and badges update once marked.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Mark shipped",
+          onPress: async () => {
+            setMarkingShippedId(orderId);
+            setError(null);
+            try {
+              await apiPatch(`/api/store-orders/${encodeURIComponent(orderId)}`, { status: "shipped" });
+              onRefresh();
+            } catch (e: unknown) {
+              const msg =
+                typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
+                  ? (e as { error: string }).error
+                  : "Could not mark shipped. Try again.";
+              setError(msg);
+              Alert.alert("Mark shipped", msg);
+            } finally {
+              setMarkingShippedId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (connected === null) {
     return (
       <View style={styles.center}>
@@ -202,28 +260,24 @@ function ToShipFlowView({
       </View>
     );
   }
-  if (!connected) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.shipContent}>
-          <Text style={styles.shipTitle}>Ship Items</Text>
-          <Text style={styles.shipHint}>Connect your Shippo account to purchase shipping labels.</Text>
-          <Pressable
-            style={({ pressed }) => [styles.shipBtn, pressed && { opacity: 0.8 }]}
-            onPress={() => (router.push as (href: string) => void)("/seller-hub/shipping-setup")}
-          >
-            <Text style={styles.shipBtnText}>Set up shipping</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
   if (orders.length === 0) {
     return (
       <View style={[styles.container, styles.shipContent]}>
         <Text style={styles.shipTitle}>Ship Items</Text>
-        <Text style={styles.shipHint}>No orders need shipping. Labels are charged to your connected Shippo account.</Text>
+        <Text style={styles.shipHint}>
+          {connected
+            ? "No orders need shipping. Labels are charged to your connected Shippo account."
+            : "No orders are waiting to ship. Connect Shippo when you want to buy labels in the browser, or mark shipped from an order when you use your own postage."}
+        </Text>
         <Text style={styles.shipEmpty}>No orders to ship</Text>
+        {!connected ? (
+          <Pressable
+            style={({ pressed }) => [styles.shipBtn, { marginTop: 16 }, pressed && { opacity: 0.8 }]}
+            onPress={() => (router.push as (href: string) => void)("/seller-hub/shipping-setup")}
+          >
+            <Text style={styles.shipBtnText}>Set up shipping (Shippo)</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
@@ -236,71 +290,88 @@ function ToShipFlowView({
     >
       <Text style={styles.shipTitle}>Ship Items</Text>
       <Text style={styles.shipHint}>
-        Select orders for this run, then purchase labels (full-screen Shippo in the browser). Same-buyer orders are
-        combined into one purchase per buyer.
+        {connected
+          ? "Select orders for this run, then purchase labels (full-screen Shippo in the browser). Same-buyer orders are combined into one purchase per buyer."
+          : "Mark shipped if you used your own carrier — that clears app reminders without buying a label here. Connect Shippo below when you want in-browser labels and packing slips."}
       </Text>
-      <Pressable onPress={selectAllToShip} style={({ pressed }) => [styles.selectAllBtn, pressed && { opacity: 0.7 }]}>
-        <Text style={styles.selectAllText}>Select all to ship</Text>
-      </Pressable>
-      <Pressable
-        style={({ pressed }) => [
-          styles.purchaseLabelsBtn,
-          pressed && { opacity: 0.8 },
-          selectedCount === 0 && styles.purchaseLabelsBtnDisabled,
-        ]}
-        onPress={openPurchaseLabelsWeb}
-        disabled={selectedCount === 0}
-      >
-        <Ionicons name="pricetag-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-        <Text style={styles.shipBtnText}>Purchase labels</Text>
-      </Pressable>
-      <Text style={styles.packingSlipHint}>Packing slips use the same order selection.</Text>
-      <Pressable
-        style={({ pressed }) => [
-          styles.packingSlipBtn,
-          pressed && { opacity: 0.8 },
-          selectedCount === 0 && styles.purchaseLabelsBtnDisabled,
-        ]}
-        onPress={handleSavePackingSlips}
-        disabled={savingPackingSlip || selectedCount === 0}
-      >
-        {savingPackingSlip ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <View style={styles.packingSlipBtnInner}>
-            <Ionicons name="print-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-            <Text style={styles.shipBtnText}>Print / Save packing slips</Text>
-          </View>
-        )}
-      </Pressable>
+      {connected ? (
+        <>
+          <Pressable onPress={selectAllToShip} style={({ pressed }) => [styles.selectAllBtn, pressed && { opacity: 0.7 }]}>
+            <Text style={styles.selectAllText}>Select all to ship</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.purchaseLabelsBtn,
+              pressed && { opacity: 0.8 },
+              selectedCount === 0 && styles.purchaseLabelsBtnDisabled,
+            ]}
+            onPress={openPurchaseLabelsWeb}
+            disabled={selectedCount === 0}
+          >
+            <Ionicons name="pricetag-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.shipBtnText}>Purchase labels</Text>
+          </Pressable>
+          <Text style={styles.packingSlipHint}>Packing slips use the same order selection.</Text>
+          <Pressable
+            style={({ pressed }) => [
+              styles.packingSlipBtn,
+              pressed && { opacity: 0.8 },
+              selectedCount === 0 && styles.purchaseLabelsBtnDisabled,
+            ]}
+            onPress={handleSavePackingSlips}
+            disabled={savingPackingSlip || selectedCount === 0}
+          >
+            {savingPackingSlip ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <View style={styles.packingSlipBtnInner}>
+                <Ionicons name="print-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={styles.shipBtnText}>Print / Save packing slips</Text>
+              </View>
+            )}
+          </Pressable>
+          <Text style={styles.shipNote}>
+            {selectedCount} of {orders.length} selected for labels / packing slips
+          </Text>
+        </>
+      ) : (
+        <Pressable
+          style={({ pressed }) => [styles.shipBtnOutline, pressed && { opacity: 0.85 }]}
+          onPress={() => (router.push as (href: string) => void)("/seller-hub/shipping-setup")}
+        >
+          <Text style={styles.shipBtnOutlineText}>Connect Shippo (optional)</Text>
+        </Pressable>
+      )}
       {error && (
         <View style={styles.shipErrBlock}>
           <Text style={styles.shipErr}>{error}</Text>
         </View>
       )}
-      <Text style={styles.shipNote}>
-        {selectedCount} of {orders.length} selected for labels / packing slips
-      </Text>
       {orders.map((order) => {
         const orderNum = order.orderNumber ?? order.id.slice(-8).toUpperCase();
         const checked = selectedOrderIds.has(order.id);
         const addr = formatShippingAddress(order.shippingAddress);
+        const showMarkShipped = canMarkShippedWithoutLabel(order);
         return (
           <View key={order.id} style={styles.shipCard}>
             <View style={styles.shipRow}>
-              <Pressable
-                onPress={() => toggleOrderSelection(order.id)}
-                style={({ pressed }) => [styles.shipCheckboxHit, pressed && { opacity: 0.7 }]}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked }}
-                accessibilityLabel={`Select order ${orderNum}`}
-              >
-                <Ionicons
-                  name={checked ? "checkbox" : "square-outline"}
-                  size={26}
-                  color={checked ? theme.colors.primary : "#888"}
-                />
-              </Pressable>
+              {connected ? (
+                <Pressable
+                  onPress={() => toggleOrderSelection(order.id)}
+                  style={({ pressed }) => [styles.shipCheckboxHit, pressed && { opacity: 0.7 }]}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked }}
+                  accessibilityLabel={`Select order ${orderNum}`}
+                >
+                  <Ionicons
+                    name={checked ? "checkbox" : "square-outline"}
+                    size={26}
+                    color={checked ? theme.colors.primary : "#888"}
+                  />
+                </Pressable>
+              ) : (
+                <View style={styles.shipCheckboxSpacer} />
+              )}
               <View style={styles.shipRowBody}>
                 <Pressable onPress={() => router.push(`/seller-hub/orders/${order.id}` as never)}>
                   <Text style={styles.shipOrderId}>
@@ -319,6 +390,19 @@ function ToShipFlowView({
                   {addr || "—"}
                 </Text>
                 <Text style={styles.shipTotal}>{sellerOrderTotalLabel(order)}</Text>
+                {showMarkShipped ? (
+                  <Pressable
+                    style={({ pressed }) => [styles.markShippedBtn, pressed && { opacity: 0.85 }]}
+                    onPress={() => confirmMarkShipped(order.id)}
+                    disabled={markingShippedId === order.id}
+                  >
+                    {markingShippedId === order.id ? (
+                      <ActivityIndicator color={theme.colors.primary} size="small" />
+                    ) : (
+                      <Text style={styles.markShippedBtnText}>Mark as shipped (no label)</Text>
+                    )}
+                  </Pressable>
+                ) : null}
               </View>
             </View>
           </View>
@@ -568,4 +652,27 @@ const styles = StyleSheet.create({
   purchaseLabelsBtnDisabled: {
     opacity: 0.45,
   },
+  shipCheckboxSpacer: { width: 38 },
+  shipBtnOutline: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  shipBtnOutlineText: { color: theme.colors.primary, fontWeight: "600" },
+  markShippedBtn: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+    minHeight: 40,
+    justifyContent: "center",
+  },
+  markShippedBtnText: { fontSize: 14, fontWeight: "600", color: theme.colors.primary },
 });
