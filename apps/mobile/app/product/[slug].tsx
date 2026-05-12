@@ -50,6 +50,7 @@ interface StoreItem {
   description: string | null;
   photos: string[];
   category: string | null;
+  secondaryCategory?: string | null;
   priceCents: number;
   quantity: number;
   variants?: VariantOption[] | null;
@@ -86,6 +87,9 @@ interface StoreItem {
   memberId?: string;
   listingType?: "new" | "resale";
 }
+
+/** Gallery width/height ratio (width / height). Lower = taller banner. */
+const LISTING_BANNER_ASPECT = 0.74;
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
 
@@ -264,6 +268,10 @@ export default function ProductScreen() {
     (fulfillmentType !== "local_delivery" || localDeliveryDetailsSaved) &&
     (fulfillmentType !== "pickup" || pickupDetailsSaved);
 
+  const needsFulfillmentForm =
+    (fulfillmentType === "pickup" && !pickupDetailsSaved) ||
+    (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved);
+
   const localDeliveryModalInitial = useMemo(
     (): Partial<LocalDeliveryDetails> => ({
       firstName: localDeliveryForm.firstName ?? "",
@@ -392,16 +400,8 @@ export default function ProductScreen() {
     if (!canAddToCart) {
       if (fulfillmentType === "local_delivery") {
         setLocalDeliveryModalOpen(true);
-        Alert.alert(
-          "Complete delivery details",
-          "Please complete your local delivery details before adding to cart."
-        );
       } else if (fulfillmentType === "pickup") {
         setPickupModalOpen(true);
-        Alert.alert(
-          "Complete pickup details",
-          "Please complete the pick up form before adding to cart."
-        );
       }
       return;
     }
@@ -566,12 +566,13 @@ export default function ProductScreen() {
             </Text>
           </View>
         )}
-        <View style={[styles.galleryWrap, { width }]}>
+        <View style={[styles.galleryWrap, { width, aspectRatio: LISTING_BANNER_ASPECT }]}>
           {photos.length > 0 ? (
             <ScrollView
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
+              style={styles.galleryScroll}
               onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
                 const idx = Math.round(e.nativeEvent.contentOffset.x / width);
                 if (idx >= 0 && idx < photos.length) setPhotoIndex(idx);
@@ -583,7 +584,7 @@ export default function ProductScreen() {
                 return (
                   <Pressable
                     key={i}
-                    style={[styles.gallerySlide, { width }]}
+                    style={[styles.gallerySlide, { width, height: "100%" }]}
                     onPress={() => {
                       setGalleryIndex(i);
                       setGalleryOpen(true);
@@ -601,7 +602,12 @@ export default function ProductScreen() {
               })}
             </ScrollView>
           ) : (
-            <View style={[styles.galleryImage, styles.placeholder]}>
+            <View
+              style={[
+                styles.placeholder,
+                { width, minHeight: width / LISTING_BANNER_ASPECT },
+              ]}
+            >
               <Ionicons name="image-outline" size={48} color={theme.colors.primary} />
             </View>
           )}
@@ -629,11 +635,20 @@ export default function ProductScreen() {
         <View style={styles.body}>
           <Text style={styles.title}>{item.title}</Text>
           <Text style={styles.price}>{formatPrice(item.priceCents)}</Text>
-          {item.category && (
-            <View style={styles.categoryChip}>
-              <Text style={styles.categoryText}>{item.category}</Text>
+          {(item.category || item.secondaryCategory) ? (
+            <View style={styles.categoryChipsRow}>
+              {item.category ? (
+                <View style={styles.categoryChip}>
+                  <Text style={styles.categoryText}>{item.category}</Text>
+                </View>
+              ) : null}
+              {item.secondaryCategory ? (
+                <View style={styles.categoryChip}>
+                  <Text style={styles.categoryText}>{item.secondaryCategory}</Text>
+                </View>
+              ) : null}
             </View>
-          )}
+          ) : null}
 
           {item.variants && item.variants.length > 0 && (
             <View style={styles.section}>
@@ -667,33 +682,35 @@ export default function ProductScreen() {
             </View>
           )}
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Quantity</Text>
-            <View style={styles.quantityRow}>
-              <Pressable
-                style={styles.qtyBtn}
-                onPress={() => setQuantity((q) => Math.max(1, q - 1))}
-                disabled={quantity <= 1}
-              >
-                <Ionicons name="remove" size={20} color={theme.colors.primary} />
-              </Pressable>
-              <Text style={styles.qtyText}>{quantity}</Text>
-              <Pressable
-                style={styles.qtyBtn}
-                onPress={() => setQuantity((q) => Math.min(item.quantity, q + 1))}
-                disabled={quantity >= item.quantity}
-              >
-                <Ionicons name="add" size={20} color={theme.colors.primary} />
-              </Pressable>
+          {item.quantity > 1 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Quantity</Text>
+              <View style={styles.quantityRow}>
+                <Pressable
+                  style={styles.qtyBtn}
+                  onPress={() => setQuantity((q) => Math.max(1, q - 1))}
+                  disabled={quantity <= 1}
+                >
+                  <Ionicons name="remove" size={20} color={theme.colors.primary} />
+                </Pressable>
+                <Text style={styles.qtyText}>{quantity}</Text>
+                <Pressable
+                  style={styles.qtyBtn}
+                  onPress={() => setQuantity((q) => Math.min(item.quantity, q + 1))}
+                  disabled={quantity >= item.quantity}
+                >
+                  <Ionicons name="add" size={20} color={theme.colors.primary} />
+                </Pressable>
+              </View>
+              {item.quantity < 10 && (
+                <Text style={styles.stockHint}>Only {item.quantity} left</Text>
+              )}
             </View>
-            {item.quantity < 10 && (
-              <Text style={styles.stockHint}>Only {item.quantity} left</Text>
-            )}
-          </View>
+          )}
 
           {(canShip || canLocalDelivery || canPickup) && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Delivery</Text>
+            <View style={[styles.section, styles.contentBox]}>
+              <Text style={styles.sectionTitle}>Receive item</Text>
               <View style={styles.fulfillmentRow}>
                 {canShip && (
                   <Pressable
@@ -703,34 +720,19 @@ export default function ProductScreen() {
                     ]}
                     onPress={() => setFulfillmentType("ship")}
                   >
+                    <Ionicons
+                      name="cube-outline"
+                      size={18}
+                      color={fulfillmentType === "ship" ? "#fff" : theme.colors.primary}
+                      style={styles.fulfillmentBtnIcon}
+                    />
                     <Text
                       style={[
                         styles.fulfillmentBtnText,
                         fulfillmentType === "ship" && styles.fulfillmentBtnTextActive,
                       ]}
                     >
-                      Ship
-                    </Text>
-                  </Pressable>
-                )}
-                {canLocalDelivery && (
-                  <Pressable
-                    style={[
-                      styles.fulfillmentBtn,
-                      fulfillmentType === "local_delivery" && styles.fulfillmentBtnActive,
-                    ]}
-                    onPress={() => {
-                      setFulfillmentType("local_delivery");
-                      setLocalDeliveryModalOpen(true);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.fulfillmentBtnText,
-                        fulfillmentType === "local_delivery" && styles.fulfillmentBtnTextActive,
-                      ]}
-                    >
-                      Local delivery
+                      Shipping
                     </Text>
                   </Pressable>
                 )}
@@ -740,11 +742,14 @@ export default function ProductScreen() {
                       styles.fulfillmentBtn,
                       fulfillmentType === "pickup" && styles.fulfillmentBtnActive,
                     ]}
-                    onPress={() => {
-                      setFulfillmentType("pickup");
-                      setPickupModalOpen(true);
-                    }}
+                    onPress={() => setFulfillmentType("pickup")}
                   >
+                    <Ionicons
+                      name="storefront-outline"
+                      size={18}
+                      color={fulfillmentType === "pickup" ? "#fff" : theme.colors.primary}
+                      style={styles.fulfillmentBtnIcon}
+                    />
                     <Text
                       style={[
                         styles.fulfillmentBtnText,
@@ -755,71 +760,40 @@ export default function ProductScreen() {
                     </Text>
                   </Pressable>
                 )}
-              </View>
-              {(fulfillmentType === "local_delivery" || fulfillmentType === "pickup") && (
-                <View style={styles.fulfillmentHintRow}>
-                  <Text style={styles.fulfillmentHint}>
-                    {(fulfillmentType === "local_delivery" && localDeliveryDetailsSaved) ||
-                    (fulfillmentType === "pickup" && pickupDetailsSaved)
-                      ? "Details saved. You can add to cart."
-                      : "Complete the form to add to cart."}
-                  </Text>
-                  {((fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved) ||
-                    (fulfillmentType === "pickup" && !pickupDetailsSaved)) && (
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.completeDetailsBtn,
-                        pressed && { opacity: 0.8 },
-                      ]}
-                      onPress={() =>
-                        fulfillmentType === "local_delivery"
-                          ? setLocalDeliveryModalOpen(true)
-                          : setPickupModalOpen(true)
+                {canLocalDelivery && (
+                  <Pressable
+                    style={[
+                      styles.fulfillmentBtn,
+                      fulfillmentType === "local_delivery" && styles.fulfillmentBtnActive,
+                    ]}
+                    onPress={() => setFulfillmentType("local_delivery")}
+                  >
+                    <Ionicons
+                      name="car-outline"
+                      size={18}
+                      color={
+                        fulfillmentType === "local_delivery" ? "#fff" : theme.colors.primary
                       }
+                      style={styles.fulfillmentBtnIcon}
+                    />
+                    <Text
+                      style={[
+                        styles.fulfillmentBtnText,
+                        fulfillmentType === "local_delivery" && styles.fulfillmentBtnTextActive,
+                      ]}
                     >
-                      <Text style={styles.completeDetailsBtnText}>
-                        Complete details
-                      </Text>
-                    </Pressable>
-                  )}
-                </View>
-              )}
+                      Delivery
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
           )}
 
           {item.description ? (
-            <View style={styles.section}>
+            <View style={[styles.section, styles.contentBox]}>
               <Text style={styles.sectionTitle}>Description</Text>
               <Text style={styles.description}>{item.description}</Text>
-            </View>
-          ) : null}
-
-          {showResaleBuyerActions ? (
-            <View style={styles.section}>
-              <View style={styles.resaleActionsRow}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.messageSellerBtn,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                  onPress={() => setMessageSellerModalOpen(true)}
-                >
-                  <Ionicons name="chatbubble-outline" size={18} color="#fff" />
-                  <Text style={styles.messageSellerBtnText}>Message Seller</Text>
-                </Pressable>
-                {showSendOfferButton ? (
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.makeOfferBtn,
-                      pressed && { opacity: 0.8 },
-                    ]}
-                    onPress={openSendOfferModal}
-                  >
-                    <Ionicons name="pricetag-outline" size={18} color={theme.colors.primary} />
-                    <Text style={styles.makeOfferBtnText}>Send Offer</Text>
-                  </Pressable>
-                ) : null}
-              </View>
             </View>
           ) : null}
 
@@ -964,7 +938,14 @@ export default function ProductScreen() {
             ) : (
               <>
                 <Ionicons name="cart" size={20} color="#fff" />
-                <Text style={styles.addBtnText}>Add to Cart</Text>
+                <Text
+                  style={[
+                    styles.addBtnText,
+                    needsFulfillmentForm && styles.addBtnTextLong,
+                  ]}
+                >
+                  {needsFulfillmentForm ? "Complete Form & Add to Cart" : "Add to Cart"}
+                </Text>
               </>
             )}
           </Pressable>
@@ -1259,11 +1240,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   galleryWrap: {
-    aspectRatio: 1,
     backgroundColor: "#fff",
   },
+  galleryScroll: {
+    height: "100%",
+  },
   gallerySlide: {
-    aspectRatio: 1,
+    height: "100%",
   },
   galleryImage: {
     width: "100%",
@@ -1295,31 +1278,43 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   title: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "700",
     color: "#000",
     marginBottom: 8,
   },
   price: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "700",
     color: "#000",
     marginBottom: 12,
   },
-  categoryChip: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: theme.colors.creamAlt,
+  categoryChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
     marginBottom: 16,
   },
+  categoryChip: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: theme.colors.creamAlt,
+  },
   categoryText: {
-    fontSize: 12,
+    fontSize: 14,
     color: theme.colors.heading,
   },
   section: {
     marginBottom: 20,
+  },
+  contentBox: {
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
   },
   sectionTitle: {
     fontSize: 14,
@@ -1390,82 +1385,39 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   fulfillmentBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    flexGrow: 1,
+    flexBasis: 0,
+    minWidth: 72,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 2,
     borderColor: theme.colors.primary,
     backgroundColor: "#fff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
   },
   fulfillmentBtnActive: {
     backgroundColor: theme.colors.primary,
   },
+  fulfillmentBtnIcon: {
+    flexShrink: 0,
+  },
   fulfillmentBtnText: {
-    fontSize: 14,
+    fontSize: 13,
     color: theme.colors.primary,
+    textAlign: "center",
+    flexShrink: 1,
   },
   fulfillmentBtnTextActive: {
-    color: "#fff",
-  },
-  fulfillmentHintRow: {
-    marginTop: 8,
-    gap: 8,
-  },
-  fulfillmentHint: {
-    fontSize: 12,
-    color: "#666",
-  },
-  completeDetailsBtn: {
-    alignSelf: "flex-start",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: theme.colors.primary,
-  },
-  completeDetailsBtnText: {
-    fontSize: 13,
-    fontWeight: "600",
     color: "#fff",
   },
   description: {
     fontSize: 15,
     color: theme.colors.text,
     lineHeight: 22,
-  },
-  resaleActionsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  messageSellerBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: theme.colors.primary,
-  },
-  messageSellerBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#fff",
-  },
-  makeOfferBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: theme.colors.cream,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-  },
-  makeOfferBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: theme.colors.heading,
   },
   makeOfferAmountInput: {
     borderWidth: 2,
@@ -1706,5 +1658,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     color: "#fff",
+    textAlign: "center",
+  },
+  addBtnTextLong: {
+    fontSize: 14,
+    lineHeight: 18,
   },
 });

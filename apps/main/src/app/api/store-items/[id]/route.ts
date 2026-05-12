@@ -16,6 +16,7 @@ const bodySchema = z.object({
   description: z.string().nullable().optional(),
   photos: z.array(z.string()).optional(),
   category: z.string().nullable().optional(),
+  secondaryCategory: z.string().nullable().optional(),
   subcategory: z.string().nullable().optional(),
   priceCents: z.number().int().min(1).optional(),
   variants: z.unknown().nullable().optional(),
@@ -187,7 +188,9 @@ export async function PATCH(
   const title = data.title !== undefined ? data.title : existing.title;
   const description = data.description !== undefined ? data.description : existing.description;
   const category = data.category !== undefined ? data.category : existing.category;
-  if (containsProhibitedCategory(title, category, description)) {
+  const secondaryCategory =
+    data.secondaryCategory !== undefined ? data.secondaryCategory : existing.secondaryCategory;
+  if (containsProhibitedCategory(title, category, description, secondaryCategory)) {
     return NextResponse.json(
       { error: "This category or product type is not allowed on our platform." },
       { status: 400 }
@@ -210,6 +213,14 @@ export async function PATCH(
   if (data.photos !== undefined) update.photos = data.photos;
   if (data.category !== undefined) update.category = data.category?.trim() || null;
   if (data.subcategory !== undefined) update.subcategory = data.subcategory?.trim() || null;
+  if (data.category !== undefined || data.secondaryCategory !== undefined) {
+    const cat = data.category !== undefined ? data.category?.trim() || null : existing.category;
+    const secRaw =
+      data.secondaryCategory !== undefined ? data.secondaryCategory : existing.secondaryCategory;
+    const p = (cat ?? "").trim();
+    const s = (secRaw ?? "").trim();
+    update.secondaryCategory = !s || s === p ? null : s;
+  }
   if (data.priceCents !== undefined) update.priceCents = data.priceCents;
   if (data.variants !== undefined) {
     update.variants = data.variants;

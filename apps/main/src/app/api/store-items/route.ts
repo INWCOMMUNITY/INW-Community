@@ -48,9 +48,12 @@ function passesPublicStorefrontSlugFilter(item: { slug: string }): boolean {
   return !s.includes("trial") && !s.includes("test-resale");
 }
 
-/** Public browse: include uncategorized items; PostgreSQL `<> 'Test'` excludes NULL. */
+/** Public browse: include uncategorized items; exclude primary or secondary category exactly "Test". */
 const publicBrowseCategoryWhere: Prisma.StoreItemWhereInput = {
-  OR: [{ category: null }, { category: { not: "Test" } }],
+  AND: [
+    { OR: [{ category: null }, { category: { not: "Test" } }] },
+    { OR: [{ secondaryCategory: null }, { secondaryCategory: { not: "Test" } }] },
+  ],
 };
 
 /** While seller time away is active, hide listings from public storefront browse/checkout. */
@@ -69,15 +72,20 @@ function passesSellerTimeAwayForPurchases(item: {
 type BrowseCategoryRow = { label: string; subcategories: string[] };
 
 function buildBrowseCategoriesFromItems(
-  items: { category: string | null; subcategory: string | null }[]
+  items: { category: string | null; subcategory: string | null; secondaryCategory: string | null }[]
 ): BrowseCategoryRow[] {
   const byCat = new Map<string, Set<string>>();
   for (const item of items) {
     const cat = item.category?.trim();
-    if (!cat) continue;
-    if (!byCat.has(cat)) byCat.set(cat, new Set());
-    const sub = item.subcategory?.trim();
-    if (sub) byCat.get(cat)!.add(sub);
+    if (cat) {
+      if (!byCat.has(cat)) byCat.set(cat, new Set());
+      const sub = item.subcategory?.trim();
+      if (sub) byCat.get(cat)!.add(sub);
+    }
+    const sec = item.secondaryCategory?.trim();
+    if (sec && sec !== cat) {
+      if (!byCat.has(sec)) byCat.set(sec, new Set());
+    }
   }
   return Array.from(byCat.entries())
     .map(([label, subs]) => ({
@@ -120,6 +128,7 @@ export async function GET(req: NextRequest) {
             select: {
               category: true,
               subcategory: true,
+              secondaryCategory: true,
               slug: true,
               member: { select: { sellerTimeAway: true } },
             },
@@ -404,6 +413,26 @@ export async function GET(req: NextRequest) {
     // Note: `listingType` is either "new" or "resale" per request — the same seller can have both;
     // mobile/web tabs use separate calls, so one item can appear in one tab and not the other.
     const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
+    const listAndConditions: Prisma.StoreItemWhereInput[] = [publicBrowseCategoryWhere];
+    if (categoryTrim && !subcategoryTrim) {
+      listAndConditions.push({
+        OR: [{ category: categoryTrim }, { secondaryCategory: categoryTrim }],
+      });
+    }
+    if (categoryTrim && subcategoryTrim) {
+      listAndConditions.push({ category: categoryTrim, subcategory: subcategoryTrim });
+    }
+    if (search) {
+      listAndConditions.push({
+        OR: [
+          { title: { contains: search } },
+          { description: { contains: search } },
+          { category: { contains: search } },
+          { secondaryCategory: { contains: search } },
+          { subcategory: { contains: search } },
+        ],
+      });
+    }
     // Exclude Test category in DB. Trial/test-resale slugs excluded in-memory below (Neon adapter does not support mode in nested slug filter).
     let items = await prisma.storeItem.findMany({
       where: {
@@ -411,25 +440,12 @@ export async function GET(req: NextRequest) {
         quantity: { gt: 0 },
         ...listingWhere,
         ...sellerCanReceivePayment,
-        AND: [publicBrowseCategoryWhere],
-        // Main category filter alone returns all items in that category; subcategory only narrows further.
-        ...(categoryTrim ? { category: categoryTrim } : {}),
-        ...(categoryTrim && subcategoryTrim ? { subcategory: subcategoryTrim } : {}),
+        AND: listAndConditions,
         ...(memberId ? { memberId } : {}),
         ...(excludeId ? { id: { not: excludeId } } : {}),
         ...(localDelivery === "1" ? { localDeliveryAvailable: true } : {}),
         ...(shippingOnly === "1"
           ? { shippingDisabled: false, localDeliveryAvailable: false, inStorePickupAvailable: false }
-          : {}),
-        ...(search
-          ? {
-              OR: [
-                { title: { contains: search } },
-                { description: { contains: search } },
-                { category: { contains: search } },
-                { subcategory: { contains: search } },
-              ],
-            }
           : {}),
       },
       include: {
@@ -469,6 +485,7 @@ const bodySchema = z.object({
   description: z.string().nullable().optional(),
   photos: z.array(z.string()).default([]),
   category: z.string().nullable().optional(),
+  secondaryCategory: z.string().nullable().optional(),
   subcategory: z.string().nullable().optional(),
   priceCents: z.coerce.number().int().min(1, "Price must be at least 1 cent"),
   variants: z.unknown().nullable().optional(),
@@ -590,7 +607,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (containsProhibitedCategory(data.title, data.category ?? null, data.description ?? null)) {
+  if (containsProhibitedCategory(data.title, data.category ?? null, data.description ?? null, data.secondaryCategory ?? null)) {
     await createFlaggedContent({
       contentType: "store_item",
       contentId: null,
@@ -653,6 +670,13 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    const secondaryNorm = (() => {
+      const p = (data.category ?? "").trim();
+      const s = (data.secondaryCategory ?? "").trim();
+      if (!s) return null;
+      if (s === p) return null;
+      return s;
+    })();
     const item = await prisma.storeItem.create({
       data: {
         memberId: userId,
@@ -661,6 +685,7 @@ export async function POST(req: NextRequest) {
         description: data.description?.trim() || null,
         photos: Array.isArray(data.photos) ? data.photos.map((p) => (p != null ? String(p) : "")).filter(Boolean) : [],
         category: data.category?.trim() || null,
+        secondaryCategory: secondaryNorm,
         subcategory: data.subcategory?.trim() || null,
         priceCents,
         variants: data.variants === null ? Prisma.JsonNull : (data.variants as object),

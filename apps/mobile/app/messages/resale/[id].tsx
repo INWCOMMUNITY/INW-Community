@@ -49,7 +49,7 @@ interface ResaleConversation {
   id: string;
   buyerLastReadAt?: string | null;
   sellerLastReadAt?: string | null;
-  storeItem: { id: string; title: string; slug: string };
+  storeItem: { id: string; title: string; slug: string; photos?: string[] };
   buyer: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   seller: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   messages: Array<{
@@ -72,6 +72,7 @@ export default function ResaleConversationScreen() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [seeItemOpen, setSeeItemOpen] = useState(false);
   const [listRefreshing, setListRefreshing] = useState(false);
   const composerInputRef = useRef<TextInput | null>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -246,8 +247,18 @@ export default function ResaleConversationScreen() {
     ? (conv.seller.id === member.id ? conv.buyer : conv.seller)
     : conv?.seller;
   const otherName = otherParty ? `${otherParty.firstName} ${otherParty.lastName}`.trim() : "Unknown";
-  const otherPhoto = otherParty ? resolvePhotoUrl(otherParty.profilePhotoUrl ?? undefined) : undefined;
   const itemTitle = conv?.storeItem?.title ?? "Item";
+  const itemPhotoUrl = conv?.storeItem?.photos?.[0]
+    ? resolvePhotoUrl(conv.storeItem.photos[0])
+    : undefined;
+
+  const navigateToStoreItem = useCallback(() => {
+    if (!conv?.storeItem?.slug) return;
+    setSeeItemOpen(false);
+    (router.push as (href: string) => void)(
+      `/product/${conv.storeItem.slug}?listingType=resale`
+    );
+  }, [conv?.storeItem?.slug, router]);
 
   const handleReportConversation = () => {
     setMenuOpen(false);
@@ -384,11 +395,11 @@ export default function ResaleConversationScreen() {
   if (loading || !conv) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.headerGreen, styles.headerGreenLoading, { paddingTop: insets.top + 28 }]}>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </Pressable>
-          <Text style={styles.headerTitle}>Resale</Text>
+          <Text style={[styles.headerTitle, styles.headerTitleLoading]}>Resale</Text>
         </View>
         <View style={styles.center}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -403,26 +414,74 @@ export default function ResaleConversationScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </Pressable>
-        <View style={styles.headerCenter}>
-          {otherPhoto ? (
-            <Image source={{ uri: otherPhoto }} style={styles.headerAvatar} />
-          ) : (
-            <View style={[styles.headerAvatar, styles.headerAvatarPlaceholder]}>
-              <Text style={styles.headerAvatarLetter}>{(otherParty?.firstName?.trim()?.[0] || "?").toUpperCase()}</Text>
+      <View style={styles.chatTopChrome}>
+        <View style={[styles.headerGreen, { paddingTop: insets.top + 28 }]}>
+          <View style={styles.headerRow}>
+            <Pressable onPress={() => router.back()} style={styles.backBtn}>
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+            </Pressable>
+            <View style={styles.headerCenter}>
+              {itemPhotoUrl ? (
+                <Image source={{ uri: itemPhotoUrl }} style={styles.headerAvatar} />
+              ) : (
+                <View style={[styles.headerAvatar, styles.headerAvatarPlaceholder]}>
+                  <Ionicons name="bag-outline" size={24} color="#fff" />
+                </View>
+              )}
+              <View style={styles.headerTextCol}>
+                <Text style={styles.headerTitle} numberOfLines={1}>
+                  {itemTitle}
+                </Text>
+                <Text style={styles.headerSub} numberOfLines={1}>
+                  with {otherName}
+                </Text>
+              </View>
             </View>
-          )}
-          <View style={styles.headerTextCol}>
-            <Text style={styles.headerTitle} numberOfLines={1}>{itemTitle}</Text>
-            <Text style={styles.headerSub} numberOfLines={1}>with {otherName}</Text>
+            <Pressable onPress={() => setMenuOpen(true)} style={styles.headerMenuBtn}>
+              <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
+            </Pressable>
           </View>
+
+          <Pressable
+            style={styles.seeItemBar}
+            onPress={() => setSeeItemOpen((o) => !o)}
+            accessibilityRole="button"
+            accessibilityLabel={seeItemOpen ? "Hide item details" : "See item, show details"}
+          >
+            <Ionicons name="bag-outline" size={20} color={theme.colors.cream} />
+            <Text style={styles.seeItemBarText}>See item</Text>
+            <View style={styles.seeItemBannerSpacer} />
+            <Ionicons
+              name={seeItemOpen ? "chevron-up" : "chevron-down"}
+              size={22}
+              color={theme.colors.cream}
+            />
+          </Pressable>
         </View>
-        <Pressable onPress={() => setMenuOpen(true)} style={styles.headerMenuBtn}>
-          <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
-        </Pressable>
+
+        {seeItemOpen ? (
+          <View style={styles.seeItemFlyout}>
+            {itemPhotoUrl ? (
+              <Image source={{ uri: itemPhotoUrl }} style={styles.seeItemPanelImage} />
+            ) : (
+              <View style={[styles.seeItemPanelImage, styles.seeItemPanelImagePlaceholder]}>
+                <Ionicons name="image-outline" size={28} color={theme.colors.primary} />
+              </View>
+            )}
+            <View style={styles.seeItemPanelBody}>
+              <Text style={styles.seeItemPanelTitle} numberOfLines={3}>
+                {itemTitle}
+              </Text>
+              <Pressable
+                style={({ pressed }) => [styles.seeItemPanelBtn, pressed && { opacity: 0.9 }]}
+                onPress={navigateToStoreItem}
+              >
+                <Text style={styles.seeItemPanelBtnText}>View listing</Text>
+                <Ionicons name="open-outline" size={18} color="#fff" />
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {menuOpen && (
@@ -450,8 +509,9 @@ export default function ResaleConversationScreen() {
 
       <FlatList
         ref={flatListRef}
+        style={styles.messageListFlex}
         data={conv.messages ?? []}
-        extraData={`${conv.messages?.length ?? 0}-${typingPeersResolved.length}-${chatPresencePeers.length}-${showResaleSeen}-${localComposerTypingActive}`}
+        extraData={`${conv.messages?.length ?? 0}-${typingPeersResolved.length}-${chatPresencePeers.length}-${showResaleSeen}-${localComposerTypingActive}-${seeItemOpen}`}
         keyExtractor={(item, index) => item.id ?? `msg-${index}`}
         onScroll={onBottomPullScroll}
         scrollEventThrottle={scrollEventThrottle}
@@ -527,34 +587,109 @@ export default function ResaleConversationScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    paddingTop: 48,
-    backgroundColor: theme.colors.primary,
+  chatTopChrome: {
+    zIndex: 10,
+    elevation: 12,
+    backgroundColor: "#fff",
     borderBottomWidth: 2,
     borderBottomColor: "#000",
   },
+  headerGreen: {
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
+  },
+  headerGreenLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: 18,
+    borderBottomWidth: 2,
+    borderBottomColor: "#000",
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: 6,
+  },
+  seeItemBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    marginTop: 4,
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.35)",
+  },
+  seeItemBarText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.cream,
+  },
+  seeItemBannerSpacer: { flex: 1 },
+  seeItemFlyout: {
+    flexDirection: "row",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 12,
+    backgroundColor: "#fff",
+  },
   backBtn: { padding: 8 },
-  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
-  headerAvatar: { width: 36, height: 36, borderRadius: 18 },
+  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  headerAvatar: { width: 52, height: 52, borderRadius: 26 },
   headerAvatarPlaceholder: {
     backgroundColor: "rgba(255,255,255,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerAvatarLetter: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  seeItemPanelImage: {
+    width: 76,
+    height: 76,
+    borderRadius: 8,
+    backgroundColor: "#f0f0f0",
+  },
+  seeItemPanelImagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  seeItemPanelBody: { flex: 1, minWidth: 0, justifyContent: "center", gap: 10 },
+  seeItemPanelTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    lineHeight: 20,
+  },
+  seeItemPanelBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+    borderWidth: 2,
+    borderColor: "#000",
+  },
+  seeItemPanelBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#fff",
+  },
   headerTextCol: { flex: 1, minWidth: 0 },
-  headerTitle: { fontSize: 17, fontWeight: "600", color: "#fff" },
-  headerSub: { fontSize: 13, color: "rgba(255,255,255,0.9)", marginTop: 2 },
+  headerTitle: { fontSize: 19, fontWeight: "700", color: "#fff" },
+  headerTitleLoading: { flex: 1, marginLeft: 4 },
+  headerSub: { fontSize: 14, color: "rgba(255,255,255,0.92)", marginTop: 3 },
   headerMenuBtn: { padding: 8 },
   menuOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end", paddingBottom: 40 },
   menuSheet: { backgroundColor: "#fff", borderTopLeftRadius: 12, borderTopRightRadius: 12, padding: 16 },
   menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
   menuItemText: { fontSize: 16, color: theme.colors.heading },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  messageListFlex: { flex: 1 },
   messageList: { padding: 16, paddingBottom: 8, flexGrow: 1, justifyContent: "flex-end" },
   bubbleWrap: { marginBottom: 12, alignItems: "flex-start" },
   bubbleWrapMe: { alignItems: "flex-end" },

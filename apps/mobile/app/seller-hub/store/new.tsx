@@ -128,6 +128,7 @@ export default function ListItemScreen() {
   const [description, setDescription] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [category, setCategory] = useState("");
+  const [secondaryCategory, setSecondaryCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
   const [useCustomCategory, setUseCustomCategory] = useState(false);
   const [categorySearch, setCategorySearch] = useState("");
@@ -179,6 +180,11 @@ export default function ListItemScreen() {
     return sel.subcategories.filter((s) => s.toLowerCase().includes(q));
   }, [storeCategories, category, categorySearch]);
 
+  const filteredSecondaryStoreCategories = useMemo(
+    () => filteredStoreCategories.filter((c) => c.label !== category),
+    [filteredStoreCategories, category]
+  );
+
   const hasVariantsWithOptions =
     optionsEnabled && variants.some((v) => v.name.trim() && v.options.length > 0);
   const hasContent =
@@ -186,6 +192,7 @@ export default function ListItemScreen() {
     !!description.trim() ||
     photos.length > 0 ||
     !!category.trim() ||
+    !!secondaryCategory.trim() ||
     !!priceCents ||
     (!hasVariantsWithOptions && quantity !== "1" && !!quantity) ||
     (hasVariantsWithOptions && variants.some((v) => v.options.some((o) => o.quantity > 0))) ||
@@ -203,6 +210,7 @@ export default function ListItemScreen() {
       description,
       photos,
       category,
+      secondaryCategory,
       subcategory,
       priceCents,
       quantity,
@@ -229,6 +237,7 @@ export default function ListItemScreen() {
     description,
     photos,
     category,
+    secondaryCategory,
     subcategory,
     priceCents,
     quantity,
@@ -260,6 +269,7 @@ export default function ListItemScreen() {
         description: string | null;
         photos: string[];
         category: string | null;
+        secondaryCategory?: string | null;
         subcategory: string | null;
         priceCents: number;
         quantity: number;
@@ -284,6 +294,7 @@ export default function ListItemScreen() {
           setDescription(item.description ?? "");
           setPhotos(item.photos ?? []);
           setCategory(item.category ?? "");
+          setSecondaryCategory(item.secondaryCategory ?? "");
           setSubcategory(item.subcategory ?? "");
           setPriceCents(item.priceCents != null ? (item.priceCents / 100).toFixed(2) : "");
           setQuantity(String(item.quantity ?? 1));
@@ -326,6 +337,7 @@ export default function ListItemScreen() {
           setDescription(draft.description);
           setPhotos(draft.photos);
           setCategory(draft.category);
+          setSecondaryCategory(draft.secondaryCategory ?? "");
           setSubcategory(draft.subcategory ?? "");
           setPriceCents(draft.priceCents);
           setQuantity(draft.quantity);
@@ -673,11 +685,15 @@ export default function ListItemScreen() {
     setError(null);
     setPhotoError(null);
     submittedRef.current = true;
+    const catTrim = category.trim();
+    const secTrim = secondaryCategory.trim();
+    const secondaryPayload = secTrim && secTrim !== catTrim ? secTrim : null;
     const payload = {
       title: title.trim(),
       description: description.trim() || null,
       photos,
-      category: category.trim() || null,
+      category: catTrim || null,
+      secondaryCategory: secondaryPayload,
       subcategory: subcategory.trim() || null,
       priceCents: price,
       quantity: payloadQuantity,
@@ -1040,13 +1056,21 @@ export default function ListItemScreen() {
           />
           <TextInput
             style={styles.input}
+            placeholder="Second category (optional)"
+            placeholderTextColor={placeholderColor}
+            value={secondaryCategory}
+            onChangeText={setSecondaryCategory}
+            autoCorrect={true}
+          />
+          <TextInput
+            style={styles.input}
             placeholder="Subcategory (optional)"
             placeholderTextColor={placeholderColor}
             value={subcategory}
             onChangeText={setSubcategory}
             autoCorrect={true}
           />
-          <Pressable onPress={() => { setUseCustomCategory(false); setCategory(""); setSubcategory(""); }}>
+          <Pressable onPress={() => { setUseCustomCategory(false); setCategory(""); setSecondaryCategory(""); setSubcategory(""); }}>
             <Text style={[styles.hint, { color: theme.colors.primary }]}>Choose from list</Text>
           </Pressable>
         </>
@@ -1074,7 +1098,11 @@ export default function ListItemScreen() {
                         styles.typeBtn,
                         category === c.label && styles.typeBtnActive,
                       ]}
-                      onPress={() => { setCategory(c.label); setSubcategory(""); }}
+                      onPress={() => {
+                        setCategory(c.label);
+                        setSubcategory("");
+                        if (secondaryCategory === c.label) setSecondaryCategory("");
+                      }}
                     >
                       <Text style={category === c.label ? styles.typeBtnTextActive : styles.typeBtnText} numberOfLines={1}>
                         {c.label}
@@ -1103,9 +1131,40 @@ export default function ListItemScreen() {
                   </ScrollView>
                 </>
               ) : null}
+              <>
+                <Text style={styles.hint}>Second category (optional)</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                    {filteredSecondaryStoreCategories.map((c) => (
+                      <Pressable
+                        key={`sec-${c.label}`}
+                        style={[
+                          styles.typeBtn,
+                          secondaryCategory === c.label && styles.typeBtnActive,
+                        ]}
+                        onPress={() =>
+                          setSecondaryCategory((prev) => (prev === c.label ? "" : c.label))
+                        }
+                      >
+                        <Text
+                          style={
+                            secondaryCategory === c.label
+                              ? styles.typeBtnTextActive
+                              : styles.typeBtnText
+                          }
+                          numberOfLines={1}
+                        >
+                          {c.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+              </>
             </>
           )}
           {storeCategories.length === 0 && (
+            <>
             <TextInput
               style={styles.input}
               placeholder="Category"
@@ -1114,6 +1173,15 @@ export default function ListItemScreen() {
               onChangeText={setCategory}
               autoCorrect={true}
             />
+            <TextInput
+              style={styles.input}
+              placeholder="Second category (optional)"
+              placeholderTextColor={placeholderColor}
+              value={secondaryCategory}
+              onChangeText={setSecondaryCategory}
+              autoCorrect={true}
+            />
+            </>
           )}
           {storeCategories.length > 0 && (
             <Pressable onPress={() => setUseCustomCategory(true)}>
@@ -1673,8 +1741,8 @@ const styles = StyleSheet.create({
     backgroundColor: defaultTheme.colors.primary,
     borderColor: defaultTheme.colors.primary,
   },
-  typeBtnText: { color: "#333" },
-  typeBtnTextActive: { color: "#fff", fontWeight: "600" },
+  typeBtnText: { color: "#333", fontSize: 16 },
+  typeBtnTextActive: { color: "#fff", fontWeight: "600", fontSize: 16 },
   section: {
     borderTopWidth: 1,
     borderTopColor: "#eee",

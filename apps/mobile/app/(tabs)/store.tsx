@@ -39,6 +39,7 @@ interface StoreItem {
   slug: string;
   photos: string[];
   category: string | null;
+  secondaryCategory?: string | null;
   priceCents: number;
   quantity: number;
   variants?: { name: string; options: string[] }[];
@@ -89,8 +90,8 @@ export default function StoreScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [headerExpanded, setHeaderExpanded] = useState(true);
-  const headerHeightRef = useRef(265);
-  const animatedHeight = useRef(new Animated.Value(265)).current;
+  const headerHeightRef = useRef(330);
+  const animatedHeight = useRef(new Animated.Value(330)).current;
   const listRef = useRef<FlatList>(null);
   const scrollYRef = useRef(0);
 
@@ -292,11 +293,40 @@ export default function StoreScreen() {
           {item.title}
         </Text>
         <Text style={styles.cardPrice}>{formatPrice(item.priceCents)}</Text>
-        {item.category ? (
-          <View style={styles.categoryChip}>
-            <Text style={styles.categoryText} numberOfLines={1}>
-              {item.category}
-            </Text>
+        {item.category || item.secondaryCategory ? (
+          <View style={styles.categoryChipsRow}>
+            {item.category ? (
+              <View
+                style={[
+                  styles.categoryChip,
+                  item.secondaryCategory ? styles.categoryChipWhenPaired : null,
+                ]}
+              >
+                <Text
+                  style={styles.categoryText}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {item.category}
+                </Text>
+              </View>
+            ) : null}
+            {item.secondaryCategory ? (
+              <View
+                style={[
+                  styles.categoryChip,
+                  item.category ? styles.categoryChipWhenPaired : null,
+                ]}
+              >
+                <Text
+                  style={styles.categoryText}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {item.secondaryCategory}
+                </Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
       </Pressable>
@@ -529,6 +559,7 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   header: {
+    width: "100%",
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: HEADER_LIST_GAP,
@@ -564,6 +595,8 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
   },
   searchInput: {
+    width: "100%",
+    alignSelf: "stretch",
     backgroundColor: "#fff",
     borderWidth: 2,
     borderColor: "#C9A86C",
@@ -590,6 +623,9 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   introBlock: {
+    width: "100%",
+    maxWidth: "100%",
+    alignSelf: "stretch",
     alignItems: "center",
     marginTop: 12,
     marginBottom: 12,
@@ -601,12 +637,16 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginBottom: 6,
     textAlign: "center",
+    width: "100%",
+    flexShrink: 1,
   },
   introParagraph: {
     fontSize: 14,
     color: "rgba(255,255,255,0.95)",
     lineHeight: 20,
     textAlign: "center",
+    width: "100%",
+    flexShrink: 1,
   },
   list: {
     zIndex: 1,
@@ -629,13 +669,17 @@ const styles = StyleSheet.create({
     borderColor: "#000",
     borderRadius: 8,
     overflow: "hidden",
+    maxWidth: "100%",
   },
   cardPressed: {
     opacity: 0.8,
   },
   cardImageWrap: {
+    width: "100%",
+    alignSelf: "stretch",
     aspectRatio: 1,
     backgroundColor: "#f5f5f5",
+    overflow: "hidden",
   },
   cardImage: {
     width: "100%",
@@ -659,18 +703,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingBottom: 4,
   },
+  categoryChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    width: "100%",
+    paddingHorizontal: 8,
+    marginBottom: 8,
+    alignItems: "center",
+    alignSelf: "stretch",
+  },
   categoryChip: {
     alignSelf: "flex-start",
-    marginHorizontal: 8,
-    marginBottom: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
     backgroundColor: theme.colors.creamAlt,
+    maxWidth: "100%",
+  },
+  categoryChipWhenPaired: {
+    flex: 1,
+    minWidth: 0,
   },
   categoryText: {
-    fontSize: 11,
+    fontSize: 13,
     color: theme.colors.heading,
+    flexShrink: 1,
   },
   empty: {
     padding: 24,

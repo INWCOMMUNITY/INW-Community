@@ -73,9 +73,10 @@ export interface ModerationResult {
 export function containsProhibitedCategory(
   title: string,
   category: string | null | undefined,
-  description: string | null | undefined
+  description: string | null | undefined,
+  secondaryCategory?: string | null | undefined
 ): boolean {
-  const combined = [title, category, description]
+  const combined = [title, category, secondaryCategory, description]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

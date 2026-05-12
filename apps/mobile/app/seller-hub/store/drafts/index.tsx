@@ -86,6 +86,7 @@ export default function DraftsScreen() {
                 <Text style={styles.cardMeta}>
                   {formatDate(item.savedAt)}
                   {item.category ? ` · ${item.category}` : ""}
+                  {item.secondaryCategory ? ` · ${item.secondaryCategory}` : ""}
                 </Text>
               </Pressable>
               <Pressable

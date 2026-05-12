@@ -25,7 +25,7 @@ export async function GET(
   const conversation = await prisma.resaleConversation.findUnique({
     where: { id },
     include: {
-      storeItem: { select: { id: true, title: true, slug: true } },
+      storeItem: { select: { id: true, title: true, slug: true, photos: true } },
       buyer: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
       seller: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
       messages: {

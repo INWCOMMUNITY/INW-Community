@@ -903,6 +903,8 @@ model StoreItem {
   description         String?  @db.Text
   photos              String[]
   category            String?
+  /// Optional second browse tag (distinct from `category`; max two top-level categories per listing).
+  secondaryCategory   String?  @map("secondary_category")
   subcategory         String?  @map("subcategory")
   priceCents          Int      @map("price_cents")
   variants            Json?    // [{ name: "Size", options: ["S","M","L"] }, ...]

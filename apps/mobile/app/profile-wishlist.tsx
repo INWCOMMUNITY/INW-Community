@@ -24,6 +24,7 @@ interface WishlistItem {
   photos: string[];
   priceCents: number;
   category: string | null;
+  secondaryCategory?: string | null;
   listingType: string;
 }
 
@@ -109,9 +110,9 @@ export default function ProfileWishlistScreen() {
                     {item.title}
                   </Text>
                   <Text style={styles.cardPrice}>{formatPrice(item.priceCents)}</Text>
-                  {item.category ? (
+                  {item.category || item.secondaryCategory ? (
                     <Text style={styles.cardCategory} numberOfLines={1}>
-                      {item.category}
+                      {[item.category, item.secondaryCategory].filter(Boolean).join(" · ")}
                     </Text>
                   ) : null}
                 </View>
@@ -192,7 +193,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   cardCategory: {
-    fontSize: 12,
+    fontSize: 13,
     color: theme.colors.placeholder,
     marginTop: 2,
   },
