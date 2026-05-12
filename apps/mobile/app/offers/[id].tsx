@@ -165,7 +165,7 @@ export default function BuyerOfferDetailScreen() {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>
-          Resale offer
+          Resale Offer
         </Text>
       </View>
 
@@ -236,7 +236,7 @@ export default function BuyerOfferDetailScreen() {
               onPress={() => respondCounter("declined")}
               disabled={submitting}
             >
-              <Text style={styles.btnDeclineText}>Decline counter</Text>
+              <Text style={styles.btnDeclineText}>Decline Counter</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.btnAccept, pressed && { opacity: 0.85 }]}
@@ -246,7 +246,7 @@ export default function BuyerOfferDetailScreen() {
               {submitting ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.btnAcceptText}>Accept counter and add to cart</Text>
+                <Text style={styles.btnAcceptText}>Accept Counter & Add to Cart</Text>
               )}
             </Pressable>
           </View>
