@@ -14,13 +14,11 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch } from "@/lib/api";
+import { resolveMediaUrl, firstStorePhotoUrl } from "@/lib/resolve-media-url";
 import { useAuth } from "@/contexts/AuthContext";
 import { inboxPreviewFromLastMessage, inboxPreviewSubtitle } from "@/lib/message-inbox-preview";
 import { useMessagesInboxRealtime } from "@/lib/use-messages-inbox-realtime";
 import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 type Tab = "direct" | "resale" | "groups";
 
@@ -48,7 +46,7 @@ interface DirectConversation {
 
 interface ResaleConversation {
   id: string;
-  storeItem: { id: string; title: string; slug: string; photos: string[] };
+  storeItem: { id: string; title: string; slug: string; photos?: string[] | null };
   buyer: { id: string; firstName: string; lastName: string };
   seller: { id: string; firstName: string; lastName: string };
   messages: InboxLastMessage[];
@@ -68,11 +66,6 @@ interface GroupConversation {
   messages: InboxLastMessage[];
   updatedAt: string;
   unreadCount?: number;
-}
-
-function resolvePhotoUrl(path: string | undefined): string | undefined {
-  if (!path) return undefined;
-  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
 function sortInboxByLastMessage<T extends { messages: InboxLastMessage[]; updatedAt: string }>(rows: T[]): T[] {
@@ -366,7 +359,7 @@ export default function MessagesInboxScreen() {
                 {messageRequests.map((c) => {
                   const other = otherMember(c, myId);
                   const name = `${other.firstName} ${other.lastName}`.trim() || "Someone";
-                  const photoUrl = resolvePhotoUrl(other.profilePhotoUrl ?? undefined);
+                  const photoUrl = resolveMediaUrl(other.profilePhotoUrl ?? undefined);
                   const isLoading = acceptDeclineLoading === c.id;
                   const last = c.messages?.[0];
                   const previewBase = inboxPreviewFromLastMessage(last, "Message request");
@@ -436,7 +429,7 @@ export default function MessagesInboxScreen() {
               const members = c.members ?? [];
               const name = c.name ?? (members.map((m) => m.member?.firstName).filter(Boolean).join(", ") || "Group");
               const firstPhoto = members[0]?.member?.profilePhotoUrl;
-              const photoUrl = resolvePhotoUrl(firstPhoto ?? undefined);
+              const photoUrl = resolveMediaUrl(firstPhoto ?? undefined);
               const previewBase = inboxPreviewFromLastMessage(last, "No messages yet");
               const sub = inboxPreviewSubtitle({
                 previewBase,
@@ -480,7 +473,7 @@ export default function MessagesInboxScreen() {
               const last = c.messages?.[0];
               const other = otherMember(c, myId);
               const name = (other ? `${other.firstName ?? ""} ${other.lastName ?? ""}`.trim() : "") || "Unknown";
-              const photoUrl = resolvePhotoUrl(other?.profilePhotoUrl ?? undefined);
+              const photoUrl = resolveMediaUrl(other?.profilePhotoUrl ?? undefined);
               const previewBase = inboxPreviewFromLastMessage(last, "No messages yet");
               const sub = inboxPreviewSubtitle({
                 previewBase,
@@ -522,8 +515,7 @@ export default function MessagesInboxScreen() {
             const c = item as ResaleConversation;
             const last = c.messages?.[0];
             const title = c.storeItem?.title ?? "Item";
-            const photo = c.storeItem?.photos?.[0];
-            const photoUrl = resolvePhotoUrl(photo);
+            const photoUrl = firstStorePhotoUrl(c.storeItem?.photos);
             const previewBase = inboxPreviewFromLastMessage(last, "No messages yet");
             const sub = inboxPreviewSubtitle({
               previewBase,

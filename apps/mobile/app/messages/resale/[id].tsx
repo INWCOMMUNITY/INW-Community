@@ -30,6 +30,7 @@ import { normalizeRouteParam } from "@/lib/normalize-route-param";
 import { setOpenChatConversationId } from "@/lib/chat-notification-suppression";
 import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
 import { useChatScrollToLatest } from "@/lib/use-chat-scroll-to-latest";
+import { firstStorePhotoUrl, resolveMediaUrl } from "@/lib/resolve-media-url";
 import {
   ChatIncomingActivityFooter,
   ChatSeenLine,
@@ -37,19 +38,11 @@ import {
   type ChatTypingPeer,
 } from "@/components/ChatTypingRow";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-
-function resolvePhotoUrl(path: string | undefined): string | undefined {
-  if (!path) return undefined;
-  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
-}
-
 interface ResaleConversation {
   id: string;
   buyerLastReadAt?: string | null;
   sellerLastReadAt?: string | null;
-  storeItem: { id: string; title: string; slug: string; photos?: string[] };
+  storeItem: { id: string; title: string; slug: string; photos?: string[] | null };
   buyer: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   seller: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
   messages: Array<{
@@ -185,7 +178,7 @@ export default function ResaleConversationScreen() {
     return {
       id: member.id,
       name: `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() || "You",
-      photoUrl: resolvePhotoUrl(member.profilePhotoUrl ?? undefined) ?? null,
+      photoUrl: resolveMediaUrl(member.profilePhotoUrl ?? undefined) ?? null,
     };
   }, [member]);
 
@@ -199,7 +192,7 @@ export default function ResaleConversationScreen() {
       return {
         id: tid,
         name: `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member",
-        photoUrl: resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null,
+        photoUrl: resolveMediaUrl(m.profilePhotoUrl ?? undefined) ?? null,
       };
     });
   }, [conv, member?.id, typingPeerIds]);
@@ -211,7 +204,7 @@ export default function ResaleConversationScreen() {
       return {
         id,
         name: m ? `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Member" : "Member",
-        photoUrl: m ? resolvePhotoUrl(m.profilePhotoUrl ?? undefined) ?? null : null,
+        photoUrl: m ? resolveMediaUrl(m.profilePhotoUrl ?? undefined) ?? null : null,
       };
     });
   }, [conv, peerPresenceIds]);
@@ -248,9 +241,7 @@ export default function ResaleConversationScreen() {
     : conv?.seller;
   const otherName = otherParty ? `${otherParty.firstName} ${otherParty.lastName}`.trim() : "Unknown";
   const itemTitle = conv?.storeItem?.title ?? "Item";
-  const itemPhotoUrl = conv?.storeItem?.photos?.[0]
-    ? resolvePhotoUrl(conv.storeItem.photos[0])
-    : undefined;
+  const itemPhotoUrl = firstStorePhotoUrl(conv?.storeItem?.photos);
 
   const navigateToStoreItem = useCallback(() => {
     if (!conv?.storeItem?.slug) return;
@@ -422,7 +413,11 @@ export default function ResaleConversationScreen() {
             </Pressable>
             <View style={styles.headerCenter}>
               {itemPhotoUrl ? (
-                <Image source={{ uri: itemPhotoUrl }} style={styles.headerAvatar} />
+                <Image
+                  source={{ uri: itemPhotoUrl }}
+                  style={styles.headerAvatar}
+                  resizeMode="cover"
+                />
               ) : (
                 <View style={[styles.headerAvatar, styles.headerAvatarPlaceholder]}>
                   <Ionicons name="bag-outline" size={24} color="#fff" />
@@ -449,7 +444,7 @@ export default function ResaleConversationScreen() {
             accessibilityLabel={seeItemOpen ? "Hide item details" : "See item, show details"}
           >
             <Ionicons name="bag-outline" size={20} color={theme.colors.cream} />
-            <Text style={styles.seeItemBarText}>See item</Text>
+            <Text style={styles.seeItemBarText}>See Item</Text>
             <View style={styles.seeItemBannerSpacer} />
             <Ionicons
               name={seeItemOpen ? "chevron-up" : "chevron-down"}
@@ -462,7 +457,11 @@ export default function ResaleConversationScreen() {
         {seeItemOpen ? (
           <View style={styles.seeItemFlyout}>
             {itemPhotoUrl ? (
-              <Image source={{ uri: itemPhotoUrl }} style={styles.seeItemPanelImage} />
+              <Image
+                source={{ uri: itemPhotoUrl }}
+                style={styles.seeItemPanelImage}
+                resizeMode="cover"
+              />
             ) : (
               <View style={[styles.seeItemPanelImage, styles.seeItemPanelImagePlaceholder]}>
                 <Ionicons name="image-outline" size={28} color={theme.colors.primary} />
@@ -476,7 +475,7 @@ export default function ResaleConversationScreen() {
                 style={({ pressed }) => [styles.seeItemPanelBtn, pressed && { opacity: 0.9 }]}
                 onPress={navigateToStoreItem}
               >
-                <Text style={styles.seeItemPanelBtnText}>View listing</Text>
+                <Text style={styles.seeItemPanelBtnText}>View Listing</Text>
                 <Ionicons name="open-outline" size={18} color="#fff" />
               </Pressable>
             </View>
