@@ -10,6 +10,14 @@ import { ShareButton } from "@/components/ShareButton";
 import { useCart } from "@/contexts/CartContext";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
 import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
+import { IonIcon } from "@/components/IonIcon";
+import {
+  StoreItemFulfillmentPicker,
+  StoreItemQuantityStepper,
+  StoreItemAddToCartButton,
+} from "@/components/store-item/StoreItemDetailControls";
+import { useStoreItemRelatedLists } from "@/hooks/use-store-item-related-lists";
+import { allVariantAxesSelected, variantOptionLabels } from "@/lib/store-item-variants";
 
 interface VariantOption {
   name: string;
@@ -63,7 +71,13 @@ interface StoreItem {
 export default function ProductDetailPage() {
   const params = useParams();
   const { data: session, status } = useSession();
-  const slug = params.slug as string;
+  const slugParam = params?.slug;
+  const slug =
+    typeof slugParam === "string"
+      ? slugParam
+      : Array.isArray(slugParam)
+        ? slugParam[0] ?? ""
+        : "";
   const [item, setItem] = useState<StoreItem | null>(null);
   const [itemUnavailable, setItemUnavailable] = useState(false);
   const [quantity, setQuantity] = useState(1);
@@ -79,8 +93,6 @@ export default function ProductDetailPage() {
   const [lightboxPan, setLightboxPan] = useState({ x: 0, y: 0 });
   const [lightboxDragging, setLightboxDragging] = useState(false);
   const lightboxDragStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
-  const [sellerItems, setSellerItems] = useState<StoreItem[]>([]);
-  const [similarItems, setSimilarItems] = useState<StoreItem[]>([]);
   const [sellerScrollIndex, setSellerScrollIndex] = useState(0);
   const [moreLikeThisScrollIndex, setMoreLikeThisScrollIndex] = useState(0);
   const [keepShoppingHref, setKeepShoppingHref] = useState("/storefront");
@@ -226,35 +238,11 @@ export default function ProductDetailPage() {
     };
   }, [lightboxDragging]);
 
-  useEffect(() => {
-    if (!item?.member?.id || !item.id) {
-      setSellerItems([]);
-      return;
-    }
-    const params = new URLSearchParams({ memberId: item.member.id, excludeId: item.id });
-    fetch(`/api/store-items?${params}`)
-      .then((r) => r.json())
-      .then((data) => setSellerItems(Array.isArray(data) ? data : []))
-      .catch(() => setSellerItems([]));
-  }, [item?.member?.id, item?.id]);
-
-  useEffect(() => {
-    if (!item?.id) {
-      setSimilarItems([]);
-      return;
-    }
-    const params = new URLSearchParams({ excludeId: item.id });
-    if (item.category) params.set("category", item.category);
-    fetch(`/api/store-items?${params}`)
-      .then((r) => r.json())
-      .then((data) => setSimilarItems(Array.isArray(data) ? data : []))
-      .catch(() => setSimilarItems([]));
-  }, [item?.id, item?.category]);
+  const { sellerItems, similarItems } = useStoreItemRelatedLists(item, "new");
 
   const hasVariants = item?.variants && item.variants.length > 0;
   const allVariantsSelected =
-    !hasVariants ||
-    item!.variants!.every((v) => selectedVariant[v.name] && v.options.includes(selectedVariant[v.name]));
+    !hasVariants || allVariantAxesSelected(item?.variants, selectedVariant);
 
   const effectiveShippingPolicy =
     item?.shippingPolicy ?? item?.member?.sellerShippingPolicy ?? null;
@@ -267,6 +255,10 @@ export default function ProductDetailPage() {
     (fulfillmentType !== "local_delivery" || localDeliveryDetailsSaved) &&
     (fulfillmentType !== "pickup" || pickupDetailsSaved);
 
+  const needsFulfillmentForm =
+    (fulfillmentType === "pickup" && !pickupDetailsSaved) ||
+    (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved);
+
   async function handleAddToCart() {
     if (!item || quantity < 1 || quantity > item.quantity) return;
     if (hasVariants && !allVariantsSelected) {
@@ -274,12 +266,10 @@ export default function ProductDetailPage() {
       return;
     }
     if (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved) {
-      setError("Complete delivery details and agree to terms.");
       setLocalDeliveryModalOpen(true);
       return;
     }
     if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
-      setError("Complete the Pick Up Form.");
       setPickupModalOpen(true);
       return;
     }
@@ -348,12 +338,10 @@ export default function ProductDetailPage() {
       return;
     }
     if (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved) {
-      setError("Complete delivery details and agree to terms.");
       setLocalDeliveryModalOpen(true);
       return;
     }
     if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
-      setError("Complete the Pick Up Form.");
       setPickupModalOpen(true);
       return;
     }
@@ -457,8 +445,12 @@ export default function ProductDetailPage() {
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto">
-        <Link href="/storefront" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
-          ← Back to storefront
+        <Link
+          href="/storefront"
+          className="text-sm text-gray-600 hover:underline mb-4 inline-flex items-center gap-1"
+        >
+          <IonIcon name="arrow-back-outline" size={18} className="text-gray-600" />
+          Back to storefront
         </Link>
         {itemUnavailable && item && (
           <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
@@ -605,8 +597,9 @@ export default function ProductDetailPage() {
           </div>
         )}
 
+        {localDeliveryModalOpen && item && (
         <LocalDeliveryModal
-          open={!!item && localDeliveryModalOpen}
+          open
           onClose={() => setLocalDeliveryModalOpen(false)}
           policyText={effectiveLocalDeliveryPolicy ?? undefined}
           initialForm={{
@@ -629,8 +622,10 @@ export default function ProductDetailPage() {
             setLocalDeliveryModalOpen(false);
           }}
         />
+        )}
+        {pickupModalOpen && item && (
         <PickupTermsModal
-          open={!!item && pickupModalOpen}
+          open
           onClose={() => setPickupModalOpen(false)}
           policyText={item?.pickupTerms ?? item?.member?.sellerPickupPolicy ?? undefined}
           initialForm={{
@@ -648,6 +643,7 @@ export default function ProductDetailPage() {
             setPickupModalOpen(false);
           }}
         />
+        )}
 
         {/* Product Details - boxed */}
         <div
@@ -658,7 +654,20 @@ export default function ProductDetailPage() {
             <h1 className="text-3xl font-bold flex-1 min-w-0 pr-2">{item.title}</h1>
             <div className="flex gap-2 shrink-0">
               <ShareButton type="store_item" id={item.id} slug={item.slug} listingType="new" title={item.title} className="btn text-sm shrink-0 p-2 rounded border border-gray-300 bg-white hover:bg-gray-50" />
-              <HeartSaveButton type="store_item" referenceId={item.id} initialSaved={savedIds.has(item.id)} className="shrink-0" />
+              <HeartSaveButton
+                type="store_item"
+                referenceId={item.id}
+                initialSaved={savedIds.has(item.id)}
+                className="shrink-0"
+                onSavedChange={(saved) => {
+                  setSavedIds((prev) => {
+                    const next = new Set(prev);
+                    if (saved) next.add(item.id);
+                    else next.delete(item.id);
+                    return next;
+                  });
+                }}
+              />
             </div>
           </div>
           <div className="grid md:grid-cols-2 gap-8 min-h-[480px]">
@@ -679,6 +688,8 @@ export default function ProductDetailPage() {
                   src={mainPhoto}
                   alt={item.title}
                   className="w-full h-full object-contain"
+                  decoding="async"
+                  fetchPriority="high"
                 />
               </button>
             ) : (
@@ -699,7 +710,7 @@ export default function ProductDetailPage() {
                         : "border-gray-300 hover:border-gray-400"
                     }`}
                   >
-                    <img src={url} alt="" className="w-full h-full object-cover" />
+                    <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                   </button>
                 ))}
               </div>
@@ -716,75 +727,17 @@ export default function ProductDetailPage() {
             )}
             <p className="text-2xl font-bold mt-4">${(item.priceCents / 100).toFixed(2)}</p>
 
-            {/* Fulfillment options */}
-            {(item.shippingDisabled || item.localDeliveryAvailable || item.inStorePickupAvailable) && (
-              <div className="mt-4 space-y-2">
-                <label className="block text-sm font-medium">How do you want to receive this item?</label>
-                <div className="flex flex-wrap gap-2">
-                  {!item.shippingDisabled && (
-                    <button
-                      type="button"
-                      onClick={() => setFulfillmentType("ship")}
-                      className={`border rounded px-3 py-1.5 text-sm ${
-                        fulfillmentType === "ship"
-                          ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                          : "border-gray-300 hover:border-gray-400"
-                      }`}
-                    >
-                      Ship
-                      {item.shippingCostCents != null && item.shippingCostCents > 0
-                        ? ` ($${(item.shippingCostCents / 100).toFixed(2)})`
-                        : " (free)"}
-                    </button>
-                  )}
-                  {item.localDeliveryAvailable && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFulfillmentType("local_delivery");
-                        setLocalDeliveryModalOpen(true);
-                      }}
-                      className={`border rounded px-3 py-1.5 text-sm ${
-                        fulfillmentType === "local_delivery"
-                          ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                          : "border-gray-300 hover:border-gray-400"
-                      }`}
-                    >
-                      Deliver Locally
-                      {item.localDeliveryFeeCents != null && item.localDeliveryFeeCents > 0
-                        ? ` ($${(item.localDeliveryFeeCents / 100).toFixed(2)})`
-                        : " (No Fee)"}
-                    </button>
-                  )}
-                  {item.inStorePickupAvailable && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFulfillmentType("pickup");
-                        setPickupModalOpen(true);
-                      }}
-                      className={`border rounded px-3 py-1.5 text-sm ${
-                        fulfillmentType === "pickup"
-                          ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                          : "border-gray-300 hover:border-gray-400"
-                      }`}
-                    >
-                      Arrange Pickup (No Fee)
-                    </button>
-                  )}
-                </div>
-                {fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved && (
-                  <p className="text-amber-600 text-sm">
-                    Complete delivery details and agree to terms below to add to cart.
-                  </p>
-                )}
-                {fulfillmentType === "pickup" && !pickupDetailsSaved && (
-                  <p className="text-amber-600 text-sm">
-                    Complete the Pick Up Form below to add to cart.
-                  </p>
-                )}
-              </div>
-            )}
+            <StoreItemFulfillmentPicker
+              fulfillmentType={fulfillmentType}
+              onFulfillmentTypeChange={setFulfillmentType}
+              shippingDisabled={item.shippingDisabled}
+              localDeliveryAvailable={item.localDeliveryAvailable}
+              inStorePickupAvailable={item.inStorePickupAvailable}
+              shippingCostCents={item.shippingCostCents}
+              localDeliveryFeeCents={item.localDeliveryFeeCents}
+              localDeliveryDetailsSaved={localDeliveryDetailsSaved}
+              pickupDetailsSaved={pickupDetailsSaved}
+            />
             {(!item.shippingDisabled && !item.localDeliveryAvailable && !item.inStorePickupAvailable) && (
               <>
                 {item.shippingCostCents != null && item.shippingCostCents > 0 ? (
@@ -814,7 +767,7 @@ export default function ProductDetailPage() {
                   <div key={vi}>
                     <label className="block text-sm font-medium mb-1">{v.name} *</label>
                     <div className="flex flex-wrap gap-2">
-                      {v.options.map((opt) => (
+                      {variantOptionLabels(v).map((opt) => (
                         <button
                           key={opt}
                           type="button"
@@ -837,65 +790,28 @@ export default function ProductDetailPage() {
             )}
             {!itemUnavailable && (
               <>
-                {item.quantity > 1 && (
-                  <div className="mt-6">
-                    <label className="block text-sm font-medium mb-1">Quantity *</label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                        className="w-10 h-10 border rounded flex items-center justify-center text-lg"
-                      >
-                        −
-                      </button>
-                      <input
-                        type="number"
-                        min={1}
-                        max={item.quantity}
-                        value={quantity}
-                        onChange={(e) =>
-                          setQuantity(
-                            Math.max(1, Math.min(item.quantity, parseInt(e.target.value, 10) || 1))
-                          )
-                        }
-                        className="border rounded px-3 py-2 w-20 text-center"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setQuantity(Math.min(item.quantity, quantity + 1))}
-                        className="w-10 h-10 border rounded flex items-center justify-center text-lg"
-                      >
-                        +
-                      </button>
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">{item.quantity} in stock</p>
-                  </div>
-                )}
+                <StoreItemQuantityStepper
+                  quantity={quantity}
+                  maxQuantity={item.quantity}
+                  onChange={setQuantity}
+                />
                 {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-                {fulfillmentType === "local_delivery" && !canAddToCart && (
-                  <p className="text-amber-600 text-sm mt-1">Complete delivery details and agree to terms.</p>
-                )}
-                {fulfillmentType === "pickup" && !canAddToCart && (
-                  <p className="text-amber-600 text-sm mt-1">Complete the Pick Up Form.</p>
-                )}
-                <div className="flex items-center gap-3 mt-6 flex-wrap">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-6 max-w-sm">
                   {status === "loading" ? (
                     <p className="text-gray-500">Loading…</p>
                   ) : session?.user ? (
                     <>
-                      <button
-                        type="button"
+                      <StoreItemAddToCartButton
                         onClick={handleAddToCart}
-                        disabled={addingToCart || item.quantity < 1 || !allVariantsSelected || !canAddToCart}
-                        className="btn disabled:opacity-50"
-                      >
-                        {addingToCart ? "Adding…" : "Add to Cart"}
-                      </button>
+                        disabled={item.quantity < 1 || !allVariantsSelected}
+                        loading={addingToCart}
+                        needsFulfillmentForm={needsFulfillmentForm}
+                      />
                       <button
                         type="button"
                         onClick={handleCheckout}
-                        disabled={checkingOut || item.quantity < 1 || !allVariantsSelected || !canAddToCart}
-                        className="btn border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+                        disabled={checkingOut || item.quantity < 1 || !allVariantsSelected}
+                        className="btn border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 sm:flex-1 py-2.5"
                       >
                         {checkingOut ? "Redirecting…" : "Buy It Now"}
                       </button>

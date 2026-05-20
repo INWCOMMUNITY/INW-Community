@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   StyleSheet,
@@ -16,6 +16,8 @@ import {
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Swipeable } from "react-native-gesture-handler";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import { theme } from "@/lib/theme";
@@ -134,6 +136,18 @@ function sortBuyerOffersForCart(offers: CartBuyerOfferRow[]): CartBuyerOfferRow[
   });
 }
 
+function dismissedBuyerOffersStorageKey(memberId: string): string {
+  return `inw_cart_dismissed_buyer_offers:${memberId}`;
+}
+
+async function persistDismissedBuyerOfferIds(memberId: string, ids: Set<string>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(dismissedBuyerOffersStorageKey(memberId), JSON.stringify([...ids]));
+  } catch {
+    /* ignore */
+  }
+}
+
 function buyerOfferStatusLabel(status: string): string {
   switch (status) {
     case "pending":
@@ -203,6 +217,7 @@ export default function CartScreen() {
   const { member } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
   const [buyerOffers, setBuyerOffers] = useState<CartBuyerOfferRow[]>([]);
+  const [dismissedBuyerOfferIds, setDismissedBuyerOfferIds] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -231,6 +246,64 @@ export default function CartScreen() {
   const [cashEarnedBadgeIndex, setCashEarnedBadgeIndex] = useState(-1);
   const scrollViewRef = useRef<ScrollView>(null);
   const initialCartFocusLoadDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (!member?.id) {
+      setDismissedBuyerOfferIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    AsyncStorage.getItem(dismissedBuyerOffersStorageKey(member.id))
+      .then((raw) => {
+        if (cancelled) return;
+        try {
+          const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+          if (Array.isArray(parsed)) {
+            setDismissedBuyerOfferIds(new Set(parsed.filter((x): x is string => typeof x === "string")));
+          } else {
+            setDismissedBuyerOfferIds(new Set());
+          }
+        } catch {
+          setDismissedBuyerOfferIds(new Set());
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDismissedBuyerOfferIds(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [member?.id]);
+
+  useEffect(() => {
+    if (!member?.id || buyerOffers.length === 0) return;
+    const valid = new Set(buyerOffers.map((o) => o.id));
+    setDismissedBuyerOfferIds((prev) => {
+      const next = new Set([...prev].filter((id) => valid.has(id)));
+      if (next.size === prev.size) return prev;
+      void persistDismissedBuyerOfferIds(member.id, next);
+      return next;
+    });
+  }, [buyerOffers, member?.id]);
+
+  const visibleBuyerOffers = useMemo(
+    () => buyerOffers.filter((o) => !dismissedBuyerOfferIds.has(o.id)),
+    [buyerOffers, dismissedBuyerOfferIds]
+  );
+
+  const dismissBuyerOfferFromCartList = useCallback(
+    (offerId: string) => {
+      if (!member?.id) return;
+      setDismissedBuyerOfferIds((prev) => {
+        if (prev.has(offerId)) return prev;
+        const next = new Set(prev);
+        next.add(offerId);
+        void persistDismissedBuyerOfferIds(member.id, next);
+        return next;
+      });
+    },
+    [member?.id]
+  );
 
   const load = useCallback(async (arg?: LoadCartArg): Promise<CartItem[] | null> => {
     const { refresh, silent } = parseLoadCartArg(arg);
@@ -1188,11 +1261,13 @@ export default function CartScreen() {
             </View>
           ) : null}
 
-          {buyerOffers.length > 0 ? (
+          {visibleBuyerOffers.length > 0 ? (
             <View style={styles.offersSection}>
               <Text style={styles.offersSectionTitle}>Your offers</Text>
-              <Text style={styles.offersSectionHint}>Tap an offer to accept a counter, decline, or go to checkout.</Text>
-              {buyerOffers.map((off) => {
+              <Text style={styles.offersSectionHint}>
+                Tap an offer for details. Swipe left to remove it from this list (your offer is unchanged).
+              </Text>
+              {visibleBuyerOffers.map((off) => {
                 const photoUrl = resolvePhotoUrl(off.storeItem.photos?.[0]);
                 const displayCents =
                   off.status === "countered" && typeof off.counterAmountCents === "number"
@@ -1201,27 +1276,46 @@ export default function CartScreen() {
                       ? off.finalAmountCents
                       : off.amountCents;
                 return (
-                  <Pressable
+                  <Swipeable
                     key={off.id}
-                    style={({ pressed }) => [styles.offerRow, pressed && { opacity: 0.85 }]}
-                    onPress={() => router.push(`/offers/${off.id}` as never)}
-                  >
-                    {photoUrl ? (
-                      <Image source={{ uri: photoUrl }} style={styles.offerRowImage} />
-                    ) : (
-                      <View style={[styles.offerRowImage, styles.offerRowImagePlaceholder]}>
-                        <Ionicons name="pricetag-outline" size={22} color={theme.colors.primary} />
+                    renderRightActions={() => (
+                      <View style={styles.offerSwipeRight}>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.offerSwipeDeleteBtn,
+                            pressed && { opacity: 0.9 },
+                          ]}
+                          onPress={() => dismissBuyerOfferFromCartList(off.id)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove offer from cart list"
+                        >
+                          <Ionicons name="trash-outline" size={22} color="#fff" />
+                          <Text style={styles.offerSwipeDeleteLabel}>Remove</Text>
+                        </Pressable>
                       </View>
                     )}
-                    <View style={styles.offerRowBody}>
-                      <Text style={styles.offerRowTitle} numberOfLines={2}>
-                        {off.storeItem.title}
-                      </Text>
-                      <Text style={styles.offerRowStatus}>{buyerOfferStatusLabel(off.status)}</Text>
-                      <Text style={styles.offerRowAmount}>{formatPrice(displayCents)}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color="#999" />
-                  </Pressable>
+                  >
+                    <Pressable
+                      style={({ pressed }) => [styles.offerRow, pressed && { opacity: 0.85 }]}
+                      onPress={() => router.push(`/offers/${off.id}` as never)}
+                    >
+                      {photoUrl ? (
+                        <Image source={{ uri: photoUrl }} style={styles.offerRowImage} />
+                      ) : (
+                        <View style={[styles.offerRowImage, styles.offerRowImagePlaceholder]}>
+                          <Ionicons name="pricetag-outline" size={22} color={theme.colors.primary} />
+                        </View>
+                      )}
+                      <View style={styles.offerRowBody}>
+                        <Text style={styles.offerRowTitle} numberOfLines={2}>
+                          {off.storeItem.title}
+                        </Text>
+                        <Text style={styles.offerRowStatus}>{buyerOfferStatusLabel(off.status)}</Text>
+                        <Text style={styles.offerRowAmount}>{formatPrice(displayCents)}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#999" />
+                    </Pressable>
+                  </Swipeable>
                 );
               })}
             </View>
@@ -1728,6 +1822,26 @@ const styles = StyleSheet.create({
     color: "#333",
     marginTop: 4,
     fontWeight: "600",
+  },
+  offerSwipeRight: {
+    justifyContent: "center",
+    marginBottom: 10,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  offerSwipeDeleteBtn: {
+    backgroundColor: "#b00020",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 88,
+    flex: 1,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  offerSwipeDeleteLabel: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
   },
   unavailableReason: {
     fontSize: 12,

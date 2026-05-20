@@ -18,9 +18,9 @@ function sanitizePath(raw: string | null): string {
 
 function StripeConnectAppReturnContent() {
   const searchParams = useSearchParams();
-  const path = sanitizePath(searchParams.get("path"));
-  const success = searchParams.get("success") === "1";
-  const refresh = searchParams.get("refresh") === "1";
+  const path = sanitizePath(searchParams?.get("path") ?? null);
+  const success = searchParams?.get("success") === "1";
+  const refresh = searchParams?.get("refresh") === "1";
 
   const appUrl = useMemo(() => {
     const q = new URLSearchParams();

@@ -20,7 +20,7 @@ function ShippoOAuthRedirectContent() {
         <p className="text-gray-600 mb-4">
           {searchParams?.get("error_description")
             ? decodeURIComponent(
-                String(searchParams.get("error_description")).replace(/\+/g, " ")
+                String(searchParams?.get("error_description") ?? "").replace(/\+/g, " ")
               )
             : "You did not complete the connection, or an error occurred."}
         </p>

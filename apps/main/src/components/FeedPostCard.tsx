@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
@@ -96,8 +96,9 @@ interface FeedPostCardProps {
   initialCommentId?: string | null;
 }
 
-function isVideoUrl(url: string) {
-  return /\.(mp4|webm|mov)$/i.test(url);
+function isVideoUrl(url: string, videoUrlSet?: Set<string>) {
+  if (videoUrlSet?.has(url)) return true;
+  return /\.(mp4|webm|mov|m4v)$/i.test(url) || /\/post\/[^/]+\/video\//i.test(url);
 }
 
 type CommentItem = {
@@ -136,6 +137,13 @@ export function FeedPostCard({
   const content = post.content ?? "";
   const isLong = content.length > TRUNCATE_LENGTH;
   const displayContent = isLong && !expanded ? content.slice(0, TRUNCATE_LENGTH) + "…" : content;
+  const videoUrlSet = useMemo(() => new Set(post.videos ?? []), [post.videos]);
+  const sourceVideoUrlSet = useMemo(
+    () => new Set(post.sourcePost?.videos ?? []),
+    [post.sourcePost?.videos]
+  );
+  const isVideoMedia = (url: string, fromSourcePost = false) =>
+    isVideoUrl(url, fromSourcePost ? sourceVideoUrlSet : videoUrlSet);
   const allMedia = [...(post.photos ?? []), ...(post.videos ?? [])];
   const mediaPreviewCount = 4;
   const hasMoreMedia = allMedia.length > mediaPreviewCount;
@@ -503,8 +511,8 @@ export function FeedPostCard({
                       className="snap-center shrink-0 w-full min-w-full aspect-square relative block focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                       aria-label={`Photo ${i + 1} — view original post`}
                     >
-                      {isVideoUrl(url) ? (
-                        <video src={url} className="w-full h-full object-cover pointer-events-none" />
+                      {isVideoMedia(url, true) ? (
+                        <video src={url} className="w-full h-full object-cover pointer-events-none" muted playsInline preload="metadata" />
                       ) : (
                         <Image src={url} alt="" fill className="object-cover" sizes="100vw" quality={95} />
                       )}
@@ -554,14 +562,14 @@ export function FeedPostCard({
               }`}
             >
               {displayMedia.map((url, i) =>
-                isVideoUrl(url) ? (
+                isVideoMedia(url) ? (
                   <button
                     key={i}
                     type="button"
                     onClick={() => openGallery(allMedia, i)}
                     className="relative aspect-square w-full text-left rounded overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-gray-400"
                   >
-                    <video src={url} className="w-full h-full object-cover pointer-events-none" />
+                    <video src={url} className="w-full h-full object-cover pointer-events-none" muted playsInline preload="metadata" />
                   </button>
                 ) : (
                   <div
@@ -640,8 +648,8 @@ export function FeedPostCard({
               className="relative max-w-4xl max-h-[85vh] w-full flex items-center justify-center"
               onClick={(e) => e.stopPropagation()}
             >
-              {isVideoUrl(galleryItem) ? (
-                <video src={galleryItem} className="max-w-full max-h-[85vh] rounded" controls autoPlay />
+              {isVideoMedia(galleryItem) ? (
+                <video src={galleryItem} className="max-w-full max-h-[85vh] rounded" controls autoPlay playsInline />
               ) : (
                 <img
                   key={`${galleryIndex}-${galleryItem}`}

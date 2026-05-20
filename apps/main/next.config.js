@@ -74,6 +74,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https: http:",
+              "media-src 'self' data: blob: https: http:",
               "connect-src 'self' https://api.stripe.com https://*.stripe.com https://static.wixstatic.com https://hooks.stripe.com https://api.goshippo.com https://goshippo.com https://*.goshippo.com https://vitals.vercel-insights.com https://va.vercel-scripts.com",
               "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://*.goshippo.com",
             ].join("; "),

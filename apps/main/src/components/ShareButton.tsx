@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import { IonIcon } from "@/components/IonIcon";
 
 export type ShareButtonType = "coupon" | "reward" | "business" | "blog" | "store_item";
 
@@ -257,11 +258,7 @@ export function ShareButton(props: ShareButtonProps) {
   }
 
   const buttonContent = (
-    <span className="inline-flex items-center justify-center" aria-hidden>
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-        <path d="M12 2.59l5.7 5.7-1.41 1.42L13 6.41V16h-2V6.41l-3.3 3.3-1.41-1.42L12 2.59zM21 15v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4H2v4a3 3 0 003 3h14a3 3 0 003-3v-4h-2z" />
-      </svg>
-    </span>
+    <IonIcon name="share-outline" size={22} className="text-gray-600" aria-hidden />
   );
 
   if (status !== "authenticated") {

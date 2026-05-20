@@ -1,16 +1,44 @@
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
 import { prisma } from "database";
-import Link from "next/link";
-import { HeartSaveButton } from "@/components/HeartSaveButton";
-import { BusinessPhotoGallery } from "@/components/BusinessPhotoGallery";
-import { InviteFriendsToEvent } from "@/components/InviteFriendsToEvent";
-import { EventShareButton } from "@/components/EventShareButton";
+import { EventDetailContent, type EventDetailData } from "@/components/event/EventDetailContent";
 import { authOptions } from "@/lib/auth";
-import { formatTime12h } from "@/lib/format-time";
+import {
+  getEventInviteStatsByEventIds,
+  isEventOwner,
+} from "@/lib/event-invite-stats";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
+}
+
+function formatEventDateForCalendar(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const event = await prisma.event.findFirst({
+    where: {
+      status: "approved",
+      ...(isCuid(slug) ? { id: slug } : { slug }),
+    },
+    select: { title: true, description: true, photos: true },
+  });
+  if (!event) return { title: "Event" };
+  return {
+    title: event.title,
+    description: event.description?.slice(0, 160) ?? undefined,
+    openGraph: event.photos[0] ? { images: [{ url: event.photos[0] }] } : undefined,
+  };
 }
 
 export default async function EventDetailPage({
@@ -24,7 +52,9 @@ export default async function EventDetailPage({
       status: "approved",
       ...(isCuid(slug) ? { id: slug } : { slug }),
     },
-    include: { business: { select: { name: true, slug: true, memberId: true } } },
+    include: {
+      business: { select: { name: true, slug: true, memberId: true } },
+    },
   });
   if (!event) notFound();
 
@@ -41,51 +71,34 @@ export default async function EventDetailPage({
       })
     : null;
 
-  const dateStr = new Date(event.date).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
+  let inviteStats = null;
+  if (session?.user?.id && isEventOwner(event, session.user.id)) {
+    const statsMap = await getEventInviteStatsByEventIds([event.id]);
+    inviteStats = statsMap.get(event.id) ?? null;
+  }
+
+  const detail: EventDetailData = {
+    id: event.id,
+    slug: event.slug,
+    title: event.title,
+    date: formatEventDateForCalendar(event.date),
+    time: event.time,
+    endTime: event.endTime,
+    location: event.location,
+    city: event.city,
+    description: event.description,
+    photos: event.photos ?? [],
+    business: event.business
+      ? { name: event.business.name, slug: event.business.slug }
+      : null,
+    inviteStats,
+  };
 
   return (
-    <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-      <div className="max-w-[var(--max-width)] mx-auto">
-        <Link href="/calendars" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
-          ← Back to Calendars
-        </Link>
-        <h1 className="text-3xl font-bold mb-2">{event.title}</h1>
-        <p className="text-gray-600 mb-2">
-          {dateStr}
-          {event.time
-            ? event.endTime
-              ? ` · ${formatTime12h(event.time)} – ${formatTime12h(event.endTime)}`
-              : ` · ${formatTime12h(event.time)}`
-            : ""}
-        </p>
-        {event.location && <p className="text-gray-600 mb-2">Location: {event.location}</p>}
-        {event.business && (
-          <p className="text-gray-700 mb-4">
-            Event by{" "}
-            <Link
-              href={`/support-local/${event.business.slug}`}
-              className="hover:underline font-medium"
-              style={{ color: "var(--color-link)" }}
-            >
-              {event.business.name}
-            </Link>
-          </p>
-        )}
-        {event.description && <p className="mb-4 whitespace-pre-wrap">{event.description}</p>}
-        {event.photos && event.photos.length > 0 && (
-          <div className="mt-6">
-            <h2 className="text-xl font-semibold mb-3">Event photos</h2>
-            <BusinessPhotoGallery photos={event.photos} alt="Event photo" size="large" />
-          </div>
-        )}
-        <HeartSaveButton type="event" referenceId={event.id} initialSaved={!!saved} />
-        <EventShareButton eventUrl={`/events/${event.slug}`} eventTitle={event.title} className="ml-2" />
-        {session?.user?.id ? <InviteFriendsToEvent eventId={event.id} /> : null}
-      </div>
-    </section>
+    <EventDetailContent
+      event={detail}
+      initialSaved={!!saved}
+      backHref="/calendars"
+    />
   );
 }

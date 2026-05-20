@@ -10,6 +10,16 @@ import { ShareButton } from "@/components/ShareButton";
 import { useCart } from "@/contexts/CartContext";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
 import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
+import { IonIcon } from "@/components/IonIcon";
+import {
+  StoreItemFulfillmentPicker,
+  StoreItemQuantityStepper,
+  StoreItemIconActionButton,
+  StoreItemAddToCartButton,
+  MessageSentToast,
+} from "@/components/store-item/StoreItemDetailControls";
+import { useStoreItemRelatedLists } from "@/hooks/use-store-item-related-lists";
+import { allVariantAxesSelected, variantOptionLabels } from "@/lib/store-item-variants";
 
 interface VariantOption {
   name: string;
@@ -70,7 +80,13 @@ const RESALE_STORAGE_KEY = "resaleFilters";
 export default function ResaleProductDetailPage() {
   const params = useParams();
   const { data: session, status } = useSession();
-  const slug = params.slug as string;
+  const slugParam = params?.slug;
+  const slug =
+    typeof slugParam === "string"
+      ? slugParam
+      : Array.isArray(slugParam)
+        ? slugParam[0] ?? ""
+        : "";
   const [item, setItem] = useState<StoreItem | null>(null);
   const [itemUnavailable, setItemUnavailable] = useState(false);
   const [quantity, setQuantity] = useState(1);
@@ -86,8 +102,6 @@ export default function ResaleProductDetailPage() {
   const [lightboxPan, setLightboxPan] = useState({ x: 0, y: 0 });
   const [lightboxDragging, setLightboxDragging] = useState(false);
   const lightboxDragStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
-  const [sellerItems, setSellerItems] = useState<StoreItem[]>([]);
-  const [similarItems, setSimilarItems] = useState<StoreItem[]>([]);
   const [sellerScrollIndex, setSellerScrollIndex] = useState(0);
   const [moreLikeThisScrollIndex, setMoreLikeThisScrollIndex] = useState(0);
   const [keepShoppingHref, setKeepShoppingHref] = useState(RESALE_BASE);
@@ -126,9 +140,14 @@ export default function ResaleProductDetailPage() {
   const [messageContent, setMessageContent] = useState("");
   const [messageSubmitting, setMessageSubmitting] = useState(false);
   const [messageError, setMessageError] = useState("");
-  const [messageSentOpen, setMessageSentOpen] = useState(false);
-  const [messageSentConversationId, setMessageSentConversationId] = useState<string | null>(null);
+  const [showMessageSentToast, setShowMessageSentToast] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"card" | "cash">("card");
+
+  useEffect(() => {
+    if (!showMessageSentToast) return;
+    const t = window.setTimeout(() => setShowMessageSentToast(false), 3000);
+    return () => window.clearTimeout(t);
+  }, [showMessageSentToast]);
 
   useEffect(() => {
     try {
@@ -260,35 +279,11 @@ export default function ResaleProductDetailPage() {
     };
   }, [lightboxDragging]);
 
-  useEffect(() => {
-    if (!item?.member?.id || !item.id) {
-      setSellerItems([]);
-      return;
-    }
-    const params = new URLSearchParams({ memberId: item.member.id, excludeId: item.id, listingType: "resale" });
-    fetch(`/api/store-items?${params}`)
-      .then((r) => r.json())
-      .then((data) => setSellerItems(Array.isArray(data) ? data : []))
-      .catch(() => setSellerItems([]));
-  }, [item?.member?.id, item?.id]);
-
-  useEffect(() => {
-    if (!item?.id) {
-      setSimilarItems([]);
-      return;
-    }
-    const params = new URLSearchParams({ excludeId: item.id, listingType: "resale" });
-    if (item.category) params.set("category", item.category);
-    fetch(`/api/store-items?${params}`)
-      .then((r) => r.json())
-      .then((data) => setSimilarItems(Array.isArray(data) ? data : []))
-      .catch(() => setSimilarItems([]));
-  }, [item?.id, item?.category]);
+  const { sellerItems, similarItems } = useStoreItemRelatedLists(item, "resale");
 
   const hasVariants = item?.variants && item.variants.length > 0;
   const allVariantsSelected =
-    !hasVariants ||
-    item!.variants!.every((v) => selectedVariant[v.name] && v.options.includes(selectedVariant[v.name]));
+    !hasVariants || allVariantAxesSelected(item?.variants, selectedVariant);
 
   const effectiveShippingPolicy =
     item?.shippingPolicy ?? item?.member?.sellerShippingPolicy ?? null;
@@ -310,6 +305,19 @@ export default function ResaleProductDetailPage() {
     session?.user?.id && sellerId && session.user.id === sellerId
   );
   const showBuyerActions = Boolean(session?.user && item && !isOwnListing);
+  const showSendOfferButton = showBuyerActions && item?.acceptOffers !== false;
+
+  const needsFulfillmentForm =
+    (fulfillmentType === "pickup" && !pickupDetailsSaved) ||
+    (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved);
+
+  function openSendOfferModal() {
+    setMessageSellerOpen(false);
+    setOfferError("");
+    setOfferAmountDollars("");
+    setOfferMessage("");
+    setMakeOfferOpen(true);
+  }
 
   async function handleAddToCart() {
     if (!item || quantity < 1 || quantity > (Math.max(0, Number(item.quantity) || 0))) return;
@@ -318,12 +326,10 @@ export default function ResaleProductDetailPage() {
       return;
     }
     if (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved) {
-      setError("Complete delivery details and agree to terms.");
       setLocalDeliveryModalOpen(true);
       return;
     }
     if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
-      setError("Complete the Pick Up Form.");
       setPickupModalOpen(true);
       return;
     }
@@ -392,12 +398,10 @@ export default function ResaleProductDetailPage() {
       return;
     }
     if (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved) {
-      setError("Complete delivery details and agree to terms.");
       setLocalDeliveryModalOpen(true);
       return;
     }
     if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
-      setError("Complete the Pick Up Form.");
       setPickupModalOpen(true);
       return;
     }
@@ -503,6 +507,16 @@ export default function ResaleProductDetailPage() {
       setOfferError("Enter a valid amount");
       return;
     }
+    const minC = item.minOfferCents;
+    if (minC != null && minC > 0 && amountCents < minC) {
+      setOfferError(`Offer must be at least $${(minC / 100).toFixed(2)}`);
+      return;
+    }
+    const listC = item.priceCents;
+    if (listC != null && listC > 0 && amountCents > listC) {
+      setOfferError(`Offer cannot exceed the listing price ($${(listC / 100).toFixed(2)})`);
+      return;
+    }
     setOfferSubmitting(true);
     try {
       const res = await fetch("/api/resale-offers", {
@@ -522,7 +536,9 @@ export default function ResaleProductDetailPage() {
       setMakeOfferOpen(false);
       setOfferAmountDollars("");
       setOfferMessage("");
-      alert("Offer sent! The seller will respond in New Offers.");
+      alert(
+        "Offer sent. The seller will review your offer. You'll get a notification when they respond."
+      );
     } finally {
       setOfferSubmitting(false);
     }
@@ -553,9 +569,7 @@ export default function ResaleProductDetailPage() {
       }
       setMessageSellerOpen(false);
       setMessageContent("");
-      const convId = typeof data.conversationId === "string" ? data.conversationId : null;
-      setMessageSentConversationId(convId);
-      setMessageSentOpen(true);
+      setShowMessageSentToast(true);
     } finally {
       setMessageSubmitting(false);
     }
@@ -595,8 +609,12 @@ export default function ResaleProductDetailPage() {
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto">
-        <Link href={RESALE_BASE} className="text-sm text-gray-600 hover:underline mb-4 inline-block">
-          ← Back to Resale
+        <Link
+          href={RESALE_BASE}
+          className="text-sm text-gray-600 hover:underline mb-4 inline-flex items-center gap-1"
+        >
+          <IonIcon name="arrow-back-outline" size={18} className="text-gray-600" />
+          Back to Resale
         </Link>
         {itemUnavailable && item && (
           <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
@@ -744,8 +762,9 @@ export default function ResaleProductDetailPage() {
         )}
 
         {/* Local Delivery modal - same as storefront */}
+        {localDeliveryModalOpen && item && (
         <LocalDeliveryModal
-          open={!!item && localDeliveryModalOpen}
+          open
           onClose={() => setLocalDeliveryModalOpen(false)}
           policyText={effectiveLocalDeliveryPolicy ?? undefined}
           initialForm={{
@@ -768,8 +787,10 @@ export default function ResaleProductDetailPage() {
             setLocalDeliveryModalOpen(false);
           }}
         />
+        )}
+        {pickupModalOpen && item && (
         <PickupTermsModal
-          open={!!item && pickupModalOpen}
+          open
           onClose={() => setPickupModalOpen(false)}
           policyText={item?.pickupTerms ?? item?.member?.sellerPickupPolicy ?? undefined}
           initialForm={{
@@ -787,22 +808,27 @@ export default function ResaleProductDetailPage() {
             setPickupModalOpen(false);
           }}
         />
+        )}
 
-        {/* Make offer modal */}
-        {item && makeOfferOpen && (
+        {makeOfferOpen && item && (
           <div
             className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4"
             onClick={() => setMakeOfferOpen(false)}
             role="dialog"
             aria-modal="true"
-            aria-label="Make an offer"
+            aria-label="Send Offer"
           >
             <div
               className="bg-white rounded-lg shadow-xl max-w-md w-full p-6"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-semibold mb-4">Make an offer</h2>
+              <h2 className="text-xl font-semibold mb-4">Send Offer</h2>
               <form onSubmit={handleMakeOffer} className="space-y-4">
+                {item.minOfferCents != null && item.minOfferCents > 0 && (
+                  <p className="text-sm text-gray-500">
+                    Minimum: ${(item.minOfferCents / 100).toFixed(2)}
+                  </p>
+                )}
                 <div>
                   <label className="block text-sm font-medium mb-1">Your offer ($) *</label>
                   <input
@@ -828,7 +854,7 @@ export default function ResaleProductDetailPage() {
                 {offerError && <p className="text-red-600 text-sm">{offerError}</p>}
                 <div className="flex gap-2">
                   <button type="submit" disabled={offerSubmitting} className="btn">
-                    {offerSubmitting ? "Sending…" : "Send offer"}
+                    {offerSubmitting ? "Sending…" : "Send Offer"}
                   </button>
                   <button
                     type="button"
@@ -844,7 +870,7 @@ export default function ResaleProductDetailPage() {
         )}
 
         {/* Message seller modal */}
-        {item && messageSellerOpen && (
+        {messageSellerOpen && item && (
           <div
             className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4"
             onClick={() => setMessageSellerOpen(false)}
@@ -886,47 +912,7 @@ export default function ResaleProductDetailPage() {
           </div>
         )}
 
-        {/* Message sent confirmation */}
-        {messageSentOpen && (
-          <div
-            className="fixed inset-0 z-[101] bg-black/50 flex items-center justify-center p-4"
-            onClick={() => setMessageSentOpen(false)}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="message-sent-title"
-          >
-            <div
-              className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 text-center"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h2 id="message-sent-title" className="text-xl font-semibold mb-2">
-                Message Sent!
-              </h2>
-              <p className="text-gray-600 text-sm mb-6">
-                The seller can reply from their Resale Hub messages. You can continue the conversation anytime from{" "}
-                <span className="font-medium text-[var(--color-heading)]">Inland Northwest Community → Messages</span>.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2 justify-center">
-                {messageSentConversationId ? (
-                  <Link
-                    href={`/my-community/messages?conversation=${encodeURIComponent(messageSentConversationId)}`}
-                    className="btn inline-block text-center"
-                    onClick={() => setMessageSentOpen(false)}
-                  >
-                    Open conversation
-                  </Link>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => setMessageSentOpen(false)}
-                  className={`btn border border-gray-300 bg-white hover:bg-gray-50 ${messageSentConversationId ? "" : "w-full sm:w-auto"}`}
-                >
-                  OK
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <MessageSentToast visible={showMessageSentToast} />
 
         {/* Product Details */}
         <div
@@ -937,7 +923,20 @@ export default function ResaleProductDetailPage() {
             <h1 className="text-3xl font-bold flex-1 min-w-0 pr-2">{item.title}</h1>
             <div className="flex gap-2 shrink-0">
               <ShareButton type="store_item" id={item.id} slug={item.slug} listingType="resale" title={item.title} className="p-2 rounded border border-gray-300 bg-white hover:bg-gray-50 shrink-0" />
-              <HeartSaveButton type="store_item" referenceId={item.id} initialSaved={savedIds.has(item.id)} className="shrink-0" />
+              <HeartSaveButton
+                type="store_item"
+                referenceId={item.id}
+                initialSaved={savedIds.has(item.id)}
+                className="shrink-0"
+                onSavedChange={(saved) => {
+                  setSavedIds((prev) => {
+                    const next = new Set(prev);
+                    if (saved) next.add(item.id);
+                    else next.delete(item.id);
+                    return next;
+                  });
+                }}
+              />
             </div>
           </div>
           <div className="grid md:grid-cols-2 gap-8 min-h-[480px]">
@@ -958,6 +957,8 @@ export default function ResaleProductDetailPage() {
                   src={mainPhoto}
                   alt={item.title}
                   className="w-full h-full object-contain"
+                  decoding="async"
+                  fetchPriority="high"
                 />
               </button>
             ) : (
@@ -978,7 +979,7 @@ export default function ResaleProductDetailPage() {
                         : "border-gray-300 hover:border-gray-400"
                     }`}
                   >
-                    <img src={url} alt="" className="w-full h-full object-cover" />
+                    <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                   </button>
                 ))}
               </div>
@@ -1002,75 +1003,17 @@ export default function ResaleProductDetailPage() {
             ) : null}
             <p className="text-2xl font-bold mt-4">${priceFormatted}</p>
 
-            {/* Delivery options */}
-            {(item.shippingDisabled || item.localDeliveryAvailable || item.inStorePickupAvailable) && (
-              <div className="mt-4 space-y-2">
-                <label className="block text-sm font-medium">How do you want to receive this item?</label>
-                <div className="flex flex-wrap gap-2">
-                  {!item.shippingDisabled && (
-                    <button
-                      type="button"
-                      onClick={() => setFulfillmentType("ship")}
-                      className={`border rounded px-3 py-1.5 text-sm ${
-                        fulfillmentType === "ship"
-                          ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                          : "border-gray-300 hover:border-gray-400"
-                      }`}
-                    >
-                      Ship
-                      {item.shippingCostCents != null && item.shippingCostCents > 0
-                        ? ` ($${(item.shippingCostCents / 100).toFixed(2)})`
-                        : " (free)"}
-                    </button>
-                  )}
-                  {item.localDeliveryAvailable && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFulfillmentType("local_delivery");
-                        setLocalDeliveryModalOpen(true);
-                      }}
-                      className={`border rounded px-3 py-1.5 text-sm ${
-                        fulfillmentType === "local_delivery"
-                          ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                          : "border-gray-300 hover:border-gray-400"
-                      }`}
-                    >
-                      Deliver Locally
-                      {item.localDeliveryFeeCents != null && item.localDeliveryFeeCents > 0
-                        ? ` ($${(item.localDeliveryFeeCents / 100).toFixed(2)})`
-                        : " (No Fee)"}
-                    </button>
-                  )}
-                  {item.inStorePickupAvailable && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFulfillmentType("pickup");
-                        setPickupModalOpen(true);
-                      }}
-                      className={`border rounded px-3 py-1.5 text-sm ${
-                        fulfillmentType === "pickup"
-                          ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                          : "border-gray-300 hover:border-gray-400"
-                      }`}
-                    >
-                      Arrange Pickup (No Fee)
-                    </button>
-                  )}
-                </div>
-                {fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved && (
-                  <p className="text-amber-600 text-sm">
-                    Complete delivery details and agree to terms below to add to cart.
-                  </p>
-                )}
-                {fulfillmentType === "pickup" && !pickupDetailsSaved && (
-                  <p className="text-amber-600 text-sm">
-                    Complete the Pick Up Form below to add to cart.
-                  </p>
-                )}
-              </div>
-            )}
+            <StoreItemFulfillmentPicker
+              fulfillmentType={fulfillmentType}
+              onFulfillmentTypeChange={setFulfillmentType}
+              shippingDisabled={item.shippingDisabled}
+              localDeliveryAvailable={item.localDeliveryAvailable}
+              inStorePickupAvailable={item.inStorePickupAvailable}
+              shippingCostCents={item.shippingCostCents}
+              localDeliveryFeeCents={item.localDeliveryFeeCents}
+              localDeliveryDetailsSaved={localDeliveryDetailsSaved}
+              pickupDetailsSaved={pickupDetailsSaved}
+            />
             {(!item.shippingDisabled && !item.localDeliveryAvailable && !item.inStorePickupAvailable) && (
               <>
                 {item.shippingCostCents != null && item.shippingCostCents > 0 ? (
@@ -1140,7 +1083,7 @@ export default function ResaleProductDetailPage() {
                   <div key={vi}>
                     <label className="block text-sm font-medium mb-1">{v.name} *</label>
                     <div className="flex flex-wrap gap-2">
-                      {v.options.map((opt) => (
+                      {variantOptionLabels(v).map((opt) => (
                         <button
                           key={opt}
                           type="button"
@@ -1163,78 +1106,52 @@ export default function ResaleProductDetailPage() {
             )}
             {!itemUnavailable && (
               <>
-                {itemQuantity > 1 && (
-                  <div className="mt-6">
-                    <label className="block text-sm font-medium mb-1">Quantity *</label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                        className="w-10 h-10 border rounded flex items-center justify-center text-lg"
-                      >
-                        −
-                      </button>
-                      <input
-                        type="number"
-                        min={1}
-                        max={itemQuantity}
-                        value={quantity}
-                        onChange={(e) =>
-                          setQuantity(
-                            Math.max(1, Math.min(itemQuantity, parseInt(e.target.value, 10) || 1))
-                          )
-                        }
-                        className="border rounded px-3 py-2 w-20 text-center"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setQuantity(Math.min(itemQuantity, quantity + 1))}
-                        className="w-10 h-10 border rounded flex items-center justify-center text-lg"
-                      >
-                        +
-                      </button>
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">{itemQuantity} in stock</p>
-                  </div>
-                )}
+                <StoreItemQuantityStepper
+                  quantity={quantity}
+                  maxQuantity={itemQuantity}
+                  onChange={setQuantity}
+                />
                 {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-                {fulfillmentType === "local_delivery" && !canAddToCart && (
-                  <p className="text-amber-600 text-sm mt-1">Complete delivery details and agree to terms.</p>
-                )}
-                {fulfillmentType === "pickup" && !canAddToCart && (
-                  <p className="text-amber-600 text-sm mt-1">Complete the Pick Up Form.</p>
-                )}
-                {/* Stacked action buttons – same width */}
                 <div className="mt-6 space-y-3 max-w-sm">
                   {status === "loading" ? (
                     <p className="text-gray-500">Loading…</p>
                   ) : session?.user ? (
                     <>
-                      <button
-                        type="button"
+                      {showBuyerActions && (
+                        <div className="flex flex-wrap gap-2">
+                          <StoreItemIconActionButton
+                            icon="chatbubble-outline"
+                            label="Message Seller"
+                            onClick={() => {
+                              setMakeOfferOpen(false);
+                              setMessageSellerOpen(true);
+                            }}
+                          />
+                          {showSendOfferButton && (
+                            <StoreItemIconActionButton
+                              icon="pricetag-outline"
+                              label="Send Offer"
+                              onClick={openSendOfferModal}
+                            />
+                          )}
+                        </div>
+                      )}
+                      <StoreItemAddToCartButton
                         onClick={handleAddToCart}
-                        disabled={addingToCart || itemQuantity < 1 || !allVariantsSelected || !canAddToCart}
-                        className="btn disabled:opacity-50 w-full py-2.5"
-                      >
-                        {addingToCart ? "Adding…" : "Add to Cart"}
-                      </button>
+                        disabled={itemQuantity < 1 || !allVariantsSelected}
+                        loading={addingToCart}
+                        needsFulfillmentForm={needsFulfillmentForm}
+                      />
                       <button
                         type="button"
                         onClick={handleCheckout}
-                        disabled={checkingOut || itemQuantity < 1 || !allVariantsSelected || !canAddToCart}
+                        disabled={
+                          checkingOut || itemQuantity < 1 || !allVariantsSelected
+                        }
                         className="btn border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 w-full py-2.5"
                       >
                         {checkingOut ? "Redirecting…" : "Buy It Now"}
                       </button>
-                      {showBuyerActions && item.acceptOffers !== false && (
-                        <button
-                          type="button"
-                          onClick={() => setMakeOfferOpen(true)}
-                          className="btn border border-gray-300 bg-white hover:bg-gray-50 w-full py-2.5"
-                        >
-                          Make an Offer
-                        </button>
-                      )}
                     </>
                   ) : (
                     <Link
@@ -1245,29 +1162,6 @@ export default function ResaleProductDetailPage() {
                     </Link>
                   )}
                 </div>
-
-                {/* Message Seller – mini section in green box */}
-                {showBuyerActions && (
-                  <div
-                    className="mt-6 rounded-lg border-2 p-4"
-                    style={{ borderColor: "var(--color-primary)" }}
-                  >
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Send Message to Seller</label>
-                    <form onSubmit={handleMessageSeller} className="space-y-2">
-                      <textarea
-                        value={messageContent}
-                        onChange={(e) => setMessageContent(e.target.value)}
-                        className="w-full border rounded px-3 py-2 text-sm min-h-[80px]"
-                        rows={3}
-                        placeholder="Ask a question about this item..."
-                      />
-                      {messageError && <p className="text-red-600 text-sm">{messageError}</p>}
-                      <button type="submit" disabled={messageSubmitting} className="btn text-sm py-2">
-                        {messageSubmitting ? "Sending…" : "Send"}
-                      </button>
-                    </form>
-                  </div>
-                )}
 
                 <p className="text-sm text-gray-500 mt-2">
                   Earn {pointsEarned} Community Points with this purchase

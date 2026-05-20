@@ -8,7 +8,7 @@ const IONICON_CDN = "https://unpkg.com/ionicons@7.1.0/dist/svg";
  * Renders an Ionicons icon via CSS mask (same icon set as the mobile app).
  * Use for hub pages to match app layout. Inherits color from parent or use className.
  */
-export function IonIcon({
+export const IonIcon = React.memo(function IonIcon({
   name,
   size = 28,
   className = "",
@@ -43,4 +43,4 @@ export function IonIcon({
       }}
     />
   );
-}
+});

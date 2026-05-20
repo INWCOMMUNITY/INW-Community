@@ -210,6 +210,35 @@ export function sumOptionQuantities(variants: unknown): number {
   return sum;
 }
 
+/** Option labels for one variant row (string[] or { value, quantity }[]). */
+export function variantOptionLabels(v: { name?: string; options?: unknown }): string[] {
+  const opts = v?.options;
+  if (!Array.isArray(opts)) return [];
+  return opts
+    .map((o) => {
+      if (isOptionWithQty(o)) return String((o as VariantOptionWithQty).value).trim();
+      if (o != null) return String(o).trim();
+      return "";
+    })
+    .filter(Boolean);
+}
+
+/** True when selectedVariant satisfies every variant axis on the listing. */
+export function allVariantAxesSelected(
+  variants: unknown,
+  selectedVariant: Record<string, string>
+): boolean {
+  if (!variants || !Array.isArray(variants) || variants.length === 0) return true;
+  return (variants as { name?: string; options?: unknown }[]).every((v) => {
+    const name = v.name?.trim();
+    if (!name) return true;
+    const sel = selectedVariant[name];
+    if (!sel?.trim()) return false;
+    const labels = variantOptionLabels(v);
+    return labels.some((l) => l.toLowerCase() === sel.trim().toLowerCase());
+  });
+}
+
 /** Normalize options to { value, quantity }[] for API output; legacy string[] options become quantity 0 so UI can show them. */
 export function getOptionValuesForDisplay(variants: unknown): string[] {
   if (!variants || !Array.isArray(variants)) return [];

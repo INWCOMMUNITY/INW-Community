@@ -267,8 +267,8 @@ export function StorefrontGallery({
 
   useEffect(() => {
     if (!searchParams) return;
-    const local = searchParams.get("localDelivery");
-    const ship = searchParams.get("shippingOnly");
+    const local = searchParams?.get("localDelivery");
+    const ship = searchParams?.get("shippingOnly");
     if (local === "1") setDeliveryFilter("local");
     else if (ship === "1") setDeliveryFilter("shipping");
   }, [searchParams]);

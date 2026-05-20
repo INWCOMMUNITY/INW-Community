@@ -181,7 +181,7 @@ function GroupAdminHubContent() {
   }, [loadData]);
 
   useEffect(() => {
-    if (searchParams.get("adminInvite") !== "1" || inviteHandledRef.current) return;
+    if (searchParams?.get("adminInvite") !== "1" || inviteHandledRef.current) return;
     inviteHandledRef.current = true;
     void (async () => {
       try {

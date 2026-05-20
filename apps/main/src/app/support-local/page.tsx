@@ -61,8 +61,8 @@ export default async function SupportLocalPage() {
         </div>
       </section>
 
-      <section className="py-6 lg:py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-        <div className="max-w-[var(--max-width)] mx-auto">
+      <section className="max-lg:!p-0 max-lg:overflow-x-hidden max-lg:min-h-[100dvh] py-6 px-4 lg:py-12 lg:px-6">
+        <div className="max-w-[var(--max-width)] mx-auto max-lg:max-w-none max-lg:mx-0">
           <SupportLocalGallery />
         </div>
       </section>

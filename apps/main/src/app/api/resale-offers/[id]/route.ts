@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
-import { scheduleResaleOfferThreadLiveUpdate } from "@/lib/resale-offer-thread-live";
+import { finalizeResaleOfferThreadAfterOfferChange } from "@/lib/resale-offer-thread-live";
+import { resaleOfferExceedsListPriceMessage } from "@/lib/resale-offer-list-price";
 import { z } from "zod";
 
 const patchBodySchema = z.object({
@@ -145,6 +146,7 @@ export async function PATCH(
         select: {
           memberId: true,
           quantity: true,
+          priceCents: true,
           shippingDisabled: true,
           localDeliveryAvailable: true,
           inStorePickupAvailable: true,
@@ -177,6 +179,10 @@ export async function PATCH(
       if (typeof final !== "number" || final < 1) {
         return NextResponse.json({ error: "Invalid counter offer amount" }, { status: 400 });
       }
+      const overList = resaleOfferExceedsListPriceMessage(final, offer.storeItem.priceCents);
+      if (overList) {
+        return NextResponse.json({ error: overList }, { status: 400 });
+      }
       try {
         await placeAcceptedOfferInBuyerCart(
           {
@@ -194,8 +200,13 @@ export async function PATCH(
         throw err;
       }
       const updated = await prisma.resaleOffer.findUnique({ where: { id } });
-      scheduleResaleOfferThreadLiveUpdate(id);
-      return NextResponse.json(updated);
+      if (!updated) {
+        return NextResponse.json({ error: "Offer not found" }, { status: 404 });
+      }
+      const resaleThreadUpdate = await finalizeResaleOfferThreadAfterOfferChange(id, userId);
+      return NextResponse.json(
+        resaleThreadUpdate ? { ...updated, resaleThreadUpdate } : updated
+      );
     }
     const updated = await prisma.resaleOffer.update({
       where: { id },
@@ -204,8 +215,10 @@ export async function PATCH(
         respondedAt: new Date(),
       },
     });
-    scheduleResaleOfferThreadLiveUpdate(id);
-    return NextResponse.json(updated);
+    const resaleThreadUpdate = await finalizeResaleOfferThreadAfterOfferChange(id, userId);
+    return NextResponse.json(
+      resaleThreadUpdate ? { ...updated, resaleThreadUpdate } : updated
+    );
   }
 
   if (!isSeller) {
@@ -231,9 +244,17 @@ export async function PATCH(
         { status: 400 }
       );
     }
+    const overCounter = resaleOfferExceedsListPriceMessage(data.counterAmountCents, offer.storeItem.priceCents);
+    if (overCounter) {
+      return NextResponse.json({ error: overCounter }, { status: 400 });
+    }
   }
 
   if (data.status === "accepted") {
+    const overBuyerOffer = resaleOfferExceedsListPriceMessage(offer.amountCents, offer.storeItem.priceCents);
+    if (overBuyerOffer) {
+      return NextResponse.json({ error: overBuyerOffer }, { status: 400 });
+    }
     try {
       await placeAcceptedOfferInBuyerCart(
         {
@@ -251,8 +272,13 @@ export async function PATCH(
       throw err;
     }
     const updated = await prisma.resaleOffer.findUnique({ where: { id } });
-    scheduleResaleOfferThreadLiveUpdate(id);
-    return NextResponse.json(updated);
+    if (!updated) {
+      return NextResponse.json({ error: "Offer not found" }, { status: 404 });
+    }
+    const resaleThreadUpdateAccept = await finalizeResaleOfferThreadAfterOfferChange(id, userId);
+    return NextResponse.json(
+      resaleThreadUpdateAccept ? { ...updated, resaleThreadUpdate: resaleThreadUpdateAccept } : updated
+    );
   }
 
   const updated = await prisma.resaleOffer.update({
@@ -264,6 +290,8 @@ export async function PATCH(
       respondedAt: new Date(),
     },
   });
-  scheduleResaleOfferThreadLiveUpdate(id);
-  return NextResponse.json(updated);
+  const resaleThreadUpdateSeller = await finalizeResaleOfferThreadAfterOfferChange(id, userId);
+  return NextResponse.json(
+    resaleThreadUpdateSeller ? { ...updated, resaleThreadUpdate: resaleThreadUpdateSeller } : updated
+  );
 }

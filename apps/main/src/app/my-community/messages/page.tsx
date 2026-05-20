@@ -38,6 +38,7 @@ interface ResaleConversation {
     photos: string[];
     acceptOffers?: boolean;
     minOfferCents?: number | null;
+    priceCents?: number | null;
     listingType?: string;
     status?: string;
     quantity?: number;
@@ -164,6 +165,19 @@ function parseUsdToCents(s: string): number | null {
   const n = parseFloat(String(s).replace(/[^0-9.]/g, ""));
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n * 100);
+}
+
+function isResaleNegotiationHistoryContent(content: string): boolean {
+  const t = content.trim();
+  if (!t) return false;
+  if (t.startsWith("Offer:")) return true;
+  if (t.startsWith("Counter:")) return true;
+  if (t === "Offer accepted" || t.startsWith("Offer accepted")) return true;
+  if (t === "Offer declined") return true;
+  if (t === "Accepted counter offer") return true;
+  if (t === "Declined counter offer") return true;
+  if (t === "Offer updated") return true;
+  return false;
 }
 
 function livePayloadOfferToSnap(o: NonNullable<LiveSocketMessagePayload["resaleOffer"]>): ResaleOfferSnap {
@@ -368,9 +382,33 @@ export default function MyCommunityMessagesPage() {
         acceptedAt: p.resaleOffer.acceptedAt,
         checkoutDeadlineAt: p.resaleOffer.checkoutDeadlineAt,
       };
+      const detach = p.detachOfferFromMessageIds ?? [];
+      let messages = prev.messages.map((m) => {
+        const mid = (m as { id?: string }).id;
+        if (mid && detach.includes(mid)) {
+          return { ...m, resaleOffer: undefined };
+        }
+        return m;
+      });
+      if (p.newThreadMessage) {
+        const nm = p.newThreadMessage;
+        const ro = nm.resaleOffer ? livePayloadOfferToSnap(nm.resaleOffer) : undefined;
+        const row = {
+          id: nm.messageId,
+          content: nm.content,
+          createdAt: nm.createdAt,
+          senderId: nm.senderId,
+          sender: nm.sender ?? { id: nm.senderId, firstName: "", lastName: "" },
+          resaleOffer: ro,
+        };
+        const withoutDup = messages.filter((m) => (m as { id?: string }).id !== nm.messageId);
+        return { ...prev, messages: [...withoutDup, row] };
+      }
       return {
         ...prev,
-        messages: prev.messages.map((m) => ((m as { id?: string }).id === p.messageId ? { ...m, resaleOffer: snap } : m)),
+        messages: messages.map((m) =>
+          (m as { id?: string }).id === p.messageId ? { ...m, resaleOffer: snap } : m
+        ),
       };
     });
   }, []);
@@ -821,6 +859,11 @@ export default function MyCommunityMessagesPage() {
       alert(`Offer must be at least ${formatUsdFromCents(minC)}.`);
       return;
     }
+    const listC = openResale.storeItem.priceCents;
+    if (listC != null && listC > 0 && amountCents > listC) {
+      alert(`Offer cannot exceed the listing price (${formatUsdFromCents(listC)}).`);
+      return;
+    }
     setResaleOfferSubmitting(true);
     try {
       const res = await fetch("/api/resale-offers", {
@@ -849,10 +892,15 @@ export default function MyCommunityMessagesPage() {
   }
 
   async function submitWebCounter() {
-    if (!resaleCounterOfferId) return;
+    if (!resaleCounterOfferId || !openResale) return;
     const cents = parseUsdToCents(resaleCounterDollars);
     if (cents == null || cents < 1) {
       alert("Enter a valid counter amount.");
+      return;
+    }
+    const listC = openResale.storeItem.priceCents;
+    if (listC != null && listC > 0 && cents > listC) {
+      alert(`Counter cannot exceed the listing price (${formatUsdFromCents(listC)}).`);
       return;
     }
     setResaleCounterModalOpen(false);
@@ -1676,6 +1724,94 @@ export default function MyCommunityMessagesPage() {
                   };
                   const isMe = Boolean(session?.user?.id && msg.senderId === session.user.id);
                   const ro = msg.resaleOffer;
+
+                  if (!ro && typeof m.content === "string" && isResaleNegotiationHistoryContent(m.content)) {
+                    return (
+                      <div key={msg.id ?? `idx-${i}`} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+                        <details className="group max-w-[85%] rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 shadow-sm">
+                          <summary className="cursor-pointer list-none flex items-start gap-2 text-xs font-semibold text-gray-600 [&::-webkit-details-marker]:hidden">
+                            <IonIcon
+                              name="chevron-down-outline"
+                              size={14}
+                              className="shrink-0 mt-0.5 opacity-70 transition-transform group-open:rotate-180"
+                            />
+                            <span className="line-clamp-2 break-words">{m.content}</span>
+                          </summary>
+                          <div className="mt-2 pt-2 border-t border-gray-200 text-sm text-[var(--color-heading)] whitespace-pre-wrap">
+                            {m.content}
+                          </div>
+                        </details>
+                      </div>
+                    );
+                  }
+
+                  const sellerCounterOfferCard = Boolean(
+                    ro &&
+                      ro.status === "countered" &&
+                      msg.senderId &&
+                      openResale.seller.id === msg.senderId
+                  );
+                  if (ro && sellerCounterOfferCard) {
+                    const busy = resaleOfferBusyId === ro.id;
+                    const isBuyer = Boolean(session?.user?.id && openResale.buyer.id === session.user.id);
+                    return (
+                      <div key={msg.id ?? `idx-${i}`} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+                        <div
+                          className={`max-w-[85%] rounded-2xl border-2 border-black px-3 py-3 ${isMe ? "rounded-br-md" : "rounded-bl-md"}`}
+                          style={
+                            isMe
+                              ? { backgroundColor: "var(--color-primary)", color: "#fff" }
+                              : { backgroundColor: "var(--color-section-alt)" }
+                          }
+                        >
+                          <div className="flex items-center gap-2 text-sm font-bold opacity-90">
+                            <IonIcon name="swap-horizontal-outline" size={18} className={isMe ? "text-white" : ""} />
+                            <span>Counter offer</span>
+                          </div>
+                          <p className={`text-xl font-extrabold mt-1 ${isMe ? "text-white" : "text-[var(--color-heading)]"}`}>
+                            {formatUsdFromCents(ro.counterAmountCents ?? ro.amountCents)}
+                          </p>
+                          <p className={`text-sm mt-2 font-semibold ${isMe ? "text-white" : "text-[var(--color-heading)]"}`}>
+                            Their offer: {formatUsdFromCents(ro.amountCents)}
+                          </p>
+                          <p className={`text-xs font-semibold mt-1 ${isMe ? "text-white/90" : "text-gray-600"}`}>
+                            {isBuyer ? "Awaiting your response" : "Waiting for the buyer"}
+                          </p>
+                          {isBuyer ? (
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                className="text-sm font-bold px-3 py-1.5 rounded-lg bg-white text-black border-2 border-black disabled:opacity-50"
+                                onClick={async () => {
+                                  await patchWebResaleOffer(ro.id, { status: "accepted" });
+                                  if (session?.user?.id === openResale.buyer.id) {
+                                    alert(
+                                      "Offer accepted. This item was added to your cart at the agreed price. You have 24 hours to check out."
+                                    );
+                                  }
+                                }}
+                              >
+                                {busy ? "…" : "Accept counter"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                className="text-sm font-bold px-3 py-1.5 rounded-lg border-2 border-black text-[var(--color-heading)] disabled:opacity-50"
+                                onClick={() => {
+                                  if (confirm("Decline this counter offer?")) {
+                                    void patchWebResaleOffer(ro.id, { status: "declined" });
+                                  }
+                                }}
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  }
                   if (ro) {
                     const busy = resaleOfferBusyId === ro.id;
                     const isSeller = Boolean(session?.user?.id && openResale.seller.id === session.user.id);
@@ -1700,7 +1836,7 @@ export default function MyCommunityMessagesPage() {
                           <p className={`text-xs font-semibold capitalize mt-1 ${isMe ? "text-white/90" : "text-gray-600"}`}>
                             {ro.status}
                           </p>
-                          {ro.status === "countered" && ro.counterAmountCents != null ? (
+                          {ro.status === "countered" && ro.counterAmountCents != null && msg.senderId !== openResale.seller.id ? (
                             <p className={`text-sm mt-2 font-semibold ${isMe ? "text-white" : "text-[var(--color-heading)]"}`}>
                               Seller counter: {formatUsdFromCents(ro.counterAmountCents)}
                             </p>
@@ -1748,7 +1884,7 @@ export default function MyCommunityMessagesPage() {
                               </button>
                             </div>
                           ) : null}
-                          {isBuyer && ro.status === "countered" ? (
+                          {isBuyer && ro.status === "countered" && msg.senderId !== openResale.seller.id ? (
                             <div className="flex flex-wrap gap-2 mt-3">
                               <button
                                 type="button"

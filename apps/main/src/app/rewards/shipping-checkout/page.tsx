@@ -6,7 +6,7 @@ import Link from "next/link";
 
 function RewardShippingCheckoutInner() {
   const searchParams = useSearchParams();
-  const redemptionId = searchParams.get("redemptionId") ?? "";
+  const redemptionId = searchParams?.get("redemptionId") ?? "";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<{

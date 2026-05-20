@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 
@@ -45,26 +45,29 @@ export function LocalDeliveryModal({
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [validationError, setValidationError] = useState("");
 
+  const initialFormRef = useRef(initialForm);
+  initialFormRef.current = initialForm;
+
   useEffect(() => {
-    if (open) {
-      setForm({
-        firstName: initialForm?.firstName ?? "",
-        lastName: initialForm?.lastName ?? "",
-        phone: initialForm?.phone ?? "",
-        email: initialForm?.email ?? "",
-        deliveryAddress: {
-          street: initialForm?.deliveryAddress?.street ?? "",
-          city: initialForm?.deliveryAddress?.city ?? "",
-          state: initialForm?.deliveryAddress?.state ?? "",
-          zip: initialForm?.deliveryAddress?.zip ?? "",
-        },
-        availableDropOffTimes: initialForm?.availableDropOffTimes ?? "",
-        note: initialForm?.note ?? "",
-      });
-      setTermsAccepted(false);
-      setValidationError("");
-    }
-  }, [open, initialForm]);
+    if (!open) return;
+    const f = initialFormRef.current;
+    setForm({
+      firstName: f?.firstName ?? "",
+      lastName: f?.lastName ?? "",
+      phone: f?.phone ?? "",
+      email: f?.email ?? "",
+      deliveryAddress: {
+        street: f?.deliveryAddress?.street ?? "",
+        city: f?.deliveryAddress?.city ?? "",
+        state: f?.deliveryAddress?.state ?? "",
+        zip: f?.deliveryAddress?.zip ?? "",
+      },
+      availableDropOffTimes: f?.availableDropOffTimes ?? "",
+      note: f?.note ?? "",
+    });
+    setTermsAccepted(false);
+    setValidationError("");
+  }, [open]);
 
   useLockBodyScroll(open);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 
@@ -45,21 +45,24 @@ export function PickupTermsModal({
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [validationError, setValidationError] = useState("");
 
+  const initialFormRef = useRef(initialForm);
+  initialFormRef.current = initialForm;
+
   useEffect(() => {
-    if (open) {
-      setForm({
-        firstName: initialForm?.firstName ?? "",
-        lastName: initialForm?.lastName ?? "",
-        phone: initialForm?.phone ?? "",
-        email: initialForm?.email ?? "",
-        preferredPickupDate: initialForm?.preferredPickupDate ?? "",
-        preferredPickupTime: initialForm?.preferredPickupTime ?? "",
-        note: initialForm?.note ?? "",
-      });
-      setTermsAccepted(!!initialForm?.termsAcceptedAt);
-      setValidationError("");
-    }
-  }, [open, initialForm]);
+    if (!open) return;
+    const f = initialFormRef.current;
+    setForm({
+      firstName: f?.firstName ?? "",
+      lastName: f?.lastName ?? "",
+      phone: f?.phone ?? "",
+      email: f?.email ?? "",
+      preferredPickupDate: f?.preferredPickupDate ?? "",
+      preferredPickupTime: f?.preferredPickupTime ?? "",
+      note: f?.note ?? "",
+    });
+    setTermsAccepted(!!f?.termsAcceptedAt);
+    setValidationError("");
+  }, [open]);
 
   useLockBodyScroll(open);
 

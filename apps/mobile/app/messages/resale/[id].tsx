@@ -39,6 +39,42 @@ import {
   type ChatTypingPeer,
 } from "@/components/ChatTypingRow";
 
+/** System / thread lines from offer lifecycle (no longer the active offer row). */
+function isResaleNegotiationHistoryContent(content: string): boolean {
+  const t = content.trim();
+  if (!t) return false;
+  if (t.startsWith("Offer:")) return true;
+  if (t.startsWith("Counter:")) return true;
+  if (t === "Offer accepted" || t.startsWith("Offer accepted")) return true;
+  if (t === "Offer declined") return true;
+  if (t === "Accepted counter offer") return true;
+  if (t === "Declined counter offer") return true;
+  if (t === "Offer updated") return true;
+  return false;
+}
+
+function CollapsedNegotiationHistoryRow({ content, isMe }: { content: string; isMe: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={[styles.bubbleWrap, isMe && styles.bubbleWrapMe]}>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        style={[styles.negotiationHistoryRow, isMe && styles.negotiationHistoryRowMe]}
+        accessibilityRole="button"
+        accessibilityLabel={open ? "Hide earlier negotiation step" : "Show earlier negotiation step"}
+      >
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={isMe ? "#fff" : theme.colors.primary} />
+        <Text
+          style={[styles.negotiationHistoryText, isMe && styles.negotiationHistoryTextMe]}
+          numberOfLines={open ? undefined : 1}
+        >
+          {content}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function formatPriceCents(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
@@ -226,11 +262,48 @@ export default function ResaleConversationScreen() {
       setConv((prev) => {
         if (!prev) return prev;
         const snap = snapshotFromLiveOffer(p.resaleOffer);
-        const nextMessages = prev.messages.map((m) => {
-          if (m.id !== p.messageId) return m;
-          return { ...m, resaleOfferId: snap.id, resaleOffer: snap };
+        const detach = p.detachOfferFromMessageIds ?? [];
+        let messages = prev.messages.map((m) => {
+          if (detach.includes(m.id)) {
+            return { ...m, resaleOfferId: null, resaleOffer: undefined };
+          }
+          return m;
         });
-        const next = { ...prev, messages: nextMessages };
+        if (p.newThreadMessage) {
+          const nm = p.newThreadMessage;
+          if (!messages.some((m) => m.id === nm.messageId)) {
+            messages = [
+              ...messages,
+              {
+                id: nm.messageId,
+                content: nm.content,
+                createdAt: nm.createdAt,
+                senderId: nm.senderId,
+                resaleOfferId: snap.id,
+                sender: nm.sender
+                  ? {
+                      id: nm.sender.id,
+                      firstName: nm.sender.firstName,
+                      lastName: nm.sender.lastName,
+                      profilePhotoUrl: nm.sender.profilePhotoUrl ?? null,
+                    }
+                  : { id: nm.senderId, firstName: "", lastName: "", profilePhotoUrl: null },
+                resaleOffer: snap,
+              },
+            ];
+          } else {
+            messages = messages.map((m) =>
+              m.id === nm.messageId
+                ? { ...m, content: nm.content, resaleOfferId: snap.id, resaleOffer: snap }
+                : m
+            );
+          }
+        } else {
+          messages = messages.map((m) =>
+            m.id === p.messageId ? { ...m, resaleOfferId: snap.id, resaleOffer: snap } : m
+          );
+        }
+        const next = { ...prev, messages };
         if (
           p.resaleOffer.status === "accepted" &&
           prev.buyer.id === member.id &&
@@ -250,8 +323,11 @@ export default function ResaleConversationScreen() {
         }
         return next;
       });
+      queueMicrotask(() => {
+        requestAnimationFrame(() => flatListRef.current?.scrollToEnd({ animated: true }));
+      });
     },
-    [convId, member?.id, router]
+    [convId, member?.id, router, flatListRef]
   );
 
   const {
@@ -387,12 +463,64 @@ export default function ResaleConversationScreen() {
     async (offerId: string, body: Record<string, unknown>, successLabel?: string) => {
       setOfferActionLoading(offerId);
       try {
-        const updated = await apiPatch<ResaleOfferSnapshot & { id: string }>(
+        type ThreadMsg = NonNullable<ResaleConversation["messages"]>[number];
+        type PatchOfferResponse = ResaleOfferSnapshot & {
+          id: string;
+          resaleThreadUpdate?: {
+            detachFromMessageIds: string[];
+            message: ThreadMsg;
+          } | null;
+        };
+        const updated = await apiPatch<PatchOfferResponse>(
           `/api/resale-offers/${encodeURIComponent(offerId)}`,
           body
         );
         setConv((prev) => {
           if (!prev) return prev;
+          const tu = updated.resaleThreadUpdate;
+          if (tu?.message && Array.isArray(tu.detachFromMessageIds)) {
+            const detach = tu.detachFromMessageIds;
+            const newMsg = tu.message;
+            const ro = newMsg.resaleOffer;
+            const rest = prev.messages
+              .filter((m) => m.id !== newMsg.id)
+              .map((m) =>
+                detach.includes(m.id) ? { ...m, resaleOfferId: null, resaleOffer: undefined } : m
+              );
+            if (!ro) {
+              return { ...prev, messages: rest };
+            }
+            const snap: ResaleOfferSnapshot = {
+              id: ro.id,
+              status: ro.status,
+              amountCents: ro.amountCents,
+              counterAmountCents: ro.counterAmountCents ?? null,
+              finalAmountCents: ro.finalAmountCents ?? null,
+              respondedAt: ro.respondedAt ?? null,
+              acceptedAt: ro.acceptedAt ?? null,
+              checkoutDeadlineAt: ro.checkoutDeadlineAt ?? null,
+            };
+            return {
+              ...prev,
+              messages: [
+                ...rest,
+                {
+                  id: newMsg.id,
+                  content: newMsg.content,
+                  createdAt: newMsg.createdAt,
+                  senderId: newMsg.senderId,
+                  resaleOfferId: newMsg.resaleOfferId ?? ro.id,
+                  sender: newMsg.sender ?? {
+                    id: newMsg.senderId,
+                    firstName: "",
+                    lastName: "",
+                    profilePhotoUrl: null,
+                  },
+                  resaleOffer: snap,
+                },
+              ],
+            };
+          }
           return {
             ...prev,
             messages: prev.messages.map((m) =>
@@ -414,6 +542,11 @@ export default function ResaleConversationScreen() {
             ),
           };
         });
+        if (updated.resaleThreadUpdate?.message) {
+          queueMicrotask(() => {
+            requestAnimationFrame(() => flatListRef.current?.scrollToEnd({ animated: true }));
+          });
+        }
         if (successLabel === "buyer_accepted_counter" && member?.id === conv?.buyer.id) {
           if (!offerAcceptedAlertShownRef.current.has(offerId)) {
             offerAcceptedAlertShownRef.current.add(offerId);
@@ -434,7 +567,7 @@ export default function ResaleConversationScreen() {
         setOfferActionLoading(null);
       }
     },
-    [member?.id, conv?.buyer.id, router]
+    [member?.id, conv?.buyer.id, router, flatListRef]
   );
 
   const submitOfferFromChat = async () => {
@@ -448,6 +581,11 @@ export default function ResaleConversationScreen() {
     const minC = conv.storeItem.minOfferCents;
     if (minC != null && minC > 0 && amountCents < minC) {
       Alert.alert("Too low", `Offer must be at least ${formatPriceCents(minC)}.`);
+      return;
+    }
+    const listC = conv.storeItem.priceCents;
+    if (listC != null && listC > 0 && amountCents > listC) {
+      Alert.alert("Too high", `Your offer cannot exceed the listing price of ${formatPriceCents(listC)}.`);
       return;
     }
     const preview = `Offer: ${formatPriceCents(amountCents)}`;
@@ -613,10 +751,15 @@ export default function ResaleConversationScreen() {
   };
 
   const submitCounterOffer = useCallback(async () => {
-    if (!counterOfferId) return;
+    if (!counterOfferId || !conv) return;
     const cents = parseOfferDollarsToCents(counterDollars);
     if (cents == null || cents < 1) {
       Alert.alert("Invalid amount", "Enter a valid counter amount.");
+      return;
+    }
+    const listC = conv.storeItem.priceCents;
+    if (listC != null && listC > 0 && cents > listC) {
+      Alert.alert("Too high", `Counter cannot exceed the listing price of ${formatPriceCents(listC)}.`);
       return;
     }
     setCounterModalOpen(false);
@@ -624,7 +767,7 @@ export default function ResaleConversationScreen() {
     setCounterOfferId(null);
     setCounterDollars("");
     await patchOfferOnServer(oid, { status: "countered", counterAmountCents: cents });
-  }, [counterOfferId, counterDollars, patchOfferOnServer]);
+  }, [counterOfferId, counterDollars, conv, patchOfferOnServer]);
 
   const send = async () => {
     if (!conv || !message.trim() || !member?.id) return;
@@ -718,7 +861,7 @@ export default function ResaleConversationScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      keyboardVerticalOffset={0}
     >
       <View style={styles.chatTopChrome}>
         <View style={[styles.headerGreen, { paddingTop: insets.top + 28 }]}>
@@ -851,6 +994,10 @@ export default function ResaleConversationScreen() {
           const ro = item.resaleOffer;
           const busy = ro ? offerActionLoading === ro.id : false;
 
+          if (!ro && item.content && isResaleNegotiationHistoryContent(item.content)) {
+            return <CollapsedNegotiationHistoryRow content={item.content} isMe={isMe} />;
+          }
+
           const statusLabel =
             ro?.status === "pending"
               ? "Pending"
@@ -861,6 +1008,63 @@ export default function ResaleConversationScreen() {
                   : ro?.status === "countered"
                     ? "Countered"
                     : ro?.status ?? "";
+
+          /** Latest seller counter: its own “counter offer” card (current round). */
+          const sellerCounterOfferCard = Boolean(
+            ro && conv && ro.status === "countered" && item.senderId === conv.seller.id
+          );
+
+          if (ro && sellerCounterOfferCard) {
+            return (
+              <View style={[styles.bubbleWrap, isMe && styles.bubbleWrapMe]}>
+                <View style={[styles.offerCard, isMe ? styles.offerCardMe : styles.offerCardThem]}>
+                  <View style={styles.offerCardHeader}>
+                    <Ionicons name="swap-horizontal" size={18} color={isMe ? "#fff" : theme.colors.primary} />
+                    <Text style={[styles.offerCardTitle, isMe && styles.offerCardTitleMe]}>Counter offer</Text>
+                  </View>
+                  <Text style={[styles.offerAmount, isMe && styles.offerAmountMe]}>
+                    {formatPriceCents(ro.counterAmountCents ?? ro.amountCents)}
+                  </Text>
+                  <Text style={[styles.offerCounterLine, isMe && styles.offerCounterLineMe]}>
+                    Their offer: {formatPriceCents(ro.amountCents)}
+                  </Text>
+                  <Text style={[styles.offerStatus, isMe && styles.offerStatusMe]}>
+                    {viewerIsBuyer ? "Awaiting your response" : "Waiting for the buyer"}
+                  </Text>
+
+                  {viewerIsBuyer ? (
+                    <View style={styles.offerActions}>
+                      <Pressable
+                        style={[styles.offerBtn, styles.offerBtnPrimary]}
+                        disabled={busy}
+                        onPress={() =>
+                          void patchOfferOnServer(ro.id, { status: "accepted" }, "buyer_accepted_counter")
+                        }
+                      >
+                        <Text style={styles.offerBtnPrimaryText}>{busy ? "…" : "Accept counter"}</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.offerBtn, styles.offerBtnGhost]}
+                        disabled={busy}
+                        onPress={() => {
+                          Alert.alert("Decline counter?", "The seller will be notified.", [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Decline",
+                              style: "destructive",
+                              onPress: () => void patchOfferOnServer(ro.id, { status: "declined" }),
+                            },
+                          ]);
+                        }}
+                      >
+                        <Text style={styles.offerBtnGhostText}>Decline</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            );
+          }
 
           if (ro) {
             return (
@@ -874,7 +1078,10 @@ export default function ResaleConversationScreen() {
                     {formatPriceCents(ro.amountCents)}
                   </Text>
                   <Text style={[styles.offerStatus, isMe && styles.offerStatusMe]}>{statusLabel}</Text>
-                  {ro.status === "countered" && ro.counterAmountCents != null ? (
+                  {ro.status === "countered" &&
+                  ro.counterAmountCents != null &&
+                  conv &&
+                  item.senderId !== conv.seller.id ? (
                     <Text style={[styles.offerCounterLine, isMe && styles.offerCounterLineMe]}>
                       Seller counter: {formatPriceCents(ro.counterAmountCents)}
                     </Text>
@@ -927,7 +1134,7 @@ export default function ResaleConversationScreen() {
                     </View>
                   ) : null}
 
-                  {viewerIsBuyer && ro.status === "countered" ? (
+                  {viewerIsBuyer && ro.status === "countered" && item.senderId !== conv.seller.id ? (
                     <View style={styles.offerActions}>
                       <Pressable
                         style={[styles.offerBtn, styles.offerBtnPrimary]}
@@ -980,42 +1187,55 @@ export default function ResaleConversationScreen() {
       ) : null}
 
       <Modal visible={offerModalOpen} transparent animationType="fade" onRequestClose={() => setOfferModalOpen(false)}>
-        <Pressable style={styles.menuOverlay} onPress={() => setOfferModalOpen(false)}>
-          <Pressable style={styles.offerModalSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.offerModalTitle}>Send an offer</Text>
-            <Text style={styles.offerModalHint}>Amount (USD)</Text>
-            <TextInput
-              style={styles.offerModalInput}
-              placeholder="0.00"
-              placeholderTextColor={theme.colors.placeholder}
-              keyboardType="decimal-pad"
-              value={offerDollars}
-              onChangeText={setOfferDollars}
-            />
-            <Text style={styles.offerModalHint}>Note to seller (optional)</Text>
-            <TextInput
-              style={[styles.offerModalInput, styles.offerModalNote]}
-              placeholder="Optional message"
-              placeholderTextColor={theme.colors.placeholder}
-              value={offerNote}
-              onChangeText={setOfferNote}
-              multiline
-              maxLength={2000}
-            />
-            <View style={styles.offerModalActions}>
-              <Pressable style={styles.offerModalCancel} onPress={() => setOfferModalOpen(false)}>
-                <Text style={styles.offerModalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.offerModalSend, offerSubmitting && { opacity: 0.6 }]}
-                disabled={offerSubmitting}
-                onPress={() => void submitOfferFromChat()}
-              >
-                <Text style={styles.offerModalSendText}>{offerSubmitting ? "Sending…" : "Send offer"}</Text>
+        <View style={styles.offerModalFill}>
+          <Pressable
+            style={[StyleSheet.absoluteFillObject, styles.offerModalDim]}
+            onPress={() => setOfferModalOpen(false)}
+          />
+          <KeyboardAvoidingView
+            style={styles.offerModalKeyboardOverlay}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={0}
+            pointerEvents="box-none"
+          >
+            <View pointerEvents="box-none" style={styles.offerModalSheetWrap}>
+              <Pressable style={styles.offerModalSheet} onPress={(e) => e.stopPropagation()}>
+                <Text style={styles.offerModalTitle}>Send an offer</Text>
+                <Text style={styles.offerModalHint}>Amount (USD)</Text>
+                <TextInput
+                  style={styles.offerModalInput}
+                  placeholder="0.00"
+                  placeholderTextColor={theme.colors.placeholder}
+                  keyboardType="decimal-pad"
+                  value={offerDollars}
+                  onChangeText={setOfferDollars}
+                />
+                <Text style={styles.offerModalHint}>Note to seller (optional)</Text>
+                <TextInput
+                  style={[styles.offerModalInput, styles.offerModalNote]}
+                  placeholder="Optional message"
+                  placeholderTextColor={theme.colors.placeholder}
+                  value={offerNote}
+                  onChangeText={setOfferNote}
+                  multiline
+                  maxLength={2000}
+                />
+                <View style={styles.offerModalActions}>
+                  <Pressable style={styles.offerModalCancel} onPress={() => setOfferModalOpen(false)}>
+                    <Text style={styles.offerModalCancelText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.offerModalSend, offerSubmitting && { opacity: 0.6 }]}
+                    disabled={offerSubmitting}
+                    onPress={() => void submitOfferFromChat()}
+                  >
+                    <Text style={styles.offerModalSendText}>{offerSubmitting ? "Sending…" : "Send offer"}</Text>
+                  </Pressable>
+                </View>
               </Pressable>
             </View>
-          </Pressable>
-        </Pressable>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       <Modal
@@ -1024,34 +1244,50 @@ export default function ResaleConversationScreen() {
         animationType="fade"
         onRequestClose={() => setCounterModalOpen(false)}
       >
-        <Pressable style={styles.menuOverlay} onPress={() => setCounterModalOpen(false)}>
-          <Pressable style={styles.offerModalSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.offerModalTitle}>Counter offer</Text>
-            <Text style={styles.offerModalHint}>Your price (USD)</Text>
-            <TextInput
-              style={styles.offerModalInput}
-              placeholder="0.00"
-              placeholderTextColor={theme.colors.placeholder}
-              keyboardType="decimal-pad"
-              value={counterDollars}
-              onChangeText={setCounterDollars}
-            />
-            <View style={styles.offerModalActions}>
-              <Pressable
-                style={styles.offerModalCancel}
-                onPress={() => {
-                  setCounterModalOpen(false);
-                  setCounterOfferId(null);
-                }}
-              >
-                <Text style={styles.offerModalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable style={styles.offerModalSend} onPress={() => void submitCounterOffer()}>
-                <Text style={styles.offerModalSendText}>Send counter</Text>
+        <View style={styles.offerModalFill}>
+          <Pressable
+            style={[StyleSheet.absoluteFillObject, styles.offerModalDim]}
+            onPress={() => {
+              setCounterModalOpen(false);
+              setCounterOfferId(null);
+            }}
+          />
+          <KeyboardAvoidingView
+            style={styles.offerModalKeyboardOverlay}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={0}
+            pointerEvents="box-none"
+          >
+            <View pointerEvents="box-none" style={styles.offerModalSheetWrap}>
+              <Pressable style={styles.offerModalSheet} onPress={(e) => e.stopPropagation()}>
+                <Text style={styles.offerModalTitle}>Counter offer</Text>
+                <Text style={styles.offerModalHint}>Your price (USD)</Text>
+                <TextInput
+                  style={styles.offerModalInput}
+                  placeholder="0.00"
+                  placeholderTextColor={theme.colors.placeholder}
+                  keyboardType="decimal-pad"
+                  value={counterDollars}
+                  onChangeText={setCounterDollars}
+                />
+                <View style={styles.offerModalActions}>
+                  <Pressable
+                    style={styles.offerModalCancel}
+                    onPress={() => {
+                      setCounterModalOpen(false);
+                      setCounterOfferId(null);
+                    }}
+                  >
+                    <Text style={styles.offerModalCancelText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable style={styles.offerModalSend} onPress={() => void submitCounterOffer()}>
+                    <Text style={styles.offerModalSendText}>Send counter</Text>
+                  </Pressable>
+                </View>
               </Pressable>
             </View>
-          </Pressable>
-        </Pressable>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       <View
@@ -1198,6 +1434,18 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: 14, color: "rgba(255,255,255,0.92)", marginTop: 3 },
   headerMenuBtn: { padding: 8 },
   menuOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end", paddingBottom: 40 },
+  offerModalFill: { flex: 1 },
+  offerModalDim: { backgroundColor: "rgba(0,0,0,0.4)" },
+  offerModalKeyboardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+  },
+  offerModalSheetWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
   menuSheet: { backgroundColor: "#fff", borderTopLeftRadius: 12, borderTopRightRadius: 12, padding: 16 },
   menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
   menuItemText: { fontSize: 16, color: theme.colors.heading },
@@ -1230,6 +1478,24 @@ const styles = StyleSheet.create({
   bubbleThem: {},
   bubbleText: { fontSize: 16, color: theme.colors.heading },
   bubbleTextMe: { color: "#fff" },
+  negotiationHistoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: "92%",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#ccc",
+    backgroundColor: "#f0f0f0",
+  },
+  negotiationHistoryRowMe: {
+    borderColor: theme.colors.primary,
+    backgroundColor: "rgba(80, 85, 66, 0.12)",
+  },
+  negotiationHistoryText: { flex: 1, fontSize: 13, color: "#444", lineHeight: 18 },
+  negotiationHistoryTextMe: { color: "#222" },
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -1313,7 +1579,6 @@ const styles = StyleSheet.create({
   offerBtnGhostTextOnGreen: { color: "#fff" },
   offerModalSheet: {
     backgroundColor: "#fff",
-    marginHorizontal: 20,
     borderRadius: 14,
     padding: 20,
     borderWidth: 2,

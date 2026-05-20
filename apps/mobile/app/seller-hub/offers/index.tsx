@@ -176,6 +176,11 @@ export default function OffersScreen() {
       return;
     }
     const cents = Math.round(dollars * 100);
+    const listC = counteringOffer.storeItem.priceCents;
+    if (listC != null && listC > 0 && cents > listC) {
+      Alert.alert("Too high", `Counter cannot exceed the listing price of ${formatPrice(listC)}.`);
+      return;
+    }
     setResponding(counteringOffer.id);
     try {
       await apiPatch(`/api/resale-offers/${counteringOffer.id}`, {

@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { IonIcon } from "@/components/IonIcon";
 
 interface HeartSaveButtonProps {
   type: "event" | "business" | "coupon" | "store_item";
@@ -11,6 +11,8 @@ interface HeartSaveButtonProps {
   initialSaved?: boolean;
   className?: string;
   onSavedChange?: (saved: boolean) => void;
+  /** Show brief “Added to Wishlist!” toast when saving (matches mobile app). */
+  showWishlistToast?: boolean;
 }
 
 export function HeartSaveButton({
@@ -19,15 +21,22 @@ export function HeartSaveButton({
   initialSaved = false,
   className = "",
   onSavedChange,
+  showWishlistToast = type === "store_item",
 }: HeartSaveButtonProps) {
   const { data: session, status } = useSession();
-  const router = useRouter();
   const [saved, setSaved] = useState(initialSaved);
   const [loading, setLoading] = useState(false);
+  const [wishlistToast, setWishlistToast] = useState(false);
 
   useEffect(() => {
     setSaved(initialSaved);
   }, [initialSaved]);
+
+  useEffect(() => {
+    if (!wishlistToast) return;
+    const t = window.setTimeout(() => setWishlistToast(false), 3000);
+    return () => window.clearTimeout(t);
+  }, [wishlistToast]);
 
   async function handleClick(e: React.MouseEvent) {
     e.preventDefault();
@@ -43,7 +52,6 @@ export function HeartSaveButton({
         if (res.ok) {
           setSaved(false);
           onSavedChange?.(false);
-          setTimeout(() => router.refresh(), 100);
         }
       } else {
         const res = await fetch("/api/saved", {
@@ -54,13 +62,21 @@ export function HeartSaveButton({
         if (res.ok) {
           setSaved(true);
           onSavedChange?.(true);
-          setTimeout(() => router.refresh(), 100);
+          if (showWishlistToast) setWishlistToast(true);
         }
       }
     } finally {
       setLoading(false);
     }
   }
+
+  const icon = (
+    <IonIcon
+      name={saved ? "heart" : "heart-outline"}
+      size={22}
+      className={saved ? "text-red-500" : "text-gray-500"}
+    />
+  );
 
   if (status !== "authenticated") {
     return (
@@ -71,40 +87,34 @@ export function HeartSaveButton({
         title="Log in to save"
         aria-label="Log in to save"
       >
-        <HeartIcon filled={false} />
+        <IonIcon name="heart-outline" size={22} className="text-gray-500" />
       </Link>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={loading}
-      className={`inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 transition disabled:opacity-50 ${
-        saved ? "text-red-500" : "text-gray-400 hover:text-red-500"
-      } ${className}`}
-      title={saved ? "Remove from favorites" : "Save to favorites"}
-      aria-label={saved ? "Remove from favorites" : "Save to favorites"}
-    >
-      <HeartIcon filled={saved} />
-    </button>
-  );
-}
-
-function HeartIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-5 h-5"
-    >
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={loading}
+        className={`inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 transition disabled:opacity-50 ${className}`}
+        title={saved ? "Remove from wishlist" : "Save to wishlist"}
+        aria-label={saved ? "Remove from wishlist" : "Save to wishlist"}
+      >
+        {icon}
+      </button>
+      {wishlistToast && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center pointer-events-none"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="bg-black/75 text-white px-6 py-3 rounded-lg shadow-lg text-sm font-medium">
+            Added to Wishlist!
+          </div>
+        </div>
+      )}
+    </>
   );
 }

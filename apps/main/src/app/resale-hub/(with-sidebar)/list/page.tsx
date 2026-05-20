@@ -9,7 +9,7 @@ type ExistingItem = React.ComponentProps<typeof StoreItemForm>["existing"];
 
 function ResaleHubListContent() {
   const searchParams = useSearchParams();
-  const editId = searchParams.get("edit");
+  const editId = searchParams?.get("edit");
   const [existing, setExisting] = useState<ExistingItem>(undefined);
   const [loadingEdit, setLoadingEdit] = useState(!!editId);
 

@@ -6,6 +6,7 @@ import { publishResaleConversationMessage } from "@/lib/realtime-publish";
 import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 import { resaleOfferRowToLiveSnapshot } from "@/lib/resale-offer-live";
+import { resaleOfferExceedsListPriceMessage } from "@/lib/resale-offer-list-price";
 import { z } from "zod";
 
 const createBodySchema = z.object({
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
       status: true,
       acceptOffers: true,
       minOfferCents: true,
+      priceCents: true,
     },
   });
   if (!storeItem) {
@@ -65,6 +67,10 @@ export async function POST(req: NextRequest) {
       { error: "Offer Below Seller's Minimum Consideration" },
       { status: 400 }
     );
+  }
+  const overList = resaleOfferExceedsListPriceMessage(data.amountCents, storeItem.priceCents);
+  if (overList) {
+    return NextResponse.json({ error: overList }, { status: 400 });
   }
   if (storeItem.memberId === userId) {
     return NextResponse.json({ error: "You cannot make an offer on your own item" }, { status: 400 });

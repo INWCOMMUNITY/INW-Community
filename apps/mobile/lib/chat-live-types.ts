@@ -9,26 +9,9 @@ export type LiveResaleOfferSnapshot = {
   checkoutDeadlineAt: string | null;
 };
 
-export type LiveResaleOfferUpdatePayload = {
-  conversationId: string;
-  messageId: string;
-  resaleOffer: LiveResaleOfferSnapshot;
-};
-
-export function isLiveResaleOfferUpdatePayload(p: unknown): p is LiveResaleOfferUpdatePayload {
-  if (!p || typeof p !== "object") return false;
-  const o = p as Record<string, unknown>;
-  if (typeof o.conversationId !== "string" || typeof o.messageId !== "string") return false;
-  const ro = o.resaleOffer;
-  if (!ro || typeof ro !== "object") return false;
-  const r = ro as Record<string, unknown>;
-  return (
-    typeof r.id === "string" &&
-    typeof r.status === "string" &&
-    typeof r.amountCents === "number"
-  );
-}
-
+/**
+ * Payload merged into Socket.IO chat events so clients can append messages without refetching.
+ */
 export type LiveSocketMessagePayload = {
   conversationId: string;
   messageId: string;
@@ -67,6 +50,15 @@ export type LiveSocketMessagePayload = {
   };
 };
 
+/** Payload for `resale:offer_update` — merge into the message row that carries the offer card (`messageId`). */
+export type LiveResaleOfferUpdatePayload = {
+  conversationId: string;
+  messageId: string;
+  resaleOffer: LiveResaleOfferSnapshot;
+  detachOfferFromMessageIds?: string[];
+  newThreadMessage?: LiveSocketMessagePayload;
+};
+
 export function isLiveSocketMessagePayload(p: unknown): p is LiveSocketMessagePayload {
   if (!p || typeof p !== "object") return false;
   const o = p as Record<string, unknown>;
@@ -77,6 +69,32 @@ export function isLiveSocketMessagePayload(p: unknown): p is LiveSocketMessagePa
     typeof o.content === "string" &&
     typeof o.createdAt === "string"
   );
+}
+
+export function isLiveResaleOfferUpdatePayload(p: unknown): p is LiveResaleOfferUpdatePayload {
+  if (!p || typeof p !== "object") return false;
+  const o = p as Record<string, unknown>;
+  if (typeof o.conversationId !== "string" || typeof o.messageId !== "string") return false;
+  const ro = o.resaleOffer;
+  if (!ro || typeof ro !== "object") return false;
+  const r = ro as Record<string, unknown>;
+  if (
+    typeof r.id !== "string" ||
+    typeof r.status !== "string" ||
+    typeof r.amountCents !== "number"
+  ) {
+    return false;
+  }
+  if (o.detachOfferFromMessageIds !== undefined) {
+    if (!Array.isArray(o.detachOfferFromMessageIds)) return false;
+    for (const id of o.detachOfferFromMessageIds) {
+      if (typeof id !== "string") return false;
+    }
+  }
+  if (o.newThreadMessage !== undefined && !isLiveSocketMessagePayload(o.newThreadMessage)) {
+    return false;
+  }
+  return true;
 }
 
 /** Matches web `messages/page.tsx` — pending row until API/socket confirms. */

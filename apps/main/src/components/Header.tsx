@@ -6,6 +6,7 @@ import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
+import { isImmersiveMobileChromeRoute } from "@/lib/immersive-mobile-chrome";
 
 const SEGMENT_COLOR = "#5F6955";
 
@@ -133,8 +134,10 @@ export function Header() {
     return null;
   }
 
+  const hideOnMobile = isImmersiveMobileChromeRoute(pathname);
+
   return (
-    <>
+    <div className={hideOnMobile ? "max-md:hidden" : undefined}>
     <header className="sticky top-0 z-50 bg-white border-b-2 no-print py-3 sm:py-4" style={{ backgroundColor: "white", borderBottomColor: "var(--color-primary)" }}>
       <div className="max-w-[var(--max-width)] mx-auto px-3 sm:px-4 flex items-center">
         {/* Mobile: three-part layout — NWC left, hamburger center, My Community + cart right */}
@@ -544,6 +547,6 @@ export function Header() {
         </div>
       </div>
     )}
-    </>
+    </div>
   );
 }

@@ -10,26 +10,16 @@ export type LiveResaleOfferSnapshot = {
   checkoutDeadlineAt: string | null;
 };
 
-/** Payload for `resale:offer_update` — merge into existing message bubble by `messageId`. */
+/** Payload for `resale:offer_update` — merge into the message row that carries the offer card (`messageId`). */
 export type LiveResaleOfferUpdatePayload = {
   conversationId: string;
   messageId: string;
   resaleOffer: LiveResaleOfferSnapshot;
+  /** Prior rows that lost `resaleOfferId` when the card moved to `messageId`. */
+  detachOfferFromMessageIds?: string[];
+  /** New chat row to append (same shape as `resale:message`). */
+  newThreadMessage?: LiveSocketMessagePayload;
 };
-
-export function isLiveResaleOfferUpdatePayload(p: unknown): p is LiveResaleOfferUpdatePayload {
-  if (!p || typeof p !== "object") return false;
-  const o = p as Record<string, unknown>;
-  if (typeof o.conversationId !== "string" || typeof o.messageId !== "string") return false;
-  const ro = o.resaleOffer;
-  if (!ro || typeof ro !== "object") return false;
-  const r = ro as Record<string, unknown>;
-  return (
-    typeof r.id === "string" &&
-    typeof r.status === "string" &&
-    typeof r.amountCents === "number"
-  );
-}
 
 /**
  * Payload merged into Socket.IO chat events so clients can append messages without refetching.
@@ -84,4 +74,30 @@ export function isLiveSocketMessagePayload(p: unknown): p is LiveSocketMessagePa
     typeof o.content === "string" &&
     typeof o.createdAt === "string"
   );
+}
+
+export function isLiveResaleOfferUpdatePayload(p: unknown): p is LiveResaleOfferUpdatePayload {
+  if (!p || typeof p !== "object") return false;
+  const o = p as Record<string, unknown>;
+  if (typeof o.conversationId !== "string" || typeof o.messageId !== "string") return false;
+  const ro = o.resaleOffer;
+  if (!ro || typeof ro !== "object") return false;
+  const r = ro as Record<string, unknown>;
+  if (
+    typeof r.id !== "string" ||
+    typeof r.status !== "string" ||
+    typeof r.amountCents !== "number"
+  ) {
+    return false;
+  }
+  if (o.detachOfferFromMessageIds !== undefined) {
+    if (!Array.isArray(o.detachOfferFromMessageIds)) return false;
+    for (const id of o.detachOfferFromMessageIds) {
+      if (typeof id !== "string") return false;
+    }
+  }
+  if (o.newThreadMessage !== undefined && !isLiveSocketMessagePayload(o.newThreadMessage)) {
+    return false;
+  }
+  return true;
 }

@@ -13,7 +13,7 @@ export default function SingleCommunityPostPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const id = typeof params?.id === "string" ? params.id : "";
-  const initialCommentId = searchParams.get("comment");
+  const initialCommentId = searchParams?.get("comment");
   const { data: session } = useSession();
   const viewerUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
 

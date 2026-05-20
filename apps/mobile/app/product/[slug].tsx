@@ -351,6 +351,11 @@ export default function ProductScreen() {
       setOfferError(`Offer must be at least ${formatPrice(minC)}`);
       return;
     }
+    const listC = item.priceCents;
+    if (listC != null && listC > 0 && amountCents > listC) {
+      setOfferError(`Offer cannot exceed the listing price (${formatPrice(listC)})`);
+      return;
+    }
     const token = await getToken();
     if (!token) {
       Alert.alert("Sign in required", "Please sign in to make an offer.", [
