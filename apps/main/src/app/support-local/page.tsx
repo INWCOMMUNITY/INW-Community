@@ -11,7 +11,7 @@ export default async function SupportLocalPage() {
 
   return (
     <>
-      {/* Header: desktop only — app-style directory is in SupportLocalGallery on mobile */}
+      {/* Header: gallery photo wall to wall; logo centered — desktop only */}
       <header className="hidden lg:block w-full overflow-hidden relative border-2 border-[var(--color-secondary)]">
         <div className="w-full relative aspect-[2.62] min-h-[280px]">
           <Image
@@ -23,7 +23,6 @@ export default async function SupportLocalPage() {
             quality={100}
             priority
           />
-          {/* Logo centered on photo, circle cropped */}
           <div className="absolute left-1/2 top-1/2 aspect-square w-[200px] sm:w-[240px] md:w-[280px] -translate-x-1/2 -translate-y-1/2 rounded-full overflow-hidden z-10">
             <img
               src={supportLocalLogoUrl ?? "/support-local-logo.png"}
@@ -34,6 +33,7 @@ export default async function SupportLocalPage() {
         </div>
       </header>
 
+      {/* Tan intro — desktop only */}
       <section
         className="hidden lg:block w-full py-6 px-4 sm:px-6 border-2 border-[var(--color-secondary)]"
         style={{ backgroundColor: "#f8e7c9" }}
@@ -61,7 +61,10 @@ export default async function SupportLocalPage() {
         </div>
       </section>
 
-      <section className="max-lg:!p-0 max-lg:overflow-x-hidden max-lg:min-h-[100dvh] py-6 px-4 lg:py-12 lg:px-6">
+      <section
+        className="max-lg:!p-0 max-lg:overflow-x-hidden max-lg:min-h-[100dvh] py-12 px-4"
+        style={{ padding: "var(--section-padding)" }}
+      >
         <div className="max-w-[var(--max-width)] mx-auto max-lg:max-w-none max-lg:mx-0">
           <SupportLocalGallery />
         </div>

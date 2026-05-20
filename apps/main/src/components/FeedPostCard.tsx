@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { IonIcon } from "@/components/IonIcon";
+import { FeedPostMediaCarousel } from "@/components/FeedPostMediaCarousel";
 const TRUNCATE_LENGTH = 200;
 
 /** NWC-style leaf for post likes (outline stroke). */
@@ -125,7 +126,6 @@ export function FeedPostCard({
 }: FeedPostCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [postMenuOpen, setPostMenuOpen] = useState(false);
-  const [showAllPhotos, setShowAllPhotos] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryMedia, setGalleryMedia] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
@@ -145,9 +145,13 @@ export function FeedPostCard({
   const isVideoMedia = (url: string, fromSourcePost = false) =>
     isVideoUrl(url, fromSourcePost ? sourceVideoUrlSet : videoUrlSet);
   const allMedia = [...(post.photos ?? []), ...(post.videos ?? [])];
-  const mediaPreviewCount = 4;
-  const hasMoreMedia = allMedia.length > mediaPreviewCount;
-  const displayMedia = showAllPhotos ? allMedia : allMedia.slice(0, mediaPreviewCount);
+  const feedMediaItems = useMemo(
+    () => [
+      ...(post.photos ?? []).map((url) => ({ url, isVideo: false as const })),
+      ...(post.videos ?? []).map((url) => ({ url, isVideo: true as const })),
+    ],
+    [post.photos, post.videos]
+  );
 
   function openGallery(media: string[], index: number) {
     setGalleryMedia(media);
@@ -499,28 +503,16 @@ export function FeedPostCard({
                 ))}
               </div>
             )}
-            {(post.sourcePost.photos?.length ?? 0) + (post.sourcePost.videos?.length ?? 0) > 0 && (() => {
-              const sourcePostMedia = [...(post.sourcePost!.photos ?? []), ...(post.sourcePost!.videos ?? [])];
-              const originalHref = `/my-community/posts/${post.sourcePost!.id}`;
-              return (
-                <div className="mt-2 flex overflow-x-auto snap-x snap-mandatory gap-0 rounded border border-gray-200 bg-black/5 scroll-smooth max-w-full">
-                  {sourcePostMedia.map((url, i) => (
-                    <Link
-                      key={i}
-                      href={originalHref}
-                      className="snap-center shrink-0 w-full min-w-full aspect-square relative block focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
-                      aria-label={`Photo ${i + 1} — view original post`}
-                    >
-                      {isVideoMedia(url, true) ? (
-                        <video src={url} className="w-full h-full object-cover pointer-events-none" muted playsInline preload="metadata" />
-                      ) : (
-                        <Image src={url} alt="" fill className="object-cover" sizes="100vw" quality={95} />
-                      )}
-                    </Link>
-                  ))}
-                </div>
-              );
-            })()}
+            {(post.sourcePost.photos?.length ?? 0) + (post.sourcePost.videos?.length ?? 0) > 0 && (
+              <FeedPostMediaCarousel
+                className="mt-2"
+                slideHref={`/my-community/posts/${post.sourcePost!.id}`}
+                items={[
+                  ...(post.sourcePost!.photos ?? []).map((url) => ({ url, isVideo: false })),
+                  ...(post.sourcePost!.videos ?? []).map((url) => ({ url, isVideo: true })),
+                ]}
+              />
+            )}
           </div>
         )}
 
@@ -548,62 +540,12 @@ export function FeedPostCard({
             ))}
           </div>
         )}
-        {allMedia.length > 0 && (
-          <div className="mb-3">
-            <div
-              className={`grid gap-1 ${
-                displayMedia.length === 1
-                  ? "grid-cols-1"
-                  : displayMedia.length === 2
-                  ? "grid-cols-2"
-                  : displayMedia.length === 3
-                  ? "grid-cols-3"
-                  : "grid-cols-2"
-              }`}
-            >
-              {displayMedia.map((url, i) =>
-                isVideoMedia(url) ? (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => openGallery(allMedia, i)}
-                    className="relative aspect-square w-full text-left rounded overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-gray-400"
-                  >
-                    <video src={url} className="w-full h-full object-cover pointer-events-none" muted playsInline preload="metadata" />
-                  </button>
-                ) : (
-                  <div
-                    key={i}
-                    className="relative aspect-square w-full rounded overflow-hidden bg-neutral-100 touch-manipulation"
-                    role="img"
-                    aria-label={`Photo ${i + 1} of ${displayMedia.length}.`}
-                  >
-                    <div className="relative w-full h-full min-h-[80px]">
-                      <Image
-                        src={url}
-                        alt=""
-                        fill
-                        className="object-cover select-none"
-                        sizes="(max-width: 640px) 50vw, 600px"
-                        quality={95}
-                        draggable={false}
-                      />
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
-            {hasMoreMedia && !showAllPhotos && (
-              <button
-                type="button"
-                onClick={() => setShowAllPhotos(true)}
-                className="hover:underline text-sm mt-1 font-medium"
-                style={{ color: "var(--color-primary)" }}
-              >
-                See All Photos ({allMedia.length})
-              </button>
-            )}
-          </div>
+        {feedMediaItems.length > 0 && (
+          <FeedPostMediaCarousel
+            className="mb-3"
+            items={feedMediaItems}
+            onOpenItem={(index) => openGallery(allMedia, index)}
+          />
         )}
 
         {galleryOpen && galleryMedia.length > 0 && galleryItem && (

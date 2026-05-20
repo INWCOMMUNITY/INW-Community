@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { IonIcon } from "@/components/IonIcon";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 
 export interface PostAsIdentityBusinessOption {
@@ -67,10 +68,10 @@ export function PostAsIdentityPickerModal({
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-800 text-2xl leading-none px-2"
+            className="text-gray-500 hover:text-gray-800 p-1 rounded"
             aria-label="Close"
           >
-            ×
+            <IonIcon name="close-outline" size={24} />
           </button>
         </div>
         <div className="overflow-y-auto p-4 space-y-2 bg-white">
@@ -80,11 +81,13 @@ export function PostAsIdentityPickerModal({
             onClick={onSelectPersonal}
             className="w-full flex items-center gap-3 text-left px-3 py-3 rounded-lg border border-gray-200 hover:bg-gray-50"
           >
-            <span className="text-xl" aria-hidden>
-              👤
-            </span>
+            <IonIcon
+              name="person-outline"
+              size={22}
+              className="shrink-0 text-[var(--color-primary)]"
+            />
             <span className="font-medium flex-1">Post as &quot;{profileDisplayName}&quot;</span>
-            <span className="text-gray-400">›</span>
+            <IonIcon name="chevron-forward" size={20} className="shrink-0 text-gray-400" />
           </button>
           {businesses.map((b) => (
             <button
@@ -93,11 +96,13 @@ export function PostAsIdentityPickerModal({
               onClick={() => onSelectBusiness(b)}
               className="w-full flex items-center gap-3 text-left px-3 py-3 rounded-lg border border-gray-200 hover:bg-gray-50"
             >
-              <span className="text-xl" aria-hidden>
-                🏪
-              </span>
+              <IonIcon
+                name="business-outline"
+                size={22}
+                className="shrink-0 text-[var(--color-primary)]"
+              />
               <span className="font-medium flex-1">Post as &quot;{b.name}&quot;</span>
-              <span className="text-gray-400">›</span>
+              <IonIcon name="chevron-forward" size={20} className="shrink-0 text-gray-400" />
             </button>
           ))}
         </div>
