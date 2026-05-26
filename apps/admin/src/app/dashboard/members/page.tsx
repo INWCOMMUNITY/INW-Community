@@ -14,7 +14,8 @@ interface Member {
   city: string | null;
   status: string;
   createdAt: string;
-  _count: { subscriptions: number };
+  _count: { subscriptions: number; businesses: number };
+  canPauseSubscriptionRetainProfile?: boolean;
 }
 
 export default function AdminMembersPage() {
@@ -95,7 +96,15 @@ export default function AdminMembersPage() {
                   <AdminMemberActions
                     memberId={m.id}
                     status={m.status}
+                    canPauseSubscriptionRetainProfile={m.canPauseSubscriptionRetainProfile}
                     onDeleted={() => setMembers((prev) => prev.filter((x) => x.id !== m.id))}
+                    onPaused={() =>
+                      setMembers((prev) =>
+                        prev.map((x) =>
+                          x.id === m.id ? { ...x, canPauseSubscriptionRetainProfile: false } : x
+                        )
+                      )
+                    }
                   />
                 </td>
                 <td className="px-4 py-2 break-all align-top">{m.firstName} {m.lastName}</td>

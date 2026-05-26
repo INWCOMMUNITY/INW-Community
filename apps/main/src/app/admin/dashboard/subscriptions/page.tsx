@@ -2,6 +2,7 @@ import { prisma } from "database";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { getBaseUrl } from "@/lib/get-base-url";
+import { AdminSubscriptionActions } from "./AdminSubscriptionActions";
 
 export default async function AdminSubscriptionsPage() {
   const headersList = await headers();
@@ -11,7 +12,15 @@ export default async function AdminSubscriptionsPage() {
     prisma.subscription.findMany({
       orderBy: { createdAt: "desc" },
       include: {
-        member: { select: { id: true, email: true, firstName: true, lastName: true } },
+        member: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            businesses: { select: { adminGrantedAt: true } },
+          },
+        },
       },
     }),
     fetch(`${baseUrl}/api/admin/stripe-stats`, {
@@ -54,6 +63,7 @@ export default async function AdminSubscriptionsPage() {
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Plan</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Period end</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -69,6 +79,14 @@ export default async function AdminSubscriptionsPage() {
                 <td className="px-4 py-2">{s.status}</td>
                 <td className="px-4 py-2 text-sm text-gray-500">
                   {s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : "—"}
+                </td>
+                <td className="px-4 py-2 align-top">
+                  <AdminSubscriptionActions
+                    memberId={s.member.id}
+                    plan={s.plan}
+                    status={s.status}
+                    profileRetained={s.member.businesses.some((b) => b.adminGrantedAt != null)}
+                  />
                 </td>
               </tr>
             ))}

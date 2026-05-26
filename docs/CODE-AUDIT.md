@@ -1,7 +1,37 @@
 # Full Code Audit
 
-**Date:** March 14, 2026  
+**Date:** March 14, 2026 (tooling); **May 26, 2026** (admin pause subscription — see below)  
 **Scope:** TypeScript, ESLint, and build checks across `database`, `types`, `design-tokens`, `main`, `admin`, and `mobile`.
+
+---
+
+## Admin pause subscription, retain profile (May 26, 2026)
+
+Audit of the **pause subscription / keep business profile** feature (no mobile app changes).
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Core logic | ✅ | `pause-member-subscription-retain-profile.ts` grants `adminGrantedAt` **before** Stripe cancel. |
+| API | ✅ | `POST /api/admin/members/[id]/pause-subscription` + `requireAdmin`. |
+| Webhook safety | ✅ | Reuses existing `removeNwcMemberPerksAfterSubscriptionEnd`; keeps `adminGrantedAt` businesses. |
+| Admin UI (`apps/admin`) | ✅ | Subscriptions + Members; `AdminPauseSubscriptionButton`, `AdminSubscriptionActions`. |
+| Website admin | ✅ | Mirrored under `apps/main/src/app/admin/dashboard`. |
+| Members API | ✅ | `canPauseSubscriptionRetainProfile` on `GET /api/admin/members`. |
+| Mobile `/api/me` | ✅ | No code changes; `hasBusinessHubAccess` already includes admin grant. |
+| Prisma migration | ✅ | None; uses existing `Business.adminGrantedAt`. |
+| Seller Hub after pause | ⚠️ By design | `canAccessSellerHub` still requires seller plan; storefront hidden without seller sub. |
+| Terms / Privacy | ⚠️ Suggested | Document discretionary admin-granted access in Terms if desired. |
+| Automated tests | ⚠️ None | Manual test plan in feature spec; run against Stripe test mode before production. |
+
+**Manual verification checklist**
+
+1. Member with active sponsor/seller sub + ≥1 business → **Pause & keep profile** → Stripe canceled, DB `status` → `canceled`, `adminGrantedAt` set.
+2. `GET /api/me` → `hasBusinessHubAccess: true`; `canAccessSellerHub: false` if seller was canceled.
+3. Approved business still in public directory; Business Hub APIs return 200.
+4. Coupons/rewards on granted business not deleted after webhook.
+5. Idempotent re-run: no active business sub → success with `subscriptionsCanceled: 0` or clear 400.
+
+Detail: `docs/NWC-SUBSCRIPTION-PERKS.md` (Admin pause section).
 
 ---
 

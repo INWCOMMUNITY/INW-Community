@@ -2,15 +2,20 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AdminPauseSubscriptionButton } from "../AdminPauseSubscriptionButton";
 
 export function AdminMemberActions({
   memberId,
   status,
+  canPauseSubscriptionRetainProfile = false,
   onDeleted,
+  onPaused,
 }: {
   memberId: string;
   status: string;
+  canPauseSubscriptionRetainProfile?: boolean;
   onDeleted?: () => void;
+  onPaused?: () => void;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -121,6 +126,9 @@ export function AdminMemberActions({
         >
           Gift Points
         </button>
+      )}
+      {canPauseSubscriptionRetainProfile && (
+        <AdminPauseSubscriptionButton memberId={memberId} onSuccess={() => onPaused?.()} />
       )}
       <button
         type="button"

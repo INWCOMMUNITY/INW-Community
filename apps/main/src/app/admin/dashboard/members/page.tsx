@@ -12,6 +12,7 @@ interface Member {
   status: string;
   createdAt: string;
   _count: { subscriptions: number; businesses?: number };
+  canPauseSubscriptionRetainProfile?: boolean;
 }
 
 interface BusinessOption {
@@ -161,7 +162,15 @@ export default function AdminMembersPage() {
                     <AdminMemberActions
                       memberId={m.id}
                       status={m.status}
+                      canPauseSubscriptionRetainProfile={m.canPauseSubscriptionRetainProfile}
                       onDeleted={() => setMembers((prev) => prev.filter((x) => x.id !== m.id))}
+                      onPaused={() =>
+                        setMembers((prev) =>
+                          prev.map((x) =>
+                            x.id === m.id ? { ...x, canPauseSubscriptionRetainProfile: false } : x
+                          )
+                        )
+                      }
                     />
                   </div>
                 </td>

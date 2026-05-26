@@ -44,7 +44,7 @@ flowchart LR
 | `/resale-hub/policies` | **Via menu** | App Resale Hub side menu includes **Policies** → `policies` (seller shipping/delivery/pickup policies; same concept as website resale-hub/policies). |
 | `/community-goals` | **Not found in app** | Single website page; no app route found. |
 | `/requests`, `/editor` | **Website-only** | No app equivalent (likely by design). |
-| `/admin/*` | **Separate admin app** | Admin is **apps/admin**; not in mobile app. |
+| `/admin/*` | **Separate admin app** | Admin is **apps/admin** and **apps/main** `/admin/dashboard`; not in mobile app. Subscription **pause & keep profile** is admin-only (Stripe cancel + `adminGrantedAt`); see `docs/NWC-SUBSCRIPTION-PERKS.md`. |
 
 ### 2.2 App-only or different UX
 
