@@ -76,19 +76,27 @@ For deployment, use Vercel or another host – production builds work there.
 
 ### Stripe is not configured / Add STRIPE_SECRET_KEY for storefront payments
 
-**Cause:** `STRIPE_SECRET_KEY` is missing or still set to the placeholder `sk_test_...`.
+**Cause:** `STRIPE_SECRET_KEY` is missing, still set to the placeholder `sk_test_...`, or not deployed to the Vercel **Production** environment for the main site project.
 
-**Fix:**
+**Symptoms:** Checkout, subscription cancel, admin **Pause & keep profile**, or mobile subscription setup return *Stripe is not configured*.
+
+**Fix (local):**
 1. Sign up at [stripe.com](https://stripe.com) if needed.
 2. Go to [Stripe Dashboard → API keys](https://dashboard.stripe.com/apikeys).
-3. Copy your **Secret key** (starts with `sk_test_` for test mode).
+3. Copy your **Secret key** (starts with `sk_test_` for test mode or `sk_live_` for production).
 4. Add it to **`apps/main/.env`** (and root `.env` if you use it):
    ```
-   STRIPE_SECRET_KEY="sk_test_..."  # get from Stripe Dashboard
+   STRIPE_SECRET_KEY="sk_test_51..."  # full key from Stripe Dashboard — not the literal "sk_test_..."
    ```
-5. Restart the dev server.
+5. Restart the dev server (`pnpm dev` in `apps/main`).
 
-**Note:** Use test keys (`sk_test_...`) for local development. Never commit real keys to git.
+**Fix (production / inwcommunity.com):**
+1. Vercel → your **main website** project → **Settings** → **Environment Variables**.
+2. Add or update `STRIPE_SECRET_KEY` with the full secret key (`sk_live_...` for live billing).
+3. Scope it to **Production** (and Preview if you test admin there).
+4. **Redeploy** the main app (Deployments → … → Redeploy) so the new variable is loaded.
+
+**Note:** The admin **Subscriptions** page can still list rows from the database when Stripe is missing; revenue cards may show $0. Pause subscription requires a valid `STRIPE_SECRET_KEY` to cancel billing in Stripe. Never commit real keys to git.
 
 ---
 

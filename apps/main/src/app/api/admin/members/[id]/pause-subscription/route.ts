@@ -6,10 +6,9 @@ import {
   pauseMemberSubscriptionRetainProfile,
   PauseMemberSubscriptionError,
 } from "@/lib/pause-member-subscription-retain-profile";
+import { requireStripeSecretKey } from "@/lib/stripe-secret-key";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia" as "2023-10-16",
-});
+const STRIPE_API_VERSION = "2024-11-20.acacia" as "2023-10-16";
 
 export async function POST(
   req: NextRequest,
@@ -31,6 +30,7 @@ export async function POST(
   const { id: memberId } = await params;
 
   try {
+    const stripe = new Stripe(requireStripeSecretKey(), { apiVersion: STRIPE_API_VERSION });
     const result = await pauseMemberSubscriptionRetainProfile(memberId, stripe);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {

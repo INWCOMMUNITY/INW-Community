@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { syncStripeSubscriptionsForMember } from "@/lib/sync-stripe-subscriptions-for-member";
 import { prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import { STRIPE_NOT_CONFIGURED_MESSAGE, resolveStripeSecretKey } from "@/lib/stripe-secret-key";
 
 const BUSINESS_PLANS = new Set(["sponsor", "seller"]);
 
@@ -153,8 +154,7 @@ export class PauseMemberSubscriptionError extends Error {
 }
 
 export function assertStripeConfigured(): void {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key?.startsWith("sk_") || key.includes("...")) {
-    throw new PauseMemberSubscriptionError("Stripe is not configured", 503);
+  if (!resolveStripeSecretKey()) {
+    throw new PauseMemberSubscriptionError(STRIPE_NOT_CONFIGURED_MESSAGE, 503);
   }
 }
