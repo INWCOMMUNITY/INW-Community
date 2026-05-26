@@ -120,6 +120,7 @@ export function useSupportLocalDirectory() {
     city,
     setCity,
     cities,
+    categories,
     filteredCategories,
     filteredSubcategories,
     subsForPrimary,
