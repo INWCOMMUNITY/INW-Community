@@ -64,6 +64,17 @@ export interface FeedPost {
     photos: string[];
     priceCents: number;
   } | null;
+  sourceEvent?: {
+    id: string;
+    slug: string;
+    title: string;
+    date: string;
+    time: string | null;
+    endTime: string | null;
+    location: string | null;
+    city: string | null;
+    photos: string[];
+  } | null;
   sourcePost?: unknown;
   sourceGroup?: { id: string; name: string; slug: string } | null;
   /** Present on API payloads for group posts; used when editing. */

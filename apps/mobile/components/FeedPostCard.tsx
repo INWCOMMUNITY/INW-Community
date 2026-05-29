@@ -43,7 +43,31 @@ import {
   type FeedGalleryPhotoEntry,
 } from "@/components/FeedPinchZoomPhoto";
 import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
+import { formatTime12h } from "@/lib/format-time";
 import { Video, ResizeMode, type VideoReadyForDisplayEvent } from "expo-av";
+
+/** "Sat, Jun 6 · 9:00 AM – 5:00 PM" for a shared event embed. */
+function formatEventWhen(ev: {
+  date: string;
+  time: string | null;
+  endTime: string | null;
+}): string {
+  let dateStr = "";
+  const d = new Date(ev.date);
+  if (!Number.isNaN(d.getTime())) {
+    dateStr = d.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+  }
+  const timeStr = ev.time
+    ? ev.endTime
+      ? `${formatTime12h(ev.time)} – ${formatTime12h(ev.endTime)}`
+      : formatTime12h(ev.time)
+    : "";
+  return [dateStr, timeStr].filter(Boolean).join(" · ");
+}
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -665,6 +689,38 @@ export function FeedPostCard({
         </Pressable>
       )}
 
+      {post.type === "shared_event" && post.sourceEvent && (
+        <Pressable
+          style={styles.sourceCard}
+          onPress={() =>
+            (router.push as (href: string) => void)(`/event/${post.sourceEvent!.slug}`)
+          }
+        >
+          <View style={styles.sourceRow}>
+            {post.sourceEvent.photos?.[0] ? (
+              <Image
+                source={{ uri: resolveUri(post.sourceEvent.photos[0]) }}
+                style={styles.sourceLogo}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={[styles.sourceLogo, styles.eventThumbPlaceholder]}>
+                <Ionicons name="calendar" size={28} color={theme.colors.primary} />
+              </View>
+            )}
+            <View style={styles.sourceContent}>
+              <Text style={styles.sourceTitle}>{post.sourceEvent.title}</Text>
+              <Text style={styles.sourceBody}>{formatEventWhen(post.sourceEvent)}</Text>
+              {post.sourceEvent.location || post.sourceEvent.city ? (
+                <Text style={styles.sourceMeta} numberOfLines={1}>
+                  {post.sourceEvent.location || post.sourceEvent.city}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        </Pressable>
+      )}
+
       {post.type === "shared_post" && post.sourcePost ? (
         (() => {
           const sourcePost = post.sourcePost as any;
@@ -855,6 +911,28 @@ export function FeedPostCard({
                         <Text style={styles.sourceBody}>
                           ${(sourcePost.sourceStoreItem.priceCents / 100).toFixed(2)}
                         </Text>
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
+
+                {sourcePost.type === "shared_event" && sourcePost.sourceEvent ? (
+                  <View style={{ marginTop: 10 }}>
+                    <View style={styles.sourceRow}>
+                      {sourcePost.sourceEvent.photos?.[0] ? (
+                        <Image
+                          source={{ uri: resolveUri(sourcePost.sourceEvent.photos[0]) }}
+                          style={styles.sourceLogo}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={[styles.sourceLogo, styles.eventThumbPlaceholder]}>
+                          <Ionicons name="calendar" size={28} color={theme.colors.primary} />
+                        </View>
+                      )}
+                      <View style={styles.sourceContent}>
+                        <Text style={styles.sourceTitle}>{sourcePost.sourceEvent.title}</Text>
+                        <Text style={styles.sourceBody}>{formatEventWhen(sourcePost.sourceEvent)}</Text>
                       </View>
                     </View>
                   </View>
@@ -1310,6 +1388,11 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 6,
+  },
+  eventThumbPlaceholder: {
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+    justifyContent: "center",
   },
   nestedAvatar: {
     width: 40,

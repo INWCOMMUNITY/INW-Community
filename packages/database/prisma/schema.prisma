@@ -710,7 +710,7 @@ model FollowTag {
 // Unified feed post - personal, group, shared_blog, shared_post, shared_business, shared_coupon, shared_reward, shared_store_item
 model Post {
   id              String   @id @default(cuid())
-  type            String   // personal | group | shared_blog | shared_post | shared_business | shared_coupon | shared_reward | shared_store_item
+  type            String   // personal | group | shared_blog | shared_post | shared_business | shared_coupon | shared_reward | shared_store_item | shared_event
   authorId        String   @map("author_id")
   content         String?  @db.Text
   photos          String[]
@@ -722,6 +722,7 @@ model Post {
   sourceCouponId  String?  @map("source_coupon_id")
   sourceRewardId  String?  @map("source_reward_id")
   sourceStoreItemId String? @map("source_store_item_id")
+  sourceEventId   String?  @map("source_event_id")
   groupId             String?  @map("group_id")
   taggedMemberIds     String[] @default([]) @map("tagged_member_ids")
   /// Saved-directory businesses the author tagged (distinct from shared_business / posting-as).

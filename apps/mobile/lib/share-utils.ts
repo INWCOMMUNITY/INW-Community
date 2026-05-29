@@ -15,6 +15,7 @@ export type SharedContentType =
   | "business"
   | "coupon"
   | "reward"
+  | "event"
   | "photo";
 
 export interface ShareContent {
@@ -48,6 +49,8 @@ export function buildShareUrl(content: ShareContent): string {
       return content.slug ? `${siteBase}/support-local/${content.slug}` : siteBase;
     case "coupon":
       return `${siteBase}/coupons/${content.id}`;
+    case "event":
+      return content.slug ? `${siteBase}/events/${content.slug}` : `${siteBase}/calendars`;
     case "reward":
       return content.id ? `${siteBase}/rewards#reward-${content.id}` : `${siteBase}/rewards`;
     case "photo":
@@ -65,6 +68,7 @@ const SHARE_API_PATH: Record<Exclude<SharedContentType, "photo">, string> = {
   business: "/api/businesses",
   coupon: "/api/coupons",
   reward: "/api/rewards",
+  event: "/api/events",
 };
 
 /**

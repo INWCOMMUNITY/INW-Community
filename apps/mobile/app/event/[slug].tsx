@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Alert,
   useWindowDimensions,
-  Share,
   Modal,
   FlatList,
   TextInput,
@@ -28,6 +27,7 @@ import { formatTime12h } from "@/lib/format-time";
 import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
+import { ShareToChatModal } from "@/components/ShareToChatModal";
 import type { EarnedBadgePayload } from "@/lib/share-utils";
 import { openAddressInMaps } from "@/lib/open-maps";
 import {
@@ -84,6 +84,7 @@ export default function EventDetailScreen() {
   const [rsvpSubmitting, setRsvpSubmitting] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [calendarDeviceBusy, setCalendarDeviceBusy] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
 
   const loadEvent = useCallback(async () => {
     if (!slug) return;
@@ -189,22 +190,9 @@ export default function EventDetailScreen() {
     }
   };
 
-  const eventUrl = event
-    ? `${siteBase}/events/${typeof slug === "string" ? slug : event.slug ?? event.id}`
+  const shareSlug = event
+    ? (typeof slug === "string" ? slug : event.slug ?? event.id)
     : "";
-  const handleShareEvent = async () => {
-    if (!event) return;
-    const url = eventUrl || `${siteBase}/events/${event.slug ?? event.id}`;
-    try {
-      await Share.share({
-        message: `${event.title} – ${url}`,
-        url,
-        title: event.title,
-      });
-    } catch {
-      // User cancelled
-    }
-  };
 
   const openRsvpPicker = useCallback(async () => {
     if (!event) return;
@@ -565,7 +553,10 @@ export default function EventDetailScreen() {
           <View style={styles.eventByTitleRow}>
             <Text style={styles.eventByTitlePrefix}>by </Text>
             <Pressable
-              onPress={() => router.push(`/business/${event.business.slug}`)}
+              onPress={() => {
+                const bizSlug = event.business?.slug;
+                if (bizSlug) router.push(`/business/${bizSlug}`);
+              }}
               style={({ pressed }) => [styles.eventByTitlePressable, pressed && styles.pressed]}
             >
               <Text style={styles.eventByTitleLink}>{event.business.name}</Text>
@@ -591,7 +582,7 @@ export default function EventDetailScreen() {
         <View style={styles.shareInviteRow}>
           <Pressable
             style={({ pressed }) => [styles.shareInviteBtnBox, pressed && styles.pressed]}
-            onPress={handleShareEvent}
+            onPress={() => setShareModalOpen(true)}
           >
             <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
             <Text style={styles.shareInviteBtnText}>Share</Text>
@@ -895,6 +886,17 @@ export default function EventDetailScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      <ShareToChatModal
+        visible={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        sharedContent={{
+          type: "event",
+          id: event.id,
+          slug: shareSlug || event.slug || event.id,
+          title: event.title,
+          previewPhotoUrl: photos[0],
+        }}
+      />
       {inviteBadgePopupIndex >= 0 && inviteBadgePopupIndex < inviteEarnedBadges.length && (
         <BadgeEarnedPopup
           visible

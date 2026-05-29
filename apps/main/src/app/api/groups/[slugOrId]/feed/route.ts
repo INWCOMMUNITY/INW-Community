@@ -81,9 +81,10 @@ export async function GET(
   const sourceCouponIds = items.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
   const sourceRewardIds = items.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
+  const sourceEventIds = items.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
   const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
 
-  const [blogs, businesses, coupons, rewards, storeItems, sourcePosts, likes, likeCounts, commentCounts] = await Promise.all([
+  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, likes, likeCounts, commentCounts] = await Promise.all([
     sourceBlogIds.length > 0
       ? prisma.blog.findMany({
           where: { id: { in: sourceBlogIds } },
@@ -116,6 +117,15 @@ export async function GET(
       ? prisma.storeItem.findMany({
           where: { id: { in: sourceStoreItemIds } },
           select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
+        })
+      : [],
+    sourceEventIds.length > 0
+      ? prisma.event.findMany({
+          where: { id: { in: sourceEventIds } },
+          select: {
+            id: true, slug: true, title: true, date: true, time: true,
+            endTime: true, location: true, city: true, photos: true,
+          },
         })
       : [],
     sourcePostIds.length > 0
@@ -154,8 +164,9 @@ export async function GET(
   const sourcePostCouponIds = sourcePosts.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
   const sourcePostRewardIds = sourcePosts.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourcePostStoreItemIds = sourcePosts.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
+  const sourcePostEventIds = sourcePosts.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
 
-  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostRewards, sourcePostStoreItems] = await Promise.all([
+  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostRewards, sourcePostStoreItems, sourcePostEvents] = await Promise.all([
     sourcePostBlogIds.length > 0
       ? prisma.blog.findMany({
           where: { id: { in: sourcePostBlogIds } },
@@ -190,7 +201,20 @@ export async function GET(
           select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
         })
       : [],
+    sourcePostEventIds.length > 0
+      ? prisma.event.findMany({
+          where: { id: { in: sourcePostEventIds } },
+          select: {
+            id: true, slug: true, title: true, date: true, time: true,
+            endTime: true, location: true, city: true, photos: true,
+          },
+        })
+      : [],
   ]);
+
+  const eventMap = Object.fromEntries(
+    [...events, ...sourcePostEvents].map((e) => [e.id, e])
+  );
 
   const storeItemEmbedMerge = new Map<
     string,
@@ -216,6 +240,7 @@ export async function GET(
         sourceCoupon: p.sourceCouponId ? (sourcePostCouponMap[p.sourceCouponId] ?? couponMap[p.sourceCouponId] ?? null) : null,
         sourceReward: p.sourceRewardId ? (sourcePostRewardMap[p.sourceRewardId] ?? rewardMap[p.sourceRewardId] ?? null) : null,
         sourceStoreItem: p.sourceStoreItemId ? (feedStoreItemMap[p.sourceStoreItemId] ?? null) : null,
+        sourceEvent: p.sourceEventId ? (eventMap[p.sourceEventId] ?? null) : null,
       },
     ])
   );
@@ -233,6 +258,7 @@ export async function GET(
     sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
     sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
     sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,
+    sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
     sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
     sourceGroup: group,
     liked: likedSet.has(p.id),

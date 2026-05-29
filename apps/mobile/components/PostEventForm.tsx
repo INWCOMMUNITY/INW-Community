@@ -191,6 +191,8 @@ export function PostEventForm({
   const [city, setCity] = useState<string>(() => initialEvent?.city ?? "");
   const [location, setLocation] = useState(() => initialEvent?.location ?? "");
   const [description, setDescription] = useState(() => initialEvent?.description ?? "");
+  const [showDescriptionEditor, setShowDescriptionEditor] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
   const [calendarType, setCalendarType] = useState<CalendarType>(
     () => initialEvent?.calendarType ?? initialCalendarType ?? "fun_events"
   );
@@ -269,6 +271,26 @@ export function PostEventForm({
 
   const removePhoto = (i: number) => {
     setPhotos((p) => p.filter((_, idx) => idx !== i));
+  };
+
+  const movePhoto = (from: number, to: number) => {
+    setPhotos((p) => {
+      if (to < 0 || to >= p.length || from === to) return p;
+      const next = [...p];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  };
+
+  const openDescriptionEditor = () => {
+    setDescriptionDraft(description);
+    setShowDescriptionEditor(true);
+  };
+
+  const saveDescriptionDraft = () => {
+    setDescription(descriptionDraft);
+    setShowDescriptionEditor(false);
   };
 
   const handleSubmit = async () => {
@@ -553,16 +575,17 @@ export function PostEventForm({
       </View>
       <View style={styles.field}>
         <Text style={styles.label}>Description</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Event description"
-          placeholderTextColor={theme.colors.placeholder}
-          multiline
-          numberOfLines={3}
-          autoCorrect={true}
-        />
+        <Pressable
+          style={[styles.input, styles.descriptionPreview]}
+          onPress={openDescriptionEditor}
+        >
+          <Text
+            style={description ? styles.descriptionPreviewText : styles.descriptionPreviewPlaceholder}
+          >
+            {description || "Tap to add a description"}
+          </Text>
+          <Text style={styles.descriptionEditHint}>Edit</Text>
+        </Pressable>
       </View>
       <View style={styles.field}>
         <Text style={styles.label}>Photos (optional)</Text>
@@ -576,23 +599,53 @@ export function PostEventForm({
           </Text>
         </Pressable>
         {photos.length > 0 && (
-          <View style={styles.photosRow}>
-            {photos.map((url, i) => (
-              <View key={i} style={styles.photoWrap}>
-                <Image
-                  source={{ uri: url }}
-                  style={styles.photo}
-                  resizeMode="cover"
-                />
-                <Pressable
-                  style={styles.removePhoto}
-                  onPress={() => removePhoto(i)}
-                >
-                  <Text style={styles.removePhotoText}>×</Text>
-                </Pressable>
-              </View>
-            ))}
-          </View>
+          <>
+            {photos.length > 1 && (
+              <Text style={styles.photosHint}>
+                Use the arrows to reorder. The first photo is the cover image.
+              </Text>
+            )}
+            <View style={styles.photosRow}>
+              {photos.map((url, i) => (
+                <View key={`${url}-${i}`} style={styles.photoWrap}>
+                  <Image
+                    source={{ uri: url }}
+                    style={styles.photo}
+                    resizeMode="cover"
+                  />
+                  <Pressable
+                    style={styles.removePhoto}
+                    onPress={() => removePhoto(i)}
+                  >
+                    <Text style={styles.removePhotoText}>×</Text>
+                  </Pressable>
+                  {photos.length > 1 && (
+                    <View style={styles.photoReorderRow}>
+                      <Pressable
+                        style={[styles.photoMoveBtn, i === 0 && styles.photoMoveBtnDisabled]}
+                        onPress={() => movePhoto(i, i - 1)}
+                        disabled={i === 0}
+                        hitSlop={6}
+                      >
+                        <Text style={styles.photoMoveBtnText}>‹</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[
+                          styles.photoMoveBtn,
+                          i === photos.length - 1 && styles.photoMoveBtnDisabled,
+                        ]}
+                        onPress={() => movePhoto(i, i + 1)}
+                        disabled={i === photos.length - 1}
+                        hitSlop={6}
+                      >
+                        <Text style={styles.photoMoveBtnText}>›</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          </>
         )}
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -608,6 +661,41 @@ export function PostEventForm({
         )}
       </Pressable>
     </ScrollView>
+    <Modal
+      visible={showDescriptionEditor}
+      animationType="slide"
+      onRequestClose={() => setShowDescriptionEditor(false)}
+    >
+      <KeyboardAvoidingView
+        style={styles.descEditorContainer}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.descEditorHeader}>
+          <Pressable
+            onPress={() => setShowDescriptionEditor(false)}
+            hitSlop={10}
+          >
+            <Text style={styles.descEditorCancel}>Cancel</Text>
+          </Pressable>
+          <Text style={styles.descEditorTitle}>Description</Text>
+          <Pressable onPress={saveDescriptionDraft} hitSlop={10}>
+            <Text style={styles.descEditorDone}>Done</Text>
+          </Pressable>
+        </View>
+        <TextInput
+          style={styles.descEditorInput}
+          value={descriptionDraft}
+          onChangeText={setDescriptionDraft}
+          placeholder="Tell people about your event…"
+          placeholderTextColor={theme.colors.placeholder}
+          multiline
+          autoFocus
+          autoCorrect
+          textAlignVertical="top"
+          scrollEnabled
+        />
+      </KeyboardAvoidingView>
+    </Modal>
     {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
       <BadgeEarnedPopup
         visible
@@ -656,6 +744,65 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   textArea: { minHeight: 80, textAlignVertical: "top" },
+  descriptionPreview: {
+    minHeight: 80,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  descriptionPreviewText: {
+    flex: 1,
+    fontSize: 16,
+    color: theme.colors.text,
+    lineHeight: 22,
+  },
+  descriptionPreviewPlaceholder: {
+    flex: 1,
+    fontSize: 16,
+    color: theme.colors.placeholder,
+    lineHeight: 22,
+  },
+  descriptionEditHint: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  descEditorContainer: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+  descEditorHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    paddingTop: Platform.OS === "ios" ? 72 : 40,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.primary,
+  },
+  descEditorTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.colors.heading,
+  },
+  descEditorCancel: {
+    fontSize: 16,
+    color: theme.colors.text,
+  },
+  descEditorDone: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.primary,
+  },
+  descEditorInput: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 24,
+    color: theme.colors.text,
+    padding: 16,
+  },
   pickerScroll: { marginHorizontal: -16 },
   pickerRow: { flexDirection: "row", gap: 8, paddingHorizontal: 4 },
   pickerOption: {
@@ -689,9 +836,35 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontWeight: "600",
   },
-  photosRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
-  photoWrap: { position: "relative" },
-  photo: { width: 64, height: 64, borderRadius: 6 },
+  photosHint: {
+    fontSize: 12,
+    color: "#777",
+    marginTop: 10,
+  },
+  photosRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 12 },
+  photoWrap: { position: "relative", alignItems: "center" },
+  photo: { width: 72, height: 72, borderRadius: 6 },
+  photoReorderRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 6,
+  },
+  photoMoveBtn: {
+    width: 30,
+    height: 26,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  photoMoveBtnDisabled: { opacity: 0.3 },
+  photoMoveBtnText: {
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: "700",
+    color: theme.colors.primary,
+  },
   removePhoto: {
     position: "absolute",
     top: -6,

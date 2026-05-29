@@ -47,10 +47,11 @@ export async function hydrateFeedPostRows(
   const sourceCouponIds = items.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
   const sourceRewardIds = items.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
+  const sourceEventIds = items.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
   const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
   const postGroupIds = items.filter((p) => p.groupId).map((p) => p.groupId!);
 
-  const [blogs, businesses, coupons, rewards, storeItems, sourcePosts, groups, likes, likeCounts, commentCounts] =
+  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, groups, likes, likeCounts, commentCounts] =
     await Promise.all([
       sourceBlogIds.length > 0
         ? prisma.blog.findMany({
@@ -84,6 +85,22 @@ export async function hydrateFeedPostRows(
         ? prisma.storeItem.findMany({
             where: { id: { in: sourceStoreItemIds } },
             select: { id: true, title: true, slug: true, photos: true, priceCents: true },
+          })
+        : [],
+      sourceEventIds.length > 0
+        ? prisma.event.findMany({
+            where: { id: { in: sourceEventIds } },
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              date: true,
+              time: true,
+              endTime: true,
+              location: true,
+              city: true,
+              photos: true,
+            },
           })
         : [],
       sourcePostIds.length > 0
@@ -131,14 +148,16 @@ export async function hydrateFeedPostRows(
   const couponMap = Object.fromEntries(coupons.map((c) => [c.id, c]));
   const rewardMap = Object.fromEntries(rewards.map((r) => [r.id, r]));
   const storeItemMap = Object.fromEntries(storeItems.map((s) => [s.id, s]));
+  const eventMap = Object.fromEntries(events.map((e) => [e.id, e]));
 
   const sourcePostBlogIds = sourcePosts.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
   const sourcePostBusinessIds = sourcePosts.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
   const sourcePostCouponIds = sourcePosts.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
   const sourcePostRewardIds = sourcePosts.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourcePostStoreItemIds = sourcePosts.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
+  const sourcePostEventIds = sourcePosts.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
 
-  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostRewards, sourcePostStoreItems] =
+  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostRewards, sourcePostStoreItems, sourcePostEvents] =
     await Promise.all([
       sourcePostBlogIds.length > 0
         ? prisma.blog.findMany({
@@ -174,6 +193,22 @@ export async function hydrateFeedPostRows(
             select: { id: true, title: true, slug: true, photos: true, priceCents: true },
           })
         : [],
+      sourcePostEventIds.length > 0
+        ? prisma.event.findMany({
+            where: { id: { in: sourcePostEventIds } },
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              date: true,
+              time: true,
+              endTime: true,
+              location: true,
+              city: true,
+              photos: true,
+            },
+          })
+        : [],
     ]);
 
   const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, b]));
@@ -181,6 +216,7 @@ export async function hydrateFeedPostRows(
   const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
   const sourcePostRewardMap = Object.fromEntries(sourcePostRewards.map((r) => [r.id, r]));
   const sourcePostStoreItemMap = Object.fromEntries(sourcePostStoreItems.map((s) => [s.id, s]));
+  const sourcePostEventMap = Object.fromEntries(sourcePostEvents.map((e) => [e.id, e]));
 
   const sourcePostMap = Object.fromEntries(
     sourcePosts.map((p) => [
@@ -203,6 +239,9 @@ export async function hydrateFeedPostRows(
         sourceStoreItem: p.sourceStoreItemId
           ? (sourcePostStoreItemMap[p.sourceStoreItemId] ?? storeItemMap[p.sourceStoreItemId] ?? null)
           : null,
+        sourceEvent: p.sourceEventId
+          ? (sourcePostEventMap[p.sourceEventId] ?? eventMap[p.sourceEventId] ?? null)
+          : null,
       },
     ])
   );
@@ -220,6 +259,7 @@ export async function hydrateFeedPostRows(
     sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
     sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
     sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
+    sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
     sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
     sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
     liked: likedSet.has(p.id),

@@ -75,6 +75,7 @@ const TYPE_LABELS: Record<string, string> = {
   business: "Business",
   coupon: "Coupon",
   reward: "Reward",
+  event: "Event",
   photo: "Photo",
 };
 
@@ -154,13 +155,22 @@ export function ShareToChatModal({
       const t = (storePreview?.title ?? sharedContent.title)?.trim();
       if (t) return t;
     }
+    if (sharedContent.type === "event") {
+      const t = sharedContent.title?.trim();
+      if (t) return t;
+    }
     return TYPE_LABELS[sharedContent.type] ?? "Content";
   }, [sharedContent.type, sharedContent.title, storePreview?.title]);
 
   const previewImageUri = useMemo(() => {
-    if (sharedContent.type !== "store_item") return undefined;
-    const raw = storePreview?.photo ?? sharedContent.previewPhotoUrl;
-    return raw ? resolvePhotoUrl(raw) : undefined;
+    if (sharedContent.type === "store_item") {
+      const raw = storePreview?.photo ?? sharedContent.previewPhotoUrl;
+      return raw ? resolvePhotoUrl(raw) : undefined;
+    }
+    if (sharedContent.type === "event") {
+      return sharedContent.previewPhotoUrl ? resolvePhotoUrl(sharedContent.previewPhotoUrl) : undefined;
+    }
+    return undefined;
   }, [sharedContent.type, sharedContent.previewPhotoUrl, storePreview?.photo]);
 
   const load = useCallback(async () => {
@@ -340,6 +350,7 @@ export function ShareToChatModal({
                           sharedContent.type === "blog" ? "newspaper" :
                           sharedContent.type === "store_item" ? "bag" :
                           sharedContent.type === "reward" ? "star" :
+                          sharedContent.type === "event" ? "calendar" :
                           "share-social"
                         }
                         size={28}

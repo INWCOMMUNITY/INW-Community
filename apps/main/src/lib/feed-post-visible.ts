@@ -16,12 +16,14 @@ export type FeedPostLike = {
   sourceCouponId: string | null;
   sourceRewardId: string | null;
   sourceStoreItemId: string | null;
+  sourceEventId: string | null;
   sourceBlog?: unknown;
   sourcePost?: unknown;
   sourceBusiness?: unknown;
   sourceCoupon?: unknown;
   sourceReward?: unknown;
   sourceStoreItem?: unknown;
+  sourceEvent?: unknown;
 };
 
 function hasLinks(links: unknown): boolean {
@@ -57,6 +59,9 @@ export function isFeedPostRenderable(p: FeedPostLike): boolean {
   }
   if (p.type === "shared_store_item" || p.sourceStoreItemId) {
     return Boolean(p.sourceStoreItem);
+  }
+  if (p.type === "shared_event" || p.sourceEventId) {
+    return Boolean(p.sourceEvent);
   }
 
   return false;

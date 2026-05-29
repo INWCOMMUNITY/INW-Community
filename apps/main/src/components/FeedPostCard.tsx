@@ -61,7 +61,40 @@ type SourcePost = {
   sourceCoupon?: { id: string; name: string; discount: string; code: string; business: { name: string; slug: string } } | null;
   sourceReward?: { id: string; title: string; pointsRequired: number; business: { name: string; slug: string } } | null;
   sourceStoreItem?: { id: string; title: string; slug: string; photos: string[]; priceCents: number } | null;
+  sourceEvent?: SourceEvent | null;
 };
+
+type SourceEvent = {
+  id: string;
+  slug: string;
+  title: string;
+  date: string;
+  time: string | null;
+  endTime: string | null;
+  location: string | null;
+  city: string | null;
+  photos: string[];
+};
+
+function formatEventWhen(ev: SourceEvent): string {
+  let dateStr = "";
+  const d = new Date(ev.date);
+  if (!Number.isNaN(d.getTime())) {
+    dateStr = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  }
+  const to12h = (t: string | null) => {
+    if (!t || !/^\d{1,2}:\d{2}/.test(t)) return "";
+    const [hRaw, m] = t.split(":");
+    const h = parseInt(hRaw, 10);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 || 12;
+    return `${h12}:${m} ${ampm}`;
+  };
+  const start = to12h(ev.time);
+  const end = to12h(ev.endTime);
+  const timeStr = start ? (end ? `${start} – ${end}` : start) : "";
+  return [dateStr, timeStr].filter(Boolean).join(" · ");
+}
 
 interface FeedPostCardProps {
   post: {
@@ -79,6 +112,7 @@ interface FeedPostCardProps {
     sourceCoupon?: { id: string; name: string; discount: string; code: string; business: { name: string; slug: string } } | null;
     sourceReward?: { id: string; title: string; pointsRequired: number; business: { name: string; slug: string } } | null;
     sourceStoreItem?: { id: string; title: string; slug: string; photos: string[]; priceCents: number } | null;
+    sourceEvent?: SourceEvent | null;
     sourcePost?: SourcePost | null;
     liked: boolean;
     likeCount: number;
@@ -385,6 +419,28 @@ export function FeedPostCard({
             </Link>
           </div>
         )}
+        {post.type === "shared_event" && post.sourceEvent && (
+          <div className="border rounded p-4 bg-gray-50 mb-3">
+            <Link href={`/events/${post.sourceEvent.slug}`} className="block hover:opacity-90">
+              <div className="flex gap-3">
+                {post.sourceEvent.photos[0] ? (
+                  <Image src={post.sourceEvent.photos[0]} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded shrink-0" quality={95} />
+                ) : (
+                  <div className="w-16 h-16 rounded bg-gray-200 flex items-center justify-center shrink-0">
+                    <IonIcon name="calendar-outline" size={28} className="text-gray-500" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <h3 className="font-bold">{post.sourceEvent.title}</h3>
+                  <p className="text-sm text-gray-600">{formatEventWhen(post.sourceEvent)}</p>
+                  {(post.sourceEvent.location || post.sourceEvent.city) && (
+                    <p className="text-sm text-gray-500 truncate">{post.sourceEvent.location || post.sourceEvent.city}</p>
+                  )}
+                </div>
+              </div>
+            </Link>
+          </div>
+        )}
         {post.type === "shared_post" && post.sourcePost && (
           <div className="border rounded p-4 bg-gray-50 mb-3">
             <Link
@@ -486,6 +542,21 @@ export function FeedPostCard({
                     <div>
                       <h3 className="font-bold text-sm">{post.sourcePost.sourceStoreItem.title}</h3>
                       <p className="text-xs text-gray-600">${(post.sourcePost.sourceStoreItem.priceCents / 100).toFixed(2)}</p>
+                    </div>
+                  </div>
+                </Link>
+              </div>
+            )}
+            {post.sourcePost.type === "shared_event" && post.sourcePost.sourceEvent && (
+              <div className="border rounded p-3 bg-white mb-2">
+                <Link href={`/events/${post.sourcePost.sourceEvent.slug}`} className="block hover:opacity-90">
+                  <div className="flex gap-2">
+                    {post.sourcePost.sourceEvent.photos?.[0] && (
+                      <Image src={post.sourcePost.sourceEvent.photos[0]} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded shrink-0" quality={95} />
+                    )}
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-sm">{post.sourcePost.sourceEvent.title}</h3>
+                      <p className="text-xs text-gray-600">{formatEventWhen(post.sourcePost.sourceEvent)}</p>
                     </div>
                   </div>
                 </Link>

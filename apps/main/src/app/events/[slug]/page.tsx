@@ -31,13 +31,25 @@ export async function generateMetadata({
       status: "approved",
       ...(isCuid(slug) ? { id: slug } : { slug }),
     },
-    select: { title: true, description: true, photos: true },
+    select: { title: true, photos: true },
   });
   if (!event) return { title: "Event" };
+  const shareDescription = "Check out this event on INW Community!";
+  const image = event.photos[0];
   return {
     title: event.title,
-    description: event.description?.slice(0, 160) ?? undefined,
-    openGraph: event.photos[0] ? { images: [{ url: event.photos[0] }] } : undefined,
+    description: shareDescription,
+    openGraph: {
+      title: event.title,
+      description: shareDescription,
+      ...(image ? { images: [{ url: image }] } : {}),
+    },
+    twitter: {
+      card: image ? "summary_large_image" : "summary",
+      title: event.title,
+      description: shareDescription,
+      ...(image ? { images: [image] } : {}),
+    },
   };
 }
 

@@ -27,6 +27,7 @@ import {
   type EventItem,
 } from "@/lib/events-api";
 import { EventInviteStatsBlocks } from "@/components/EventInviteStatsBlocks";
+import { ShareToChatModal } from "@/components/ShareToChatModal";
 
 const VALID_TYPES = new Set<string>(CALENDAR_TYPES.map((c) => c.value));
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -136,6 +137,7 @@ export default function CalendarDetailScreen() {
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
   const [postEventFormSeed, setPostEventFormSeed] = useState(0);
   const [postEventInitialDate, setPostEventInitialDate] = useState<Date | undefined>(undefined);
+  const [shareEvent, setShareEvent] = useState<EventItem | null>(null);
 
   const { from, to } = useMemo(() => {
     if (viewMode === "week") {
@@ -622,13 +624,23 @@ export default function CalendarDetailScreen() {
                 style={({ pressed }) => [styles.eventCard, pressed && styles.buttonPressed]}
                 onPress={() => router.push(`/event/${ev.slug}`)}
               >
-                <Text style={styles.eventTitle}>{ev.title}</Text>
+                <Text style={[styles.eventTitle, styles.eventTitleWithShare]}>{ev.title}</Text>
                 <Text style={styles.eventDate}>{timeStr || "Time TBD"}</Text>
                 {ev.location ? <Text style={styles.eventMeta}>{ev.location}</Text> : null}
                 {ev.business ? <Text style={styles.eventBusiness}>{ev.business.name}</Text> : null}
                 {ev.inviteStats ? (
                   <EventInviteStatsBlocks stats={ev.inviteStats} compact />
                 ) : null}
+                <Pressable
+                  style={({ pressed }) => [styles.cardShareBtn, pressed && styles.buttonPressed]}
+                  hitSlop={8}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    setShareEvent(ev);
+                  }}
+                >
+                  <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
+                </Pressable>
               </Pressable>
             );
           }}
@@ -854,7 +866,7 @@ export default function CalendarDetailScreen() {
                   ]}
                   onPress={() => router.push(`/event/${ev.slug}`)}
                 >
-                  <Text style={styles.eventTitle}>{ev.title}</Text>
+                  <Text style={[styles.eventTitle, styles.eventTitleWithShare]}>{ev.title}</Text>
                   <Text style={styles.eventDate}>
                     {dateStr}
                     {timeStr ? ` · ${timeStr}` : ""}
@@ -868,6 +880,16 @@ export default function CalendarDetailScreen() {
                   {ev.inviteStats ? (
                     <EventInviteStatsBlocks stats={ev.inviteStats} compact />
                   ) : null}
+                  <Pressable
+                    style={({ pressed }) => [styles.cardShareBtn, pressed && styles.buttonPressed]}
+                    hitSlop={8}
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      setShareEvent(ev);
+                    }}
+                  >
+                    <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
+                  </Pressable>
                 </Pressable>
               );
             })
@@ -906,6 +928,22 @@ export default function CalendarDetailScreen() {
           onSuccess={closePostEventModal}
         />
       </PopupModal>
+
+      <ShareToChatModal
+        visible={!!shareEvent}
+        onClose={() => setShareEvent(null)}
+        sharedContent={
+          shareEvent
+            ? {
+                type: "event",
+                id: shareEvent.id,
+                slug: shareEvent.slug,
+                title: shareEvent.title,
+                previewPhotoUrl: shareEvent.photos?.[0],
+              }
+            : { type: "event", id: "" }
+        }
+      />
     </View>
   );
 }
@@ -1240,6 +1278,16 @@ const styles = StyleSheet.create({
     color: theme.colors.heading,
     fontFamily: theme.fonts.heading,
     marginBottom: 4,
+  },
+  eventTitleWithShare: {
+    paddingRight: 36,
+  },
+  cardShareBtn: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    padding: 6,
+    borderRadius: 6,
   },
   eventDate: {
     fontSize: 14,
