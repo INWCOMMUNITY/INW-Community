@@ -14,7 +14,7 @@ function sanitizeMobileStripeReturnPath(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const path = raw.trim().split("?")[0]?.split("#")[0] ?? "";
   if (!path.startsWith("/") || path.includes("..") || path.includes("//")) return null;
-  if (!/^\/(seller-hub|resale-hub)(\/|$)/.test(path)) return null;
+  if (!/^\/seller-hub(\/|$)/.test(path)) return null;
   return path;
 }
 

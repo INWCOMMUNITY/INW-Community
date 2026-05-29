@@ -18,7 +18,6 @@ const COMMUNITY_SUB_DENY = new Set([
 const ROOT_DENY = new Set([
   "messages",
   "seller-hub",
-  "resale-hub",
   "saved-posts",
   "profile-edit",
   "blocked-members",

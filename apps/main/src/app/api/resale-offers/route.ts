@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       id: true,
       memberId: true,
       title: true,
-      listingType: true,
+      condition: true,
       quantity: true,
       status: true,
       acceptOffers: true,
@@ -56,8 +56,8 @@ export async function POST(req: NextRequest) {
   if (!storeItem) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
-  if (storeItem.listingType !== "resale") {
-    return NextResponse.json({ error: "Offers are only allowed on resale items" }, { status: 400 });
+  if (storeItem.condition !== "used") {
+    return NextResponse.json({ error: "Offers are only allowed on used items" }, { status: 400 });
   }
   if (!storeItem.acceptOffers) {
     return NextResponse.json({ error: "This seller is not accepting offers on this item" }, { status: 400 });

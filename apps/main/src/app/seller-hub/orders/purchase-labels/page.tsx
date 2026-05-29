@@ -2,10 +2,7 @@ import { redirect } from "next/navigation";
 
 const PASSTHROUGH_KEYS = ["returnTo", "nwAppShippo", "nwAppChrome", "autoBulk"] as const;
 
-function ordersListPathFromReturnTo(returnTo: string | undefined): "/resale-hub/orders" | "/seller-hub/orders" {
-  if (returnTo === "/resale-hub/orders" || returnTo?.startsWith("/resale-hub/orders/")) {
-    return "/resale-hub/orders";
-  }
+function ordersListPathFromReturnTo(_returnTo: string | undefined): "/seller-hub/orders" {
   return "/seller-hub/orders";
 }
 

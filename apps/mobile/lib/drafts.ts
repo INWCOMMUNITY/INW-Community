@@ -17,7 +17,7 @@ export interface StoreItemDraft {
   subcategory?: string;
   priceCents: string;
   quantity: string;
-  listingType: "new" | "resale";
+  condition?: "new" | "used";
   shippingDisabled: boolean;
   shippingCostDollars: string;
   shippingFree: boolean;

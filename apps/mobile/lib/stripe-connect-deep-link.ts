@@ -12,7 +12,7 @@ export function parseStripeConnectReturnUrl(url: string): string | null {
   if (!path.startsWith("/") || path.includes("..") || path.includes("//")) {
     return "/seller-hub";
   }
-  if (!/^\/(seller-hub|resale-hub)(\/|$)/.test(path)) {
+  if (!/^\/seller-hub(\/|$)/.test(path)) {
     return "/seller-hub";
   }
   return path.split("?")[0]?.split("#")[0] ?? "/seller-hub";

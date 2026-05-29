@@ -31,7 +31,7 @@ export async function GET(
           title: true,
           slug: true,
           photos: true,
-          listingType: true,
+          condition: true,
           memberId: true,
           status: true,
           quantity: true,
@@ -145,7 +145,7 @@ export async function POST(
   sendPushNotification(recipientId, {
     title: "Message about your listing",
     body: pushBody,
-    data: { screen: "resale-hub/messages", conversationId: id },
+    data: { screen: "seller-hub/messages", conversationId: id },
     category: "messages",
   }).catch(() => {});
 

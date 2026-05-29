@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
 
-export type ProfileView = "business_hub" | "seller_hub" | "resale_hub" | "profile";
+export type ProfileView = "business_hub" | "seller_hub" | "profile";
 
 interface ProfileViewContextValue {
   profileView: ProfileView;
@@ -44,7 +44,7 @@ export function ProfileViewProvider({
   }, [defaultView]);
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const hasBusinessHub = hasSponsor || hasSeller || hasBusinessHubFromApi;
-  const showSwitcher = hasBusinessHub || hasSubscriber;
+  const showSwitcher = hasBusinessHub;
   const openSwitcher = useCallback(() => setSwitcherVisible(true), []);
   const closeSwitcher = useCallback(() => setSwitcherVisible(false), []);
 

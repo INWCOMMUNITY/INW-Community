@@ -248,11 +248,10 @@ export default async function SellerStorefrontPage({
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                   {business.storeItems.map((item) => {
-                    const basePath = item.listingType === "resale" ? "/resale" : "/storefront";
                     return (
                     <Link
                       key={item.id}
-                      href={`${basePath}/${item.slug}`}
+                      href={`/storefront/${item.slug}`}
                       className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition"
                       style={{ borderColor: "var(--color-primary)" }}
                     >

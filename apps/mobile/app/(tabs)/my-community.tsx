@@ -263,7 +263,7 @@ function SellerHubContent() {
           <RNView style={styles.sellerHubHeroText}>
             <Text style={styles.sellerHubTitle}>Seller Hub</Text>
             <Text style={styles.sellerHubSubtitle}>
-              Manage your storefront and resale listings, ship orders, get paid.
+              Manage your storefront listings, ship orders, get paid.
             </Text>
           </RNView>
           <RNView style={styles.sellerHubIconCircle}>
@@ -312,202 +312,11 @@ function SellerHubContent() {
   );
 }
 
-function ResaleHubContent() {
-  const router = useRouter();
-  const { member } = useAuth();
-  const { setProfileView } = useProfileView();
-  const canAccessResaleHub = member?.hasResaleHubAccess ?? false;
-  const [resaleSetupComplete, setResaleSetupComplete] = useState(false);
-  const [pendingShip, setPendingShip] = useState(0);
-  const [pendingDeliveries, setPendingDeliveries] = useState(0);
-  const [pendingPickups, setPendingPickups] = useState(0);
-  const [sellerOffersPending, setSellerOffersPending] = useState(0);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (canAccessResaleHub) {
-        apiGet<{
-          pendingShip?: number;
-          pendingDeliveries?: number;
-          pendingPickups?: number;
-          sellerOffersPending?: number;
-        }>("/api/seller-hub/pending-actions")
-          .then((data) => {
-            setPendingShip(Number(data.pendingShip) || 0);
-            setPendingDeliveries(Number(data.pendingDeliveries) || 0);
-            setPendingPickups(Number(data.pendingPickups) || 0);
-            setSellerOffersPending(Number(data.sellerOffersPending) || 0);
-          })
-          .catch(() => {});
-      }
-    }, [canAccessResaleHub])
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      (async () => {
-        try {
-          const [funds, shipping, me] = await Promise.all([
-            apiGet<{ hasStripeConnect?: boolean } | { error?: string }>("/api/seller-funds"),
-            apiGet<{ connected?: boolean } | { error?: string }>("/api/shipping/status"),
-            apiGet<{
-              sellerShippingPolicy?: string | null;
-              sellerLocalDeliveryPolicy?: string | null;
-              sellerPickupPolicy?: string | null;
-              sellerReturnPolicy?: string | null;
-            }>("/api/me"),
-          ]);
-          if (cancelled) return;
-          const stripe = Boolean((funds as { hasStripeConnect?: boolean }).hasStripeConnect);
-          const shippo = Boolean((shipping as { connected?: boolean }).connected);
-          const p = me as {
-            sellerShippingPolicy?: string | null;
-            sellerLocalDeliveryPolicy?: string | null;
-            sellerPickupPolicy?: string | null;
-            sellerReturnPolicy?: string | null;
-          };
-          const anyPolicy = [
-            p?.sellerShippingPolicy,
-            p?.sellerLocalDeliveryPolicy,
-            p?.sellerPickupPolicy,
-            p?.sellerReturnPolicy,
-          ].some((v) => typeof v === "string" && v.trim().length > 0);
-          setResaleSetupComplete(stripe && shippo && anyPolicy);
-        } catch {
-          if (!cancelled) setResaleSetupComplete(false);
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, [])
-  );
-
-  if (!canAccessResaleHub) {
-    return (
-      <View style={[styles.container, styles.planGateFill]}>
-        <View style={[styles.tanSection, { padding: 24, alignItems: "center" }]}>
-          <Text style={[styles.businessHubButtonTitle, { marginBottom: 12, textAlign: "center" }]}>
-            Resale Hub
-          </Text>
-          <Text style={[styles.businessHubButtonDesc, { marginBottom: 16, textAlign: "center" }]}>
-            Resale Hub is included with the Resident Subscribe plan ($10/mo). Business and Seller plans use Business Hub and Seller Hub; add Subscribe for the member resale experience and coupon book.
-          </Text>
-          <Pressable
-            style={({ pressed }) => [
-              styles.editProfileButton,
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={() =>
-              router.push(
-                `/web?url=${encodeURIComponent(`${siteBase}/support-nwc`)}&title=${encodeURIComponent("View plans")}`
-              )
-            }
-          >
-            <ThemedText style={styles.editProfileButtonText}>View plans</ThemedText>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
-  const gridActions: {
-    label: string;
-    href?: string;
-    onPress?: () => void;
-    icon: keyof typeof Ionicons.glyphMap;
-  }[] = [
-    { label: "List Item", href: "/resale-hub/list", icon: "add-circle" },
-    {
-      label: "My Listings",
-      href: "/seller-hub/store/items?listingType=resale",
-      icon: "list-outline",
-    },
-    { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
-    { label: "Offers", href: "/resale-hub/offers", icon: "pricetag-outline" },
-    { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
-    { label: "Pick Ups", href: "/resale-hub/pickups", icon: "hand-left-outline" },
-    { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
-    {
-      label: resaleSetupComplete ? "Store Variables" : "Before You Start",
-      href: "/resale-hub/before-you-start",
-      icon: "checkbox-outline",
-    },
-  ];
-
-  const resaleHubBadgeForLabel = (label: string) => {
-    if (label === "Orders / To Ship") return pendingShip > 0;
-    if (label === "Offers") return sellerOffersPending > 0;
-    if (label === "Deliveries") return pendingDeliveries > 0;
-    if (label === "Pick Ups") return pendingPickups > 0;
-    return false;
-  };
-
-  return (
-    <View style={styles.container}>
-      <ScrollView
-        style={styles.sellerHubScroll}
-        contentContainerStyle={styles.sellerHubContent}
-      >
-        <RNView style={styles.sellerHubHero}>
-          <RNView style={styles.sellerHubHeroText}>
-            <Text style={styles.sellerHubTitle}>Resale Hub</Text>
-            <Text style={styles.sellerHubSubtitle}>
-              List and Ship pre-loved items in our community, in NWCs Resale Storefront.
-            </Text>
-          </RNView>
-          <RNView style={styles.sellerHubIconCircle}>
-            <Ionicons name="cash-outline" size={40} color={theme.colors.primary} />
-          </RNView>
-        </RNView>
-
-        <RNView style={styles.sellerHubGrid}>
-          {gridActions.map((action) => {
-            const needsAction = resaleHubBadgeForLabel(action.label);
-            return (
-            <Pressable
-              key={action.href ?? action.label}
-              style={({ pressed }) => [
-                styles.sellerHubGridButton,
-                pressed && styles.buttonPressed,
-              ]}
-              onPress={
-                action.onPress
-                  ? action.onPress
-                  : () => action.href && (router.push as (href: string) => void)(action.href)
-              }
-            >
-              {needsAction && (
-                <RNView style={styles.hubAlertBadge}>
-                  <Text style={styles.hubAlertBadgeText}>!</Text>
-                </RNView>
-              )}
-              <Ionicons name={action.icon} size={28} color={theme.colors.primary} />
-              <ThemedText style={styles.sellerHubGridLabel}>{action.label}</ThemedText>
-            </Pressable>
-            );
-          })}
-        </RNView>
-
-        <RNView style={styles.sellerHubFooter}>
-          <Pressable
-            style={({ pressed }) => [styles.sellerHubLink, pressed && styles.buttonPressed]}
-            onPress={() => setProfileView("profile")}
-          >
-            <Text style={styles.sellerHubLinkText}>Go to Profile →</Text>
-          </Pressable>
-        </RNView>
-      </ScrollView>
-    </View>
-  );
-}
-
 export default function MyCommunityScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ open?: string }>();
   const { member, subscriptionPlan, loading, refreshMember } = useAuth();
-  const { profileView, hasSeller, hasSubscriber, setProfileView } = useProfileView();
+  const { profileView, hasSeller, setProfileView } = useProfileView();
   const openCreatePostAsBusiness = useCreatePost()?.openCreatePostAsBusiness;
 
   useFocusEffect(
@@ -518,7 +327,6 @@ export default function MyCommunityScreen() {
 
   const showBusinessHub = profileView === "business_hub";
   const showSellerHub = profileView === "seller_hub";
-  const showResaleHub = profileView === "resale_hub";
 
   const [couponModalVisible, setCouponModalVisible] = useState(false);
   const [rewardModalVisible, setRewardModalVisible] = useState(false);
@@ -1175,10 +983,6 @@ export default function MyCommunityScreen() {
 
   if (showSellerHub) {
     return <SellerHubContent />;
-  }
-
-  if (showResaleHub) {
-    return <ResaleHubContent />;
   }
 
   return (

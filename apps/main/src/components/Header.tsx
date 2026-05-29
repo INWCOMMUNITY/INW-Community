@@ -43,10 +43,6 @@ const navItems: NavItem[] = [
     label: "Store",
     href: "/storefront",
     icon: "bag-outline",
-    children: [
-      { href: "/storefront", label: "NWC Storefront" },
-      { href: "/resale", label: "NWC Resale" },
-    ],
   },
   {
     label: "Support Local",
@@ -70,32 +66,17 @@ const navItems: NavItem[] = [
   },
 ];
 
-function membersDropdownChildren(canAccessResaleHub: boolean | undefined): NavChild[] {
-  const base: NavChild[] = [
-    { href: "/business-hub", label: "Business Hub" },
-    { href: "/seller-hub", label: "Seller Hub" },
-  ];
-  if (canAccessResaleHub) {
-    return [...base, { href: "/resale-hub", label: "Resale Hub" }];
-  }
-  return base;
-}
-
-function navDropdownChildren(item: NavItem, canAccessResaleHub: boolean | undefined): NavChild[] {
-  if (item.label === "Members") {
-    return membersDropdownChildren(canAccessResaleHub);
-  }
+function navDropdownChildren(item: NavItem): NavChild[] {
   return "children" in item ? (item.children ?? []) : [];
 }
 
 function isPathActive(
   pathname: string,
   item: (typeof navItems)[number],
-  canAccessResaleHub?: boolean | undefined,
 ): boolean {
   const href = "href" in item ? item.href : "";
   if ("children" in item && (item.children?.length ?? 0) > 0) {
-    const children = navDropdownChildren(item, canAccessResaleHub);
+    const children = navDropdownChildren(item);
     const childMatch = children.some(
       (c) => pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href)),
     );
@@ -109,7 +90,6 @@ function isPathActive(
 export function Header() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
-  const canAccessResaleHub = session?.user?.canAccessResaleHub === true;
   const { count: cartCount, setOpen: setCartOpen } = useCart();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedMobileItem, setExpandedMobileItem] = useState<string | null>(null);
@@ -162,24 +142,13 @@ export function Header() {
               <span className="text-xs text-gray-500">...</span>
             ) : (
               <div className="flex flex-col items-end gap-1 shrink-0">
-                {session?.user?.canAccessResaleHub ? (
-                  <Link
-                    href="/my-community"
-                    prefetch={false}
-                    className="rounded-full px-2.5 py-2 font-medium text-[0.86rem] text-white hover:opacity-95 transition-opacity shrink-0 inline-flex items-center justify-center"
-                    style={{ backgroundColor: SEGMENT_COLOR }}
-                  >
-                    My Community
-                  </Link>
-                ) : (
-                  <Link
-                    href={session ? "/my-community" : "/login"}
-                    className="rounded-full px-2.5 py-2 font-medium text-[0.86rem] text-white hover:opacity-95 transition-opacity shrink-0"
-                    style={{ backgroundColor: SEGMENT_COLOR }}
-                  >
-                    My Community
-                  </Link>
-                )}
+                <Link
+                  href={session ? "/my-community" : "/login"}
+                  className="rounded-full px-2.5 py-2 font-medium text-[0.86rem] text-white hover:opacity-95 transition-opacity shrink-0"
+                  style={{ backgroundColor: SEGMENT_COLOR }}
+                >
+                  My Community
+                </Link>
               </div>
             )}
             {cartCount > 0 && (
@@ -213,7 +182,7 @@ export function Header() {
             style={{ borderColor: "var(--color-primary)", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
           >
             {navItems.map((item, index) => {
-              const active = isPathActive(pathname, item, canAccessResaleHub);
+              const active = isPathActive(pathname, item);
               const isFirst = index === 0;
               const isLast = index === navItems.length - 1;
               const hasChildren = "children" in item && (item.children?.length ?? 0) > 0;
@@ -240,7 +209,7 @@ export function Header() {
                     {/* Wrapper includes pt-2 bridge so hover is preserved when moving from trigger to menu */}
                     <div className="absolute top-full left-0 right-0 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
                       <div className="w-full bg-white border-2 rounded-md shadow-lg" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-                        {navDropdownChildren(item, canAccessResaleHub).map((c) => {
+                        {navDropdownChildren(item).map((c) => {
                           const isChildActive = pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href));
                           const isRewards = c.href === "/rewards";
                           return (
@@ -300,34 +269,6 @@ export function Header() {
           )}
           {status === "loading" ? (
             <span className="text-sm text-gray-500 w-24">...</span>
-          ) : session?.user?.canAccessResaleHub ? (
-            <div className="relative group shrink-0">
-              <Link
-                href="/my-community"
-                prefetch={false}
-                className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] text-white hover:opacity-95 transition-opacity inline-flex items-center justify-center"
-                style={{ backgroundColor: SEGMENT_COLOR }}
-              >
-                My Community
-              </Link>
-              <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
-                <div className="bg-white border-2 rounded-md shadow-lg min-w-[10rem]" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-                  <Link
-                    href="/my-community/messages"
-                    prefetch={false}
-                    className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] rounded-t-md text-sm sm:text-base text-gray-700 text-center"
-                  >
-                    Messages ({unreadMessages})
-                  </Link>
-                  <Link
-                    href="/api/auth/signout?callbackUrl=%2F"
-                    className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] rounded-b-md text-sm sm:text-base text-gray-700 text-center"
-                  >
-                    Log out
-                  </Link>
-                </div>
-              </div>
-            </div>
           ) : (
             <div className="relative group shrink-0">
               <Link
@@ -405,12 +346,9 @@ export function Header() {
           onClick={() => setMobileOpen(false)}
         >
           <div
-            className={`relative w-auto min-w-[max-content] max-w-[min(90vw,280px)] mx-auto bg-white border-b-2 border-[var(--color-primary)] shadow-xl rounded-lg shrink-0 transition-[max-height] duration-200 ${!expandedMobileItem ? `overflow-y-auto ${session?.user?.canAccessResaleHub ? "max-h-[85vh]" : "max-h-[70vh]"}` : ""}`}
+            className={`relative w-auto min-w-[max-content] max-w-[min(90vw,280px)] mx-auto bg-white border-b-2 border-[var(--color-primary)] shadow-xl rounded-lg shrink-0 transition-[max-height] duration-200 ${!expandedMobileItem ? "overflow-y-auto max-h-[70vh]" : ""}`}
             style={{
               animation: "headerSlideDown 0.2s ease-out",
-              ...(expandedMobileItem && session?.user?.canAccessResaleHub
-                ? { paddingBottom: "0.5rem", minHeight: "calc(100vh - 2rem)" }
-                : {}),
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -452,8 +390,8 @@ export function Header() {
                         href={"href" in item ? item.href : "#"}
                         prefetch={false}
                         onClick={() => setMobileOpen(false)}
-                        className={`flex-1 py-3 px-3 font-medium ${isPathActive(pathname, item, canAccessResaleHub) ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
-                        style={isPathActive(pathname, item, canAccessResaleHub) ? { backgroundColor: "var(--color-primary)" } : undefined}
+                        className={`flex-1 py-3 px-3 font-medium ${isPathActive(pathname, item) ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
+                        style={isPathActive(pathname, item) ? { backgroundColor: "var(--color-primary)" } : undefined}
                       >
                         {item.label}
                       </Link>
@@ -476,7 +414,7 @@ export function Header() {
                     </div>
                     {isExpanded && (
                       <div className="border-t border-gray-200 bg-gray-50/80">
-                        {navDropdownChildren(item, canAccessResaleHub).map((c) => {
+                        {navDropdownChildren(item).map((c) => {
                           const isChildActive = pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href));
                           return (
                             <Link
@@ -507,7 +445,7 @@ export function Header() {
                   </div>
                 );
               }
-              const active = isPathActive(pathname, item, canAccessResaleHub);
+              const active = isPathActive(pathname, item);
               return (
                 <Link
                   key={item.href}

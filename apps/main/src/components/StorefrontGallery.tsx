@@ -108,13 +108,11 @@ function StorefrontCard({
   savedIds,
   onAdded,
   basePath,
-  listingType,
 }: {
   item: StoreItem;
   savedIds: Set<string>;
   onAdded: () => void;
   basePath: string;
-  listingType: "resale" | "new";
 }) {
   const [hoveredPhotoIndex, setHoveredPhotoIndex] = useState(0);
   const photoUrl = item.photos.length > 0 ? item.photos[hoveredPhotoIndex % item.photos.length] : null;
@@ -132,7 +130,6 @@ function StorefrontCard({
           type="store_item"
           id={item.id}
           slug={item.slug}
-          listingType={listingType}
           title={item.title}
           className="bg-white/90 rounded-full border border-[var(--color-primary)] p-1"
         />
@@ -222,7 +219,6 @@ function FilterAccordion({
 }
 
 export type StorefrontGalleryProps = {
-  listingType?: "new" | "resale";
   basePath?: string;
   storageKey?: string;
   placeholder?: string;
@@ -231,7 +227,6 @@ export type StorefrontGalleryProps = {
 };
 
 export function StorefrontGallery({
-  listingType = "new",
   basePath = "/storefront",
   storageKey = "storefrontFilters",
   placeholder = "Search storefront...",
@@ -251,7 +246,8 @@ export function StorefrontGallery({
   const search = searchProp ?? searchInternal;
   const setSearch = onSearchChange ?? setSearchInternal;
   const [deliveryFilter, setDeliveryFilter] = useState<"" | "local" | "shipping">("");
-  const [productTypeOpen, setProductTypeOpen] = useState(true);
+  const [conditionFilter, setConditionFilter] = useState<"" | "new" | "used">("");
+  const [conditionOpen, setConditionOpen] = useState(true);
   const [priceOpen, setPriceOpen] = useState(false);
   const [sizeOpen, setSizeOpen] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(true);
@@ -259,11 +255,6 @@ export function StorefrontGallery({
   const [filterOpen, setFilterOpen] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    setCategory("");
-    setSubcategory("");
-  }, [listingType]);
 
   useEffect(() => {
     if (!searchParams) return;
@@ -287,7 +278,7 @@ export function StorefrontGallery({
   useLockBodyScroll(browseOpen || filterOpen);
 
   const fetchMeta = useCallback(() => {
-    const params = new URLSearchParams({ list: "meta", listingType });
+    const params = new URLSearchParams({ list: "meta" });
     fetch(`/api/store-items?${params}`)
       .then((r) => r.json())
       .then((d: { sizes?: string[]; browseByCategories?: BrowseCategoryOption[]; categories?: string[] }) => {
@@ -301,11 +292,12 @@ export function StorefrontGallery({
         }
       })
       .catch(() => {});
-  }, [listingType]);
+  }, []);
 
   const fetchItems = useCallback(() => {
     setFetchError(null);
-    const params = new URLSearchParams({ listingType });
+    const params = new URLSearchParams();
+    if (conditionFilter) params.set("condition", conditionFilter);
     if (category) params.set("category", category);
     if (subcategory) params.set("subcategory", subcategory);
     if (size) params.set("size", size);
@@ -324,7 +316,7 @@ export function StorefrontGallery({
         setFetchError(err instanceof Error ? err.message : "Failed to load items.");
         setItems([]);
       });
-  }, [listingType, category, subcategory, size, search, deliveryFilter]);
+  }, [conditionFilter, category, subcategory, size, search, deliveryFilter]);
 
   useEffect(() => {
     fetchMeta();
@@ -377,12 +369,12 @@ export function StorefrontGallery({
     try {
       sessionStorage.setItem(
         storageKey,
-        JSON.stringify({ category, subcategory, size, search, deliveryFilter })
+        JSON.stringify({ category, subcategory, size, search, deliveryFilter, conditionFilter })
       );
     } catch {
       /* ignore */
     }
-  }, [storageKey, category, subcategory, size, search, deliveryFilter]);
+  }, [storageKey, category, subcategory, size, search, deliveryFilter, conditionFilter]);
 
   const browsePanel = (
     <div className="rounded-lg border-2 bg-white shadow-sm overflow-hidden p-4" style={{ borderColor: "var(--color-primary)" }}>
@@ -412,6 +404,22 @@ export function StorefrontGallery({
     <div className="rounded-lg border-2 bg-white shadow-sm overflow-hidden p-4" style={{ borderColor: "var(--color-primary)" }}>
       <h2 className="text-sm font-bold text-gray-900 mb-3">Filter by</h2>
       <div className="h-px bg-gray-200 my-3" aria-hidden />
+      <FilterAccordion label="Condition" open={conditionOpen} onToggle={() => setConditionOpen((o) => !o)}>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="radio" name="conditionFilterPanel" checked={conditionFilter === ""} onChange={() => setConditionFilter("")} className="border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+            All
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="radio" name="conditionFilterPanel" checked={conditionFilter === "new"} onChange={() => setConditionFilter("new")} className="border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+            New
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="radio" name="conditionFilterPanel" checked={conditionFilter === "used"} onChange={() => setConditionFilter("used")} className="border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+            Used
+          </label>
+        </div>
+      </FilterAccordion>
       <FilterAccordion label="Price" open={priceOpen} onToggle={() => setPriceOpen((o) => !o)}>
         <p className="text-sm text-gray-500">Price filter coming soon.</p>
       </FilterAccordion>
@@ -474,6 +482,22 @@ export function StorefrontGallery({
       <div>
         <h2 className="text-sm font-bold text-gray-900 mb-3">Filter by</h2>
         <div className="h-px bg-gray-200 my-3" aria-hidden />
+        <FilterAccordion label="Condition" open={conditionOpen} onToggle={() => setConditionOpen((o) => !o)}>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+              <input type="radio" name="conditionFilterSidebar" checked={conditionFilter === ""} onChange={() => setConditionFilter("")} className="border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+              All
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+              <input type="radio" name="conditionFilterSidebar" checked={conditionFilter === "new"} onChange={() => setConditionFilter("new")} className="border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+              New
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+              <input type="radio" name="conditionFilterSidebar" checked={conditionFilter === "used"} onChange={() => setConditionFilter("used")} className="border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+              Used
+            </label>
+          </div>
+        </FilterAccordion>
         <FilterAccordion label="Price" open={priceOpen} onToggle={() => setPriceOpen((o) => !o)}>
           <p className="text-sm text-gray-500">Price filter coming soon.</p>
         </FilterAccordion>
@@ -555,7 +579,7 @@ export function StorefrontGallery({
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-8">
           {items.map((item) => (
-            <StorefrontCard key={item.id} item={item} savedIds={savedIds} onAdded={() => setCartOpen(true)} basePath={basePath} listingType={listingType} />
+            <StorefrontCard key={item.id} item={item} savedIds={savedIds} onAdded={() => setCartOpen(true)} basePath={basePath} />
           ))}
         </div>
         {fetchError && (

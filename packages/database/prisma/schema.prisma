@@ -921,9 +921,10 @@ model StoreItem {
   pickupTerms          String?  @map("pickup_terms") @db.Text
   stripePriceId       String?  @map("stripe_price_id")
   slug                String   @unique
-  listingType         String   @default("new") @map("listing_type") // "new" | "resale"
-  acceptOffers         Boolean  @default(true) @map("accept_offers") // resale: allow make-offer
-  minOfferCents        Int?     @map("min_offer_cents") // resale: auto-decline offers below this
+  condition           String   @default("new") @map("condition") // "new" | "used"
+  listingType         String   @default("new") @map("listing_type") // deprecated: always "new" (single store)
+  acceptOffers         Boolean  @default(true) @map("accept_offers") // used items: allow make-offer
+  minOfferCents        Int?     @map("min_offer_cents") // used items: auto-decline offers below this
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 

@@ -10,7 +10,7 @@ function sanitizePath(raw: string | null): string {
   if (!path.startsWith("/") || path.includes("..") || path.includes("//")) {
     return "/seller-hub";
   }
-  if (!/^\/(seller-hub|resale-hub)(\/|$)/.test(path)) {
+  if (!/^\/seller-hub(\/|$)/.test(path)) {
     return "/seller-hub";
   }
   return path;

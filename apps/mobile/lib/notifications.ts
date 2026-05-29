@@ -125,13 +125,13 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
     case "cart":
       return "/cart";
     case "resale-hub/offers":
-      return "/resale-hub/offers";
+      return "/seller-hub/offers";
     case "resale-hub/messages":
       return data.conversationId
         ? `/messages/resale/${data.conversationId}`
         : "/messages?tab=resale";
     case "resale-hub/list":
-      return "/resale-hub/list";
+      return "/seller-hub/store/new";
     case "community/my-friends":
       return "/community/my-friends";
     case "friend_requests":

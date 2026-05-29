@@ -60,7 +60,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 import { SellerHubSideMenu } from "@/components/SellerHubSideMenu";
 import { BusinessHubSideMenu } from "@/components/BusinessHubSideMenu";
-import { ResaleHubSideMenu } from "@/components/ResaleHubSideMenu";
 import { ProfileSideMenu } from "@/components/ProfileSideMenu";
 import { AppNavMenu } from "@/components/AppNavMenu";
 import { CommunitySideMenu } from "@/components/CommunitySideMenu";
@@ -110,9 +109,7 @@ function ProfileHeaderTitle() {
       ? "Business Hub"
       : profileView === "seller_hub"
         ? "Seller Hub"
-        : profileView === "resale_hub"
-          ? "Resale Hub"
-          : "Profile";
+        : "Profile";
   const titleTextStyle = {
     fontSize: 18,
     fontWeight: "600" as const,
@@ -235,11 +232,9 @@ const PROFILE_SWITCHER_HEADER_GAP = 0;
 function ProfileSwitcherModal({
   businessHubAttention,
   sellerHubAttention,
-  resaleHubAttention,
 }: {
   businessHubAttention: boolean;
   sellerHubAttention: boolean;
-  resaleHubAttention: boolean;
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -251,7 +246,6 @@ function ProfileSwitcherModal({
     setProfileView,
     hasBusinessHub,
     hasSeller,
-    hasSubscriber,
   } = useProfileView();
 
   /**
@@ -380,36 +374,6 @@ function ProfileSwitcherModal({
                 {sellerHubAttention ? <HubAttentionBadge /> : null}
               </Pressable>
             )}
-            {hasSubscriber && (
-              <Pressable
-                style={{
-                  paddingVertical: 14,
-                  paddingHorizontal: 20,
-                  borderBottomWidth: 1,
-                  borderBottomColor: "#eee",
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
-                }}
-                onPress={() => {
-                  setProfileView("resale_hub");
-                  closeSwitcher();
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: 16,
-                    fontWeight: "600",
-                    color: theme.colors.heading,
-                    flex: 1,
-                  }}
-                >
-                  Resale Hub
-                </Text>
-                {resaleHubAttention ? <HubAttentionBadge /> : null}
-              </Pressable>
-            )}
             <Pressable
               style={{
                 paddingVertical: 14,
@@ -437,7 +401,7 @@ function ProfileSwitcherModal({
   );
 }
 
-type SideMenuType = "seller" | "business" | "resale" | "profile" | "app" | "community" | null;
+type SideMenuType = "seller" | "business" | "profile" | "app" | "community" | null;
 
 const switcherShownOnceRef = { current: false };
 
@@ -447,7 +411,7 @@ function TabLayoutInner() {
   const pathname = usePathname();
   const { member, profileSyncError, clearProfileSyncError, refreshMember } = useAuth();
   const tabSafeInsets = useSafeAreaInsets();
-  const { profileView, showSwitcher, openSwitcher, hasSeller, hasSubscriber } = useProfileView();
+  const { profileView, showSwitcher, openSwitcher, hasSeller } = useProfileView();
   const [sideMenuType, setSideMenuType] = useState<SideMenuType>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [hubAlerts, setHubAlerts] = useState({
@@ -486,8 +450,6 @@ function TabLayoutInner() {
   const sellerWorkPending =
     hubAlerts.sellerOffersPending || hubAlerts.sellerFulfillmentPending;
   const sellerHubAttention = hasSeller && sellerWorkPending;
-  const resaleHubAttention =
-    hasSubscriber && (hubAlerts.buyerOffersAction || sellerWorkPending);
   const businessHubAttention = false;
 
   const isProfileTab = typeof pathname === "string" && pathname.includes("my-community");
@@ -518,14 +480,11 @@ function TabLayoutInner() {
       ? "business"
       : profileView === "seller_hub"
         ? "briefcase"
-        : profileView === "resale_hub"
-          ? "cash-outline"
-          : "person";
+        : "person";
 
   const openSideMenu = (routeName: string) => {
     if (routeName === "my-community") {
       if (profileView === "seller_hub") setSideMenuType("seller");
-      else if (profileView === "resale_hub") setSideMenuType("resale");
       else if (profileView === "business_hub") return; // Business Hub uses QR icon, no side menu
       else setSideMenuType("profile");
     } else if (routeName === "index") {
@@ -776,20 +735,14 @@ function TabLayoutInner() {
       visible={sideMenuType === "business"}
       onClose={() => setSideMenuType(null)}
     />
-    <ResaleHubSideMenu
-      visible={sideMenuType === "resale"}
-      onClose={() => setSideMenuType(null)}
-    />
     <ProfileSideMenu
       visible={sideMenuType === "profile"}
       onClose={() => setSideMenuType(null)}
-      hasSubscriber={hasSubscriber}
     />
     <AppNavMenu
       visible={sideMenuType === "app"}
       onClose={() => setSideMenuType(null)}
       hasSeller={hasSeller}
-      hasSubscriber={hasSubscriber}
     />
     <CommunitySideMenuWithContext
       visible={sideMenuType === "community"}
@@ -799,7 +752,6 @@ function TabLayoutInner() {
     <ProfileSwitcherModal
       businessHubAttention={businessHubAttention}
       sellerHubAttention={sellerHubAttention}
-      resaleHubAttention={resaleHubAttention}
     />
 
     </>

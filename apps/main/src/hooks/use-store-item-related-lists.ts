@@ -19,8 +19,7 @@ export function useStoreItemRelatedLists(
     id?: string;
     category?: string | null;
     member?: { id: string } | null;
-  } | null,
-  listingType: "new" | "resale"
+  } | null
 ) {
   const [sellerItems, setSellerItems] = useState<RelatedItem[]>([]);
   const [similarItems, setSimilarItems] = useState<RelatedItem[]>([]);
@@ -43,7 +42,6 @@ export function useStoreItemRelatedLists(
           memberId,
           excludeId: item.id!,
         });
-        if (listingType === "resale") sellerParams.set("listingType", "resale");
         fetch(`/api/store-items?${sellerParams}`)
           .then((r) => r.json())
           .then((data) => {
@@ -57,7 +55,6 @@ export function useStoreItemRelatedLists(
       }
 
       const similarParams = new URLSearchParams({ excludeId: item.id! });
-      if (listingType === "resale") similarParams.set("listingType", "resale");
       if (item.category) similarParams.set("category", item.category);
       fetch(`/api/store-items?${similarParams}`)
         .then((r) => r.json())
@@ -82,7 +79,7 @@ export function useStoreItemRelatedLists(
       }
       if (timeoutId != null) window.clearTimeout(timeoutId);
     };
-  }, [item?.id, item?.category, item?.member?.id, listingType]);
+  }, [item?.id, item?.category, item?.member?.id]);
 
   return { sellerItems, similarItems };
 }

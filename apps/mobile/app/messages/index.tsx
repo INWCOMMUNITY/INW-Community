@@ -353,7 +353,7 @@ export default function MessagesInboxScreen() {
           onPress={() => setTab("resale")}
         >
           <Text style={[styles.tabText, tab === "resale" && styles.tabTextActive]}>
-            Resale
+            Offers
             {resaleUnreadTotal > 0 ? (
               <Text style={[styles.tabUnreadSuffix, tab === "resale" && styles.tabUnreadSuffixActive]}>
                 {" "}
@@ -376,7 +376,7 @@ export default function MessagesInboxScreen() {
               ? "No direct messages yet"
               : tab === "groups"
                 ? "No group chats yet"
-                : "No resale conversations yet"}
+                : "No offers yet"}
           </Text>
           {tab === "direct" && (
             <Pressable

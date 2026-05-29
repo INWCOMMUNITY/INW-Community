@@ -74,7 +74,6 @@ interface CartItemStoreItem {
   pickupTerms?: string | null;
   localDeliveryTerms?: string | null;
   member?: {
-    acceptCashForPickupDelivery?: boolean;
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
   };
@@ -173,7 +172,7 @@ function cartLineUnitPriceCents(item: CartItem): number {
   return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
 }
 
-/** Stripe / cash return URLs from storefront order-success. */
+/** Stripe return URLs from storefront order-success. */
 function parseOrderSuccessCheckoutParams(url: string): { orderIds: string[]; sessionId: string | null } {
   try {
     const qIdx = url.indexOf("?");
@@ -181,11 +180,7 @@ function parseOrderSuccessCheckoutParams(url: string): { orderIds: string[]; ses
     const qs = url.slice(qIdx + 1).split("#")[0];
     const params = new URLSearchParams(qs);
     const o1 = params.get("order_ids");
-    const o2 = params.get("cash_order_ids");
-    const raw = [
-      ...(o1?.split(",").map((s) => s.trim()).filter(Boolean) ?? []),
-      ...(o2?.split(",").map((s) => s.trim()).filter(Boolean) ?? []),
-    ];
+    const raw = o1?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
     return { orderIds: [...new Set(raw)], sessionId: params.get("session_id") };
   } catch {
     return { orderIds: [], sessionId: null };
@@ -238,9 +233,6 @@ export default function CartScreen() {
     newTotal: number;
     pointsPendingFulfillment?: number;
   } | null>(null);
-  const [paymentMethodByItemId, setPaymentMethodByItemId] = useState<Record<string, "card" | "cash">>({});
-  const mixedCashOrderIdsRef = useRef<string[]>([]);
-  const mixedCashEarnedBadgesRef = useRef<CartEarnedBadge[]>([]);
   const pendingCashOrderIdsForPointsRef = useRef<string[] | null>(null);
   const [cashEarnedBadgeQueue, setCashEarnedBadgeQueue] = useState<CartEarnedBadge[]>([]);
   const [cashEarnedBadgeIndex, setCashEarnedBadgeIndex] = useState(-1);
@@ -276,12 +268,13 @@ export default function CartScreen() {
   }, [member?.id]);
 
   useEffect(() => {
-    if (!member?.id || buyerOffers.length === 0) return;
+    const memberId = member?.id;
+    if (!memberId || buyerOffers.length === 0) return;
     const valid = new Set(buyerOffers.map((o) => o.id));
     setDismissedBuyerOfferIds((prev) => {
       const next = new Set([...prev].filter((id) => valid.has(id)));
       if (next.size === prev.size) return prev;
-      void persistDismissedBuyerOfferIds(member.id, next);
+      void persistDismissedBuyerOfferIds(memberId, next);
       return next;
     });
   }, [buyerOffers, member?.id]);
@@ -293,12 +286,13 @@ export default function CartScreen() {
 
   const dismissBuyerOfferFromCartList = useCallback(
     (offerId: string) => {
-      if (!member?.id) return;
+      const memberId = member?.id;
+      if (!memberId) return;
       setDismissedBuyerOfferIds((prev) => {
         if (prev.has(offerId)) return prev;
         const next = new Set(prev);
         next.add(offerId);
-        void persistDismissedBuyerOfferIds(member.id, next);
+        void persistDismissedBuyerOfferIds(memberId, next);
         return next;
       });
     },
@@ -377,12 +371,7 @@ export default function CartScreen() {
 
   // When checkout errors are shown, scroll so the banner and checkout button are visible.
   useEffect(() => {
-    if (
-      error &&
-      (error.includes("Payment session expired") ||
-        error.includes("Pay in Cash") ||
-        error.toLowerCase().includes("cash checkout"))
-    ) {
+    if (error && error.includes("Payment session expired")) {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }
   }, [error]);
@@ -550,21 +539,8 @@ export default function CartScreen() {
     }
   }
 
-  const allPickupOrLocalDelivery =
-    items.length > 0 &&
-    items.every((i) => i.fulfillmentType === "pickup" || i.fulfillmentType === "local_delivery");
-  const allSellersAcceptCash =
-    items.length > 0 && items.every((i) => i.storeItem.member?.acceptCashForPickupDelivery !== false);
-  const showPayInCash = allPickupOrLocalDelivery && allSellersAcceptCash;
-  const cashItems = showPayInCash
-    ? items.filter(
-        (i) =>
-          (i.fulfillmentType === "pickup" || i.fulfillmentType === "local_delivery") &&
-          (paymentMethodByItemId[i.id] ?? "card") === "cash" &&
-          i.storeItem.member?.acceptCashForPickupDelivery !== false
-      )
-    : [];
-  const cardItems = items.filter((i) => !cashItems.some((c) => c.id === i.id));
+  /** All items are charged through Stripe at checkout. */
+  const cardItems = items;
 
   type StoreSuccessSummary = {
     orderIds?: string[];
@@ -692,22 +668,6 @@ export default function CartScreen() {
     [applyPointsFromSummary, runPointsAfterCashOrders, router]
   );
 
-  /** Same post-checkout flow as native Stripe success (no WebView). */
-  const finalizeCashCheckoutSuccess = useCallback(
-    async (orderIds: string[], earnedFromApi?: CartEarnedBadge[]) => {
-      if (!orderIds.length) return;
-      try {
-        await apiDelete("/api/cart");
-      } catch {
-        /* ignore; load() refreshes */
-      }
-      await load(true);
-      setOrderJustConfirmed(true);
-      await completeCheckoutAfterPayment(orderIds, earnedFromApi, null);
-    },
-    [load, completeCheckoutAfterPayment]
-  );
-
   const updateLocalDeliveryDetails = async (
     form: LocalDeliveryDetails,
     contextItemId?: string | null
@@ -788,39 +748,7 @@ export default function CartScreen() {
   };
 
   const getNativeCheckoutPayload = useCallback(async (): Promise<StorefrontCheckoutPayload> => {
-    mixedCashOrderIdsRef.current = [];
-    mixedCashEarnedBadgesRef.current = [];
-    let lines = items;
-    if (cashItems.length > 0) {
-      const ldSource = hasLocalDelivery
-        ? items.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
-        : undefined;
-      const body: Record<string, unknown> = {
-        items: cashItems.map((i) => ({
-          storeItemId: i.storeItemId,
-          quantity: i.quantity,
-          variant: i.variant ?? undefined,
-          fulfillmentType: i.fulfillmentType ?? "ship",
-        })),
-      };
-      if (hasLocalDelivery && ldSource) {
-        body.localDeliveryDetails = ldSource;
-      }
-      const data = await apiPost<{ orderIds?: string[]; earnedBadges?: CartEarnedBadge[] }>(
-        "/api/store-orders/cash-checkout",
-        body
-      );
-      mixedCashOrderIdsRef.current = data.orderIds ?? [];
-      mixedCashEarnedBadgesRef.current = mergeEarnedBadges(
-        mixedCashEarnedBadgesRef.current,
-        data.earnedBadges
-      );
-      // Server cash-checkout already removes matching cart rows; refetch only.
-      const refreshed = await apiGet<CartItem[]>("/api/cart").catch(() => []);
-      lines = Array.isArray(refreshed) ? refreshed : [];
-      setItems(lines);
-    }
-
+    const lines = items;
     const hasShippedInner = lines.some((i) => (i.fulfillmentType ?? "ship") === "ship");
     const hasLocalInner = lines.some((i) => i.fulfillmentType === "local_delivery");
     const ldForStripe = hasLocalInner
@@ -843,9 +771,6 @@ export default function CartScreen() {
       shippingCostCents: shippingCostCentsInner,
       returnBaseUrl: siteBase,
     };
-    if (mixedCashOrderIdsRef.current.length > 0) {
-      out.cashOrderIds = [...mixedCashOrderIdsRef.current];
-    }
     if (hasShippedInner) {
       out.shippingAddress = shippingAddress;
       if (shippingAddressFromPlaces) {
@@ -856,84 +781,7 @@ export default function CartScreen() {
       out.localDeliveryDetails = ldForStripe;
     }
     return out;
-  }, [items, cashItems, hasLocalDelivery, shippingAddress, shippingAddressFromPlaces, siteBase]);
-
-  const handleCashOnlyCheckout = async () => {
-    const token = await getToken();
-    if (!token) {
-      Alert.alert("Sign in required", "Please sign in to checkout.", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
-      ]);
-      return;
-    }
-    if (items.length === 0) {
-      Alert.alert("Cart is empty", "Add items to your cart before checkout.");
-      return;
-    }
-    if (needsShippingForm || needsLocalDeliveryForm || needsPickupForm) {
-      if (needsLocalDeliveryForm) void openFirstIncompleteLocalDeliveryModal();
-      else if (needsPickupForm) void openFirstIncompletePickupModal();
-      Alert.alert(
-        "Complete details",
-        needsLocalDeliveryForm
-          ? "Please complete your local delivery details."
-          : needsPickupForm
-            ? "Please complete the pick up form."
-            : "Please enter your shipping address.",
-        [{ text: "OK" }]
-      );
-      return;
-    }
-
-    const ldSource = hasLocalDelivery
-      ? items.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
-      : undefined;
-    const body: Record<string, unknown> = {
-      items: cashItems.map((i) => ({
-        storeItemId: i.storeItemId,
-        quantity: i.quantity,
-        variant: i.variant ?? undefined,
-        fulfillmentType: i.fulfillmentType ?? "ship",
-      })),
-    };
-    if (hasLocalDelivery && ldSource) {
-      body.localDeliveryDetails = ldSource;
-    }
-
-    setCheckingOut(true);
-    setError("");
-    try {
-      const data = await apiPost<{
-        url?: string;
-        orderIds?: string[];
-        earnedBadges?: CartEarnedBadge[];
-        error?: string;
-      }>("/api/store-orders/cash-checkout", body);
-      if (data.orderIds?.length) {
-        await finalizeCashCheckoutSuccess(data.orderIds, data.earnedBadges);
-      } else if (data.url) {
-        setCheckoutUrl(data.url);
-      } else {
-        const msg = data.error ?? "Checkout failed";
-        setError(msg);
-        Alert.alert("Could not complete order (Pay in Cash)", msg);
-      }
-    } catch (e) {
-      const err = e as { error?: string; status?: number };
-      if (err.status === 401) {
-        Alert.alert("Sign in required", "Please sign in to checkout.", [
-          { text: "OK", onPress: () => router.push("/(tabs)/my-community") },
-        ]);
-      } else {
-        const msg = err.error ?? "Checkout failed";
-        setError(msg);
-        Alert.alert("Could not complete order (Pay in Cash)", msg);
-      }
-    } finally {
-      setCheckingOut(false);
-    }
-  };
+  }, [items, shippingAddress, shippingAddressFromPlaces, siteBase]);
 
   const doCheckout = async () => {
     const token = await getToken();
@@ -996,75 +844,7 @@ export default function CartScreen() {
         return body;
       };
 
-      const makeCashBody = (list: CartItem[]) => {
-        const hasLocalInList = list.some((i) => (i.fulfillmentType ?? "ship") === "local_delivery");
-        const ldFromList = hasLocalInList
-          ? list.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
-          : undefined;
-        const body: Record<string, unknown> = {
-          items: list.map((i) => ({
-            storeItemId: i.storeItemId,
-            quantity: i.quantity,
-            variant: i.variant ?? undefined,
-            fulfillmentType: i.fulfillmentType ?? "ship",
-          })),
-        };
-        if (hasLocalInList && ldFromList) {
-          body.localDeliveryDetails = ldFromList;
-        }
-        return body;
-      };
-
-      if (cardItems.length === 0 && cashItems.length > 0) {
-        const data = await apiPost<{
-          url?: string;
-          orderIds?: string[];
-          earnedBadges?: CartEarnedBadge[];
-          error?: string;
-        }>("/api/store-orders/cash-checkout", makeCashBody(cashItems));
-        if (data.orderIds?.length) {
-          await finalizeCashCheckoutSuccess(data.orderIds, data.earnedBadges);
-        } else if (data.url) {
-          setCheckoutUrl(data.url);
-        } else {
-          const msg = data.error ?? "Checkout failed";
-          setError(msg);
-          Alert.alert("Could not complete order (Pay in Cash)", msg);
-        }
-        return;
-      }
-
-      let cashOrderIds: string[] | undefined;
-      if (cashItems.length > 0) {
-        const cashRes = await apiPost<{
-          orderIds?: string[];
-          earnedBadges?: CartEarnedBadge[];
-          error?: string;
-        }>("/api/store-orders/cash-checkout", makeCashBody(cashItems));
-        if (cashRes.error || !cashRes.orderIds?.length) {
-          const msg = cashRes.error ?? "Cash checkout failed";
-          setError(msg);
-          Alert.alert("Could not complete order (Pay in Cash)", msg);
-          return;
-        }
-        cashOrderIds = cashRes.orderIds;
-        mixedCashEarnedBadgesRef.current = mergeEarnedBadges(
-          mixedCashEarnedBadgesRef.current,
-          cashRes.earnedBadges
-        );
-        // Cart lines for cash items are cleared on the server by cash-checkout.
-      }
-
-      if (cardItems.length === 0) {
-        return;
-      }
-
-      let linesForStripe = cardItems;
-      if (cashItems.length > 0) {
-        const refreshed = await apiGet<CartItem[]>("/api/cart").catch(() => []);
-        linesForStripe = Array.isArray(refreshed) ? refreshed : [];
-        setItems(linesForStripe);
-      }
+      const linesForStripe = cardItems;
 
       let resolvedShippingAddress = shippingAddress;
       const hasShippedCardItem = linesForStripe.some((i) => (i.fulfillmentType ?? "ship") === "ship");
@@ -1121,9 +901,6 @@ export default function CartScreen() {
       }
 
       const stripeBody = makePayload(linesForStripe) as Record<string, unknown>;
-      if (cashOrderIds?.length) {
-        stripeBody.cashOrderIds = cashOrderIds;
-      }
       if (hasShippedCardItem) {
         stripeBody.shippingAddress = resolvedShippingAddress;
       }
@@ -1389,53 +1166,6 @@ export default function CartScreen() {
                       {(item as CartItem).unavailableReason ? (
                         <Text style={styles.unavailableReason}>{(item as CartItem).unavailableReason}</Text>
                       ) : null}
-                      {showPayInCash &&
-                      (item.fulfillmentType === "pickup" || item.fulfillmentType === "local_delivery") &&
-                      item.storeItem.member?.acceptCashForPickupDelivery !== false ? (
-                        <View style={styles.paymentMethodRow}>
-                          <Text style={styles.paymentMethodLabel}>Payment for this item</Text>
-                          <View style={styles.paymentMethodChoices}>
-                            <Pressable
-                              style={[
-                                styles.paymentChip,
-                                (paymentMethodByItemId[item.id] ?? "card") === "card" && styles.paymentChipActive,
-                              ]}
-                              onPress={() =>
-                                setPaymentMethodByItemId((p) => ({ ...p, [item.id]: "card" }))
-                              }
-                            >
-                              <Text
-                                style={[
-                                  styles.paymentChipText,
-                                  (paymentMethodByItemId[item.id] ?? "card") === "card" &&
-                                    styles.paymentChipTextActive,
-                                ]}
-                              >
-                                Card (charged now)
-                              </Text>
-                            </Pressable>
-                            <Pressable
-                              style={[
-                                styles.paymentChip,
-                                (paymentMethodByItemId[item.id] ?? "card") === "cash" && styles.paymentChipActive,
-                              ]}
-                              onPress={() =>
-                                setPaymentMethodByItemId((p) => ({ ...p, [item.id]: "cash" }))
-                              }
-                            >
-                              <Text
-                                style={[
-                                  styles.paymentChipText,
-                                  (paymentMethodByItemId[item.id] ?? "card") === "cash" &&
-                                    styles.paymentChipTextActive,
-                                ]}
-                              >
-                                Pay in Cash
-                              </Text>
-                            </Pressable>
-                          </View>
-                        </View>
-                      ) : null}
                       <View style={styles.itemActions}>
                         <View style={styles.qtyRow}>
                           <Pressable
@@ -1549,41 +1279,27 @@ export default function CartScreen() {
               ) : null}
 
               {useNativeStorefrontCheckout ? (
-                showPayInCash && cashItems.length > 0 && cardItems.length === 0 ? (
-                  <Pressable
-                    style={[styles.checkoutBtn, (checkingOut || !canCheckout) && styles.checkoutBtnDisabled]}
-                    onPress={handleCashOnlyCheckout}
-                    disabled={checkingOut || !canCheckout}
-                  >
-                    {checkingOut ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.checkoutBtnText}>Complete order (Pay in Cash)</Text>
-                    )}
-                  </Pressable>
-                ) : (
-                  <StorefrontNativeCheckoutButton
-                    getPayload={getNativeCheckoutPayload}
-                    onShippingAddressFormatted={
-                      hasShippedItem
-                        ? (addr) =>
-                            setShippingAddress({
-                              street: addr.street ?? "",
-                              city: addr.city ?? "",
-                              state: addr.state ?? "",
-                              zip: addr.zip ?? "",
-                              aptOrSuite: addr.aptOrSuite ?? "",
-                            })
-                        : undefined
-                    }
-                    onHostedCheckoutUrl={(url) => setCheckoutUrl(url)}
-                    onError={setError}
-                    setCheckingOut={setCheckingOut}
-                    disabled={!canCheckout || checkingOut}
-                    buttonStyle={styles.checkoutBtn}
-                    buttonDisabledStyle={styles.checkoutBtnDisabled}
-                  />
-                )
+                <StorefrontNativeCheckoutButton
+                  getPayload={getNativeCheckoutPayload}
+                  onShippingAddressFormatted={
+                    hasShippedItem
+                      ? (addr) =>
+                          setShippingAddress({
+                            street: addr.street ?? "",
+                            city: addr.city ?? "",
+                            state: addr.state ?? "",
+                            zip: addr.zip ?? "",
+                            aptOrSuite: addr.aptOrSuite ?? "",
+                          })
+                      : undefined
+                  }
+                  onHostedCheckoutUrl={(url) => setCheckoutUrl(url)}
+                  onError={setError}
+                  setCheckingOut={setCheckingOut}
+                  disabled={!canCheckout || checkingOut}
+                  buttonStyle={styles.checkoutBtn}
+                  buttonDisabledStyle={styles.checkoutBtnDisabled}
+                />
               ) : (
                 <Pressable
                   style={[styles.checkoutBtn, (checkingOut || !canCheckout) && styles.checkoutBtnDisabled]}

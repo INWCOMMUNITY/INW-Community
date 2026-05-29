@@ -44,6 +44,10 @@ const nextConfig = {
       { source: "/community/post-event", destination: "/my-community/post-event", permanent: true },
       { source: "/community/feed/new", destination: "/my-community/feed/new", permanent: true },
       { source: "/my-community/following", destination: "/my-community/friends", permanent: true },
+      { source: "/resale", destination: "/storefront", permanent: true },
+      { source: "/resale/:slug", destination: "/storefront/:slug", permanent: true },
+      { source: "/resale-hub", destination: "/seller-hub", permanent: true },
+      { source: "/resale-hub/:path*", destination: "/seller-hub", permanent: true },
     ];
   },
   images: {

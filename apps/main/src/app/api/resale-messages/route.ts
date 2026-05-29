@@ -26,13 +26,13 @@ export async function POST(req: NextRequest) {
 
   const storeItem = await prisma.storeItem.findUnique({
     where: { id: data.storeItemId },
-    select: { id: true, memberId: true, listingType: true },
+    select: { id: true, memberId: true, condition: true },
   });
   if (!storeItem) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
-  if (storeItem.listingType !== "resale") {
-    return NextResponse.json({ error: "Messages are only for resale items" }, { status: 400 });
+  if (storeItem.condition !== "used") {
+    return NextResponse.json({ error: "Messages are only for used items" }, { status: 400 });
   }
 
   const sellerId = storeItem.memberId;

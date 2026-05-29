@@ -39,7 +39,7 @@ interface ResaleConversation {
     acceptOffers?: boolean;
     minOfferCents?: number | null;
     priceCents?: number | null;
-    listingType?: string;
+    condition?: string;
     status?: string;
     quantity?: number;
     memberId?: string;
@@ -134,9 +134,7 @@ function sharedContentLink(msg: {
     case "store_item": {
       const slug = msg.sharedContentSlug || msg.sharedStoreItem?.slug;
       if (!slug) return `${base}/storefront`;
-      const lt = msg.sharedStoreItem?.listingType ?? "new";
-      const path = lt === "resale" ? "resale" : "storefront";
-      return `${base}/${path}/${slug}`;
+      return `${base}/storefront/${slug}`;
     }
     case "reward":
       return `${base}/rewards`;
@@ -630,7 +628,7 @@ export default function MyCommunityMessagesPage() {
     if (!openResale || !session?.user?.id) return false;
     if (openResale.buyer.id !== session.user.id) return false;
     if (openResale.storeItem.acceptOffers === false) return false;
-    if (openResale.storeItem.listingType && openResale.storeItem.listingType !== "resale") return false;
+    if (openResale.storeItem.condition && openResale.storeItem.condition !== "used") return false;
     if (openResale.storeItem.status && openResale.storeItem.status !== "active") return false;
     if (typeof openResale.storeItem.quantity === "number" && openResale.storeItem.quantity < 1) return false;
     return !webResalePendingOffer;
@@ -1182,7 +1180,7 @@ export default function MyCommunityMessagesPage() {
           className={`flex-1 py-2.5 rounded-md text-sm font-semibold transition-colors ${tab === "resale" ? "text-white" : "text-[var(--color-heading)]"}`}
           style={tab === "resale" ? { backgroundColor: "var(--color-primary)" } : undefined}
         >
-          Resale
+          Offers
         </button>
       </div>
 

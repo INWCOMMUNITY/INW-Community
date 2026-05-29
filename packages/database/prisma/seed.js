@@ -794,8 +794,8 @@ async function main() {
         data: {
           memberId: subscriber.id,
           businessId: null,
-          title: "Test Resale Item – Used Book",
-          description: "A test listing for Community Resale. Use this to try Make Offer, Send Message to Seller, and checkout (Pay by Card / Pay in Cash).",
+          title: "Test Used Item – Used Book",
+          description: "A test used listing for the storefront. Use this to try Make Offer, Send Message to Seller, and Stripe checkout.",
           photos: [],
           category: "Books",
           priceCents: 999,
@@ -810,12 +810,13 @@ async function main() {
           shippingDisabled: false,
           localDeliveryTerms: "Local delivery within 20 miles. Contact to arrange.",
           slug: testResaleSlug,
-          listingType: "resale",
+          listingType: "new",
+          condition: "used",
           acceptOffers: true,
           minOfferCents: 500,
         },
       });
-      console.log("Created test resale item:", testResaleItem.title, "→ /resale/" + testResaleSlug);
+      console.log("Created test used item:", testResaleItem.title, "→ /storefront/" + testResaleSlug);
     }
   }
 

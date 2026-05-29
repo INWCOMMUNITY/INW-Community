@@ -17,7 +17,6 @@ interface ShareButtonBaseProps {
 interface ShareButtonStoreItemProps extends ShareButtonBaseProps {
   type: "store_item";
   slug: string;
-  listingType: "resale" | "new";
 }
 
 interface ShareButtonBusinessProps extends ShareButtonBaseProps {
@@ -66,9 +65,7 @@ function buildShareUrl(props: ShareButtonProps): string {
     case "blog":
       return `${base}/blog/${props.slug}`;
     case "store_item":
-      return props.listingType === "resale"
-        ? `${base}/resale/${props.slug}`
-        : `${base}/storefront/${props.slug}`;
+      return `${base}/storefront/${props.slug}`;
     default:
       return base;
   }

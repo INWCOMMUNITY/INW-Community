@@ -9,10 +9,7 @@ import {
   NWC_PAID_PLAN_SLUGS,
   prismaWhereMemberSellerPlanAccess,
 } from "@/lib/nwc-paid-subscription";
-import {
-  prismaWhereMemberSubscribePlanAccess,
-  prismaWhereMemberSubscribeTierPerksAccess,
-} from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 import { z } from "zod";
@@ -40,7 +37,6 @@ const patchSchema = z.object({
   privacyLevel: z.enum(["public", "friends_only", "completely_private"]).optional(),
   phone: z.string().nullable().optional(),
   deliveryAddress: deliveryAddressSchema.nullable().optional(),
-  acceptCashForPickupDelivery: z.boolean().optional(),
   sellerShippingPolicy: z.string().nullable().optional(),
   sellerLocalDeliveryPolicy: z.string().nullable().optional(),
   sellerPickupPolicy: z.string().nullable().optional(),
@@ -107,14 +103,10 @@ export async function GET(req: NextRequest) {
       seasonPointsEarned = msp?.pointsEarned ?? 0;
     }
   }
-  const [subTier, subResaleHub, subscriptions, subscriptionPlan, hasHubAccess, sellerPlanRow] =
+  const [subTier, subscriptions, subscriptionPlan, hasHubAccess, sellerPlanRow] =
     await Promise.all([
     prisma.subscription.findFirst({
       where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
-      select: { id: true },
-    }),
-    prisma.subscription.findFirst({
-      where: prismaWhereMemberSubscribePlanAccess(session.user.id),
       select: { id: true },
     }),
     prisma.subscription.findMany({
@@ -147,8 +139,6 @@ export async function GET(req: NextRequest) {
     seasonPointsEarned,
     currentSeason,
     isSubscriber: !!subTier,
-    /** Resident Subscribe ($10/mo) only — NWC Resale Hub; Business/Seller use Seller Hub for resale listings. */
-    hasResaleHubAccess: !!subResaleHub,
     /** Active Business/Seller plan or admin-assigned business (`adminGrantedAt`). */
     hasBusinessHubAccess: hasHubAccess,
     /** Seller plan or platform admin — same gate as `/seller-hub` home. */
@@ -221,9 +211,6 @@ export async function PATCH(req: NextRequest) {
           deliveryAddress: data.deliveryAddress
             ? (data.deliveryAddress as object)
             : Prisma.JsonNull,
-        }),
-        ...(data.acceptCashForPickupDelivery !== undefined && {
-          acceptCashForPickupDelivery: data.acceptCashForPickupDelivery,
         }),
         ...(data.sellerShippingPolicy !== undefined && {
           sellerShippingPolicy: data.sellerShippingPolicy === null || data.sellerShippingPolicy === "" ? null : data.sellerShippingPolicy,

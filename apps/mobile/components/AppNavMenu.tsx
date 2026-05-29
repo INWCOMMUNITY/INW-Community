@@ -1,6 +1,6 @@
 /**
  * Generic app navigation menu - shown when on tabs other than my-community.
- * Links to Profile, Seller Hub (if hasSeller), Business Hub (if sponsor or seller), Resale Hub (if hasSubscriber).
+ * Links to Profile, Seller Hub (if hasSeller), Business Hub (if sponsor or seller).
  */
 import type { ComponentProps } from "react";
 import {
@@ -36,13 +36,13 @@ interface AppNavMenuProps {
   hasSubscriber?: boolean;
 }
 
-export function AppNavMenu({ visible, onClose, hasSeller, hasSubscriber }: AppNavMenuProps) {
+export function AppNavMenu({ visible, onClose, hasSeller }: AppNavMenuProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const { setProfileView, hasBusinessHub } = useProfileView();
 
-  const handleNav = (view: "profile" | "business_hub" | "seller_hub" | "resale_hub") => {
+  const handleNav = (view: "profile" | "business_hub" | "seller_hub") => {
     onClose();
     setProfileView(view);
     router.push("/(tabs)/my-community" as any);
@@ -114,13 +114,6 @@ export function AppNavMenu({ visible, onClose, hasSeller, hasSubscriber }: AppNa
                   icon="briefcase-outline"
                   label="Seller Hub"
                   onPress={() => handleNav("seller_hub")}
-                />
-              )}
-              {hasSubscriber && (
-                <MenuRow
-                  icon="cash-outline"
-                  label="Resale Hub"
-                  onPress={() => handleNav("resale_hub")}
                 />
               )}
               <MenuRow

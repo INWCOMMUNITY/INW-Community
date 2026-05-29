@@ -5,7 +5,7 @@ export const NW_APP_CHROME = "nwAppChrome";
 export function isHubWebviewBridgePath(path: string): boolean {
   const p = path.split("#")[0] ?? path;
   if (!p.startsWith("/") || p.includes("..")) return false;
-  return p.startsWith("/seller-hub") || p.startsWith("/resale-hub");
+  return p.startsWith("/seller-hub");
 }
 
 export function siteOriginFromApiBase(apiBase: string): string {

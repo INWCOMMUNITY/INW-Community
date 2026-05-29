@@ -10,14 +10,13 @@ export interface StorefrontCheckoutPayload {
   /** When true, address was selected from Places (still verified with Shippo at checkout). */
   shippingAddressVerifiedFromPlaces?: boolean;
   localDeliveryDetails?: unknown;
-  cashOrderIds?: string[];
   returnBaseUrl?: string;
 }
 
 interface StorefrontNativeCheckoutButtonProps {
   /** Static payload (e.g. all card lines). Ignored when `getPayload` is set. */
   payload?: StorefrontCheckoutPayload;
-  /** Build payload at tap time — use for mixed cash-then-card checkout. */
+  /** Build payload at tap time. */
   getPayload?: () => Promise<StorefrontCheckoutPayload>;
   /** Stripe-hosted Checkout URL (platform collects tax; sellers paid via Connect after payment). */
   onHostedCheckoutUrl: (url: string) => void;

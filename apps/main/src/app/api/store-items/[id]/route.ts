@@ -6,8 +6,6 @@ import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { z } from "zod";
-import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
-import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 
 const bodySchema = z.object({
@@ -22,7 +20,7 @@ const bodySchema = z.object({
   variants: z.unknown().nullable().optional(),
   quantity: z.number().int().min(1, "Quantity must be at least 1 to list.").optional(),
   status: z.enum(["active", "sold_out", "inactive"]).optional(),
-  listingType: z.enum(["new", "resale"]).optional(),
+  condition: z.enum(["new", "used"]).optional(),
   shippingCostCents: z.number().int().min(0).nullable().optional(),
   shippingPolicy: z.string().nullable().optional(),
   localDeliveryAvailable: z.boolean().optional(),
@@ -84,24 +82,6 @@ export async function PATCH(
 
   const ownerId = isAdmin ? existing.memberId : session.user.id;
   if (!isAdmin) {
-    if (data.listingType !== undefined) {
-      const sellerSub = await prisma.subscription.findFirst({
-        where: prismaWhereMemberSellerPlanAccess(session.user.id),
-      });
-      const subscribeSub = await prisma.subscription.findFirst({
-        where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
-      });
-      if (data.listingType === "new") {
-        if (!sellerSub) {
-          return NextResponse.json({ error: "Seller plan required to list new items on the storefront" }, { status: 403 });
-        }
-      } else {
-        if (!sellerSub && !subscribeSub) {
-          return NextResponse.json({ error: "Subscribe or Seller plan required to list resale items" }, { status: 403 });
-        }
-      }
-    }
-
     const member = await prisma.member.findUnique({
       where: { id: session.user.id },
       select: { stripeConnectAccountId: true, shippoApiKeyEncrypted: true, shippoOAuthTokenEncrypted: true },
@@ -242,7 +222,7 @@ export async function PATCH(
   if (data.localDeliveryTerms !== undefined) update.localDeliveryTerms = data.localDeliveryTerms?.trim() || null;
   if (data.pickupTerms !== undefined) update.pickupTerms = data.pickupTerms?.trim() || null;
   if (data.businessId !== undefined) update.businessId = data.businessId;
-  if (data.listingType !== undefined) update.listingType = data.listingType;
+  if (data.condition !== undefined) update.condition = data.condition;
   if (data.acceptOffers !== undefined) update.acceptOffers = data.acceptOffers;
   if (data.minOfferCents !== undefined) update.minOfferCents = data.minOfferCents;
 

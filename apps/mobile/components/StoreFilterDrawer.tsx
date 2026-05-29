@@ -39,7 +39,6 @@ interface StoreFilterDrawerProps {
   onSubcategoryChange: (subcategory: string) => void;
   onSizeChange: (size: string) => void;
   onDeliveryFilterChange: (filter: DeliveryFilter) => void;
-  listingType: "new" | "resale";
 }
 
 export function StoreFilterDrawer({
@@ -57,12 +56,10 @@ export function StoreFilterDrawer({
   onSubcategoryChange,
   onSizeChange,
   onDeliveryFilterChange,
-  listingType,
 }: StoreFilterDrawerProps) {
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
-  const title =
-    listingType === "new" ? "Storefront Filters" : "Resale Filters";
+  const title = "Storefront Filters";
 
   return (
     <Modal
@@ -87,7 +84,7 @@ export function StoreFilterDrawer({
 
         <TextInput
           style={styles.searchBar}
-          placeholder={listingType === "new" ? "Search storefront..." : "Search resale..."}
+          placeholder="Search storefront..."
           placeholderTextColor={theme.colors.placeholder}
           value={search}
           onChangeText={onSearchChange}

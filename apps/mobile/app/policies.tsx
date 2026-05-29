@@ -24,7 +24,6 @@ interface PolicyData {
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
   offerLocalPickup?: boolean;
-  acceptCashForPickupDelivery?: boolean;
 }
 
 const POLICY_FIELDS: { key: keyof PolicyData; label: string; placeholder: string; offerKey?: "offerShipping" | "offerLocalDelivery" | "offerLocalPickup"; offerLabel?: string }[] = [
@@ -49,7 +48,6 @@ export default function PoliciesScreen() {
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
-  const [acceptCashForPickupDelivery, setAcceptCashForPickupDelivery] = useState(true);
 
   useEffect(() => {
     apiGet<PolicyData>("/api/me")
@@ -63,7 +61,6 @@ export default function PoliciesScreen() {
         setOfferShipping(data?.offerShipping ?? true);
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
         setOfferLocalPickup(data?.offerLocalPickup ?? true);
-        setAcceptCashForPickupDelivery(data?.acceptCashForPickupDelivery !== false);
       })
       .catch(() => setError("Failed to load policies."))
       .finally(() => setLoading(false));
@@ -82,7 +79,6 @@ export default function PoliciesScreen() {
         offerShipping,
         offerLocalDelivery,
         offerLocalPickup,
-        acceptCashForPickupDelivery,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -121,27 +117,8 @@ export default function PoliciesScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.intro}>
-          Set your delivery, pick-up, shipping, and refund policies. These apply to your resale and store listings.
+          Set your delivery, pick-up, shipping, and refund policies. These apply to your store listings.
         </Text>
-
-        {(offerLocalDelivery || offerLocalPickup) && (
-          <View style={styles.cashRow}>
-            <Switch
-              value={acceptCashForPickupDelivery}
-              onValueChange={setAcceptCashForPickupDelivery}
-              trackColor={switchTrackColor()}
-              thumbColor={switchThumbColor(acceptCashForPickupDelivery)}
-              ios_backgroundColor={switchIosBackgroundColor}
-            />
-            <View style={styles.cashRowText}>
-              <Text style={styles.cashRowTitle}>Accept cash for pickup and local delivery</Text>
-              <Text style={styles.cashRowHint}>
-                If on, buyers can choose to pay in cash when they pick up or receive local delivery (not for shipped
-                orders).
-              </Text>
-            </View>
-          </View>
-        )}
 
         {POLICY_FIELDS.map(({ key, label, placeholder, offerKey, offerLabel }) => (
           <View key={key} style={styles.field}>

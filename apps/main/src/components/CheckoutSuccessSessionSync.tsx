@@ -10,7 +10,7 @@ const MAX_MS = 90_000;
 /**
  * After Stripe redirects to /my-community?success=1, the webhook may lag a few seconds.
  * Poll /api/me until paid access appears, then refresh the NextAuth client session so
- * Header/Sidebar pick up isSubscriber / canAccessResaleHub without a manual full reload.
+ * Header/Sidebar pick up isSubscriber without a manual full reload.
  *
  * If the user is not signed in yet (session expired on Stripe), we wait until they are
  * authenticated (e.g. after login with callbackUrl preserving ?success=1) before polling.

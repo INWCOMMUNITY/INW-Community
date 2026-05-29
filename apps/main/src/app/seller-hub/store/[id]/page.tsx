@@ -62,10 +62,13 @@ export default async function EditStoreItemPage({
             variants: item.variants,
             quantity: item.quantity,
             status: item.status,
+            condition: (item as { condition?: "new" | "used" }).condition ?? "new",
             shippingCostCents: item.shippingCostCents,
             shippingPolicy: item.shippingPolicy,
             localDeliveryAvailable: item.localDeliveryAvailable,
             localDeliveryTerms: (item as { localDeliveryTerms?: string | null }).localDeliveryTerms ?? null,
+            acceptOffers: item.acceptOffers,
+            minOfferCents: item.minOfferCents,
           }}
         />
       </div>

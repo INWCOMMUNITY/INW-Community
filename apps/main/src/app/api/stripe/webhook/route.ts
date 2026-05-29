@@ -688,11 +688,11 @@ export async function POST(req: NextRequest) {
               const storeItemIds = order.items.map((oi) => oi.storeItemId);
               const storeItems = await prisma.storeItem.findMany({
                 where: { id: { in: storeItemIds } },
-                select: { listingType: true },
+                select: { condition: true },
               });
               const allResale =
                 storeItems.length === storeItemIds.length &&
-                storeItems.every((s) => s.listingType === "resale");
+                storeItems.every((s) => s.condition === "used");
               if (allResale) {
                 const sellerPoints = Math.round(totalCents / 100);
                 await awardPoints(order.sellerId, sellerPoints);
@@ -885,11 +885,11 @@ export async function POST(req: NextRequest) {
         const storeItemIds = orderItems.map((oi) => oi.storeItemId);
         const storeItems = await prisma.storeItem.findMany({
           where: { id: { in: storeItemIds } },
-          select: { listingType: true },
+          select: { condition: true },
         });
         const allResale =
           storeItems.length === storeItemIds.length &&
-          storeItems.every((s) => s.listingType === "resale");
+          storeItems.every((s) => s.condition === "used");
         if (allResale) {
           const sellerPoints = Math.round(totalCents / 100);
           await awardPoints(sellerId, sellerPoints);
@@ -1149,11 +1149,11 @@ export async function POST(req: NextRequest) {
       const storeItemIds = order.items.map((oi) => oi.storeItemId);
       const storeItems = await prisma.storeItem.findMany({
         where: { id: { in: storeItemIds } },
-        select: { listingType: true },
+        select: { condition: true },
       });
       const allResale =
         storeItems.length === storeItemIds.length &&
-        storeItems.every((s) => s.listingType === "resale");
+        storeItems.every((s) => s.condition === "used");
       if (allResale) {
         const sellerPoints = Math.round(totalCents / 100);
         await awardPoints(order.sellerId, sellerPoints);

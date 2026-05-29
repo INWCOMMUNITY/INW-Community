@@ -85,7 +85,7 @@ interface StoreItem {
   acceptOffers?: boolean;
   minOfferCents?: number | null;
   memberId?: string;
-  listingType?: "new" | "resale";
+  condition?: "new" | "used";
 }
 
 /** Gallery width/height ratio (width / height). Lower = taller banner. */
@@ -120,7 +120,6 @@ export default function ProductScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const listingType = (useLocalSearchParams<{ listingType?: string }>().listingType as "new" | "resale") || "new";
 
   const [item, setItem] = useState<StoreItem | null>(null);
   const [itemUnavailable, setItemUnavailable] = useState(false);
@@ -166,7 +165,7 @@ export default function ProductScreen() {
     let data: (StoreItem & { unavailable?: boolean; soldAt?: string }) | null = null;
     try {
       data = await apiGet<StoreItem & { unavailable?: boolean; soldAt?: string }>(
-        `/api/store-items?slug=${encodeURIComponent(slug)}&listingType=${listingType}`
+        `/api/store-items?slug=${encodeURIComponent(slug)}`
       );
     } catch {
       // not found or error
@@ -188,7 +187,7 @@ export default function ProductScreen() {
     }
     try {
       const data2 = await apiGet<StoreItem & { unavailable?: boolean; soldAt?: string }>(
-        `/api/store-items?slug=${encodeURIComponent(slug)}&listingType=${listingType}&includeUnavailable=1`
+        `/api/store-items?slug=${encodeURIComponent(slug)}&includeUnavailable=1`
       );
       if (data2 && typeof data2.id === "string" && data2.unavailable) {
         setItem(data2);
@@ -209,7 +208,7 @@ export default function ProductScreen() {
     } finally {
       setLoading(false);
     }
-  }, [slug, listingType]);
+  }, [slug]);
 
   useEffect(() => {
     load();
@@ -219,7 +218,7 @@ export default function ProductScreen() {
     setMessageSellerModalOpen(false);
     setMessageSellerText("");
     setMakeOfferModalOpen(false);
-  }, [slug, listingType]);
+  }, [slug]);
 
   useEffect(() => {
     if (!member || !item) return;
@@ -501,7 +500,7 @@ export default function ProductScreen() {
     !!effectiveShippingPolicy ||
     !!item.member?.sellerReturnPolicy;
 
-  const isResaleListing = item.listingType === "resale" || listingType === "resale";
+  const isResaleListing = item.condition === "used";
   const isOwnListing = !!(
     member &&
     (item.memberId === member.id || item.member?.id === member.id)
@@ -639,6 +638,11 @@ export default function ProductScreen() {
 
         <View style={styles.body}>
           <Text style={styles.title}>{item.title}</Text>
+          <View style={styles.conditionBadge}>
+            <Text style={styles.conditionBadgeText}>
+              {item.condition === "used" ? "Used" : "New"}
+            </Text>
+          </View>
           <Text style={styles.price}>{formatPrice(item.priceCents)}</Text>
           {(item.category || item.secondaryCategory) ? (
             <View style={styles.categoryChipsRow}>
@@ -1136,7 +1140,6 @@ export default function ProductScreen() {
               type: "store_item",
               id: item.id,
               slug: item.slug,
-              listingType,
               title: item.title,
               previewPhotoUrl: (item.photos ?? []).find((p) => p && String(p).trim() !== "") ?? undefined,
             }}
@@ -1287,6 +1290,19 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#000",
     marginBottom: 8,
+  },
+  conditionBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: theme.colors.creamAlt,
+    marginBottom: 8,
+  },
+  conditionBadgeText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.heading,
   },
   price: {
     fontSize: 22,

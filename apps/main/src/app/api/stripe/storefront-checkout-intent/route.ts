@@ -67,7 +67,6 @@ export async function POST(req: NextRequest) {
       termsAcceptedAt?: string;
       availableDropOffTimes?: string;
     };
-    cashOrderIds?: string[];
     /** Client can pass current origin so success redirect matches (e.g. window.location.origin or app WebView base). */
     returnBaseUrl?: string;
   };
@@ -77,7 +76,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { items, shippingCostCents = 0, shippingAddress, localDeliveryDetails, cashOrderIds, returnBaseUrl } = body;
+  const { items, shippingCostCents = 0, shippingAddress, localDeliveryDetails, returnBaseUrl } = body;
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "At least one item required" }, { status: 400 });
   }
@@ -409,9 +408,6 @@ export async function POST(req: NextRequest) {
 
   const successParams = new URLSearchParams();
   successParams.set("order_ids", orderIds.join(","));
-  if (Array.isArray(cashOrderIds) && cashOrderIds.length > 0) {
-    successParams.set("cash_order_ids", cashOrderIds.join(","));
-  }
 
   const baseForSuccess = resolveAllowedCheckoutBaseUrl(returnBaseUrl);
 

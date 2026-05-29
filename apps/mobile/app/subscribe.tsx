@@ -26,11 +26,10 @@ const PLANS = [
     priceYearly: "",
     icon: "leaf" as const,
     description:
-      "Support Northwest Community and get 2× points, access to coupons, exclusive events, community marketplace, and more. From $1/mo (pay what you can).",
+      "Support Northwest Community and get 2× points, access to coupons, exclusive events, and more. From $1/mo (pay what you can).",
     features: [
       "2x Community Points on all purchases",
       "Access to exclusive coupons",
-      "Resale marketplace access",
       "Community events & calendar",
       "Support local businesses",
     ],

@@ -97,10 +97,11 @@ export default function ListItemScreen() {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const params = useLocalSearchParams<{ draftId?: string; edit?: string; listingType?: string }>();
+  const params = useLocalSearchParams<{ draftId?: string; edit?: string; condition?: string; listingType?: string }>();
   const draftId = params.draftId;
   const editId = params.edit?.trim() || undefined;
-  const listingTypeParam = params.listingType === "resale" ? "resale" : "new";
+  const conditionParam =
+    params.condition === "used" || params.listingType === "resale" ? "used" : "new";
   const placeholderColor = PLACEHOLDER_COLOR;
 
   useLayoutEffect(() => {
@@ -118,7 +119,6 @@ export default function ListItemScreen() {
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
-  const [acceptCashForPickupDelivery, setAcceptCashForPickupDelivery] = useState(true);
   const [useSellerProfilePickup, setUseSellerProfilePickup] = useState(true);
   const [useSellerProfileLocalDelivery, setUseSellerProfileLocalDelivery] = useState(true);
   const [pickupTerms, setPickupTerms] = useState("");
@@ -134,7 +134,7 @@ export default function ListItemScreen() {
   const [categorySearch, setCategorySearch] = useState("");
   const [priceCents, setPriceCents] = useState("");
   const [quantity, setQuantity] = useState("1");
-  const [listingType, setListingType] = useState<"new" | "resale">(listingTypeParam);
+  const [condition, setCondition] = useState<"new" | "used">(conditionParam);
   const [shippingDisabled, setShippingDisabled] = useState(false);
   const [shippingCostDollars, setShippingCostDollars] = useState("");
   const [shippingFree, setShippingFree] = useState(false);
@@ -214,7 +214,7 @@ export default function ListItemScreen() {
       subcategory,
       priceCents,
       quantity,
-      listingType,
+      condition,
       shippingDisabled,
       shippingCostDollars,
       shippingFree,
@@ -241,7 +241,7 @@ export default function ListItemScreen() {
     subcategory,
     priceCents,
     quantity,
-    listingType,
+    condition,
     shippingDisabled,
     shippingCostDollars,
     shippingFree,
@@ -283,7 +283,7 @@ export default function ListItemScreen() {
         pickupTerms: string | null;
         businessId: string | null;
         variants: unknown;
-        listingType?: "new" | "resale";
+        condition?: "new" | "used";
         acceptOffers?: boolean;
         useSellerProfileShipping?: boolean;
         useSellerProfileLocalDelivery?: boolean;
@@ -319,7 +319,7 @@ export default function ListItemScreen() {
           const normalized = normalizeVariants(item.variants);
           setVariants(normalized);
           setOptionsEnabled(normalized.some((v) => v.name.trim() && v.options.length > 0));
-          if (item.listingType === "resale" || item.listingType === "new") setListingType(item.listingType);
+          if (item.condition === "used" || item.condition === "new") setCondition(item.condition);
           if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
@@ -341,7 +341,7 @@ export default function ListItemScreen() {
           setSubcategory(draft.subcategory ?? "");
           setPriceCents(draft.priceCents);
           setQuantity(draft.quantity);
-          setListingType(draft.listingType);
+          setCondition(draft.condition ?? "new");
           setShippingDisabled(draft.shippingDisabled);
           setShippingCostDollars(draft.shippingCostDollars);
           setShippingFree(draft.shippingFree);
@@ -439,9 +439,6 @@ export default function ListItemScreen() {
         if (pol.offerLocalDelivery === false) setLocalDeliveryAvailable(false);
         if (pol.offerLocalPickup === false) setInStorePickupAvailable(false);
         if (pol.offerLocalDelivery === false && pol.offerLocalPickup === false) setShippingDisabled(false);
-        if (pol.acceptCashForPickupDelivery !== undefined) {
-          setAcceptCashForPickupDelivery(pol.acceptCashForPickupDelivery !== false);
-        }
       })
       .catch(() => {})
       .finally(() => setPoliciesLoaded(true));
@@ -697,7 +694,7 @@ export default function ListItemScreen() {
       subcategory: subcategory.trim() || null,
       priceCents: price,
       quantity: payloadQuantity,
-      listingType,
+      condition,
       shippingDisabled,
       localDeliveryAvailable,
       inStorePickupAvailable,
@@ -718,7 +715,7 @@ export default function ListItemScreen() {
           : null,
       localDeliveryFeeCents: localFee,
       variants: variantPayload,
-      ...(listingType === "resale" ? { acceptOffers } : {}),
+      ...(condition === "used" ? { acceptOffers } : { acceptOffers: false }),
     };
     try {
       isExitingRef.current = true;
@@ -826,19 +823,19 @@ export default function ListItemScreen() {
       keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
     >
       <View style={styles.typeRow}>
-        <Text style={styles.label}>Listing type</Text>
+        <Text style={styles.label}>Condition</Text>
         <View style={styles.typeBtns}>
           <Pressable
             style={({ pressed }) => [
               styles.typeBtn,
-              listingType === "new" && styles.typeBtnActive,
+              condition === "new" && styles.typeBtnActive,
               pressed && { opacity: 0.8 },
             ]}
-            onPress={() => setListingType("new")}
+            onPress={() => setCondition("new")}
           >
             <Text
               style={
-                listingType === "new" ? styles.typeBtnTextActive : styles.typeBtnText
+                condition === "new" ? styles.typeBtnTextActive : styles.typeBtnText
               }
             >
               New
@@ -847,25 +844,25 @@ export default function ListItemScreen() {
           <Pressable
             style={({ pressed }) => [
               styles.typeBtn,
-              listingType === "resale" && styles.typeBtnActive,
+              condition === "used" && styles.typeBtnActive,
               pressed && { opacity: 0.8 },
             ]}
-            onPress={() => setListingType("resale")}
+            onPress={() => setCondition("used")}
           >
             <Text
               style={
-                listingType === "resale"
+                condition === "used"
                   ? styles.typeBtnTextActive
                   : styles.typeBtnText
               }
             >
-              Resale
+              Used
             </Text>
           </Pressable>
         </View>
       </View>
 
-      {listingType === "resale" && (
+      {condition === "used" && (
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Accept offers on this listing</Text>
           <Switch
@@ -1471,26 +1468,6 @@ export default function ListItemScreen() {
           </>
         )}
 
-        {(offerLocalDelivery || offerLocalPickup) && (
-          <>
-            <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>Accept cash for pickup and local delivery</Text>
-              <Switch
-                value={acceptCashForPickupDelivery}
-                onValueChange={(v) => {
-                  setAcceptCashForPickupDelivery(v);
-                  apiPatch("/api/me", { acceptCashForPickupDelivery: v }).catch(() => {});
-                }}
-                trackColor={switchTrackColor()}
-                thumbColor={switchThumbColor(acceptCashForPickupDelivery)}
-                ios_backgroundColor={switchIosBackgroundColor}
-              />
-            </View>
-            <Text style={styles.hint}>
-              If on, buyers can choose Pay in Cash at checkout for pickup or local delivery (not for shipped orders).
-            </Text>
-          </>
-        )}
       </View>
       )}
 

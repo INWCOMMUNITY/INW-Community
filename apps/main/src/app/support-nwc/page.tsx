@@ -30,7 +30,7 @@ const PLANS: SupportPlanRow[] = [
     name: "Northwest Community Subscription",
     monthlyPriceLabel: "$1-$15/mo",
     description:
-      "Resident plan: Community Resale Hub, exclusive groups, scavenger hunt hints, community marketplace, and more. From $1/mo (pay what you can). Subscribe, Business, and Seller plans all include the member coupon book and 2× Community Points on storefront purchases and business QR scans.",
+      "Resident plan: exclusive groups, scavenger hunt hints, community events, and more. From $1/mo (pay what you can). Subscribe, Business, and Seller plans all include the member coupon book and 2× Community Points on storefront purchases and business QR scans.",
     imagePath: "2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_7de70ff63f78486392f92fbd40c8c73e~mv2.jpg",
     benefitsHref: "/subscribe-nwc",
     benefitsLabel: "Subscriber Benefits",
@@ -41,7 +41,7 @@ const PLANS: SupportPlanRow[] = [
     monthlyPriceLabel: `$${SUBSCRIPTION_PLAN_PRICES.sponsor.monthlyUsd} / month`,
     yearlyUsd: SUBSCRIPTION_PLAN_PRICES.sponsor.yearlyUsd,
     description:
-      "Join the Local Business Directory, create offers for the coupon book, post events, and gain visibility. Includes the same member coupon book and 2× points on purchases and scans as other paid plans. Resale Hub (personal resale) stays on the Resident Subscribe plan.",
+      "Join the Local Business Directory, create offers for the coupon book, post events, and gain visibility. Includes the same member coupon book and 2× points on purchases and scans as other paid plans.",
     imagePath: "2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg",
     benefitsHref: "/sponsor-nwc",
     benefitsLabel: "Business Benefits",
@@ -52,7 +52,7 @@ const PLANS: SupportPlanRow[] = [
     monthlyPriceLabel: `$${SUBSCRIPTION_PLAN_PRICES.seller.monthlyUsd} / month`,
     yearlyUsd: SUBSCRIPTION_PLAN_PRICES.seller.yearlyUsd,
     description:
-      "Seller Hub: sell new and resale items on the storefront with Stripe payouts. Includes the member coupon book and 2× points on purchases and scans. Add the Resident Subscribe plan for Community Resale Hub.",
+      "Seller Hub: sell new and used items on the storefront with Stripe payouts. Includes the member coupon book and 2× points on purchases and scans.",
     imagePath: "2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg",
     benefitsHref: "/sell-nwc",
     benefitsLabel: "Seller Benefits",

@@ -43,7 +43,6 @@ export interface ShareToChatSharedContent {
   type: SharedContentType;
   id: string;
   slug?: string;
-  listingType?: "new" | "resale";
   /** Shown in share preview (e.g. store listing title instead of generic “Store Item”). */
   title?: string;
   /** First listing image for store_item preview (relative site path or absolute URL). */
@@ -120,7 +119,6 @@ export function ShareToChatModal({
     type: sharedContent.type,
     id: sharedContent.id,
     slug: sharedContent.slug,
-    listingType: sharedContent.listingType,
   };
   const url = buildShareUrl(content);
   const canShareToGroup = sharedContent.type === "post";
@@ -135,7 +133,6 @@ export function ShareToChatModal({
       const row = await fetchStoreItemPreviewPayload({
         id: sharedContent.id,
         slug: sharedContent.slug,
-        listingType: sharedContent.listingType,
       });
       if (cancelled) return;
       if (row?.title) {
@@ -148,7 +145,7 @@ export function ShareToChatModal({
     return () => {
       cancelled = true;
     };
-  }, [visible, sharedContent.type, sharedContent.id, sharedContent.slug, sharedContent.listingType]);
+  }, [visible, sharedContent.type, sharedContent.id, sharedContent.slug]);
 
   const typeLabel = useMemo(() => {
     if (sharedContent.type === "store_item") {

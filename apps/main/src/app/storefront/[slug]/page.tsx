@@ -34,6 +34,7 @@ interface StoreItem {
   description: string | null;
   photos: string[];
   category: string | null;
+  condition?: "new" | "used";
   priceCents: number;
   quantity: number;
   variants?: VariantOption[] | null;
@@ -148,7 +149,7 @@ export default function ProductDetailPage() {
     setSelectedVariant({});
     setError("");
     setItemUnavailable(false);
-    fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&listingType=new`)
+    fetch(`/api/store-items?slug=${encodeURIComponent(slug)}`)
       .then((r) => (r.ok ? r.json() : Promise.resolve(null)))
       .then((data) => {
         if (data && typeof data.id === "string") {
@@ -158,7 +159,7 @@ export default function ProductDetailPage() {
           else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
           return;
         }
-        return fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&listingType=new&includeUnavailable=1`)
+        return fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&includeUnavailable=1`)
           .then((r2) => (r2.ok ? r2.json() : null))
           .then((data2) => {
             if (data2 && typeof data2.id === "string" && (data2 as { unavailable?: boolean }).unavailable) {
@@ -238,7 +239,7 @@ export default function ProductDetailPage() {
     };
   }, [lightboxDragging]);
 
-  const { sellerItems, similarItems } = useStoreItemRelatedLists(item, "new");
+  const { sellerItems, similarItems } = useStoreItemRelatedLists(item);
 
   const hasVariants = item?.variants && item.variants.length > 0;
   const allVariantsSelected =
@@ -653,7 +654,7 @@ export default function ProductDetailPage() {
           <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
             <h1 className="text-3xl font-bold flex-1 min-w-0 pr-2">{item.title}</h1>
             <div className="flex gap-2 shrink-0">
-              <ShareButton type="store_item" id={item.id} slug={item.slug} listingType="new" title={item.title} className="btn text-sm shrink-0 p-2 rounded border border-gray-300 bg-white hover:bg-gray-50" />
+              <ShareButton type="store_item" id={item.id} slug={item.slug} title={item.title} className="btn text-sm shrink-0 p-2 rounded border border-gray-300 bg-white hover:bg-gray-50" />
               <HeartSaveButton
                 type="store_item"
                 referenceId={item.id}
@@ -725,6 +726,11 @@ export default function ProductDetailPage() {
                 {item.business.name}
               </Link>
             )}
+            <div className="mt-3">
+              <span className="inline-block rounded px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-heading)" }}>
+                {item.condition === "used" ? "Used" : "New"}
+              </span>
+            </div>
             <p className="text-2xl font-bold mt-4">${(item.priceCents / 100).toFixed(2)}</p>
 
             <StoreItemFulfillmentPicker

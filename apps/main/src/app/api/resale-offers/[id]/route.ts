@@ -106,7 +106,7 @@ export async function GET(
           slug: true,
           photos: true,
           priceCents: true,
-          listingType: true,
+          condition: true,
           memberId: true,
           status: true,
           quantity: true,

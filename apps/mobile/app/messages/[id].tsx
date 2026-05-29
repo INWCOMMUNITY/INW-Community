@@ -71,7 +71,6 @@ interface SharedStoreItemPreview {
   title: string;
   slug: string;
   coverPhotoUrl: string | null;
-  listingType: string;
 }
 
 interface DirectConversation {
@@ -161,7 +160,6 @@ function mergeDmConversationPreservingStorePreview(
               typeof oldS.coverPhotoUrl === "string" && oldS.coverPhotoUrl.trim() !== ""
                 ? oldS.coverPhotoUrl
                 : null,
-            listingType: oldS.listingType,
           },
         };
       }
@@ -446,7 +444,6 @@ export default function DirectConversationScreen() {
             const row = await fetchStoreItemPreviewPayload({
               id,
               slug: msg?.sharedContentSlug ?? undefined,
-              listingType: undefined,
             });
             return { id, row };
           })
@@ -475,7 +472,6 @@ export default function DirectConversationScreen() {
                 title: row.title,
                 slug: row.slug,
                 coverPhotoUrl: row.photos?.find((p) => p && String(p).trim() !== "") ?? null,
-                listingType: row.listingType,
               },
             };
           }),
@@ -1165,8 +1161,7 @@ export default function DirectConversationScreen() {
             onOpenShared = () => {
               const slug = item.sharedStoreItem?.slug ?? item.sharedContentSlug;
               if (!slug) return;
-              const lt = item.sharedStoreItem?.listingType === "resale" ? "resale" : "new";
-              router.push(`/product/${slug}?listingType=${lt}`);
+              router.push(`/product/${slug}`);
             };
           } else if (hasBusinessShare) {
             cornerIcon = "business";

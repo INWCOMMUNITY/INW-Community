@@ -85,6 +85,7 @@ export default function EventDetailScreen() {
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [calendarDeviceBusy, setCalendarDeviceBusy] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   const loadEvent = useCallback(async () => {
     if (!slug) return;
@@ -625,7 +626,23 @@ export default function EventDetailScreen() {
         {event.description ? (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Description</Text>
-            <Text style={styles.detailValue}>{event.description}</Text>
+            <Text
+              style={styles.detailValue}
+              numberOfLines={descriptionExpanded ? undefined : 6}
+            >
+              {event.description}
+            </Text>
+            {event.description.length > 180 ? (
+              <Pressable
+                onPress={() => setDescriptionExpanded((v) => !v)}
+                hitSlop={8}
+                style={({ pressed }) => [styles.descToggle, pressed && styles.pressed]}
+              >
+                <Text style={styles.descToggleText}>
+                  {descriptionExpanded ? "See less" : "See more"}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -1352,6 +1369,15 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: theme.colors.primary,
     marginBottom: 6,
+  },
+  descToggle: {
+    marginTop: 6,
+    alignSelf: "flex-start",
+  },
+  descToggleText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
   lineAboveMaps: {
     height: 2,

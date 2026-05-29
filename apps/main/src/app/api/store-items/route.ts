@@ -7,7 +7,6 @@ import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-varia
 import { REWARD_PLACEHOLDER_TITLE } from "@/lib/reward-fulfillment-store-item";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
-import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -108,10 +107,10 @@ export async function GET(req: NextRequest) {
     const idsParam = searchParams.get("ids");
     const memberId = searchParams.get("memberId")?.trim();
     const excludeId = searchParams.get("excludeId")?.trim();
-    const listingTypeParam = searchParams.get("listingType");
-    const listingType =
-      listingTypeParam === "resale" || listingTypeParam === "new" ? listingTypeParam : "new";
-    const listingWhere = { listingType } as const;
+    const conditionParam = searchParams.get("condition");
+    const condition =
+      conditionParam === "new" || conditionParam === "used" ? conditionParam : null;
+    const listingWhere = condition ? ({ condition } as const) : ({} as const);
 
     if (list === "meta") {
       try {
@@ -169,23 +168,13 @@ export async function GET(req: NextRequest) {
     }
 
   if (slug) {
-    const slugListingType = searchParams.get("listingType");
-    // Keep resale and new consistent with public browse: active, quantity > 0, Connect on seller.
-    const slugWhere =
-      slugListingType === "resale"
-        ? {
-            slug,
-            status: "active" as const,
-            listingType: "resale" as const,
-            quantity: { gt: 0 } as const,
-            member: { stripeConnectAccountId: { not: null } },
-          }
-        : {
-            slug,
-            status: "active" as const,
-            quantity: { gt: 0 } as const,
-            member: { stripeConnectAccountId: { not: null } },
-          };
+    // Single store: look up by slug. Consistent with public browse: active, quantity > 0, Connect on seller.
+    const slugWhere = {
+      slug,
+      status: "active" as const,
+      quantity: { gt: 0 } as const,
+      member: { stripeConnectAccountId: { not: null } },
+    };
     // Do not hide listings while another buyer has only started checkout (pending order).
     // Inventory is decremented and status becomes sold_out only after payment succeeds (webhook / cash flow).
     const item = await prisma.storeItem.findFirst({
@@ -223,12 +212,8 @@ export async function GET(req: NextRequest) {
     const includeUnavailable = searchParams.get("includeUnavailable") === "1";
     let resolvedItem = item;
     if (!resolvedItem && includeUnavailable) {
-      const fallbackWhere =
-        slugListingType === "resale"
-          ? { slug, listingType: "resale" as const }
-          : { slug, listingType: "new" as const };
       resolvedItem = await prisma.storeItem.findFirst({
-        where: fallbackWhere,
+        where: { slug },
         include: {
           member: {
             select: {
@@ -328,33 +313,20 @@ export async function GET(req: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const listingTypeFilter = listingTypeParam === "resale" ? "resale" : listingTypeParam === "new" ? "new" : null;
-    if (listingTypeFilter === "resale") {
-      const subscribeSub = await prisma.subscription.findFirst({
-        where: prismaWhereMemberSubscribeTierPerksAccess(userId),
-      });
-      const sellerSub = await prisma.subscription.findFirst({
-        where: prismaWhereMemberSellerPlanAccess(userId),
-      });
-      if (!subscribeSub && !sellerSub) {
-        return NextResponse.json({ error: "Subscribe or Seller plan required" }, { status: 403 });
-      }
-    } else {
-      const sellerSub = await prisma.subscription.findFirst({
-        where: prismaWhereMemberSellerPlanAccess(userId),
-      });
-      if (!sellerSub) {
-        return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
-      }
+    const sellerSub = await prisma.subscription.findFirst({
+      where: prismaWhereMemberSellerPlanAccess(userId),
+    });
+    if (!sellerSub) {
+      return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
     }
     const where: {
       memberId: string;
-      listingType?: string;
+      condition?: string;
       status?: string;
       quantity?: { gt: number };
       NOT?: { title: string };
     } = { memberId: userId, NOT: { title: REWARD_PLACEHOLDER_TITLE } };
-    if (listingTypeFilter) where.listingType = listingTypeFilter;
+    if (condition) where.condition = condition;
     // My Items tabs: active (live), ended (inactive), sold (sold_out). No filter = all.
     const soldOnly = searchParams.get("sold") === "1";
     const filter = searchParams.get("filter");
@@ -410,8 +382,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // Only list items from sellers who have Stripe Connect set up (payment/redirect can function).
-    // Note: `listingType` is either "new" or "resale" per request — the same seller can have both;
-    // mobile/web tabs use separate calls, so one item can appear in one tab and not the other.
+    // Single store: optional `condition` filter (new | used) narrows results when provided.
     const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
     const listAndConditions: Prisma.StoreItemWhereInput[] = [publicBrowseCategoryWhere];
     if (categoryTrim && !subcategoryTrim) {
@@ -491,7 +462,7 @@ const bodySchema = z.object({
   variants: z.unknown().nullable().optional(),
   quantity: z.coerce.number().int().min(1, "Quantity must be at least 1 to list.").default(1),
   status: z.enum(["active", "sold_out", "inactive"]).default("active"),
-  listingType: z.enum(["new", "resale"]).default("new"),
+  condition: z.enum(["new", "used"]).default("new"),
   shippingCostCents: z.coerce.number().int().min(0).nullable().optional(),
   shippingPolicy: z.string().nullable().optional(),
   localDeliveryAvailable: z.boolean().default(false),
@@ -524,28 +495,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
-  const listingType = data.listingType ?? "new";
+  const condition = data.condition ?? "new";
   const sellerSub = await prisma.subscription.findFirst({
     where: prismaWhereMemberSellerPlanAccess(userId),
   });
-  const subscribeSub = await prisma.subscription.findFirst({
-    where: prismaWhereMemberSubscribeTierPerksAccess(userId),
-  });
-  const canListResale = Boolean(sellerSub || subscribeSub);
-  if (listingType === "new") {
-    if (!sellerSub) {
-      return NextResponse.json({ error: "Seller plan required to list new items on the storefront" }, { status: 403 });
-    }
-  } else {
-    if (!canListResale) {
-      return NextResponse.json(
-        { error: "Subscribe or Seller plan required to list resale items on Community Resale" },
-        { status: 403 }
-      );
-    }
-    if (!sellerSub && listingType !== "resale") {
-      return NextResponse.json({ error: "Subscribers can only list resale items" }, { status: 403 });
-    }
+  if (!sellerSub) {
+    return NextResponse.json({ error: "Seller plan required to list items on the storefront" }, { status: 403 });
   }
 
   const member = await prisma.member.findUnique({
@@ -699,13 +654,14 @@ export async function POST(req: NextRequest) {
         shippingDisabled: data.shippingDisabled,
         localDeliveryTerms: data.localDeliveryTerms?.trim() || null,
         pickupTerms: data.pickupTerms?.trim() || null,
-        listingType: data.listingType,
+        condition,
+        listingType: "new",
         acceptOffers:
           data.acceptOffers !== undefined
             ? data.acceptOffers
-            : data.listingType === "resale"
+            : condition === "used"
               ? member!.acceptOffersOnResale
-              : true,
+              : false,
         minOfferCents: data.minOfferCents ?? null,
         slug,
       },

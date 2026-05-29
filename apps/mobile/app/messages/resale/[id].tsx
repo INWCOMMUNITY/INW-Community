@@ -118,7 +118,7 @@ interface ResaleConversation {
     title: string;
     slug: string;
     photos?: string[] | null;
-    listingType?: string;
+    condition?: string;
     memberId?: string;
     status?: string;
     quantity?: number;
@@ -427,7 +427,7 @@ export default function ResaleConversationScreen() {
     if (!conv || !member?.id || !viewerIsBuyer) return false;
     const si = conv.storeItem;
     if (si.acceptOffers === false) return false;
-    if (si.listingType && si.listingType !== "resale") return false;
+    if (si.condition && si.condition !== "used") return false;
     if (si.status && si.status !== "active") return false;
     if (typeof si.quantity === "number" && si.quantity < 1) return false;
     return !hasPendingOfferForItem;
@@ -686,7 +686,7 @@ export default function ResaleConversationScreen() {
     if (!conv?.storeItem?.slug) return;
     setSeeItemOpen(false);
     (router.push as (href: string) => void)(
-      `/product/${conv.storeItem.slug}?listingType=resale`
+      `/product/${conv.storeItem.slug}`
     );
   }, [conv?.storeItem?.slug, router]);
 

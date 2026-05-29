@@ -42,18 +42,11 @@ export function MyCommunitySidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isAdmin = (session?.user as { isAdmin?: boolean })?.isAdmin;
-  const canResaleHub = (session?.user as { canAccessResaleHub?: boolean })?.canAccessResaleHub === true;
 
   const sidebarItems = useMemo(() => {
     const items: SidebarItem[] = [...SIDEBAR_BASE];
-    if (canResaleHub || isAdmin) {
-      items.push(
-        { divider: "NWC Resale" },
-        { href: "/resale-hub", label: "Resale Hub", icon: "storefront-outline" }
-      );
-    }
     return items;
-  }, [canResaleHub, isAdmin]);
+  }, []);
 
   return (
     <nav

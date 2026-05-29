@@ -30,7 +30,7 @@ interface StoreItemFormProps {
     variants: unknown;
     quantity: number;
     status: string;
-    listingType?: "new" | "resale";
+    condition?: "new" | "used";
     shippingCostCents: number | null;
     shippingPolicy: string | null;
     localDeliveryAvailable: boolean;
@@ -42,19 +42,15 @@ interface StoreItemFormProps {
     acceptOffers?: boolean;
     minOfferCents?: number | null;
   };
-  /** When true, force resale listing and hide "Where to list" (e.g. Resale Hub). */
-  resaleOnly?: boolean;
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
   successRedirect?: string;
 }
 
-export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreItemFormProps) {
+export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps) {
   const router = useRouter();
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [businessId, setBusinessId] = useState(existing?.businessId ?? "");
-  const [listingType, setListingType] = useState<"new" | "resale">(
-    resaleOnly ? "resale" : (existing?.listingType ?? "new")
-  );
+  const [condition, setCondition] = useState<"new" | "used">(existing?.condition ?? "new");
   const [title, setTitle] = useState(existing?.title ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
   const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
@@ -128,7 +124,6 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
       ? Math.round(existing.minOfferCents / 100)
       : 0
   );
-  const [acceptCashForPickupDelivery, setAcceptCashForPickupDelivery] = useState(true);
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
@@ -170,15 +165,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         }
       })
       .catch(() => setOfferFlagsLoaded(true));
-    fetch("/api/me")
-      .then((r) => r.json())
-      .then((data: { acceptCashForPickupDelivery?: boolean }) => {
-        if (resaleOnly && data?.acceptCashForPickupDelivery !== undefined) {
-          setAcceptCashForPickupDelivery(data.acceptCashForPickupDelivery);
-        }
-      })
-      .catch(() => {});
-  }, [resaleOnly, existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms]);
+  }, [existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms]);
 
   useLockBodyScroll(showSuccessModal || listingBadgePopupIndex >= 0);
 
@@ -332,8 +319,8 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
       setError("Enable at least one fulfillment method (shipping, local delivery, or pickup) in Policies.");
       return;
     }
-    if (resaleOnly && !effectiveShippingDisabled && !effectiveShippingPolicy.trim()) {
-      setError("Shipping policy is required when you offer shipping. Set it in Policies or use Sync here.");
+    if (!effectiveShippingDisabled && !effectiveShippingPolicy.trim()) {
+      setError("Shipping policy is required when you offer shipping. Set it in Policies.");
       return;
     }
     const effectivePickupPolicy = useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms;
@@ -344,7 +331,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
     setSubmitting(true);
     try {
       const payload = {
-        businessId: resaleOnly ? null : (businessId || null),
+        businessId: businessId || null,
         title: title.trim(),
         description: description.trim() || null,
         photos,
@@ -352,7 +339,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         subcategory: subcategory.trim() || null,
         priceCents,
         status: "active",
-        listingType: resaleOnly ? "resale" : listingType,
+        condition,
         quantity:
           optionsEnabled && variants.some((v) => v.name.trim() && v.options.some((o) => o.quantity > 0))
             ? sumOptionQuantities(variants.filter((v) => v.name.trim() && v.options.length > 0))
@@ -362,9 +349,8 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
             ? variants.filter((v) => v.name.trim() && v.options.length > 0)
             : null,
         shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
-        shippingPolicy: resaleOnly
-          ? (shippingPolicy.trim() || null)
-          : (effectiveShippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null),
+        shippingPolicy:
+          effectiveShippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,
         localDeliveryAvailable: effectiveLocalDelivery,
         localDeliveryFeeCents: effectiveLocalDelivery && localDeliveryFeeDollars
           ? Math.round(parseFloat(localDeliveryFeeDollars) * 100)
@@ -374,7 +360,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         localDeliveryTerms: effectiveLocalDelivery ? (localDeliveryTerms.trim() || null) : null,
         pickupTerms:
           effectivePickup && !useSellerProfilePickup ? (pickupTerms.trim() || null) : null,
-        ...(resaleOnly
+        ...(condition === "used"
           ? {
               acceptOffers,
               minOfferCents: (() => {
@@ -384,7 +370,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
                 return cents >= 0 ? cents : null;
               })(),
             }
-          : {}),
+          : { acceptOffers: false }),
       };
       const url = existing ? `/api/store-items/${existing.id}` : "/api/store-items";
       const method = existing ? "PATCH" : "POST";
@@ -404,18 +390,6 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         const message = getErrorMessage(data?.error, data?.message ?? "Failed to save");
         setError(message);
         return;
-      }
-      if (resaleOnly) {
-        const mePayload: Record<string, string | null> = {};
-        if (payload.shippingPolicy) mePayload.sellerShippingPolicy = payload.shippingPolicy;
-        if (payload.localDeliveryTerms) mePayload.sellerLocalDeliveryPolicy = payload.localDeliveryTerms;
-        if (Object.keys(mePayload).length > 0) {
-          fetch("/api/me", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(mePayload),
-          }).catch(() => {});
-        }
       }
       setEditSuccess(!!existing);
       if (!existing) {
@@ -441,13 +415,13 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
 
   function handleSuccessModalClose() {
     setShowSuccessModal(false);
-    const redirectTo = successRedirect ?? (resaleOnly ? "/resale-hub" : "/seller-hub/store/items");
+    const redirectTo = successRedirect ?? "/seller-hub/store/items";
     router.push(redirectTo);
     router.refresh();
   }
   function handleListAnother() {
     setShowSuccessModal(false);
-    router.push(resaleOnly ? "/resale-hub" : "/seller-hub/store/new");
+    router.push("/seller-hub/store/new");
     router.refresh();
   }
 
@@ -479,7 +453,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
     <>
     <BadgeEarnedStackOverlay badge={activeListingBadge} onDismiss={handleCloseListingBadgePopup} />
     <form onSubmit={handleSubmit} className="space-y-6 max-w-xl mx-auto text-center">
-      {!resaleOnly && businesses.length > 1 && (
+      {businesses.length > 1 && (
         <div>
           <label className="block text-sm font-medium mb-1">Business (optional)</label>
           <select
@@ -497,40 +471,38 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         </div>
       )}
 
-      {!resaleOnly && (
-        <div className="flex flex-col items-center">
-          <label className="block text-sm font-medium mb-2 text-center">Where to list</label>
-          <div className="flex flex-wrap justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => setListingType("new")}
-              className="py-2 px-4 rounded-lg border-2 font-semibold text-sm transition-colors"
-              style={
-                listingType === "new"
-                  ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)", color: "white" }
-                  : { backgroundColor: "white", borderColor: "#ccc", color: "#333" }
-              }
-            >
-              New (NWC Storefront)
-            </button>
-            <button
-              type="button"
-              onClick={() => setListingType("resale")}
-              className="py-2 px-4 rounded-lg border-2 font-semibold text-sm transition-colors"
-              style={
-                listingType === "resale"
-                  ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)", color: "white" }
-                  : { backgroundColor: "white", borderColor: "#ccc", color: "#333" }
-              }
-            >
-              Resale (NWC Resale)
-            </button>
-          </div>
-          <p className="text-xs text-gray-500 mt-2 text-center max-w-sm">
-            New items appear on the main storefront; resale items appear on NWC Resale.
-          </p>
+      <div className="flex flex-col items-center">
+        <label className="block text-sm font-medium mb-2 text-center">Condition</label>
+        <div className="flex flex-wrap justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => setCondition("new")}
+            className="py-2 px-4 rounded-lg border-2 font-semibold text-sm transition-colors"
+            style={
+              condition === "new"
+                ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)", color: "white" }
+                : { backgroundColor: "white", borderColor: "#ccc", color: "#333" }
+            }
+          >
+            New
+          </button>
+          <button
+            type="button"
+            onClick={() => setCondition("used")}
+            className="py-2 px-4 rounded-lg border-2 font-semibold text-sm transition-colors"
+            style={
+              condition === "used"
+                ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)", color: "white" }
+                : { backgroundColor: "white", borderColor: "#ccc", color: "#333" }
+            }
+          >
+            Used
+          </button>
         </div>
-      )}
+        <p className="text-xs text-gray-500 mt-2 text-center max-w-sm">
+          Buyers can filter the storefront by New or Used. Used items can accept offers.
+        </p>
+      </div>
 
       {/* 1. Photos - eBay-style gallery */}
       <div>
@@ -849,7 +821,7 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
         )}
       </div>
 
-      {resaleOnly && (
+      {condition === "used" && (
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Accept Offers</label>
@@ -913,28 +885,6 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
               </div>
             </div>
           )}
-          <div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={acceptCashForPickupDelivery}
-                onChange={(e) => {
-                  const next = e.target.checked;
-                  setAcceptCashForPickupDelivery(next);
-                  fetch("/api/me", {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ acceptCashForPickupDelivery: next }),
-                  }).catch(() => {});
-                }}
-                className="rounded"
-              />
-              <span className="font-medium">Accept cash for pickup and local delivery</span>
-            </label>
-            <p className="text-xs text-gray-500 mt-0.5 pl-6">
-              If checked, buyers can choose to pay in cash when they pick up or receive local delivery.
-            </p>
-          </div>
         </div>
       )}
 
@@ -979,59 +929,34 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
               <label className="block text-sm font-medium mb-1">Shipping Policy</label>
               <div className="flex gap-2 items-start">
                 <textarea
-                  value={resaleOnly ? shippingPolicy : (useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy)}
+                  value={useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy}
                   onChange={(e) => {
-                    if (!resaleOnly && useSellerProfileShipping) return;
+                    if (useSellerProfileShipping) return;
                     setShippingPolicy(e.target.value);
                   }}
-                  readOnly={!resaleOnly && useSellerProfileShipping}
-                  className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${!resaleOnly && useSellerProfileShipping ? "bg-gray-50" : ""}`}
+                  readOnly={useSellerProfileShipping}
+                  className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfileShipping ? "bg-gray-50" : ""}`}
                   rows={3}
                   placeholder="e.g. 2-5 business days via USPS. Free over $50."
                 />
-                {resaleOnly && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      fetch("/api/me")
-                        .then((r) => r.json())
-                        .then((data: { sellerShippingPolicy?: string | null }) => {
-                          setShippingPolicy(data?.sellerShippingPolicy ?? "");
-                        })
-                        .catch(() => {});
-                    }}
-                    className="shrink-0 border border-gray-300 bg-white hover:bg-gray-50 rounded px-2 py-1 text-sm text-gray-700"
-                  >
-                    Sync
-                  </button>
-                )}
               </div>
-              {!resaleOnly && (
-                <>
-                  <label className="flex items-center gap-2 cursor-pointer mt-2">
-                    <input
-                      type="checkbox"
-                      checked={useSellerProfileShipping}
-                      onChange={(e) => {
-                        setUseSellerProfileShipping(e.target.checked);
-                        if (e.target.checked) setShippingPolicy("");
-                      }}
-                      className="rounded"
-                    />
-                    <span className="text-sm font-medium">Use seller profile default</span>
-                  </label>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {useSellerProfileShipping
-                      ? "Synced from your seller profile. Uncheck to set item-specific policy."
-                      : "Item-specific shipping policy (overrides profile default)."}
-                  </p>
-                </>
-              )}
-              {resaleOnly && (
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Required. Sync loads your policy from Resale Hub (below the buttons).
-                </p>
-              )}
+              <label className="flex items-center gap-2 cursor-pointer mt-2">
+                <input
+                  type="checkbox"
+                  checked={useSellerProfileShipping}
+                  onChange={(e) => {
+                    setUseSellerProfileShipping(e.target.checked);
+                    if (e.target.checked) setShippingPolicy("");
+                  }}
+                  className="rounded"
+                />
+                <span className="text-sm font-medium">Use seller profile default</span>
+              </label>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {useSellerProfileShipping
+                  ? "Synced from your seller profile. Uncheck to set item-specific policy."
+                  : "Item-specific shipping policy (overrides profile default)."}
+              </p>
             </div>
           </>
         )}
@@ -1073,22 +998,6 @@ export function StoreItemForm({ existing, resaleOnly, successRedirect }: StoreIt
                   rows={3}
                   placeholder="Describe terms of local delivery (e.g. areas served, contact method)"
                 />
-                {resaleOnly && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      fetch("/api/me")
-                        .then((r) => r.json())
-                        .then((data: { sellerLocalDeliveryPolicy?: string | null }) => {
-                          setLocalDeliveryTerms(data?.sellerLocalDeliveryPolicy ?? "");
-                        })
-                        .catch(() => {});
-                    }}
-                    className="shrink-0 border border-gray-300 bg-white hover:bg-gray-50 rounded px-2 py-1 text-sm text-gray-700"
-                  >
-                    Sync
-                  </button>
-                )}
               </div>
             </div>
           </div>

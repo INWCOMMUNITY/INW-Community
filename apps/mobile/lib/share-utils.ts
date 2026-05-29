@@ -22,8 +22,6 @@ export interface ShareContent {
   type: SharedContentType;
   id: string;
   slug?: string;
-  /** For store_item: "new" = storefront, "resale" = resale */
-  listingType?: "new" | "resale";
 }
 
 /** Member badges returned by some share/create APIs (e.g. blog share → Community Writer). */
@@ -43,8 +41,7 @@ export function buildShareUrl(content: ShareContent): string {
     case "blog":
       return content.slug ? `${siteBase}/blog/${content.slug}` : `${siteBase}/blog`;
     case "store_item":
-      const path = content.listingType === "resale" ? "resale" : "storefront";
-      return content.slug ? `${siteBase}/${path}/${content.slug}` : siteBase;
+      return content.slug ? `${siteBase}/storefront/${content.slug}` : siteBase;
     case "business":
       return content.slug ? `${siteBase}/support-local/${content.slug}` : siteBase;
     case "coupon":

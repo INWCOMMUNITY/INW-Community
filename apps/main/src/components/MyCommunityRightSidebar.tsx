@@ -1,6 +1,6 @@
 "use client";
 
-/** Right sidebar content removed: Manage Subscription moved to Edit Profile, NWC Resale moved to left sidebar. */
+/** Right sidebar content removed: Manage Subscription moved to Edit Profile. */
 export function MyCommunityRightSidebar() {
   return null;
 }

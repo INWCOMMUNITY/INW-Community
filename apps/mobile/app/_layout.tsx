@@ -252,7 +252,6 @@ function ProfileViewLayout({ children }: { children: React.ReactNode }) {
   const { member, subscriptionPlan } = useAuth();
   const hasSponsor = member?.subscriptions?.some((s) => s.plan === "sponsor") ?? false;
   const hasSeller = member?.subscriptions?.some((s) => s.plan === "seller") ?? false;
-  const hasResaleHubSwitcher = member?.hasResaleHubAccess ?? false;
   const hasBusinessHubFromApi = member?.hasBusinessHubAccess ?? false;
   const defaultView: ProfileView =
     subscriptionPlan === "seller"
@@ -261,14 +260,12 @@ function ProfileViewLayout({ children }: { children: React.ReactNode }) {
         ? "business_hub"
         : hasBusinessHubFromApi
           ? "business_hub"
-          : hasResaleHubSwitcher
-            ? "resale_hub"
-            : "profile";
+          : "profile";
   return (
     <ProfileViewProvider
       hasSponsor={hasSponsor}
       hasSeller={hasSeller}
-      hasSubscriber={hasResaleHubSwitcher}
+      hasSubscriber={false}
       hasBusinessHubFromApi={hasBusinessHubFromApi}
       defaultView={defaultView}
     >
@@ -318,7 +315,6 @@ function RootLayoutNav() {
         <Stack.Screen name="profile-wishlist" />
         <Stack.Screen name="sponsor-business" options={{ headerShown: false }} />
         <Stack.Screen name="seller-hub" options={{ headerShown: false }} />
-        <Stack.Screen name="resale-hub" options={{ headerShown: false }} />
         <Stack.Screen name="messages" options={{ headerShown: false }} />
         <Stack.Screen name="badges" />
         <Stack.Screen name="my-badges" />

@@ -1,10 +1,7 @@
 import type { Prisma } from "database";
 import { prisma } from "database";
 import { signMobileToken, type SubscriptionPlan } from "@/lib/mobile-auth";
-import {
-  prismaWhereMemberSubscribePlanAccess,
-  prismaWhereMemberSubscribeTierPerksAccess,
-} from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 import { resolveEffectiveNwcPlan } from "@/lib/resolve-effective-nwc-plan";
 
 /** Fields needed to build a mobile JWT + `/api/me`-style payload. */
@@ -61,16 +58,10 @@ export async function issueMobileSessionForMemberRow(
     return { error: "EMAIL_NOT_VERIFIED", status: 403 };
   }
 
-  const [subTier, subResaleHub] = await Promise.all([
-    prisma.subscription.findFirst({
-      where: prismaWhereMemberSubscribeTierPerksAccess(member.id),
-      select: { id: true },
-    }),
-    prisma.subscription.findFirst({
-      where: prismaWhereMemberSubscribePlanAccess(member.id),
-      select: { id: true },
-    }),
-  ]);
+  const subTier = await prisma.subscription.findFirst({
+    where: prismaWhereMemberSubscribeTierPerksAccess(member.id),
+    select: { id: true },
+  });
 
   const effectivePlan = await resolveEffectiveNwcPlan(member.id);
 
@@ -88,7 +79,6 @@ export async function issueMobileSessionForMemberRow(
     email: member.email,
     name: `${member.firstName} ${member.lastName}`,
     isSubscriber: !!subTier,
-    hasResaleHubAccess: !!subResaleHub,
     subscriptionPlan: effectivePlan ?? undefined,
   });
 

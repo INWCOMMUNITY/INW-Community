@@ -5,7 +5,7 @@ type StoreItemRow = {
   title: string;
   slug: string;
   photos: string[];
-  listingType: string;
+  condition?: string;
 };
 
 /**
@@ -33,7 +33,6 @@ export async function fetchStoreItemsByIdsBatch(ids: string[]): Promise<Map<stri
 export async function fetchStoreItemPreviewPayload(shared: {
   id: string;
   slug?: string;
-  listingType?: "new" | "resale";
 }): Promise<StoreItemRow | null> {
   if (shared.id) {
     try {
@@ -46,16 +45,13 @@ export async function fetchStoreItemPreviewPayload(shared: {
   }
   const slug = shared.slug?.trim();
   if (!slug) return null;
-  const lt0 = shared.listingType ?? "new";
-  const attempts: { listingType: string; includeUnavailable?: boolean }[] = [
-    { listingType: lt0 },
-    { listingType: lt0, includeUnavailable: true },
-    { listingType: lt0 === "resale" ? "new" : "resale" },
-    { listingType: lt0 === "resale" ? "new" : "resale", includeUnavailable: true },
+  const attempts: { includeUnavailable?: boolean }[] = [
+    {},
+    { includeUnavailable: true },
   ];
   for (const a of attempts) {
     try {
-      const q = `/api/store-items?slug=${encodeURIComponent(slug)}&listingType=${a.listingType}${
+      const q = `/api/store-items?slug=${encodeURIComponent(slug)}${
         a.includeUnavailable ? "&includeUnavailable=1" : ""
       }`;
       const data = await apiGet<StoreItemRow>(q);

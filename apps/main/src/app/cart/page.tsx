@@ -28,7 +28,6 @@ interface CartItemStoreItem {
   shippingDisabled?: boolean;
   pickupTerms?: string | null;
   member?: {
-    acceptCashForPickupDelivery?: boolean;
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
   } | null;
@@ -56,22 +55,8 @@ type FulfillmentType = "ship" | "local_delivery" | "pickup";
 
 const emptyShippingAddress = { street: "", aptOrSuite: "", city: "", state: "", zip: "" };
 
-type ListingCategory = "new" | "resale";
-const CATEGORY_LABELS: Record<ListingCategory, string> = {
-  new: "Main Store",
-  resale: "NWC Resale",
-};
 function getItemProductUrl(item: CartItem): string {
-  const base = item.storeItem.listingType === "resale" ? "/resale" : "/storefront";
-  return `${base}/${item.storeItem.slug}`;
-}
-function groupItemsByCategory(items: CartItem[]): { category: ListingCategory; items: CartItem[] }[] {
-  const groups: { category: ListingCategory; items: CartItem[] }[] = [];
-  const newItems = items.filter((i) => (i.storeItem.listingType ?? "new") === "new");
-  const resaleItems = items.filter((i) => i.storeItem.listingType === "resale");
-  if (newItems.length > 0) groups.push({ category: "new", items: newItems });
-  if (resaleItems.length > 0) groups.push({ category: "resale", items: resaleItems });
-  return groups;
+  return `/storefront/${item.storeItem.slug}`;
 }
 
 function refetchCart(): Promise<CartItem[]> {
@@ -87,8 +72,6 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
-  /** Per-item payment for pickup/local: only those items are charged at checkout when "card"; "cash" items are not charged. */
-  const [paymentMethodByItemId, setPaymentMethodByItemId] = useState<Record<string, "card" | "cash">>({});
   const [localDeliveryModalItemId, setLocalDeliveryModalItemId] = useState<string | null>(null);
   const [pickupTermsModalItemId, setPickupTermsModalItemId] = useState<string | null>(null);
   const [shippingAddress, setShippingAddress] = useState<AddressValue>(emptyShippingAddress);
@@ -238,24 +221,8 @@ export default function CartPage() {
     allPickupTermsAgreed &&
     shippingValid;
 
-  const allPickupOrLocalDelivery =
-    items.length > 0 &&
-    items.every(
-      (i) => i.fulfillmentType === "pickup" || i.fulfillmentType === "local_delivery"
-    );
-  const allSellersAcceptCash =
-    items.length > 0 &&
-    items.every((i) => i.storeItem.member?.acceptCashForPickupDelivery !== false);
-  const showPayInCash = allPickupOrLocalDelivery && allSellersAcceptCash;
-
-  /** Items paid in cash: no charge at checkout; they pay at pickup/delivery. */
-  const cashItems = items.filter(
-    (i) =>
-      (i.fulfillmentType === "pickup" || i.fulfillmentType === "local_delivery") &&
-      (paymentMethodByItemId[i.id] ?? "card") === "cash" &&
-      i.storeItem.member?.acceptCashForPickupDelivery !== false
-  );
-  const cardItems = items.filter((i) => !cashItems.includes(i));
+  /** All items are charged through Stripe at checkout. */
+  const cardItems = items;
 
   async function handleCheckout() {
     if (items.length === 0) return;
@@ -287,56 +254,6 @@ export default function CartPage() {
         })),
         localDeliveryDetails: localDeliveryDetailsForCheckout ?? undefined,
       });
-
-      // Only cash items: create orders, no payment collected at checkout.
-      if (cardItems.length === 0 && cashItems.length > 0) {
-        const res = await fetch("/api/store-orders/cash-checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(makePayload(cashItems)),
-          credentials: "include",
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = res.status === 401
-            ? "Your session has expired. Please sign in again to complete checkout."
-            : getErrorMessage(data.error, "Checkout failed");
-          setError(msg);
-          return;
-        }
-        if (data.url) {
-          window.location.href = data.url;
-        }
-        return;
-      }
-
-      let cashOrderIds: string[] | undefined;
-      if (cashItems.length > 0) {
-        const res = await fetch("/api/store-orders/cash-checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(makePayload(cashItems)),
-          credentials: "include",
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = res.status === 401
-            ? "Your session has expired. Please sign in again to complete checkout."
-            : getErrorMessage(data.error, "Checkout failed");
-          setError(msg);
-          return;
-        }
-        cashOrderIds = data.orderIds ?? [];
-        for (const item of cashItems) {
-          await fetch(`/api/cart/${item.id}`, { method: "DELETE" });
-        }
-        refresh();
-      }
-
-      if (cardItems.length === 0) {
-        setCheckingOut(false);
-        return;
-      }
 
       const hasShippedCardItem = cardItems.some((i) => (i.fulfillmentType ?? "ship") === "ship");
       let resolvedShippingAddress = shippingAddress;
@@ -400,7 +317,6 @@ export default function CartPage() {
         ...makePayload(cardItems),
         shippingCostCents,
       };
-      if (cashOrderIds?.length) stripeBody.cashOrderIds = cashOrderIds;
       if (hasShippedCardItem) {
         stripeBody.shippingAddress = resolvedShippingAddress;
       }
@@ -448,29 +364,6 @@ export default function CartPage() {
     return sum;
   }, 0);
   const totalCents = subtotalCents + shippingCostCents + localDeliveryFeeCents;
-
-  const cardSubtotalCents = cardItems.reduce((sum, i) => sum + cartLineUnitPriceCents(i) * i.quantity, 0);
-  const cardShippingCents = cardItems.reduce((sum, i) => {
-    if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
-      return sum + i.storeItem.shippingCostCents * i.quantity;
-    }
-    return sum;
-  }, 0);
-  const cardLocalDeliveryCents = cardItems.reduce((sum, i) => {
-    if (i.fulfillmentType === "local_delivery" && i.storeItem?.localDeliveryFeeCents != null && i.storeItem.localDeliveryFeeCents > 0) {
-      return sum + i.storeItem.localDeliveryFeeCents * i.quantity;
-    }
-    return sum;
-  }, 0);
-  const cardTotalCents = cardSubtotalCents + cardShippingCents + cardLocalDeliveryCents;
-  const cashTotalCents = cashItems.reduce((sum, i) => {
-    let s = cartLineUnitPriceCents(i) * i.quantity;
-    if (i.fulfillmentType === "local_delivery" && i.storeItem?.localDeliveryFeeCents != null && i.storeItem.localDeliveryFeeCents > 0) {
-      s += i.storeItem.localDeliveryFeeCents * i.quantity;
-    }
-    return sum + s;
-  }, 0);
-  const hasMixedPayment = cashItems.length > 0 && cardItems.length > 0;
 
   const itemForModal = localDeliveryModalItemId
     ? items.find((i) => i.id === localDeliveryModalItemId)
@@ -558,25 +451,8 @@ export default function CartPage() {
                 Items in your cart
               </h2>
               <div className="space-y-6">
-                {groupItemsByCategory(items).map(({ category, items: groupItems }) => (
-                  <div key={category}>
-                    <div
-                      className="flex items-center gap-3 mb-3"
-                      style={{ color: "var(--color-heading)" }}
-                    >
-                      <span
-                        className="text-sm font-semibold uppercase tracking-wide"
-                        style={{ color: "var(--color-primary)" }}
-                      >
-                        {CATEGORY_LABELS[category]}
-                      </span>
-                      <span
-                        className="flex-1 h-px shrink-0"
-                        style={{ backgroundColor: "var(--color-section-alt)" }}
-                      />
-                    </div>
-                    <div className="space-y-4">
-                      {groupItems.map((item) => (
+                <div className="space-y-4">
+                  {items.map((item) => (
                         <div
                           key={item.id}
                           className="rounded-lg border p-4"
@@ -788,54 +664,12 @@ export default function CartPage() {
                           {item.pickupDetails?.firstName ? "Edit pickup details" : "Add pickup details"}
                         </button>
                       )}
-                      {/* Payment options for pickup / local delivery — cash = no charge at checkout */}
-                      {(item.fulfillmentType === "pickup" || item.fulfillmentType === "local_delivery") &&
-                        item.storeItem.member?.acceptCashForPickupDelivery !== false && (
-                          <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--color-section-alt)" }}>
-                            <p className="text-sm font-medium mb-2" style={{ color: "var(--color-text)" }}>
-                              Payment for this item
-                            </p>
-                            <div className="flex flex-wrap gap-4">
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="radio"
-                                  name={`payment-${item.id}`}
-                                  checked={(paymentMethodByItemId[item.id] ?? "card") === "card"}
-                                  onChange={() => setPaymentMethodByItemId((prev) => ({ ...prev, [item.id]: "card" }))}
-                                  className="rounded"
-                                  style={{ accentColor: "var(--color-primary)" }}
-                                />
-                                <span className="text-sm" style={{ color: "var(--color-text)" }}>
-                                  Card (charged now)
-                                </span>
-                              </label>
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="radio"
-                                  name={`payment-${item.id}`}
-                                  checked={(paymentMethodByItemId[item.id] ?? "card") === "cash"}
-                                  onChange={() => setPaymentMethodByItemId((prev) => ({ ...prev, [item.id]: "cash" }))}
-                                  className="rounded"
-                                  style={{ accentColor: "var(--color-primary)" }}
-                                />
-                                <span className="text-sm" style={{ color: "var(--color-text)" }}>
-                                  Pay in Cash (no charge at checkout)
-                                </span>
-                              </label>
-                            </div>
-                            <p className="text-xs mt-1" style={{ color: "var(--color-text)" }}>
-                              Cash: pay when you pick up or receive delivery. No charge at checkout.
-                            </p>
-                          </div>
-                        )}
                     </div>
                       );
                     })()}
                   </div>
-                        ))}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -855,60 +689,26 @@ export default function CartPage() {
                   Order summary
                 </h2>
                 <div className="space-y-2 mb-4" style={{ color: "var(--color-text)" }}>
-                  {hasMixedPayment ? (
-                    <>
-                      <p className="text-sm font-medium mb-1" style={{ color: "var(--color-heading)" }}>
-                        Amount to pay now (card)
-                      </p>
-                      <div className="flex justify-between text-sm">
-                        <span>Subtotal</span>
-                        <span>${(cardSubtotalCents / 100).toFixed(2)}</span>
-                      </div>
-                      {cardShippingCents > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span>Shipping</span>
-                          <span>${(cardShippingCents / 100).toFixed(2)}</span>
-                        </div>
-                      )}
-                      {cardLocalDeliveryCents > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span>Local delivery</span>
-                          <span>${(cardLocalDeliveryCents / 100).toFixed(2)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between font-bold pt-2 border-t" style={{ borderColor: "var(--color-section-alt)" }}>
-                        <span>Pay now</span>
-                        <span>${(cardTotalCents / 100).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm pt-1">
-                        <span>Pay in Cash at pickup/delivery</span>
-                        <span>${(cashTotalCents / 100).toFixed(2)}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex justify-between text-sm">
-                        <span>Subtotal</span>
-                        <span>${(subtotalCents / 100).toFixed(2)}</span>
-                      </div>
-                      {shippingCostCents > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span>Shipping</span>
-                          <span>${(shippingCostCents / 100).toFixed(2)}</span>
-                        </div>
-                      )}
-                      {localDeliveryFeeCents > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span>Local delivery</span>
-                          <span>${(localDeliveryFeeCents / 100).toFixed(2)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between font-bold pt-2 border-t" style={{ borderColor: "var(--color-section-alt)" }}>
-                        <span>Total</span>
-                        <span>${(totalCents / 100).toFixed(2)}</span>
-                      </div>
-                    </>
+                  <div className="flex justify-between text-sm">
+                    <span>Subtotal</span>
+                    <span>${(subtotalCents / 100).toFixed(2)}</span>
+                  </div>
+                  {shippingCostCents > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span>Shipping</span>
+                      <span>${(shippingCostCents / 100).toFixed(2)}</span>
+                    </div>
                   )}
+                  {localDeliveryFeeCents > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span>Local delivery</span>
+                      <span>${(localDeliveryFeeCents / 100).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold pt-2 border-t" style={{ borderColor: "var(--color-section-alt)" }}>
+                    <span>Total</span>
+                    <span>${(totalCents / 100).toFixed(2)}</span>
+                  </div>
                 </div>
 
                 {hasShippedItem && (
@@ -934,21 +734,9 @@ export default function CartPage() {
                   </div>
                 )}
 
-                {!showPayInCash && (
-                  <p className="text-xs mb-4" style={{ color: "var(--color-text)" }}>
-                    Pay with Card, Google Pay, or Apple Pay on the next screen.
-                  </p>
-                )}
-                {showPayInCash && !hasMixedPayment && (
-                  <p className="text-xs mb-4" style={{ color: "var(--color-text)" }}>
-                    Choose payment (card or cash) for each pickup or local delivery item above.
-                  </p>
-                )}
-                {hasMixedPayment && (
-                  <p className="text-xs mb-4" style={{ color: "var(--color-text)" }}>
-                    Only the &quot;Pay now&quot; amount is charged at checkout. Cash items are paid when you pick up or receive delivery.
-                  </p>
-                )}
+                <p className="text-xs mb-4" style={{ color: "var(--color-text)" }}>
+                  Pay with Card, Google Pay, or Apple Pay on the next screen.
+                </p>
 
                 {error && (
                   <div className="mb-2">
@@ -985,13 +773,7 @@ export default function CartPage() {
                     className="btn disabled:cursor-not-allowed"
                     style={{ opacity: 1 }}
                   >
-                    {checkingOut
-                      ? cardItems.length === 0 && cashItems.length > 0
-                        ? "Processing orders…"
-                        : "Redirecting…"
-                      : cardItems.length === 0 && cashItems.length > 0
-                        ? "Process orders"
-                        : "Proceed to checkout"}
+                    {checkingOut ? "Redirecting…" : "Proceed to checkout"}
                   </button>
                   <Link
                     href="/storefront"

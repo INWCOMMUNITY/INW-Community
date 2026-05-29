@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Lightweight flags for profile hub switcher badges.
- * Client combines with plan flags: Seller Hub uses hasSeller, Resale Hub uses hasSubscriber.
+ * Client combines with plan flags: Seller Hub uses hasSeller.
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);

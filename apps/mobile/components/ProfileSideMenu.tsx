@@ -19,7 +19,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { useProfileView } from "@/contexts/ProfileViewContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -97,12 +96,10 @@ const LEGAL_ITEMS: NavItem[] = [
   { href: `/web?url=${encodeURIComponent(siteBase + "/privacy")}&title=${encodeURIComponent("Privacy Policy")}`, label: "Privacy Policy", icon: "shield-checkmark-outline" },
 ];
 
-export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSideMenuProps) {
+export function ProfileSideMenu({ visible, onClose }: ProfileSideMenuProps) {
   const router = useRouter();
-  const { setProfileView } = useProfileView();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
-  const showResaleHub = hasSubscriber;
   const { member, signOut } = useAuth();
 
   const hasManageablePaidPlan =
@@ -199,12 +196,6 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSide
         });
       return;
     }
-    if (href === "action:resale-hub") {
-      onClose();
-      setProfileView("resale_hub");
-      router.push("/(tabs)/my-community" as any);
-      return;
-    }
     if (href.startsWith("mailto:")) {
       onClose();
       Linking.openURL(href).catch(() => {});
@@ -238,13 +229,6 @@ export function ProfileSideMenu({ visible, onClose, hasSubscriber }: ProfileSide
             <Section title="Community" items={communityItems} onNavigate={handleNavigate} />
             <Section title="Support Local" items={supportLocalItems} onNavigate={handleNavigate} />
             <Section title="Profile" items={profileItems} onNavigate={handleNavigate} />
-            {showResaleHub && (
-              <Section
-                title="Resale Hub"
-                items={[{ href: "action:resale-hub", label: "Resale Hub", icon: "cash-outline" }]}
-                onNavigate={handleNavigate}
-              />
-            )}
             <Section title="Legal" items={LEGAL_ITEMS} onNavigate={handleNavigate} />
           </ScrollView>
         </View>

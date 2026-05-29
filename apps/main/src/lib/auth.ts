@@ -2,10 +2,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { getServerSession as nextAuthGetServerSession } from "next-auth";
 import { prisma } from "database";
 import bcrypt from "bcryptjs";
-import {
-  prismaWhereMemberSubscribePlanAccess,
-  prismaWhereMemberSubscribeTierPerksAccess,
-} from "@/lib/subscribe-plan-access";
+import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 import { memberHasAppAccess } from "@/lib/member-public-visibility";
 
 /** For Vercel logs: correlate failures without printing full login ids in every case. */
@@ -100,22 +97,13 @@ export const authOptions = {
       (session.user as { id?: string }).id = memberId;
       try {
         if (memberId) {
-          const [subTier, subResale] = await Promise.all([
-            prisma.subscription.findFirst({
-              where: prismaWhereMemberSubscribeTierPerksAccess(memberId),
-              select: { id: true },
-            }),
-            prisma.subscription.findFirst({
-              where: prismaWhereMemberSubscribePlanAccess(memberId),
-              select: { id: true },
-            }),
-          ]);
+          const subTier = await prisma.subscription.findFirst({
+            where: prismaWhereMemberSubscribeTierPerksAccess(memberId),
+            select: { id: true },
+          });
           (session.user as { isSubscriber?: boolean }).isSubscriber = !!subTier;
-          /** NWC Resale Hub — Resident Subscribe plan only (not Business/Seller). */
-          (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = !!subResale;
         } else {
           (session.user as { isSubscriber?: boolean }).isSubscriber = false;
-          (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = false;
         }
         const adminEmail = process.env.ADMIN_EMAIL?.trim();
         let emailForAdmin = tokenEmail ?? (session.user?.email as string | undefined);
@@ -133,7 +121,6 @@ export const authOptions = {
       } catch (e) {
         console.error("[next-auth session callback]", e);
         (session.user as { isSubscriber?: boolean }).isSubscriber = false;
-        (session.user as { canAccessResaleHub?: boolean }).canAccessResaleHub = false;
         // Keep admin from JWT email when DB reads fail (timeouts) so ADMIN_EMAIL
         // still matches without requiring subscription queries.
         const adminEmail = process.env.ADMIN_EMAIL?.trim();

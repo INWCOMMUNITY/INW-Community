@@ -10,19 +10,17 @@ import {
   ActivityIndicator,
   RefreshControl,
   useWindowDimensions,
-  Alert,
   Animated,
   Platform,
   Easing,
 } from "react-native";
 
 const ANIM_DURATION = 480;
-import { useRouter, useNavigation, useLocalSearchParams } from "expo-router";
+import { useRouter, useNavigation } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, getToken } from "@/lib/api";
-import { useAuth } from "@/contexts/AuthContext";
+import { apiGet } from "@/lib/api";
 import {
   StoreFilterDrawer,
   type DeliveryFilter,
@@ -53,30 +51,13 @@ function formatPrice(cents: number): string {
 export default function StoreScreen() {
   const router = useRouter();
   const navigation = useNavigation();
-  const params = useLocalSearchParams<{ listingType?: string }>();
-  const { member } = useAuth();
   const { width } = useWindowDimensions();
 
-  const canListResale =
-    member?.subscriptions?.some(
-      (s) => (s.plan === "subscribe" || s.plan === "seller") && s.status === "active"
-    ) ?? false;
   const padding = 16;
   const gap = 12;
   const cardWidth = (width - padding * 2 - gap) / 2;
 
-  const [listingType, setListingType] = useState<"new" | "resale">("new");
-
-  useEffect(() => {
-    if (params.listingType === "resale") {
-      setListingType("resale");
-    }
-  }, [params.listingType]);
-
-  useEffect(() => {
-    setCategory("");
-    setSubcategory("");
-  }, [listingType]);
+  const [condition, setCondition] = useState<"" | "new" | "used">("");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
@@ -146,7 +127,8 @@ export default function StoreScreen() {
       else setLoading(true);
       setConnectionError(null);
       try {
-        const params = new URLSearchParams({ listingType });
+        const params = new URLSearchParams();
+        if (condition) params.set("condition", condition);
         if (search.trim()) params.set("search", search.trim());
         if (category) params.set("category", category);
         if (category && subcategory) params.set("subcategory", subcategory);
@@ -176,11 +158,11 @@ export default function StoreScreen() {
         setRefreshing(false);
       }
     },
-    [listingType, search, category, subcategory, size, deliveryFilter]
+    [condition, search, category, subcategory, size, deliveryFilter]
   );
 
   const loadMeta = useCallback(() => {
-    const params = new URLSearchParams({ list: "meta", listingType });
+    const params = new URLSearchParams({ list: "meta" });
     apiGet<{
       categories?: string[];
       browseByCategories?: BrowseCategoryRow[];
@@ -197,7 +179,7 @@ export default function StoreScreen() {
         if (Array.isArray(d?.sizes)) setSizes(d.sizes);
       })
       .catch(() => {});
-  }, [listingType]);
+  }, []);
 
   useEffect(() => {
     loadMeta();
@@ -241,27 +223,7 @@ export default function StoreScreen() {
   }, [load]);
 
   const openItem = (item: StoreItem) => {
-    router.push(`/product/${item.slug}?listingType=${listingType}`);
-  };
-
-  const openListItem = async () => {
-    const token = await getToken();
-    if (!token) {
-      Alert.alert(
-        "Sign in required",
-        "Please sign in to list items on Community Resale.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
-        ]
-      );
-      return;
-    }
-    if (!canListResale) {
-      (router.push as (href: string) => void)("/subscribe");
-      return;
-    }
-    (router.push as (href: string) => void)("/seller-hub/store/new?listingType=resale");
+    router.push(`/product/${item.slug}`);
   };
 
   const resolvePhotoUrl = (path: string | undefined): string | undefined => {
@@ -389,74 +351,47 @@ export default function StoreScreen() {
       <Animated.View style={[styles.headerWrap, { height: animatedHeight }]}>
         <View style={styles.header} onLayout={handleHeaderLayout}>
           <View style={styles.segmentRow}>
-              <Pressable
-                style={[
-                  styles.segmentBtn,
-                  listingType === "new" && styles.segmentBtnActive,
-                ]}
-                onPress={() => {
-                  setListingType("new");
-                  setCategory("");
-                  setSize("");
-                  setDeliveryFilter("");
-                }}
-              >
-                <Text style={[styles.segmentText, listingType === "new" && styles.segmentTextActive]}>
-                  Storefront
-                </Text>
-              </Pressable>
+              <View style={styles.conditionTabs}>
+                {([
+                  { key: "", label: "All" },
+                  { key: "new", label: "New" },
+                  { key: "used", label: "Used" },
+                ] as const).map((opt) => (
+                  <Pressable
+                    key={opt.key || "all"}
+                    style={[
+                      styles.segmentBtn,
+                      condition === opt.key && styles.segmentBtnActive,
+                    ]}
+                    onPress={() => setCondition(opt.key)}
+                  >
+                    <Text style={[styles.segmentText, condition === opt.key && styles.segmentTextActive]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
               <Pressable
                 style={({ pressed }) => [styles.cartBtn, pressed && { opacity: 0.8 }]}
                 onPress={() => router.push("/cart")}
               >
                 <Ionicons name="cart-outline" size={24} color="#fff" />
               </Pressable>
-              <Pressable
-                style={[
-                  styles.segmentBtn,
-                  listingType === "resale" && styles.segmentBtnActive,
-                ]}
-                onPress={() => {
-                  setListingType("resale");
-                  setCategory("");
-                  setSize("");
-                  setDeliveryFilter("");
-                }}
-              >
-                <Text style={[styles.segmentText, listingType === "resale" && styles.segmentTextActive]}>
-                  Resale
-                </Text>
-              </Pressable>
             </View>
             <View style={styles.introBlock}>
-              <Text style={styles.introTitle}>
-                {listingType === "new" ? "NWC Storefront" : "Community Resale"}
-              </Text>
+              <Text style={styles.introTitle}>NWC Storefront</Text>
               <Text style={styles.introParagraph}>
-                {listingType === "new"
-                  ? "Eastern Washington and North Idaho local goods. Shop local without losing the comfort of shopping from home!"
-                  : "Buy and sell pre-loved local goods. Give items a second life and support your community."}
+                Eastern Washington and North Idaho local goods. Shop local without losing the comfort of shopping from home!
               </Text>
             </View>
             <TextInput
               style={styles.searchInput}
-              placeholder={listingType === "new" ? "Search storefront..." : "Search resale..."}
+              placeholder="Search storefront..."
               placeholderTextColor={theme.colors.placeholder}
               value={search}
               onChangeText={setSearch}
               autoCorrect={true}
             />
-            {listingType === "resale" && (
-              <Pressable
-                style={({ pressed }) => [styles.listItemBtn, pressed && { opacity: 0.8 }]}
-                onPress={openListItem}
-              >
-                <Ionicons name="add-circle-outline" size={20} color="#fff" />
-                <Text style={styles.listItemBtnText}>
-                  {member && !canListResale ? "Subscribe to list items" : "List an Item"}
-                </Text>
-              </Pressable>
-            )}
         </View>
       </Animated.View>
 
@@ -482,7 +417,6 @@ export default function StoreScreen() {
         }}
         onSizeChange={setSize}
         onDeliveryFilterChange={setDeliveryFilter}
-        listingType={listingType}
       />
 
       {loading && !refreshing ? (
@@ -572,6 +506,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginBottom: 12,
+  },
+  conditionTabs: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   cartBtn: {
     padding: 8,

@@ -17,7 +17,7 @@ import { ensureStripeCustomerForStorefrontCheckout } from "@/lib/stripe-storefro
 
 /**
  * Stripe Product tax code **General - Tangible Goods** (`txcd_99999999`).
- * Every Checkout line from storefront + Community Resale (merchandise, shipping, local delivery fee)
+ * Every Checkout line from the storefront (merchandise, shipping, local delivery fee)
  * uses this code so Stripe Tax treats the session consistently with your Dashboard preset.
  *
  * Dynamic `price_data` still needs `tax_behavior: "exclusive"` per line — see Stripe Tax + Checkout docs.
@@ -64,7 +64,6 @@ export async function POST(req: NextRequest) {
       termsAcceptedAt?: string;
       availableDropOffTimes?: string;
     };
-    cashOrderIds?: string[];
     /** Mobile app can pass this so redirect works on device (e.g. http://192.168.1.140:3000) */
     returnBaseUrl?: string;
     /**
@@ -84,7 +83,6 @@ export async function POST(req: NextRequest) {
     shippingCostCents = 0,
     shippingAddress,
     localDeliveryDetails,
-    cashOrderIds,
     returnBaseUrl,
     shippingCollectedByStripe,
   } = body;
@@ -344,10 +342,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const successUrl =
-    Array.isArray(cashOrderIds) && cashOrderIds.length > 0
-      ? `${baseUrl}/storefront/order-success?session_id={CHECKOUT_SESSION_ID}&cash_order_ids=${encodeURIComponent(cashOrderIds.join(","))}`
-      : `${baseUrl}/storefront/order-success?session_id={CHECKOUT_SESSION_ID}`;
+  const successUrl = `${baseUrl}/storefront/order-success?session_id={CHECKOUT_SESSION_ID}`;
 
   try {
     const buyerMember = await prisma.member.findUnique({

@@ -19,8 +19,6 @@ export interface MobileTokenPayload {
   email: string;
   name: string;
   isSubscriber?: boolean;
-  /** Resident Subscribe plan only — NWC Resale Hub. */
-  hasResaleHubAccess?: boolean;
   subscriptionPlan?: SubscriptionPlan;
 }
 
@@ -30,7 +28,6 @@ export async function signMobileToken(payload: MobileTokenPayload): Promise<stri
     email: payload.email,
     name: payload.name,
     isSubscriber: payload.isSubscriber ?? false,
-    hasResaleHubAccess: payload.hasResaleHubAccess ?? false,
     subscriptionPlan: payload.subscriptionPlan ?? null,
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -50,10 +47,9 @@ export async function verifyMobileToken(token: string): Promise<MobileTokenPaylo
     const email = payload.email as string;
     const name = payload.name as string;
     const isSubscriber = Boolean(payload.isSubscriber);
-    const hasResaleHubAccess = Boolean(payload.hasResaleHubAccess);
     const subscriptionPlan = payload.subscriptionPlan as SubscriptionPlan | undefined;
     if (!id || !email) return null;
-    return { id, email, name, isSubscriber, hasResaleHubAccess, subscriptionPlan };
+    return { id, email, name, isSubscriber, subscriptionPlan };
   } catch {
     return null;
   }
@@ -67,7 +63,7 @@ export function getBearerToken(req: NextRequest): string | null {
 
 /**
  * For API routes: get session from NextAuth cookie OR from Authorization Bearer token.
- * Returns session-like shape: { user: { id, email, name, isSubscriber?, hasResaleHubAccess? } }
+ * Returns session-like shape: { user: { id, email, name, isSubscriber? } }
  * When Bearer is used, updates Member.lastLogin for 30-day sliding session (throttled to once per day).
  */
 export async function getSessionForApi(
@@ -78,7 +74,6 @@ export async function getSessionForApi(
     email: string;
     name?: string;
     isSubscriber?: boolean;
-    hasResaleHubAccess?: boolean;
     subscriptionPlan?: SubscriptionPlan;
   };
 } | null> {
@@ -99,7 +94,6 @@ export async function getSessionForApi(
           email: payload.email,
           name: payload.name,
           isSubscriber: payload.isSubscriber,
-          hasResaleHubAccess: payload.hasResaleHubAccess,
           subscriptionPlan: payload.subscriptionPlan,
         },
       };
@@ -125,7 +119,6 @@ export async function getSessionForApi(
       email?: string;
       name?: string;
       isSubscriber?: boolean;
-      canAccessResaleHub?: boolean;
       subscriptionPlan?: SubscriptionPlan;
     };
     if (u.id) {
@@ -135,7 +128,6 @@ export async function getSessionForApi(
           email: u.email ?? "",
           name: u.name ?? undefined,
           isSubscriber: u.isSubscriber,
-          hasResaleHubAccess: u.canAccessResaleHub,
           subscriptionPlan: u.subscriptionPlan,
         },
       };

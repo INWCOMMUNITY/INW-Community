@@ -12,7 +12,6 @@ const GUEST_DENY_PREFIXES = [
   "/community-groups",
   "/seller-hub",
   "/business-hub",
-  "/resale-hub",
   "/sponsor-hub",
 ] as const;
 

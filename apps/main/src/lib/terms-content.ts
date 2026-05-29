@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "April 7, 2026";
+export const TERMS_LAST_UPDATED = "May 29, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -165,11 +165,11 @@ Sellers should report page errors or listing problems for timely support.
 7.6 Refund Policy
 Upon request, the seller must issue refunds in accordance with its policy. Please include your return/refund policy in your Seller Profile (shipping and policies section). NWC is not responsible for the completion of refunds between the seller and buyer (See 7.4).
 
-7.7 Resale Listings
-Seller's listing resale items must accurately describe the condition. Make-offer negotiations are between buyer and seller; NWC is not a party. The same prohibited items apply to resale listings. NWC may remove listings that violate these policies.
+7.7 Used Item Listings
+Sellers listing used items must accurately describe the item's condition. Make-offer negotiations on used items are between buyer and seller; NWC is not a party. The same prohibited items apply to all storefront listings. NWC may remove listings that violate these policies.
 
 7.7.1 Live listings and seller payout setup
-Items generally cannot be published or kept live on the public storefront or Community Resale browse experience unless the selling member has completed required seller payout setup (for example, Stripe Connect) and meets the subscription and policy requirements described elsewhere in these Terms. NWC may deactivate or hide listings that do not meet those requirements.
+Items generally cannot be published or kept live on the public storefront unless the selling member has completed required seller payout setup (for example, Stripe Connect) and meets the subscription and policy requirements described elsewhere in these Terms. NWC may deactivate or hide listings that do not meet those requirements.
 
 7.8 Local Delivery & Pickup
 For local delivery and pickup orders, the transaction and all related arrangements are primarily between the seller and the consumer. NWC provides checkout forms and order tools on the website and mobile app; NWC is not a party to handoffs or drop-offs and does not guarantee timing, safety, or outcomes of in-person meetings.
@@ -178,14 +178,14 @@ For local delivery and pickup orders, the transaction and all related arrangemen
 Before you can complete checkout for an item offered with local pickup or local delivery, you must complete the applicable form. You agree to provide accurate information. Depending on the options you choose, this may include your name, email address, phone number, optional notes, agreement to the seller's stated pickup or delivery terms where presented, and for pickup your estimated pickup date and time; for local delivery your delivery address, when you are available to receive delivery (available drop-off or receipt windows), and the same contact fields. That information is stored with your order and provided to the seller so they can fulfill the order.
 
 7.8.2 Tickets and confirmations in the app
-The mobile app may show a "Pick Up Ticket" or "Delivery Ticket" for eligible orders. These screens summarize order and payment status (for example, paid online versus cash due at pickup or delivery) to help buyers and sellers coordinate. Buyers and sellers may each mark pickup or delivery as completed in the app where those actions are offered. Where the platform requires both a buyer action and a seller action to treat fulfillment as complete for a given order, you agree to use those controls honestly and only after the underlying pickup or delivery has actually occurred.
+The mobile app may show a "Pick Up Ticket" or "Delivery Ticket" for eligible orders. These screens summarize order and payment status to help buyers and sellers coordinate. Buyers and sellers may each mark pickup or delivery as completed in the app where those actions are offered. Where the platform requires both a buyer action and a seller action to treat fulfillment as complete for a given order, you agree to use those controls honestly and only after the underlying pickup or delivery has actually occurred.
 
 7.8.3 Responsibility
 Sellers and buyers should arrange delivery and pickup at their own discretion and follow applicable laws and safety practices. NWC is merely a platform for setting up transactions and has no responsibility for in-person transactions, delivery timing, or disputes over whether an item was picked up or delivered, except where a website or app error or system issue is clearly the cause (see 7.4).
 
 7.9 Sales Tax Marketplace Facilitator
 7.9.1 Role
-Northwest Community LLC ("NWC"), through its website and app, may act as a marketplace facilitator for sales tax compliance on behalf of sellers using the storefront and resale store, where and to the extent required by applicable U.S. state and local law. NWC's role includes registering and remitting sales tax as a facilitator in jurisdictions where NWC is required to do so (as determined with NWC's tax advisors).
+Northwest Community LLC ("NWC"), through its website and app, may act as a marketplace facilitator for sales tax compliance on behalf of sellers using the storefront, where and to the extent required by applicable U.S. state and local law. NWC's role includes registering and remitting sales tax as a facilitator in jurisdictions where NWC is required to do so (as determined with NWC's tax advisors).
 
 7.9.2 Collection and remittance
 For taxable facilitated sales on the platform, sales tax is calculated and collected from the buyer at checkout (rates vary by jurisdiction; NWC does not use a single generic percentage for all orders). NWC is responsible for ensuring that sales tax collected on those facilitated sales is reported and remitted to the appropriate taxing authorities by the required due dates, subject to NWC's integration, product tax settings, and advisors' guidance.
@@ -219,7 +219,6 @@ Members with any active paid NWC plan (Resident Subscribe, Business, or Seller) 
 
 8.1 Resident (Subscriber) Plan
 The Resident plan ($10/month or yearly equivalent) also provides:
-● List items on the Community Resale Hub (member resale experience)
 ● Exclusive hints in NWC scavenger hunts
 ● Support for the NWC mission
 Subscriptions renew automatically until canceled. You may manage, change plans, or cancel your subscription through account tools we provide (including the in-app subscription management screen and Stripe's self-service billing portal where we link to it), or by contacting NWC.
@@ -257,7 +256,7 @@ NWC remains impartial in promotions, except for two acknowledged personal affili
 ● Plan switch limits: To reduce abuse, NWC may limit how often you can change paid plans (for example, at most two plan switches per rolling 30-day period). If you hit that limit, you may need to wait or contact NWC for an exception. Moving to a lower-priced plan may keep your current plan’s perks until the end of your current billing period, with the new rate applying from the next cycle, as implemented in Stripe.
 ● Cancellation: You may cancel at any time through the same subscription management paths or by contacting NWC.
 ● Up to 1 month may be refunded for dissatisfaction.
-● Effect when paid membership ends: If you cancel or your paid membership ends and you have no remaining active paid NWC plan in good standing, subscription-based perks generally end. NWC may automatically deactivate your active marketplace listings (including new and resale listings tied to that membership), remove coupons and rewards offered through your subscription-tied business profiles, and remove business directory profiles and related subscription-tied business content from public display, except where NWC has separately maintained a business profile for you independent of a paid membership (for example, certain admin-assigned or specially approved directory entries), which may be handled differently. This does not override NWC's separate rights to remove content for policy violations. Historical orders, accounting, fraud-prevention, and legal-hold records may be retained as described in our Privacy Policy.
+● Effect when paid membership ends: If you cancel or your paid membership ends and you have no remaining active paid NWC plan in good standing, subscription-based perks generally end. NWC may automatically deactivate your active marketplace listings (including new and used item listings tied to that membership), remove coupons and rewards offered through your subscription-tied business profiles, and remove business directory profiles and related subscription-tied business content from public display, except where NWC has separately maintained a business profile for you independent of a paid membership (for example, certain admin-assigned or specially approved directory entries), which may be handled differently. This does not override NWC's separate rights to remove content for policy violations. Historical orders, accounting, fraud-prevention, and legal-hold records may be retained as described in our Privacy Policy.
 ● Subscribers are responsible for maintaining up-to-date payment information to avoid unintended service interruptions.
 In compliance with Idaho and federal automatic-renewal rules, NWC provides:
 ● A clear disclosure of recurring billing before checkout
