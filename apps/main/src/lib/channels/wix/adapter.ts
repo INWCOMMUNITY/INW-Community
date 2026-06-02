@@ -261,7 +261,19 @@ async function setInventoryViaProductPatchV3(
   }
 }
 
-/** Classic Wix Stores — Catalog v1 + Inventory v2 (common on Editor sites). */
+const WIX_DEFAULT_VARIANT_ID = "00000000-0000-0000-0000-000000000000";
+
+type V2InventoryItem = {
+  id?: string;
+  productId?: string;
+  trackQuantity?: boolean;
+  variants?: { variantId?: string; quantity?: number; inStock?: boolean }[];
+};
+
+/**
+ * Catalog v1 inventory uses Stores v2 `updateInventoryVariants` (not v3 inventory-items).
+ * @see https://dev.wix.com/docs/api-reference/business-solutions/stores/catalog-v1/inventory/update-inventory-variants
+ */
 async function setInventoryViaStoresV2(
   accessToken: string,
   productId: string,
@@ -269,82 +281,86 @@ async function setInventoryViaStoresV2(
   opts: WixRequestOpts
 ): Promise<boolean> {
   const qty = Math.max(0, Math.round(quantity));
-  try {
-    let variantId: string | undefined;
-    try {
-      const inv = await wixGet<{
-        inventoryItem?: { variants?: { variantId?: string }[] };
-      }>(
-        accessToken,
-        `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
-        opts
-      );
-      variantId = inv.inventoryItem?.variants?.[0]?.variantId;
-    } catch {
-      /* variant id optional */
-    }
-    await wixJson(
-      accessToken,
-      `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
-      "PATCH",
-      {
-        inventoryItem: {
-          productId,
-          trackQuantity: true,
-          variants: [
-            {
-              ...(variantId ? { variantId } : {}),
-              quantity: qty,
-              inStock: qty > 0,
-            },
-          ],
-        },
+  const got = await wixGet<{ inventoryItem?: V2InventoryItem }>(
+    accessToken,
+    `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
+    opts
+  );
+  const item = got.inventoryItem;
+  if (!item) return false;
+
+  const variantIds =
+    item.variants?.map((v) => v.variantId).filter((id): id is string => Boolean(id)) ?? [];
+  const variants =
+    variantIds.length > 0
+      ? variantIds.map((variantId) => ({
+          variantId,
+          quantity: qty,
+          inStock: qty > 0,
+        }))
+      : [
+          {
+            variantId: WIX_DEFAULT_VARIANT_ID,
+            quantity: qty,
+            inStock: qty > 0,
+          },
+        ];
+
+  await wixJson(
+    accessToken,
+    `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
+    "PATCH",
+    {
+      inventoryItem: {
+        ...(item.id ? { id: item.id } : {}),
+        productId,
+        trackQuantity: true,
+        variants,
       },
-      opts
-    );
-    return true;
-  } catch {
-    return false;
-  }
+    },
+    opts
+  );
+  return true;
 }
 
-/** Catalog v1 product PATCH when v3 inventory APIs are unavailable. */
+/** Catalog v1 product PATCH — fallback when v2 inventory row is missing. */
 async function setInventoryViaStoresV1(
   accessToken: string,
   productId: string,
   quantity: number,
   opts: WixRequestOpts
 ): Promise<boolean> {
-  const qty = Math.max(0, Math.round(quantity));
-  const stock = { trackQuantity: true, quantity: qty, inStock: qty > 0 };
-  try {
-    const got = await wixGet<{ product?: WixV1Product }>(
-      accessToken,
-      `/stores/v1/products/${encodeURIComponent(productId)}`,
-      opts
-    );
-    const variantId = got.product?.variants?.[0]?.id;
-    if (variantId) {
-      await wixJson(
-        accessToken,
-        `/stores/v1/products/${encodeURIComponent(productId)}`,
-        "PATCH",
-        { product: { variants: [{ id: variantId, stock }] } },
-        opts
-      );
-    } else {
-      await wixJson(
-        accessToken,
-        `/stores/v1/products/${encodeURIComponent(productId)}`,
-        "PATCH",
-        { product: { stock: { trackInventory: true, quantity: qty, inStock: qty > 0 } } },
-        opts
-      );
-    }
-    return true;
-  } catch {
-    return false;
-  }
+  const got = await wixGet<{ product?: WixV1Product }>(
+    accessToken,
+    `/stores/v1/products/${encodeURIComponent(productId)}`,
+    opts
+  );
+  if (!got.product) return false;
+  const stub: SyncStoreItem = {
+    id: productId,
+    title: got.product.name ?? "",
+    description: null,
+    photos: [],
+    priceCents: 0,
+    quantity,
+    variants: null,
+    status: "active",
+    condition: null,
+    shippingCostCents: null,
+    etsyWhoMade: null,
+    etsyWhenMade: null,
+    etsyIsSupply: null,
+    etsyTaxonomyId: null,
+    ebayCategoryId: null,
+  };
+  await wixJson(
+    accessToken,
+    `/stores/v1/products/${encodeURIComponent(productId)}`,
+    "PATCH",
+    buildWixV1UpdateBody(stub, got.product),
+    opts
+  );
+  return true;
 }
 
 /** Read absolute stock for one product (classic v2/v1 first, then v3 inventory search). */
@@ -442,8 +458,9 @@ async function setInventoryAbsolute(
   const quantity = Math.max(0, Math.round(absoluteQuantity));
   const strategies: Array<{ name: string; run: () => Promise<boolean> }> = v1Only
     ? [
-        { name: "v1/product", run: () => setInventoryViaStoresV1(accessToken, productId, quantity, opts) },
+        // Official Catalog v1 inventory API is Stores v2 updateInventoryVariants.
         { name: "v2/inventory", run: () => setInventoryViaStoresV2(accessToken, productId, quantity, opts) },
+        { name: "v1/product", run: () => setInventoryViaStoresV1(accessToken, productId, quantity, opts) },
       ]
     : [
         {
@@ -459,6 +476,7 @@ async function setInventoryAbsolute(
       ];
 
   let lastErr: unknown;
+  const attemptErrors: string[] = [];
   for (const strategy of strategies) {
     try {
       if (await strategy.run()) {
@@ -470,21 +488,25 @@ async function setInventoryAbsolute(
         });
         return strategy.name;
       }
+      attemptErrors.push(`${strategy.name}: no change`);
     } catch (e) {
       lastErr = e;
+      const msg = e instanceof WixApiError ? e.message : e instanceof Error ? e.message : String(e);
+      attemptErrors.push(`${strategy.name}: ${msg}`);
       console.warn("[wix] setInventoryAbsolute failed", {
         productId,
         strategy: strategy.name,
-        message: e instanceof Error ? e.message : String(e),
+        message: msg,
       });
     }
   }
 
   if (lastErr instanceof Error) throw lastErr;
+  const detail = attemptErrors.length ? attemptErrors.join("; ") : "unknown error";
   throw new WixApiError(
     v1Only
-      ? "Could not update inventory on Wix (Catalog v1 / Stores v2)."
-      : "Could not update inventory on Wix (tried Catalog v3, Stores v2, and v1).",
+      ? `Could not update inventory on Wix (Catalog v1): ${detail}`
+      : `Could not update inventory on Wix: ${detail}`,
     502,
     null
   );
@@ -549,11 +571,16 @@ export const wixAdapter: ChannelAdapter = {
       for (const opts of attempts) {
         try {
           if (mode === "v1") {
+            const v1Got = await wixGet<{ product?: WixV1Product }>(
+              conn.accessToken,
+              `/stores/v1/products/${encodeURIComponent(productId)}`,
+              opts
+            );
             await wixJson(
               conn.accessToken,
               `/stores/v1/products/${encodeURIComponent(productId)}`,
               "PATCH",
-              buildWixV1UpdateBody(item),
+              buildWixV1UpdateBody(item, v1Got.product ?? null),
               opts
             );
             const strategy = await setInventoryAbsolute(
@@ -592,11 +619,16 @@ export const wixAdapter: ChannelAdapter = {
           }
         }
         if (mode === "unknown") {
+          const v1Probe = await wixGet<{ product?: WixV1Product }>(
+            conn.accessToken,
+            `/stores/v1/products/${encodeURIComponent(productId)}`,
+            opts
+          );
           await wixJson(
             conn.accessToken,
             `/stores/v1/products/${encodeURIComponent(productId)}`,
             "PATCH",
-            buildWixV1UpdateBody(item),
+            buildWixV1UpdateBody(item, v1Probe.product ?? null),
             opts
           );
           const strategy = await setInventoryAbsolute(

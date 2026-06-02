@@ -174,29 +174,45 @@ export function wixV1ProductToSummary(product: WixV1Product): RemoteListingSumma
   };
 }
 
+/** Stock fields for Catalog v1 products and variants (`trackInventory`, not v2's `trackQuantity`). */
+export function buildWixV1StockFields(quantity: number): Record<string, unknown> {
+  const qty = Math.max(0, Math.round(quantity));
+  return { trackInventory: true, quantity: qty, inStock: qty > 0 };
+}
+
 /** Catalog v1 create body (`POST /stores/v1/products`). */
 export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknown> {
-  const qty = Math.max(0, item.quantity);
   const product: Record<string, unknown> = {
     name: item.title.slice(0, 80),
     productType: "physical",
     priceData: { price: Math.max(0, item.priceCents) / 100 },
-    stock: { trackInventory: true, quantity: qty, inStock: qty > 0 },
+    stock: buildWixV1StockFields(item.quantity),
   };
   const desc = (item.description ?? "").trim();
   if (desc) product.description = desc;
   return { product };
 }
 
-/** Classic Catalog v1 PATCH body for title, price, description, and stock. */
-export function buildWixV1UpdateBody(item: SyncStoreItem): Record<string, unknown> {
-  const qty = Math.max(0, item.quantity);
+/**
+ * Classic Catalog v1 PATCH body. When `existing` has variants, set stock on each variant
+ * (required for multi-option products on Editor sites).
+ */
+export function buildWixV1UpdateBody(
+  item: SyncStoreItem,
+  existing?: WixV1Product | null
+): Record<string, unknown> {
+  const stock = buildWixV1StockFields(item.quantity);
   const product: Record<string, unknown> = {
     name: item.title.slice(0, 80),
     description: (item.description ?? "").trim() || undefined,
     priceData: { price: Math.max(0, item.priceCents) / 100 },
-    stock: { trackInventory: true, quantity: qty, inStock: qty > 0 },
   };
+  const variantRows = existing?.variants?.filter((v) => v.id) ?? [];
+  if (variantRows.length > 0) {
+    product.variants = variantRows.map((v) => ({ id: v.id, stock }));
+  } else {
+    product.stock = stock;
+  }
   return { product };
 }
 
