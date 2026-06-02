@@ -286,6 +286,7 @@ export async function PATCH(
   }
 
   // Keep linked sales channels (Etsy, etc.) in sync. Best-effort: never fail the save.
+  let channelSync: { provider: string; ok: boolean; error?: string }[] = [];
   try {
     const existingLinks = await prisma.channelListingLink.count({ where: { storeItemId: itemId } });
     if (data.syncToChannels === false && existingLinks > 0) {
@@ -297,8 +298,10 @@ export async function PATCH(
     } else if (existingLinks > 0) {
       const { updateStoreItemOnChannels } = await import("@/lib/channels/outbound");
       const { syncInventoryToChannels } = await import("@/lib/channels/sync-inventory");
-      await updateStoreItemOnChannels(itemId);
-      await syncInventoryToChannels(itemId);
+      const { mergeChannelSyncResults } = await import("@/lib/channels/channel-sync-merge");
+      const contentResults = await updateStoreItemOnChannels(itemId);
+      const inventoryResults = await syncInventoryToChannels(itemId);
+      channelSync = mergeChannelSyncResults(contentResults, inventoryResults);
     } else if (data.syncToChannels === true) {
       // Newly enabling sync for an item that has no link yet -> publish it.
       const { publishStoreItemToChannels } = await import("@/lib/channels/outbound");
@@ -308,7 +311,7 @@ export async function PATCH(
     console.error("[store-items] Channel update failed:", err);
   }
 
-  return NextResponse.json(item);
+  return NextResponse.json({ ...item, channelSync });
 }
 
 export async function DELETE(
@@ -332,13 +335,14 @@ export async function DELETE(
   }
 
   // Remove the listing from connected sales channels first (links cascade on StoreItem delete).
+  let channelSync: { provider: string; ok: boolean; error?: string }[] = [];
   try {
     const { deleteStoreItemFromChannels } = await import("@/lib/channels/outbound");
-    await deleteStoreItemFromChannels(id);
+    channelSync = await deleteStoreItemFromChannels(id);
   } catch (err) {
     console.error("[store-items] Channel delete failed:", err);
   }
 
   await prisma.storeItem.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, channelSync });
 }

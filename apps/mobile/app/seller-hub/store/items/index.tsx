@@ -16,6 +16,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
+import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -161,7 +162,11 @@ export default function MyItemsScreen() {
   const markAsSold = async (id: string) => {
     setActingId(id);
     try {
-      await apiPatch(`/api/store-items/${id}`, { status: "sold_out" });
+      const res = await apiPatch<{ channelSync?: { provider: string; ok: boolean; error?: string }[] }>(
+        `/api/store-items/${id}`,
+        { status: "sold_out" }
+      );
+      alertChannelSyncFailures(res.channelSync, "saved");
       setItems((prev) => prev.filter((i) => i.id !== id));
       Alert.alert("Marked as sold", "This item has been moved to Sold Items and no longer appears in My Items.", [
         { text: "OK" },
@@ -191,7 +196,10 @@ export default function MyItemsScreen() {
           onPress: async () => {
             setActingId(id);
             try {
-              await apiDelete(`/api/store-items/${id}`);
+              const res = await apiDelete<{
+                channelSync?: { provider: string; ok: boolean; error?: string }[];
+              }>(`/api/store-items/${id}`);
+              alertChannelSyncFailures(res.channelSync, "deleted");
               setItems((prev) => prev.filter((i) => i.id !== id));
               load();
             } catch (e) {
@@ -348,7 +356,7 @@ export default function MyItemsScreen() {
                           numberOfLines={2}
                         >
                           {isError
-                            ? `${label}: sync error`
+                            ? `${label}: ${link.syncError?.trim() ? link.syncError.trim().slice(0, 120) : "sync error"}`
                             : isPaused
                               ? `${label}: paused`
                               : `Synced to ${label}`}

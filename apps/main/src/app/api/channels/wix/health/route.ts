@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 import { isWixConfigured } from "@/lib/channels/wix/config";
+import { wixCatalogApiFromConn } from "@/lib/channels/wix/catalog-api";
 import { ensureWixSiteId, wixSiteIdFromConn } from "@/lib/channels/wix/site";
 import { WixApiError } from "@/lib/channels/wix/client";
 
@@ -51,18 +53,42 @@ export async function GET(req: NextRequest) {
           : "Could not list Wix products.";
   }
 
+  const linkedCount = await prisma.channelListingLink.count({
+    where: { connectionId: ctx.id, provider: "wix", syncEnabled: true },
+  });
+  const errorLinks = await prisma.channelListingLink.findMany({
+    where: { connectionId: ctx.id, provider: "wix", syncStatus: "error" },
+    select: {
+      storeItemId: true,
+      externalListingId: true,
+      syncError: true,
+      storeItem: { select: { title: true } },
+    },
+    take: 5,
+  });
+
   return NextResponse.json({
     ok: !listError,
     connectionId: ctx.id,
     siteId: siteId ?? null,
     hadSiteIdBeforeResolve: Boolean(siteIdBefore),
+    catalogApi: wixCatalogApiFromConn(ctx),
     productCount,
+    linkedCount,
+    syncErrors: errorLinks.map((l) => ({
+      storeItemId: l.storeItemId,
+      title: l.storeItem.title,
+      productId: l.externalListingId,
+      error: l.syncError,
+    })),
     listError,
     hint:
-      productCount === 0 && !listError
-        ? "Wix connected but no products found. Add products in Wix Stores or check app permissions."
-        : listError
-          ? "Reconnect Wix in Sync Stores and confirm Stores read + Manage Your App permissions in dev.wix.com."
-          : null,
+      linkedCount === 0
+        ? "No INW items linked to Wix — use Import existing listings."
+        : productCount === 0 && !listError
+          ? "Wix connected but no products found. Add products in Wix Stores or check app permissions."
+          : listError
+            ? "Reconnect Wix in Sync Stores and confirm Stores read + Manage Your App permissions in dev.wix.com."
+            : null,
   });
 }

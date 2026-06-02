@@ -167,15 +167,28 @@ export default function ChannelsScreen() {
       const r = await apiGet<{
         ok: boolean;
         productCount?: number;
+        linkedCount?: number;
+        catalogApi?: string | null;
         siteId?: string | null;
         listError?: string | null;
         message?: string;
         hint?: string | null;
+        syncErrors?: { title: string; error: string | null }[];
       }>("/api/channels/wix/health");
       if (r.ok) {
-        setSuccess(
-          `Wix OK — ${r.productCount ?? 0} product(s) visible${r.siteId ? ` (site ${r.siteId.slice(0, 8)}…)` : ""}.`
-        );
+        const parts = [
+          `${r.productCount ?? 0} product(s) on Wix`,
+          `${r.linkedCount ?? 0} linked on INW`,
+          r.catalogApi ? `catalog ${r.catalogApi}` : null,
+        ].filter(Boolean);
+        setSuccess(`Wix OK — ${parts.join(" · ")}.`);
+        if (r.syncErrors?.length) {
+          setError(
+            r.syncErrors
+              .map((e) => `${e.title}: ${e.error ?? "sync error"}`)
+              .join("\n")
+          );
+        }
       } else {
         setError(r.listError || r.message || r.hint || "Wix test failed.");
       }
@@ -185,18 +198,53 @@ export default function ChannelsScreen() {
     }
   };
 
+  const testWixPush = async () => {
+    setError(null);
+    setSuccess(null);
+    try {
+      const r = await apiPost<{
+        ok: boolean;
+        writeOk?: boolean;
+        title?: string;
+        targetQty?: number;
+        readBefore?: { quantity: number; known: boolean };
+        readAfter?: { quantity: number; known: boolean };
+        catalogApi?: string;
+        error?: string | null;
+        message?: string;
+      }>("/api/channels/wix/test-push", {});
+      if (r.ok && r.writeOk) {
+        setSuccess(
+          `Wix write OK${r.title ? ` (“${r.title.slice(0, 40)}”)` : ""} — qty ${r.readBefore?.quantity ?? "?"} → ${r.readAfter?.quantity ?? r.targetQty ?? "?"}.`
+        );
+      } else {
+        setError(r.error || r.message || "Wix write test failed. Import a linked product first.");
+      }
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      setError(err?.error ?? "Could not test Wix write.");
+    }
+  };
+
   const disconnect = (conn: Connection, name: string) => {
+    const linked =
+      conn.linkedListings === 1
+        ? "1 linked listing"
+        : `${conn.linkedListings} linked listings`;
     Alert.alert(
       `Disconnect ${name}?`,
-      "Your INW listings stay; they just stop syncing. Your listings on the other store are left in place.",
+      conn.linkedListings > 0
+        ? `You have ${linked} tied to ${name}. Keep them listed on INW Community? They will stay on your storefront, but price, quantity, and other changes will no longer sync between INW and ${name} in either direction.\n\nYour listings on ${name} are not removed.`
+        : `Your ${name} account will disconnect from INW Community. Any items you add later on INW will not sync to ${name} until you connect again.`,
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Disconnect",
-          style: "destructive",
+          text: "Keep listings on INW",
           onPress: async () => {
             try {
               await apiDelete(`/api/channels/${conn.id}`);
+              setSuccess(`${name} disconnected. Your INW listings are unchanged.`);
+              setError(null);
               await refresh();
             } catch {
               setError("Could not disconnect. Try again.");
@@ -291,12 +339,28 @@ export default function ChannelsScreen() {
                     </Pressable>
                   )}
                   {p.provider === "wix" && (
-                    <Pressable
-                      style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.85 }]}
-                      onPress={() => void testWix()}
-                    >
-                      <Text style={styles.secondaryBtnText}>Test Wix connection</Text>
-                    </Pressable>
+                    <>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.secondaryBtn,
+                          styles.secondaryBtnSpaced,
+                          pressed && { opacity: 0.85 },
+                        ]}
+                        onPress={() => void testWix()}
+                      >
+                        <Text style={styles.secondaryBtnText}>Test Wix connection</Text>
+                      </Pressable>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.secondaryBtn,
+                          styles.secondaryBtnSpaced,
+                          pressed && { opacity: 0.85 },
+                        ]}
+                        onPress={() => void testWixPush()}
+                      >
+                        <Text style={styles.secondaryBtnText}>Test Wix write (qty push)</Text>
+                      </Pressable>
+                    </>
                   )}
                   <Pressable
                     style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.6 }]}
@@ -403,6 +467,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
+  secondaryBtnSpaced: { marginTop: 12 },
   secondaryBtnText: { color: theme.colors.primary, fontWeight: "600", fontSize: 15 },
   linkBtn: { paddingVertical: 12, alignItems: "center" },
   linkBtnText: { color: "#c62828", fontSize: 14 },

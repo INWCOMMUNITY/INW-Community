@@ -10,6 +10,11 @@ import type {
 import { WixApiError, wixDelete, wixGet, wixJson, type WixRequestOpts } from "./client";
 import { getWixConfig } from "./config";
 import { exchangeWixCode, fetchWixShopInfo, getWixAuthUrl, refreshWixToken } from "./oauth";
+import {
+  catalogApiFromListStrategy,
+  persistWixCatalogApi,
+  preferWixV1First,
+} from "./catalog-api";
 import { ensureWixSiteId, wixSiteIdFromConn } from "./site";
 import {
   buildWixCreateBody,
@@ -386,13 +391,12 @@ export async function readWixProductQuantity(
   return { quantity: 0, known: false };
 }
 
-async function setInventoryAbsolute(
+async function setInventoryViaV3InventoryItems(
   accessToken: string,
   productId: string,
-  absoluteQuantity: number,
+  quantity: number,
   opts: WixRequestOpts
-): Promise<void> {
-  const quantity = Math.max(0, Math.round(absoluteQuantity));
+): Promise<boolean> {
   const items = await searchInventoryItems(accessToken, [productId], opts);
   let updated = 0;
   for (const item of items) {
@@ -410,15 +414,69 @@ async function setInventoryAbsolute(
       );
       updated += 1;
     } catch {
-      /* try other strategies */
+      /* try next item */
     }
   }
-  if (updated > 0) return;
+  return updated > 0;
+}
 
-  if (await setInventoryViaProductPatchV3(accessToken, productId, quantity, opts)) return;
-  if (await setInventoryViaStoresV2(accessToken, productId, quantity, opts)) return;
-  if (await setInventoryViaStoresV1(accessToken, productId, quantity, opts)) return;
+async function setInventoryAbsolute(
+  accessToken: string,
+  productId: string,
+  absoluteQuantity: number,
+  opts: WixRequestOpts,
+  v1First: boolean
+): Promise<string> {
+  const quantity = Math.max(0, Math.round(absoluteQuantity));
+  const strategies: Array<{ name: string; run: () => Promise<boolean> }> = v1First
+    ? [
+        { name: "v1/product", run: () => setInventoryViaStoresV1(accessToken, productId, quantity, opts) },
+        { name: "v2/inventory", run: () => setInventoryViaStoresV2(accessToken, productId, quantity, opts) },
+        {
+          name: "v3/inventory-items",
+          run: () => setInventoryViaV3InventoryItems(accessToken, productId, quantity, opts),
+        },
+        {
+          name: "v3/product-patch",
+          run: () => setInventoryViaProductPatchV3(accessToken, productId, quantity, opts),
+        },
+      ]
+    : [
+        {
+          name: "v3/inventory-items",
+          run: () => setInventoryViaV3InventoryItems(accessToken, productId, quantity, opts),
+        },
+        {
+          name: "v3/product-patch",
+          run: () => setInventoryViaProductPatchV3(accessToken, productId, quantity, opts),
+        },
+        { name: "v2/inventory", run: () => setInventoryViaStoresV2(accessToken, productId, quantity, opts) },
+        { name: "v1/product", run: () => setInventoryViaStoresV1(accessToken, productId, quantity, opts) },
+      ];
 
+  let lastErr: unknown;
+  for (const strategy of strategies) {
+    try {
+      if (await strategy.run()) {
+        console.info("[wix] setInventoryAbsolute ok", {
+          productId,
+          strategy: strategy.name,
+          quantity,
+          v1First,
+        });
+        return strategy.name;
+      }
+    } catch (e) {
+      lastErr = e;
+      console.warn("[wix] setInventoryAbsolute failed", {
+        productId,
+        strategy: strategy.name,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  if (lastErr instanceof Error) throw lastErr;
   throw new WixApiError(
     "Could not update inventory on Wix (tried Catalog v3, Stores v2, and v1).",
     502,
@@ -462,12 +520,31 @@ export const wixAdapter: ChannelAdapter = {
   async updateListing(conn, externalListingId, item): Promise<void> {
     await ensureWixSiteId(conn);
     const productId = externalListingId;
+    const v1First = preferWixV1First(conn);
     const withSite = wixOpts(conn);
     const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
     let lastErr: unknown;
 
     for (const opts of attempts) {
       try {
+        if (v1First) {
+          await wixJson(
+            conn.accessToken,
+            `/stores/v1/products/${encodeURIComponent(productId)}`,
+            "PATCH",
+            buildWixV1UpdateBody(item),
+            opts
+          );
+          const strategy = await setInventoryAbsolute(
+            conn.accessToken,
+            productId,
+            item.quantity,
+            opts,
+            true
+          );
+          console.info("[wix] updateListing ok", { productId, catalog: "v1", inventoryStrategy: strategy });
+          return;
+        }
         const existing = await getProduct(conn.accessToken, productId, opts);
         if (existing?.revision) {
           const variantId = existing.variantsInfo?.variants?.[0]?.id ?? null;
@@ -478,7 +555,14 @@ export const wixAdapter: ChannelAdapter = {
             buildWixUpdateBody(item, existing.revision, variantId),
             opts
           );
-          await setInventoryAbsolute(conn.accessToken, productId, item.quantity, opts);
+          const strategy = await setInventoryAbsolute(
+            conn.accessToken,
+            productId,
+            item.quantity,
+            opts,
+            false
+          );
+          console.info("[wix] updateListing ok", { productId, catalog: "v3", inventoryStrategy: strategy });
           return;
         }
         await wixJson(
@@ -488,7 +572,14 @@ export const wixAdapter: ChannelAdapter = {
           buildWixV1UpdateBody(item),
           opts
         );
-        await setInventoryAbsolute(conn.accessToken, productId, item.quantity, opts);
+        const strategy = await setInventoryAbsolute(
+          conn.accessToken,
+          productId,
+          item.quantity,
+          opts,
+          false
+        );
+        console.info("[wix] updateListing ok", { productId, catalog: "v1-fallback", inventoryStrategy: strategy });
         return;
       } catch (e) {
         lastErr = e;
@@ -500,36 +591,37 @@ export const wixAdapter: ChannelAdapter = {
 
   async deleteListing(conn, externalListingId): Promise<void> {
     await ensureWixSiteId(conn);
+    const v1First = preferWixV1First(conn);
     const withSite = wixOpts(conn);
     const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+    const deletePaths = v1First
+      ? [
+          { catalog: "v1", path: `/stores/v1/products/${encodeURIComponent(externalListingId)}` },
+          { catalog: "v3", path: `/stores/v3/products/${encodeURIComponent(externalListingId)}` },
+        ]
+      : [
+          { catalog: "v3", path: `/stores/v3/products/${encodeURIComponent(externalListingId)}` },
+          { catalog: "v1", path: `/stores/v1/products/${encodeURIComponent(externalListingId)}` },
+        ];
     let lastErr: unknown;
+
     for (const opts of attempts) {
-      try {
-        await wixDelete(
-          conn.accessToken,
-          `/stores/v3/products/${encodeURIComponent(externalListingId)}`,
-          opts
-        );
-        return;
-      } catch (e) {
-        if (e instanceof WixApiError && e.status === 404) {
-          lastErr = e;
-          continue;
+      for (const { catalog, path } of deletePaths) {
+        try {
+          await wixDelete(conn.accessToken, path, opts);
+          console.info("[wix] deleteListing ok", {
+            productId: externalListingId,
+            catalog,
+            v1First,
+          });
+          return;
+        } catch (e) {
+          if (e instanceof WixApiError && e.status === 404) {
+            lastErr = e;
+            continue;
+          }
+          throw e;
         }
-        throw e;
-      }
-    }
-    for (const opts of attempts) {
-      try {
-        await wixDelete(
-          conn.accessToken,
-          `/stores/v1/products/${encodeURIComponent(externalListingId)}`,
-          opts
-        );
-        return;
-      } catch (e) {
-        lastErr = e;
-        if (!(e instanceof WixApiError && e.status === 404)) throw e;
       }
     }
     if (lastErr instanceof WixApiError && lastErr.status === 404) return;
@@ -549,12 +641,24 @@ export const wixAdapter: ChannelAdapter = {
 
   async updateInventory(conn, externalListingId, absoluteQuantity): Promise<void> {
     await ensureWixSiteId(conn);
+    const v1First = preferWixV1First(conn);
     const withSite = wixOpts(conn);
     const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
     let lastErr: unknown;
     for (const opts of attempts) {
       try {
-        await setInventoryAbsolute(conn.accessToken, externalListingId, absoluteQuantity, opts);
+        const strategy = await setInventoryAbsolute(
+          conn.accessToken,
+          externalListingId,
+          absoluteQuantity,
+          opts,
+          v1First
+        );
+        console.info("[wix] updateInventory ok", {
+          productId: externalListingId,
+          strategy,
+          v1First,
+        });
         return;
       } catch (e) {
         lastErr = e;
@@ -598,7 +702,14 @@ export const wixAdapter: ChannelAdapter = {
         const listings = await strategy.run();
         console.info("[wix] listRemoteListings", { strategy: strategy.name, count: listings.length });
         // Classic Editor sites often return HTTP 200 with zero v3 products — keep trying v1.
-        if (listings.length > 0) return listings;
+        if (listings.length > 0) {
+          const catalogApi = catalogApiFromListStrategy(strategy.name);
+          if (catalogApi) {
+            await persistWixCatalogApi(conn.id, catalogApi, strategy.name);
+            if (conn.config) conn.config.catalogApi = catalogApi;
+          }
+          return listings;
+        }
       } catch (e) {
         lastError = e;
         const status = e instanceof WixApiError ? e.status : undefined;

@@ -299,7 +299,8 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 |---------|----------------|
 | **Connect fails** | Vercel has `WIX_APP_ID` + `WIX_APP_SECRET`; redeploy. Wix Dev Center → External install URL = `https://www.inwcommunity.com/api/channels/wix/callback` |
 | **Connected but 0 products / no import** | Classic Editor sites use Catalog **v1**; empty v3 responses are normal — reconnect after deploy. In app: open Sync Stores while logged in; API `GET /api/channels/wix/health` should show `productCount` > 0 if Wix has products |
-| **Edits in INW don’t change Wix** | Item must be **imported** from Wix (linked listing). My Items → look for `Wix: sync error` |
+| **Edits in INW don’t change Wix** | Item must be **imported** from Wix (linked listing). My Items shows the Wix error text. Sync Stores → **Test Wix write (qty push)** proves the write API |
+| **Delete on INW not on Wix** | Use **Remove listing** (not Mark as sold). Failed delete shows an alert with the Wix error |
 | **Wix changes don’t reach INW** | Set `WIX_WEBHOOK_PUBLIC_KEY` + subscribe inventory/product webhooks (see step 7) |
 | **Sync issue on card** | Disconnect → Connect Wix again (refreshes `siteId` + token) |
 

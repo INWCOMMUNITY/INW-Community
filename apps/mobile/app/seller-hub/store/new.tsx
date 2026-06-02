@@ -28,6 +28,7 @@ import {
 } from "@/lib/theme";
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
+import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import type { EarnedBadgePayload } from "@/lib/share-utils";
@@ -762,7 +763,10 @@ export default function ListItemScreen() {
     try {
       isExitingRef.current = true;
       if (editId) {
-        await apiPatch(`/api/store-items/${editId}`, payload);
+        const patchRes = await apiPatch<{
+          channelSync?: { provider: string; ok: boolean; error?: string }[];
+        }>(`/api/store-items/${editId}`, payload);
+        alertChannelSyncFailures(patchRes.channelSync, "saved");
         setEditSuccess(true);
         isExitingRef.current = true;
         setShowListingSuccessModal(true);
