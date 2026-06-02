@@ -5,8 +5,15 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
+import { WixApiError } from "@/lib/channels/wix/client";
 
 export const dynamic = "force-dynamic";
+
+function channelErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof WixApiError) return e.message;
+  if (e instanceof Error && e.message) return e.message;
+  return fallback;
+}
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -34,20 +41,22 @@ async function loadRemoteWithLinkState(userId: string) {
 
 /** GET: preview the seller's Wix products. */
 export async function GET(req: NextRequest) {
-  const session = await getSessionForApi(req);
-  const userId = session?.user?.id;
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const ctx = await getMemberConnectionContext(userId, "wix");
-  if (!ctx) {
-    return NextResponse.json({ error: "Connect your Wix store first.", code: "NOT_CONNECTED" }, { status: 400 });
-  }
   try {
+    const session = await getSessionForApi(req);
+    const userId = session?.user?.id;
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const ctx = await getMemberConnectionContext(userId, "wix");
+    if (!ctx) {
+      return NextResponse.json({ error: "Connect your Wix store first.", code: "NOT_CONNECTED" }, { status: 400 });
+    }
+
     const { listings } = await loadRemoteWithLinkState(userId);
     return NextResponse.json({ listings });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Could not load Wix products.";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    console.error("[channels] wix import GET failed", e);
+    const msg = channelErrorMessage(e, "Could not load Wix products.");
+    return NextResponse.json({ error: msg, code: "WIX_LIST_FAILED" }, { status: 502 });
   }
 }
 
@@ -89,8 +98,9 @@ export async function POST(req: NextRequest) {
       body.listingIds.includes(l.externalListingId)
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Could not load Wix products.";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    console.error("[channels] wix import POST load failed", e);
+    const msg = channelErrorMessage(e, "Could not load Wix products.");
+    return NextResponse.json({ error: msg, code: "WIX_LIST_FAILED" }, { status: 502 });
   }
 
   const imported: { externalListingId: string; storeItemId: string }[] = [];

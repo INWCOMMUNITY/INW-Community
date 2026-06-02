@@ -18,7 +18,10 @@ import {
 } from "./mapping";
 
 type ProductResponse = { product?: WixProduct };
-type ProductsSearchResponse = { products?: WixProduct[] };
+type ProductsQueryResponse = {
+  products?: WixProduct[];
+  pagingMetadata?: { cursors?: { next?: string | null } };
+};
 type InventoryItem = {
   id?: string;
   revision?: string;
@@ -73,9 +76,39 @@ async function searchInventoryItems(
     accessToken,
     `/stores/v3/inventory-items/search`,
     "POST",
-    { filter, cursorPaging: { limit: 200 } }
+    {
+      search: {
+        filter,
+        cursorPaging: { limit: Math.min(200, productIds.length * 5 || 100) },
+      },
+    }
   ).catch(() => null);
   return res?.inventoryItems ?? [];
+}
+
+/** List catalog products via Query Products (Search requires search.fields; Query lists all). */
+async function queryAllProducts(accessToken: string): Promise<WixProduct[]> {
+  const products: WixProduct[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const res = await wixJson<ProductsQueryResponse>(
+      accessToken,
+      `/stores/v3/products/query`,
+      "POST",
+      {
+        fields: ["MEDIA_ITEMS_INFO"],
+        query: {
+          cursorPaging: { limit: 100, ...(cursor ? { cursor } : {}) },
+        },
+      }
+    );
+    const batch = (res.products ?? []).filter((p) => p.id);
+    products.push(...batch);
+    const next = res.pagingMetadata?.cursors?.next;
+    if (!next || batch.length === 0) break;
+    cursor = next;
+  }
+  return products;
 }
 
 /** Available quantity for a product: sum tracked quantities, else infer from inStock flag. */
@@ -175,15 +208,9 @@ export const wixAdapter: ChannelAdapter = {
   },
 
   async listRemoteListings(conn): Promise<RemoteListingSummary[]> {
-    const res = await wixJson<ProductsSearchResponse>(
-      conn.accessToken,
-      `/stores/v3/products/search`,
-      "POST",
-      { cursorPaging: { limit: 100 } }
-    );
-    const products = (res.products ?? []).filter((p) => p.id);
+    const products = await queryAllProducts(conn.accessToken);
 
-    // Search/Query Products doesn't return per-variant inventory, so fetch the real quantities in a
+    // Query Products doesn't return per-variant inventory, so fetch the real quantities in a
     // single bulk inventory search. This keeps the imported StoreItem's base stock accurate instead
     // of a placeholder (which would otherwise get pushed back and overwrite the real Wix quantity).
     const byProduct = new Map<string, InventoryItem[]>();

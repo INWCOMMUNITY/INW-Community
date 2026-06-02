@@ -244,9 +244,11 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 6. **Permissions** (required):
    - Go to **Permissions** / **Scopes**.
    - Enable:
-     - **Wix Stores** — products & inventory
-     - **Wix eCommerce** — read orders
+     - **Wix Stores** — read/manage **products** (Catalog v3)
+     - **Wix Stores** — read **inventory** (import needs real quantities)
+     - **Wix eCommerce** — read **orders**
    - Optional: **Site Properties** — read (shop name in app)
+   - If import fails after connect, reconnect once after adding **inventory read**.
 7. **External Install / callback:**
    - Find **OAuth** → **Redirect URLs** or **External install** / **Post-installation URL**.
    - Set to: `https://www.inwcommunity.com/api/channels/wix/callback`

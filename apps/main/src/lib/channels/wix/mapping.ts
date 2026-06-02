@@ -106,7 +106,9 @@ function firstMediaUrl(product: WixProduct): string[] {
 
 /** Map a Wix product (from Search/Query Products) to a provider-agnostic import preview entry. */
 export function wixProductToSummary(product: WixProduct): RemoteListingSummary {
-  const priceAmount = product.actualPriceRange?.minValue?.amount;
+  const priceAmount =
+    product.actualPriceRange?.minValue?.amount ??
+    product.variantsInfo?.variants?.[0]?.price?.actualPrice?.amount;
   // Search/Query Products doesn't return per-variant inventory; infer a sensible default so the
   // imported StoreItem isn't accidentally created as sold-out.
   const inStock = product.inventory?.availabilityStatus !== "OUT_OF_STOCK";
