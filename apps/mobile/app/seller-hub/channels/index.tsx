@@ -160,6 +160,31 @@ export default function ChannelsScreen() {
     }
   };
 
+  const testWix = async () => {
+    setError(null);
+    setSuccess(null);
+    try {
+      const r = await apiGet<{
+        ok: boolean;
+        productCount?: number;
+        siteId?: string | null;
+        listError?: string | null;
+        message?: string;
+        hint?: string | null;
+      }>("/api/channels/wix/health");
+      if (r.ok) {
+        setSuccess(
+          `Wix OK — ${r.productCount ?? 0} product(s) visible${r.siteId ? ` (site ${r.siteId.slice(0, 8)}…)` : ""}.`
+        );
+      } else {
+        setError(r.listError || r.message || r.hint || "Wix test failed.");
+      }
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      setError(err?.error ?? "Could not test Wix connection.");
+    }
+  };
+
   const disconnect = (conn: Connection, name: string) => {
     Alert.alert(
       `Disconnect ${name}?`,
@@ -224,9 +249,17 @@ export default function ChannelsScreen() {
                       </Text>
                     )}
                     {p.provider === "wix" && (
-                      <Text style={styles.warn}>
-                        Make sure the Wix Stores app is added to your site so products can publish.
-                      </Text>
+                      <>
+                        <Text style={styles.warn}>
+                          Make sure the Wix Stores app is added to your site. Only items imported from
+                          Wix (or created with sync on) push changes back to Wix.
+                        </Text>
+                        {conn.linkedListings === 0 && (
+                          <Text style={styles.warn}>
+                            No listings linked yet — tap Import existing listings.
+                          </Text>
+                        )}
+                      </>
                     )}
                     {p.provider === "shopify" && conn.readyToPublish === false && (
                       <Text style={styles.warn}>
@@ -255,6 +288,14 @@ export default function ChannelsScreen() {
                       }
                     >
                       <Text style={styles.secondaryBtnText}>Import existing listings</Text>
+                    </Pressable>
+                  )}
+                  {p.provider === "wix" && (
+                    <Pressable
+                      style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.85 }]}
+                      onPress={() => void testWix()}
+                    >
+                      <Text style={styles.secondaryBtnText}>Test Wix connection</Text>
                     </Pressable>
                   )}
                   <Pressable

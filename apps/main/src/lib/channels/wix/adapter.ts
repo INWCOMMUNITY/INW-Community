@@ -597,7 +597,8 @@ export const wixAdapter: ChannelAdapter = {
       try {
         const listings = await strategy.run();
         console.info("[wix] listRemoteListings", { strategy: strategy.name, count: listings.length });
-        return listings;
+        // Classic Editor sites often return HTTP 200 with zero v3 products — keep trying v1.
+        if (listings.length > 0) return listings;
       } catch (e) {
         lastError = e;
         const status = e instanceof WixApiError ? e.status : undefined;
@@ -611,7 +612,7 @@ export const wixAdapter: ChannelAdapter = {
 
     if (lastError instanceof WixApiError) throw lastError;
     if (lastError instanceof Error) throw lastError;
-    throw new Error("Could not load products from your Wix store. Check app permissions and reconnect Wix.");
+    return [];
   },
 
   async fetchRecentSales(conn, since): Promise<RemoteSale[]> {
