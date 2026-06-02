@@ -4,6 +4,7 @@ import { encrypt } from "@/lib/encrypt";
 import { verifyChannelOAuthState } from "@/lib/channels/oauth-state";
 import { getBaseUrl, redirectAfterChannelConnect } from "@/lib/channels/oauth-routes";
 import { mintWixToken, fetchWixShopInfo } from "@/lib/channels/wix/oauth";
+import { fetchWixCatalogVersion } from "@/lib/channels/wix/catalog-api";
 import { fetchWixSiteId } from "@/lib/channels/wix/site";
 import { reconcileConnectionFull } from "@/lib/channels/reconcile-connection";
 
@@ -49,6 +50,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const siteIdFromApi = await fetchWixSiteId(tokens.accessToken);
     const siteId = tenantId || siteIdFromApi || null;
     const shopId = siteId || instanceId;
+    const { api: catalogApi, raw: catalogVersion } = await fetchWixCatalogVersion(
+      tokens.accessToken
+    );
 
     const data = {
       provider: "wix",
@@ -64,7 +68,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       status: "active",
       lastError: null,
       etsyShippingProfileId: null,
-      config: { instanceId, siteId, autoImportInbound: true } as object,
+      config: {
+        instanceId,
+        siteId,
+        autoImportInbound: true,
+        ...(catalogApi ? { catalogApi, catalogVersion } : {}),
+      } as object,
     };
 
     const saved = await prisma.channelConnection.upsert({

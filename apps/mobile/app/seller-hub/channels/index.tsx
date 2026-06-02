@@ -226,33 +226,65 @@ export default function ChannelsScreen() {
     }
   };
 
+  const runDisconnect = async (conn: Connection, name: string, deleteInwItems: boolean) => {
+    try {
+      const qs = deleteInwItems ? "?deleteInwItems=1" : "";
+      const res = await apiDelete<{ deletedInwCount?: number }>(`/api/channels/${conn.id}${qs}`);
+      if (deleteInwItems) {
+        const n = res.deletedInwCount ?? 0;
+        setSuccess(
+          `${name} disconnected. ${n} listing${n === 1 ? "" : "s"} removed from INW Community. Your ${name} store is unchanged.`
+        );
+      } else {
+        setSuccess(`${name} disconnected. Your INW listings are unchanged.`);
+      }
+      setError(null);
+      await refresh();
+    } catch {
+      setError("Could not disconnect. Try again.");
+    }
+  };
+
   const disconnect = (conn: Connection, name: string) => {
     const linked =
       conn.linkedListings === 1
         ? "1 linked listing"
         : `${conn.linkedListings} linked listings`;
-    Alert.alert(
-      `Disconnect ${name}?`,
+    const baseMessage =
       conn.linkedListings > 0
-        ? `You have ${linked} tied to ${name}. Keep them listed on INW Community? They will stay on your storefront, but price, quantity, and other changes will no longer sync between INW and ${name} in either direction.\n\nYour listings on ${name} are not removed.`
-        : `Your ${name} account will disconnect from INW Community. Any items you add later on INW will not sync to ${name} until you connect again.`,
-      [
+        ? `You have ${linked} tied to ${name}. Sync will stop in both directions. Your listings on ${name} are not removed by INW.\n\nNWC is not responsible for inventory, oversells, or other business effects after you disconnect (see Terms of Service).`
+        : `Your ${name} account will disconnect from INW Community. Any items you add later on INW will not sync to ${name} until you connect again.`;
+
+    if (conn.linkedListings === 0) {
+      Alert.alert(`Disconnect ${name}?`, baseMessage, [
         { text: "Cancel", style: "cancel" },
-        {
-          text: "Keep listings on INW",
-          onPress: async () => {
-            try {
-              await apiDelete(`/api/channels/${conn.id}`);
-              setSuccess(`${name} disconnected. Your INW listings are unchanged.`);
-              setError(null);
-              await refresh();
-            } catch {
-              setError("Could not disconnect. Try again.");
-            }
-          },
+        { text: "Disconnect", onPress: () => void runDisconnect(conn, name, false) },
+      ]);
+      return;
+    }
+
+    Alert.alert(`Disconnect ${name}?`, baseMessage, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Keep on INW", onPress: () => void runDisconnect(conn, name, false) },
+      {
+        text: "Delete from INW",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert(
+            "Delete from INW Community?",
+            `This permanently removes ${linked} from your INW storefront only. Listings on ${name} stay as they are.\n\nAfter disconnecting, you are responsible for inventory and sales on ${name} and any other channel. INW is not liable for tracking errors, oversells, or business loss from disconnecting a third-party store.`,
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Delete from INW",
+                style: "destructive",
+                onPress: () => void runDisconnect(conn, name, true),
+              },
+            ]
+          );
         },
-      ]
-    );
+      },
+    ]);
   };
 
   return (

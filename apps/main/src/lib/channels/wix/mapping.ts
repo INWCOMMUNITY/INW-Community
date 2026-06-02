@@ -174,6 +174,20 @@ export function wixV1ProductToSummary(product: WixV1Product): RemoteListingSumma
   };
 }
 
+/** Catalog v1 create body (`POST /stores/v1/products`). */
+export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknown> {
+  const qty = Math.max(0, item.quantity);
+  const product: Record<string, unknown> = {
+    name: item.title.slice(0, 80),
+    productType: "physical",
+    priceData: { price: Math.max(0, item.priceCents) / 100 },
+    stock: { trackInventory: true, quantity: qty, inStock: qty > 0 },
+  };
+  const desc = (item.description ?? "").trim();
+  if (desc) product.description = desc;
+  return { product };
+}
+
 /** Classic Catalog v1 PATCH body for title, price, description, and stock. */
 export function buildWixV1UpdateBody(item: SyncStoreItem): Record<string, unknown> {
   const qty = Math.max(0, item.quantity);

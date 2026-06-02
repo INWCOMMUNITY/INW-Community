@@ -289,8 +289,10 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 
 ### D — Classic Editor sites (your setup)
 
-- **Reads** often use Catalog **v1** (`/stores/v1/products/query`) and Inventory **v2**.
-- **Writes** (edit qty, delete, update title) use v1/v2 first, then v3 — required for outbound sync to work.
+- INW detects your catalog with `GET /stores/v3/provision/version` (**V1_CATALOG** or **V3_CATALOG**) on connect and before sync. **V1** sites use `/stores/v1` + `/stores/v2` only; **V3** sites use `/stores/v3` only. Mixing versions returns **428** (“wrong catalog version”).
+- If you see a catalog version error after an update, **disconnect and reconnect Wix** (or run **Test Wix connection** after deploy) so the app refreshes your catalog version.
+- **Reads** use Catalog **v1** (`/stores/v1/products/query`) and Inventory **v2** on v1 sites.
+- **Writes** (edit qty, delete, update title) use v1/v2 only on v1 sites — never v3 product endpoints.
 - If **My Items** shows `Wix: sync error`, open the listing or check Vercel logs — the link stores the API failure message.
 
 ### D — Troubleshooting “app not talking to Wix”

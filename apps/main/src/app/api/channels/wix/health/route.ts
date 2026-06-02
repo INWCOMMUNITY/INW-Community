@@ -4,7 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 import { isWixConfigured } from "@/lib/channels/wix/config";
-import { wixCatalogApiFromConn } from "@/lib/channels/wix/catalog-api";
+import { ensureWixCatalogVersion, wixCatalogApiFromConn } from "@/lib/channels/wix/catalog-api";
 import { ensureWixSiteId, wixSiteIdFromConn } from "@/lib/channels/wix/site";
 import { WixApiError } from "@/lib/channels/wix/client";
 
@@ -38,6 +38,9 @@ export async function GET(req: NextRequest) {
 
   const siteIdBefore = wixSiteIdFromConn(ctx);
   const siteId = (await ensureWixSiteId(ctx)) ?? siteIdBefore;
+  const catalogApi = (await ensureWixCatalogVersion(ctx)) ?? wixCatalogApiFromConn(ctx);
+  const catalogVersion =
+    typeof ctx.config?.catalogVersion === "string" ? ctx.config.catalogVersion : null;
   let productCount = 0;
   let listError: string | null = null;
 
@@ -72,7 +75,8 @@ export async function GET(req: NextRequest) {
     connectionId: ctx.id,
     siteId: siteId ?? null,
     hadSiteIdBeforeResolve: Boolean(siteIdBefore),
-    catalogApi: wixCatalogApiFromConn(ctx),
+    catalogApi,
+    catalogVersion,
     productCount,
     linkedCount,
     syncErrors: errorLinks.map((l) => ({
