@@ -48,8 +48,9 @@ export default function SellerHubLayout() {
             animation: "slide_from_bottom",
           }}
         />
-        {/* Inner `store/_layout` supplies its own stack header + back; hide outer title bar here. */}
+        {/* Inner layouts supply their own stack header + back; hide outer title bar here. */}
         <Stack.Screen name="store" options={{ headerShown: false }} />
+        <Stack.Screen name="channels" options={{ headerShown: false }} />
       </Stack>
     </>
   );

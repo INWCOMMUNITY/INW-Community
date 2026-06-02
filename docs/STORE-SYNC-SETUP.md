@@ -1,403 +1,453 @@
-# Store Sync — Your Go-Live Checklist
+# Store Sync — Step-by-Step To-Do (with links)
 
-This guide is for **you** (not the code). It tells you exactly what to click, copy, and paste so **Sync Stores** works in the real app — for **Etsy**, **eBay**, **Wix**, and **Shopify**.
+Check off each box as you go. Every section has **links to the right website**, **numbered clicks** to find keys, and **exact Vercel variable names** to paste.
 
-The app code is already built. You just need to:
-1. Sign up for each marketplace’s “developer” account (where they give you keys).
-2. Paste those keys into **Vercel**.
-3. **Deploy** once.
-4. Try connecting a test shop and buying/selling something to make sure it works.
+| | |
+|---|---|
+| **Where you paste keys** | [Vercel → main app → Settings → Environment Variables](https://vercel.com/docs/projects/environment-variables) |
+| **After any env change** | **Redeploy** the main app (keys do nothing until redeploy) |
+| **Production site** | `https://www.inwcommunity.com` |
+| **Test in the app** | Seller Hub → **Sync Stores** |
 
-**Good order:** Do the **Shared** steps first, then one store at a time (Etsy → eBay → Wix → Shopify is fine).
-
----
-
-## Part A — Shared setup (do this once for everything)
-
-These steps help **all four** stores work together.
-
-### Step A1 — Check you already have three secrets in Vercel
-
-Open **Vercel → your main app → Settings → Environment Variables**.
-
-You should **already** have these. **Do not add them again** unless they’re missing:
-
-| Name | What it does (simple) |
-|------|------------------------|
-| `ENCRYPTION_KEY` | Locks up marketplace passwords/tokens so nobody can read them in the database. |
-| `CRON_SECRET` | Lets only Vercel run the “check for sales every 15 minutes” job. |
-| `NEXTAUTH_SECRET` | Keeps the “Connect store” login flow safe. |
-
-If any are missing, fix that before you connect Etsy/eBay/Wix/Shopify.
+**Recommended order:** Part A (once) → Etsy → eBay → Wix → Shopify
 
 ---
 
-### Step A2 — Make sure the database is updated
+## Quick map: site → portal → keys → Vercel
 
-When you deploy, your server should run **database migrations** automatically.
+| Store | Open this portal | Keys you copy | Paste in Vercel as |
+|-------|------------------|---------------|-------------------|
+| **Etsy** | [etsy.com/developers/your-apps](https://www.etsy.com/developers/your-apps) | Keystring, Shared secret, Callback URL | `ETSY_API_KEY`, `ETSY_CLIENT_SECRET`, `ETSY_REDIRECT_URI` |
+| **eBay** | [developer.ebay.com/my/keys](https://developer.ebay.com/my/keys) + [RuNames](https://developer.ebay.com/my/auth/?env=production&index=0) | App ID, Cert ID, RuName **string** | `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_RUNAME` |
+| **Wix** | [dev.wix.com](https://dev.wix.com/) → your app → OAuth | App ID, App Secret | `WIX_APP_ID`, `WIX_APP_SECRET` |
+| **Shopify** | [partners.shopify.com](https://partners.shopify.com/) → your app | Client ID, Client secret | `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET` |
 
-**What you’re checking for:** After deploy, your production database should have these **three new tables**:
-- `channel_connection`
-- `channel_listing_link`
-- `channel_sync_event`
-
-**If you deploy by hand** (not sure migrations run), run this on your computer:
-
-```bash
-cd packages/database
-npx prisma migrate deploy
-```
-
-The migrations live in:
-- `packages/database/prisma/migrations/20260601180000_channel_sync/`
-- `packages/database/prisma/migrations/20260601193000_ebay_channel/`
+**Already in Vercel (do not add again):** `ENCRYPTION_KEY`, `CRON_SECRET`, `NEXTAUTH_SECRET`
 
 ---
 
-### Step A3 — Turn on the “every 15 minutes” sales checker
+## Part A — Shared setup (all four stores)
 
-The app checks all connected stores for new sales **every 15 minutes**. That’s the backup if a webhook doesn’t fire.
+Do this once before connecting any marketplace.
 
-1. Deploy the main app (so `apps/main/vercel.json` is live).
-2. Go to **Vercel → your main app → Cron Jobs**.
-3. You should see: **`GET /api/cron/sync-channels`** — runs **every 15 minutes**.
-4. It uses `CRON_SECRET` (from Step A1). You don’t need to add anything else for the cron.
+- [ ] **A1 — Vercel secrets**  
+  Open [Environment Variables](https://vercel.com/docs/projects/environment-variables) for the **main** project. Confirm these exist:
+  - `ENCRYPTION_KEY`
+  - `CRON_SECRET`
+  - `NEXTAUTH_SECRET`
 
----
+- [ ] **A2 — Database**  
+  Deploy so migrations run automatically. Tables you need in production:
+  - `channel_connection`
+  - `channel_listing_link`
+  - `channel_sync_event`  
 
-### Step A4 — After you add ANY new keys in Vercel
+  Manual run if needed:
+  ```bash
+  cd packages/database
+  npx prisma migrate deploy
+  ```
 
-**Always redeploy** the main app. New environment variables don’t work until the app restarts with them.
+- [ ] **A3 — Cron job**  
+  Vercel → your project → **Cron Jobs** → confirm:
+  - Path: `GET /api/cron/sync-channels`
+  - Schedule: every **15 minutes**
 
----
+- [ ] **A4 — Policies**  
+  Review `apps/main/src/lib/terms-content.ts` and `privacy-content.ts`. Re-export PDFs if you distribute them.
 
-### Step A5 — Legal stuff (Terms & Privacy)
-
-Someone should **read** the updated Terms and Privacy (marketplace sync sections):
-- Terms: `apps/main/src/lib/terms-content.ts`
-- Privacy: `apps/main/src/lib/privacy-content.ts`
-
-If you give users PDF versions, re-export them:
-
-```bash
-# from repo root, if you use the export script
-scripts/export-policy-pdfs.ts
-```
+- [ ] **A5 — Rule for every store below**  
+  After you add keys for Etsy, eBay, Wix, or Shopify → **Redeploy** → test **Connect** in the app.
 
 ---
 
 ## Part B — Etsy
 
-### Step B1 — Make an Etsy “developer app”
+### B — Links bookmark
 
-1. Open: https://www.etsy.com/developers/your-apps  
-2. Click to **create a new app**.  
-3. Ask Etsy for **Commercial / production access** (you need this so lots of sellers can connect — not just you). **This can take a few days**, so do it early.  
-4. Etsy will give you two important things:
-   - **Keystring** → you’ll paste this as `ETSY_API_KEY` (it’s also the OAuth “client id”).
-   - **Shared secret** → you’ll paste this as `ETSY_CLIENT_SECRET`.  
-5. Tell Etsy your **callback URL** (where Etsy sends the seller back after they log in):
-   - **Production:** `https://www.inwcommunity.com/api/channels/etsy/callback`
-   - **Optional for testing on your laptop:** `http://localhost:3000/api/channels/etsy/callback`  
-6. Make sure your app is allowed to use these permissions (the code already asks for them):  
-   `listings_r`, `listings_w`, `transactions_r`, `shops_r`
+| Step | Link |
+|------|------|
+| Sign in / create apps | [etsy.com/developers/your-apps](https://www.etsy.com/developers/your-apps) |
+| Etsy developer docs | [developers.etsy.com/documentation](https://developers.etsy.com/documentation/) |
+| Register as developer (if needed) | [etsy.com/developers/register](https://www.etsy.com/developers/register) |
+| **Callback URL to register** | `https://www.inwcommunity.com/api/channels/etsy/callback` |
+| Optional webhook URL | `https://www.inwcommunity.com/api/channels/etsy/webhook` |
+| Local dev callback (optional) | `http://localhost:3000/api/channels/etsy/callback` |
 
----
+### B — To-do checklist
 
-### Step B2 — Paste Etsy keys into Vercel
+- [ ] B1 Create Etsy developer app
+- [ ] B2 Request **Commercial / production** access (can take several days)
+- [ ] B3 Register OAuth callback URL (exact match required)
+- [ ] B4 Copy Keystring + Shared secret → Vercel
+- [ ] B5 Redeploy main app
+- [ ] B6 (Optional) Webhooks + `ETSY_WEBHOOK_SECRET`
+- [ ] B7 Test: Connect → Import → Create → Sell on Etsy & INW → Disconnect
 
-Go to **Vercel → main app → Settings → Environment Variables** (Production; add Preview too if you test there). Also copy the same values into your local `.env` if you develop locally.
+### B — Find API keys (numbered clicks)
 
-| Paste this name | Required? | What to put in the box |
-|-----------------|-----------|-------------------------|
-| `ETSY_API_KEY` | **Yes** | The **keystring** from Etsy. |
-| `ETSY_CLIENT_SECRET` | **Yes** | The **shared secret** from Etsy. |
-| `ETSY_REDIRECT_URI` | **Yes** | Must be **exactly** the callback URL from Step B1, e.g. `https://www.inwcommunity.com/api/channels/etsy/callback` |
-| `ETSY_CLIENT_ID` | No | Only if Etsy gave you a *different* client id than the keystring. Usually leave blank. |
-| `ETSY_WEBHOOK_SECRET` | No | Only if you set up webhooks (Step B4). |
-| `ETSY_DEFAULT_TAXONOMY_ID` | No | A default Etsy category number if a listing has no category. If blank, the app uses `1`. |
+1. Go to **[Your apps](https://www.etsy.com/developers/your-apps)** and sign in.
+2. Click **Create a new app** (or open your existing INW app).
+3. Fill in **App name**, **description**, and **website** (`https://www.inwcommunity.com`).
+4. **Commercial access:** In the app dashboard, find **Request Production Access** or **Commercial Access** and submit. Wait for approval before many sellers can use OAuth.
+5. **Callback URL:**
+   - Find **OAuth redirect URIs** / **Callback URLs**.
+   - Add **exactly:** `https://www.inwcommunity.com/api/channels/etsy/callback`
+   - This must match `ETSY_REDIRECT_URI` in Vercel **character for character** (no trailing slash unless Etsy shows one).
+6. **`ETSY_API_KEY` ← Keystring:**
+   - On the app overview, find **Keystring** (may say **API key**).
+   - Copy the whole string.
+7. **`ETSY_CLIENT_SECRET` ← Shared secret:**
+   - Same page → **Shared secret** → reveal → copy.
+   - Never commit to git; only Vercel + local `.env`.
+8. **`ETSY_REDIRECT_URI`:**
+   - Paste: `https://www.inwcommunity.com/api/channels/etsy/callback`
+9. **`ETSY_CLIENT_ID` (optional):** Only if Etsy shows a **different** Client ID than the keystring. Usually leave blank.
+10. **`ETSY_WEBHOOK_SECRET` (optional):** Only if you configure webhooks in Etsy pointing to our webhook URL → copy Etsy’s signing secret.
+11. **`ETSY_DEFAULT_TAXONOMY_ID` (optional):** A default category number from [Etsy taxonomy API](https://developers.etsy.com/documentation/reference#operation/getSellerTaxonomyNodes).
 
-Then **redeploy** (Part A, Step A4).
+**Scopes our app uses:** `listings_r`, `listings_w`, `transactions_r`, `shops_r`
 
----
+### B — Paste into Vercel
 
-### Step B3 — Tell Etsy sellers one rule
+| Vercel name | Required? | You copied from Etsy |
+|-------------|-----------|----------------------|
+| `ETSY_API_KEY` | Yes | Keystring |
+| `ETSY_CLIENT_SECRET` | Yes | Shared secret |
+| `ETSY_REDIRECT_URI` | Yes | `https://www.inwcommunity.com/api/channels/etsy/callback` |
+| `ETSY_CLIENT_ID` | No | Only if ≠ keystring |
+| `ETSY_WEBHOOK_SECRET` | No | Webhook signing secret |
+| `ETSY_DEFAULT_TAXONOMY_ID` | No | Category id number |
 
-For a listing to go **live** on Etsy (not stuck as a **draft**), the seller needs at least one **shipping profile** on their Etsy shop.
+### B — Tell sellers
 
-- The app picks the first shipping profile when they connect.
-- If they have none, the Sync Stores screen shows a warning, and new Etsy listings stay as drafts until they add one.
+- [ ] They need at least one **shipping profile** on Etsy, or synced listings stay **drafts** until they add one.
 
----
+### B — Test in app
 
-### Step B4 — Etsy webhooks (optional — faster sales updates)
+1. Seller Hub → **Sync Stores** → **Connect Etsy**
+2. **Import existing listings**
+3. Create/edit item with Etsy sync on
+4. Sell on Etsy → INW quantity drops (~15 min, or faster with webhook)
+5. Sell on INW → Etsy quantity drops
+6. **Disconnect** → Etsy listing stays; sync stops
 
-**You can skip this.** Sales still sync every ~15 minutes from the cron.
-
-If you want sales to show up **faster**:
-
-1. In Etsy’s app settings, send order/receipt events to:  
-   `https://www.inwcommunity.com/api/channels/etsy/webhook`
-2. Copy Etsy’s **signing secret** into Vercel as `ETSY_WEBHOOK_SECRET`.
-3. Redeploy.
-
----
-
-### Step B5 — Test Etsy (do this once after deploy)
-
-Use the mobile app like a real seller:
-
-1. **Seller Hub → Sync Stores → Connect Etsy** — log in on Etsy’s website — you should see “Connected to &lt;shop name&gt;”.
-2. **Import** — tap **Import existing listings**, pick one, import it — it should show in **My Items** with an Etsy sync badge.
-3. **Create** — make a new item on INW with “list on Etsy too” on — check Etsy (live or draft depends on shipping profile).
-4. **Edit** — change title, price, or quantity on INW — check Etsy updated.
-5. **Sell on Etsy** — buy/sell that item on Etsy — within ~15 min (or right away with webhooks) INW quantity should drop; other connected stores should update too.
-6. **Sell on INW** — buy the item in INW — Etsy quantity should drop.
-7. **Disconnect** — syncing should stop; the listing should **stay** on Etsy.
+**You're done with Etsy when:** Connect works, import works, and a test sale updates quantity both ways.
 
 ---
 
 ## Part C — eBay
 
-**Important:** eBay connect is **production only**. There is no sandbox switch in our app.
+**Production only** — no sandbox in our app. Sales sync via the **15-minute cron** (no eBay webhook in v1).
 
-Sales are detected by the **15-minute cron** (no eBay webhook in v1).
+### C — Links bookmark
 
----
+| Step | Link |
+|------|------|
+| eBay Developers sign in | [developer.ebay.com](https://developer.ebay.com/) |
+| **Production keys** (App ID + Cert ID) | [developer.ebay.com/my/keys](https://developer.ebay.com/my/keys) |
+| **RuNames** (OAuth redirect name) | [developer.ebay.com/my/auth/?env=production&index=0](https://developer.ebay.com/my/auth/?env=production&index=0) |
+| OAuth guide | [developer.ebay.com/api-docs/static/oauth-consent-request.html](https://developer.ebay.com/api-docs/static/oauth-consent-request.html) |
+| **RuName “auth accepted URL”** (not `EBAY_RUNAME`) | `https://www.inwcommunity.com/api/channels/ebay/callback` |
+| Seller policies (tell sellers) | [ebay.com/sh/ovw](https://www.ebay.com/sh/ovw) |
 
-### Step C1 — Make an eBay developer app (production)
+### C — To-do checklist
 
-1. Open: https://developer.ebay.com/my/keys  
-2. Create a **Production** keyset (not sandbox).  
-3. Copy:
-   - **App ID (Client ID)** → `EBAY_CLIENT_ID`
-   - **Cert ID (Client Secret)** → `EBAY_CLIENT_SECRET`  
-4. Go to **User tokens (OAuth)** and create an **RuName** (Redirect URL name).  
-5. For the RuName, set **“Your auth accepted URL”** to:  
-   `https://www.inwcommunity.com/api/channels/ebay/callback`  
-6. Copy the **RuName string** itself (NOT the URL). It looks like:  
-   `Your_Company-Your_App-PRD-xxxxxxxxx-xxxxxxxx`  
-   That string is `EBAY_RUNAME`.  
-7. Your keyset must allow these scopes:  
-   `sell.inventory`, `sell.account`, `sell.fulfillment`, `commerce.identity.readonly`
+- [ ] C1 Create **Production** keyset (not Sandbox)
+- [ ] C2 Create **RuName** with auth accepted URL = our callback
+- [ ] C3 Copy App ID, Cert ID, RuName **string** → Vercel
+- [ ] C4 Redeploy main app
+- [ ] C5 Test: Connect → Import → Publish → Sell both ways
 
----
+### C — Find API keys (numbered clicks)
 
-### Step C2 — Paste eBay keys into Vercel
+1. Sign in at **[developer.ebay.com](https://developer.ebay.com/)**.
+2. Open **[Application Keys](https://developer.ebay.com/my/keys)**.
+3. Under **Production** (not Sandbox), click **Create a keyset** or use an existing one.
+4. **`EBAY_CLIENT_ID`:**
+   - On the keyset card, copy **App ID (Client ID)**.
+5. **`EBAY_CLIENT_SECRET`:**
+   - Same card → copy **Cert ID (Client Secret)**.
+6. **`EBAY_RUNAME` (this is a short code, NOT a URL):**
+   - Go to **[User Tokens → Production](https://developer.ebay.com/my/auth/?env=production&index=0)**.
+   - Section **RuName** (Redirect URL name) → **Create RuName** or edit one.
+   - Set **Your auth accepted URL** to exactly:  
+     `https://www.inwcommunity.com/api/channels/ebay/callback`
+   - Save. Copy the **RuName value** — looks like `YourName-YourApp-PRD-abc123-xyz789`.
+   - Paste that string as `EBAY_RUNAME`. **Do not** paste the callback URL into `EBAY_RUNAME`.
+7. **Scopes:** Your keyset must allow Sell APIs. We request:
+   - `sell.inventory`
+   - `sell.account`
+   - `sell.fulfillment`
+   - `commerce.identity.readonly`
+8. **`EBAY_DEFAULT_CATEGORY_ID` (optional):** Leaf category id from [eBay Taxonomy](https://developer.ebay.com/api-docs/commerce/taxonomy/overview.html) or Seller Hub category picker.
 
-| Paste this name | Required? | What to put in the box |
-|-----------------|-----------|-------------------------|
-| `EBAY_CLIENT_ID` | **Yes** | App ID (Client ID) from production keyset. |
-| `EBAY_CLIENT_SECRET` | **Yes** | Cert ID (Client Secret). |
-| `EBAY_RUNAME` | **Yes** | The RuName **string** from Step C1. |
-| `EBAY_DEFAULT_CATEGORY_ID` | No | Default eBay category if a listing has no category. Sellers can also pick per item in the app. |
+### C — Paste into Vercel
 
-Redeploy.
+| Vercel name | Required? | You copied from eBay |
+|-------------|-----------|----------------------|
+| `EBAY_CLIENT_ID` | Yes | App ID (Client ID) — Production keyset |
+| `EBAY_CLIENT_SECRET` | Yes | Cert ID (Client Secret) |
+| `EBAY_RUNAME` | Yes | RuName **string** only |
+| `EBAY_DEFAULT_CATEGORY_ID` | No | Leaf category id |
 
----
+### C — Tell sellers
 
-### Step C3 — Tell eBay sellers what they need on eBay
+- [ ] **Business Policies** on eBay: payment, return, fulfillment/shipping ([Seller Hub](https://www.ebay.com/sh/ovw))
+- [ ] At least one **merchant location**
+- Without these, listings stay **unpublished** until they fix eBay and re-save in INW
 
-To publish **live** on eBay (not just a draft), the seller needs on their eBay account:
+### C — Test in app
 
-1. **Business Policies** turned on (Seller Hub → Account → Business Policies):
-   - a payment policy  
-   - a return policy  
-   - a shipping/fulfillment policy  
-2. At least one **merchant location** (where inventory “lives”).
+1. Sync Stores → **Connect eBay**
+2. Fix policy/location warning if shown
+3. **Import existing listings** (some legacy listings may skip — app shows why)
+4. Create/edit on INW → check eBay
+5. Sell on eBay / INW → qty syncs (~15 min)
 
-When they connect, we save the first policy and location we find. If something is missing, the app shows a warning and listings stay **unpublished** until they fix it and re-save the item (or reconnect).
-
----
-
-### Step C4 — Test eBay
-
-1. **Seller Hub → Sync Stores → Connect eBay** — finish login — “Connected to &lt;username&gt;”.
-2. Fix the warning if you see it (policies + location on eBay), then reconnect or re-save an item.
-3. **Import** — import one listing. (Old-style listings get migrated to eBay’s newer inventory system; some listings might be skipped with a reason shown in the app.)
-4. **Create/edit** on INW — check eBay (published if policies exist, otherwise draft).
-5. **Sell on eBay** — within ~15 min, INW quantity drops and other stores update.
-6. **Sell on INW** — eBay quantity drops.
-
-**Heads-up:** Some eBay categories need extra “item details” fields. If eBay requires them and we don’t have them, the listing may stay unpublished and the app will show the error (like Etsy drafts).
+**You're done with eBay when:** OAuth connects, import works, and quantities update after a test sale.
 
 ---
 
 ## Part D — Wix
 
-Wix works differently: each seller **installs your Wix app** on their site. We don’t store a long-lived “refresh token” — we use the site’s `instanceId` plus your app secret to get short-lived tokens.
+Sellers **install your Wix app** on their site. You store the site `instanceId`; tokens are minted with your app secret (no per-seller refresh token).
 
-Sales are detected by the **15-minute cron** (no Wix webhook in v1).
+### D — Links bookmark
 
----
+| Step | Link |
+|------|------|
+| Wix Developers | [dev.wix.com](https://dev.wix.com/) |
+| My Apps / create app | [dev.wix.com/apps](https://dev.wix.com/apps) |
+| Permissions docs | [About permissions](https://dev.wix.com/docs/build-apps/develop-your-app/access/authorization/about-permissions) |
+| **Install callback URL** | `https://www.inwcommunity.com/api/channels/wix/callback` |
 
-### Step D1 — Make a Wix app
+### D — To-do checklist
 
-1. Open: https://dev.wix.com  
-2. **Build an App** (create a new app).  
-3. In the app’s **OAuth** section, copy:
-   - **App ID** → `WIX_APP_ID`
-   - **App Secret Key** → `WIX_APP_SECRET`  
-4. Add **Permissions** (what the app is allowed to do):
-   - **Wix Stores** — manage products and inventory  
-   - **Wix eCommerce** — read orders (so we know when something sold)  
-   - *(Optional)* **Site Properties** — read (nice shop name in the app)  
-5. Set up **External Install Flow**. The callback URL must be:  
-   `https://www.inwcommunity.com/api/channels/wix/callback`  
-   After a seller installs, Wix sends them back here with an `instanceId` — that’s how we know which site to talk to.
+- [ ] D1 Create Wix app
+- [ ] D2 Add permissions (Stores + eCommerce orders)
+- [ ] D3 Set External Install / redirect callback URL
+- [ ] D4 Copy App ID + App Secret → Vercel
+- [ ] D5 Redeploy main app
+- [ ] D6 Test: Connect (install on test site) → Import → Sync qty
 
-**Later (optional):** Add webhooks for “order created” and “app removed” for faster updates. Not required for launch.
+### D — Find API keys (numbered clicks)
 
----
+1. Go to **[dev.wix.com](https://dev.wix.com/)** and sign in.
+2. Click **Create New App** or open **[My Apps](https://dev.wix.com/apps)**.
+3. Create an app (e.g. name: “INW Community Sync”).
+4. **`WIX_APP_ID`:**
+   - Open the app → **OAuth** or **Credentials**.
+   - Copy **App ID** (sometimes labeled Client ID).
+5. **`WIX_APP_SECRET`:**
+   - Same screen → **App Secret** / **App Secret Key** → generate or reveal → copy.
+6. **Permissions** (required):
+   - Go to **Permissions** / **Scopes**.
+   - Enable:
+     - **Wix Stores** — products & inventory
+     - **Wix eCommerce** — read orders
+   - Optional: **Site Properties** — read (shop name in app)
+7. **External Install / callback:**
+   - Find **OAuth** → **Redirect URLs** or **External install** / **Post-installation URL**.
+   - Set to: `https://www.inwcommunity.com/api/channels/wix/callback`
+8. **`WIX_REDIRECT_URI` (optional):** Only set in Vercel if you override the default callback.
+9. **`WIX_DEFAULT_LOCATION_ID` (optional):** For multi-location sites — location id from Wix Stores settings/API.
 
-### Step D2 — Paste Wix keys into Vercel
+### D — Paste into Vercel
 
-| Paste this name | Required? | What to put in the box |
-|-----------------|-----------|-------------------------|
-| `WIX_APP_ID` | **Yes** | App ID from Wix. |
-| `WIX_APP_SECRET` | **Yes** | App Secret Key from Wix. |
-| `WIX_REDIRECT_URI` | No | Only if you need to override the callback URL. Default is `{your site}/api/channels/wix/callback`. |
-| `WIX_DEFAULT_LOCATION_ID` | No | Only if the site has many inventory locations and you want to force one. |
+| Vercel name | Required? | You copied from Wix |
+|-------------|-----------|---------------------|
+| `WIX_APP_ID` | Yes | App ID |
+| `WIX_APP_SECRET` | Yes | App Secret Key |
+| `WIX_REDIRECT_URI` | No | Only if overriding callback |
+| `WIX_DEFAULT_LOCATION_ID` | No | Location id |
 
-Redeploy.
+### D — Tell sellers
 
----
+- [ ] Their Wix site must have the **Wix Stores** app installed
 
-### Step D3 — Tell Wix sellers one rule
+### D — Test in app
 
-Their Wix site must have the **Wix Stores** app installed. Without it, we can’t create products. The Sync Stores screen reminds them.
+1. Sync Stores → **Connect Wix** → install on a test site
+2. Import → create/edit → sell on Wix / INW (~15 min)
+3. Disconnect → Wix products remain
 
----
-
-### Step D4 — Test Wix
-
-1. **Connect Wix** — install the app on a test site — you should see “Connected”.
-2. **Import** one product — shows in My Items linked to Wix.
-3. **Create/edit** on INW — product shows/updates on the Wix site.
-4. **Sell on Wix** — within ~15 min, INW quantity drops.
-5. **Sell on INW** — Wix quantity drops.
-6. **Disconnect** — Wix products stay; syncing stops.
-
-**v1 limits:** One variant per product (no fancy option-matrix sync yet). Pictures come from URLs (best effort). Sales = cron only for now.
+**You're done with Wix when:** Install completes, import works, and quantity syncs after a test sale.
 
 ---
 
 ## Part E — Shopify
 
-Each seller connects **their own** shop (`something.myshopify.com`). Sales are detected by the **15-minute cron** (no Shopify webhook in v1).
+Each seller connects their own `{shop}.myshopify.com`. After OAuth we store a **non-expiring offline** Admin API token per shop.
+
+### E — Links bookmark
+
+| Step | Link |
+|------|------|
+| Shopify Partners | [partners.shopify.com](https://partners.shopify.com/) |
+| Create / manage apps | Partners → your org → **Apps** |
+| App auth docs | [shopify.dev — authentication](https://shopify.dev/docs/apps/build/authentication-authorization) |
+| Access scopes list | [shopify.dev — access scopes](https://shopify.dev/docs/api/usage/access-scopes) |
+| App review (many merchants) | [shopify.dev — app review](https://shopify.dev/docs/apps/launch/app-review) |
+| **Allowed redirection URL** | `https://www.inwcommunity.com/api/channels/shopify/callback` |
+| Local dev callback (optional) | `http://localhost:3000/api/channels/shopify/callback` |
+
+### E — To-do checklist
+
+- [ ] E1 Create Partner app (manual / custom)
+- [ ] E2 Set allowed redirection URL(s)
+- [ ] E3 Enable Admin API scopes (products, inventory, orders)
+- [ ] E4 Copy Client ID + Client secret → Vercel
+- [ ] E5 Redeploy main app
+- [ ] E6 (If many merchants) Plan [app review](https://shopify.dev/docs/apps/launch/app-review)
+- [ ] E7 Test: enter shop domain → Connect → Import → Sync
+
+### E — Find API keys (numbered clicks)
+
+1. Go to **[Shopify Partners](https://partners.shopify.com/)** and sign in.
+2. Select your organization → **Apps** → **Create app** → **Create app manually**.
+3. Name the app (e.g. “INW Community Sync”).
+4. Open the app → **Configuration** / **App setup**.
+5. **Allowed redirection URL(s):**
+   - Add: `https://www.inwcommunity.com/api/channels/shopify/callback`
+   - Optional dev: `http://localhost:3000/api/channels/shopify/callback`
+6. **`SHOPIFY_API_KEY` ← Client ID:**
+   - **Client credentials** / **API credentials** → copy **Client ID**.
+7. **`SHOPIFY_API_SECRET` ← Client secret:**
+   - Same section → **Client secret** → reveal → copy.
+8. **Admin API scopes** (required):
+   - **API access** / **Scopes** → enable:
+     - `read_products`, `write_products`
+     - `read_inventory`, `write_inventory`
+     - `read_orders`
+9. **Test store:** Use **Select store** / dev install on your own shop first.
+10. **`SHOPIFY_API_VERSION` (optional):** Default in code is `2024-10`.
+11. **`SHOPIFY_REDIRECT_URI` (optional):** Only if overriding callback URL.
+12. **`SHOPIFY_DEFAULT_LOCATION_ID` (optional):** Multi-location shops — id from Admin → Settings → Locations or API.
+
+**In the INW app:** Seller types `mystore` or `mystore.myshopify.com` **before** tapping **Connect Shopify**.
+
+### E — Paste into Vercel
+
+| Vercel name | Required? | You copied from Shopify Partners |
+|-------------|-----------|----------------------------------|
+| `SHOPIFY_API_KEY` | Yes | Client ID |
+| `SHOPIFY_API_SECRET` | Yes | Client secret |
+| `SHOPIFY_REDIRECT_URI` | No | Only if overriding callback |
+| `SHOPIFY_API_VERSION` | No | e.g. `2024-10` |
+| `SHOPIFY_DEFAULT_LOCATION_ID` | No | Location id |
+
+### E — Tell sellers
+
+- [ ] Enter shop domain before connect
+- [ ] **Online Store** channel + **inventory tracking** on products
+- [ ] One Shopify shop per INW account
+
+### E — Test in app
+
+1. Enter shop → **Connect Shopify** → approve in Shopify
+2. Import → create/edit → sell on Shopify / INW (~15 min)
+3. Disconnect → Shopify products remain
+
+**You're done with Shopify when:** Connect works with shop domain, import works, quantities sync both ways.
 
 ---
 
-### Step E1 — Make a Shopify Partner app
+## Master checklist (all sites on one page)
 
-1. Open: https://partners.shopify.com  
-2. **Apps → Create app**.  
-3. Under **Configuration**, add **Allowed redirection URL(s)**:
-   - **Production:** `https://www.inwcommunity.com/api/channels/shopify/callback`
-   - **Optional local:** `http://localhost:3000/api/channels/shopify/callback`  
-4. Under **Client credentials**, copy:
-   - **Client ID** → `SHOPIFY_API_KEY`
-   - **Client secret** → `SHOPIFY_API_SECRET`  
-5. Request these **Admin API scopes**:
-   - `read_products`, `write_products`
-   - `read_inventory`, `write_inventory`
-   - `read_orders`  
-6. If lots of random merchants will install your app, plan for **Shopify’s app review** process.
+### Shared
+- [ ] [Vercel env vars](https://vercel.com/docs/projects/environment-variables): `ENCRYPTION_KEY`, `CRON_SECRET`, `NEXTAUTH_SECRET`
+- [ ] DB migrations deployed
+- [ ] Cron `sync-channels` every 15 min
+- [ ] Policies reviewed
 
----
+### Etsy — [your-apps](https://www.etsy.com/developers/your-apps)
+- [ ] App + commercial access
+- [ ] Callback: `https://www.inwcommunity.com/api/channels/etsy/callback`
+- [ ] `ETSY_API_KEY`, `ETSY_CLIENT_SECRET`, `ETSY_REDIRECT_URI`
+- [ ] Redeploy + test
 
-### Step E2 — Paste Shopify keys into Vercel
+### eBay — [keys](https://developer.ebay.com/my/keys) + [RuNames](https://developer.ebay.com/my/auth/?env=production&index=0)
+- [ ] Production keyset
+- [ ] RuName auth URL = callback above
+- [ ] `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_RUNAME`
+- [ ] Redeploy + test
 
-| Paste this name | Required? | What to put in the box |
-|-----------------|-----------|-------------------------|
-| `SHOPIFY_API_KEY` | **Yes** | Client ID from Partner dashboard. |
-| `SHOPIFY_API_SECRET` | **Yes** | Client secret. |
-| `SHOPIFY_API_VERSION` | No | API version; default is `2024-10`. |
-| `SHOPIFY_REDIRECT_URI` | No | Only to override callback; default is `{your site}/api/channels/shopify/callback`. |
-| `SHOPIFY_DEFAULT_LOCATION_ID` | No | For shops with many warehouse locations. |
+### Wix — [dev.wix.com](https://dev.wix.com/)
+- [ ] App + permissions + install callback
+- [ ] `WIX_APP_ID`, `WIX_APP_SECRET`
+- [ ] Redeploy + test install
 
-Redeploy.
-
----
-
-### Step E3 — Tell Shopify sellers what to do in the app
-
-Before they tap **Connect Shopify**, they type their shop name:
-- `mystore` **or** `mystore.myshopify.com`
-
-Their store needs:
-- **Online Store** channel  
-- **Inventory tracking** turned on for products  
-
-One Shopify shop per INW account (same rule as other marketplaces).
+### Shopify — [partners.shopify.com](https://partners.shopify.com/)
+- [ ] App + redirect URL + scopes
+- [ ] `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`
+- [ ] Redeploy + test with shop domain
 
 ---
 
-### Step E4 — Test Shopify
+## Callback URLs (copy-paste into each portal)
 
-1. Enter shop domain → **Connect Shopify** → approve in Shopify → “Connected”.
-2. **Import** one product.
-3. **Create/edit** on INW — check Shopify product and quantity.
-4. **Sell on Shopify** — within ~15 min, INW quantity drops.
-5. **Sell on INW** — Shopify inventory drops.
-6. **Disconnect** — Shopify products stay; syncing stops.
-
-**v1 limits:** One variant per product. Cron-only sales. Images from URLs (best effort). Multi-location shops: set `SHOPIFY_DEFAULT_LOCATION_ID` if needed.
+| Store | Register this exact URL |
+|-------|-------------------------|
+| Etsy | `https://www.inwcommunity.com/api/channels/etsy/callback` |
+| eBay (RuName **auth accepted URL** only) | `https://www.inwcommunity.com/api/channels/ebay/callback` |
+| Wix (External install / redirect) | `https://www.inwcommunity.com/api/channels/wix/callback` |
+| Shopify (Allowed redirection) | `https://www.inwcommunity.com/api/channels/shopify/callback` |
 
 ---
 
-## Cheat sheet — copy into Vercel
+## Cheat sheet — paste into Vercel
 
-Fill in the `=` parts after you create each app. **Don’t** re-add `ENCRYPTION_KEY`, `CRON_SECRET`, or `NEXTAUTH_SECRET` if you already have them.
-
-```
-# Etsy
+```env
+# Etsy — https://www.etsy.com/developers/your-apps
 ETSY_API_KEY=
 ETSY_CLIENT_SECRET=
 ETSY_REDIRECT_URI=https://www.inwcommunity.com/api/channels/etsy/callback
 
-# eBay (production only)
+# eBay — https://developer.ebay.com/my/keys
 EBAY_CLIENT_ID=
 EBAY_CLIENT_SECRET=
 EBAY_RUNAME=
 
-# Wix
+# Wix — https://dev.wix.com/
 WIX_APP_ID=
 WIX_APP_SECRET=
 WIX_REDIRECT_URI=https://www.inwcommunity.com/api/channels/wix/callback
 
-# Shopify
+# Shopify — https://partners.shopify.com/
 SHOPIFY_API_KEY=
 SHOPIFY_API_SECRET=
 SHOPIFY_REDIRECT_URI=https://www.inwcommunity.com/api/channels/shopify/callback
 ```
 
-**Optional extras** (only if you need them):
+**Optional extras:**
 
-```
+```env
 ETSY_CLIENT_ID=
 ETSY_WEBHOOK_SECRET=
 ETSY_DEFAULT_TAXONOMY_ID=
-
 EBAY_DEFAULT_CATEGORY_ID=
-
 WIX_DEFAULT_LOCATION_ID=
-
 SHOPIFY_API_VERSION=
 SHOPIFY_DEFAULT_LOCATION_ID=
 ```
 
+Do **not** change `ENCRYPTION_KEY`, `CRON_SECRET`, or `NEXTAUTH_SECRET` if they are already set.
+
 ---
 
-## Quick recap (the whole journey)
+## Common mistakes
 
-| # | What you do |
-|---|-------------|
-| 1 | Confirm `ENCRYPTION_KEY`, `CRON_SECRET`, `NEXTAUTH_SECRET` exist in Vercel. |
-| 2 | Deploy so database migrations + 15-min cron are live. |
-| 3 | For each store: sign up as developer → copy keys → paste in Vercel → **redeploy**. |
-| 4 | Tell sellers the simple rules (shipping profile, eBay policies, Wix Stores app, Shopify domain). |
-| 5 | Connect a test shop in the app and run through import → edit → sell both ways → disconnect. |
-| 6 | Review Terms/Privacy; export PDFs if you use them. |
+| Mistake | Fix |
+|---------|-----|
+| Etsy connect fails “redirect mismatch” | `ETSY_REDIRECT_URI` must match Etsy portal **exactly** |
+| eBay connect fails | `EBAY_RUNAME` must be the **RuName string**, not the callback URL |
+| Used eBay **Sandbox** keys | Use **Production** keyset only |
+| Keys added in Vercel but connect still fails | **Redeploy** main app after saving env vars |
+| Wix install doesn’t return to app | Callback must be `https://www.inwcommunity.com/api/channels/wix/callback` |
+| Shopify “redirect_uri mismatch” | Allowed redirection URL in Partners must match our callback |
+| Sales slow to show in INW | Normal without webhooks — wait up to **15 minutes** for cron |
 
-That’s it. The code does the hard part — you’re just handing it the keys and checking that it works once.
+---
+
+**Workflow in one sentence:** Open the portal link → follow numbered steps → copy keys into the matching Vercel names → redeploy → test in **Seller Hub → Sync Stores**.

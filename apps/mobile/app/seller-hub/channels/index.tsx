@@ -184,7 +184,6 @@ export default function ChannelsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Sync Stores</Text>
       <Text style={styles.hint}>
         List once on INW and keep your items and inventory in sync across marketplaces. A sale on any
         connected store reduces stock everywhere.
@@ -311,7 +310,6 @@ export default function ChannelsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 20, paddingBottom: 40 },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: theme.colors.heading },
   hint: { fontSize: 14, color: "#666", marginBottom: 20 },
   spinner: { marginVertical: 16 },
   card: {
