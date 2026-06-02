@@ -9,6 +9,7 @@ import {
   Alert,
   Platform,
   FlatList,
+  Dimensions,
   type ListRenderItemInfo,
   type ViewToken,
 } from "react-native";
@@ -27,6 +28,7 @@ import {
   type FeedPost,
 } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
+import { prefetchImages } from "@/components/AppImage";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { CouponPopup } from "@/components/CouponPopup";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
@@ -61,6 +63,14 @@ export default function CommunityScreen() {
   const [feedVisiblePostIds, setFeedVisiblePostIds] = useState<Set<string>>(new Set());
   const [feedViewabilityReady, setFeedViewabilityReady] = useState(false);
   const [pendingIncomingFriendRequests, setPendingIncomingFriendRequests] = useState(0);
+
+  // Warm the image cache for the first photo of each loaded post so they
+  // appear instantly as the user scrolls.
+  useEffect(() => {
+    if (posts.length === 0) return;
+    const firstPhotos = posts.map((p) => p.photos?.[0]).filter(Boolean) as string[];
+    prefetchImages(firstPhotos, { targetWidth: Dimensions.get("window").width });
+  }, [posts]);
   const loadPendingFriendRequests = useCallback(() => {
     if (signedIn === false) {
       setPendingIncomingFriendRequests(0);

@@ -32,6 +32,7 @@ import {
   newOptimisticMessageId,
 } from "@/lib/chat-live-types";
 import { useAuth } from "@/contexts/AuthContext";
+import { AppImage } from "@/components/AppImage";
 import { normalizeRouteParam } from "@/lib/normalize-route-param";
 import { useChatBottomPullRefresh } from "@/lib/use-chat-bottom-pull-refresh";
 import { setOpenChatConversationId } from "@/lib/chat-notification-suppression";
@@ -1018,7 +1019,7 @@ export default function DirectConversationScreen() {
         </Pressable>
         <View style={styles.headerCenter}>
           {otherPhoto ? (
-            <Image source={{ uri: otherPhoto }} style={styles.headerAvatar} />
+            <AppImage uri={otherPhoto} targetWidth={40} style={styles.headerAvatar} resizeMode="cover" />
           ) : (
             <View style={[styles.headerAvatar, styles.avatarPlaceholder]}>
               <Ionicons name="person" size={20} color={theme.colors.placeholder} />
@@ -1195,7 +1196,7 @@ export default function DirectConversationScreen() {
                     <Ionicons name={cornerIcon} size={18} color="#111" />
                   </View>
                   {heroUri ? (
-                    <Image source={{ uri: heroUri }} style={styles.sharedChatLinkHero} resizeMode="cover" />
+                    <AppImage uri={heroUri} targetWidth={72} style={styles.sharedChatLinkHero} resizeMode="cover" />
                   ) : (
                     <View style={[styles.sharedChatLinkHero, styles.sharedChatLinkHeroPlaceholder]}>
                       <Ionicons name={heroPlaceholderIcon} size={28} color="#888" />
@@ -1224,8 +1225,9 @@ export default function DirectConversationScreen() {
                 delayPressIn={0}
               >
                 {hasPhotoAttachment && (
-                  <Image
-                    source={{ uri: photoUri ?? undefined }}
+                  <AppImage
+                    uri={photoUri}
+                    targetWidth={200}
                     style={styles.sharedPhoto}
                     resizeMode="cover"
                   />

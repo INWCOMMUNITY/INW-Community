@@ -4,7 +4,6 @@ import {
   View,
   Text,
   ScrollView,
-  Image,
   Pressable,
   ActivityIndicator,
   Alert,
@@ -19,6 +18,7 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { AppImage } from "@/components/AppImage";
 import { getBadgeIcon } from "@/lib/badge-icons";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -397,7 +397,7 @@ export default function MemberProfileScreen() {
         <View style={styles.profileBlock}>
           <View style={styles.profileRow}>
             {profile.profilePhotoUrl ? (
-              <Image source={{ uri: resolveUrl(profile.profilePhotoUrl) ?? profile.profilePhotoUrl }} style={styles.avatar} />
+              <AppImage uri={profile.profilePhotoUrl} targetWidth={80} style={styles.avatar} resizeMode="cover" />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarInitials}>
@@ -548,9 +548,11 @@ export default function MemberProfileScreen() {
                         }}
                         hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                       >
-                        <Image
-                          source={{ uri: resolveUrl(item.post.photos?.[0]) ?? item.post.photos?.[0] }}
+                        <AppImage
+                          uri={item.post.photos?.[0]}
+                          targetWidth={CELL_SIZE}
                           style={styles.photoCellImage}
+                          resizeMode="cover"
                         />
                       </TouchableOpacity>
                     ) : (
@@ -600,7 +602,7 @@ export default function MemberProfileScreen() {
                     onPress={() => router.push(`/business/${b.slug}`)}
                   >
                     {logoUri ? (
-                      <Image source={{ uri: logoUri }} style={styles.businessPreviewImage} resizeMode="cover" />
+                      <AppImage uri={logoUri} targetWidth={96} style={styles.businessPreviewImage} resizeMode="cover" />
                     ) : (
                       <View style={[styles.businessPreviewImage, styles.businessLogoPlaceholder]}>
                         <Text style={styles.businessLogoText}>{b.name[0]}</Text>

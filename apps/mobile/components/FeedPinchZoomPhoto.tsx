@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import type { MutableRefObject } from "react";
 import { FeedPinchZoomGalleryPage } from "@/components/FeedPinchZoomGalleryPage";
+import { AppImage } from "@/components/AppImage";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Gesture,
@@ -894,8 +895,9 @@ export function FeedPinchZoomPhoto({
       >
         <GestureDetector gesture={thumbThumbnailGestures}>
           <View style={{ width: thumbWidth, height: thumbHeight }}>
-            <Image
-              source={{ uri }}
+            <AppImage
+              uri={uri}
+              targetWidth={thumbWidth}
               style={{ width: thumbWidth, height: thumbHeight }}
               resizeMode="contain"
             />

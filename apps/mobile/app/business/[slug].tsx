@@ -3,7 +3,6 @@ import {
   StyleSheet,
   View,
   Text,
-  Image,
   Pressable,
   ActivityIndicator,
   Linking,
@@ -14,7 +13,6 @@ import {
   FlatList,
 } from "react-native";
 import { ScrollView as GHScrollView } from "react-native-gesture-handler";
-import { Image as ExpoImage } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,6 +22,7 @@ import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { CouponPopup } from "@/components/CouponPopup";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { AppImage } from "@/components/AppImage";
 import { useAuth, type Member } from "@/contexts/AuthContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
 import { fetchBusinessFeed, toggleLike, deletePost, type FeedPost } from "@/lib/feed-api";
@@ -112,48 +111,16 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
   feedPostsEmpty,
   androidGalleryTruncationHint,
 }: BusinessListingHeaderProps) {
+  const [aboutExpanded, setAboutExpanded] = useState(true);
   return (
     <>
-      {member && (
-        <View style={styles.topActions}>
-          <Pressable
-            onPress={onSaveToggle}
-            disabled={saving}
-            style={({ pressed }) => [styles.topActionBtn, pressed && { opacity: 0.8 }]}
-          >
-            <Ionicons
-              name={saved ? "heart" : "heart-outline"}
-              size={26}
-              color={theme.colors.primary}
-            />
-          </Pressable>
-          <Pressable
-            onPress={onSharePress}
-            style={({ pressed }) => [styles.topActionBtn, pressed && { opacity: 0.8 }]}
-          >
-            <Ionicons name="share-outline" size={26} color={theme.colors.primary} />
-          </Pressable>
-        </View>
-      )}
       <View style={styles.hero}>
         <Text style={styles.name}>{business.name}</Text>
-        {addressDisplay ? (
-          <Pressable
-            style={styles.addressRow}
-            onPress={() => void openAddressInMaps(addressDisplay)}
-          >
-            <Ionicons name="location" size={18} color={theme.colors.primary} />
-            <Text style={styles.addressText} numberOfLines={2}>
-              {addressDisplay}
-            </Text>
-            <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
-          </Pressable>
-        ) : null}
       </View>
 
       <View style={styles.logoSection}>
         {logoUrl ? (
-          <Image source={{ uri: logoUrl }} style={styles.logo} />
+          <AppImage uri={logoUrl} targetWidth={220} style={styles.logo} resizeMode="cover" />
         ) : (
           <View style={[styles.logo, styles.logoPlaceholder]}>
             <Ionicons name="business" size={48} color={theme.colors.primary} />
@@ -161,20 +128,50 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
         )}
       </View>
 
-      {hasHours && hours && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Hours of Operation</Text>
-          {DAY_ORDER.map((day) => {
-            const val = hours[day];
-            if (!val) return null;
-            return (
-              <View key={day} style={styles.hoursRow}>
-                <Text style={styles.hoursDay}>{day.charAt(0).toUpperCase() + day.slice(1)}</Text>
-                <Text style={styles.hoursVal}>{val}</Text>
-              </View>
-            );
-          })}
+      {member && (
+        <View style={styles.actionSection}>
+          <View style={styles.actionDivider} />
+          <View style={styles.actionRow}>
+            <Pressable
+              onPress={onSaveToggle}
+              disabled={saving}
+              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.85 }]}
+            >
+              <Ionicons
+                name={saved ? "heart" : "heart-outline"}
+                size={20}
+                color={theme.colors.primary}
+              />
+              <Text style={styles.actionBtnText}>{saved ? "Saved" : "Save Business"}</Text>
+            </Pressable>
+            <Pressable
+              onPress={onSharePress}
+              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.85 }]}
+            >
+              <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
+              <Text style={styles.actionBtnText}>Share Business</Text>
+            </Pressable>
+          </View>
+          <View style={styles.actionDivider} />
         </View>
+      )}
+
+      {hasHours && hours && (
+        <>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Hours of Operation</Text>
+            {DAY_ORDER.map((day) => {
+              const val = hours[day];
+              if (!val) return null;
+              return (
+                <View key={day} style={styles.hoursRow}>
+                  <Text style={styles.hoursDay}>{day.charAt(0).toUpperCase() + day.slice(1)}</Text>
+                  <Text style={styles.hoursVal}>{val}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </>
       )}
 
       <View style={styles.section}>
@@ -198,33 +195,66 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
           </Pressable>
         ) : null}
       </View>
+      <View style={styles.sectionDivider} />
 
       {addressDisplay ? (
-        <Pressable style={styles.mapBtn} onPress={() => void openAddressInMaps(addressDisplay)}>
-          <Ionicons name="map" size={20} color="#fff" />
-          <Text style={styles.mapBtnText}>Open in Maps</Text>
-        </Pressable>
+        <>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Location</Text>
+            <View style={styles.contactRow}>
+              <Ionicons name="location" size={18} color={theme.colors.primary} />
+              <Text style={styles.contactText}>{addressDisplay}</Text>
+            </View>
+          </View>
+          <Pressable style={styles.mapBtn} onPress={() => void openAddressInMaps(addressDisplay)}>
+            <Ionicons name="map" size={20} color="#fff" />
+            <Text style={styles.mapBtnText}>Open in Maps</Text>
+          </Pressable>
+          <View style={styles.sectionDivider} />
+        </>
       ) : null}
 
-      {business.shortDescription ? (
+      {business.shortDescription || business.fullDescription ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About</Text>
-          <Text style={styles.description}>{business.shortDescription}</Text>
-        </View>
-      ) : null}
-
-      {business.fullDescription ? (
-        <View style={styles.section}>
-          <Text style={styles.description}>{business.fullDescription}</Text>
+          <Pressable
+            style={styles.collapsibleHeader}
+            onPress={() => setAboutExpanded((v) => !v)}
+          >
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>About</Text>
+            <Ionicons
+              name={aboutExpanded ? "chevron-up" : "chevron-down"}
+              size={20}
+              color={theme.colors.primary}
+            />
+          </Pressable>
+          {aboutExpanded ? (
+            <>
+              {business.shortDescription ? (
+                <Text style={styles.description}>{business.shortDescription}</Text>
+              ) : null}
+              {business.fullDescription ? (
+                <Text
+                  style={[
+                    styles.description,
+                    business.shortDescription ? { marginTop: 12 } : null,
+                  ]}
+                >
+                  {business.fullDescription}
+                </Text>
+              ) : null}
+            </>
+          ) : null}
         </View>
       ) : null}
 
       {galleryUrls.length > 0 && (
-        <View
-          style={styles.section}
-          {...(Platform.OS === "android" ? { collapsable: false } : {})}
-        >
-          <Text style={styles.sectionTitle}>Gallery</Text>
+        <>
+          <View style={styles.sectionDivider} />
+          <View
+            style={styles.section}
+            {...(Platform.OS === "android" ? { collapsable: false } : {})}
+          >
+            <Text style={styles.sectionTitle}>Gallery</Text>
           {androidGalleryTruncationHint ? (
             <Text style={styles.galleryAndroidHint}>{androidGalleryTruncationHint}</Text>
           ) : null}
@@ -246,17 +276,13 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
                 unstable_pressDelay={60}
                 onPress={() => onGalleryOpenIndex(index)}
               >
-                {Platform.OS === "android" ? (
-                  <ExpoImage
-                    source={{ uri }}
-                    style={styles.galleryImage}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    recyclingKey={uri}
-                  />
-                ) : (
-                  <Image source={{ uri }} style={styles.galleryImage} resizeMode="cover" />
-                )}
+                <AppImage
+                  uri={uri}
+                  targetWidth={280}
+                  style={styles.galleryImage}
+                  resizeMode="cover"
+                  recyclingKey={uri}
+                />
               </Pressable>
             ))}
           </GHScrollView>
@@ -266,7 +292,8 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
             initialIndex={galleryIndex}
             onClose={onGalleryClose}
           />
-        </View>
+          </View>
+        </>
       )}
 
       {business.coupons && business.coupons.length > 0 && (
@@ -285,8 +312,9 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
         </View>
       )}
 
+      <View style={styles.sectionDivider} />
       <View style={styles.feedSection}>
-        <Text style={styles.sectionTitle}>Community posts</Text>
+        <Text style={styles.sectionTitle}>Community Posts</Text>
         <Text style={styles.feedHint}>
           Posts that share this business or its coupons and rewards on the community feed.
         </Text>
@@ -838,21 +866,50 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 48,
   },
-  topActions: {
+  actionSection: {
+    marginBottom: 24,
+  },
+  actionDivider: {
+    height: 2,
+    backgroundColor: theme.colors.primary,
+  },
+  sectionDivider: {
+    height: 2,
+    backgroundColor: theme.colors.primary,
+    marginBottom: 24,
+  },
+  collapsibleHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 0,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    gap: 8,
+    marginBottom: 12,
   },
-  topActionBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+  actionRow: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+  },
+  actionBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
   hero: {
     padding: 16,
+    paddingTop: 32,
     alignItems: "center",
   },
   name: {
@@ -875,7 +932,8 @@ const styles = StyleSheet.create({
   },
   logoSection: {
     alignItems: "center",
-    paddingVertical: 16,
+    paddingTop: 16,
+    paddingBottom: 32,
   },
   logo: {
     width: 220,

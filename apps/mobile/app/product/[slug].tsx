@@ -4,7 +4,6 @@ import {
   View,
   Text,
   ScrollView,
-  Image,
   Pressable,
   ActivityIndicator,
   Alert,
@@ -33,6 +32,7 @@ import {
   type PickupDetails,
 } from "@/components/PickupTermsModal";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { AppImage } from "@/components/AppImage";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -595,7 +595,7 @@ export default function ProductScreen() {
                     }}
                   >
                     {url ? (
-                      <Image source={{ uri: url }} style={styles.galleryImage} resizeMode="contain" />
+                      <AppImage uri={url} targetWidth={width} style={styles.galleryImage} resizeMode="contain" />
                     ) : (
                       <View style={[styles.galleryImage, styles.placeholder]}>
                         <Ionicons name="image-outline" size={48} color={theme.colors.primary} />
@@ -814,9 +814,11 @@ export default function ProductScreen() {
               </View>
               <View style={styles.sellerCardBody}>
                 {item.business.logoUrl ? (
-                  <Image
-                    source={{ uri: resolvePhotoUrl(item.business.logoUrl) }}
+                  <AppImage
+                    uri={item.business.logoUrl}
+                    targetWidth={72}
                     style={styles.storeLogo}
+                    resizeMode="cover"
                   />
                 ) : null}
                 <Text style={styles.storeName}>{item.business.name || "—"}</Text>

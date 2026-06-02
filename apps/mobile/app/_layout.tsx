@@ -36,6 +36,8 @@ import {
 } from 'expo-av';
 import { PushNotificationHandler } from '@/components/PushNotificationHandler';
 import { EventInvitePopupHost } from '@/components/EventInvitePopupHost';
+import { WelcomeGalleryProvider } from '@/contexts/WelcomeGalleryContext';
+import { WelcomeGalleryHost } from '@/components/WelcomeGalleryHost';
 import { theme } from '@/lib/theme';
 import { CreatePostProvider } from '@/contexts/CreatePostContext';
 import { CreatePostModalHost } from '@/components/CreatePostModalHost';
@@ -336,11 +338,13 @@ function RootLayoutNav() {
       <AuthProvider>
       <GuestRouteGuard>
       <EventInvitePopupSuppressionProvider>
+      <WelcomeGalleryProvider>
       <AuthDeepLinkHandler />
       <StripeConnectDeepLinkHandler />
       <ReferralDeepLinkHandler />
       <PushNotificationHandler />
       <EventInvitePopupHost />
+      <WelcomeGalleryHost />
       <CreatePostProvider>
       <ProfileViewLayout>
       <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
@@ -359,6 +363,7 @@ function RootLayoutNav() {
     </NavThemeProvider>
     </ProfileViewLayout>
     </CreatePostProvider>
+    </WelcomeGalleryProvider>
     </EventInvitePopupSuppressionProvider>
     </GuestRouteGuard>
     </AuthProvider>

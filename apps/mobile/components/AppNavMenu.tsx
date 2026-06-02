@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { useProfileView } from "@/contexts/ProfileViewContext";
+import { useWelcomeGallery } from "@/contexts/WelcomeGalleryContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
@@ -41,6 +42,7 @@ export function AppNavMenu({ visible, onClose, hasSeller }: AppNavMenuProps) {
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const { setProfileView, hasBusinessHub } = useProfileView();
+  const welcomeGallery = useWelcomeGallery();
 
   const handleNav = (view: "profile" | "business_hub" | "seller_hub") => {
     onClose();
@@ -134,6 +136,14 @@ export function AppNavMenu({ visible, onClose, hasSeller }: AppNavMenuProps) {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Northwest Community:</Text>
               <View style={styles.divider} />
+              <MenuRow
+                icon="sparkles-outline"
+                label="Welcome"
+                onPress={() => {
+                  onClose();
+                  welcomeGallery?.openWelcome();
+                }}
+              />
               <MenuRow
                 icon="share-social-outline"
                 label="Share App"

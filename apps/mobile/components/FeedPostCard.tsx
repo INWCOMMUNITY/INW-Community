@@ -42,6 +42,7 @@ import {
   FeedPinchZoomPhoto,
   type FeedGalleryPhotoEntry,
 } from "@/components/FeedPinchZoomPhoto";
+import { AppImage, prefetchImages } from "@/components/AppImage";
 import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
 import { formatTime12h } from "@/lib/format-time";
 import { Video, ResizeMode, type VideoReadyForDisplayEvent } from "expo-av";
@@ -407,8 +408,9 @@ export function FeedPostCard({
         >
           {businessAsAuthor ? (
             businessAsAuthor.logoUrl ? (
-              <Image
-                source={{ uri: resolveUri(businessAsAuthor.logoUrl) }}
+              <AppImage
+                uri={businessAsAuthor.logoUrl}
+                targetWidth={48}
                 style={styles.avatar}
                 resizeMode="cover"
               />
@@ -418,8 +420,9 @@ export function FeedPostCard({
               </View>
             )
           ) : post.author.profilePhotoUrl ? (
-            <Image
-              source={{ uri: resolveUri(post.author.profilePhotoUrl) }}
+            <AppImage
+              uri={post.author.profilePhotoUrl}
+              targetWidth={48}
               style={styles.avatar}
               resizeMode="cover"
             />
@@ -612,8 +615,9 @@ export function FeedPostCard({
               {stripHtml(post.sourceBlog.body).slice(0, 150)}…
             </Text>
             {post.sourceBlog.photos?.[0] && (
-              <Image
-                source={{ uri: resolveUri(post.sourceBlog.photos[0]) }}
+              <AppImage
+                uri={post.sourceBlog.photos[0]}
+                targetWidth={width}
                 style={[styles.sourceImage, { height: IMAGE_SIZE }]}
                 resizeMode="cover"
               />
@@ -671,8 +675,9 @@ export function FeedPostCard({
         >
           <View style={styles.sourceRow}>
             {post.sourceStoreItem.photos?.[0] && (
-              <Image
-                source={{ uri: resolveUri(post.sourceStoreItem.photos[0]) }}
+              <AppImage
+                uri={post.sourceStoreItem.photos[0]}
+                targetWidth={64}
                 style={styles.sourceLogo}
                 resizeMode="cover"
               />
@@ -698,8 +703,9 @@ export function FeedPostCard({
         >
           <View style={styles.sourceRow}>
             {post.sourceEvent.photos?.[0] ? (
-              <Image
-                source={{ uri: resolveUri(post.sourceEvent.photos[0]) }}
+              <AppImage
+                uri={post.sourceEvent.photos[0]}
+                targetWidth={64}
                 style={styles.sourceLogo}
                 resizeMode="cover"
               />
@@ -782,8 +788,9 @@ export function FeedPostCard({
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
                     {nestedBiz ? (
                       nestedBiz.logoUrl ? (
-                        <Image
-                          source={{ uri: resolveUri(nestedBiz.logoUrl) }}
+                        <AppImage
+                          uri={nestedBiz.logoUrl}
+                          targetWidth={40}
                           style={styles.nestedAvatar}
                           resizeMode="cover"
                         />
@@ -793,8 +800,9 @@ export function FeedPostCard({
                         </View>
                       )
                     ) : sourceAuthor?.profilePhotoUrl ? (
-                      <Image
-                        source={{ uri: resolveUri(sourceAuthor.profilePhotoUrl) }}
+                      <AppImage
+                        uri={sourceAuthor.profilePhotoUrl}
+                        targetWidth={40}
                         style={styles.nestedAvatar}
                         resizeMode="cover"
                       />
@@ -869,8 +877,9 @@ export function FeedPostCard({
                       {stripHtml(sourcePost.sourceBlog.body).slice(0, 150)}…
                     </Text>
                     {sourcePost.sourceBlog.photos?.[0] ? (
-                      <Image
-                        source={{ uri: resolveUri(sourcePost.sourceBlog.photos[0]) }}
+                      <AppImage
+                        uri={sourcePost.sourceBlog.photos[0]}
+                        targetWidth={width}
                         style={[styles.sourceImage, { height: IMAGE_SIZE }]}
                         resizeMode="cover"
                       />
@@ -900,8 +909,9 @@ export function FeedPostCard({
                   <View style={{ marginTop: 10 }}>
                     <View style={styles.sourceRow}>
                       {sourcePost.sourceStoreItem.photos?.[0] ? (
-                        <Image
-                          source={{ uri: resolveUri(sourcePost.sourceStoreItem.photos[0]) }}
+                        <AppImage
+                          uri={sourcePost.sourceStoreItem.photos[0]}
+                          targetWidth={64}
                           style={styles.sourceLogo}
                           resizeMode="cover"
                         />
@@ -920,8 +930,9 @@ export function FeedPostCard({
                   <View style={{ marginTop: 10 }}>
                     <View style={styles.sourceRow}>
                       {sourcePost.sourceEvent.photos?.[0] ? (
-                        <Image
-                          source={{ uri: resolveUri(sourcePost.sourceEvent.photos[0]) }}
+                        <AppImage
+                          uri={sourcePost.sourceEvent.photos[0]}
+                          targetWidth={64}
                           style={styles.sourceLogo}
                           resizeMode="cover"
                         />
@@ -1015,8 +1026,9 @@ export function FeedPostCard({
                             accessibilityRole="button"
                             accessibilityLabel="View original post"
                           >
-                            <Image
-                              source={{ uri: resolveUri(item.url) }}
+                            <AppImage
+                              uri={item.url}
+                              targetWidth={nestedSlideW}
                               style={[
                                 styles.photoCarouselImage,
                                 { width: nestedSlideW, height: nestedSlideH },

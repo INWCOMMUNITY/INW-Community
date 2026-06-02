@@ -4,7 +4,6 @@ import {
   View,
   Text,
   ScrollView,
-  Image,
   Pressable,
   ActivityIndicator,
   useWindowDimensions,
@@ -17,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
+import { AppImage } from "@/components/AppImage";
 import { useAuth } from "@/contexts/AuthContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -188,7 +188,7 @@ export default function SellerStorefrontScreen() {
       {/* Cover + Logo */}
       <View style={styles.coverWrap}>
         {coverUrl ? (
-          <Image source={{ uri: coverUrl }} style={styles.cover} resizeMode="cover" />
+          <AppImage uri={coverUrl} targetWidth={width} style={styles.cover} resizeMode="cover" />
         ) : (
           <View style={[styles.cover, styles.coverPlaceholder]}>
             <Ionicons name="storefront" size={64} color="rgba(0,0,0,0.2)" />
@@ -196,7 +196,7 @@ export default function SellerStorefrontScreen() {
         )}
         <View style={styles.logoOverlay}>
           {logoUrl ? (
-            <Image source={{ uri: logoUrl }} style={styles.logo} resizeMode="cover" />
+            <AppImage uri={logoUrl} targetWidth={96} style={styles.logo} resizeMode="cover" />
           ) : (
             <View style={[styles.logo, styles.logoPlaceholder]}>
               <Ionicons name="business" size={48} color={theme.colors.primary} />
@@ -300,8 +300,9 @@ export default function SellerStorefrontScreen() {
                 >
                   <View style={styles.productImageWrap}>
                     {photoUrl ? (
-                      <Image
-                        source={{ uri: resolveUrl(photoUrl) ?? photoUrl }}
+                      <AppImage
+                        uri={photoUrl}
+                        targetWidth={cardWidth}
                         style={styles.productImage}
                         resizeMode="cover"
                       />

@@ -6,7 +6,6 @@ import {
   TextInput,
   Pressable,
   FlatList,
-  Image,
   ActivityIndicator,
   RefreshControl,
   useWindowDimensions,
@@ -26,6 +25,7 @@ import {
   type DeliveryFilter,
   type BrowseCategoryRow,
 } from "@/components/StoreFilterDrawer";
+import { AppImage, prefetchImages } from "@/components/AppImage";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const HEADER_LIST_GAP = 16;
@@ -161,6 +161,14 @@ export default function StoreScreen() {
     [condition, search, category, subcategory, size, deliveryFilter]
   );
 
+  // Warm the image cache for every grid item's first photo so thumbnails
+  // appear instantly as the user scrolls the storefront.
+  useEffect(() => {
+    if (items.length === 0) return;
+    const photos = items.map((it) => it.photos?.[0]).filter(Boolean) as string[];
+    prefetchImages(photos, { targetWidth: cardWidth, quality: 55 });
+  }, [items, cardWidth]);
+
   const loadMeta = useCallback(() => {
     const params = new URLSearchParams({ list: "meta" });
     apiGet<{
@@ -244,7 +252,7 @@ export default function StoreScreen() {
       >
         <View style={styles.cardImageWrap}>
           {photoUrl ? (
-            <Image source={{ uri: photoUrl }} style={styles.cardImage} resizeMode="cover" />
+            <AppImage uri={photoUrl} targetWidth={cardWidth} quality={55} style={styles.cardImage} resizeMode="cover" />
           ) : (
             <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
               <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
@@ -371,15 +379,9 @@ export default function StoreScreen() {
                   </Pressable>
                 ))}
               </View>
-              <Pressable
-                style={({ pressed }) => [styles.cartBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => router.push("/cart")}
-              >
-                <Ionicons name="cart-outline" size={24} color="#fff" />
-              </Pressable>
             </View>
             <View style={styles.introBlock}>
-              <Text style={styles.introTitle}>NWC Storefront</Text>
+              <Text style={styles.introTitle}>INW Local Shopping</Text>
               <Text style={styles.introParagraph}>
                 Eastern Washington and North Idaho local goods. Shop local without losing the comfort of shopping from home!
               </Text>
@@ -472,6 +474,14 @@ export default function StoreScreen() {
           }
         />
       )}
+
+      <Pressable
+        style={({ pressed }) => [styles.cartFab, pressed && { opacity: 0.85 }]}
+        onPress={() => router.push("/cart")}
+        accessibilityLabel="Open cart"
+      >
+        <Ionicons name="cart-outline" size={26} color="#fff" />
+      </Pressable>
     </View>
   );
 }
@@ -505,7 +515,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   conditionTabs: {
     flex: 1,
@@ -513,8 +523,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  cartBtn: {
-    padding: 8,
+  cartFab: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.primary,
+    borderWidth: 2,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 6,
+    zIndex: 20,
   },
   segmentBtn: {
     flex: 1,

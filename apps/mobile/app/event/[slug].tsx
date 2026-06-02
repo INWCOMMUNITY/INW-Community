@@ -1351,9 +1351,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   detailValue: {
-    fontSize: 17,
+    fontSize: 15,
     color: theme.colors.text,
-    lineHeight: 24,
+    lineHeight: 21,
   },
   /** Slightly smaller than other detail lines */
   detailDateTimeValue: {
@@ -1375,7 +1375,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   descToggleText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "600",
     color: theme.colors.primary,
   },
