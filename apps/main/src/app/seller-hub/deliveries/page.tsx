@@ -55,8 +55,8 @@ export default function MyDeliveriesPage() {
     fetch("/api/store-orders?mine=1")
       .then((r) => r.json())
       .then((data: OrderWithDelivery[]) => {
-        const withDelivery = (Array.isArray(data) ? data : []).filter(
-          (o) => o.localDeliveryDetails != null && typeof o.localDeliveryDetails === "object"
+        const withDelivery = (Array.isArray(data) ? data : []).filter((o) =>
+          o.items.some((i) => (i.fulfillmentType ?? "") === "local_delivery")
         );
         setOrders(withDelivery);
       })

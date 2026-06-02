@@ -14,6 +14,8 @@ import { ensureWixSiteId, wixSiteIdFromConn } from "./site";
 import {
   buildWixCreateBody,
   buildWixUpdateBody,
+  buildWixV1UpdateBody,
+  isWixProductVisibleOnSite,
   wixProductToSummary,
   wixV1ProductToSummary,
   type WixProduct,
@@ -162,7 +164,7 @@ async function queryAllProductsV1(
       },
       opts
     );
-    const batch = (res.products ?? []).filter((p) => p.id);
+    const batch = (res.products ?? []).filter((p) => p.id && isWixProductVisibleOnSite(p));
     for (const p of batch) {
       const s = wixV1ProductToSummary(p);
       if (s.externalListingId) summaries.push(s);
@@ -217,26 +219,115 @@ function quantityForProduct(items: InventoryItem[]): number {
 }
 
 /** Fallback when Catalog v3 inventory rows are missing (common on classic / v1 catalogs). */
-async function setInventoryViaProductPatch(
+async function setInventoryViaProductPatchV3(
   accessToken: string,
   productId: string,
   quantity: number,
   opts: WixRequestOpts
-): Promise<void> {
-  const product = await getProduct(accessToken, productId, opts);
-  if (!product?.revision) {
-    throw new WixApiError("Wix product not found for inventory update.", 404, null);
+): Promise<boolean> {
+  try {
+    const product = await getProduct(accessToken, productId, opts);
+    if (!product?.revision) return false;
+    const variantId = product.variantsInfo?.variants?.[0]?.id ?? null;
+    const variant: Record<string, unknown> = { inventoryItem: { quantity } };
+    if (variantId) variant.id = variantId;
+    await wixJson(
+      accessToken,
+      `/stores/v3/products/${encodeURIComponent(productId)}`,
+      "PATCH",
+      { product: { revision: product.revision, variantsInfo: { variants: [variant] } } },
+      opts
+    );
+    return true;
+  } catch {
+    return false;
   }
-  const variantId = product.variantsInfo?.variants?.[0]?.id ?? null;
-  const variant: Record<string, unknown> = { inventoryItem: { quantity } };
-  if (variantId) variant.id = variantId;
-  await wixJson(
-    accessToken,
-    `/stores/v3/products/${encodeURIComponent(productId)}`,
-    "PATCH",
-    { product: { revision: product.revision, variantsInfo: { variants: [variant] } } },
-    opts
-  );
+}
+
+/** Classic Wix Stores — Catalog v1 + Inventory v2 (common on Editor sites). */
+async function setInventoryViaStoresV2(
+  accessToken: string,
+  productId: string,
+  quantity: number,
+  opts: WixRequestOpts
+): Promise<boolean> {
+  const qty = Math.max(0, Math.round(quantity));
+  try {
+    let variantId: string | undefined;
+    try {
+      const inv = await wixGet<{
+        inventoryItem?: { variants?: { variantId?: string }[] };
+      }>(
+        accessToken,
+        `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
+        opts
+      );
+      variantId = inv.inventoryItem?.variants?.[0]?.variantId;
+    } catch {
+      /* variant id optional */
+    }
+    await wixJson(
+      accessToken,
+      `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
+      "PATCH",
+      {
+        inventoryItem: {
+          productId,
+          trackQuantity: true,
+          variants: [
+            {
+              ...(variantId ? { variantId } : {}),
+              quantity: qty,
+              inStock: qty > 0,
+            },
+          ],
+        },
+      },
+      opts
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Catalog v1 product PATCH when v3 inventory APIs are unavailable. */
+async function setInventoryViaStoresV1(
+  accessToken: string,
+  productId: string,
+  quantity: number,
+  opts: WixRequestOpts
+): Promise<boolean> {
+  const qty = Math.max(0, Math.round(quantity));
+  const stock = { trackQuantity: true, quantity: qty, inStock: qty > 0 };
+  try {
+    const got = await wixGet<{ product?: WixV1Product }>(
+      accessToken,
+      `/stores/v1/products/${encodeURIComponent(productId)}`,
+      opts
+    );
+    const variantId = got.product?.variants?.[0]?.id;
+    if (variantId) {
+      await wixJson(
+        accessToken,
+        `/stores/v1/products/${encodeURIComponent(productId)}`,
+        "PATCH",
+        { product: { variants: [{ id: variantId, stock }] } },
+        opts
+      );
+    } else {
+      await wixJson(
+        accessToken,
+        `/stores/v1/products/${encodeURIComponent(productId)}`,
+        "PATCH",
+        { product: { stock: { trackInventory: true, quantity: qty, inStock: qty > 0 } } },
+        opts
+      );
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function setInventoryAbsolute(
@@ -250,21 +341,33 @@ async function setInventoryAbsolute(
   let updated = 0;
   for (const item of items) {
     if (!item.id || item.revision == null) continue;
-    await wixJson(
-      accessToken,
-      `/stores/v3/inventory-items/${encodeURIComponent(item.id)}`,
-      "PATCH",
-      {
-        inventoryItem: { id: item.id, revision: item.revision, quantity },
-        reason: "MANUAL",
-      },
-      opts
-    );
-    updated += 1;
+    try {
+      await wixJson(
+        accessToken,
+        `/stores/v3/inventory-items/${encodeURIComponent(item.id)}`,
+        "PATCH",
+        {
+          inventoryItem: { id: item.id, revision: item.revision, quantity },
+          reason: "MANUAL",
+        },
+        opts
+      );
+      updated += 1;
+    } catch {
+      /* try other strategies */
+    }
   }
-  if (updated === 0) {
-    await setInventoryViaProductPatch(accessToken, productId, quantity, opts);
-  }
+  if (updated > 0) return;
+
+  if (await setInventoryViaProductPatchV3(accessToken, productId, quantity, opts)) return;
+  if (await setInventoryViaStoresV2(accessToken, productId, quantity, opts)) return;
+  if (await setInventoryViaStoresV1(accessToken, productId, quantity, opts)) return;
+
+  throw new WixApiError(
+    "Could not update inventory on Wix (tried Catalog v3, Stores v2, and v1).",
+    502,
+    null
+  );
 }
 
 export const wixAdapter: ChannelAdapter = {
@@ -301,21 +404,42 @@ export const wixAdapter: ChannelAdapter = {
   },
 
   async updateListing(conn, externalListingId, item): Promise<void> {
-    const opts = wixOpts(conn);
+    await ensureWixSiteId(conn);
     const productId = externalListingId;
-    const existing = await getProduct(conn.accessToken, productId, opts);
-    if (!existing?.revision) {
-      return;
+    const withSite = wixOpts(conn);
+    const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+    let lastErr: unknown;
+
+    for (const opts of attempts) {
+      try {
+        const existing = await getProduct(conn.accessToken, productId, opts);
+        if (existing?.revision) {
+          const variantId = existing.variantsInfo?.variants?.[0]?.id ?? null;
+          await wixJson(
+            conn.accessToken,
+            `/stores/v3/products/${encodeURIComponent(productId)}`,
+            "PATCH",
+            buildWixUpdateBody(item, existing.revision, variantId),
+            opts
+          );
+          await setInventoryAbsolute(conn.accessToken, productId, item.quantity, opts);
+          return;
+        }
+        await wixJson(
+          conn.accessToken,
+          `/stores/v1/products/${encodeURIComponent(productId)}`,
+          "PATCH",
+          buildWixV1UpdateBody(item),
+          opts
+        );
+        await setInventoryAbsolute(conn.accessToken, productId, item.quantity, opts);
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
     }
-    const variantId = existing.variantsInfo?.variants?.[0]?.id ?? null;
-    await wixJson(
-      conn.accessToken,
-      `/stores/v3/products/${encodeURIComponent(productId)}`,
-      "PATCH",
-      buildWixUpdateBody(item, existing.revision, variantId),
-      opts
-    );
-    await setInventoryAbsolute(conn.accessToken, productId, item.quantity, opts);
+    if (lastErr instanceof Error) throw lastErr;
+    throw new WixApiError("Could not update listing on Wix.", 502, null);
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {
@@ -329,12 +453,19 @@ export const wixAdapter: ChannelAdapter = {
 
   async updateInventory(conn, externalListingId, absoluteQuantity): Promise<void> {
     await ensureWixSiteId(conn);
-    await setInventoryAbsolute(
-      conn.accessToken,
-      externalListingId,
-      absoluteQuantity,
-      wixOpts(conn)
-    );
+    const withSite = wixOpts(conn);
+    const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+    let lastErr: unknown;
+    for (const opts of attempts) {
+      try {
+        await setInventoryAbsolute(conn.accessToken, externalListingId, absoluteQuantity, opts);
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (lastErr instanceof Error) throw lastErr;
+    throw new WixApiError("Could not update inventory on Wix.", 502, null);
   },
 
   async listRemoteListings(conn): Promise<RemoteListingSummary[]> {

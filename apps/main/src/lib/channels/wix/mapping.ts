@@ -108,6 +108,7 @@ function firstMediaUrl(product: WixProduct): string[] {
 export type WixV1Product = {
   id?: string;
   name?: string;
+  visible?: boolean;
   description?: string;
   price?: number;
   priceData?: { price?: number; currency?: string };
@@ -170,6 +171,24 @@ export function wixV1ProductToSummary(product: WixV1Product): RemoteListingSumma
     quantity: v1Quantity(product),
     photos: v1Photos(product),
   };
+}
+
+/** Classic Catalog v1 PATCH body for title, price, description, and stock. */
+export function buildWixV1UpdateBody(item: SyncStoreItem): Record<string, unknown> {
+  const qty = Math.max(0, item.quantity);
+  const product: Record<string, unknown> = {
+    name: item.title.slice(0, 80),
+    description: (item.description ?? "").trim() || undefined,
+    priceData: { price: Math.max(0, item.priceCents) / 100 },
+    stock: { trackInventory: true, quantity: qty, inStock: qty > 0 },
+  };
+  return { product };
+}
+
+/** Catalog rows hidden on Wix should not drive INW import or inbound sync. */
+export function isWixProductVisibleOnSite(product: WixProduct | WixV1Product): boolean {
+  const visible = (product as WixProduct).visible ?? (product as WixV1Product).visible;
+  return visible !== false;
 }
 
 /** Map a Wix product (from Search/Query Products) to a provider-agnostic import preview entry. */

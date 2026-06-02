@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
         where: {
           sellerId: userId,
           status: { in: ["paid", "shipped"] },
-          localDeliveryDetails: { not: Prisma.DbNull },
+          items: { some: { fulfillmentType: "local_delivery" } },
           OR: [{ deliveryConfirmedAt: null }, { deliveryBuyerConfirmedAt: null }],
         },
       }),

@@ -280,7 +280,9 @@ export async function PATCH(
       });
     } else if (existingLinks > 0) {
       const { updateStoreItemOnChannels } = await import("@/lib/channels/outbound");
+      const { syncInventoryToChannels } = await import("@/lib/channels/sync-inventory");
       await updateStoreItemOnChannels(itemId);
+      await syncInventoryToChannels(itemId);
     } else if (data.syncToChannels === true) {
       // Newly enabling sync for an item that has no link yet -> publish it.
       const { publishStoreItemToChannels } = await import("@/lib/channels/outbound");

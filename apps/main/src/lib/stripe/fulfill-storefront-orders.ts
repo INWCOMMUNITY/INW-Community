@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
-import { syncInventoryToChannelsSafe } from "@/lib/channels/sync-inventory";
+import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-points";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
@@ -122,6 +122,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
 
   const allSoldOutIds = new Set<string>();
   const allPurchasedIds = new Set<string>();
+  const storeItemIdsToSyncChannels = new Set<string>();
   const titleByItemId = new Map<string, string>();
   const sessionAmountSubtotal = session.amount_subtotal ?? 0;
   const sessionTaxCents = session.total_details?.amount_tax ?? 0;
@@ -312,7 +313,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
             const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
             deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
           }
-          syncInventoryToChannelsSafe(oi.storeItemId);
+          storeItemIdsToSyncChannels.add(oi.storeItemId);
         }
       } else {
         await prisma.rewardRedemption.updateMany({
@@ -392,6 +393,12 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           data: { status: "completed" },
         });
       }
+    }
+
+    if (storeItemIdsToSyncChannels.size > 0) {
+      await Promise.all(
+        [...storeItemIdsToSyncChannels].map((id) => syncInventoryToChannelsAfterSale(id))
+      );
     }
   }
 

@@ -10,6 +10,8 @@ export function shouldPushLocalQuantityToChannels(args: {
 }): boolean {
   const local = Math.max(0, args.localQuantity);
   const remote = Math.max(0, args.remoteQuantity);
+  /** Never pull remote stock onto a zero-qty INW listing (e.g. after Wix delete → sold_out). */
+  if (local === 0) return true;
   if (local >= remote) return false;
   if (!args.lastPushedAt) return true;
   if (!args.lastInboundAt) return true;

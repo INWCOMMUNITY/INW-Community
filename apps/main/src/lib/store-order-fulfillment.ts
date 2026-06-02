@@ -6,6 +6,10 @@ export function orderHasShippedLine(items: { fulfillmentType?: string | null }[]
   return items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
 }
 
+export function orderHasLocalDeliveryLine(items: { fulfillmentType?: string | null }[]): boolean {
+  return items.some((i) => (i.fulfillmentType ?? "") === "local_delivery");
+}
+
 export function isPickupFullyConfirmed(order: {
   pickupSellerConfirmedAt?: Date | null;
   pickupBuyerConfirmedAt?: Date | null;

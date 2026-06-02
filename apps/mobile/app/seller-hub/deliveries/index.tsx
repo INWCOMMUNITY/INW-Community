@@ -86,8 +86,8 @@ export default function DeliveriesScreen() {
   const load = useCallback(() => {
     apiGet<OrderWithDelivery[]>("/api/store-orders?mine=1")
       .then((data) => {
-        const withDelivery = (Array.isArray(data) ? data : []).filter(
-          (o) => o.localDeliveryDetails != null && typeof o.localDeliveryDetails === "object"
+        const withDelivery = (Array.isArray(data) ? data : []).filter((o) =>
+          o.items?.some((i) => (i.fulfillmentType ?? "") === "local_delivery")
         );
         setOrders(withDelivery);
       })

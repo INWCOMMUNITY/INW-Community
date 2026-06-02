@@ -2,7 +2,7 @@ import { waitUntil } from "@vercel/functions";
 import { prisma } from "database";
 import { getAdapter } from "./registry";
 import { getConnectionContext } from "./connection";
-import { toSyncStoreItem } from "./store-item";
+import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import type { ChannelProvider } from "./types";
 
 /**
@@ -22,7 +22,7 @@ export async function syncInventoryToChannels(
   const skip = new Set(options.skipProviders ?? []);
   const links = await prisma.channelListingLink.findMany({
     where: { storeItemId, syncEnabled: true },
-    include: { connection: true, storeItem: true },
+    include: { connection: true },
   });
   if (links.length === 0) return;
 
@@ -31,8 +31,13 @@ export async function syncInventoryToChannels(
     try {
       const ctx = await getConnectionContext(link.connection);
       if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
+      const freshItem = await prisma.storeItem.findUnique({
+        where: { id: storeItemId },
+        select: syncStoreItemSelect,
+      });
+      if (!freshItem) continue;
       const adapter = getAdapter(link.provider as ChannelProvider);
-      const item = toSyncStoreItem(link.storeItem);
+      const item = toSyncStoreItem(freshItem);
       await adapter.updateInventory(ctx, link.externalListingId, item.quantity, item);
       await prisma.channelListingLink.update({
         where: { id: link.id },

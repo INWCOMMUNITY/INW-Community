@@ -39,6 +39,11 @@ export async function applyRemoteListingToStoreItem(
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
   if (!item) return { contentChanged: false, quantityChanged: false };
 
+  // Sold-out / zero stock on INW is authoritative — do not resurrect from channel catalog sync.
+  if (item.status === "sold_out" && item.quantity === 0) {
+    return { contentChanged: false, quantityChanged: false };
+  }
+
   const { content, quantity } = remoteListingDiffersFromStoreItem(item, remote);
   if (!content && !quantity) return { contentChanged: false, quantityChanged: false };
 

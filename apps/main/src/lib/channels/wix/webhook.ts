@@ -57,8 +57,17 @@ export function parseWixWebhook(
   }
 }
 
-/** Event types that should trigger a full inventory + catalog reconcile. */
+/**
+ * Event types that should trigger sales + catalog + import reconcile.
+ * Subscribe to these families in Wix Dev Center (names differ for Catalog v1 vs v3):
+ * - eCommerce: Order Created, Order Approved, Order Updated, Order Canceled
+ * - Catalog v3 inventory: tracking status changed, Item Created/Updated With Reason/Stock Status Updated/Deleted
+ * - Catalog v1: Product Created/Changed/Deleted, Variants Changed
+ */
 export function wixWebhookTriggersReconcile(eventType: string | null): boolean {
   if (!eventType) return true;
-  return /order|product|inventory|catalog|stores/i.test(eventType);
+  const t = eventType.toLowerCase();
+  if (/order|product|inventory|catalog|stores|variant/i.test(t)) return true;
+  if (/wix\.stores|wix\.ecom|wix\.ecommerce/i.test(t)) return true;
+  return false;
 }

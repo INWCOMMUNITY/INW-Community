@@ -250,14 +250,21 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
      - **Manage Your App** (resolve site id via app instance API)
      - Optional: **Site Properties** — read (shop name in app)
      - If import fails after connect, reconnect once after adding **inventory read**.
-7. **Webhooks** (recommended — near real-time sync):
-   - Dev Center → your app → **Webhooks** → **Get Public Key** → save as `WIX_WEBHOOK_PUBLIC_KEY` in Vercel
+7. **Webhooks** (required for “as fast as Wix” inbound sync; cron is backup every **3 minutes**):
+   - Dev Center → your app → **Webhooks** → **Get Public Key** → save as `WIX_WEBHOOK_PUBLIC_KEY` in Vercel (without this, `/api/channels/wix/webhook` returns 503 and only cron runs)
    - Callback URL: `https://www.inwcommunity.com/api/channels/wix/webhook`
-   - Subscribe (Wix Dev Center → Webhooks — names vary slightly by catalog version):
-     - **eCommerce:** Order Created, Order Updated (and Payment Status Updated if listed)
-     - **Stores / Catalog:** Product Created, Product Updated, Product Deleted
-     - **Inventory (Catalog v3):** Inventory Item Updated (and Inventory Variants Changed if listed)
-   - Optional: Order Canceled (reconcile will re-sync qty); skip carts, contacts, bookings unless you need them
+   - Subscribe **all** that apply to your site (Wix shows Catalog **v1** and/or **v3** — enable both groups if listed):
+     - **eCommerce:** Order Created, **Order Approved** (paid), Order Updated, Order Canceled
+     - **Catalog v3 — products:** Product Created, Product Updated, Product Deleted
+     - **Catalog v3 — inventory (enable all listed in Dev Center):**
+       - Inventory tracking status changed
+       - Inventory Item Created
+       - Inventory Item Updated With Reason
+       - Inventory Item Stock Status Updated
+       - Inventory Item Deleted
+     - **Catalog v1 (classic Editor):** Product Created, Product Changed, Product Deleted, **Variants Changed**
+   - Skip unrelated events (contacts, bookings, carts) unless you need them
+   - Each webhook hit runs a full reconcile: Wix **sales** → INW qty, **catalog** mirror (edits/deletes), **new products** → auto-import
 8. **External Install / callback:**
    - Find **OAuth** → **Redirect URLs** or **External install** / **Post-installation URL**.
    - Set to: `https://www.inwcommunity.com/api/channels/wix/callback`
@@ -272,7 +279,7 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 | `WIX_APP_SECRET` | Yes | App Secret Key |
 | `WIX_REDIRECT_URI` | No | Only if overriding callback |
 | `WIX_DEFAULT_LOCATION_ID` | No | Location id |
-| `WIX_WEBHOOK_PUBLIC_KEY` | Recommended | Webhooks → Get Public Key |
+| `WIX_WEBHOOK_PUBLIC_KEY` | Yes (real-time sync) | Webhooks → Get Public Key |
 
 ### D — Tell sellers
 
@@ -462,7 +469,9 @@ Do **not** change `ENCRYPTION_KEY`, `CRON_SECRET`, or `NEXTAUTH_SECRET` if they 
 | Wix **Import** fails / “Could not reach store” | **Redeploy**; **disconnect and reconnect** Wix (saves real `siteId`); ensure **Stores product read** + **Manage Your App** permissions |
 | New product on **Wix** not in INW | Auto-import runs on connect and every **~3 min** cron; seller needs an active **NWC plan**; price must be &gt; $0 on Wix |
 | Shopify “redirect_uri mismatch” | Allowed redirection URL in Partners must match our callback |
-| Sales slow to show in INW | Add **Wix webhooks** + `WIX_WEBHOOK_PUBLIC_KEY`; cron runs every **3 minutes** as backup |
+| Sales slow to show in INW | Set `WIX_WEBHOOK_PUBLIC_KEY` and subscribe **Order Created** + **Order Approved**; cron runs every **3 minutes** as backup |
+| INW edit doesn’t update Wix | Save listing in app (pushes on save); classic Wix sites need v1 catalog APIs (supported in app) |
+| Wix edit slow on INW | Add product/inventory webhooks; without them wait up to **3 min** for cron |
 
 ---
 
