@@ -447,6 +447,7 @@ Do **not** change `ENCRYPTION_KEY`, `CRON_SECRET`, or `NEXTAUTH_SECRET` if they 
 | Used eBay **Sandbox** keys | Use **Production** keyset only |
 | Keys added in Vercel but connect still fails | **Redeploy** main app after saving env vars |
 | Wix install doesn’t return to app | Callback must be `https://www.inwcommunity.com/api/channels/wix/callback` |
+| Wix **Import** shows “Server error” | **Redeploy** after code updates; ensure **Stores product read** permission; **disconnect and reconnect** Wix; classic Editor sites use Catalog v1 automatically if v3 is unavailable |
 | Shopify “redirect_uri mismatch” | Allowed redirection URL in Partners must match our callback |
 | Sales slow to show in INW | Normal without webhooks — wait up to **15 minutes** for cron |
 

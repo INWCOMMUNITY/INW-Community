@@ -230,9 +230,9 @@ function parseError(res: Response, data: unknown): string {
   if (res.status === 401) return "Please sign in.";
   if (res.status === 404) return "Not found.";
   if (res.status >= 500) {
-    return typeof raw === "string" && raw.trim()
-      ? sanitizeError(raw)
-      : "Server error. Try again.";
+    if (typeof raw === "string" && raw.trim()) return sanitizeError(raw);
+    if (res.status === 502) return "Could not reach the store. Try again in a moment.";
+    return "Server error. Try again.";
   }
   if (res.status === 0) return "Could not connect. Please check your internet connection and try again.";
   return `Request failed (${res.status})`;

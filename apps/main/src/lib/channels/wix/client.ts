@@ -12,6 +12,11 @@ export class WixApiError extends Error {
   }
 }
 
+export type WixRequestOpts = {
+  /** Site GUID (tenantId) from install callback — required for some site-level APIs. */
+  siteId?: string | null;
+};
+
 async function parseBody(res: Response): Promise<unknown> {
   const text = await res.text().catch(() => "");
   if (!text) return null;
@@ -37,53 +42,74 @@ function errorMessage(body: unknown, status: number): string {
   return `Wix API error (${status})`;
 }
 
+function buildAuthHeader(accessToken: string, useBearer: boolean): string {
+  const trimmed = accessToken.trim();
+  if (useBearer) {
+    return trimmed.startsWith("Bearer ") ? trimmed : `Bearer ${trimmed}`;
+  }
+  return trimmed.startsWith("Bearer ") ? trimmed.slice(7).trim() : trimmed;
+}
+
 /**
- * Core Wix request. App access tokens go in the Authorization header *without* a Bearer prefix.
- * Retries once on 429 after a short backoff.
+ * Core Wix request. App access tokens go in Authorization (usually without Bearer).
+ * Retries once on 429; on 401 retries once with Bearer prefix.
  */
 async function wixRequest<T>(
   accessToken: string,
   path: string,
   init: RequestInit & { headers?: Record<string, string> } = {},
-  attempt = 0
+  opts: WixRequestOpts = {},
+  attempt = 0,
+  authVariant: 0 | 1 = 0
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${WIX_API_BASE}${path}`;
+  const siteId = opts.siteId?.trim();
   const res = await fetch(url, {
     ...init,
     headers: {
-      Authorization: accessToken,
+      Authorization: buildAuthHeader(accessToken, authVariant === 1),
       Accept: "application/json",
+      ...(siteId ? { "wix-site-id": siteId } : {}),
       ...(init.headers ?? {}),
     },
   });
   if (res.status === 429 && attempt < 2) {
     await new Promise((r) => setTimeout(r, 1100 * (attempt + 1)));
-    return wixRequest<T>(accessToken, path, init, attempt + 1);
+    return wixRequest<T>(accessToken, path, init, opts, attempt + 1, authVariant);
   }
   const body = await parseBody(res);
+  if (res.status === 401 && authVariant === 0) {
+    return wixRequest<T>(accessToken, path, init, opts, attempt, 1);
+  }
   if (!res.ok) {
     throw new WixApiError(errorMessage(body, res.status), res.status, body);
   }
   return body as T;
 }
 
-export function wixGet<T>(accessToken: string, path: string): Promise<T> {
-  return wixRequest<T>(accessToken, path, { method: "GET" });
+export function wixGet<T>(accessToken: string, path: string, opts?: WixRequestOpts): Promise<T> {
+  return wixRequest<T>(accessToken, path, { method: "GET" }, opts ?? {});
 }
 
 export function wixJson<T>(
   accessToken: string,
   path: string,
   method: "POST" | "PUT" | "PATCH",
-  json: unknown
+  json: unknown,
+  opts?: WixRequestOpts
 ): Promise<T> {
-  return wixRequest<T>(accessToken, path, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(json),
-  });
+  return wixRequest<T>(
+    accessToken,
+    path,
+    {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(json),
+    },
+    opts ?? {}
+  );
 }
 
-export function wixDelete<T>(accessToken: string, path: string): Promise<T> {
-  return wixRequest<T>(accessToken, path, { method: "DELETE" });
+export function wixDelete<T>(accessToken: string, path: string, opts?: WixRequestOpts): Promise<T> {
+  return wixRequest<T>(accessToken, path, { method: "DELETE" }, opts ?? {});
 }

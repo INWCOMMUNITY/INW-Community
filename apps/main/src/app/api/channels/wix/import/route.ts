@@ -56,7 +56,10 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     console.error("[channels] wix import GET failed", e);
     const msg = channelErrorMessage(e, "Could not load Wix products.");
-    return NextResponse.json({ error: msg, code: "WIX_LIST_FAILED" }, { status: 502 });
+    return NextResponse.json(
+      { error: msg, code: "WIX_LIST_FAILED", provider: "wix" },
+      { status: 502 }
+    );
   }
 }
 

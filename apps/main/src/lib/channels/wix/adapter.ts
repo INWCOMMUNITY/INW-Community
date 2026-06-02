@@ -7,20 +7,26 @@ import type {
   SyncStoreItem,
   TokenResponse,
 } from "../types";
-import { WixApiError, wixDelete, wixGet, wixJson } from "./client";
+import { WixApiError, wixDelete, wixGet, wixJson, type WixRequestOpts } from "./client";
 import { getWixConfig } from "./config";
 import { exchangeWixCode, fetchWixShopInfo, getWixAuthUrl, refreshWixToken } from "./oauth";
 import {
   buildWixCreateBody,
   buildWixUpdateBody,
   wixProductToSummary,
+  wixV1ProductToSummary,
   type WixProduct,
+  type WixV1Product,
 } from "./mapping";
 
 type ProductResponse = { product?: WixProduct };
 type ProductsQueryResponse = {
   products?: WixProduct[];
   pagingMetadata?: { cursors?: { next?: string | null } };
+};
+type V1ProductsQueryResponse = {
+  products?: WixV1Product[];
+  metadata?: { items?: number; offset?: number };
 };
 type InventoryItem = {
   id?: string;
@@ -33,6 +39,17 @@ type InventoryItem = {
 };
 type InventorySearchResponse = { inventoryItems?: InventoryItem[] };
 
+function siteIdFromConn(conn: ChannelConnectionContext): string | null {
+  const fromConfig = conn.config?.siteId;
+  if (typeof fromConfig === "string" && fromConfig.trim()) return fromConfig.trim();
+  const shop = conn.externalShopId?.trim();
+  return shop || null;
+}
+
+function wixOpts(conn: ChannelConnectionContext): WixRequestOpts {
+  return { siteId: siteIdFromConn(conn) };
+}
+
 /** Optional Stores location to scope inventory reads/writes (defaults to the site default). */
 function defaultLocationId(): string | null {
   try {
@@ -42,12 +59,32 @@ function defaultLocationId(): string | null {
   }
 }
 
+function shouldFallbackToV1Catalog(e: unknown): boolean {
+  if (!(e instanceof WixApiError)) return false;
+  if (e.status === 404 || e.status === 403 || e.status === 501) return true;
+  if (e.status === 400) {
+    const msg = e.message.toLowerCase();
+    return (
+      msg.includes("catalog") ||
+      msg.includes("not found") ||
+      msg.includes("v3") ||
+      msg.includes("unsupported")
+    );
+  }
+  return false;
+}
+
 /** Fetch a product (revision + variant id are required for updates). */
-async function getProduct(accessToken: string, productId: string): Promise<WixProduct | null> {
+async function getProduct(
+  accessToken: string,
+  productId: string,
+  opts: WixRequestOpts
+): Promise<WixProduct | null> {
   try {
     const res = await wixGet<ProductResponse>(
       accessToken,
-      `/stores/v3/products/${encodeURIComponent(productId)}?fields=MEDIA_ITEMS_INFO`
+      `/stores/v3/products/${encodeURIComponent(productId)}?fields=MEDIA_ITEMS_INFO`,
+      opts
     );
     return res.product ?? null;
   } catch (e) {
@@ -56,14 +93,10 @@ async function getProduct(accessToken: string, productId: string): Promise<WixPr
   }
 }
 
-/**
- * Resolve the inventory items for one or more products so we can read/set absolute quantities.
- * When WIX_DEFAULT_LOCATION_ID is set, results are scoped to that location so multi-location sites
- * don't get every location set to the same absolute quantity.
- */
-async function searchInventoryItems(
+async function searchInventoryChunk(
   accessToken: string,
-  productIds: string[]
+  productIds: string[],
+  opts: WixRequestOpts
 ): Promise<InventoryItem[]> {
   if (productIds.length === 0) return [];
   const filter: Record<string, unknown> =
@@ -81,13 +114,31 @@ async function searchInventoryItems(
         filter,
         cursorPaging: { limit: Math.min(200, productIds.length * 5 || 100) },
       },
-    }
+    },
+    opts
   ).catch(() => null);
   return res?.inventoryItems ?? [];
 }
 
-/** List catalog products via Query Products (Search requires search.fields; Query lists all). */
-async function queryAllProducts(accessToken: string): Promise<WixProduct[]> {
+/**
+ * Resolve inventory items for products (chunked — Wix filters have practical limits).
+ */
+async function searchInventoryItems(
+  accessToken: string,
+  productIds: string[],
+  opts: WixRequestOpts
+): Promise<InventoryItem[]> {
+  const CHUNK = 25;
+  const all: InventoryItem[] = [];
+  for (let i = 0; i < productIds.length; i += CHUNK) {
+    const batch = await searchInventoryChunk(accessToken, productIds.slice(i, i + CHUNK), opts);
+    all.push(...batch);
+  }
+  return all;
+}
+
+/** Catalog v3 — used on newer Stores catalogs. */
+async function queryAllProductsV3(accessToken: string, opts: WixRequestOpts): Promise<WixProduct[]> {
   const products: WixProduct[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 20; page++) {
@@ -96,11 +147,12 @@ async function queryAllProducts(accessToken: string): Promise<WixProduct[]> {
       `/stores/v3/products/query`,
       "POST",
       {
-        fields: ["MEDIA_ITEMS_INFO"],
+        fields: ["MEDIA_ITEMS_INFO", "CURRENCY"],
         query: {
           cursorPaging: { limit: 100, ...(cursor ? { cursor } : {}) },
         },
-      }
+      },
+      opts
     );
     const batch = (res.products ?? []).filter((p) => p.id);
     products.push(...batch);
@@ -109,6 +161,35 @@ async function queryAllProducts(accessToken: string): Promise<WixProduct[]> {
     cursor = next;
   }
   return products;
+}
+
+/** Catalog v1 (stores-reader) — classic Wix Editor + Wix Stores sites. */
+async function queryAllProductsV1(
+  accessToken: string,
+  opts: WixRequestOpts
+): Promise<RemoteListingSummary[]> {
+  const summaries: RemoteListingSummary[] = [];
+  let offset = 0;
+  for (let page = 0; page < 50; page++) {
+    const res = await wixJson<V1ProductsQueryResponse>(
+      accessToken,
+      `/stores-reader/v1/products/query`,
+      "POST",
+      {
+        includeVariants: true,
+        query: { paging: { limit: 100, offset } },
+      },
+      opts
+    );
+    const batch = (res.products ?? []).filter((p) => p.id);
+    for (const p of batch) {
+      const s = wixV1ProductToSummary(p);
+      if (s.externalListingId) summaries.push(s);
+    }
+    if (batch.length < 100) break;
+    offset += batch.length;
+  }
+  return summaries;
 }
 
 /** Available quantity for a product: sum tracked quantities, else infer from inStock flag. */
@@ -131,16 +212,23 @@ function quantityForProduct(items: InventoryItem[]): number {
 async function setInventoryAbsolute(
   accessToken: string,
   productId: string,
-  absoluteQuantity: number
+  absoluteQuantity: number,
+  opts: WixRequestOpts
 ): Promise<void> {
   const quantity = Math.max(0, Math.round(absoluteQuantity));
-  const items = await searchInventoryItems(accessToken, [productId]);
+  const items = await searchInventoryItems(accessToken, [productId], opts);
   for (const item of items) {
     if (!item.id || item.revision == null) continue;
-    await wixJson(accessToken, `/stores/v3/inventory-items/${encodeURIComponent(item.id)}`, "PATCH", {
-      inventoryItem: { id: item.id, revision: item.revision, quantity },
-      reason: "MANUAL",
-    }).catch((e) => {
+    await wixJson(
+      accessToken,
+      `/stores/v3/inventory-items/${encodeURIComponent(item.id)}`,
+      "PATCH",
+      {
+        inventoryItem: { id: item.id, revision: item.revision, quantity },
+        reason: "MANUAL",
+      },
+      opts
+    ).catch((e) => {
       console.error("[wix] inventory update failed", { productId, itemId: item.id, error: String(e) });
     });
   }
@@ -156,7 +244,6 @@ export const wixAdapter: ChannelAdapter = {
   },
 
   refreshAccessToken(refreshToken): Promise<TokenResponse> {
-    // For Wix the "refresh token" is the site's instanceId; this re-mints a 4h token.
     return refreshWixToken(refreshToken);
   },
 
@@ -165,11 +252,13 @@ export const wixAdapter: ChannelAdapter = {
   },
 
   async createListing(conn, item): Promise<CreateListingResult> {
+    const opts = wixOpts(conn);
     const res = await wixJson<ProductResponse>(
       conn.accessToken,
       `/stores/v3/products-with-inventory`,
       "POST",
-      buildWixCreateBody(item)
+      buildWixCreateBody(item),
+      opts
     );
     const productId = res.product?.id;
     if (!productId) {
@@ -179,10 +268,10 @@ export const wixAdapter: ChannelAdapter = {
   },
 
   async updateListing(conn, externalListingId, item): Promise<void> {
+    const opts = wixOpts(conn);
     const productId = externalListingId;
-    const existing = await getProduct(conn.accessToken, productId);
+    const existing = await getProduct(conn.accessToken, productId, opts);
     if (!existing?.revision) {
-      // Product is gone on Wix; nothing to update (outbound will recreate if needed elsewhere).
       return;
     }
     const variantId = existing.variantsInfo?.variants?.[0]?.id ?? null;
@@ -190,51 +279,63 @@ export const wixAdapter: ChannelAdapter = {
       conn.accessToken,
       `/stores/v3/products/${encodeURIComponent(productId)}`,
       "PATCH",
-      buildWixUpdateBody(item, existing.revision, variantId)
+      buildWixUpdateBody(item, existing.revision, variantId),
+      opts
     );
-    await setInventoryAbsolute(conn.accessToken, productId, item.quantity);
+    await setInventoryAbsolute(conn.accessToken, productId, item.quantity, opts);
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {
+    const opts = wixOpts(conn);
     try {
-      await wixDelete(conn.accessToken, `/stores/v3/products/${encodeURIComponent(externalListingId)}`);
+      await wixDelete(conn.accessToken, `/stores/v3/products/${encodeURIComponent(externalListingId)}`, opts);
     } catch (e) {
       if (!(e instanceof WixApiError && e.status === 404)) throw e;
     }
   },
 
   async updateInventory(conn, externalListingId, absoluteQuantity): Promise<void> {
-    await setInventoryAbsolute(conn.accessToken, externalListingId, absoluteQuantity);
+    await setInventoryAbsolute(conn.accessToken, externalListingId, absoluteQuantity, wixOpts(conn));
   },
 
   async listRemoteListings(conn): Promise<RemoteListingSummary[]> {
-    const products = await queryAllProducts(conn.accessToken);
+    const opts = wixOpts(conn);
 
-    // Query Products doesn't return per-variant inventory, so fetch the real quantities in a
-    // single bulk inventory search. This keeps the imported StoreItem's base stock accurate instead
-    // of a placeholder (which would otherwise get pushed back and overwrite the real Wix quantity).
-    const byProduct = new Map<string, InventoryItem[]>();
-    const items = await searchInventoryItems(
-      conn.accessToken,
-      products.map((p) => p.id as string)
-    );
-    for (const it of items) {
-      if (!it.productId) continue;
-      const list = byProduct.get(it.productId) ?? [];
-      list.push(it);
-      byProduct.set(it.productId, list);
+    try {
+      const products = await queryAllProductsV3(conn.accessToken, opts);
+
+      const byProduct = new Map<string, InventoryItem[]>();
+      const items = await searchInventoryItems(
+        conn.accessToken,
+        products.map((p) => p.id as string),
+        opts
+      );
+      for (const it of items) {
+        if (!it.productId) continue;
+        const list = byProduct.get(it.productId) ?? [];
+        list.push(it);
+        byProduct.set(it.productId, list);
+      }
+
+      return products
+        .map((p) => {
+          const summary = wixProductToSummary(p);
+          const invItems = byProduct.get(p.id as string);
+          return invItems ? { ...summary, quantity: quantityForProduct(invItems) } : summary;
+        })
+        .filter((s) => s.externalListingId);
+    } catch (e) {
+      if (!shouldFallbackToV1Catalog(e)) throw e;
+      console.warn("[wix] catalog v3 unavailable, falling back to v1", {
+        status: e instanceof WixApiError ? e.status : undefined,
+        message: e instanceof Error ? e.message : String(e),
+      });
+      return queryAllProductsV1(conn.accessToken, opts);
     }
-
-    return products
-      .map((p) => {
-        const summary = wixProductToSummary(p);
-        const invItems = byProduct.get(p.id as string);
-        return invItems ? { ...summary, quantity: quantityForProduct(invItems) } : summary;
-      })
-      .filter((s) => s.externalListingId);
   },
 
   async fetchRecentSales(conn, since): Promise<RemoteSale[]> {
+    const opts = wixOpts(conn);
     const sinceIso = since.toISOString();
     const res = await wixJson<{
       orders?: {
@@ -250,13 +351,13 @@ export const wixAdapter: ChannelAdapter = {
     }>(conn.accessToken, `/ecom/v1/orders/search`, "POST", {
       filter: { createdDate: { $gte: sinceIso } },
       cursorPaging: { limit: 100 },
-    }).catch(() => null);
+    }, opts).catch(() => null);
 
     const sales: RemoteSale[] = [];
     for (const order of res?.orders ?? []) {
       for (const li of order.lineItems ?? []) {
         const productId = li.catalogReference?.catalogItemId;
-        if (!productId) continue; // skip custom (non-catalog) line items
+        if (!productId) continue;
         sales.push({
           externalEventId: `order:${order.id}:line:${li.id}`,
           externalListingId: productId,
