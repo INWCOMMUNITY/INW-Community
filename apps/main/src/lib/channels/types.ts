@@ -60,10 +60,18 @@ export type RemoteListingSummary = {
   description: string | null;
   priceCents: number;
   quantity: number;
+  /** False when the channel API did not return real stock (do not use qty for catalog reconcile). */
+  quantityKnown?: boolean;
   photos: string[];
   url?: string;
   /** True if this listing already maps to a StoreItem on INW. */
   alreadyLinked?: boolean;
+};
+
+export type ChannelSyncResult = {
+  provider: ChannelProvider;
+  ok: boolean;
+  error?: string;
 };
 
 /** A sale detected via webhook or reconciliation poll. */
@@ -139,6 +147,11 @@ export interface ChannelAdapter {
 
   // ---- Import + reconciliation (inbound: channel -> INW) ----
   listRemoteListings(conn: ChannelConnectionContext): Promise<RemoteListingSummary[]>;
+  /** Wix: read live stock for one product (v2/v1/v3). Other providers omit this. */
+  fetchProductQuantity?(
+    conn: ChannelConnectionContext,
+    externalListingId: string
+  ): Promise<{ quantity: number; known: boolean }>;
   fetchRecentSales(conn: ChannelConnectionContext, since: Date): Promise<RemoteSale[]>;
 
   // ---- Webhook (optional; reconciliation poll covers providers without webhooks) ----

@@ -8,46 +8,60 @@ function photosEqual(a: string[], b: string[]): boolean {
   return a.every((url, i) => url === b[i]);
 }
 
-export function remoteListingDiffersFromStoreItem(
+export function remoteContentDiffersFromStoreItem(
   item: {
     title: string;
     description: string | null;
     photos: string[];
     priceCents: number;
-    quantity: number;
   },
   remote: RemoteListingSummary
-): { content: boolean; quantity: boolean } {
-  const remoteQty = Math.max(0, remote.quantity);
-  const content =
+): boolean {
+  return (
     item.title !== remote.title.slice(0, 200) ||
     item.priceCents !== remote.priceCents ||
     !photosEqual(item.photos, remote.photos) ||
     (plainListingDescription(item.description) ?? "") !==
-      (plainListingDescription(remote.description) ?? "");
-  return { content, quantity: item.quantity !== remoteQty };
+      (plainListingDescription(remote.description) ?? "")
+  );
 }
 
-/**
- * Apply a Wix (or other channel) catalog snapshot onto the linked StoreItem.
- * Returns whether content and/or quantity changed.
- */
-export async function applyRemoteListingToStoreItem(
+/** Apply title, price, photos, description from a channel catalog snapshot (not quantity). */
+export async function applyRemoteContentToStoreItem(
   storeItemId: string,
   remote: RemoteListingSummary
-): Promise<{ contentChanged: boolean; quantityChanged: boolean }> {
+): Promise<boolean> {
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
-  if (!item) return { contentChanged: false, quantityChanged: false };
+  if (!item) return false;
+  if (item.status === "sold_out" && item.quantity === 0) return false;
+  if (!remoteContentDiffersFromStoreItem(item, remote)) return false;
 
-  // Sold-out / zero stock on INW is authoritative — do not resurrect from channel catalog sync.
-  if (item.status === "sold_out" && item.quantity === 0) {
-    return { contentChanged: false, quantityChanged: false };
+  await prisma.storeItem.update({
+    where: { id: storeItemId },
+    data: {
+      title: remote.title.slice(0, 200),
+      description: plainListingDescription(remote.description),
+      photos: remote.photos,
+      priceCents: remote.priceCents,
+    },
+  });
+  return true;
+}
+
+/** Apply quantity from Wix inventory webhooks or targeted pull (not catalog list defaults). */
+export async function applyRemoteQuantityToStoreItem(
+  storeItemId: string,
+  remoteQuantity: number
+): Promise<boolean> {
+  const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
+  if (!item) return false;
+  if (item.status === "sold_out" && item.quantity === 0 && remoteQuantity > 0) {
+    return false;
   }
 
-  const { content, quantity } = remoteListingDiffersFromStoreItem(item, remote);
-  if (!content && !quantity) return { contentChanged: false, quantityChanged: false };
+  const remoteQty = Math.max(0, remoteQuantity);
+  if (item.quantity === remoteQty) return false;
 
-  const remoteQty = Math.max(0, remote.quantity);
   const nextStatus =
     remoteQty > 0
       ? item.status === "sold_out" || item.status === "active"
@@ -57,29 +71,26 @@ export async function applyRemoteListingToStoreItem(
 
   await prisma.storeItem.update({
     where: { id: storeItemId },
-    data: {
-      ...(content
-        ? {
-            title: remote.title.slice(0, 200),
-            description: plainListingDescription(remote.description),
-            photos: remote.photos,
-            priceCents: remote.priceCents,
-          }
-        : {}),
-      ...(quantity
-        ? {
-            quantity: remoteQty,
-            status: nextStatus,
-          }
-        : {}),
-    },
+    data: { quantity: remoteQty, status: nextStatus },
   });
 
   if (remoteQty === 0) {
     deleteFeedPostsForSoldItem(storeItemId).catch(() => {});
   }
+  return true;
+}
 
-  return { contentChanged: content, quantityChanged: quantity };
+/** @deprecated Prefer applyRemoteContentToStoreItem + applyRemoteQuantityToStoreItem */
+export async function applyRemoteListingToStoreItem(
+  storeItemId: string,
+  remote: RemoteListingSummary
+): Promise<{ contentChanged: boolean; quantityChanged: boolean }> {
+  const contentChanged = await applyRemoteContentToStoreItem(storeItemId, remote);
+  let quantityChanged = false;
+  if (remote.quantityKnown !== false) {
+    quantityChanged = await applyRemoteQuantityToStoreItem(storeItemId, remote.quantity);
+  }
+  return { contentChanged, quantityChanged };
 }
 
 /** Wix product removed — mark INW listing sold out and zero pooled inventory. */

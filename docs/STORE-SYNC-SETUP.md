@@ -264,7 +264,9 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
        - Inventory Item Deleted
      - **Catalog v1 (classic Editor):** Product Created, Product Changed, Product Deleted, **Variants Changed**
    - Skip unrelated events (contacts, bookings, carts) unless you need them
-   - Each webhook hit runs a full reconcile: Wix **sales** → INW qty, **catalog** mirror (edits/deletes), **new products** → auto-import
+   - **Inventory webhooks** → pull live qty from Wix (manual stock edits on Wix)
+   - **Order / product webhooks** → full reconcile: sales, catalog content (title/price/photos), new product import
+   - The **3-minute cron** does the same as backup; it no longer overwrites INW quantity from the product list (classic sites often return incomplete stock in list APIs)
 8. **External Install / callback:**
    - Find **OAuth** → **Redirect URLs** or **External install** / **Post-installation URL**.
    - Set to: `https://www.inwcommunity.com/api/channels/wix/callback`
@@ -285,13 +287,21 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 
 - [ ] Their Wix site must have the **Wix Stores** app installed
 
+### D — Classic Editor sites (your setup)
+
+- **Reads** often use Catalog **v1** (`/stores/v1/products/query`) and Inventory **v2**.
+- **Writes** (edit qty, delete, update title) use v1/v2 first, then v3 — required for outbound sync to work.
+- If **My Items** shows `Wix: sync error`, open the listing or check Vercel logs — the link stores the API failure message.
+
 ### D — Test in app
 
 1. Sync Stores → **Connect Wix** → install on a test site (existing Wix products auto-import to INW)
 2. Create a product on Wix → appears in INW within ~3 min (cron) or seconds (webhooks configured)
-3. Edit price/qty/photos on Wix → INW listing updates on next sync; edit in INW app → Wix updates on save
-4. Sell on Wix → INW quantity drops and other channels update; sell on INW → Wix quantity updates
-5. Delete on Wix → INW listing marked sold out; delete in INW → removed from Wix
+3. Edit **price/title/photos** on Wix → INW updates via webhook/cron; edit in INW app → Wix updates on **save**
+4. Edit **quantity on Wix** → INW updates via **inventory webhooks** (or cron sales path after an order)
+5. Sell on Wix → INW quantity drops; sell on INW → Wix quantity should drop within seconds
+6. Wait **5+ minutes** after an INW-only sale → INW quantity should **stay** reduced (not revert)
+7. Delete on Wix → INW listing marked sold out; **Remove listing** in INW → deleted on Wix (v1 + v3 delete)
 
 **You're done with Wix when:** Connect works, products mirror both ways, and a test sale on Wix updates INW within minutes (or immediately with webhooks).
 
@@ -470,8 +480,10 @@ Do **not** change `ENCRYPTION_KEY`, `CRON_SECRET`, or `NEXTAUTH_SECRET` if they 
 | New product on **Wix** not in INW | Auto-import runs on connect and every **~3 min** cron; seller needs an active **NWC plan**; price must be &gt; $0 on Wix |
 | Shopify “redirect_uri mismatch” | Allowed redirection URL in Partners must match our callback |
 | Sales slow to show in INW | Set `WIX_WEBHOOK_PUBLIC_KEY` and subscribe **Order Created** + **Order Approved**; cron runs every **3 minutes** as backup |
-| INW edit doesn’t update Wix | Save listing in app (pushes on save); classic Wix sites need v1 catalog APIs (supported in app) |
-| Wix edit slow on INW | Add product/inventory webhooks; without them wait up to **3 min** for cron |
+| INW qty **reverts** after a few minutes | Fixed in app: cron no longer pulls stale qty from product list; redeploy latest `main` |
+| INW edit doesn’t update Wix | Save listing in app; check **Wix: sync error** on My Items; classic sites use v1/v2 write APIs |
+| Wix qty edit slow on INW | Enable all **inventory** webhooks; they pull qty without full catalog reconcile |
+| Delete on INW but still on Wix | Redeploy (v1 delete API); confirm Manage Products permission on Wix app |
 
 ---
 

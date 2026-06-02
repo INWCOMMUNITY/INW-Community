@@ -3,7 +3,7 @@ import { prisma } from "database";
 import { getAdapter } from "./registry";
 import { getConnectionContext } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
-import type { ChannelProvider } from "./types";
+import type { ChannelProvider, ChannelSyncResult } from "./types";
 
 /**
  * Push the StoreItem's current (authoritative) quantity out to every linked channel as an
@@ -18,16 +18,18 @@ export type ChannelSyncOptions = {
 export async function syncInventoryToChannels(
   storeItemId: string,
   options: ChannelSyncOptions = {}
-): Promise<void> {
+): Promise<ChannelSyncResult[]> {
   const skip = new Set(options.skipProviders ?? []);
   const links = await prisma.channelListingLink.findMany({
     where: { storeItemId, syncEnabled: true },
     include: { connection: true },
   });
-  if (links.length === 0) return;
+  const results: ChannelSyncResult[] = [];
+  if (links.length === 0) return results;
 
   for (const link of links) {
-    if (skip.has(link.provider as ChannelProvider)) continue;
+    const provider = link.provider as ChannelProvider;
+    if (skip.has(provider)) continue;
     try {
       const ctx = await getConnectionContext(link.connection);
       if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
@@ -36,27 +38,40 @@ export async function syncInventoryToChannels(
         select: syncStoreItemSelect,
       });
       if (!freshItem) continue;
-      const adapter = getAdapter(link.provider as ChannelProvider);
+      const adapter = getAdapter(provider);
       const item = toSyncStoreItem(freshItem);
       await adapter.updateInventory(ctx, link.externalListingId, item.quantity, item);
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: { syncStatus: "synced", syncError: null, lastPushedAt: new Date() },
       });
+      results.push({ provider, ok: true });
     } catch (e) {
+      const msg = String(e).slice(0, 500);
       console.error("[channels] inventory sync failed", {
         storeItemId,
         provider: link.provider,
-        error: String(e),
+        error: msg,
       });
       await prisma.channelListingLink
         .update({
           where: { id: link.id },
-          data: { syncStatus: "error", syncError: String(e).slice(0, 500) },
+          data: { syncStatus: "error", syncError: msg },
         })
         .catch(() => {});
+      results.push({ provider, ok: false, error: msg });
     }
   }
+  return results;
+}
+
+export function channelSyncSucceeded(
+  results: ChannelSyncResult[],
+  provider: ChannelProvider
+): boolean {
+  const row = results.find((r) => r.provider === provider);
+  if (!row) return true;
+  return row.ok;
 }
 
 /**
@@ -81,8 +96,9 @@ export function syncInventoryToChannelsSafe(
 export function syncInventoryToChannelsAfterSale(
   storeItemId: string,
   options: ChannelSyncOptions = {}
-): Promise<void> {
+): Promise<ChannelSyncResult[]> {
   return syncInventoryToChannels(storeItemId, options).catch((e) => {
     console.error("[channels] syncInventoryToChannelsAfterSale", { storeItemId, error: String(e) });
+    return [];
   });
 }

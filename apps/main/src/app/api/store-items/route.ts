@@ -343,7 +343,13 @@ export async function GET(req: NextRequest) {
       include: {
         business: { select: { id: true, name: true, slug: true } },
         channelLinks: {
-          select: { provider: true, syncStatus: true, syncEnabled: true, externalListingId: true },
+          select: {
+            provider: true,
+            syncStatus: true,
+            syncEnabled: true,
+            externalListingId: true,
+            syncError: true,
+          },
         },
       },
       orderBy: { createdAt: "desc" },

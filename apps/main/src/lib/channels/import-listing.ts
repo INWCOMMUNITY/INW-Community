@@ -75,8 +75,10 @@ export async function importRemoteListing(args: {
           description: plainListingDescription(listing.description),
           photos: listing.photos,
           priceCents: listing.priceCents,
-          quantity: Math.max(0, listing.quantity),
-          status: listing.quantity > 0 ? "active" : "sold_out",
+          quantity:
+            listing.quantityKnown === false ? 1 : Math.max(0, listing.quantity),
+          status:
+            (listing.quantityKnown === false ? 1 : listing.quantity) > 0 ? "active" : "sold_out",
           condition: "used",
           listingType: "new",
           acceptOffers: false,

@@ -6,13 +6,58 @@ type WixWebhookEvent = {
   data?: string;
 };
 
+export type WixWebhookParsed = {
+  instanceId: string | null;
+  eventType: string | null;
+  /** Wix product / catalog item id when present in the payload. */
+  productId: string | null;
+};
+
+function productIdFromObject(obj: Record<string, unknown>): string | null {
+  const direct =
+    (typeof obj.productId === "string" && obj.productId) ||
+    (typeof obj.entityId === "string" && obj.entityId) ||
+    null;
+  if (direct) return direct;
+
+  const inv = obj.inventoryItem;
+  if (inv && typeof inv === "object" && !Array.isArray(inv)) {
+    const pid = (inv as Record<string, unknown>).productId;
+    if (typeof pid === "string" && pid) return pid;
+  }
+
+  for (const key of ["createdEvent", "updatedEvent", "deletedEvent"] as const) {
+    const ev = obj[key];
+    if (!ev || typeof ev !== "object" || Array.isArray(ev)) continue;
+    const entity = (ev as Record<string, unknown>).entity ?? (ev as Record<string, unknown>).currentEntity;
+    if (entity && typeof entity === "object" && !Array.isArray(entity)) {
+      const id = (entity as Record<string, unknown>).id;
+      if (typeof id === "string" && id) return id;
+    }
+  }
+
+  return null;
+}
+
+function extractProductId(event: WixWebhookEvent, payload: Record<string, unknown>): string | null {
+  let id = productIdFromObject(event as unknown as Record<string, unknown>);
+  if (id) return id;
+  if (typeof event.data === "string") {
+    try {
+      id = productIdFromObject(JSON.parse(event.data) as Record<string, unknown>);
+      if (id) return id;
+    } catch {
+      /* ignore */
+    }
+  }
+  return productIdFromObject(payload);
+}
+
 /**
  * Wix sends the raw body as a JWT signed with the app's webhook public key (RS256).
  * Returns parsed event metadata, or null if verification fails / key not configured.
  */
-export function parseWixWebhook(
-  rawBody: string
-): { instanceId: string | null; eventType: string | null } | null {
+export function parseWixWebhook(rawBody: string): WixWebhookParsed | null {
   const pem = process.env.WIX_WEBHOOK_PUBLIC_KEY?.trim();
   if (!pem) return null;
 
@@ -51,23 +96,32 @@ export function parseWixWebhook(
       }
     }
 
-    return { instanceId, eventType };
+    const productId = extractProductId(event, payload as Record<string, unknown>);
+
+    return { instanceId, eventType, productId };
   } catch {
     return null;
   }
 }
 
-/**
- * Event types that should trigger sales + catalog + import reconcile.
- * Subscribe to these families in Wix Dev Center (names differ for Catalog v1 vs v3):
- * - eCommerce: Order Created, Order Approved, Order Updated, Order Canceled
- * - Catalog v3 inventory: tracking status changed, Item Created/Updated With Reason/Stock Status Updated/Deleted
- * - Catalog v1: Product Created/Changed/Deleted, Variants Changed
- */
-export function wixWebhookTriggersReconcile(eventType: string | null): boolean {
-  if (!eventType) return true;
+/** Inventory-only webhooks: pull qty without full catalog reconcile. */
+export function wixWebhookIsInventoryEvent(eventType: string | null): boolean {
+  if (!eventType) return false;
   const t = eventType.toLowerCase();
-  if (/order|product|inventory|catalog|stores|variant/i.test(t)) return true;
+  return /inventory|stock|tracking/.test(t);
+}
+
+/** Product create/delete and orders need full reconcile. */
+export function wixWebhookTriggersFullReconcile(eventType: string | null): boolean {
+  if (!eventType) return true;
+  if (wixWebhookIsInventoryEvent(eventType)) return false;
+  const t = eventType.toLowerCase();
+  if (/order|product|catalog|stores|variant/i.test(t)) return true;
   if (/wix\.stores|wix\.ecom|wix\.ecommerce/i.test(t)) return true;
   return false;
+}
+
+/** @deprecated Use wixWebhookTriggersFullReconcile */
+export function wixWebhookTriggersReconcile(eventType: string | null): boolean {
+  return wixWebhookTriggersFullReconcile(eventType) || wixWebhookIsInventoryEvent(eventType);
 }

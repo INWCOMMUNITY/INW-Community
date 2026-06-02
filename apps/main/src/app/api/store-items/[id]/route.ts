@@ -261,6 +261,22 @@ export async function PATCH(
     }
   }
 
+  if (mergedStatus === "sold_out") {
+    update.quantity = 0;
+    const variantsForZero =
+      data.variants !== undefined ? data.variants : existing.variants;
+    if (hasOptionQuantities(variantsForZero) && Array.isArray(variantsForZero)) {
+      update.variants = variantsForZero.map((variant) => {
+        const v = variant as { name?: string; options?: { value: string; quantity: number }[] };
+        if (!v?.options?.length || typeof v.options[0] !== "object") return variant;
+        return {
+          ...v,
+          options: v.options.map((o) => ({ ...o, quantity: 0 })),
+        };
+      });
+    }
+  }
+
   const item = await prisma.storeItem.update({
     where: { id: itemId },
     data: update as object,

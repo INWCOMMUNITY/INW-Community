@@ -1,13 +1,13 @@
 import { prisma } from "database";
 import { getConnectionContext } from "./connection";
 import {
+  applyRemoteContentToStoreItem,
   applyRemoteListingRemoved,
-  applyRemoteListingToStoreItem,
 } from "./apply-remote-listing";
 import { shouldPushLocalQuantityToChannels } from "./inbound-quantity";
 import { getAdapter } from "./registry";
 import { updateStoreItemOnChannels } from "./outbound";
-import { syncInventoryToChannels } from "./sync-inventory";
+import { channelSyncSucceeded, syncInventoryToChannels } from "./sync-inventory";
 import type { ChannelProvider } from "./types";
 
 type ConnectionRow = {
@@ -24,8 +24,9 @@ type ConnectionRow = {
 };
 
 /**
- * Pull catalog state from Wix for every linked product: quantity, price, title, photos.
- * Deletions on Wix mark the INW listing sold out. Changes propagate to other linked channels.
+ * Pull catalog content from Wix for linked products (title, price, photos).
+ * Does not merge quantity from the product list — qty uses sales reconcile + inventory webhooks.
+ * Deletions on Wix mark the INW listing sold out.
  */
 export async function reconcileConnectionInboundCatalog(
   connection: ConnectionRow
@@ -82,41 +83,35 @@ export async function reconcileConnectionInboundCatalog(
       continue;
     }
 
-    const localQty = link.storeItem.quantity;
+    const remoteQtyKnown = remote.quantityKnown !== false;
     const pushLocalQty = shouldPushLocalQuantityToChannels({
-      localQuantity: localQty,
+      localQuantity: link.storeItem.quantity,
       remoteQuantity: remote.quantity,
+      remoteQuantityKnown: remoteQtyKnown,
       lastPushedAt: link.lastPushedAt,
       lastInboundAt: link.lastInboundAt,
     });
 
     if (pushLocalQty) {
-      await syncInventoryToChannels(link.storeItemId);
-      await prisma.channelListingLink.update({
-        where: { id: link.id },
-        data: { lastPushedAt: new Date() },
-      });
-      updated += 1;
+      const pushResults = await syncInventoryToChannels(link.storeItemId);
+      if (channelSyncSucceeded(pushResults, "wix")) {
+        await prisma.channelListingLink.update({
+          where: { id: link.id },
+          data: { lastPushedAt: new Date() },
+        });
+        updated += 1;
+      }
       continue;
     }
 
-    const { contentChanged, quantityChanged } = await applyRemoteListingToStoreItem(
-      link.storeItemId,
-      remote
-    );
-    if (!contentChanged && !quantityChanged) continue;
+    const contentChanged = await applyRemoteContentToStoreItem(link.storeItemId, remote);
+    if (!contentChanged) continue;
 
     await prisma.channelListingLink.update({
       where: { id: link.id },
       data: { lastInboundAt: new Date() },
     });
-
-    if (quantityChanged) {
-      await syncInventoryToChannels(link.storeItemId, { skipProviders: ["wix"] });
-    }
-    if (contentChanged) {
-      await updateStoreItemOnChannels(link.storeItemId, { skipProviders: ["wix"] });
-    }
+    await updateStoreItemOnChannels(link.storeItemId, { skipProviders: ["wix"] });
     updated += 1;
   }
 

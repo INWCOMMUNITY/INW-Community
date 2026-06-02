@@ -16,6 +16,7 @@ import {
   buildWixUpdateBody,
   buildWixV1UpdateBody,
   isWixProductVisibleOnSite,
+  v1Quantity,
   wixProductToSummary,
   wixV1ProductToSummary,
   type WixProduct,
@@ -196,7 +197,9 @@ async function listRemoteListingsV3(
     .map((p) => {
       const summary = wixProductToSummary(p);
       const invItems = byProduct.get(p.id as string);
-      return invItems ? { ...summary, quantity: quantityForProduct(invItems) } : summary;
+      return invItems
+        ? { ...summary, quantity: quantityForProduct(invItems), quantityKnown: true }
+        : summary;
     })
     .filter((s) => s.externalListingId);
 }
@@ -330,6 +333,59 @@ async function setInventoryViaStoresV1(
   }
 }
 
+/** Read absolute stock for one product (classic v2/v1 first, then v3 inventory search). */
+export async function readWixProductQuantity(
+  accessToken: string,
+  productId: string,
+  opts: WixRequestOpts
+): Promise<{ quantity: number; known: boolean }> {
+  try {
+    const inv = await wixGet<{
+      inventoryItem?: { variants?: { quantity?: number; inStock?: boolean }[] };
+    }>(accessToken, `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`, opts);
+    const variants = inv.inventoryItem?.variants ?? [];
+    let total = 0;
+    let sawQty = false;
+    let inStock = false;
+    for (const v of variants) {
+      if (typeof v.quantity === "number") {
+        total += v.quantity;
+        sawQty = true;
+      } else if (v.inStock) inStock = true;
+    }
+    if (sawQty) return { quantity: Math.max(0, total), known: true };
+    if (variants.length > 0) return { quantity: inStock ? 1 : 0, known: true };
+  } catch {
+    /* try v1 */
+  }
+
+  try {
+    const got = await wixGet<{ product?: WixV1Product }>(
+      accessToken,
+      `/stores/v1/products/${encodeURIComponent(productId)}`,
+      opts
+    );
+    if (got.product) {
+      return { quantity: v1Quantity(got.product), known: true };
+    }
+  } catch {
+    /* try v3 */
+  }
+
+  const items = await searchInventoryItems(accessToken, [productId], opts);
+  if (items.length > 0) {
+    return { quantity: quantityForProduct(items), known: true };
+  }
+
+  const product = await getProduct(accessToken, productId, opts);
+  if (product) {
+    const inStock = product.inventory?.availabilityStatus !== "OUT_OF_STOCK";
+    return { quantity: inStock ? 0 : 0, known: false };
+  }
+
+  return { quantity: 0, known: false };
+}
+
 async function setInventoryAbsolute(
   accessToken: string,
   productId: string,
@@ -443,12 +499,52 @@ export const wixAdapter: ChannelAdapter = {
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {
-    const opts = wixOpts(conn);
-    try {
-      await wixDelete(conn.accessToken, `/stores/v3/products/${encodeURIComponent(externalListingId)}`, opts);
-    } catch (e) {
-      if (!(e instanceof WixApiError && e.status === 404)) throw e;
+    await ensureWixSiteId(conn);
+    const withSite = wixOpts(conn);
+    const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+    let lastErr: unknown;
+    for (const opts of attempts) {
+      try {
+        await wixDelete(
+          conn.accessToken,
+          `/stores/v3/products/${encodeURIComponent(externalListingId)}`,
+          opts
+        );
+        return;
+      } catch (e) {
+        if (e instanceof WixApiError && e.status === 404) {
+          lastErr = e;
+          continue;
+        }
+        throw e;
+      }
     }
+    for (const opts of attempts) {
+      try {
+        await wixDelete(
+          conn.accessToken,
+          `/stores/v1/products/${encodeURIComponent(externalListingId)}`,
+          opts
+        );
+        return;
+      } catch (e) {
+        lastErr = e;
+        if (!(e instanceof WixApiError && e.status === 404)) throw e;
+      }
+    }
+    if (lastErr instanceof WixApiError && lastErr.status === 404) return;
+    if (lastErr instanceof Error) throw lastErr;
+  },
+
+  async fetchProductQuantity(conn, externalListingId): Promise<{ quantity: number; known: boolean }> {
+    await ensureWixSiteId(conn);
+    const withSite = wixOpts(conn);
+    const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+    for (const opts of attempts) {
+      const r = await readWixProductQuantity(conn.accessToken, externalListingId, opts);
+      if (r.known) return r;
+    }
+    return { quantity: 0, known: false };
   },
 
   async updateInventory(conn, externalListingId, absoluteQuantity): Promise<void> {

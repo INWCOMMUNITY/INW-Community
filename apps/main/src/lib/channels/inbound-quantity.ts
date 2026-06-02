@@ -1,19 +1,22 @@
 /**
- * When INW quantity is lower than Wix, the sale likely happened on INW and Wix still shows old stock.
- * Do not pull stale Wix quantity onto INW during catalog reconcile — push INW out instead.
+ * Whether catalog reconcile should push INW quantity out to linked channels
+ * instead of pulling remote quantity onto INW.
+ *
+ * Quantity decreases from Wix sales use reconcileConnectionSales, not catalog pull.
+ * Manual Wix qty edits use inventory webhooks + pullWixInventoryForConnection.
  */
 export function shouldPushLocalQuantityToChannels(args: {
   localQuantity: number;
   remoteQuantity: number;
-  lastPushedAt: Date | null;
-  lastInboundAt: Date | null;
+  remoteQuantityKnown: boolean;
+  lastPushedAt?: Date | null;
+  lastInboundAt?: Date | null;
 }): boolean {
   const local = Math.max(0, args.localQuantity);
-  const remote = Math.max(0, args.remoteQuantity);
-  /** Never pull remote stock onto a zero-qty INW listing (e.g. after Wix delete → sold_out). */
   if (local === 0) return true;
-  if (local >= remote) return false;
-  if (!args.lastPushedAt) return true;
-  if (!args.lastInboundAt) return true;
-  return args.lastPushedAt >= args.lastInboundAt;
+  if (!args.remoteQuantityKnown) return true;
+  const remote = Math.max(0, args.remoteQuantity);
+  if (local > remote) return true;
+  if (local < remote) return false;
+  return false;
 }

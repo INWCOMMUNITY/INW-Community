@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
+import { pullWixInventoryForConnection } from "@/lib/channels/pull-wix-inventory";
 import { reconcileConnectionFull } from "@/lib/channels/reconcile-connection";
 import { findWixConnectionByInstanceId } from "@/lib/channels/wix/site";
-import { parseWixWebhook, wixWebhookTriggersReconcile } from "@/lib/channels/wix/webhook";
+import {
+  parseWixWebhook,
+  wixWebhookIsInventoryEvent,
+  wixWebhookTriggersFullReconcile,
+} from "@/lib/channels/wix/webhook";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -29,12 +34,16 @@ export async function POST(req: NextRequest) {
 
   const instanceId = parsed.instanceId;
   const eventType = parsed.eventType ?? null;
+  const productId = parsed.productId;
 
   if (!instanceId) {
     return NextResponse.json({ ok: true, skipped: "no_instance" });
   }
 
-  if (!wixWebhookTriggersReconcile(eventType)) {
+  const isInventory = wixWebhookIsInventoryEvent(eventType);
+  const isFull = wixWebhookTriggersFullReconcile(eventType);
+
+  if (!isInventory && !isFull) {
     return NextResponse.json({ ok: true, skipped: "event_type", eventType });
   }
 
@@ -44,22 +53,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: "unknown_instance" });
     }
 
-    const run = () =>
-      reconcileConnectionFull(conn).catch((e) => {
-        console.error("[channels] wix webhook reconcile failed", {
-          connectionId: conn.id,
-          eventType,
-          error: String(e),
-        });
+    const run = async () => {
+      if (isInventory) {
+        await pullWixInventoryForConnection(conn, productId ? [productId] : undefined);
+        return;
+      }
+      await reconcileConnectionFull(conn);
+    };
+
+    const work = run().catch((e) => {
+      console.error("[channels] wix webhook reconcile failed", {
+        connectionId: conn.id,
+        eventType,
+        productId,
+        error: String(e),
       });
+    });
 
     if (process.env.VERCEL) {
-      waitUntil(run());
-      return NextResponse.json({ ok: true, queued: true, eventType });
+      waitUntil(work);
+      return NextResponse.json({
+        ok: true,
+        queued: true,
+        eventType,
+        mode: isInventory ? "inventory" : "full",
+      });
     }
 
-    await run();
-    return NextResponse.json({ ok: true, eventType });
+    await work;
+    return NextResponse.json({ ok: true, eventType, mode: isInventory ? "inventory" : "full" });
   } catch (e) {
     console.error("[channels] wix webhook failed", { error: String(e) });
     return NextResponse.json({ ok: true });

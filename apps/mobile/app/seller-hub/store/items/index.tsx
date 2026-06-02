@@ -25,6 +25,7 @@ interface ChannelLink {
   syncStatus: string;
   syncEnabled: boolean;
   externalListingId: string;
+  syncError?: string | null;
 }
 
 interface StoreItem {
@@ -329,23 +330,31 @@ export default function MyItemsScreen() {
                   {itemsTab === "sold" && item.soldOrderId && (
                     <Text style={styles.viewOrderLink}>View order</Text>
                   )}
-                  {(() => {
-                    const etsy = item.channelLinks?.find((c) => c.provider === "etsy");
-                    if (!etsy) return null;
-                    const isError = etsy.syncStatus === "error";
-                    const isPaused = !etsy.syncEnabled;
-                    return (
-                      <Text
-                        style={[
-                          styles.syncBadge,
-                          isError && styles.syncBadgeError,
-                          isPaused && styles.syncBadgePaused,
-                        ]}
-                      >
-                        {isError ? "Etsy: sync error" : isPaused ? "Etsy: paused" : "Synced to Etsy"}
-                      </Text>
-                    );
-                  })()}
+                  {item.channelLinks
+                    ?.filter((c) => c.provider === "etsy" || c.provider === "wix")
+                    .map((link) => {
+                      const label =
+                        link.provider === "wix" ? "Wix" : link.provider === "etsy" ? "Etsy" : link.provider;
+                      const isError = link.syncStatus === "error";
+                      const isPaused = !link.syncEnabled;
+                      return (
+                        <Text
+                          key={link.provider}
+                          style={[
+                            styles.syncBadge,
+                            isError && styles.syncBadgeError,
+                            isPaused && styles.syncBadgePaused,
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {isError
+                            ? `${label}: sync error`
+                            : isPaused
+                              ? `${label}: paused`
+                              : `Synced to ${label}`}
+                        </Text>
+                      );
+                    })}
                 </View>
               </Pressable>
               <Pressable

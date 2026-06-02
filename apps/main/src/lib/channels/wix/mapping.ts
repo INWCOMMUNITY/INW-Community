@@ -146,7 +146,7 @@ function v1PriceCents(product: WixV1Product): number {
   return 0;
 }
 
-function v1Quantity(product: WixV1Product): number {
+export function v1Quantity(product: WixV1Product): number {
   const stock = product.stock;
   if (stock?.trackInventory && typeof stock.quantity === "number") {
     return Math.max(0, stock.quantity);
@@ -169,6 +169,7 @@ export function wixV1ProductToSummary(product: WixV1Product): RemoteListingSumma
     description: desc || null,
     priceCents: v1PriceCents(product),
     quantity: v1Quantity(product),
+    quantityKnown: true,
     photos: v1Photos(product),
   };
 }
@@ -204,7 +205,8 @@ export function wixProductToSummary(product: WixProduct): RemoteListingSummary {
     title: product.name || "Wix product",
     description: null,
     priceCents: wixPriceToCents(priceAmount),
-    quantity: inStock ? 1 : 0,
+    quantity: inStock ? 0 : 0,
+    quantityKnown: false,
     photos: firstMediaUrl(product),
   };
 }
