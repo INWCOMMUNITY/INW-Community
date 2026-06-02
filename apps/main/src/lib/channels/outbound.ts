@@ -96,8 +96,16 @@ export async function publishStoreItemToChannels(
   }
 }
 
+export type ChannelPushOptions = {
+  skipProviders?: ChannelProvider[];
+};
+
 /** Push content + inventory updates for an edited StoreItem to every linked channel. */
-export async function updateStoreItemOnChannels(storeItemId: string): Promise<void> {
+export async function updateStoreItemOnChannels(
+  storeItemId: string,
+  options: ChannelPushOptions = {}
+): Promise<void> {
+  const skip = new Set(options.skipProviders ?? []);
   const links = await prisma.channelListingLink.findMany({
     where: { storeItemId, syncEnabled: true },
     include: { connection: true },
@@ -108,6 +116,7 @@ export async function updateStoreItemOnChannels(storeItemId: string): Promise<vo
   const hash = contentHash(item);
 
   for (const link of links) {
+    if (skip.has(link.provider as ChannelProvider)) continue;
     if (link.lastPushedHash === hash) continue; // no content change
     try {
       const ctx = await getConnectionContext(link.connection);

@@ -5,21 +5,16 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
+import { importRemoteListing } from "@/lib/channels/import-listing";
 import { WixApiError } from "@/lib/channels/wix/client";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function channelErrorMessage(e: unknown, fallback: string): string {
   if (e instanceof WixApiError) return e.message;
   if (e instanceof Error && e.message) return e.message;
   return fallback;
-}
-
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-function uniqueSlug(base: string): string {
-  return `${base || "wix-item"}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 async function loadRemoteWithLinkState(userId: string) {
@@ -110,56 +105,18 @@ export async function POST(req: NextRequest) {
   const skipped: { externalListingId: string; reason: string }[] = [];
 
   for (const listing of remote) {
-    const productId = listing.externalListingId;
-
-    const existing = await prisma.channelListingLink.findUnique({
-      where: { provider_externalListingId: { provider: "wix", externalListingId: productId } },
+    const result = await importRemoteListing({
+      memberId: userId,
+      connectionId: ctx.id,
+      provider: "wix",
+      listing,
+      externalShopId: ctx.externalShopId,
+      postToFeed: true,
     });
-    if (existing) {
-      skipped.push({ externalListingId: productId, reason: "already_linked" });
-      continue;
-    }
-    if (listing.priceCents < 1) {
-      skipped.push({ externalListingId: productId, reason: "invalid_price" });
-      continue;
-    }
-
-    try {
-      const created = await prisma.$transaction(async (tx) => {
-        const storeItem = await tx.storeItem.create({
-          data: {
-            memberId: userId,
-            title: listing.title.slice(0, 200),
-            description: listing.description,
-            photos: listing.photos,
-            priceCents: listing.priceCents,
-            quantity: Math.max(0, listing.quantity),
-            status: listing.quantity > 0 ? "active" : "sold_out",
-            condition: "used",
-            listingType: "new",
-            acceptOffers: false,
-            slug: uniqueSlug(slugify(listing.title)),
-          },
-        });
-        await tx.channelListingLink.create({
-          data: {
-            storeItemId: storeItem.id,
-            connectionId: ctx.id,
-            provider: "wix",
-            externalListingId: productId,
-            externalShopId: ctx.externalShopId,
-            syncEnabled: true,
-            syncStatus: "synced",
-            lastPushedAt: new Date(),
-            lastInboundAt: new Date(),
-          },
-        });
-        return storeItem;
-      });
-      imported.push({ externalListingId: productId, storeItemId: created.id });
-    } catch (e) {
-      console.error("[channels] wix import failed", { externalListingId: productId, error: String(e) });
-      skipped.push({ externalListingId: productId, reason: "create_failed" });
+    if (result.ok) {
+      imported.push({ externalListingId: result.externalListingId, storeItemId: result.storeItemId });
+    } else {
+      skipped.push({ externalListingId: result.externalListingId, reason: result.reason });
     }
   }
 

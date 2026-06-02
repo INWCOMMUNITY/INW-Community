@@ -51,7 +51,7 @@ Do this once before connecting any marketplace.
 - [ ] **A3 — Cron job**  
   Vercel → your project → **Cron Jobs** → confirm:
   - Path: `GET /api/cron/sync-channels`
-  - Schedule: every **15 minutes**
+  - Schedule: every **3 minutes**
 
 - [ ] **A4 — Policies**  
   Review `apps/main/src/lib/terms-content.ts` and `privacy-content.ts`. Re-export PDFs if you distribute them.
@@ -247,13 +247,18 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
      - **Wix Stores** — read/manage **products** (Catalog v3)
      - **Wix Stores** — read **inventory** (import needs real quantities)
      - **Wix eCommerce** — read **orders**
-   - Optional: **Site Properties** — read (shop name in app)
-   - If import fails after connect, reconnect once after adding **inventory read**.
-7. **External Install / callback:**
+     - **Manage Your App** (resolve site id via app instance API)
+     - Optional: **Site Properties** — read (shop name in app)
+     - If import fails after connect, reconnect once after adding **inventory read**.
+7. **Webhooks** (recommended — near real-time sync):
+   - Dev Center → your app → **Webhooks** → **Get Public Key** → save as `WIX_WEBHOOK_PUBLIC_KEY` in Vercel
+   - Callback URL: `https://www.inwcommunity.com/api/channels/wix/webhook`
+   - Subscribe at minimum: **Order created**, **Order updated**, **Product updated**, **Product deleted** (Stores / eCommerce categories)
+8. **External Install / callback:**
    - Find **OAuth** → **Redirect URLs** or **External install** / **Post-installation URL**.
    - Set to: `https://www.inwcommunity.com/api/channels/wix/callback`
-8. **`WIX_REDIRECT_URI` (optional):** Only set in Vercel if you override the default callback.
-9. **`WIX_DEFAULT_LOCATION_ID` (optional):** For multi-location sites — location id from Wix Stores settings/API.
+9. **`WIX_REDIRECT_URI` (optional):** Only set in Vercel if you override the default callback.
+10. **`WIX_DEFAULT_LOCATION_ID` (optional):** For multi-location sites — location id from Wix Stores settings/API.
 
 ### D — Paste into Vercel
 
@@ -263,6 +268,7 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 | `WIX_APP_SECRET` | Yes | App Secret Key |
 | `WIX_REDIRECT_URI` | No | Only if overriding callback |
 | `WIX_DEFAULT_LOCATION_ID` | No | Location id |
+| `WIX_WEBHOOK_PUBLIC_KEY` | Recommended | Webhooks → Get Public Key |
 
 ### D — Tell sellers
 
@@ -270,11 +276,13 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 
 ### D — Test in app
 
-1. Sync Stores → **Connect Wix** → install on a test site
-2. Import → create/edit → sell on Wix / INW (~15 min)
-3. Disconnect → Wix products remain
+1. Sync Stores → **Connect Wix** → install on a test site (existing Wix products auto-import to INW)
+2. Create a product on Wix → appears in INW within ~3 min (cron) or seconds (webhooks configured)
+3. Edit price/qty/photos on Wix → INW listing updates on next sync; edit in INW app → Wix updates on save
+4. Sell on Wix → INW quantity drops and other channels update; sell on INW → Wix quantity updates
+5. Delete on Wix → INW listing marked sold out; delete in INW → removed from Wix
 
-**You're done with Wix when:** Install completes, import works, and quantity syncs after a test sale.
+**You're done with Wix when:** Connect works, products mirror both ways, and a test sale on Wix updates INW within minutes (or immediately with webhooks).
 
 ---
 
@@ -360,7 +368,7 @@ Each seller connects their own `{shop}.myshopify.com`. After OAuth we store a **
 ### Shared
 - [ ] [Vercel env vars](https://vercel.com/docs/projects/environment-variables): `ENCRYPTION_KEY`, `CRON_SECRET`, `NEXTAUTH_SECRET`
 - [ ] DB migrations deployed
-- [ ] Cron `sync-channels` every 15 min
+- [ ] Cron `sync-channels` every 3 min
 - [ ] Policies reviewed
 
 ### Etsy — [your-apps](https://www.etsy.com/developers/your-apps)
@@ -447,9 +455,10 @@ Do **not** change `ENCRYPTION_KEY`, `CRON_SECRET`, or `NEXTAUTH_SECRET` if they 
 | Used eBay **Sandbox** keys | Use **Production** keyset only |
 | Keys added in Vercel but connect still fails | **Redeploy** main app after saving env vars |
 | Wix install doesn’t return to app | Callback must be `https://www.inwcommunity.com/api/channels/wix/callback` |
-| Wix **Import** shows “Server error” | **Redeploy** after code updates; ensure **Stores product read** permission; **disconnect and reconnect** Wix; classic Editor sites use Catalog v1 automatically if v3 is unavailable |
+| Wix **Import** fails / “Could not reach store” | **Redeploy**; **disconnect and reconnect** Wix (saves real `siteId`); ensure **Stores product read** + **Manage Your App** permissions |
+| New product on **Wix** not in INW | Auto-import runs on connect and every **~3 min** cron; seller needs an active **NWC plan**; price must be &gt; $0 on Wix |
 | Shopify “redirect_uri mismatch” | Allowed redirection URL in Partners must match our callback |
-| Sales slow to show in INW | Normal without webhooks — wait up to **15 minutes** for cron |
+| Sales slow to show in INW | Add **Wix webhooks** + `WIX_WEBHOOK_PUBLIC_KEY`; cron runs every **3 minutes** as backup |
 
 ---
 

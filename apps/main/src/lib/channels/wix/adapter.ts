@@ -10,6 +10,7 @@ import type {
 import { WixApiError, wixDelete, wixGet, wixJson, type WixRequestOpts } from "./client";
 import { getWixConfig } from "./config";
 import { exchangeWixCode, fetchWixShopInfo, getWixAuthUrl, refreshWixToken } from "./oauth";
+import { ensureWixSiteId, wixSiteIdFromConn } from "./site";
 import {
   buildWixCreateBody,
   buildWixUpdateBody,
@@ -39,15 +40,9 @@ type InventoryItem = {
 };
 type InventorySearchResponse = { inventoryItems?: InventoryItem[] };
 
-function siteIdFromConn(conn: ChannelConnectionContext): string | null {
-  const fromConfig = conn.config?.siteId;
-  if (typeof fromConfig === "string" && fromConfig.trim()) return fromConfig.trim();
-  const shop = conn.externalShopId?.trim();
-  return shop || null;
-}
-
 function wixOpts(conn: ChannelConnectionContext): WixRequestOpts {
-  return { siteId: siteIdFromConn(conn) };
+  const siteId = wixSiteIdFromConn(conn);
+  return siteId ? { siteId } : {};
 }
 
 /** Optional Stores location to scope inventory reads/writes (defaults to the site default). */
@@ -57,21 +52,6 @@ function defaultLocationId(): string | null {
   } catch {
     return null;
   }
-}
-
-function shouldFallbackToV1Catalog(e: unknown): boolean {
-  if (!(e instanceof WixApiError)) return false;
-  if (e.status === 404 || e.status === 403 || e.status === 501) return true;
-  if (e.status === 400) {
-    const msg = e.message.toLowerCase();
-    return (
-      msg.includes("catalog") ||
-      msg.includes("not found") ||
-      msg.includes("v3") ||
-      msg.includes("unsupported")
-    );
-  }
-  return false;
 }
 
 /** Fetch a product (revision + variant id are required for updates). */
@@ -163,9 +143,10 @@ async function queryAllProductsV3(accessToken: string, opts: WixRequestOpts): Pr
   return products;
 }
 
-/** Catalog v1 (stores-reader) — classic Wix Editor + Wix Stores sites. */
+/** Catalog v1 — classic Wix Editor + Wix Stores (`/stores/v1` or `/stores-reader/v1`). */
 async function queryAllProductsV1(
   accessToken: string,
+  path: "/stores/v1/products/query" | "/stores-reader/v1/products/query",
   opts: WixRequestOpts
 ): Promise<RemoteListingSummary[]> {
   const summaries: RemoteListingSummary[] = [];
@@ -173,7 +154,7 @@ async function queryAllProductsV1(
   for (let page = 0; page < 50; page++) {
     const res = await wixJson<V1ProductsQueryResponse>(
       accessToken,
-      `/stores-reader/v1/products/query`,
+      path,
       "POST",
       {
         includeVariants: true,
@@ -190,6 +171,32 @@ async function queryAllProductsV1(
     offset += batch.length;
   }
   return summaries;
+}
+
+async function listRemoteListingsV3(
+  accessToken: string,
+  opts: WixRequestOpts
+): Promise<RemoteListingSummary[]> {
+  const products = await queryAllProductsV3(accessToken, opts);
+  const byProduct = new Map<string, InventoryItem[]>();
+  const items = await searchInventoryItems(
+    accessToken,
+    products.map((p) => p.id as string),
+    opts
+  );
+  for (const it of items) {
+    if (!it.productId) continue;
+    const list = byProduct.get(it.productId) ?? [];
+    list.push(it);
+    byProduct.set(it.productId, list);
+  }
+  return products
+    .map((p) => {
+      const summary = wixProductToSummary(p);
+      const invItems = byProduct.get(p.id as string);
+      return invItems ? { ...summary, quantity: quantityForProduct(invItems) } : summary;
+    })
+    .filter((s) => s.externalListingId);
 }
 
 /** Available quantity for a product: sum tracked quantities, else infer from inStock flag. */
@@ -299,73 +306,107 @@ export const wixAdapter: ChannelAdapter = {
   },
 
   async listRemoteListings(conn): Promise<RemoteListingSummary[]> {
-    const opts = wixOpts(conn);
+    await ensureWixSiteId(conn);
+    const siteId = wixSiteIdFromConn(conn);
+    const token = conn.accessToken;
+    const withSite = siteId ? { siteId } : {};
+    const noSite: WixRequestOpts = {};
 
-    try {
-      const products = await queryAllProductsV3(conn.accessToken, opts);
+    const strategies: Array<{ name: string; run: () => Promise<RemoteListingSummary[]> }> = [
+      { name: "v3", run: () => listRemoteListingsV3(token, noSite) },
+      ...(siteId ? [{ name: "v3+siteId", run: () => listRemoteListingsV3(token, withSite) }] : []),
+      {
+        name: "v1/stores",
+        run: () => queryAllProductsV1(token, "/stores/v1/products/query", noSite),
+      },
+      {
+        name: "v1/reader",
+        run: () => queryAllProductsV1(token, "/stores-reader/v1/products/query", noSite),
+      },
+      ...(siteId
+        ? [
+            {
+              name: "v1/stores+siteId",
+              run: () => queryAllProductsV1(token, "/stores/v1/products/query", withSite),
+            },
+          ]
+        : []),
+    ];
 
-      const byProduct = new Map<string, InventoryItem[]>();
-      const items = await searchInventoryItems(
-        conn.accessToken,
-        products.map((p) => p.id as string),
-        opts
-      );
-      for (const it of items) {
-        if (!it.productId) continue;
-        const list = byProduct.get(it.productId) ?? [];
-        list.push(it);
-        byProduct.set(it.productId, list);
-      }
-
-      return products
-        .map((p) => {
-          const summary = wixProductToSummary(p);
-          const invItems = byProduct.get(p.id as string);
-          return invItems ? { ...summary, quantity: quantityForProduct(invItems) } : summary;
-        })
-        .filter((s) => s.externalListingId);
-    } catch (e) {
-      if (!shouldFallbackToV1Catalog(e)) throw e;
-      console.warn("[wix] catalog v3 unavailable, falling back to v1", {
-        status: e instanceof WixApiError ? e.status : undefined,
-        message: e instanceof Error ? e.message : String(e),
-      });
-      return queryAllProductsV1(conn.accessToken, opts);
-    }
-  },
-
-  async fetchRecentSales(conn, since): Promise<RemoteSale[]> {
-    const opts = wixOpts(conn);
-    const sinceIso = since.toISOString();
-    const res = await wixJson<{
-      orders?: {
-        id?: string;
-        number?: string;
-        lineItems?: {
-          id?: string;
-          quantity?: number;
-          catalogReference?: { catalogItemId?: string };
-          physicalProperties?: { sku?: string };
-        }[];
-      }[];
-    }>(conn.accessToken, `/ecom/v1/orders/search`, "POST", {
-      filter: { createdDate: { $gte: sinceIso } },
-      cursorPaging: { limit: 100 },
-    }, opts).catch(() => null);
-
-    const sales: RemoteSale[] = [];
-    for (const order of res?.orders ?? []) {
-      for (const li of order.lineItems ?? []) {
-        const productId = li.catalogReference?.catalogItemId;
-        if (!productId) continue;
-        sales.push({
-          externalEventId: `order:${order.id}:line:${li.id}`,
-          externalListingId: productId,
-          quantitySold: Math.max(1, li.quantity ?? 1),
-          sku: li.physicalProperties?.sku ?? null,
+    let lastError: unknown;
+    for (const strategy of strategies) {
+      try {
+        const listings = await strategy.run();
+        console.info("[wix] listRemoteListings", { strategy: strategy.name, count: listings.length });
+        return listings;
+      } catch (e) {
+        lastError = e;
+        const status = e instanceof WixApiError ? e.status : undefined;
+        console.warn("[wix] listRemoteListings failed", {
+          strategy: strategy.name,
+          status,
+          message: e instanceof Error ? e.message : String(e),
         });
       }
     }
+
+    if (lastError instanceof WixApiError) throw lastError;
+    if (lastError instanceof Error) throw lastError;
+    throw new Error("Could not load products from your Wix store. Check app permissions and reconnect Wix.");
+  },
+
+  async fetchRecentSales(conn, since): Promise<RemoteSale[]> {
+    await ensureWixSiteId(conn);
+    const opts = wixOpts(conn);
+    const sinceIso = since.toISOString();
+    const sales: RemoteSale[] = [];
+    let cursor: string | undefined;
+
+    for (let page = 0; page < 20; page++) {
+      const res = await wixJson<{
+        orders?: {
+          id?: string;
+          lineItems?: {
+            id?: string;
+            quantity?: number;
+            catalogReference?: { catalogItemId?: string };
+            physicalProperties?: { sku?: string };
+          }[];
+        }[];
+        metadata?: { cursors?: { next?: string | null } };
+      }>(
+        conn.accessToken,
+        `/ecom/v1/orders/search`,
+        "POST",
+        {
+          search: {
+            filter: { createdDate: { $gte: sinceIso } },
+            cursorPaging: { limit: 100, ...(cursor ? { cursor } : {}) },
+          },
+        },
+        opts
+      ).catch(() => null);
+
+      const orders = res?.orders ?? [];
+      for (const order of orders) {
+        if (!order.id) continue;
+        for (const li of order.lineItems ?? []) {
+          const productId = li.catalogReference?.catalogItemId;
+          if (!productId || !li.id) continue;
+          sales.push({
+            externalEventId: `order:${order.id}:line:${li.id}`,
+            externalListingId: productId,
+            quantitySold: Math.max(1, li.quantity ?? 1),
+            sku: li.physicalProperties?.sku ?? null,
+          });
+        }
+      }
+
+      const next = res?.metadata?.cursors?.next;
+      if (!next || orders.length === 0) break;
+      cursor = next;
+    }
+
     return sales;
   },
 };

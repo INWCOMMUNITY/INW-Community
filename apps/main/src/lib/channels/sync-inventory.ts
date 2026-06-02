@@ -9,7 +9,16 @@ import type { ChannelProvider } from "./types";
  * ABSOLUTE value, so all channels converge regardless of where the sale happened. Idempotent:
  * safe to call after a sale on any channel, including the originating one.
  */
-export async function syncInventoryToChannels(storeItemId: string): Promise<void> {
+export type ChannelSyncOptions = {
+  /** Skip pushing to these providers (e.g. Wix already has the new qty after an inbound edit). */
+  skipProviders?: ChannelProvider[];
+};
+
+export async function syncInventoryToChannels(
+  storeItemId: string,
+  options: ChannelSyncOptions = {}
+): Promise<void> {
+  const skip = new Set(options.skipProviders ?? []);
   const links = await prisma.channelListingLink.findMany({
     where: { storeItemId, syncEnabled: true },
     include: { connection: true, storeItem: true },
@@ -17,6 +26,7 @@ export async function syncInventoryToChannels(storeItemId: string): Promise<void
   if (links.length === 0) return;
 
   for (const link of links) {
+    if (skip.has(link.provider as ChannelProvider)) continue;
     try {
       const ctx = await getConnectionContext(link.connection);
       if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");

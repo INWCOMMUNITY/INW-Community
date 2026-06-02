@@ -4,6 +4,8 @@ import { encrypt } from "@/lib/encrypt";
 import { verifyChannelOAuthState } from "@/lib/channels/oauth-state";
 import { getBaseUrl, redirectAfterChannelConnect } from "@/lib/channels/oauth-routes";
 import { mintWixToken, fetchWixShopInfo } from "@/lib/channels/wix/oauth";
+import { fetchWixSiteId } from "@/lib/channels/wix/site";
+import { reconcileConnectionFull } from "@/lib/channels/reconcile-connection";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +46,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const tokens = await mintWixToken(instanceId);
     const shop = await fetchWixShopInfo(tokens.accessToken);
+    const siteIdFromApi = await fetchWixSiteId(tokens.accessToken);
+    const siteId = tenantId || siteIdFromApi || null;
+    const shopId = siteId || instanceId;
 
-    const shopId = tenantId || instanceId;
     const data = {
       provider: "wix",
       externalShopId: shopId,
@@ -60,14 +64,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       status: "active",
       lastError: null,
       etsyShippingProfileId: null,
-      config: { instanceId, siteId: tenantId ?? null } as object,
+      config: { instanceId, siteId, autoImportInbound: true } as object,
     };
 
-    await prisma.channelConnection.upsert({
+    const saved = await prisma.channelConnection.upsert({
       where: { memberId_provider: { memberId: state.sub, provider: "wix" } },
       create: { memberId: state.sub, ...data },
       update: data,
     });
+
+    // Best-effort: import catalog, mirror linked items, and catch recent Wix orders.
+    reconcileConnectionFull(saved).catch((e) =>
+      console.error("[channels] wix post-connect reconcile failed", { error: String(e) })
+    );
 
     return redirectAfterChannelConnect(app, baseUrl, { connected: "wix" });
   } catch (e) {

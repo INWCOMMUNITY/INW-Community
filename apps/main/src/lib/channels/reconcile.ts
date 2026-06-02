@@ -5,6 +5,8 @@ import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { getAdapter } from "./registry";
 import { getConnectionContext } from "./connection";
 import { syncInventoryToChannels } from "./sync-inventory";
+import { reconcileConnectionInboundListings } from "./reconcile-inbound";
+import { reconcileConnectionInboundCatalog } from "./reconcile-inbound-catalog";
 import type { ChannelProvider } from "./types";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
@@ -117,19 +119,40 @@ export async function reconcileConnectionSales(
 }
 
 /** Reconcile every active connection (used by the cron and as the webhook fallback). */
-export async function reconcileAllConnections(): Promise<{ connections: number; applied: number }> {
+export async function reconcileAllConnections(): Promise<{
+  connections: number;
+  applied: number;
+  imported: number;
+  catalogUpdated: number;
+  catalogRemoved: number;
+}> {
   const conns = await prisma.channelConnection.findMany({
     where: { status: { not: "disconnected" } },
   });
   let applied = 0;
+  let imported = 0;
+  let catalogUpdated = 0;
+  let catalogRemoved = 0;
   for (const c of conns) {
     try {
       applied += (await reconcileConnectionSales(c)).applied;
     } catch (e) {
-      console.error("[channels] reconcile connection failed", { id: c.id, error: String(e) });
+      console.error("[channels] reconcile sales failed", { id: c.id, error: String(e) });
+    }
+    try {
+      const catalog = await reconcileConnectionInboundCatalog(c);
+      catalogUpdated += catalog.updated;
+      catalogRemoved += catalog.removed;
+    } catch (e) {
+      console.error("[channels] reconcile catalog failed", { id: c.id, error: String(e) });
+    }
+    try {
+      imported += (await reconcileConnectionInboundListings(c)).imported;
+    } catch (e) {
+      console.error("[channels] reconcile inbound failed", { id: c.id, error: String(e) });
     }
   }
-  return { connections: conns.length, applied };
+  return { connections: conns.length, applied, imported, catalogUpdated, catalogRemoved };
 }
 
 /** Reconcile a single member+provider connection (webhook low-latency trigger). */
@@ -141,5 +164,7 @@ export async function reconcileMemberProvider(
     where: { memberId_provider: { memberId, provider } },
   });
   if (!conn || conn.status === "disconnected") return { applied: 0 };
-  return reconcileConnectionSales(conn);
+  const sales = await reconcileConnectionSales(conn);
+  await reconcileConnectionInboundCatalog(conn).catch(() => {});
+  return sales;
 }

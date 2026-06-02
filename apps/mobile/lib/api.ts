@@ -208,7 +208,12 @@ async function fetchWithAuth(
 }
 
 function parseError(res: Response, data: unknown): string {
-  const raw = (data as { error?: string | unknown })?.error;
+  const payload = data as { error?: string | unknown; message?: string };
+  const topMessage =
+    typeof payload?.message === "string" && payload.message.trim() ? payload.message.trim() : null;
+  if (topMessage) return sanitizeError(topMessage);
+
+  const raw = payload?.error;
   if (raw != null) {
     if (typeof raw === "string") return sanitizeError(raw);
     if (typeof raw === "object") {
