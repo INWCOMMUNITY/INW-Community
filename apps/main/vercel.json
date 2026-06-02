@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/delete-stale-unverified-residents",
       "schedule": "15 7 * * *"
+    },
+    {
+      "path": "/api/cron/sync-channels",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

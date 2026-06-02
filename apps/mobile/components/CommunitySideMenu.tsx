@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { useAuth } from "@/contexts/AuthContext";
-import { useWelcomeGallery } from "@/contexts/WelcomeGalleryContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
@@ -34,18 +33,12 @@ export function CommunitySideMenu({
 }: CommunitySideMenuProps) {
   const router = useRouter();
   const { member } = useAuth();
-  const welcomeGallery = useWelcomeGallery();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
 
   const handleCreatePost = () => {
     onClose();
     onOpenCreatePost?.();
-  };
-
-  const handleWelcome = () => {
-    onClose();
-    welcomeGallery?.openWelcome();
   };
 
   const handleNav = (href: string) => {
@@ -66,8 +59,6 @@ export function CommunitySideMenu({
     { label: "Invites", href: "/community/invites", icon: "calendar" },
     /** Full catalog + scan progress lives on `/badges`. `/my-badges` is profile display toggles only. */
     { label: "Badges", href: "/badges", icon: "ribbon", guest: true },
-    /** Replays the first-launch welcome gallery. Handled specially (not a route). */
-    { label: "Welcome", href: "welcome-gallery", icon: "sparkles-outline", guest: true },
   ];
   const items = member ? allItems : allItems.filter((i) => i.guest);
 
@@ -96,11 +87,7 @@ export function CommunitySideMenu({
               <Pressable
                 key={`${item.label}-${item.href}`}
                 onPress={() =>
-                  item.href === "create-post"
-                    ? handleCreatePost()
-                    : item.href === "welcome-gallery"
-                      ? handleWelcome()
-                      : handleNav(item.href)
+                  item.href === "create-post" ? handleCreatePost() : handleNav(item.href)
                 }
                 style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
               >

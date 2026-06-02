@@ -160,6 +160,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "#stripe", label: "Stripe", icon: "card-outline", action: "stripe" },
     { href: SHIPPO_URL, label: "Shippo", icon: "boat-outline", external: true },
+    { href: "/seller-hub/channels", label: "Sync Stores", icon: "sync-outline" },
   ];
 
   // Website dropdown: Seller Hub (exclude Seller Hub home - current screen). Business Hub redirects to existing tab.

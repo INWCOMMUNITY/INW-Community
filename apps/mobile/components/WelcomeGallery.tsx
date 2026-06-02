@@ -138,7 +138,8 @@ export function WelcomeGallery({ visible, isSignedIn, onClose, onSignUp }: Welco
       const ar = src && src.height ? src.width / src.height : 4 / 3;
       /** Fit the photo inside a box while preserving its true aspect ratio, so nothing is cropped. Small margin to the card edge. */
       const boundW = pageWidth - 32;
-      const boundH = cardHeight * 0.42;
+      /** The final (portrait) slide gets a taller cap so its photo reads a bit bigger. */
+      const boundH = cardHeight * (item.key === "join" ? 0.52 : 0.42);
       let photoW = boundW;
       let photoH = photoW / ar;
       if (photoH > boundH) {

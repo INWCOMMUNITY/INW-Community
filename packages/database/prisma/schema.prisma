@@ -123,6 +123,7 @@ model Member {
   groupMemberBansSubject   GroupMemberBan[]       @relation("GroupMemberBanSubject")
   groupMemberBansIssued    GroupMemberBan[]       @relation("GroupMemberBanIssuer")
   groupDeletionRequests    GroupDeletionRequest[] @relation("GroupDeletionRequester")
+  channelConnections       ChannelConnection[]
 }
 
 model WebviewBridgeToken {
@@ -925,6 +926,12 @@ model StoreItem {
   listingType         String   @default("new") @map("listing_type") // deprecated: always "new" (single store)
   acceptOffers         Boolean  @default(true) @map("accept_offers") // used items: allow make-offer
   minOfferCents        Int?     @map("min_offer_cents") // used items: auto-decline offers below this
+  // Channel sync metadata (Etsy requires these fields that the native store does not collect).
+  etsyWhoMade          String?  @map("etsy_who_made")   // i_did | someone_else | collective
+  etsyWhenMade         String?  @map("etsy_when_made")  // made_to_order | 2020_2025 | before_2006 ...
+  etsyIsSupply         Boolean? @map("etsy_is_supply")
+  etsyTaxonomyId       Int?     @map("etsy_taxonomy_id")
+  ebayCategoryId       Int?     @map("ebay_category_id")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -934,6 +941,74 @@ model StoreItem {
   cartItems CartItem[]
   resaleOffers ResaleOffer[]
   resaleConversations ResaleConversation[]
+  channelLinks ChannelListingLink[]
+}
+
+// Per-seller connection to an external sales channel (Etsy now; eBay/Shopify/Wix later).
+// OAuth tokens are encrypted at rest with the same AES-256-GCM helper used for Shippo keys.
+model ChannelConnection {
+  id                    String    @id @default(cuid())
+  memberId              String    @map("member_id")
+  provider              String    // etsy | ebay | shopify | wix
+  externalShopId        String?   @map("external_shop_id")
+  externalShopName      String?   @map("external_shop_name")
+  accessTokenEncrypted  String?   @map("access_token_encrypted") @db.Text
+  refreshTokenEncrypted String?   @map("refresh_token_encrypted") @db.Text
+  tokenExpiresAt        DateTime? @map("token_expires_at")
+  scopes                String?
+  status                String    @default("active") // active | error | disconnected
+  lastError             String?   @map("last_error") @db.Text
+  etsyShippingProfileId String?   @map("etsy_shipping_profile_id")
+  /// Provider-specific settings (e.g. eBay policy ids + merchant location; future Wix/Shopify config).
+  config                Json?     @map("config")
+  lastReconciledAt      DateTime? @map("last_reconciled_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  member       Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  listingLinks ChannelListingLink[]
+
+  @@unique([memberId, provider])
+  @@map("channel_connection")
+}
+
+// Maps one StoreItem to one external listing per provider (a StoreItem may link to many channels).
+model ChannelListingLink {
+  id                String    @id @default(cuid())
+  storeItemId       String    @map("store_item_id")
+  connectionId      String    @map("connection_id")
+  provider          String    // etsy | ebay | shopify | wix
+  externalListingId String    @map("external_listing_id")
+  externalShopId    String?   @map("external_shop_id")
+  syncEnabled       Boolean   @default(true) @map("sync_enabled")
+  syncStatus        String    @default("pending") @map("sync_status") // synced | pending | error
+  syncError         String?   @map("sync_error") @db.Text
+  lastPushedHash    String?   @map("last_pushed_hash")
+  lastPushedAt      DateTime? @map("last_pushed_at")
+  lastInboundAt     DateTime? @map("last_inbound_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  storeItem  StoreItem         @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([storeItemId, provider])
+  @@unique([provider, externalListingId])
+  @@map("channel_listing_link")
+}
+
+// Dedupe inbound channel events (webhooks + reconciliation receipts) so a sale is only applied once.
+model ChannelSyncEvent {
+  id              String   @id @default(cuid())
+  provider        String
+  externalEventId String   @map("external_event_id")
+  type            String   // order_created | reconcile_sale | listing_deleted ...
+  storeItemId     String?  @map("store_item_id")
+  payload         Json?
+  processedAt     DateTime @default(now()) @map("processed_at")
+
+  @@unique([provider, externalEventId])
+  @@map("channel_sync_event")
 }
 
 // Storefront orders

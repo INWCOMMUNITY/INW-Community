@@ -274,7 +274,9 @@ export default function CalendarsScreen() {
               />
               <View style={styles.tileLabelWrap} lightColor="#fff" darkColor="#fff">
                 <Text style={styles.tileLabel} numberOfLines={2}>
-                  {c.label}
+                  {c.label.endsWith(" Calendar")
+                    ? `${c.label.slice(0, -" Calendar".length)}\nCalendar`
+                    : c.label}
                 </Text>
               </View>
             </Pressable>

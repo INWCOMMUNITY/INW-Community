@@ -6,6 +6,7 @@ import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-po
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
+import { syncInventoryToChannelsSafe } from "@/lib/channels/sync-inventory";
 import {
   cancelPendingOrdersForSoldOutItems,
   cleanupOtherBuyersCartsForStoreItems,
@@ -648,6 +649,8 @@ export async function POST(req: NextRequest) {
                     const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
                     deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
                   }
+                  // Pooled inventory: push the new quantity out to any linked channels (Etsy, etc.).
+                  syncInventoryToChannelsSafe(oi.storeItemId);
                 }
               } else {
                 await prisma.rewardRedemption.updateMany({
@@ -842,6 +845,8 @@ export async function POST(req: NextRequest) {
             const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
             deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
           }
+          // Pooled inventory: push the new quantity out to any linked channels (Etsy, etc.).
+          syncInventoryToChannelsSafe(oi.storeItemId);
         }
 
         if (!orderQualifiesForDeferredBuyerPoints(orderItems)) {
@@ -1056,6 +1061,8 @@ export async function POST(req: NextRequest) {
           const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
           deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
         }
+        // Pooled inventory: push the new quantity out to any linked channels (Etsy, etc.).
+        syncInventoryToChannelsSafe(oi.storeItemId);
       }
 
       if (soldOutStoreItemIds.size > 0) {

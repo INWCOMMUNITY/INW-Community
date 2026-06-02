@@ -27,7 +27,7 @@ export const SITE_IMAGE_KEYS = [
   { key: "calendars-fun_events", path: "/calendars/fun_events.png", label: "Calendar – Fun Events" },
   { key: "calendars-local_art_music", path: "/calendars/local_art_music.png", label: "Calendar – Local Art & Music" },
   { key: "calendars-non_profit", path: "/calendars/non_profit.png", label: "Calendar – Non-Profit" },
-  { key: "calendars-business_promotional", path: "/calendars/business_promotional.png", label: "Calendar – Business Promo" },
+  { key: "calendars-business_promotional", path: "/calendars/business_promotional.png", label: "Calendar – Community" },
   { key: "calendars-marketing", path: "/calendars/marketing.png", label: "Calendar – Marketing" },
   { key: "calendars-real_estate", path: "/calendars/real_estate.png", label: "Calendar – Real Estate" },
 ] as const;

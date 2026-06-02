@@ -340,7 +340,12 @@ export async function GET(req: NextRequest) {
     }
     const items = await prisma.storeItem.findMany({
       where,
-      include: { business: { select: { id: true, name: true, slug: true } } },
+      include: {
+        business: { select: { id: true, name: true, slug: true } },
+        channelLinks: {
+          select: { provider: true, syncStatus: true, syncEnabled: true, externalListingId: true },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -473,6 +478,13 @@ const bodySchema = z.object({
   pickupTerms: z.string().nullable().optional(),
   acceptOffers: z.boolean().optional(),
   minOfferCents: z.coerce.number().int().min(0).nullable().optional(),
+  // Channel sync (Etsy now; eBay/Shopify/Wix later)
+  syncToChannels: z.boolean().optional(),
+  etsyWhoMade: z.string().nullable().optional(),
+  etsyWhenMade: z.string().nullable().optional(),
+  etsyIsSupply: z.boolean().nullable().optional(),
+  etsyTaxonomyId: z.coerce.number().int().positive().nullable().optional(),
+  ebayCategoryId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -663,6 +675,11 @@ export async function POST(req: NextRequest) {
               ? member!.acceptOffersOnResale
               : false,
         minOfferCents: data.minOfferCents ?? null,
+        etsyWhoMade: data.etsyWhoMade?.trim() || null,
+        etsyWhenMade: data.etsyWhenMade?.trim() || null,
+        etsyIsSupply: data.etsyIsSupply ?? null,
+        etsyTaxonomyId: data.etsyTaxonomyId ?? null,
+        ebayCategoryId: data.ebayCategoryId ?? null,
         slug,
       },
     });
@@ -683,6 +700,17 @@ export async function POST(req: NextRequest) {
         },
       })
       .catch((err) => console.error("[store-items] Auto-post failed:", err));
+
+    // Publish to connected sales channels (Etsy, etc.). Best-effort: never fail the listing save.
+    if (data.syncToChannels !== false) {
+      try {
+        const { publishStoreItemToChannels } = await import("@/lib/channels/outbound");
+        await publishStoreItemToChannels(item.id, userId);
+      } catch (err) {
+        console.error("[store-items] Channel publish failed:", err);
+      }
+    }
+
     return NextResponse.json({ ...item, earnedBadges });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

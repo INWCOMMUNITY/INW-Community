@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 import { deductPoints } from "@/lib/award-points";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
+import { syncInventoryToChannelsSafe } from "@/lib/channels/sync-inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -201,6 +202,9 @@ export async function POST(
       return NextResponse.json({ error: msg }, { status: 500 });
     }
   }
+
+  // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
+  for (const oi of order.items) syncInventoryToChannelsSafe(oi.storeItemId);
 
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   sendPushNotification(order.buyerId, {

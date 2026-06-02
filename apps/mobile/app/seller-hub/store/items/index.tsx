@@ -20,6 +20,13 @@ import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
+interface ChannelLink {
+  provider: string;
+  syncStatus: string;
+  syncEnabled: boolean;
+  externalListingId: string;
+}
+
 interface StoreItem {
   id: string;
   title: string;
@@ -30,6 +37,7 @@ interface StoreItem {
   photos: string[];
   soldOrderId?: string;
   soldAt?: string;
+  channelLinks?: ChannelLink[];
 }
 
 interface ConnectStatus {
@@ -321,6 +329,23 @@ export default function MyItemsScreen() {
                   {itemsTab === "sold" && item.soldOrderId && (
                     <Text style={styles.viewOrderLink}>View order</Text>
                   )}
+                  {(() => {
+                    const etsy = item.channelLinks?.find((c) => c.provider === "etsy");
+                    if (!etsy) return null;
+                    const isError = etsy.syncStatus === "error";
+                    const isPaused = !etsy.syncEnabled;
+                    return (
+                      <Text
+                        style={[
+                          styles.syncBadge,
+                          isError && styles.syncBadgeError,
+                          isPaused && styles.syncBadgePaused,
+                        ]}
+                      >
+                        {isError ? "Etsy: sync error" : isPaused ? "Etsy: paused" : "Synced to Etsy"}
+                      </Text>
+                    );
+                  })()}
                 </View>
               </Pressable>
               <Pressable
@@ -506,6 +531,9 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
   cardPrice: { fontSize: 12, color: "#666", marginTop: 4 },
   viewOrderLink: { fontSize: 12, color: theme.colors.primary, marginTop: 2, fontWeight: "600" },
+  syncBadge: { fontSize: 11, color: "#2e7d32", marginTop: 4, fontWeight: "600" },
+  syncBadgeError: { color: "#c62828" },
+  syncBadgePaused: { color: "#b26a00" },
   menuBtn: {
     padding: 8,
     marginLeft: 4,

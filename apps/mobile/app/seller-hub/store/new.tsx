@@ -148,6 +148,17 @@ export default function ListItemScreen() {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [optionsEnabled, setOptionsEnabled] = useState(false);
   const [acceptOffers, setAcceptOffers] = useState(true);
+  // Channel sync (Etsy). Only shown when the seller has connected an Etsy shop.
+  const [etsyConnected, setEtsyConnected] = useState(false);
+  const [syncToEtsy, setSyncToEtsy] = useState(true);
+  const [etsyWhoMade, setEtsyWhoMade] = useState<"i_did" | "someone_else" | "collective">("i_did");
+  const [etsyWhenMade, setEtsyWhenMade] = useState<"made_to_order" | "2020_2025" | "before_2006">(
+    "made_to_order"
+  );
+  const [etsyIsSupply, setEtsyIsSupply] = useState(false);
+  // Channel sync (eBay). Only shown when the seller has connected an eBay account.
+  const [ebayConnected, setEbayConnected] = useState(false);
+  const [ebayCategoryId, setEbayCategoryId] = useState("");
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -288,6 +299,10 @@ export default function ListItemScreen() {
         useSellerProfileShipping?: boolean;
         useSellerProfileLocalDelivery?: boolean;
         useSellerProfilePickup?: boolean;
+        etsyWhoMade?: string | null;
+        etsyWhenMade?: string | null;
+        etsyIsSupply?: boolean | null;
+        ebayCategoryId?: number | null;
       }>(`/api/store-items/${editId}`)
         .then((item) => {
           setTitle(item.title ?? "");
@@ -321,6 +336,14 @@ export default function ListItemScreen() {
           setOptionsEnabled(normalized.some((v) => v.name.trim() && v.options.length > 0));
           if (item.condition === "used" || item.condition === "new") setCondition(item.condition);
           if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
+          if (item.etsyWhoMade === "i_did" || item.etsyWhoMade === "someone_else" || item.etsyWhoMade === "collective") {
+            setEtsyWhoMade(item.etsyWhoMade);
+          }
+          if (item.etsyWhenMade === "made_to_order" || item.etsyWhenMade === "2020_2025" || item.etsyWhenMade === "before_2006") {
+            setEtsyWhenMade(item.etsyWhenMade);
+          }
+          if (typeof item.etsyIsSupply === "boolean") setEtsyIsSupply(item.etsyIsSupply);
+          if (item.ebayCategoryId != null) setEbayCategoryId(String(item.ebayCategoryId));
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
@@ -419,6 +442,16 @@ export default function ListItemScreen() {
     apiGet<Meta>("/api/store-items?list=meta")
       .then((data) => setCategories((data as Meta).categories ?? []))
       .catch(() => setCategories([]));
+    apiGet<{ provider: string; status: string }[]>("/api/channels")
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        setEtsyConnected(list.some((c) => c.provider === "etsy" && c.status !== "disconnected"));
+        setEbayConnected(list.some((c) => c.provider === "ebay" && c.status !== "disconnected"));
+      })
+      .catch(() => {
+        setEtsyConnected(false);
+        setEbayConnected(false);
+      });
     apiGet<PoliciesResponse>("/api/me/policies")
       .then((data) => {
         const pol = data as PoliciesResponse;
@@ -716,6 +749,15 @@ export default function ListItemScreen() {
       localDeliveryFeeCents: localFee,
       variants: variantPayload,
       ...(condition === "used" ? { acceptOffers } : { acceptOffers: false }),
+      ...(etsyConnected || ebayConnected
+        ? {
+            syncToChannels: etsyConnected ? syncToEtsy : true,
+            ...(etsyConnected ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
+            ...(ebayConnected && ebayCategoryId.trim()
+              ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
+              : {}),
+          }
+        : {}),
     };
     try {
       isExitingRef.current = true;
@@ -1534,6 +1576,111 @@ export default function ListItemScreen() {
               </Pressable>
             ))}
           </View>
+        </>
+      )}
+
+      {etsyConnected && (
+        <>
+          <Text style={styles.sectionTitle}>Etsy sync</Text>
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>List this item on Etsy too</Text>
+            <Switch
+              value={syncToEtsy}
+              onValueChange={setSyncToEtsy}
+              trackColor={switchTrackColor()}
+              thumbColor={switchThumbColor(syncToEtsy)}
+              ios_backgroundColor={switchIosBackgroundColor}
+            />
+          </View>
+          <Text style={styles.hint}>
+            When on, this listing is created/updated on your connected Etsy shop and inventory stays
+            in sync across both stores.
+          </Text>
+
+          {syncToEtsy && (
+            <>
+              <Text style={styles.label}>Who made it?</Text>
+              <View style={styles.bizRow}>
+                {(
+                  [
+                    { v: "i_did", label: "I did" },
+                    { v: "someone_else", label: "Another company or person" },
+                    { v: "collective", label: "A member of my shop" },
+                  ] as const
+                ).map((opt) => (
+                  <Pressable
+                    key={opt.v}
+                    style={etsyWhoMade === opt.v ? styles.bizBtnActive : styles.bizBtn}
+                    onPress={() => setEtsyWhoMade(opt.v)}
+                  >
+                    <Text style={etsyWhoMade === opt.v ? styles.bizBtnTextActive : styles.bizBtnText}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={styles.label}>When was it made?</Text>
+              <View style={styles.bizRow}>
+                {(
+                  [
+                    { v: "made_to_order", label: "Made to order" },
+                    { v: "2020_2025", label: "2020-2025" },
+                    { v: "before_2006", label: "Before 2006 (vintage)" },
+                  ] as const
+                ).map((opt) => (
+                  <Pressable
+                    key={opt.v}
+                    style={etsyWhenMade === opt.v ? styles.bizBtnActive : styles.bizBtn}
+                    onPress={() => setEtsyWhenMade(opt.v)}
+                  >
+                    <Text style={etsyWhenMade === opt.v ? styles.bizBtnTextActive : styles.bizBtnText}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>This is a craft supply or tool</Text>
+                <Switch
+                  value={etsyIsSupply}
+                  onValueChange={setEtsyIsSupply}
+                  trackColor={switchTrackColor()}
+                  thumbColor={switchThumbColor(etsyIsSupply)}
+                  ios_backgroundColor={switchIosBackgroundColor}
+                />
+              </View>
+              <Text style={styles.hint}>
+                Etsy requires these details to publish a listing. Items publish live only when your
+                Etsy shop has a shipping profile.
+              </Text>
+            </>
+          )}
+        </>
+      )}
+
+      {ebayConnected && (
+        <>
+          <Text style={styles.sectionTitle}>eBay sync</Text>
+          <Text style={styles.hint}>
+            This listing is created and kept in sync on your connected eBay account. A sale on either
+            store updates inventory on both. eBay listings publish live only when your eBay account
+            has business policies (payment, return, shipping) and a merchant location.
+          </Text>
+          <Text style={styles.label}>eBay category ID (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={ebayCategoryId}
+            onChangeText={(t) => setEbayCategoryId(t.replace(/[^0-9]/g, ""))}
+            placeholder="e.g. 11450"
+            keyboardType="number-pad"
+            placeholderTextColor="#999"
+          />
+          <Text style={styles.hint}>
+            Leave blank to use the store default category. Find a category ID with eBay&apos;s
+            category lookup if your items need a specific one.
+          </Text>
         </>
       )}
 

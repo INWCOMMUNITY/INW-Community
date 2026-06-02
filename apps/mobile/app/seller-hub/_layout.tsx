@@ -19,6 +19,8 @@ function useHeaderTitle() {
   if (path.includes("deliveries") || last === "deliveries") return "My Deliveries";
   if (path.includes("pickups") || String(last) === "pickups") return "My Pickups";
   if (path.includes("business-hub") || String(last) === "business-hub") return "Business Hub";
+  if (path.includes("channels") && String(last) === "import") return "Import Listings";
+  if (path.includes("channels") || String(last) === "channels") return "Sync Stores";
   return "Seller Hub";
 }
 

@@ -5,6 +5,7 @@ import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 import { deductPoints } from "@/lib/award-points";
+import { syncInventoryToChannelsSafe } from "@/lib/channels/sync-inventory";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -92,6 +93,8 @@ export async function POST(
           }
         }
       });
+      // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
+      for (const oi of order.items) syncInventoryToChannelsSafe(oi.storeItemId);
       let stripeFeeCents: number | null = null;
       try {
         const pi = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId, {
@@ -196,6 +199,9 @@ export async function POST(
     if (order.pointsAwarded > 0) {
       await deductPoints(order.buyerId, order.pointsAwarded);
     }
+
+    // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
+    for (const oi of order.items) syncInventoryToChannelsSafe(oi.storeItemId);
 
     let stripeFeeCents: number | null = null;
     try {

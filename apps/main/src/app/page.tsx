@@ -161,8 +161,8 @@ export default async function HomePage() {
                 <span className="block p-2 font-medium">Non-Profit Events Calendar</span>
               </Link>
               <Link href="/calendars/business_promotional" className="block border-2 border-[var(--color-primary)] rounded-lg overflow-hidden">
-                <Image src={CALENDAR_IMAGES.business_promotional} alt="Business Promo" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
-                <span className="block p-2 font-medium">Business Promo Events Calendar</span>
+                <Image src={CALENDAR_IMAGES.business_promotional} alt="Community Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />
+                <span className="block p-2 font-medium">Community Events Calendar</span>
               </Link>
               <Link href="/calendars/marketing" className="block border-2 border-[var(--color-primary)] rounded-lg overflow-hidden">
                 <Image src={CALENDAR_IMAGES.marketing} alt="Marketing Events" className="w-full aspect-square object-cover" width={640} height={640} sizes="(max-width: 768px) 50vw, 400px" quality={100} />

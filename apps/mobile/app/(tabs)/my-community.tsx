@@ -234,6 +234,7 @@ function SellerHubContent() {
       { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
       { label: "Pick Up", href: "/seller-hub/pickups", icon: "hand-left-outline" },
       { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
+      { label: "Sync Stores", href: "/seller-hub/channels", icon: "sync-outline" },
       {
         label: sellerSetupComplete ? "Seller Variables" : "Before You Start",
         href: "/seller-hub/before-you-start",

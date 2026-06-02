@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "May 8, 2026";
+export const PRIVACY_LAST_UPDATED = "June 1, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -122,6 +122,7 @@ We use third-party vendors such as:
 ● Expo push notification service (delivery of mobile push notifications when you enable them on your device)
 ● Shippo (shipping labels for marketplace orders)
 ● TaxJar or similar sales tax compliance providers (tax determination, reporting, and related processing for marketplace orders where NWC implements them), subject to their terms
+● Etsy and other connected marketplaces (Etsy, eBay, Wix, and Shopify) when a seller chooses to sync listings, as described in section 3.5
 ● Resend (transactional email—for example signup email verification, password-reset links, order tracking, subscription or renewal-related messages, and other service emails described in this policy)
 ● Our database hosting provider (PostgreSQL)
 
@@ -150,6 +151,9 @@ When you buy or sell through the marketplace, NWC shares with the seller or buye
 3.5 Handling Disputes
 ● We may provide only business information (not personal information) if a user of inwcommunity.com claims to have conducted business with your company and initiates a dispute. NWC is not a party to disputes, but may act as a mediator to provide accurate information to help our clients and your company resolve an issue. See Terms of Service 7.4.
 ● NWC does not access or disclose private user communications unless required by law, compelled by a valid legal request, or necessary to protect the safety and security of the community.
+
+3.6 Connected marketplaces (optional sales-channel sync)
+If you are a seller and choose to connect a third-party marketplace (such as Etsy, eBay, Wix, or Shopify), NWC exchanges data with that marketplace to provide the sync feature. This includes sending your listing content (titles, descriptions, prices, photos, and quantities) to the marketplace, and reading your listings and order/receipt information from the marketplace so we can keep inventory in sync across your stores. We store the marketplace's OAuth access and refresh tokens encrypted at rest and use them only to operate the sync on your behalf; we do not sell them or use them for any other purpose. The information you send to or receive from a connected marketplace is also subject to that marketplace's own privacy policy. You can disconnect a marketplace at any time in Seller Hub, which stops further data exchange.
 
 4. COOKIES & TRACKING TECHNOLOGIES
 NWC and its service providers use cookies to:

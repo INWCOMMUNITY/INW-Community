@@ -6,7 +6,7 @@ const CALENDAR_LABELS: Record<string, string> = {
   fun_events: "Fun Events",
   local_art_music: "Local Art & Music",
   non_profit: "Non-Profit",
-  business_promotional: "Business Promotional",
+  business_promotional: "Community",
   marketing: "Marketing",
   real_estate: "Real Estate",
 };

@@ -73,9 +73,9 @@ export const CALENDAR_TYPES: { value: CalendarType; label: string }[] = [
   { value: "fun_events", label: "Fun Events Calendar" },
   { value: "local_art_music", label: "Local Art & Music Calendar" },
   { value: "non_profit", label: "Non-Profit Events Calendar" },
-  { value: "business_promotional", label: "Business Promotional Events" },
-  { value: "marketing", label: "Marketing Events" },
-  { value: "real_estate", label: "Real Estate Events" },
+  { value: "business_promotional", label: "Community Events Calendar" },
+  { value: "marketing", label: "Marketing Events Calendar" },
+  { value: "real_estate", label: "Real Estate Events Calendar" },
 ];
 
 export const PLAN_LABELS: Record<Plan, string> = {

@@ -31,6 +31,13 @@ const bodySchema = z.object({
   pickupTerms: z.string().nullable().optional(),
   acceptOffers: z.boolean().optional(),
   minOfferCents: z.number().int().min(0).nullable().optional(),
+  // Channel sync (Etsy now; eBay/Shopify/Wix later)
+  syncToChannels: z.boolean().optional(),
+  etsyWhoMade: z.string().nullable().optional(),
+  etsyWhenMade: z.string().nullable().optional(),
+  etsyIsSupply: z.boolean().nullable().optional(),
+  etsyTaxonomyId: z.coerce.number().int().positive().nullable().optional(),
+  ebayCategoryId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 export async function GET(
@@ -225,6 +232,11 @@ export async function PATCH(
   if (data.condition !== undefined) update.condition = data.condition;
   if (data.acceptOffers !== undefined) update.acceptOffers = data.acceptOffers;
   if (data.minOfferCents !== undefined) update.minOfferCents = data.minOfferCents;
+  if (data.etsyWhoMade !== undefined) update.etsyWhoMade = data.etsyWhoMade?.trim() || null;
+  if (data.etsyWhenMade !== undefined) update.etsyWhenMade = data.etsyWhenMade?.trim() || null;
+  if (data.etsyIsSupply !== undefined) update.etsyIsSupply = data.etsyIsSupply;
+  if (data.etsyTaxonomyId !== undefined) update.etsyTaxonomyId = data.etsyTaxonomyId;
+  if (data.ebayCategoryId !== undefined) update.ebayCategoryId = data.ebayCategoryId;
 
   const mergedStatus =
     data.status !== undefined ? data.status : existing.status;
@@ -256,6 +268,28 @@ export async function PATCH(
   if (item.status === "sold_out") {
     deleteFeedPostsForSoldItem(itemId).catch(() => {});
   }
+
+  // Keep linked sales channels (Etsy, etc.) in sync. Best-effort: never fail the save.
+  try {
+    const existingLinks = await prisma.channelListingLink.count({ where: { storeItemId: itemId } });
+    if (data.syncToChannels === false && existingLinks > 0) {
+      // Stop syncing this item but leave the external listing in place.
+      await prisma.channelListingLink.updateMany({
+        where: { storeItemId: itemId },
+        data: { syncEnabled: false },
+      });
+    } else if (existingLinks > 0) {
+      const { updateStoreItemOnChannels } = await import("@/lib/channels/outbound");
+      await updateStoreItemOnChannels(itemId);
+    } else if (data.syncToChannels === true) {
+      // Newly enabling sync for an item that has no link yet -> publish it.
+      const { publishStoreItemToChannels } = await import("@/lib/channels/outbound");
+      await publishStoreItemToChannels(itemId, item.memberId);
+    }
+  } catch (err) {
+    console.error("[store-items] Channel update failed:", err);
+  }
+
   return NextResponse.json(item);
 }
 
@@ -277,6 +311,14 @@ export async function DELETE(
   const isAdmin = await requireAdmin(req);
   if (!isAdmin && existing.memberId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Remove the listing from connected sales channels first (links cascade on StoreItem delete).
+  try {
+    const { deleteStoreItemFromChannels } = await import("@/lib/channels/outbound");
+    await deleteStoreItemFromChannels(id);
+  } catch (err) {
+    console.error("[store-items] Channel delete failed:", err);
   }
 
   await prisma.storeItem.delete({ where: { id } });
