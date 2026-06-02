@@ -4,6 +4,7 @@ import {
   applyRemoteListingRemoved,
   applyRemoteListingToStoreItem,
 } from "./apply-remote-listing";
+import { shouldPushLocalQuantityToChannels } from "./inbound-quantity";
 import { getAdapter } from "./registry";
 import { updateStoreItemOnChannels } from "./outbound";
 import { syncInventoryToChannels } from "./sync-inventory";
@@ -47,7 +48,22 @@ export async function reconcileConnectionInboundCatalog(
 
   const links = await prisma.channelListingLink.findMany({
     where: { connectionId: connection.id, provider, syncEnabled: true },
-    select: { id: true, storeItemId: true, externalListingId: true },
+    select: {
+      id: true,
+      storeItemId: true,
+      externalListingId: true,
+      lastPushedAt: true,
+      lastInboundAt: true,
+      storeItem: {
+        select: {
+          title: true,
+          description: true,
+          photos: true,
+          priceCents: true,
+          quantity: true,
+        },
+      },
+    },
   });
 
   let updated = 0;
@@ -63,6 +79,24 @@ export async function reconcileConnectionInboundCatalog(
         data: { lastInboundAt: new Date() },
       });
       removed += 1;
+      continue;
+    }
+
+    const localQty = link.storeItem.quantity;
+    const pushLocalQty = shouldPushLocalQuantityToChannels({
+      localQuantity: localQty,
+      remoteQuantity: remote.quantity,
+      lastPushedAt: link.lastPushedAt,
+      lastInboundAt: link.lastInboundAt,
+    });
+
+    if (pushLocalQty) {
+      await syncInventoryToChannels(link.storeItemId);
+      await prisma.channelListingLink.update({
+        where: { id: link.id },
+        data: { lastPushedAt: new Date() },
+      });
+      updated += 1;
       continue;
     }
 

@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import { prisma } from "database";
 import { getAdapter } from "./registry";
 import { getConnectionContext } from "./connection";
@@ -53,9 +54,30 @@ export async function syncInventoryToChannels(
   }
 }
 
-/** Fire-and-forget wrapper for hot paths (Stripe webhook, refund/cancel) that must never throw. */
-export function syncInventoryToChannelsSafe(storeItemId: string): void {
-  syncInventoryToChannels(storeItemId).catch((e) =>
+/**
+ * Schedule channel inventory push after a local sale/refund. Uses Vercel waitUntil so the work
+ * completes after the webhook responds (plain fire-and-forget is often killed on serverless).
+ */
+export function syncInventoryToChannelsSafe(
+  storeItemId: string,
+  options: ChannelSyncOptions = {}
+): void {
+  const work = syncInventoryToChannels(storeItemId, options).catch((e) =>
     console.error("[channels] syncInventoryToChannelsSafe", { storeItemId, error: String(e) })
   );
+  if (process.env.VERCEL) {
+    waitUntil(work);
+    return;
+  }
+  void work;
+}
+
+/** Await inventory push (use when the caller must finish before returning). */
+export function syncInventoryToChannelsAfterSale(
+  storeItemId: string,
+  options: ChannelSyncOptions = {}
+): Promise<void> {
+  return syncInventoryToChannels(storeItemId, options).catch((e) => {
+    console.error("[channels] syncInventoryToChannelsAfterSale", { storeItemId, error: String(e) });
+  });
 }

@@ -253,7 +253,11 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 7. **Webhooks** (recommended — near real-time sync):
    - Dev Center → your app → **Webhooks** → **Get Public Key** → save as `WIX_WEBHOOK_PUBLIC_KEY` in Vercel
    - Callback URL: `https://www.inwcommunity.com/api/channels/wix/webhook`
-   - Subscribe at minimum: **Order created**, **Order updated**, **Product updated**, **Product deleted** (Stores / eCommerce categories)
+   - Subscribe (Wix Dev Center → Webhooks — names vary slightly by catalog version):
+     - **eCommerce:** Order Created, Order Updated (and Payment Status Updated if listed)
+     - **Stores / Catalog:** Product Created, Product Updated, Product Deleted
+     - **Inventory (Catalog v3):** Inventory Item Updated (and Inventory Variants Changed if listed)
+   - Optional: Order Canceled (reconcile will re-sync qty); skip carts, contacts, bookings unless you need them
 8. **External Install / callback:**
    - Find **OAuth** → **Redirect URLs** or **External install** / **Post-installation URL**.
    - Set to: `https://www.inwcommunity.com/api/channels/wix/callback`

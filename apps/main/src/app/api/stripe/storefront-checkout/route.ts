@@ -409,6 +409,11 @@ export async function POST(req: NextRequest) {
     };
     const checkoutSession = await stripe.checkout.sessions.create(createParams);
 
+    await prisma.storeOrder.updateMany({
+      where: { id: { in: orderIds } },
+      data: { stripeCheckoutSessionId: checkoutSession.id },
+    });
+
     return NextResponse.json({ url: checkoutSession.url });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Checkout failed";

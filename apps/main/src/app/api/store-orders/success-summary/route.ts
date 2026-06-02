@@ -6,8 +6,17 @@ import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-points";
 import { orderIdsFromCheckoutSessionMetadata } from "@/lib/stripe-checkout-order-ids";
+import { fulfillStoreOrdersFromCheckoutSession } from "@/lib/stripe/fulfill-storefront-orders";
 
 export const dynamic = "force-dynamic";
+
+function stripeClient(): Stripe | null {
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeSecretKey?.startsWith("sk_")) return null;
+  return new Stripe(stripeSecretKey, {
+    apiVersion: "2024-11-20.acacia" as "2023-10-16",
+  });
+}
 
 /**
  * GET ?order_ids=id1,id2&celebrate_badges=1 (optional)
@@ -31,21 +40,36 @@ export async function GET(req: NextRequest) {
     ? orderIdsParam.split(",").map((id) => id.trim()).filter(Boolean)
     : [];
 
-  if (orderIds.length === 0 && sessionIdParam) {
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-    if (stripeSecretKey?.startsWith("sk_")) {
+  if (sessionIdParam) {
+    const stripe = stripeClient();
+    if (stripe) {
       try {
-        const stripe = new Stripe(stripeSecretKey, {
-          apiVersion: "2024-11-20.acacia" as "2023-10-16",
-        });
         const cs = await stripe.checkout.sessions.retrieve(sessionIdParam);
-        if (cs.payment_status === "paid" && cs.metadata) {
-          orderIds = orderIdsFromCheckoutSessionMetadata(
-            cs.metadata as Record<string, string | null | undefined>
-          );
+        if (cs.payment_status === "paid") {
+          if (orderIds.length === 0 && cs.metadata) {
+            orderIds = orderIdsFromCheckoutSessionMetadata(
+              cs.metadata as Record<string, string | null | undefined>
+            );
+          }
+          if (orderIds.length === 0) {
+            const pendingForSession = await prisma.storeOrder.findMany({
+              where: {
+                buyerId: session.user.id,
+                status: "pending",
+                stripeCheckoutSessionId: sessionIdParam,
+              },
+              select: { id: true },
+            });
+            orderIds = pendingForSession.map((o) => o.id);
+          }
+          // Safety net when checkout.session.completed webhook is delayed or missing.
+          await fulfillStoreOrdersFromCheckoutSession(stripe, cs, {
+            buyerId: session.user.id,
+            logPrefix: "[success-summary]",
+          });
         }
-      } catch {
-        orderIds = [];
+      } catch (fulfillErr) {
+        console.error("[success-summary] Stripe session fulfill failed:", fulfillErr);
       }
     }
   }

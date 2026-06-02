@@ -216,6 +216,29 @@ function quantityForProduct(items: InventoryItem[]): number {
   return inStock ? 1 : 0;
 }
 
+/** Fallback when Catalog v3 inventory rows are missing (common on classic / v1 catalogs). */
+async function setInventoryViaProductPatch(
+  accessToken: string,
+  productId: string,
+  quantity: number,
+  opts: WixRequestOpts
+): Promise<void> {
+  const product = await getProduct(accessToken, productId, opts);
+  if (!product?.revision) {
+    throw new WixApiError("Wix product not found for inventory update.", 404, null);
+  }
+  const variantId = product.variantsInfo?.variants?.[0]?.id ?? null;
+  const variant: Record<string, unknown> = { inventoryItem: { quantity } };
+  if (variantId) variant.id = variantId;
+  await wixJson(
+    accessToken,
+    `/stores/v3/products/${encodeURIComponent(productId)}`,
+    "PATCH",
+    { product: { revision: product.revision, variantsInfo: { variants: [variant] } } },
+    opts
+  );
+}
+
 async function setInventoryAbsolute(
   accessToken: string,
   productId: string,
@@ -224,6 +247,7 @@ async function setInventoryAbsolute(
 ): Promise<void> {
   const quantity = Math.max(0, Math.round(absoluteQuantity));
   const items = await searchInventoryItems(accessToken, [productId], opts);
+  let updated = 0;
   for (const item of items) {
     if (!item.id || item.revision == null) continue;
     await wixJson(
@@ -235,9 +259,11 @@ async function setInventoryAbsolute(
         reason: "MANUAL",
       },
       opts
-    ).catch((e) => {
-      console.error("[wix] inventory update failed", { productId, itemId: item.id, error: String(e) });
-    });
+    );
+    updated += 1;
+  }
+  if (updated === 0) {
+    await setInventoryViaProductPatch(accessToken, productId, quantity, opts);
   }
 }
 
@@ -302,7 +328,13 @@ export const wixAdapter: ChannelAdapter = {
   },
 
   async updateInventory(conn, externalListingId, absoluteQuantity): Promise<void> {
-    await setInventoryAbsolute(conn.accessToken, externalListingId, absoluteQuantity, wixOpts(conn));
+    await ensureWixSiteId(conn);
+    await setInventoryAbsolute(
+      conn.accessToken,
+      externalListingId,
+      absoluteQuantity,
+      wixOpts(conn)
+    );
   },
 
   async listRemoteListings(conn): Promise<RemoteListingSummary[]> {
