@@ -18,7 +18,7 @@ import {
 } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import type { InwVariantAxis } from "./variant-sync";
-import { sumVariantQuantities } from "./variant-sync";
+import { sumVariantQuantities, variantsFingerprint } from "./variant-sync";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 
 function inwMissingVariants(variants: unknown): boolean {
@@ -60,6 +60,7 @@ type LinkRow = {
   externalListingId: string;
   syncBaselineHash: string | null;
   syncBaselineMetaHash: string | null;
+  syncBaselineVariantsHash: string | null;
   syncBaselineQty: number | null;
   syncBaselineAt: Date | null;
   storeItem: {
@@ -108,6 +109,7 @@ async function writeBaseline(
       data: {
         syncBaselineHash: syncContentHash(item),
         syncBaselineMetaHash: syncMetaHash(item),
+        syncBaselineVariantsHash: variantsFingerprint(item.variants),
         syncBaselineQty: item.quantity,
         syncBaselineAt: baselineAt,
       },
@@ -159,6 +161,7 @@ export async function reconcileConnectionInboundMeta(
       externalListingId: true,
       syncBaselineHash: true,
       syncBaselineMetaHash: true,
+      syncBaselineVariantsHash: true,
       syncBaselineQty: true,
       syncBaselineAt: true,
       storeItem: {
@@ -221,6 +224,7 @@ export async function reconcileConnectionInboundMeta(
       }
     }
 
+    // Category/shipping use the listing-level timestamp to detect a remote edit.
     const inwMetaHash = syncMetaHash(item);
     const baseMetaHash = link.syncBaselineMetaHash ?? inwMetaHash;
     const baseAt = link.syncBaselineAt ?? remote.remoteUpdatedAt ?? new Date();
@@ -234,29 +238,50 @@ export async function reconcileConnectionInboundMeta(
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     });
 
-    if (metaDecision === "noop") {
-      if (link.syncBaselineMetaHash == null) {
+    // Per-option quantities use a content fingerprint (not the listing timestamp): some providers
+    // (e.g. Wix Stores v2 inventory) change stock without bumping the product's lastUpdated, so a
+    // timestamp-only check would miss remote per-size edits. Provider-agnostic; eBay (variantsKnown
+    // false) yields no remote change, so it stays push-only with no regression.
+    const inwVarFp = variantsFingerprint(item.variants);
+    const baseVarFp = link.syncBaselineVariantsHash ?? inwVarFp;
+    const remoteVarFp =
+      remote.variantsKnown === true ? variantsFingerprint(remote.variants) : null;
+    const inwVarChanged = inwVarFp !== baseVarFp;
+    const remoteVarChanged = remoteVarFp != null && remoteVarFp !== baseVarFp;
+    const varDecision: SyncDirection = resolveSyncDirection({
+      inwChanged: inwVarChanged,
+      remoteChanged: remoteVarChanged,
+      inwUpdatedAt: item.updatedAt,
+      remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+    });
+
+    if (metaDecision === "noop" && varDecision === "noop") {
+      if (link.syncBaselineMetaHash == null || link.syncBaselineVariantsHash == null) {
         await writeBaseline(link.id, link.storeItemId, remote, false);
       }
       continue;
     }
 
+    // Pull remote-winning aspects first so a subsequent push carries the merged state.
     let pulled = false;
     if (metaDecision === "pull") {
       const cat = await applyRemoteCategoryToStoreItem(link.storeItemId, remote, provider);
       const ship = await applyRemoteShippingToStoreItem(link.storeItemId, remote);
+      pulled = cat || ship || pulled;
+    }
+    if (varDecision === "pull") {
       const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);
-      pulled = cat || ship || vars;
+      pulled = vars || pulled;
     }
 
     let attemptedPush = false;
     let pushOk = false;
-    if (metaDecision === "push") {
+    if (metaDecision === "push" || varDecision === "push") {
       attemptedPush = true;
       pushOk = channelSyncSucceeded(await updateStoreItemOnChannels(link.storeItemId), provider);
     }
 
-    if (pulled && metaDecision !== "push") {
+    if (pulled && !attemptedPush) {
       await updateStoreItemOnChannels(link.storeItemId, { skipProviders: [provider] });
     }
 
@@ -275,7 +300,7 @@ export async function reconcileConnectionInboundMeta(
 
     if (pulled || (attemptedPush && pushOk)) {
       await writeBaseline(link.id, link.storeItemId, remote, attemptedPush && pushOk);
-    } else if (link.syncBaselineMetaHash == null) {
+    } else if (link.syncBaselineMetaHash == null || link.syncBaselineVariantsHash == null) {
       await writeBaseline(link.id, link.storeItemId, remote, false);
     }
     updated += 1;

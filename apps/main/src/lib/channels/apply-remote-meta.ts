@@ -1,6 +1,10 @@
 import { prisma } from "database";
 import { resolveInwCategoryFromRemote } from "./category-resolver";
-import { normalizeVariantsFromProvider, sumVariantQuantities } from "./variant-sync";
+import {
+  normalizeVariantsFromProvider,
+  sumVariantQuantities,
+  type InwVariantAxis,
+} from "./variant-sync";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
@@ -68,6 +72,42 @@ export async function applyRemoteShippingToStoreItem(
   return true;
 }
 
+/**
+ * Write normalized INW variant axes (per-option quantities) to a StoreItem and recompute the
+ * aggregate quantity. Shared by the meta reconcile and the Wix inventory webhook fast path.
+ */
+export async function applyRemoteVariantAxesToStoreItem(
+  storeItemId: string,
+  axes: InwVariantAxis[] | null
+): Promise<boolean> {
+  if (!axes || axes.length === 0) return false;
+
+  const item = await prisma.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { variants: true, quantity: true, status: true },
+  });
+  if (!item) return false;
+
+  const nextQty = sumVariantQuantities(axes) || sumOptionQuantities(axes);
+  const variantsJson = axes as unknown;
+  const sameVariants = JSON.stringify(item.variants) === JSON.stringify(variantsJson);
+  if (sameVariants && item.quantity === nextQty) return false;
+
+  // Keep status in sync with stock: restock reactivates a sold-out listing; zero stock sells it out.
+  const nextStatus =
+    nextQty > 0
+      ? item.status === "sold_out"
+        ? "active"
+        : item.status
+      : "sold_out";
+
+  await prisma.storeItem.update({
+    where: { id: storeItemId },
+    data: { variants: variantsJson as object, quantity: nextQty, status: nextStatus },
+  });
+  return true;
+}
+
 /** Pull remote product options into INW variants JSON (per-option quantities). */
 export async function applyRemoteVariantsToStoreItem(
   storeItemId: string,
@@ -75,26 +115,8 @@ export async function applyRemoteVariantsToStoreItem(
   provider: ChannelProvider
 ): Promise<boolean> {
   if (remote.variantsKnown === false || !remote.variants) return false;
-
   const normalized = normalizeVariantsFromProvider(provider, remote.variants);
-  if (!normalized || normalized.length === 0) return false;
-
-  const item = await prisma.storeItem.findUnique({
-    where: { id: storeItemId },
-    select: { variants: true, quantity: true },
-  });
-  if (!item) return false;
-
-  const nextQty = sumVariantQuantities(normalized) || sumOptionQuantities(normalized);
-  const variantsJson = normalized as unknown;
-  const sameVariants = JSON.stringify(item.variants) === JSON.stringify(variantsJson);
-  if (sameVariants && item.quantity === nextQty) return false;
-
-  await prisma.storeItem.update({
-    where: { id: storeItemId },
-    data: { variants: variantsJson as object, quantity: nextQty },
-  });
-  return true;
+  return applyRemoteVariantAxesToStoreItem(storeItemId, normalized);
 }
 
 /** Apply all remote meta fields (category, shipping, variants). */

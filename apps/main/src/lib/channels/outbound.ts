@@ -4,6 +4,7 @@ import { getAdapter } from "./registry";
 import { getActiveConnectionsForMember, getConnectionContext } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
+import { variantsFingerprint } from "./variant-sync";
 import type {
   ChannelConnectionContext,
   ChannelProvider,
@@ -90,6 +91,7 @@ export async function publishStoreItemToChannels(
           lastPushedAt: new Date(),
           syncBaselineHash: syncContentHash(item),
           syncBaselineMetaHash: syncMetaHash(item),
+          syncBaselineVariantsHash: variantsFingerprint(item.variants),
           syncBaselineQty: item.quantity,
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },
@@ -148,6 +150,7 @@ export async function updateStoreItemOnChannels(
           lastPushedAt: new Date(),
           syncBaselineHash: syncContentHash(item),
           syncBaselineMetaHash: syncMetaHash(item),
+          syncBaselineVariantsHash: variantsFingerprint(item.variants),
           syncBaselineQty: item.quantity,
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },

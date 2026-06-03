@@ -1,6 +1,11 @@
 import { prisma } from "database";
 import { resolveInwCategoryFromRemote } from "./category-resolver";
-import { normalizeVariantsFromProvider, sumVariantQuantities, type InwVariantAxis } from "./variant-sync";
+import {
+  normalizeVariantsFromProvider,
+  sumVariantQuantities,
+  variantsFingerprint,
+  type InwVariantAxis,
+} from "./variant-sync";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
@@ -134,6 +139,7 @@ export async function importRemoteListing(args: {
           lastInboundAt: new Date(),
           syncBaselineHash: syncContentHash(storeItem),
           syncBaselineMetaHash: metaHash,
+          syncBaselineVariantsHash: variantsFingerprint(storeItem.variants),
           syncBaselineQty: storeItem.quantity,
           syncBaselineAt: listing.remoteUpdatedAt ?? new Date(),
         },

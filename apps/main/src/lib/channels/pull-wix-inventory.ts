@@ -1,9 +1,12 @@
 import { prisma } from "database";
 import { applyRemoteQuantityToStoreItem } from "./apply-remote-listing";
+import { applyRemoteVariantAxesToStoreItem } from "./apply-remote-meta";
 import { getConnectionContext } from "./connection";
 import { getAdapter } from "./registry";
 import { syncInventoryToChannels } from "./sync-inventory";
 import { syncContentHash, syncMetaHash } from "./sync-baseline";
+import { variantsFingerprint } from "./variant-sync";
+import { hasOptionQuantities } from "@/lib/store-item-variants";
 import type { ChannelProvider } from "./types";
 
 /** After a webhook-driven qty pull, record the agreed baseline so the cron doesn't re-fight it. */
@@ -31,6 +34,7 @@ async function recordInventoryBaseline(linkId: string, storeItemId: string): Pro
         lastInboundAt: new Date(),
         syncBaselineHash: syncContentHash(item),
         syncBaselineMetaHash: syncMetaHash(item),
+        syncBaselineVariantsHash: variantsFingerprint(item.variants),
         syncBaselineQty: item.quantity,
         syncBaselineAt: new Date(),
       },
@@ -67,6 +71,11 @@ export async function pullWixInventoryForConnection(
   const adapter = getAdapter("wix");
   if (!adapter.fetchProductQuantity) return { updated: 0 };
 
+  const { fetchWixV1Product, wixV1ProductToVariants } = await import("./wix/collections");
+  const { wixSiteIdFromConn } = await import("./wix/site");
+  const siteId = wixSiteIdFromConn(ctx);
+  const wixOpts = siteId ? { siteId } : {};
+
   const links = await prisma.channelListingLink.findMany({
     where: {
       connectionId: connection.id,
@@ -74,15 +83,32 @@ export async function pullWixInventoryForConnection(
       syncEnabled: true,
       ...(productIds?.length ? { externalListingId: { in: productIds } } : {}),
     },
-    select: { id: true, storeItemId: true, externalListingId: true },
+    select: {
+      id: true,
+      storeItemId: true,
+      externalListingId: true,
+      storeItem: { select: { variants: true } },
+    },
   });
 
   let updated = 0;
   for (const link of links) {
     try {
-      const { quantity, known } = await adapter.fetchProductQuantity(ctx, link.externalListingId);
-      if (!known) continue;
-      const changed = await applyRemoteQuantityToStoreItem(link.storeItemId, quantity);
+      let changed: boolean;
+      // Option listings: pull per-size stock (Stores v2 inventory merged into the v1 product) and
+      // apply via the shared generic writer, which also recomputes the aggregate quantity.
+      if (hasOptionQuantities(link.storeItem.variants)) {
+        const product = await fetchWixV1Product(ctx.accessToken, link.externalListingId, wixOpts);
+        const axes = product ? wixV1ProductToVariants(product) : null;
+        changed = await applyRemoteVariantAxesToStoreItem(link.storeItemId, axes);
+      } else {
+        const { quantity, known } = await adapter.fetchProductQuantity!(
+          ctx,
+          link.externalListingId
+        );
+        if (!known) continue;
+        changed = await applyRemoteQuantityToStoreItem(link.storeItemId, quantity);
+      }
       if (!changed) continue;
       await recordInventoryBaseline(link.id, link.storeItemId);
       await syncInventoryToChannels(link.storeItemId, { skipProviders: ["wix"] });

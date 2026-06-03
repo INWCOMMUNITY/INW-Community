@@ -14,6 +14,7 @@ import {
   SYNC_ECHO_SKEW_MS,
   type SyncDirection,
 } from "./sync-baseline";
+import { variantsFingerprint } from "./variant-sync";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
 type ConnectionRow = {
@@ -82,6 +83,7 @@ async function writeBaseline(
       data: {
         syncBaselineHash: hash,
         syncBaselineMetaHash: metaHash,
+        syncBaselineVariantsHash: variantsFingerprint(item.variants),
         syncBaselineQty: item.quantity,
         syncBaselineAt: baselineAt,
       },

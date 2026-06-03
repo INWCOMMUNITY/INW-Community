@@ -363,29 +363,23 @@ export function buildWixV1ExistingVariantsPatchBody(
   return variants.length > 0 ? { product: { variants } } : null;
 }
 
-/** Map INW per-option quantities to Wix variant GUIDs on an existing v1 product. */
-export function mapInwQtyToWixVariantRows(
-  item: SyncStoreItem,
-  product: WixV1Product
-): { variantId: string; quantity: number }[] {
+/** INW option value -> quantity (lowercased keys) for the listing's single axis. */
+function inwQtyByValue(item: SyncStoreItem): { axisName: string; qty: Map<string, number> } | null {
   const primary = inwPrimaryAxis(item);
-  if (!primary) return [];
+  if (!primary) return null;
+  return {
+    axisName: primary.name.trim().toLowerCase(),
+    qty: new Map(primary.options.map((o) => [o.value.trim().toLowerCase(), Math.max(0, o.quantity)])),
+  };
+}
 
-  const qtyByValue = new Map(
-    primary.options.map((o) => [o.value.trim().toLowerCase(), Math.max(0, o.quantity)])
-  );
-  const rows = product.variants?.filter((v) => v.id) ?? [];
-  const out: { variantId: string; quantity: number }[] = [];
-  for (const row of rows) {
-    const map = wixVariantChoiceMap(row);
-    const axisKey =
-      Object.keys(map).find((k) => k.toLowerCase() === primary.name.trim().toLowerCase()) ??
-      Object.keys(map)[0];
-    const selected = axisKey ? map[axisKey] : Object.values(map)[0];
-    const qty = selected ? (qtyByValue.get(selected.trim().toLowerCase()) ?? 0) : 0;
-    out.push({ variantId: row.id!, quantity: qty });
-  }
-  return out;
+/** The option value a v1 product variant row represents (for the listing's axis). */
+function v1VariantSelectedValue(row: WixV1VariantRow, axisNameLower: string): string | null {
+  const map = wixVariantChoiceMap(row);
+  const axisKey =
+    Object.keys(map).find((k) => k.toLowerCase() === axisNameLower) ?? Object.keys(map)[0];
+  const selected = axisKey ? map[axisKey] : Object.values(map)[0];
+  return selected ? selected.trim().toLowerCase() : null;
 }
 
 type V2InventoryItem = {
@@ -395,38 +389,70 @@ type V2InventoryItem = {
   variants?: { variantId?: string; quantity?: number; inStock?: boolean }[];
 };
 
-/** Push per-option stock via Stores v2 (Catalog v1 product PATCH does not reliably update inventory). */
+/**
+ * Push per-option stock via Stores v2. Wix keys inventory by the inventory item's OWN variantIds
+ * (which can differ from the v1 product variant ids), so we PATCH only those ids and resolve each
+ * one's quantity by bridging to the v1 product's choice value (id match, then index alignment).
+ * Returns false (instead of zeroing) when the structure has not propagated, so the caller surfaces
+ * a clear error rather than wiping Wix stock.
+ */
 export async function pushWixV1PerOptionInventory(
   accessToken: string,
   productId: string,
   item: SyncStoreItem,
   opts: WixRequestOpts
 ): Promise<boolean> {
-  const primary = inwPrimaryAxis(item);
-  if (!primary) return false;
+  const inw = inwQtyByValue(item);
+  if (!inw) return false;
+
+  const fetchInventory = () =>
+    wixGet<{ inventoryItem?: V2InventoryItem }>(
+      accessToken,
+      `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
+      opts
+    ).catch(() => null);
 
   let product = await fetchWixV1Product(accessToken, productId, opts);
-  let variantRows = product ? mapInwQtyToWixVariantRows(item, product) : [];
+  let inv = await fetchInventory();
+  let v1vars = product?.variants?.filter((v) => v.id) ?? [];
+  let v2vars = (inv?.inventoryItem?.variants ?? []).filter((v) => v.variantId);
 
-  if (variantRows.length === 0) {
+  // No managed variants yet (or only the default row): create the option structure first, then refetch.
+  if (v1vars.length === 0 || v2vars.length <= 1) {
     const structureOk = await pushWixV1OptionsUpdate(accessToken, productId, item, opts);
     if (!structureOk) return false;
     product = await fetchWixV1Product(accessToken, productId, opts);
-    variantRows = product ? mapInwQtyToWixVariantRows(item, product) : [];
+    inv = await fetchInventory();
+    v1vars = product?.variants?.filter((v) => v.id) ?? [];
+    v2vars = (inv?.inventoryItem?.variants ?? []).filter((v) => v.variantId);
   }
-  if (variantRows.length === 0) return false;
 
-  const got = await wixGet<{ inventoryItem?: V2InventoryItem }>(
-    accessToken,
-    `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
-    opts
-  ).catch(() => null);
+  // Without v2 inventory variant ids there is nothing valid to PATCH — bail rather than guess.
+  if (v2vars.length === 0) return false;
 
-  const variants = variantRows.map(({ variantId, quantity }) => ({
-    variantId,
-    quantity,
-    inStock: quantity > 0,
-  }));
+  const v1ById = new Map(v1vars.map((v) => [v.id as string, v]));
+  const sameCount = v1vars.length === v2vars.length;
+
+  const variants: { variantId: string; quantity: number; inStock: boolean }[] = [];
+  let resolved = 0;
+  for (let i = 0; i < v2vars.length; i++) {
+    const v2 = v2vars[i];
+    const variantId = v2.variantId as string;
+    // Bridge v2 variant -> v1 variant: prefer shared id, fall back to index when counts match.
+    const v1row = v1ById.get(variantId) ?? (sameCount ? v1vars[i] : undefined);
+    const value = v1row ? v1VariantSelectedValue(v1row, inw.axisName) : null;
+    const qty = value != null ? inw.qty.get(value) : undefined;
+    if (qty == null) {
+      // Keep Wix's current quantity for anything we can't confidently map.
+      variants.push({ variantId, quantity: Math.max(0, v2.quantity ?? 0), inStock: (v2.quantity ?? 0) > 0 });
+      continue;
+    }
+    resolved += 1;
+    variants.push({ variantId, quantity: qty, inStock: qty > 0 });
+  }
+
+  // Could not map any variant to an INW option -> structure mismatch; do not wipe Wix to zeros.
+  if (resolved === 0) return false;
 
   await wixJson(
     accessToken,
@@ -434,7 +460,7 @@ export async function pushWixV1PerOptionInventory(
     "PATCH",
     {
       inventoryItem: {
-        ...(got?.inventoryItem?.id ? { id: got.inventoryItem.id } : {}),
+        ...(inv?.inventoryItem?.id ? { id: inv.inventoryItem.id } : {}),
         productId,
         trackQuantity: true,
         variants,
