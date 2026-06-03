@@ -851,40 +851,51 @@ export const wixAdapter: ChannelAdapter = {
       for (const opts of attempts) {
         try {
           if (mode === "v1" && hasOptionQuantities(item.variants)) {
-            const pushed = await pushWixV1PerOptionInventory(
-              conn.accessToken,
-              externalListingId,
-              item,
-              opts
-            );
-            if (pushed) {
-              const verified = await verifyWixQuantityApplied(
+            // Attempt per-option inventory push. Wrap in its own try/catch so ANY failure
+            // (thrown exception OR false return) falls through to the aggregate fallback
+            // below — Wix must never be left stale or at zero after a sale.
+            try {
+              const pushed = await pushWixV1PerOptionInventory(
                 conn.accessToken,
                 externalListingId,
-                want,
-                opts,
-                true
+                item,
+                opts
               );
-              if (verified.ok) {
-                console.info("[wix] updateInventory ok", {
+              if (pushed) {
+                const verified = await verifyWixQuantityApplied(
+                  conn.accessToken,
+                  externalListingId,
+                  want,
+                  opts,
+                  true
+                );
+                if (verified.ok) {
+                  console.info("[wix] updateInventory ok", {
+                    productId: externalListingId,
+                    strategy: "v1/options-v2",
+                    quantity: want,
+                  });
+                  return;
+                }
+                console.warn("[wix] per-option push ok but verify failed — falling back to aggregate", {
                   productId: externalListingId,
-                  strategy: "v1/options-v2",
-                  quantity: want,
+                  want,
+                  actual: verified.actual,
                 });
-                return;
+              } else {
+                console.warn("[wix] per-option push returned false — falling back to aggregate", {
+                  productId: externalListingId,
+                  want,
+                });
               }
-              console.warn("[wix] per-option push succeeded but verify failed — falling back to aggregate", {
+            } catch (perOptionErr) {
+              console.warn("[wix] per-option push threw — falling back to aggregate", {
                 productId: externalListingId,
                 want,
-                actual: verified.actual,
-              });
-            } else {
-              console.warn("[wix] per-option push returned false — falling back to aggregate", {
-                productId: externalListingId,
-                want,
+                error: perOptionErr instanceof Error ? perOptionErr.message : String(perOptionErr),
               });
             }
-            // Fallback: push aggregate quantity so Wix is never left stale or at zero after a sale.
+            // Guaranteed fallback: push aggregate qty so Wix is always up to date after a sale.
             const strategy = await setInventoryAbsolute(
               conn.accessToken,
               externalListingId,
