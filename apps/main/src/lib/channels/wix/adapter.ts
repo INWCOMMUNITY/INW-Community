@@ -23,9 +23,9 @@ import { hasOptionQuantities } from "../../store-item-variants";
 import {
   assignWixProductCollection,
   attachWixVariantsToSummary,
-  buildWixV1OptionsBody,
   ensureWixCollection,
   fetchWixV1Product,
+  pushWixV1OptionsUpdate,
   pushWixV1PerOptionInventory,
   wixV1ProductToVariants,
 } from "./collections";
@@ -592,21 +592,7 @@ async function applyWixCategoryAndOptions(
     }
   }
   if (v1) {
-    const got = await wixGet<{ product?: WixV1Product }>(
-      conn.accessToken,
-      `/stores/v1/products/${encodeURIComponent(productId)}`,
-      opts
-    ).catch(() => null);
-    const optionsBody = buildWixV1OptionsBody(item, got?.product ?? null);
-    if (optionsBody) {
-      await wixJson(
-        conn.accessToken,
-        `/stores/v1/products/${encodeURIComponent(productId)}`,
-        "PATCH",
-        optionsBody,
-        opts
-      ).catch((e) => console.error("[wix] options patch failed", { productId, error: String(e) }));
-    }
+    await pushWixV1OptionsUpdate(conn.accessToken, productId, item, opts);
   }
 }
 

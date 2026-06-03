@@ -205,11 +205,8 @@ export async function assignWixProductCollection(
   }
 }
 
-/** Build v1 productOptions + variants from INW axes for create/update. */
-export function buildWixV1OptionsBody(
-  item: SyncStoreItem,
-  existing?: WixV1Product | null
-): Record<string, unknown> | null {
+/** Build v1 productOptions + variants for products that do not yet have variant rows. */
+export function buildWixV1OptionsCreateBody(item: SyncStoreItem): Record<string, unknown> | null {
   const axes = normalizeVariantsFromProvider("wix", item.variants) as InwVariantAxis[] | null;
   if (!axes || axes.length === 0) return null;
 
@@ -229,28 +226,184 @@ export function buildWixV1OptionsBody(
   return { product: { productOptions, variants } };
 }
 
-/** Push per-option stock to a v1 Wix product (PATCH productOptions + variants). */
+function inwPrimaryAxis(item: SyncStoreItem): InwVariantAxis | null {
+  const axes = normalizeVariantsFromProvider("wix", item.variants) as InwVariantAxis[] | null;
+  return axes?.[0] ?? null;
+}
+
+/** True when INW option name + value set matches Wix productOptions (single axis). */
+export function wixOptionStructureMatches(
+  item: SyncStoreItem,
+  existing: WixV1Product | null | undefined
+): boolean {
+  const primary = inwPrimaryAxis(item);
+  if (!primary || !existing) return false;
+
+  const inwValues = new Set(
+    primary.options.map((o) => o.value.trim().toLowerCase()).filter(Boolean)
+  );
+  const existingRows = existing.variants?.filter((v) => v.id) ?? [];
+  const wixOptions =
+    existing.productOptions?.filter((po) => po.name?.trim() && (po.choices?.length ?? 0) > 0) ?? [];
+
+  if (wixOptions.length === 1) {
+    const wixOpt = wixOptions[0];
+    const wixName = wixOpt.name?.trim().toLowerCase() ?? "";
+    if (wixName && wixName !== primary.name.trim().toLowerCase()) return false;
+    const wixValues = new Set(
+      (wixOpt.choices ?? [])
+        .map((c) => String(c.description ?? c.value ?? "").trim().toLowerCase())
+        .filter(Boolean)
+    );
+    if (inwValues.size !== wixValues.size) return false;
+    for (const v of inwValues) {
+      if (!wixValues.has(v)) return false;
+    }
+    return true;
+  }
+
+  if (existingRows.length > 0) {
+    const wixValues = new Set<string>();
+    for (const row of existingRows) {
+      for (const v of Object.values(wixVariantChoiceMap(row))) {
+        if (v.trim()) wixValues.add(v.trim().toLowerCase());
+      }
+    }
+    if (inwValues.size !== wixValues.size) return false;
+    for (const v of inwValues) {
+      if (!wixValues.has(v)) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * PATCH existing variant rows by id (stock + price only). Wix rejects productOptions changes
+ * when the product already has variants — omit productOptions entirely.
+ */
+export function buildWixV1ExistingVariantsPatchBody(
+  item: SyncStoreItem,
+  existing: WixV1Product
+): Record<string, unknown> | null {
+  const primary = inwPrimaryAxis(item);
+  if (!primary) return null;
+
+  const qtyByValue = new Map(
+    primary.options.map((o) => [o.value.trim().toLowerCase(), Math.max(0, o.quantity)])
+  );
+  const price = Math.max(0, item.priceCents) / 100;
+  const rows = existing.variants?.filter((v) => v.id) ?? [];
+  if (rows.length === 0) return null;
+
+  const variants: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const map = wixVariantChoiceMap(row);
+    const axisKey =
+      Object.keys(map).find((k) => k.toLowerCase() === primary.name.trim().toLowerCase()) ??
+      Object.keys(map)[0];
+    const selected = axisKey ? map[axisKey] : Object.values(map)[0];
+    const qty = selected ? (qtyByValue.get(selected.trim().toLowerCase()) ?? 0) : 0;
+    variants.push({
+      id: row.id,
+      stock: { trackInventory: true, quantity: qty, inStock: qty > 0 },
+      priceData: { price },
+    });
+  }
+  return variants.length > 0 ? { product: { variants } } : null;
+}
+
+/** @deprecated Prefer pushWixV1OptionsUpdate — kept for callers that only build JSON. */
+export function buildWixV1OptionsBody(
+  item: SyncStoreItem,
+  existing?: WixV1Product | null
+): Record<string, unknown> | null {
+  const rows = existing?.variants?.filter((v) => v.id) ?? [];
+  if (rows.length > 0 && wixOptionStructureMatches(item, existing)) {
+    return buildWixV1ExistingVariantsPatchBody(item, existing!);
+  }
+  return buildWixV1OptionsCreateBody(item);
+}
+
+async function resetWixV1VariantsToDefault(
+  accessToken: string,
+  productId: string,
+  opts: WixRequestOpts
+): Promise<void> {
+  await wixJson(
+    accessToken,
+    `/stores/v1/products/${encodeURIComponent(productId)}/variants/resetToDefault`,
+    "POST",
+    {},
+    opts
+  );
+}
+
+/**
+ * Push INW option rows to a v1 Wix product. Uses variant-id PATCH when options already exist;
+ * resets + full replace when the option structure changed; create body when no variants yet.
+ */
+export async function pushWixV1OptionsUpdate(
+  accessToken: string,
+  productId: string,
+  item: SyncStoreItem,
+  opts: WixRequestOpts
+): Promise<boolean> {
+  const primary = inwPrimaryAxis(item);
+  if (!primary) return false;
+
+  const product = await fetchWixV1Product(accessToken, productId, opts);
+  const existingRows = product?.variants?.filter((v) => v.id) ?? [];
+
+  if (existingRows.length > 0) {
+    if (wixOptionStructureMatches(item, product)) {
+      const patchBody = buildWixV1ExistingVariantsPatchBody(item, product!);
+      if (!patchBody) return false;
+      await wixJson(
+        accessToken,
+        `/stores/v1/products/${encodeURIComponent(productId)}`,
+        "PATCH",
+        patchBody,
+        opts
+      );
+      return true;
+    }
+
+    // Option names/values changed — Wix requires reset before productOptions can change.
+    await resetWixV1VariantsToDefault(accessToken, productId, opts);
+    const createBody = buildWixV1OptionsCreateBody(item);
+    if (!createBody) return false;
+    await wixJson(
+      accessToken,
+      `/stores/v1/products/${encodeURIComponent(productId)}`,
+      "PATCH",
+      createBody,
+      opts
+    );
+    return true;
+  }
+
+  const createBody = buildWixV1OptionsCreateBody(item);
+  if (!createBody) return false;
+  await wixJson(
+    accessToken,
+    `/stores/v1/products/${encodeURIComponent(productId)}`,
+    "PATCH",
+    createBody,
+    opts
+  );
+  return true;
+}
+
+/** Push per-option stock to a v1 Wix product. */
 export async function pushWixV1PerOptionInventory(
   accessToken: string,
   productId: string,
   item: SyncStoreItem,
   opts: WixRequestOpts
 ): Promise<boolean> {
-  const got = await wixGet<{ product?: WixV1Product }>(
-    accessToken,
-    `/stores/v1/products/${encodeURIComponent(productId)}`,
-    opts
-  ).catch(() => null);
-  const optionsBody = buildWixV1OptionsBody(item, got?.product ?? null);
-  if (!optionsBody) return false;
-  await wixJson(
-    accessToken,
-    `/stores/v1/products/${encodeURIComponent(productId)}`,
-    "PATCH",
-    optionsBody,
-    opts
-  );
-  return true;
+  return pushWixV1OptionsUpdate(accessToken, productId, item, opts);
 }
 
 /** GET full v1 product (query list may omit productOptions on some paths). */
