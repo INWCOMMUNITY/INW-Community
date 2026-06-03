@@ -1,9 +1,12 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Alert, View, Text, StyleSheet, TextInput, Pressable } from "react-native";
-import DraggableFlatList, {
-  ScaleDecorator,
-  type RenderItemParams,
-} from "react-native-draggable-flatlist";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
 import { theme as defaultTheme } from "@/lib/theme";
 
 export type OptionRow = { value: string; quantity: number };
@@ -13,6 +16,100 @@ export type ListingVariant = { name: string; options: OptionRow[] };
 
 const DEFAULT_OPTION_PRESETS = ["Size", "Color", "Material"];
 const PLACEHOLDER_COLOR = "#888888";
+const OPTION_ROW_HEIGHT = 44;
+
+function reorderOptionRows(rows: OptionRow[], from: number, to: number): OptionRow[] {
+  if (from === to || from < 0 || to < 0 || from >= rows.length || to >= rows.length) {
+    return rows;
+  }
+  const next = [...rows];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
+type SortableOptionRowProps = {
+  row: OptionRow;
+  index: number;
+  rowCount: number;
+  placeholderColor: string;
+  onQtyChange: (index: number, qty: number) => void;
+  onRemove: (index: number, value: string) => void;
+  onReorder: (from: number, to: number) => void;
+};
+
+function SortableOptionRow({
+  row,
+  index,
+  rowCount,
+  placeholderColor,
+  onQtyChange,
+  onRemove,
+  onReorder,
+}: SortableOptionRowProps) {
+  const translateY = useSharedValue(0);
+  const isDragging = useSharedValue(false);
+
+  const pan = Gesture.Pan()
+    .activateAfterLongPress(180)
+    .onStart(() => {
+      isDragging.value = true;
+    })
+    .onUpdate((e) => {
+      translateY.value = e.translationY;
+    })
+    .onEnd((e) => {
+      const shift = Math.round(e.translationY / OPTION_ROW_HEIGHT);
+      const to = Math.max(0, Math.min(rowCount - 1, index + shift));
+      if (to !== index) {
+        runOnJS(onReorder)(index, to);
+      }
+      translateY.value = withSpring(0);
+      isDragging.value = false;
+    })
+    .onFinalize(() => {
+      translateY.value = withSpring(0);
+      isDragging.value = false;
+    });
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    zIndex: isDragging.value ? 10 : 0,
+    backgroundColor: isDragging.value ? "#f0f7ff" : "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: isDragging.value ? 0.12 : 0,
+    shadowRadius: isDragging.value ? 4 : 0,
+    elevation: isDragging.value ? 4 : 0,
+  }));
+
+  return (
+    <GestureDetector gesture={pan}>
+      <Animated.View style={[styles.tableRow, animStyle]}>
+        <View style={styles.dragCol}>
+          <Text style={styles.dragHandle}>⠿</Text>
+        </View>
+        <Text style={[styles.tableCell, styles.valueCol]} numberOfLines={1}>
+          {row.value}
+        </Text>
+        <TextInput
+          style={[styles.qtyInput, styles.qtyCol]}
+          placeholder="0"
+          placeholderTextColor={placeholderColor}
+          value={String(row.quantity || "")}
+          onChangeText={(t) => {
+            const n = parseInt(t.replace(/\D/g, ""), 10);
+            onQtyChange(index, Number.isNaN(n) ? 0 : n);
+          }}
+          keyboardType="number-pad"
+        />
+        <Pressable style={styles.actionCol} onPress={() => onRemove(index, row.value)} hitSlop={8}>
+          <Text style={styles.removeText}>Remove</Text>
+        </Pressable>
+      </Animated.View>
+    </GestureDetector>
+  );
+}
 
 export function parseVariantsToEditor(raw: unknown): {
   mode: InventoryMode;
@@ -133,39 +230,12 @@ export function ListingOptionsEditor({
     );
   };
 
-  const renderOptionRow = ({ item, getIndex, drag, isActive }: RenderItemParams<OptionRow>) => {
-    const index = getIndex() ?? 0;
-    return (
-      <ScaleDecorator activeScale={1.03}>
-        <View style={[styles.tableRow, isActive && styles.tableRowDragging]}>
-          <Pressable onLongPress={drag} delayLongPress={180} style={styles.dragCol} hitSlop={6}>
-            <Text style={styles.dragHandle}>⠿</Text>
-          </Pressable>
-          <Text style={[styles.tableCell, styles.valueCol]} numberOfLines={1}>
-            {item.value}
-          </Text>
-          <TextInput
-            style={[styles.qtyInput, styles.qtyCol]}
-            placeholder="0"
-            placeholderTextColor={placeholderColor}
-            value={String(item.quantity || "")}
-            onChangeText={(t) => {
-              const n = parseInt(t.replace(/\D/g, ""), 10);
-              updateRowQty(index, Number.isNaN(n) ? 0 : n);
-            }}
-            keyboardType="number-pad"
-          />
-          <Pressable
-            style={styles.actionCol}
-            onPress={() => removeRow(index, item.value)}
-            hitSlop={8}
-          >
-            <Text style={styles.removeText}>Remove</Text>
-          </Pressable>
-        </View>
-      </ScaleDecorator>
-    );
-  };
+  const moveRow = useCallback(
+    (from: number, to: number) => {
+      onOptionRowsChange(reorderOptionRows(optionRows, from, to));
+    },
+    [optionRows, onOptionRowsChange]
+  );
 
   const showCustomName =
     customName || (optionName.trim() !== "" && !presets.includes(optionName.trim()));
@@ -267,14 +337,18 @@ export function ListingOptionsEditor({
             <Text style={[styles.tableHeaderCell, styles.qtyCol]}>Qty</Text>
             <View style={styles.actionCol} />
           </View>
-          <DraggableFlatList
-            data={optionRows}
-            keyExtractor={(item) => item.value}
-            onDragEnd={({ data }) => onOptionRowsChange(data)}
-            renderItem={renderOptionRow}
-            scrollEnabled={false}
-            activationDistance={8}
-          />
+          {optionRows.map((row, index) => (
+            <SortableOptionRow
+              key={`${row.value}-${index}`}
+              row={row}
+              index={index}
+              rowCount={optionRows.length}
+              placeholderColor={placeholderColor}
+              onQtyChange={updateRowQty}
+              onRemove={removeRow}
+              onReorder={moveRow}
+            />
+          ))}
 
           <View style={styles.addRow}>
             <TextInput
@@ -373,19 +447,11 @@ const styles = StyleSheet.create({
   tableRow: {
     flexDirection: "row",
     alignItems: "center",
+    minHeight: OPTION_ROW_HEIGHT,
     paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#eee",
     backgroundColor: "#fff",
-  },
-  tableRowDragging: {
-    backgroundColor: "#f0f7ff",
-    borderRadius: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 4,
-    elevation: 4,
   },
   tableCell: { fontSize: 15, color: defaultTheme.colors.text },
   dragCol: { width: 28, alignItems: "center", justifyContent: "center" },
