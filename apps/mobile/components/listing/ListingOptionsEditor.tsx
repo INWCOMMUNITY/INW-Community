@@ -1,5 +1,9 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TextInput, Pressable } from "react-native";
+import { Alert, View, Text, StyleSheet, TextInput, Pressable } from "react-native";
+import DraggableFlatList, {
+  ScaleDecorator,
+  type RenderItemParams,
+} from "react-native-draggable-flatlist";
 import { theme as defaultTheme } from "@/lib/theme";
 
 export type OptionRow = { value: string; quantity: number };
@@ -114,8 +118,53 @@ export function ListingOptionsEditor({
     onOptionRowsChange(next);
   };
 
-  const removeRow = (index: number) => {
-    onOptionRowsChange(optionRows.filter((_, i) => i !== index));
+  const removeRow = (index: number, value: string) => {
+    Alert.alert(
+      "Remove option?",
+      `Remove "${value}"? The quantity for this option will be lost.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => onOptionRowsChange(optionRows.filter((_, i) => i !== index)),
+        },
+      ]
+    );
+  };
+
+  const renderOptionRow = ({ item, getIndex, drag, isActive }: RenderItemParams<OptionRow>) => {
+    const index = getIndex() ?? 0;
+    return (
+      <ScaleDecorator activeScale={1.03}>
+        <View style={[styles.tableRow, isActive && styles.tableRowDragging]}>
+          <Pressable onLongPress={drag} delayLongPress={180} style={styles.dragCol} hitSlop={6}>
+            <Text style={styles.dragHandle}>⠿</Text>
+          </Pressable>
+          <Text style={[styles.tableCell, styles.valueCol]} numberOfLines={1}>
+            {item.value}
+          </Text>
+          <TextInput
+            style={[styles.qtyInput, styles.qtyCol]}
+            placeholder="0"
+            placeholderTextColor={placeholderColor}
+            value={String(item.quantity || "")}
+            onChangeText={(t) => {
+              const n = parseInt(t.replace(/\D/g, ""), 10);
+              updateRowQty(index, Number.isNaN(n) ? 0 : n);
+            }}
+            keyboardType="number-pad"
+          />
+          <Pressable
+            style={styles.actionCol}
+            onPress={() => removeRow(index, item.value)}
+            hitSlop={8}
+          >
+            <Text style={styles.removeText}>Remove</Text>
+          </Pressable>
+        </View>
+      </ScaleDecorator>
+    );
   };
 
   const showCustomName =
@@ -213,31 +262,19 @@ export function ListingOptionsEditor({
           ) : null}
 
           <View style={styles.tableHeader}>
+            <View style={styles.dragCol} />
             <Text style={[styles.tableHeaderCell, styles.valueCol]}>Value</Text>
             <Text style={[styles.tableHeaderCell, styles.qtyCol]}>Qty</Text>
             <View style={styles.actionCol} />
           </View>
-          {optionRows.map((row, index) => (
-            <View key={`${row.value}-${index}`} style={styles.tableRow}>
-              <Text style={[styles.tableCell, styles.valueCol]} numberOfLines={1}>
-                {row.value}
-              </Text>
-              <TextInput
-                style={[styles.qtyInput, styles.qtyCol]}
-                placeholder="0"
-                placeholderTextColor={placeholderColor}
-                value={String(row.quantity || "")}
-                onChangeText={(t) => {
-                  const n = parseInt(t.replace(/\D/g, ""), 10);
-                  updateRowQty(index, Number.isNaN(n) ? 0 : n);
-                }}
-                keyboardType="number-pad"
-              />
-              <Pressable style={styles.actionCol} onPress={() => removeRow(index)} hitSlop={8}>
-                <Text style={styles.removeText}>Remove</Text>
-              </Pressable>
-            </View>
-          ))}
+          <DraggableFlatList
+            data={optionRows}
+            keyExtractor={(item) => item.value}
+            onDragEnd={({ data }) => onOptionRowsChange(data)}
+            renderItem={renderOptionRow}
+            scrollEnabled={false}
+            activationDistance={8}
+          />
 
           <View style={styles.addRow}>
             <TextInput
@@ -339,8 +376,20 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#eee",
+    backgroundColor: "#fff",
+  },
+  tableRowDragging: {
+    backgroundColor: "#f0f7ff",
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 4,
   },
   tableCell: { fontSize: 15, color: defaultTheme.colors.text },
+  dragCol: { width: 28, alignItems: "center", justifyContent: "center" },
+  dragHandle: { fontSize: 18, color: "#bbb", lineHeight: 22 },
   valueCol: { flex: 1 },
   qtyCol: { width: 56 },
   actionCol: { width: 72, alignItems: "flex-end" },
