@@ -580,6 +580,86 @@ async function setInventoryAbsolute(
   );
 }
 
+/**
+ * After an INW storefront sale: push verified aggregate qty first so Wix total stock always
+ * matches INW, then attempt per-option breakdown (best effort — aggregate success is enough).
+ */
+export async function pushWixInventoryAfterLocalSale(
+  conn: ChannelConnectionContext,
+  productId: string,
+  item: SyncStoreItem
+): Promise<void> {
+  let mode = await prepareWixConn(conn);
+  const withSite = wixOpts(conn);
+  const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+  const want = Math.max(0, Math.round(item.quantity));
+  let lastErr: unknown;
+
+  for (let pass = 0; pass < 2; pass++) {
+    for (const opts of attempts) {
+      try {
+        const strategy = await setInventoryAbsolute(
+          conn.accessToken,
+          productId,
+          want,
+          opts,
+          mode === "v1"
+        );
+        const verified = await verifyWixQuantityApplied(
+          conn.accessToken,
+          productId,
+          want,
+          opts,
+          mode === "v1"
+        );
+        if (!verified.ok) {
+          throw new WixApiError(
+            `After INW sale: Wix aggregate stock is still ${verified.actual ?? "unknown"} (expected ${want}).`,
+            409,
+            null
+          );
+        }
+        console.info("[wix] pushWixInventoryAfterLocalSale aggregate ok", {
+          productId,
+          strategy,
+          quantity: want,
+        });
+
+        if (mode === "v1" && hasOptionQuantities(item.variants)) {
+          try {
+            const pushed = await pushWixV1PerOptionInventory(
+              conn.accessToken,
+              productId,
+              item,
+              opts
+            );
+            if (pushed) {
+              console.info("[wix] pushWixInventoryAfterLocalSale per-option ok", { productId });
+            } else {
+              console.warn("[wix] pushWixInventoryAfterLocalSale per-option skipped", { productId });
+            }
+          } catch (perOptErr) {
+            console.warn("[wix] pushWixInventoryAfterLocalSale per-option failed (aggregate ok)", {
+              productId,
+              error: perOptErr instanceof Error ? perOptErr.message : String(perOptErr),
+            });
+          }
+        }
+        return;
+      } catch (e) {
+        lastErr = e;
+        const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
+        if (corrected && pass === 0) {
+          mode = corrected;
+          break;
+        }
+      }
+    }
+  }
+  if (lastErr instanceof Error) throw lastErr;
+  throw new WixApiError("Could not push Wix inventory after INW sale.", 502, null);
+}
+
 async function applyWixCategoryAndOptions(
   conn: ChannelConnectionContext,
   productId: string,
@@ -903,6 +983,21 @@ export const wixAdapter: ChannelAdapter = {
               opts,
               true
             );
+            const verifiedFallback = await verifyWixQuantityApplied(
+              conn.accessToken,
+              externalListingId,
+              want,
+              opts,
+              true
+            );
+            if (!verifiedFallback.ok) {
+              throw new WixApiError(
+                `Per-option push failed and aggregate fallback left stock at ` +
+                  `${verifiedFallback.actual ?? "unknown"} (expected ${want}).`,
+                409,
+                null
+              );
+            }
             console.info("[wix] updateInventory ok (aggregate fallback)", {
               productId: externalListingId,
               strategy,

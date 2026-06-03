@@ -15,6 +15,11 @@ import type { ChannelProvider, ChannelSyncResult } from "./types";
 export type ChannelSyncOptions = {
   /** Skip pushing to these providers (e.g. Wix already has the new qty after an inbound edit). */
   skipProviders?: ChannelProvider[];
+  /**
+   * After an INW storefront sale: push verified aggregate qty first, then per-option (best effort).
+   * Ensures Wix never stays stale when a per-option PATCH fails.
+   */
+  afterLocalSale?: boolean;
 };
 
 export async function syncInventoryToChannels(
@@ -42,7 +47,12 @@ export async function syncInventoryToChannels(
       if (!freshItem) continue;
       const adapter = getAdapter(provider);
       const item = toSyncStoreItem(freshItem);
-      await adapter.updateInventory(ctx, link.externalListingId, item.quantity, item);
+      if (options.afterLocalSale && provider === "wix") {
+        const { pushWixInventoryAfterLocalSale } = await import("./wix/adapter");
+        await pushWixInventoryAfterLocalSale(ctx, link.externalListingId, item);
+      } else {
+        await adapter.updateInventory(ctx, link.externalListingId, item.quantity, item);
+      }
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: {
@@ -88,12 +98,13 @@ export function channelSyncSucceeded(
 /**
  * Schedule channel inventory push after a local sale/refund. Uses Vercel waitUntil so the work
  * completes after the webhook responds (plain fire-and-forget is often killed on serverless).
+ * Uses aggregate-first Wix push so total stock always updates after an INW sale.
  */
 export function syncInventoryToChannelsSafe(
   storeItemId: string,
   options: ChannelSyncOptions = {}
 ): void {
-  const work = syncInventoryToChannels(storeItemId, options).catch((e) =>
+  const work = syncInventoryToChannels(storeItemId, { afterLocalSale: true, ...options }).catch((e) =>
     console.error("[channels] syncInventoryToChannelsSafe", { storeItemId, error: String(e) })
   );
   if (process.env.VERCEL) {
@@ -103,12 +114,12 @@ export function syncInventoryToChannelsSafe(
   void work;
 }
 
-/** Await inventory push (use when the caller must finish before returning). */
+/** Await inventory push after a local sale/refund (aggregate-first on Wix). */
 export function syncInventoryToChannelsAfterSale(
   storeItemId: string,
-  options: ChannelSyncOptions = {}
+  options: Omit<ChannelSyncOptions, "afterLocalSale"> = {}
 ): Promise<ChannelSyncResult[]> {
-  return syncInventoryToChannels(storeItemId, options).catch((e) => {
+  return syncInventoryToChannels(storeItemId, { ...options, afterLocalSale: true }).catch((e) => {
     console.error("[channels] syncInventoryToChannelsAfterSale", { storeItemId, error: String(e) });
     return [];
   });
