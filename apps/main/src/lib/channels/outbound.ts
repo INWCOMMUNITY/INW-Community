@@ -136,7 +136,8 @@ export function shouldPublishToChannels(args: {
 }): boolean {
   if (args.syncToChannels === false) return false;
   if (args.channelProviders !== undefined) return args.channelProviders.length > 0;
-  return args.syncToChannels !== false;
+  // Legacy: omitted channelProviders + syncToChannels not explicitly false → publish all connections.
+  return true;
 }
 
 /** Resolve provider list for publish: explicit array, or all active when legacy omit. */
