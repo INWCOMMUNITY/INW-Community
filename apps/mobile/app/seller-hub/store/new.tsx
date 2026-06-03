@@ -29,6 +29,13 @@ import {
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
+import {
+  fetchChannelConnections,
+  publishReadyConnections,
+  type ChannelConnectionSummary,
+  type ChannelProviderId,
+} from "@/lib/channel-connections";
+import { ChannelPublishModal } from "@/components/channels/ChannelPublishModal";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import type { EarnedBadgePayload } from "@/lib/share-utils";
@@ -149,6 +156,9 @@ export default function ListItemScreen() {
   // Channel sync (eBay). Only shown when the seller has connected an eBay account.
   const [ebayConnected, setEbayConnected] = useState(false);
   const [ebayCategoryId, setEbayCategoryId] = useState("");
+  const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
+  const [showChannelPublishModal, setShowChannelPublishModal] = useState(false);
+  const pendingCreatePayloadRef = useRef<Record<string, unknown> | null>(null);
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -440,13 +450,14 @@ export default function ListItemScreen() {
     apiGet<Meta>("/api/store-items?list=meta")
       .then((data) => setCategories((data as Meta).categories ?? []))
       .catch(() => setCategories([]));
-    apiGet<{ provider: string; status: string }[]>("/api/channels")
-      .then((data) => {
-        const list = Array.isArray(data) ? data : [];
-        setEtsyConnected(list.some((c) => c.provider === "etsy" && c.status !== "disconnected"));
-        setEbayConnected(list.some((c) => c.provider === "ebay" && c.status !== "disconnected"));
+    fetchChannelConnections()
+      .then((list) => {
+        setChannelConnections(list);
+        setEtsyConnected(list.some((c) => c.provider === "etsy" && c.status === "active"));
+        setEbayConnected(list.some((c) => c.provider === "ebay" && c.status === "active"));
       })
       .catch(() => {
+        setChannelConnections([]);
         setEtsyConnected(false);
         setEbayConnected(false);
       });
@@ -673,14 +684,12 @@ export default function ListItemScreen() {
     const payloadQuantity =
       variantPayload != null ? sumOptionRows(optionRows) : qty;
 
-    setSubmitting(true);
     setError(null);
     setPhotoError(null);
-    submittedRef.current = true;
     const catTrim = category.trim();
     const secTrim = secondaryCategory.trim();
     const secondaryPayload = secTrim && secTrim !== catTrim ? secTrim : null;
-    const payload = {
+    const basePayload: Record<string, unknown> = {
       title: title.trim(),
       description: description.trim() || null,
       photos,
@@ -711,32 +720,58 @@ export default function ListItemScreen() {
       localDeliveryFeeCents: localFee,
       variants: variantPayload,
       ...(condition === "used" ? { acceptOffers } : { acceptOffers: false }),
-      ...(etsyConnected || ebayConnected
-        ? {
-            syncToChannels: etsyConnected ? syncToEtsy : true,
-            ...(etsyConnected ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
-            ...(ebayConnected && ebayCategoryId.trim()
-              ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
-              : {}),
-          }
-        : {}),
     };
+
+    if (editId) {
+      const editPayload = {
+        ...basePayload,
+        ...(etsyConnected || ebayConnected
+          ? {
+              syncToChannels: etsyConnected ? syncToEtsy : true,
+              ...(etsyConnected ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
+              ...(ebayConnected && ebayCategoryId.trim()
+                ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
+                : {}),
+            }
+          : {}),
+      };
+      await performListingSubmit(editPayload, true);
+      return;
+    }
+
+    if (publishReadyConnections(channelConnections).length > 0) {
+      pendingCreatePayloadRef.current = basePayload;
+      setShowChannelPublishModal(true);
+      return;
+    }
+
+    await performListingSubmit(
+      { ...basePayload, syncToChannels: false, channelProviders: [] },
+      false
+    );
+  };
+
+  const performListingSubmit = async (
+    payload: Record<string, unknown>,
+    isEdit: boolean
+  ) => {
+    setSubmitting(true);
+    submittedRef.current = true;
     try {
       isExitingRef.current = true;
-      if (editId) {
+      if (isEdit && editId) {
         const patchRes = await apiPatch<{
           channelSync?: { provider: string; ok: boolean; error?: string }[];
         }>(`/api/store-items/${editId}`, payload);
         alertChannelSyncFailures(patchRes.channelSync, "saved");
         setEditSuccess(true);
-        isExitingRef.current = true;
         setShowListingSuccessModal(true);
       } else {
-        const res = await apiPost<{ earnedBadges?: EarnedBadgePayload[] }>(
-          "/api/store-items",
-          payload
-        );
-        isExitingRef.current = true;
+        const res = await apiPost<{
+          earnedBadges?: EarnedBadgePayload[];
+          channelSync?: { provider: string; ok: boolean; error?: string }[];
+        }>("/api/store-items", payload);
+        alertChannelSyncFailures(res.channelSync, "saved");
         const badges = (res?.earnedBadges ?? []).filter(
           (b): b is EarnedBadgePayload =>
             !!b && typeof b.slug === "string" && typeof b.name === "string"
@@ -749,12 +784,34 @@ export default function ListItemScreen() {
         }
       }
     } catch (e) {
-      setError((e as { error?: string })?.error ?? (editId ? "Failed to update listing" : "Failed to create listing"));
+      setError(
+        (e as { error?: string })?.error ??
+          (isEdit ? "Failed to update listing" : "Failed to create listing")
+      );
       submittedRef.current = false;
       isExitingRef.current = false;
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleChannelPublishConfirm = (providers: ChannelProviderId[]) => {
+    setShowChannelPublishModal(false);
+    const base = pendingCreatePayloadRef.current;
+    pendingCreatePayloadRef.current = null;
+    if (!base) return;
+    const payload: Record<string, unknown> = {
+      ...base,
+      syncToChannels: providers.length > 0,
+      channelProviders: providers,
+      ...(providers.includes("etsy")
+        ? { etsyWhoMade, etsyWhenMade, etsyIsSupply }
+        : {}),
+      ...(providers.includes("ebay") && ebayCategoryId.trim()
+        ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
+        : {}),
+    };
+    void performListingSubmit(payload, false);
   };
 
   const handleCloseListingBadgePopup = () => {
@@ -770,6 +827,14 @@ export default function ListItemScreen() {
 
   return (
     <View style={styles.screenWrapper}>
+    <ChannelPublishModal
+      visible={showChannelPublishModal}
+      onClose={() => {
+        setShowChannelPublishModal(false);
+        pendingCreatePayloadRef.current = null;
+      }}
+      onConfirm={handleChannelPublishConfirm}
+    />
     {listingBadgePopupIndex >= 0 && listingBadgePopupIndex < listingEarnedBadges.length && (
       <BadgeEarnedPopup
         visible

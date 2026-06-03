@@ -485,8 +485,9 @@ const bodySchema = z.object({
   pickupTerms: z.string().nullable().optional(),
   acceptOffers: z.boolean().optional(),
   minOfferCents: z.coerce.number().int().min(0).nullable().optional(),
-  // Channel sync (Etsy now; eBay/Shopify/Wix later)
+  // Channel sync (Etsy, eBay, Wix, Shopify)
   syncToChannels: z.boolean().optional(),
+  channelProviders: z.array(z.enum(["etsy", "ebay", "shopify", "wix"])).optional(),
   etsyWhoMade: z.string().nullable().optional(),
   etsyWhenMade: z.string().nullable().optional(),
   etsyIsSupply: z.boolean().nullable().optional(),
@@ -714,17 +715,27 @@ export async function POST(req: NextRequest) {
       })
       .catch((err) => console.error("[store-items] Auto-post failed:", err));
 
-    // Publish to connected sales channels (Etsy, etc.). Best-effort: never fail the listing save.
-    if (data.syncToChannels !== false) {
-      try {
-        const { publishStoreItemToChannels } = await import("@/lib/channels/outbound");
-        await publishStoreItemToChannels(item.id, userId);
-      } catch (err) {
-        console.error("[store-items] Channel publish failed:", err);
+    // Publish to selected connected sales channels. Best-effort: never fail the listing save.
+    let channelSync: { provider: string; ok: boolean; error?: string }[] = [];
+    try {
+      const { publishStoreItemToChannels, resolvePublishProviders } = await import(
+        "@/lib/channels/outbound"
+      );
+      const publishArgs = {
+        syncToChannels: data.syncToChannels,
+        channelProviders: data.channelProviders,
+      };
+      const providers = resolvePublishProviders(publishArgs);
+      if (providers !== undefined) {
+        channelSync = await publishStoreItemToChannels(item.id, userId, { providers });
+      } else if (data.channelProviders === undefined && data.syncToChannels !== false) {
+        channelSync = await publishStoreItemToChannels(item.id, userId);
       }
+    } catch (err) {
+      console.error("[store-items] Channel publish failed:", err);
     }
 
-    return NextResponse.json({ ...item, earnedBadges });
+    return NextResponse.json({ ...item, earnedBadges, channelSync });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const isConn = /P1001|ECONNREFUSED|connect/i.test(msg);

@@ -36,8 +36,9 @@ const bodySchema = z.object({
   pickupTerms: z.string().nullable().optional(),
   acceptOffers: z.boolean().optional(),
   minOfferCents: z.number().int().min(0).nullable().optional(),
-  // Channel sync (Etsy now; eBay/Shopify/Wix later)
+  // Channel sync (Etsy, eBay, Wix, Shopify)
   syncToChannels: z.boolean().optional(),
+  channelProviders: z.array(z.enum(["etsy", "ebay", "shopify", "wix"])).optional(),
   etsyWhoMade: z.string().nullable().optional(),
   etsyWhenMade: z.string().nullable().optional(),
   etsyIsSupply: z.boolean().nullable().optional(),
@@ -317,10 +318,20 @@ export async function PATCH(
         ? []
         : await syncInventoryToChannels(itemId);
       channelSync = mergeChannelSyncResults(contentResults, inventoryResults);
-    } else if (data.syncToChannels === true) {
-      // Newly enabling sync for an item that has no link yet -> publish it.
-      const { publishStoreItemToChannels } = await import("@/lib/channels/outbound");
-      await publishStoreItemToChannels(itemId, item.memberId);
+    } else if (data.syncToChannels === true || (data.channelProviders?.length ?? 0) > 0) {
+      const { publishStoreItemToChannels, resolvePublishProviders } = await import(
+        "@/lib/channels/outbound"
+      );
+      const publishArgs = {
+        syncToChannels: data.syncToChannels,
+        channelProviders: data.channelProviders,
+      };
+      const providers = resolvePublishProviders(publishArgs);
+      if (providers !== undefined) {
+        channelSync = await publishStoreItemToChannels(itemId, item.memberId, { providers });
+      } else if (data.channelProviders === undefined) {
+        channelSync = await publishStoreItemToChannels(itemId, item.memberId);
+      }
     }
   } catch (err) {
     console.error("[store-items] Channel update failed:", err);

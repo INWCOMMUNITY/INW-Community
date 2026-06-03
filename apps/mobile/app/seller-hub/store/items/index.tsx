@@ -17,6 +17,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
+import {
+  CHANNEL_PROVIDER_LABEL,
+  fetchChannelConnections,
+  type ChannelConnectionSummary,
+  type ChannelProviderId,
+} from "@/lib/channel-connections";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -70,6 +76,7 @@ export default function MyItemsScreen() {
   const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
+  const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
 
   type ItemsTab = "active" | "ended" | "sold";
   const [itemsTab, setItemsTab] = useState<ItemsTab>("active");
@@ -83,8 +90,9 @@ export default function MyItemsScreen() {
     Promise.allSettled([
       apiGet<StoreItem[] | { error: string }>(itemsUrl),
       apiGet<ConnectStatus | { error: string }>("/api/stripe/connect/status"),
+      fetchChannelConnections(),
     ])
-      .then(([itemsResult, statusResult]) => {
+      .then(([itemsResult, statusResult, channelsResult]) => {
         if (itemsResult.status === "fulfilled") {
           const data = itemsResult.value;
           if (Array.isArray(data)) {
@@ -112,6 +120,12 @@ export default function MyItemsScreen() {
           }
         } else {
           setConnectStatus(null);
+        }
+
+        if (channelsResult.status === "fulfilled") {
+          setChannelConnections(channelsResult.value);
+        } else {
+          setChannelConnections([]);
         }
       })
       .catch(() => {
@@ -216,6 +230,51 @@ export default function MyItemsScreen() {
 
   const openMenu = (id: string) => {
     setMenuItemId(id);
+  };
+
+  const listableProvidersForItem = (item: StoreItem): ChannelProviderId[] => {
+    if (itemsTab === "sold") return [];
+    const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
+    return channelConnections
+      .filter(
+        (c) =>
+          c.status === "active" &&
+          c.readyToPublish !== false &&
+          !linked.has(c.provider)
+      )
+      .map((c) => c.provider);
+  };
+
+  const publishToChannel = (storeItemId: string, provider: ChannelProviderId) => {
+    const label = CHANNEL_PROVIDER_LABEL[provider] ?? provider;
+    Alert.alert(
+      `List on ${label}?`,
+      `This will create a listing on your connected ${label} store and keep inventory in sync.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "List",
+          onPress: async () => {
+            setMenuItemId(null);
+            setActingId(storeItemId);
+            try {
+              const res = await apiPost<{
+                channelSync?: { provider: string; ok: boolean; error?: string }[];
+              }>(`/api/store-items/${storeItemId}/publish-channels`, {
+                providers: [provider],
+              });
+              alertChannelSyncFailures(res.channelSync, "saved");
+              load();
+            } catch (e) {
+              const err = e as { error?: string };
+              Alert.alert("Error", err.error ?? `Could not list on ${label}.`);
+            } finally {
+              setActingId(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (loading && items.length === 0) {
@@ -338,11 +397,10 @@ export default function MyItemsScreen() {
                   {itemsTab === "sold" && item.soldOrderId && (
                     <Text style={styles.viewOrderLink}>View order</Text>
                   )}
-                  {item.channelLinks
-                    ?.filter((c) => c.provider === "etsy" || c.provider === "wix")
-                    .map((link) => {
+                  {item.channelLinks?.map((link) => {
                       const label =
-                        link.provider === "wix" ? "Wix" : link.provider === "etsy" ? "Etsy" : link.provider;
+                        CHANNEL_PROVIDER_LABEL[link.provider as ChannelProviderId] ??
+                        link.provider;
                       const isError = link.syncStatus === "error";
                       const isPaused = !link.syncEnabled;
                       return (
@@ -400,6 +458,22 @@ export default function MyItemsScreen() {
                 <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View order</Text>
               </Pressable>
             )}
+            {menuItemId &&
+              (() => {
+                const menuItem = items.find((i) => i.id === menuItemId);
+                if (!menuItem) return null;
+                return listableProvidersForItem(menuItem).map((provider) => (
+                  <Pressable
+                    key={provider}
+                    style={styles.menuOption}
+                    onPress={() => publishToChannel(menuItemId, provider)}
+                  >
+                    <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
+                      List on {CHANNEL_PROVIDER_LABEL[provider]}
+                    </Text>
+                  </Pressable>
+                ));
+              })()}
             <Pressable
               style={styles.menuOption}
               onPress={() => {

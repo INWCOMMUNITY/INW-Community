@@ -48,14 +48,21 @@ async function loadSyncItem(storeItemId: string): Promise<SyncStoreItem | null> 
   return row ? toSyncStoreItem(row) : null;
 }
 
+export type PublishToChannelsOptions = {
+  /** When set, only these providers are published (must still be active connections). */
+  providers?: ChannelProvider[];
+};
+
 /**
- * Publish a StoreItem to all of the seller's connected channels that do not yet have a link.
- * Best-effort: failures are recorded on the link/connection and never thrown to the caller.
+ * Publish a StoreItem to connected channels that do not yet have a link.
+ * Best-effort: failures are returned in the result array and never thrown to the caller.
  */
 export async function publishStoreItemToChannels(
   storeItemId: string,
-  memberId: string
-): Promise<void> {
+  memberId: string,
+  options: PublishToChannelsOptions = {}
+): Promise<ChannelSyncResult[]> {
+  const results: ChannelSyncResult[] = [];
   let item: SyncStoreItem | null;
   let connections: ChannelConnectionContext[];
   try {
@@ -65,28 +72,40 @@ export async function publishStoreItemToChannels(
     ]);
   } catch (e) {
     console.error("[channels] publish load failed", { storeItemId, error: String(e) });
-    return;
+    return results;
   }
-  if (!item || connections.length === 0) return;
+  if (!item) return results;
 
-  for (const conn of connections) {
+  const providerFilter =
+    options.providers !== undefined ? new Set(options.providers) : null;
+  const targets = providerFilter
+    ? connections.filter((c) => providerFilter.has(c.provider))
+    : connections;
+  if (targets.length === 0) return results;
+
+  for (const conn of targets) {
+    const provider = conn.provider;
     const existing = await prisma.channelListingLink.findUnique({
-      where: { storeItemId_provider: { storeItemId, provider: conn.provider } },
+      where: { storeItemId_provider: { storeItemId, provider } },
     });
-    if (existing) continue; // already linked (e.g. imported) -> handled by update path
+    if (existing) {
+      results.push({ provider, ok: true });
+      continue;
+    }
 
     try {
-      const adapter = getAdapter(conn.provider);
+      const adapter = getAdapter(provider);
       const result = await adapter.createListing(conn, item);
       await prisma.channelListingLink.create({
         data: {
           storeItemId,
           connectionId: conn.id,
-          provider: conn.provider,
+          provider,
           externalListingId: result.externalListingId,
           externalShopId: result.externalShopId,
           syncEnabled: true,
           syncStatus: "synced",
+          syncError: null,
           lastPushedHash: contentHash(item),
           lastPushedAt: new Date(),
           syncBaselineHash: syncContentHash(item),
@@ -96,20 +115,38 @@ export async function publishStoreItemToChannels(
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },
       });
+      results.push({ provider, ok: true });
     } catch (e) {
+      const msg = String(e).slice(0, 500);
       console.error("[channels] createListing failed", {
         storeItemId,
-        provider: conn.provider,
-        error: String(e),
+        provider,
+        error: msg,
       });
-      await prisma.channelConnection
-        .update({
-          where: { id: conn.id },
-          data: { status: "error", lastError: String(e).slice(0, 500) },
-        })
-        .catch(() => {});
+      results.push({ provider, ok: false, error: msg });
     }
   }
+  return results;
+}
+
+/** Whether a create/update request should run channel publish. */
+export function shouldPublishToChannels(args: {
+  syncToChannels?: boolean;
+  channelProviders?: ChannelProvider[];
+}): boolean {
+  if (args.syncToChannels === false) return false;
+  if (args.channelProviders !== undefined) return args.channelProviders.length > 0;
+  return args.syncToChannels !== false;
+}
+
+/** Resolve provider list for publish: explicit array, or all active when legacy omit. */
+export function resolvePublishProviders(args: {
+  syncToChannels?: boolean;
+  channelProviders?: ChannelProvider[];
+}): ChannelProvider[] | undefined {
+  if (!shouldPublishToChannels(args)) return undefined;
+  if (args.channelProviders !== undefined) return args.channelProviders;
+  return undefined;
 }
 
 export type ChannelPushOptions = {
