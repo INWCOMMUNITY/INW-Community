@@ -99,7 +99,7 @@ export default function ChannelImportScreen() {
           (res.hint ? ` ${res.hint}` : "")
       );
       if (importedCount === 0 && (res.hint || skippedCount > 0)) {
-        setError(res.hint ?? reasonLine.trim() || "Import failed for all selected items.");
+        setError(res.hint ?? (reasonLine.trim() || "Import failed for all selected items."));
       }
       setSelected(new Set());
       await load();
