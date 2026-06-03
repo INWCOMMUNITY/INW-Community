@@ -1,4 +1,5 @@
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
+import { hasOptionQuantities } from "../../store-item-variants";
 
 /** cents -> "12.34" (Wix expects a string decimal amount). */
 export function wixPriceFromCents(cents: number): string {
@@ -240,12 +241,14 @@ export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknow
 
 /**
  * Classic Catalog v1 PATCH body. When `existing` has variants, set stock on each variant
- * (required for multi-option products on Editor sites).
+ * (required for multi-option products on Editor sites) unless INW uses per-option quantities —
+ * then stock is pushed separately via `buildWixV1OptionsBody` to avoid wiping sizes with total qty.
  */
 export function buildWixV1UpdateBody(
   item: SyncStoreItem,
   existing?: WixV1Product | null
 ): Record<string, unknown> {
+  const perOptionStock = hasOptionQuantities(item.variants);
   const stock = buildWixV1StockFields(item.quantity);
   const price = Math.max(0, item.priceCents) / 100;
   const product: Record<string, unknown> = {
@@ -257,10 +260,10 @@ export function buildWixV1UpdateBody(
   if (variantRows.length > 0) {
     product.variants = variantRows.map((v) => ({
       id: v.id,
-      stock,
+      ...(perOptionStock ? {} : { stock }),
       priceData: { price },
     }));
-  } else {
+  } else if (!perOptionStock) {
     product.stock = stock;
   }
   return { product };
