@@ -34,15 +34,20 @@ export async function applyRemoteContentToStoreItem(
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
   if (!item) return false;
   if (item.status === "sold_out" && item.quantity === 0) return false;
-  if (!remoteContentDiffersFromStoreItem(item, remote)) return false;
+
+  // Never overwrite a valid local price with a zero from a bad remote read (e.g. after a bad sync).
+  const safeRemote: RemoteListingSummary =
+    remote.priceCents < 1 && item.priceCents > 0 ? { ...remote, priceCents: item.priceCents } : remote;
+
+  if (!remoteContentDiffersFromStoreItem(item, safeRemote)) return false;
 
   await prisma.storeItem.update({
     where: { id: storeItemId },
     data: {
-      title: remote.title.slice(0, 200),
-      description: plainListingDescription(remote.description),
-      photos: remote.photos,
-      priceCents: remote.priceCents,
+      title: safeRemote.title.slice(0, 200),
+      description: plainListingDescription(safeRemote.description),
+      photos: safeRemote.photos,
+      priceCents: safeRemote.priceCents,
     },
   });
   return true;
@@ -55,10 +60,8 @@ export async function applyRemoteQuantityToStoreItem(
 ): Promise<boolean> {
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
   if (!item) return false;
-  if (item.status === "sold_out" && item.quantity === 0 && remoteQuantity > 0) {
-    return false;
-  }
 
+  // A restock on Wix should reactivate a sold-out INW listing (two-way, most-recent-wins).
   const remoteQty = Math.max(0, remoteQuantity);
   if (item.quantity === remoteQty) return false;
 

@@ -22,6 +22,7 @@ import {
   buildWixCreateBody,
   buildWixUpdateBody,
   buildWixV1CreateBody,
+  buildWixV1InventoryOnlyBody,
   buildWixV1UpdateBody,
   isWixProductVisibleOnSite,
   v1Quantity,
@@ -80,7 +81,7 @@ async function getProduct(
   try {
     const res = await wixGet<ProductResponse>(
       accessToken,
-      `/stores/v3/products/${encodeURIComponent(productId)}?fields=MEDIA_ITEMS_INFO`,
+      `/stores/v3/products/${encodeURIComponent(productId)}?fields=MEDIA_ITEMS_INFO&fields=PLAIN_DESCRIPTION`,
       opts
     );
     return res.product ?? null;
@@ -134,28 +135,43 @@ async function searchInventoryItems(
   return all;
 }
 
+// Page caps high enough to cover large catalogs; truncation would wrongly mark items "removed".
+const WIX_MAX_PAGES = 200;
+
 /** Catalog v3 — used on newer Stores catalogs. */
 async function queryAllProductsV3(accessToken: string, opts: WixRequestOpts): Promise<WixProduct[]> {
   const products: WixProduct[] = [];
   let cursor: string | undefined;
-  for (let page = 0; page < 20; page++) {
+  let truncated = true;
+  for (let page = 0; page < WIX_MAX_PAGES; page++) {
     const res = await wixJson<ProductsQueryResponse>(
       accessToken,
       `/stores/v3/products/query`,
       "POST",
       {
-        fields: ["MEDIA_ITEMS_INFO", "CURRENCY"],
+        fields: ["MEDIA_ITEMS_INFO", "CURRENCY", "PLAIN_DESCRIPTION"],
         query: {
           cursorPaging: { limit: 100, ...(cursor ? { cursor } : {}) },
         },
       },
       opts
     );
-    const batch = (res.products ?? []).filter((p) => p.id);
+    const page_products = res.products ?? [];
+    // Hidden products (visible === false) are treated as removed on INW, same as Catalog v1.
+    const batch = page_products.filter((p) => p.id && isWixProductVisibleOnSite(p));
     products.push(...batch);
     const next = res.pagingMetadata?.cursors?.next;
-    if (!next || batch.length === 0) break;
+    if (!next || page_products.length === 0) {
+      truncated = false;
+      break;
+    }
     cursor = next;
+  }
+  if (truncated) {
+    console.warn("[wix] queryAllProductsV3 hit page cap — catalog may be truncated", {
+      pages: WIX_MAX_PAGES,
+      fetched: products.length,
+    });
   }
   return products;
 }
@@ -168,7 +184,8 @@ async function queryAllProductsV1(
 ): Promise<RemoteListingSummary[]> {
   const summaries: RemoteListingSummary[] = [];
   let offset = 0;
-  for (let page = 0; page < 50; page++) {
+  let truncated = true;
+  for (let page = 0; page < WIX_MAX_PAGES; page++) {
     const res = await wixJson<V1ProductsQueryResponse>(
       accessToken,
       path,
@@ -179,13 +196,24 @@ async function queryAllProductsV1(
       },
       opts
     );
-    const batch = (res.products ?? []).filter((p) => p.id && isWixProductVisibleOnSite(p));
+    const pageProducts = res.products ?? [];
+    const batch = pageProducts.filter((p) => p.id && isWixProductVisibleOnSite(p));
     for (const p of batch) {
       const s = wixV1ProductToSummary(p);
       if (s.externalListingId) summaries.push(s);
     }
-    if (batch.length < 100) break;
-    offset += batch.length;
+    if (pageProducts.length < 100) {
+      truncated = false;
+      break;
+    }
+    offset += pageProducts.length;
+  }
+  if (truncated) {
+    console.warn("[wix] queryAllProductsV1 hit page cap — catalog may be truncated", {
+      pages: WIX_MAX_PAGES,
+      path,
+      fetched: summaries.length,
+    });
   }
   return summaries;
 }
@@ -336,28 +364,11 @@ async function setInventoryViaStoresV1(
     opts
   );
   if (!got.product) return false;
-  const stub: SyncStoreItem = {
-    id: productId,
-    title: got.product.name ?? "",
-    description: null,
-    photos: [],
-    priceCents: 0,
-    quantity,
-    variants: null,
-    status: "active",
-    condition: null,
-    shippingCostCents: null,
-    etsyWhoMade: null,
-    etsyWhenMade: null,
-    etsyIsSupply: null,
-    etsyTaxonomyId: null,
-    ebayCategoryId: null,
-  };
   await wixJson(
     accessToken,
     `/stores/v1/products/${encodeURIComponent(productId)}`,
     "PATCH",
-    buildWixV1UpdateBody(stub, got.product),
+    buildWixV1InventoryOnlyBody(quantity, got.product),
     opts
   );
   return true;
@@ -530,9 +541,10 @@ export const wixAdapter: ChannelAdapter = {
   },
 
   async createListing(conn, item): Promise<CreateListingResult> {
-    const mode = await prepareWixConn(conn);
+    let mode = await prepareWixConn(conn);
     const opts = wixOpts(conn);
-    if (mode === "v1") {
+
+    const createV1 = async (): Promise<string | undefined> => {
       const res = await wixJson<{ product?: { id?: string } }>(
         conn.accessToken,
         `/stores/v1/products`,
@@ -540,24 +552,37 @@ export const wixAdapter: ChannelAdapter = {
         buildWixV1CreateBody(item),
         opts
       );
-      const productId = res.product?.id;
-      if (!productId) {
-        throw new Error("Wix did not return a product id for the created listing (v1).");
+      return res.product?.id;
+    };
+    const createV3 = async (): Promise<string | undefined> => {
+      const res = await wixJson<ProductResponse>(
+        conn.accessToken,
+        `/stores/v3/products-with-inventory`,
+        "POST",
+        buildWixCreateBody(item),
+        opts
+      );
+      return res.product?.id;
+    };
+
+    // Retry once across catalog versions when the cached mode is wrong (428 wrong-catalog-version).
+    for (let pass = 0; pass < 2; pass++) {
+      try {
+        const productId = mode === "v1" ? await createV1() : await createV3();
+        if (!productId) {
+          throw new Error("Wix did not return a product id for the created listing.");
+        }
+        return { externalListingId: productId, externalShopId: conn.externalShopId };
+      } catch (e) {
+        const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
+        if (corrected && pass === 0) {
+          mode = corrected;
+          continue;
+        }
+        throw e;
       }
-      return { externalListingId: productId, externalShopId: conn.externalShopId };
     }
-    const res = await wixJson<ProductResponse>(
-      conn.accessToken,
-      `/stores/v3/products-with-inventory`,
-      "POST",
-      buildWixCreateBody(item),
-      opts
-    );
-    const productId = res.product?.id;
-    if (!productId) {
-      throw new Error("Wix did not return a product id for the created listing.");
-    }
-    return { externalListingId: productId, externalShopId: conn.externalShopId };
+    throw new WixApiError("Could not create listing on Wix.", 502, null);
   },
 
   async updateListing(conn, externalListingId, item): Promise<void> {
@@ -791,9 +816,7 @@ export const wixAdapter: ChannelAdapter = {
     const strategies =
       mode === "v1"
         ? v1Strategies
-        : mode === "v3"
-          ? v3Strategies
-          : [...v3Strategies, ...v1Strategies];
+        : [...v3Strategies, ...v1Strategies];
 
     let lastError: unknown;
     for (const strategy of strategies) {

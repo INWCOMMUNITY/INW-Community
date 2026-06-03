@@ -64,6 +64,8 @@ export type RemoteListingSummary = {
   quantityKnown?: boolean;
   photos: string[];
   url?: string;
+  /** Channel-side last-modified time (used as the most-recent-wins tie-break in reconcile). */
+  remoteUpdatedAt?: Date | null;
   /** True if this listing already maps to a StoreItem on INW. */
   alreadyLinked?: boolean;
 };

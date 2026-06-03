@@ -986,6 +986,10 @@ model ChannelListingLink {
   lastPushedHash    String?   @map("last_pushed_hash")
   lastPushedAt      DateTime? @map("last_pushed_at")
   lastInboundAt     DateTime? @map("last_inbound_at")
+  // Differential reconcile baseline: last agreed state across INW <-> channel.
+  syncBaselineHash  String?   @map("sync_baseline_hash")
+  syncBaselineQty   Int?      @map("sync_baseline_qty")
+  syncBaselineAt    DateTime? @map("sync_baseline_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 

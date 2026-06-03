@@ -28,10 +28,14 @@ export type WixProduct = {
   name?: string;
   visible?: boolean;
   slug?: string;
+  plainDescription?: string;
+  description?: string;
   actualPriceRange?: { minValue?: { amount?: string }; maxValue?: { amount?: string } };
   media?: { main?: WixProductMedia; itemsInfo?: { items?: WixProductMedia[] } };
   variantsInfo?: { variants?: WixVariant[] };
   inventory?: { availabilityStatus?: string };
+  createdDate?: string;
+  updatedDate?: string;
 };
 
 /**
@@ -44,6 +48,7 @@ export function buildWixCreateBody(item: SyncStoreItem): Record<string, unknown>
   const product: Record<string, unknown> = {
     name: item.title.slice(0, 80),
     productType: "PHYSICAL",
+    visible: true,
     physicalProperties: {},
     variantsInfo: {
       variants: [
@@ -121,7 +126,16 @@ export type WixV1Product = {
     stock?: { quantity?: number; inStock?: boolean; trackInventory?: boolean };
     media?: { image?: { url?: string } };
   }[];
+  lastUpdated?: string;
+  numericId?: string;
 };
+
+/** Parse a Wix ISO timestamp into a Date (null when absent/invalid). */
+function parseWixDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 function v1Photos(product: WixV1Product): string[] {
   const urls: string[] = [];
@@ -138,11 +152,18 @@ function v1Photos(product: WixV1Product): string[] {
 
 function v1PriceCents(product: WixV1Product): number {
   const fromData = product.priceData?.price;
-  if (typeof fromData === "number" && Number.isFinite(fromData)) return Math.round(fromData * 100);
-  if (typeof product.price === "number" && Number.isFinite(product.price)) return Math.round(product.price * 100);
-  const v = product.variants?.[0];
-  const vp = v?.priceData?.price ?? v?.price;
-  if (typeof vp === "number" && Number.isFinite(vp)) return Math.round(vp * 100);
+  if (typeof fromData === "number" && Number.isFinite(fromData) && fromData > 0) {
+    return Math.round(fromData * 100);
+  }
+  if (typeof product.price === "number" && Number.isFinite(product.price) && product.price > 0) {
+    return Math.round(product.price * 100);
+  }
+  for (const v of product.variants ?? []) {
+    const vp = v.priceData?.price ?? v.price;
+    if (typeof vp === "number" && Number.isFinite(vp) && vp > 0) {
+      return Math.round(vp * 100);
+    }
+  }
   return 0;
 }
 
@@ -171,6 +192,7 @@ export function wixV1ProductToSummary(product: WixV1Product): RemoteListingSumma
     quantity: v1Quantity(product),
     quantityKnown: true,
     photos: v1Photos(product),
+    remoteUpdatedAt: parseWixDate(product.lastUpdated),
   };
 }
 
@@ -185,6 +207,7 @@ export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknow
   const product: Record<string, unknown> = {
     name: item.title.slice(0, 80),
     productType: "physical",
+    visible: true,
     priceData: { price: Math.max(0, item.priceCents) / 100 },
     stock: buildWixV1StockFields(item.quantity),
   };
@@ -202,18 +225,39 @@ export function buildWixV1UpdateBody(
   existing?: WixV1Product | null
 ): Record<string, unknown> {
   const stock = buildWixV1StockFields(item.quantity);
+  const price = Math.max(0, item.priceCents) / 100;
   const product: Record<string, unknown> = {
     name: item.title.slice(0, 80),
     description: (item.description ?? "").trim() || undefined,
-    priceData: { price: Math.max(0, item.priceCents) / 100 },
+    priceData: { price },
   };
   const variantRows = existing?.variants?.filter((v) => v.id) ?? [];
   if (variantRows.length > 0) {
-    product.variants = variantRows.map((v) => ({ id: v.id, stock }));
+    product.variants = variantRows.map((v) => ({
+      id: v.id,
+      stock,
+      priceData: { price },
+    }));
   } else {
     product.stock = stock;
   }
   return { product };
+}
+
+/**
+ * Catalog v1 PATCH for inventory only — never send price/name/description (a zero-price stub
+ * was wiping real prices when inventory sync fell back to this path).
+ */
+export function buildWixV1InventoryOnlyBody(
+  quantity: number,
+  existing?: WixV1Product | null
+): Record<string, unknown> {
+  const stock = buildWixV1StockFields(quantity);
+  const variantRows = existing?.variants?.filter((v) => v.id) ?? [];
+  if (variantRows.length > 0) {
+    return { product: { variants: variantRows.map((v) => ({ id: v.id, stock })) } };
+  }
+  return { product: { stock } };
 }
 
 /** Catalog rows hidden on Wix should not drive INW import or inbound sync. */
@@ -227,16 +271,16 @@ export function wixProductToSummary(product: WixProduct): RemoteListingSummary {
   const priceAmount =
     product.actualPriceRange?.minValue?.amount ??
     product.variantsInfo?.variants?.[0]?.price?.actualPrice?.amount;
-  // Search/Query Products doesn't return per-variant inventory; infer a sensible default so the
-  // imported StoreItem isn't accidentally created as sold-out.
-  const inStock = product.inventory?.availabilityStatus !== "OUT_OF_STOCK";
+  const desc = (product.plainDescription ?? product.description ?? "").trim();
+  // Search/Query Products doesn't return per-variant inventory; quantity is merged in separately.
   return {
     externalListingId: product.id || "",
     title: product.name || "Wix product",
-    description: null,
+    description: desc || null,
     priceCents: wixPriceToCents(priceAmount),
-    quantity: inStock ? 0 : 0,
+    quantity: 0,
     quantityKnown: false,
     photos: firstMediaUrl(product),
+    remoteUpdatedAt: parseWixDate(product.updatedDate),
   };
 }

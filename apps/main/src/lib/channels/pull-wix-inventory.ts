@@ -3,7 +3,28 @@ import { applyRemoteQuantityToStoreItem } from "./apply-remote-listing";
 import { getConnectionContext } from "./connection";
 import { getAdapter } from "./registry";
 import { syncInventoryToChannels } from "./sync-inventory";
+import { syncContentHash } from "./sync-baseline";
 import type { ChannelProvider } from "./types";
+
+/** After a webhook-driven qty pull, record the agreed baseline so the cron doesn't re-fight it. */
+async function recordInventoryBaseline(linkId: string, storeItemId: string): Promise<void> {
+  const item = await prisma.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { title: true, description: true, photos: true, priceCents: true, quantity: true },
+  });
+  if (!item) return;
+  await prisma.channelListingLink
+    .update({
+      where: { id: linkId },
+      data: {
+        lastInboundAt: new Date(),
+        syncBaselineHash: syncContentHash(item),
+        syncBaselineQty: item.quantity,
+        syncBaselineAt: new Date(),
+      },
+    })
+    .catch((e) => console.error("[channels] inventory baseline failed", { linkId, error: String(e) }));
+}
 
 type ConnectionRow = {
   id: string;
@@ -51,10 +72,7 @@ export async function pullWixInventoryForConnection(
       if (!known) continue;
       const changed = await applyRemoteQuantityToStoreItem(link.storeItemId, quantity);
       if (!changed) continue;
-      await prisma.channelListingLink.update({
-        where: { id: link.id },
-        data: { lastInboundAt: new Date() },
-      });
+      await recordInventoryBaseline(link.id, link.storeItemId);
       await syncInventoryToChannels(link.storeItemId, { skipProviders: ["wix"] });
       updated += 1;
     } catch (e) {
