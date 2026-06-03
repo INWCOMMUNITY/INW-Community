@@ -312,30 +312,38 @@ async function setInventoryViaStoresV2(
   opts: WixRequestOpts
 ): Promise<boolean> {
   const qty = Math.max(0, Math.round(quantity));
+
+  // Resolve the inventory item id + variant GUIDs. The GET-by-product can 404 or return an
+  // unexpected shape on some classic sites, so it must not abort the write.
+  let inventoryItemId: string | undefined;
+  let variantIds: string[] = [];
   const got = await wixGet<{ inventoryItem?: V2InventoryItem }>(
     accessToken,
     `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
     opts
-  );
-  const item = got.inventoryItem;
-  if (!item) return false;
+  ).catch(() => null);
+  if (got?.inventoryItem) {
+    inventoryItemId = got.inventoryItem.id;
+    variantIds =
+      got.inventoryItem.variants?.map((v) => v.variantId).filter((id): id is string => Boolean(id)) ??
+      [];
+  }
 
-  const variantIds =
-    item.variants?.map((v) => v.variantId).filter((id): id is string => Boolean(id)) ?? [];
-  const variants =
-    variantIds.length > 0
-      ? variantIds.map((variantId) => ({
-          variantId,
-          quantity: qty,
-          inStock: qty > 0,
-        }))
-      : [
-          {
-            variantId: WIX_DEFAULT_VARIANT_ID,
-            quantity: qty,
-            inStock: qty > 0,
-          },
-        ];
+  // Multi-option products need their real variant GUIDs or the update matches nothing (silent
+  // no-op). Single (no-option) products use Wix's all-zero default variant id.
+  if (variantIds.length === 0) {
+    const prod = await wixGet<{ product?: WixV1Product }>(
+      accessToken,
+      `/stores/v1/products/${encodeURIComponent(productId)}`,
+      opts
+    ).catch(() => null);
+    variantIds =
+      prod?.product?.variants?.map((v) => v.id).filter((id): id is string => Boolean(id)) ?? [];
+  }
+
+  const variants = (variantIds.length > 0 ? variantIds : [WIX_DEFAULT_VARIANT_ID]).map(
+    (variantId) => ({ variantId, quantity: qty, inStock: qty > 0 })
+  );
 
   await wixJson(
     accessToken,
@@ -343,7 +351,7 @@ async function setInventoryViaStoresV2(
     "PATCH",
     {
       inventoryItem: {
-        ...(item.id ? { id: item.id } : {}),
+        ...(inventoryItemId ? { id: inventoryItemId } : {}),
         productId,
         trackQuantity: true,
         variants,
