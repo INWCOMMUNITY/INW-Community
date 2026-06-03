@@ -18,6 +18,13 @@ import {
   type WixCatalogMode,
 } from "./catalog-api";
 import { ensureWixSiteId, wixSiteIdFromConn } from "./site";
+import { resolveProviderCategoryId } from "../category-map";
+import {
+  assignWixProductCollection,
+  buildWixV1OptionsBody,
+  ensureWixCollection,
+  wixV1ProductToVariants,
+} from "./collections";
 import {
   buildWixCreateBody,
   buildWixUpdateBody,
@@ -200,6 +207,11 @@ async function queryAllProductsV1(
     const batch = pageProducts.filter((p) => p.id && isWixProductVisibleOnSite(p));
     for (const p of batch) {
       const s = wixV1ProductToSummary(p);
+      const vars = wixV1ProductToVariants(p);
+      if (vars) {
+        s.variants = vars;
+        s.variantsKnown = true;
+      }
       if (s.externalListingId) summaries.push(s);
     }
     if (pageProducts.length < 100) {
@@ -559,6 +571,35 @@ async function setInventoryAbsolute(
   );
 }
 
+async function applyWixCategoryAndOptions(
+  conn: ChannelConnectionContext,
+  productId: string,
+  item: SyncStoreItem,
+  opts: WixRequestOpts,
+  v1: boolean
+): Promise<void> {
+  const cat = await resolveProviderCategoryId(conn, "wix", item.category);
+  const collectionName = cat.wixCollectionName ?? item.category;
+  if (collectionName) {
+    const collectionId = await ensureWixCollection(conn.accessToken, collectionName, opts, v1);
+    if (collectionId) {
+      await assignWixProductCollection(conn.accessToken, productId, collectionId, opts, v1);
+    }
+  }
+  if (v1) {
+    const optionsBody = buildWixV1OptionsBody(item, null);
+    if (optionsBody) {
+      await wixJson(
+        conn.accessToken,
+        `/stores/v1/products/${encodeURIComponent(productId)}`,
+        "PATCH",
+        optionsBody,
+        opts
+      ).catch((e) => console.error("[wix] options patch failed", { productId, error: String(e) }));
+    }
+  }
+}
+
 export const wixAdapter: ChannelAdapter = {
   provider: "wix",
 
@@ -608,6 +649,7 @@ export const wixAdapter: ChannelAdapter = {
         if (!productId) {
           throw new Error("Wix did not return a product id for the created listing.");
         }
+        await applyWixCategoryAndOptions(conn, productId, item, opts, mode === "v1");
         return { externalListingId: productId, externalShopId: conn.externalShopId };
       } catch (e) {
         const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
@@ -644,6 +686,17 @@ export const wixAdapter: ChannelAdapter = {
               buildWixV1UpdateBody(item, v1Got.product ?? null),
               opts
             );
+            const optionsBody = buildWixV1OptionsBody(item, v1Got.product ?? null);
+            if (optionsBody) {
+              await wixJson(
+                conn.accessToken,
+                `/stores/v1/products/${encodeURIComponent(productId)}`,
+                "PATCH",
+                optionsBody,
+                opts
+              ).catch(() => {});
+            }
+            await applyWixCategoryAndOptions(conn, productId, item, opts, true);
             const strategy = await setInventoryAbsolute(
               conn.accessToken,
               productId,

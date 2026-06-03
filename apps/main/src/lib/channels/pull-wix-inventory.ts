@@ -3,14 +3,25 @@ import { applyRemoteQuantityToStoreItem } from "./apply-remote-listing";
 import { getConnectionContext } from "./connection";
 import { getAdapter } from "./registry";
 import { syncInventoryToChannels } from "./sync-inventory";
-import { syncContentHash } from "./sync-baseline";
+import { syncContentHash, syncMetaHash } from "./sync-baseline";
 import type { ChannelProvider } from "./types";
 
 /** After a webhook-driven qty pull, record the agreed baseline so the cron doesn't re-fight it. */
 async function recordInventoryBaseline(linkId: string, storeItemId: string): Promise<void> {
   const item = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
-    select: { title: true, description: true, photos: true, priceCents: true, quantity: true },
+    select: {
+      title: true,
+      description: true,
+      photos: true,
+      priceCents: true,
+      quantity: true,
+      category: true,
+      subcategory: true,
+      secondaryCategory: true,
+      shippingCostCents: true,
+      variants: true,
+    },
   });
   if (!item) return;
   await prisma.channelListingLink
@@ -19,6 +30,7 @@ async function recordInventoryBaseline(linkId: string, storeItemId: string): Pro
       data: {
         lastInboundAt: new Date(),
         syncBaselineHash: syncContentHash(item),
+        syncBaselineMetaHash: syncMetaHash(item),
         syncBaselineQty: item.quantity,
         syncBaselineAt: new Date(),
       },

@@ -7,7 +7,9 @@ import { getConnectionContext } from "./connection";
 import { syncInventoryToChannels } from "./sync-inventory";
 import { reconcileConnectionInboundListings } from "./reconcile-inbound";
 import { reconcileConnectionInboundCatalog } from "./reconcile-inbound-catalog";
+import { reconcileConnectionInboundMeta } from "./reconcile-inbound-meta";
 import type { ChannelProvider } from "./types";
+import { matchSaleToVariantOption } from "./variant-sync";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
@@ -80,9 +82,13 @@ export async function reconcileConnectionSales(
     const storeItem = await prisma.storeItem.findUnique({ where: { id: link.storeItemId } });
     if (!storeItem) continue;
 
+    const saleVariant = sale.variant
+      ? matchSaleToVariantOption(sale.variant, storeItem.variants) ?? sale.variant
+      : null;
+
     await applyStoreItemDecrementAfterSale(prisma, storeItem, {
       quantity: sale.quantitySold,
-      variant: null,
+      variant: saleVariant,
     });
 
     const updated = await prisma.storeItem.findUnique({
@@ -125,6 +131,7 @@ export async function reconcileAllConnections(): Promise<{
   imported: number;
   catalogUpdated: number;
   catalogRemoved: number;
+  metaUpdated: number;
 }> {
   const conns = await prisma.channelConnection.findMany({
     where: { status: { not: "disconnected" } },
@@ -133,6 +140,7 @@ export async function reconcileAllConnections(): Promise<{
   let imported = 0;
   let catalogUpdated = 0;
   let catalogRemoved = 0;
+  let metaUpdated = 0;
   for (const c of conns) {
     try {
       applied += (await reconcileConnectionSales(c)).applied;
@@ -147,12 +155,18 @@ export async function reconcileAllConnections(): Promise<{
       console.error("[channels] reconcile catalog failed", { id: c.id, error: String(e) });
     }
     try {
+      const meta = await reconcileConnectionInboundMeta(c);
+      metaUpdated += meta.updated;
+    } catch (e) {
+      console.error("[channels] reconcile meta failed", { id: c.id, error: String(e) });
+    }
+    try {
       imported += (await reconcileConnectionInboundListings(c)).imported;
     } catch (e) {
       console.error("[channels] reconcile inbound failed", { id: c.id, error: String(e) });
     }
   }
-  return { connections: conns.length, applied, imported, catalogUpdated, catalogRemoved };
+  return { connections: conns.length, applied, imported, catalogUpdated, catalogRemoved, metaUpdated };
 }
 
 /** Reconcile a single member+provider connection (webhook low-latency trigger). */
@@ -166,5 +180,6 @@ export async function reconcileMemberProvider(
   if (!conn || conn.status === "disconnected") return { applied: 0 };
   const sales = await reconcileConnectionSales(conn);
   await reconcileConnectionInboundCatalog(conn).catch(() => {});
+  await reconcileConnectionInboundMeta(conn).catch(() => {});
   return sales;
 }

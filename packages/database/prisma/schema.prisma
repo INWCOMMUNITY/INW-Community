@@ -990,6 +990,7 @@ model ChannelListingLink {
   syncBaselineHash  String?   @map("sync_baseline_hash")
   syncBaselineQty   Int?      @map("sync_baseline_qty")
   syncBaselineAt    DateTime? @map("sync_baseline_at")
+  syncBaselineMetaHash String? @map("sync_baseline_meta_hash")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 

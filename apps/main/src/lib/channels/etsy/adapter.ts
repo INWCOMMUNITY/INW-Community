@@ -10,12 +10,15 @@ import type {
 } from "../types";
 import { EtsyApiError, etsyDelete, etsyForm, etsyGet, etsyJson, etsyUploadImage } from "./client";
 import { exchangeEtsyCode, fetchEtsyShopInfo, getEtsyAuthUrl, refreshEtsyToken } from "./oauth";
+import { resolveProviderCategoryId } from "../category-map";
+import { resolveEtsyShippingProfileId } from "../shipping-map";
 import {
   buildEtsyCreateFields,
   buildEtsyUpdateFields,
   etsyListingToSummary,
   etsyPriceFromCents,
 } from "./mapping";
+import { pushEtsyVariants, etsyInventoryToVariants } from "./variants";
 import { parseEtsyInboundEvent, verifyEtsyWebhook } from "./webhook";
 
 type EtsyInventoryOffering = {
@@ -100,15 +103,20 @@ export const etsyAdapter: ChannelAdapter = {
 
   async createListing(conn, item): Promise<CreateListingResult> {
     const shopId = requireShop(conn);
+    const cat = await resolveProviderCategoryId(conn, "etsy", item.category);
+    const taxonomyId = item.etsyTaxonomyId ?? cat.etsyTaxonomyId;
+    const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
     const created = await etsyForm<{ listing_id: number }>(
       conn.accessToken,
       `/shops/${shopId}/listings`,
       "POST",
-      buildEtsyCreateFields(item, conn)
+      buildEtsyCreateFields(item, conn, {
+        taxonomyId: taxonomyId ?? undefined,
+        shippingProfileId,
+      })
     );
     const listingId = String(created.listing_id);
 
-    // Upload photos (Etsy requires the image bytes, not URLs).
     let rank = 1;
     for (const url of item.photos.slice(0, 10)) {
       try {
@@ -119,13 +127,16 @@ export const etsyAdapter: ChannelAdapter = {
       }
     }
 
-    // Set SKU = StoreItem id (reverse lookup for inbound sales) and the absolute quantity.
+    const tid = taxonomyId ?? 1;
+    await pushEtsyVariants(conn.accessToken, listingId, tid, item).catch((e) =>
+      console.error("[etsy] variant push failed", { listingId, error: String(e) })
+    );
     await this.updateInventory(conn, listingId, item.quantity, item).catch((e) =>
       console.error("[etsy] initial inventory set failed", { listingId, error: String(e) })
     );
 
-    // Publish if the listing should be live and a shipping profile exists (required to activate).
-    if (item.status === "active" && item.quantity > 0 && conn.etsyShippingProfileId) {
+    const profileForPublish = shippingProfileId ?? conn.etsyShippingProfileId;
+    if (item.status === "active" && item.quantity > 0 && profileForPublish) {
       await etsyForm(conn.accessToken, `/shops/${shopId}/listings/${listingId}`, "PATCH", {
         state: "active",
       }).catch((e) => console.error("[etsy] publish failed", { listingId, error: String(e) }));
@@ -136,11 +147,20 @@ export const etsyAdapter: ChannelAdapter = {
 
   async updateListing(conn, externalListingId, item): Promise<void> {
     const shopId = requireShop(conn);
+    const cat = await resolveProviderCategoryId(conn, "etsy", item.category);
+    const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
     await etsyForm(
       conn.accessToken,
       `/shops/${shopId}/listings/${externalListingId}`,
       "PATCH",
-      buildEtsyUpdateFields(item)
+      buildEtsyUpdateFields(item, {
+        taxonomyId: item.etsyTaxonomyId ?? cat.etsyTaxonomyId,
+        shippingProfileId,
+      })
+    );
+    const tid = item.etsyTaxonomyId ?? cat.etsyTaxonomyId ?? 1;
+    await pushEtsyVariants(conn.accessToken, externalListingId, tid, item).catch((e) =>
+      console.error("[etsy] variant update failed", { externalListingId, error: String(e) })
     );
     await this.updateInventory(conn, externalListingId, item.quantity, item);
   },
@@ -234,7 +254,38 @@ export const etsyAdapter: ChannelAdapter = {
           `/shops/${shopId}/listings?state=${state}&limit=100&offset=${offset}&includes=Images`
         ).catch(() => null);
         const results = res?.results ?? [];
-        for (const l of results) out.push(etsyListingToSummary(l));
+        for (const l of results) {
+          const summary = etsyListingToSummary(l);
+          if (l.taxonomy_id) {
+            try {
+              const tax = await etsyGet<{ name?: string; path?: string[] }>(
+                conn.accessToken,
+                `/application/seller-taxonomy/nodes/${l.taxonomy_id}`
+              ).catch(() => null);
+              const path = tax?.path ?? (tax?.name ? [tax.name] : []);
+              if (path.length > 0) {
+                summary.category = path[path.length - 1] ?? null;
+                summary.subcategory = path.length > 1 ? path[path.length - 2] ?? null : null;
+              }
+            } catch {
+              /* optional enrichment */
+            }
+          }
+          try {
+            const inv = await etsyGet<EtsyInventory>(
+              conn.accessToken,
+              `/listings/${l.listing_id}/inventory`
+            );
+            const vars = etsyInventoryToVariants(inv.products);
+            if (vars) {
+              summary.variants = vars;
+              summary.variantsKnown = true;
+            }
+          } catch {
+            /* inventory optional on list */
+          }
+          out.push(summary);
+        }
         if (results.length < 100) break;
         offset += 100;
       }

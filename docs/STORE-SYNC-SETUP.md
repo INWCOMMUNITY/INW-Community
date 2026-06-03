@@ -497,6 +497,10 @@ Do **not** change `ENCRYPTION_KEY`, `CRON_SECRET`, or `NEXTAUTH_SECRET` if they 
 | INW edit doesn’t update Wix | Save listing in app; check **Wix: sync error** on My Items; classic sites use v1/v2 write APIs |
 | Wix qty edit slow on INW | Enable all **inventory** webhooks; they pull qty without full catalog reconcile |
 | Delete on INW but still on Wix | Redeploy (v1 delete API); confirm Manage Products permission on Wix app |
+| Category not matching after import | Remote label may become a **custom** INW category if no preset is similar; edit category in app and save to push taxonomy/collection |
+| Options not on Etsy after INW edit | Etsy needs taxonomy properties for the listing category; check **Wix: sync error** / Vercel logs for variant push failure |
+| Shopify “too many variants” | Shopify caps at 3 options × 100 variants; reduce option axes in INW |
+| Shipping not updating on Etsy | Ensure listing save ran; Etsy uses per-rate shipping profiles (`INW $X.XX`) created on first push |
 
 ---
 

@@ -12,6 +12,9 @@ export const syncStoreItemSelect = {
   status: true,
   condition: true,
   shippingCostCents: true,
+  category: true,
+  subcategory: true,
+  secondaryCategory: true,
   etsyWhoMade: true,
   etsyWhenMade: true,
   etsyIsSupply: true,
@@ -30,6 +33,9 @@ type StoreItemLike = {
   status: string;
   condition: string | null;
   shippingCostCents: number | null;
+  category: string | null;
+  subcategory: string | null;
+  secondaryCategory: string | null;
   etsyWhoMade: string | null;
   etsyWhenMade: string | null;
   etsyIsSupply: boolean | null;
@@ -49,6 +55,9 @@ export function toSyncStoreItem(item: StoreItemLike): SyncStoreItem {
     status: item.status,
     condition: item.condition,
     shippingCostCents: item.shippingCostCents,
+    category: item.category,
+    subcategory: item.subcategory,
+    secondaryCategory: item.secondaryCategory,
     etsyWhoMade: item.etsyWhoMade,
     etsyWhenMade: item.etsyWhenMade,
     etsyIsSupply: item.etsyIsSupply,

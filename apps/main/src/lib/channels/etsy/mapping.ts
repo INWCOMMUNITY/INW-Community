@@ -46,11 +46,13 @@ function etsyDescription(item: SyncStoreItem): string {
 /** Fields for createDraftListing (POST /shops/{shop_id}/listings). */
 export function buildEtsyCreateFields(
   item: SyncStoreItem,
-  conn: ChannelConnectionContext
+  conn: ChannelConnectionContext,
+  overrides?: { taxonomyId?: number; shippingProfileId?: string | null }
 ): Record<string, string | number | boolean | undefined> {
   const whoMade = item.etsyWhoMade && VALID_WHO_MADE.has(item.etsyWhoMade) ? item.etsyWhoMade : "i_did";
   const whenMade =
     item.etsyWhenMade && VALID_WHEN_MADE.has(item.etsyWhenMade) ? item.etsyWhenMade : "made_to_order";
+  const shippingId = overrides?.shippingProfileId ?? conn.etsyShippingProfileId;
   return {
     quantity: Math.max(1, item.quantity),
     title: etsyTitle(item.title),
@@ -58,24 +60,28 @@ export function buildEtsyCreateFields(
     price: etsyPriceFromCents(item.priceCents),
     who_made: whoMade,
     when_made: whenMade,
-    taxonomy_id: item.etsyTaxonomyId ?? defaultTaxonomyId(),
+    taxonomy_id: overrides?.taxonomyId ?? item.etsyTaxonomyId ?? defaultTaxonomyId(),
     is_supply: item.etsyIsSupply ?? false,
     type: "physical",
-    ...(conn.etsyShippingProfileId ? { shipping_profile_id: conn.etsyShippingProfileId } : {}),
+    ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
   };
 }
 
 /** Fields for updateListing (PATCH /shops/{shop_id}/listings/{listing_id}). */
 export function buildEtsyUpdateFields(
-  item: SyncStoreItem
+  item: SyncStoreItem,
+  overrides?: { taxonomyId?: number; shippingProfileId?: string | null }
 ): Record<string, string | number | boolean | undefined> {
+  const shippingId = overrides?.shippingProfileId;
   return {
     title: etsyTitle(item.title),
     description: etsyDescription(item),
     price: etsyPriceFromCents(item.priceCents),
-    // Listing goes inactive on Etsy when it is sold out / inactive on INW.
     state: item.status === "active" && item.quantity > 0 ? "active" : "inactive",
-    ...(item.etsyTaxonomyId ? { taxonomy_id: item.etsyTaxonomyId } : {}),
+    ...(item.etsyTaxonomyId || overrides?.taxonomyId
+      ? { taxonomy_id: (overrides?.taxonomyId ?? item.etsyTaxonomyId) as number }
+      : {}),
+    ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
   };
 }
 
@@ -85,6 +91,8 @@ type EtsyListing = {
   description?: string;
   quantity?: number;
   url?: string;
+  taxonomy_id?: number;
+  last_modified_timestamp?: number;
   price?: { amount?: number; divisor?: number } | null;
   images?: { url_fullxfull?: string; url_570xN?: string; rank?: number }[];
   skus?: string[];
@@ -106,5 +114,12 @@ export function etsyListingToSummary(listing: EtsyListing): RemoteListingSummary
     quantity: typeof listing.quantity === "number" ? listing.quantity : 0,
     photos,
     url: listing.url,
+    remoteCategoryId: listing.taxonomy_id != null ? String(listing.taxonomy_id) : null,
+    remoteUpdatedAt:
+      listing.last_modified_timestamp != null
+        ? new Date(listing.last_modified_timestamp * 1000)
+        : null,
+    variantsKnown: false,
+    shippingKnown: false,
   };
 }

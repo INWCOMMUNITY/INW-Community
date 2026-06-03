@@ -1,4 +1,5 @@
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
+import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID, getEbayConfig } from "./config";
 import type { EbayConnectionConfig } from "./account";
 
@@ -20,21 +21,41 @@ function plainText(html: string | null, fallback: string): string {
 /** Build the PUT /inventory_item/{sku} body for a StoreItem. */
 export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unknown> {
   const title = item.title.slice(0, 80);
+  const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[] | null;
+
+  const product: Record<string, unknown> = {
+    title,
+    description: plainText(item.description, title),
+    imageUrls: item.photos.slice(0, 12),
+  };
+
+  if (axes && axes.length > 0) {
+    const primary = axes[0];
+    product.aspects = { [primary.name]: primary.options.map((o) => o.value) };
+    const variations = primary.options.map((o) => ({
+      sku: `${item.id}-${o.value}`.slice(0, 50),
+      aspects: { [primary.name]: [o.value] },
+      availability: { shipToLocationAvailability: { quantity: Math.max(0, o.quantity) } },
+    }));
+    return {
+      condition: ebayCondition(item.condition),
+      product,
+      variations,
+    };
+  }
+
   return {
     availability: {
       shipToLocationAvailability: { quantity: Math.max(0, item.quantity) },
     },
     condition: ebayCondition(item.condition),
-    product: {
-      title,
-      description: plainText(item.description, title),
-      imageUrls: item.photos.slice(0, 12),
-    },
+    product,
   };
 }
 
 /** Resolve the eBay leaf category for an item (per-item override, else env default). */
-function resolveCategoryId(item: SyncStoreItem): string | null {
+export function resolveCategoryId(item: SyncStoreItem, overrideId?: string | null): string | null {
+  if (overrideId) return overrideId;
   if (item.ebayCategoryId != null) return String(item.ebayCategoryId);
   try {
     return getEbayConfig().defaultCategoryId;
@@ -49,9 +70,10 @@ function resolveCategoryId(item: SyncStoreItem): string | null {
  */
 export function buildEbayOffer(
   item: SyncStoreItem,
-  cfg: EbayConnectionConfig
+  cfg: EbayConnectionConfig,
+  categoryOverride?: string | null
 ): Record<string, unknown> {
-  const categoryId = resolveCategoryId(item);
+  const categoryId = resolveCategoryId(item, categoryOverride);
   const offer: Record<string, unknown> = {
     sku: item.id,
     marketplaceId: EBAY_MARKETPLACE_ID,
@@ -100,5 +122,8 @@ export function ebayListingToSummary(row: EbayInventorySummaryRow): RemoteListin
     quantity: Math.max(0, row.availableQuantity ?? 0),
     photos: Array.isArray(row.imageUrls) ? row.imageUrls : [],
     url: listingId ? `https://www.ebay.com/itm/${listingId}` : undefined,
+    remoteUpdatedAt: null,
+    variantsKnown: false,
+    shippingKnown: false,
   };
 }

@@ -1,4 +1,7 @@
 import { prisma } from "database";
+import { resolveInwCategoryFromRemote } from "./category-resolver";
+import { normalizeVariantsFromProvider, sumVariantQuantities } from "./variant-sync";
+import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
 function slugify(s: string): string {
@@ -67,6 +70,22 @@ export async function importRemoteListing(args: {
   }
 
   try {
+    const resolvedCat = resolveInwCategoryFromRemote(listing.category, listing.subcategory);
+    const normalizedVariants =
+      listing.variantsKnown !== false && listing.variants
+        ? normalizeVariantsFromProvider(provider, listing.variants)
+        : null;
+    const importQty =
+      normalizedVariants && normalizedVariants.length > 0
+        ? sumVariantQuantities(normalizedVariants)
+        : listing.quantityKnown === false
+          ? 1
+          : Math.max(0, listing.quantity);
+    const shippingCents =
+      listing.shippingKnown !== false && listing.shippingCostCents != null
+        ? Math.max(0, Math.round(listing.shippingCostCents))
+        : null;
+
     const created = await prisma.$transaction(async (tx) => {
       const storeItem = await tx.storeItem.create({
         data: {
@@ -75,15 +94,30 @@ export async function importRemoteListing(args: {
           description: plainListingDescription(listing.description),
           photos: listing.photos,
           priceCents: listing.priceCents,
-          quantity:
-            listing.quantityKnown === false ? 1 : Math.max(0, listing.quantity),
-          status:
-            (listing.quantityKnown === false ? 1 : listing.quantity) > 0 ? "active" : "sold_out",
+          quantity: importQty,
+          status: importQty > 0 ? "active" : "sold_out",
           condition: "used",
           listingType: "new",
           acceptOffers: false,
           slug: uniqueSlug(slugify(listing.title)),
+          category: resolvedCat?.category ?? listing.category?.slice(0, 200) ?? null,
+          subcategory: resolvedCat?.subcategory ?? listing.subcategory?.slice(0, 200) ?? null,
+          shippingCostCents: shippingCents,
+          variants: normalizedVariants ? (normalizedVariants as object) : undefined,
+          ...(provider === "etsy" && listing.remoteCategoryId
+            ? { etsyTaxonomyId: Number(listing.remoteCategoryId) || undefined }
+            : {}),
+          ...(provider === "ebay" && listing.remoteCategoryId
+            ? { ebayCategoryId: Number(listing.remoteCategoryId) || undefined }
+            : {}),
         },
+      });
+      const metaHash = syncMetaHash({
+        category: storeItem.category,
+        subcategory: storeItem.subcategory,
+        secondaryCategory: storeItem.secondaryCategory,
+        shippingCostCents: storeItem.shippingCostCents,
+        variants: storeItem.variants,
       });
       await tx.channelListingLink.create({
         data: {
@@ -96,6 +130,10 @@ export async function importRemoteListing(args: {
           syncStatus: "synced",
           lastPushedAt: new Date(),
           lastInboundAt: new Date(),
+          syncBaselineHash: syncContentHash(storeItem),
+          syncBaselineMetaHash: metaHash,
+          syncBaselineQty: storeItem.quantity,
+          syncBaselineAt: listing.remoteUpdatedAt ?? new Date(),
         },
       });
       return storeItem;

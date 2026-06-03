@@ -28,6 +28,7 @@ import {
   shopifyProductToSummary,
   type ShopifyProduct,
 } from "./mapping";
+import { normalizeVariantsFromProvider } from "../variant-sync";
 
 type ProductsResponse = { products?: ShopifyProduct[] };
 type ProductResponse = { product?: ShopifyProduct };
@@ -190,9 +191,31 @@ export const shopifyAdapter: ChannelAdapter = {
     }
     const pid = String(productId);
     if (cfg.locationId) {
-      await syncProductInventory(conn, pid, item.quantity).catch((e) => {
-        console.error("[shopify] post-create inventory sync failed", { productId: pid, error: String(e) });
-      });
+      const product = res.product;
+      const variants = product?.variants ?? [];
+      if (variants.length > 1) {
+        const axes = normalizeVariantsFromProvider("shopify", item.variants);
+        for (const v of variants) {
+          if (v.inventory_item_id == null) continue;
+          let qty = item.quantity;
+          if (axes && axes.length > 0) {
+            const match = axes.flatMap((a) => a.options).find((o) => o.value === v.option1 || o.value === v.option2 || o.value === v.option3);
+            if (match) qty = match.quantity;
+          }
+          await setInventoryAbsolute(
+            conn.accessToken,
+            cfg.shop,
+            cfg.apiVersion,
+            cfg.locationId,
+            v.inventory_item_id,
+            qty
+          ).catch(() => {});
+        }
+      } else {
+        await syncProductInventory(conn, pid, item.quantity).catch((e) => {
+          console.error("[shopify] post-create inventory sync failed", { productId: pid, error: String(e) });
+        });
+      }
     }
     return { externalListingId: pid, externalShopId: cfg.shop };
   },
@@ -202,16 +225,45 @@ export const shopifyAdapter: ChannelAdapter = {
     if (!cfg.shop) return;
     const existing = await getProduct(conn.accessToken, cfg.shop, cfg.apiVersion, externalListingId);
     if (!existing) return;
-    const variantId = existing.variants?.[0]?.id ?? null;
     await shopifyJson(
       conn.accessToken,
       cfg.shop,
       cfg.apiVersion,
       `/products/${externalListingId}.json`,
       "PUT",
-      buildShopifyUpdateBody(item, externalListingId, variantId)
+      buildShopifyUpdateBody(item, externalListingId, existing)
     );
-    await syncProductInventory(conn, externalListingId, item.quantity);
+    if (cfg.locationId && existing?.variants?.length) {
+      for (const v of existing.variants) {
+        if (v.inventory_item_id == null) continue;
+        const axes = normalizeVariantsFromProvider("shopify", item.variants);
+        let qty = item.quantity;
+        if (axes && axes.length > 0 && v.option1) {
+          for (const axis of axes) {
+            const match = axis.options.find(
+              (o) =>
+                o.value === v.option1 ||
+                o.value === v.option2 ||
+                o.value === v.option3
+            );
+            if (match) {
+              qty = match.quantity;
+              break;
+            }
+          }
+        }
+        await setInventoryAbsolute(
+          conn.accessToken,
+          cfg.shop,
+          cfg.apiVersion,
+          cfg.locationId,
+          v.inventory_item_id,
+          qty
+        ).catch(() => {});
+      }
+    } else {
+      await syncProductInventory(conn, externalListingId, item.quantity);
+    }
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {
@@ -271,6 +323,8 @@ export const shopifyAdapter: ChannelAdapter = {
           product_id?: number | null;
           sku?: string | null;
           quantity?: number;
+          variant_title?: string | null;
+          properties?: { name?: string; value?: string }[];
         }[];
       }[];
     };
@@ -296,11 +350,17 @@ export const shopifyAdapter: ChannelAdapter = {
         for (const li of order.line_items ?? []) {
           const productId = li.product_id;
           if (productId == null || li.id == null) continue;
+          const variant: Record<string, string> = {};
+          if (li.variant_title?.trim()) variant.Option = li.variant_title.trim();
+          for (const p of li.properties ?? []) {
+            if (p.name && p.value) variant[p.name] = p.value;
+          }
           sales.push({
             externalEventId: `order:${order.id}:line:${li.id}`,
             externalListingId: String(productId),
             quantitySold: Math.max(1, li.quantity ?? 1),
             sku: li.sku ?? null,
+            variant: Object.keys(variant).length > 0 ? variant : null,
           });
         }
       }

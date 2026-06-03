@@ -10,6 +10,7 @@ import { channelSyncSucceeded, syncInventoryToChannels } from "./sync-inventory"
 import {
   resolveSyncDirection,
   syncContentHash,
+  syncMetaHash,
   SYNC_ECHO_SKEW_MS,
   type SyncDirection,
 } from "./sync-baseline";
@@ -54,10 +55,22 @@ async function writeBaseline(
 ): Promise<void> {
   const item = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
-    select: { title: true, description: true, photos: true, priceCents: true, quantity: true },
+    select: {
+      title: true,
+      description: true,
+      photos: true,
+      priceCents: true,
+      quantity: true,
+      category: true,
+      subcategory: true,
+      secondaryCategory: true,
+      shippingCostCents: true,
+      variants: true,
+    },
   });
   if (!item) return;
   const hash = syncContentHash(item);
+  const metaHash = syncMetaHash(item);
   // After a push, Wix's updatedDate jumps to ~now; skew the baseline forward so the next pass treats
   // that as our own echo. After a pull/no-op, anchor to the remote edit time we just reconciled to.
   const baselineAt = pushed
@@ -68,6 +81,7 @@ async function writeBaseline(
       where: { id: linkId },
       data: {
         syncBaselineHash: hash,
+        syncBaselineMetaHash: metaHash,
         syncBaselineQty: item.quantity,
         syncBaselineAt: baselineAt,
       },

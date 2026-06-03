@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { variantsFingerprint } from "./variant-sync";
 
 /**
  * Differential two-way sync helpers.
@@ -61,3 +62,27 @@ export function resolveSyncDirection(args: {
  * edit on the next pass. Treat remote changes within this window after a push as our own echo.
  */
 export const SYNC_ECHO_SKEW_MS = 120_000;
+
+/** Fields that participate in INW <-> channel meta sync (category, shipping, variants). */
+export type SyncMetaInput = {
+  category: string | null;
+  subcategory: string | null;
+  secondaryCategory?: string | null;
+  shippingCostCents: number | null;
+  variants: unknown;
+};
+
+/** Stable fingerprint for category, shipping, and product options. */
+export function syncMetaHash(item: SyncMetaInput): string {
+  return createHash("sha1")
+    .update(
+      JSON.stringify({
+        c: item.category ?? "",
+        s: item.subcategory ?? "",
+        sc: item.secondaryCategory ?? "",
+        sh: item.shippingCostCents ?? null,
+        v: variantsFingerprint(item.variants),
+      })
+    )
+    .digest("hex");
+}

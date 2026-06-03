@@ -15,6 +15,7 @@ import {
   refreshEbayToken,
 } from "./oauth";
 import { fetchEbayConnectionConfig, readEbayConfig } from "./account";
+import { resolveProviderCategoryId } from "../category-map";
 import { buildEbayInventoryItem, buildEbayOffer, ebayListingToSummary } from "./mapping";
 import { enumerateEbayListings } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
@@ -51,6 +52,7 @@ async function upsertListing(
 ): Promise<string> {
   const sku = item.id;
   const cfg = readEbayConfig(conn.config);
+  const cat = await resolveProviderCategoryId(conn, "ebay", item.category);
 
   await ebayJson(
     conn.accessToken,
@@ -59,7 +61,7 @@ async function upsertListing(
     buildEbayInventoryItem(item)
   );
 
-  const offerBody = buildEbayOffer(item, cfg);
+  const offerBody = buildEbayOffer(item, cfg, cat.ebayCategoryId ?? null);
   const existing = await findOffer(conn.accessToken, sku);
   let offerId = existing?.offerId ?? null;
   if (offerId) {

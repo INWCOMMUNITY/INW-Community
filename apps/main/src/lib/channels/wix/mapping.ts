@@ -129,7 +129,14 @@ export type WixV1Product = {
     priceData?: { price?: number };
     stock?: { quantity?: number; inStock?: boolean; trackInventory?: boolean };
     media?: { image?: { url?: string } };
+    choices?: { description?: string; value?: string }[];
+    variant?: { choices?: { description?: string }[] };
   }[];
+  productOptions?: { name?: string; choices?: { description?: string; value?: string }[] }[];
+  productType?: string;
+  ribbon?: string;
+  additionalInfoSections?: { title?: string; description?: string }[];
+  shippingWeight?: number;
   lastUpdated?: string;
   numericId?: string;
 };
@@ -188,6 +195,7 @@ export function v1Quantity(product: WixV1Product): number {
 /** Map a Catalog v1 product to an import preview entry (classic Wix Stores sites). */
 export function wixV1ProductToSummary(product: WixV1Product): RemoteListingSummary {
   const desc = (product.description ?? "").trim();
+  const categoryLabel = product.ribbon?.trim() || product.productType?.trim() || null;
   return {
     externalListingId: product.id || "",
     title: product.name || "Wix product",
@@ -197,6 +205,9 @@ export function wixV1ProductToSummary(product: WixV1Product): RemoteListingSumma
     quantityKnown: true,
     photos: v1Photos(product),
     remoteUpdatedAt: parseWixDate(product.lastUpdated),
+    category: categoryLabel,
+    variantsKnown: false,
+    shippingKnown: false,
   };
 }
 
@@ -215,6 +226,7 @@ export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknow
     priceData: { price: Math.max(0, item.priceCents) / 100 },
     stock: buildWixV1StockFields(item.quantity),
   };
+  if (item.category?.trim()) product.ribbon = item.category.trim().slice(0, 40);
   const desc = (item.description ?? "").trim();
   if (desc) product.description = desc;
   return { product };

@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { getAdapter } from "./registry";
 import { getActiveConnectionsForMember, getConnectionContext } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
-import { syncContentHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
+import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 import type {
   ChannelConnectionContext,
   ChannelProvider,
@@ -30,6 +30,10 @@ function contentHash(item: SyncStoreItem): string {
         eis: item.etsyIsSupply,
         etx: item.etsyTaxonomyId,
         ebc: item.ebayCategoryId,
+        cat: item.category,
+        sub: item.subcategory,
+        sc: item.secondaryCategory,
+        ship: item.shippingCostCents,
       })
     )
     .digest("hex");
@@ -85,6 +89,7 @@ export async function publishStoreItemToChannels(
           lastPushedHash: contentHash(item),
           lastPushedAt: new Date(),
           syncBaselineHash: syncContentHash(item),
+          syncBaselineMetaHash: syncMetaHash(item),
           syncBaselineQty: item.quantity,
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },
@@ -142,6 +147,7 @@ export async function updateStoreItemOnChannels(
           lastPushedHash: hash,
           lastPushedAt: new Date(),
           syncBaselineHash: syncContentHash(item),
+          syncBaselineMetaHash: syncMetaHash(item),
           syncBaselineQty: item.quantity,
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },

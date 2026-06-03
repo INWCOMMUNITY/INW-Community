@@ -26,6 +26,9 @@ export type SyncStoreItem = {
   status: string;
   /** new | used (used for eBay condition mapping). */
   condition: string | null;
+  category: string | null;
+  subcategory: string | null;
+  secondaryCategory: string | null;
   shippingCostCents: number | null;
   etsyWhoMade: string | null;
   etsyWhenMade: string | null;
@@ -68,6 +71,17 @@ export type RemoteListingSummary = {
   remoteUpdatedAt?: Date | null;
   /** True if this listing already maps to a StoreItem on INW. */
   alreadyLinked?: boolean;
+  /** Remote browse category label (mapped to INW via fuzzy match on import). */
+  category?: string | null;
+  subcategory?: string | null;
+  /** Provider taxonomy/collection id when available. */
+  remoteCategoryId?: string | null;
+  /** Flat per-item shipping in cents when the remote API exposes it. */
+  shippingCostCents?: number | null;
+  shippingKnown?: boolean;
+  /** Normalized INW-shaped variant axes from the remote listing. */
+  variants?: unknown;
+  variantsKnown?: boolean;
 };
 
 export type ChannelSyncResult = {
@@ -84,6 +98,8 @@ export type RemoteSale = {
   quantitySold: number;
   /** SKU set to the StoreItem id on publish; used for reverse lookup. */
   sku?: string | null;
+  /** Buyer-selected options when the channel exposes them (e.g. Size: M). */
+  variant?: Record<string, string> | null;
 };
 
 export type NormalizedInboundEvent =

@@ -3,7 +3,7 @@ import { prisma } from "database";
 import { getAdapter } from "./registry";
 import { getConnectionContext } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
-import { syncContentHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
+import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 import type { ChannelProvider, ChannelSyncResult } from "./types";
 
 /**
@@ -49,6 +49,7 @@ export async function syncInventoryToChannels(
           syncError: null,
           lastPushedAt: new Date(),
           syncBaselineHash: syncContentHash(item),
+          syncBaselineMetaHash: syncMetaHash(item),
           syncBaselineQty: item.quantity,
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },
