@@ -70,6 +70,59 @@ export async function GET(req: NextRequest) {
     take: 5,
   });
 
+  // Per-link diagnostic: compares INW qty, the agreed baseline, and the LIVE Wix qty so a single
+  // call after a test sale shows whether (a) the sale decremented INW, (b) the push ran/advanced
+  // the baseline, and (c) Wix actually reflects it. INW != Wix with INW == baseline => push never
+  // ran; INW != baseline => cron backstop should push next pass.
+  const allLinks = await prisma.channelListingLink.findMany({
+    where: { connectionId: ctx.id, provider: "wix", syncEnabled: true },
+    select: {
+      storeItemId: true,
+      externalListingId: true,
+      syncStatus: true,
+      syncError: true,
+      lastPushedAt: true,
+      lastInboundAt: true,
+      syncBaselineQty: true,
+      storeItem: { select: { title: true, quantity: true, status: true, updatedAt: true } },
+    },
+    take: 25,
+  });
+  const adapter = getAdapter("wix");
+  const links = await Promise.all(
+    allLinks.map(async (l) => {
+      let wixQuantity: number | null = null;
+      let wixQuantityKnown = false;
+      try {
+        if (adapter.fetchProductQuantity) {
+          const r = await adapter.fetchProductQuantity(ctx, l.externalListingId);
+          wixQuantity = r.quantity;
+          wixQuantityKnown = r.known;
+        }
+      } catch {
+        /* read is best-effort */
+      }
+      const inwQty = l.storeItem.quantity;
+      const baselineQty = l.syncBaselineQty;
+      return {
+        title: l.storeItem.title,
+        productId: l.externalListingId,
+        inwQuantity: inwQty,
+        inwStatus: l.storeItem.status,
+        baselineQuantity: baselineQty,
+        wixQuantity,
+        wixQuantityKnown,
+        inwMatchesWix: wixQuantityKnown ? wixQuantity === inwQty : null,
+        inwChangedSinceBaseline: baselineQty != null ? inwQty !== baselineQty : null,
+        syncStatus: l.syncStatus,
+        syncError: l.syncError,
+        lastPushedAt: l.lastPushedAt,
+        lastInboundAt: l.lastInboundAt,
+        itemUpdatedAt: l.storeItem.updatedAt,
+      };
+    })
+  );
+
   return NextResponse.json({
     ok: !listError,
     connectionId: ctx.id,
@@ -85,6 +138,7 @@ export async function GET(req: NextRequest) {
       productId: l.externalListingId,
       error: l.syncError,
     })),
+    links,
     listError,
     hint:
       linkedCount === 0
