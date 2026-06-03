@@ -305,6 +305,7 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 | **Delete on INW not on Wix** | Use **Remove listing** (not Mark as sold). Failed delete shows an alert with the Wix error |
 | **Wix changes don’t reach INW** | Set `WIX_WEBHOOK_PUBLIC_KEY` + subscribe inventory/product webhooks (see step 7) |
 | **Sync issue on card** | Disconnect → Connect Wix again (refreshes `siteId` + token) |
+| **INW sale but Wix qty unchanged** | While signed in: open `https://www.inwcommunity.com/api/channels/wix/diagnose` — returns `verdict`, `summary`, `nextStep`. Add `?orderId=<id>` from Seller Hub → Orders, or `?repair=1` to force a push **without another test purchase**. |
 
 ### D — Test in app
 
