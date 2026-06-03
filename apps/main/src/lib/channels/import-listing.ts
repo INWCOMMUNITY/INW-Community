@@ -66,8 +66,23 @@ export async function importRemoteListing(args: {
 
   const existing = await prisma.channelListingLink.findUnique({
     where: { provider_externalListingId: { provider, externalListingId: productId } },
+    include: { storeItem: { select: { memberId: true } } },
   });
   if (existing) {
+    if (existing.storeItem.memberId === memberId) {
+      await prisma.channelListingLink.update({
+        where: { id: existing.id },
+        data: {
+          connectionId,
+          externalShopId,
+          syncEnabled: true,
+          syncStatus: "synced",
+          syncError: null,
+          lastInboundAt: new Date(),
+        },
+      });
+      return { ok: true, storeItemId: existing.storeItemId, externalListingId: productId };
+    }
     return { ok: false, externalListingId: productId, reason: "already_linked" };
   }
   if (listing.priceCents < 1) {

@@ -120,5 +120,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, imported, skipped });
+  const skippedReasons = [...new Set(skipped.map((s) => s.reason))];
+  return NextResponse.json({
+    ok: true,
+    imported,
+    skipped,
+    hint:
+      imported.length === 0 && skipped.length > 0
+        ? `Nothing imported. Reasons: ${skippedReasons.join(", ")}. If you see already_linked but deleted the INW item, open Sync Stores → Test Wix connection, then try again.`
+        : undefined,
+  });
 }

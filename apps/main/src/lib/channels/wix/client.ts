@@ -62,8 +62,8 @@ export function isWixMetasiteContextError(err: unknown): boolean {
 }
 
 /**
- * Core Wix request. App access tokens go in Authorization (usually without Bearer).
- * Retries once on 429; on 401 retries once with Bearer prefix.
+ * Core Wix request. App instance tokens usually go in Authorization without Bearer;
+ * some endpoints accept Bearer — retry the other style on 401.
  */
 async function wixRequest<T>(
   accessToken: string,
@@ -71,7 +71,7 @@ async function wixRequest<T>(
   init: RequestInit & { headers?: Record<string, string> } = {},
   opts: WixRequestOpts = {},
   attempt = 0,
-  authVariant: 0 | 1 = 1
+  authVariant: 0 | 1 = 0
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${WIX_API_BASE}${path}`;
   const siteId = opts.siteId?.trim();

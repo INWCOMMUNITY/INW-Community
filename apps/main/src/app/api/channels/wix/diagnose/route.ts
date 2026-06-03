@@ -149,15 +149,51 @@ export async function GET(req: NextRequest) {
   });
 
   if (linkRows.length === 0) {
+    const [disabledLinkCount, inwListingCount, focusedItem] = await Promise.all([
+      prisma.channelListingLink.count({
+        where: { connectionId: ctx.id, provider: "wix", syncEnabled: false },
+      }),
+      prisma.storeItem.count({ where: { memberId: userId } }),
+      storeItemIds?.length === 1
+        ? prisma.storeItem.findFirst({
+            where: { id: storeItemIds[0], memberId: userId },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const disconnectedRecently =
+      disabledLinkCount === 0 &&
+      inwListingCount > 0 &&
+      !storeItemIds;
+
+    let summary = storeItemIds
+      ? "No active Wix link for that item (sync disabled or link removed)."
+      : "Wix is connected but no listings are linked for sync.";
+    let nextStep =
+      "Sync Stores → Import existing listings from Wix (select your products and import).";
+
+    if (focusedItem) {
+      summary = `INW listing "${focusedItem.title}" exists but is not linked to Wix.`;
+      nextStep =
+        "Sync Stores → Import → select this product on Wix (same product id) to re-create the link, or link it from My Items if import shows it as already on INW.";
+    } else if (disconnectedRecently) {
+      summary =
+        "Wix is connected but no listing links. Disconnecting Wix removes all links (INW items usually remain).";
+      nextStep =
+        "Sync Stores → Import existing listings from Wix to re-link. Then run diagnose?resetBaseline=1 and ?repair=1 if needed.";
+    }
+
     return NextResponse.json({
       ok: false,
       verdict: "NO_WIX_LINK",
-      summary: storeItemIds
-        ? "No Wix link for that item (or sync disabled)."
-        : "No Wix-linked listings for this seller.",
-      nextStep: "Sync Stores → Import existing listings from Wix.",
+      summary,
+      nextStep,
+      connectionId: ctx.id,
       catalogApi,
       siteId: siteId ?? null,
+      inwListingCount,
+      wixLinksWithSyncDisabled: disabledLinkCount,
       order: orderBlock,
       links: [],
       stripeConnectWebhookHint:
