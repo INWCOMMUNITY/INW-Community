@@ -29,6 +29,7 @@ import {
   type ShopifyProduct,
 } from "./mapping";
 import { normalizeVariantsFromProvider } from "../variant-sync";
+import { hasOptionQuantities } from "../../store-item-variants";
 
 type ProductsResponse = { products?: ShopifyProduct[] };
 type ProductResponse = { product?: ShopifyProduct };
@@ -127,6 +128,50 @@ async function syncProductInventory(
     inventoryItemId,
     absoluteQuantity
   );
+}
+
+async function syncShopifyVariantInventory(
+  conn: ChannelConnectionContext,
+  productId: string,
+  item: SyncStoreItem
+): Promise<void> {
+  const cfg = connCfg(conn);
+  if (!cfg.shop) throw new Error("Shopify connection is missing shop domain.");
+  if (!cfg.locationId) {
+    throw new Error(
+      "Shopify inventory location is not configured. Reconnect or set SHOPIFY_DEFAULT_LOCATION_ID."
+    );
+  }
+  const existing = await getProduct(conn.accessToken, cfg.shop, cfg.apiVersion, productId);
+  if (!existing?.variants?.length) {
+    await syncProductInventory(conn, productId, item.quantity, { strict: true });
+    return;
+  }
+  const axes = normalizeVariantsFromProvider("shopify", item.variants);
+  for (const v of existing.variants) {
+    if (v.inventory_item_id == null) continue;
+    let qty = item.quantity;
+    if (axes && axes.length > 0 && v.option1) {
+      for (const axis of axes) {
+        const match = axis.options.find(
+          (o) =>
+            o.value === v.option1 || o.value === v.option2 || o.value === v.option3
+        );
+        if (match) {
+          qty = match.quantity;
+          break;
+        }
+      }
+    }
+    await setInventoryAbsolute(
+      conn.accessToken,
+      cfg.shop,
+      cfg.apiVersion,
+      cfg.locationId,
+      v.inventory_item_id,
+      qty
+    );
+  }
 }
 
 export const shopifyAdapter: ChannelAdapter = {
@@ -233,34 +278,8 @@ export const shopifyAdapter: ChannelAdapter = {
       "PUT",
       buildShopifyUpdateBody(item, externalListingId, existing)
     );
-    if (cfg.locationId && existing?.variants?.length) {
-      for (const v of existing.variants) {
-        if (v.inventory_item_id == null) continue;
-        const axes = normalizeVariantsFromProvider("shopify", item.variants);
-        let qty = item.quantity;
-        if (axes && axes.length > 0 && v.option1) {
-          for (const axis of axes) {
-            const match = axis.options.find(
-              (o) =>
-                o.value === v.option1 ||
-                o.value === v.option2 ||
-                o.value === v.option3
-            );
-            if (match) {
-              qty = match.quantity;
-              break;
-            }
-          }
-        }
-        await setInventoryAbsolute(
-          conn.accessToken,
-          cfg.shop,
-          cfg.apiVersion,
-          cfg.locationId,
-          v.inventory_item_id,
-          qty
-        ).catch(() => {});
-      }
+    if (hasOptionQuantities(item.variants)) {
+      await syncShopifyVariantInventory(conn, externalListingId, item);
     } else {
       await syncProductInventory(conn, externalListingId, item.quantity);
     }
@@ -281,7 +300,11 @@ export const shopifyAdapter: ChannelAdapter = {
     }
   },
 
-  async updateInventory(conn, externalListingId, absoluteQuantity): Promise<void> {
+  async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
+    if (hasOptionQuantities(item.variants)) {
+      await syncShopifyVariantInventory(conn, externalListingId, item);
+      return;
+    }
     await syncProductInventory(conn, externalListingId, absoluteQuantity, { strict: true });
   },
 

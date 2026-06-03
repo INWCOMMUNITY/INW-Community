@@ -124,6 +124,38 @@ export function validateVariantLimits(
   return null;
 }
 
+const MAX_INW_OPTION_VALUES = 50;
+
+/** Validate INW canonical variants on seller save (single-axis cross-channel contract). */
+export function validateInwVariantsForSave(variants: unknown): string | null {
+  if (variants == null) return null;
+  if (!Array.isArray(variants) || variants.length === 0) return null;
+
+  const normalized = normalizeVariantsFromProvider("wix", variants);
+  if (!normalized || normalized.length === 0) {
+    return "Invalid option format.";
+  }
+  if (normalized.length > 1) {
+    return "Linked channels support one option type (e.g. Size). Remove extra option groups.";
+  }
+
+  const axis = normalized[0];
+  if (!axis.name.trim()) return "Option type name is required (e.g. Size).";
+  if (axis.options.length === 0) return "Add at least one option value.";
+  if (axis.options.length > MAX_INW_OPTION_VALUES) {
+    return `At most ${MAX_INW_OPTION_VALUES} option values are allowed.`;
+  }
+
+  const seen = new Set<string>();
+  for (const o of axis.options) {
+    const key = o.value.trim().toLowerCase();
+    if (!key) return "Option values cannot be empty.";
+    if (seen.has(key)) return `Duplicate option value "${o.value}".`;
+    seen.add(key);
+  }
+  return null;
+}
+
 /** Build provider-specific variant payload stub — adapters extend with API details. */
 export function buildProviderVariants(
   provider: ChannelProvider,

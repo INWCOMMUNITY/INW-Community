@@ -18,6 +18,12 @@ import {
 } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
+function inwMissingVariants(variants: unknown): boolean {
+  if (variants == null) return true;
+  if (!Array.isArray(variants)) return true;
+  return variants.length === 0;
+}
+
 type ConnectionRow = {
   id: string;
   memberId: string;
@@ -111,6 +117,19 @@ export async function reconcileConnectionInboundMeta(
   if (remoteList.length === 0) return { updated: 0, removed: 0 };
 
   const remoteById = new Map(remoteList.map((r) => [r.externalListingId, r]));
+
+  if (provider === "wix" && ctx) {
+    const { attachWixVariantsToSummary, fetchWixV1Product } = await import("./wix/collections");
+    const { wixSiteIdFromConn } = await import("./wix/site");
+    const siteId = wixSiteIdFromConn(ctx);
+    const wixOpts = siteId ? { siteId } : {};
+    for (const r of remoteList) {
+      if (r.variantsKnown || !r.externalListingId) continue;
+      const full = await fetchWixV1Product(ctx.accessToken, r.externalListingId, wixOpts);
+      if (full) attachWixVariantsToSummary(r, full);
+    }
+  }
+
   const links = (await prisma.channelListingLink.findMany({
     where: { connectionId: connection.id, provider, syncEnabled: true },
     select: {
@@ -159,6 +178,25 @@ export async function reconcileConnectionInboundMeta(
     }
 
     const item = link.storeItem;
+
+    // Backfill listings imported before Wix variant parsing was fixed.
+    if (
+      inwMissingVariants(item.variants) &&
+      remote.variantsKnown &&
+      remote.variants
+    ) {
+      const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);
+      if (vars) {
+        await prisma.channelListingLink.update({
+          where: { id: link.id },
+          data: { lastInboundAt: new Date() },
+        });
+        await writeBaseline(link.id, link.storeItemId, remote, false);
+        updated += 1;
+        continue;
+      }
+    }
+
     const inwMetaHash = syncMetaHash(item);
     const baseMetaHash = link.syncBaselineMetaHash ?? inwMetaHash;
     const baseAt = link.syncBaselineAt ?? remote.remoteUpdatedAt ?? new Date();

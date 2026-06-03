@@ -33,14 +33,15 @@ import {
 } from "@/components/PickupTermsModal";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { AppImage } from "@/components/AppImage";
+import {
+  getAvailableQuantityForSelection,
+  normalizeProductVariants,
+  optionIsSoldOut,
+  type DisplayVariantAxis,
+} from "@/lib/product-variants";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-
-interface VariantOption {
-  name: string;
-  options: string[];
-}
 
 interface StoreItem {
   id: string;
@@ -53,7 +54,7 @@ interface StoreItem {
   secondaryCategory?: string | null;
   priceCents: number;
   quantity: number;
-  variants?: VariantOption[] | null;
+  variants?: unknown;
   shippingDisabled?: boolean;
   localDeliveryAvailable?: boolean;
   inStorePickupAvailable?: boolean;
@@ -156,6 +157,20 @@ export default function ProductScreen() {
   const [showMessageSentToast, setShowMessageSentToast] = useState(false);
 
   const { member } = useAuth();
+
+  const displayVariants: DisplayVariantAxis[] = useMemo(
+    () => (item ? normalizeProductVariants(item.variants) : []),
+    [item?.variants]
+  );
+
+  const maxPurchasableQty = useMemo(() => {
+    if (!item) return 1;
+    return Math.max(1, getAvailableQuantityForSelection(item, selectedVariant));
+  }, [item, selectedVariant]);
+
+  useEffect(() => {
+    setQuantity((q) => Math.min(Math.max(1, q), maxPurchasableQty));
+  }, [maxPurchasableQty, selectedVariant]);
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -410,9 +425,11 @@ export default function ProductScreen() {
       return;
     }
 
-    const hasVariants = item.variants && item.variants.length > 0;
+    const hasVariants = displayVariants.length > 0;
     const allSelected = hasVariants
-      ? item.variants!.every((v) => selectedVariant[v.name] != null && selectedVariant[v.name] !== "")
+      ? displayVariants.every(
+          (v) => selectedVariant[v.name] != null && selectedVariant[v.name] !== ""
+        )
       : true;
 
     if (hasVariants && !allSelected) {
@@ -659,39 +676,51 @@ export default function ProductScreen() {
             </View>
           ) : null}
 
-          {item.variants && item.variants.length > 0 && (
+          {displayVariants.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Options</Text>
-              {item.variants.map((v) => (
+              {displayVariants.map((v) => (
                 <View key={v.name} style={styles.variantRow}>
                   <Text style={styles.variantLabel}>{v.name}:</Text>
                   <View style={styles.variantOptions}>
-                    {v.options.map((opt) => (
-                      <Pressable
-                        key={opt}
-                        style={[
-                          styles.variantBtn,
-                          selectedVariant[v.name] === opt && styles.variantBtnActive,
-                        ]}
-                        onPress={() => setSelectedVariant((s) => ({ ...s, [v.name]: opt }))}
-                      >
-                        <Text
+                    {v.options.map((opt) => {
+                      const soldOut = optionIsSoldOut(v, opt.value);
+                      const selected = selectedVariant[v.name] === opt.value;
+                      return (
+                        <Pressable
+                          key={opt.value}
                           style={[
-                            styles.variantBtnText,
-                            selectedVariant[v.name] === opt && styles.variantBtnTextActive,
+                            styles.variantBtn,
+                            selected && styles.variantBtnActive,
+                            soldOut && styles.variantBtnDisabled,
                           ]}
+                          disabled={soldOut}
+                          onPress={() =>
+                            setSelectedVariant((s) => ({ ...s, [v.name]: opt.value }))
+                          }
                         >
-                          {opt}
-                        </Text>
-                      </Pressable>
-                    ))}
+                          <Text
+                            style={[
+                              styles.variantBtnText,
+                              selected && styles.variantBtnTextActive,
+                              soldOut && styles.variantBtnTextDisabled,
+                            ]}
+                          >
+                            {opt.value}
+                            {soldOut ? " (Out)" : opt.quantity > 0 && opt.quantity < 10
+                              ? ` (${opt.quantity})`
+                              : ""}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
                 </View>
               ))}
             </View>
           )}
 
-          {item.quantity > 1 && (
+          {maxPurchasableQty > 1 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Quantity</Text>
               <View style={styles.quantityRow}>
@@ -705,14 +734,14 @@ export default function ProductScreen() {
                 <Text style={styles.qtyText}>{quantity}</Text>
                 <Pressable
                   style={styles.qtyBtn}
-                  onPress={() => setQuantity((q) => Math.min(item.quantity, q + 1))}
-                  disabled={quantity >= item.quantity}
+                  onPress={() => setQuantity((q) => Math.min(maxPurchasableQty, q + 1))}
+                  disabled={quantity >= maxPurchasableQty}
                 >
                   <Ionicons name="add" size={20} color={theme.colors.primary} />
                 </Pressable>
               </View>
-              {item.quantity < 10 && (
-                <Text style={styles.stockHint}>Only {item.quantity} left</Text>
+              {maxPurchasableQty < 10 && (
+                <Text style={styles.stockHint}>Only {maxPurchasableQty} left</Text>
               )}
             </View>
           )}
@@ -1369,12 +1398,19 @@ const styles = StyleSheet.create({
   variantBtnActive: {
     backgroundColor: theme.colors.primary,
   },
+  variantBtnDisabled: {
+    opacity: 0.45,
+    borderColor: "#ccc",
+  },
   variantBtnText: {
     fontSize: 14,
     color: theme.colors.primary,
   },
   variantBtnTextActive: {
     color: "#fff",
+  },
+  variantBtnTextDisabled: {
+    color: "#999",
   },
   quantityRow: {
     flexDirection: "row",

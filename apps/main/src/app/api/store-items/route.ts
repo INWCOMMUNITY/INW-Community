@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
+import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
 import { REWARD_PLACEHOLDER_TITLE } from "@/lib/reward-fulfillment-store-item";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
@@ -621,6 +622,12 @@ export async function POST(req: NextRequest) {
   try {
     const slug = uniqueSlug(slugify(data.title));
     const priceCents = Number(data.priceCents);
+    if (data.variants != null) {
+      const variantErr = validateInwVariantsForSave(data.variants);
+      if (variantErr) {
+        return NextResponse.json({ error: variantErr }, { status: 400 });
+      }
+    }
     const useOptionQuantities = hasOptionQuantities(data.variants);
     const quantity = useOptionQuantities
       ? sumOptionQuantities(data.variants)

@@ -4,7 +4,12 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
-import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
+import {
+  hasOptionQuantities,
+  sumOptionQuantities,
+  usesPerOptionInventorySync,
+} from "@/lib/store-item-variants";
+import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
 import { z } from "zod";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 
@@ -194,6 +199,13 @@ export async function PATCH(
     }
   }
 
+  if (data.variants !== undefined && data.variants !== null) {
+    const variantErr = validateInwVariantsForSave(data.variants);
+    if (variantErr) {
+      return NextResponse.json({ error: variantErr }, { status: 400 });
+    }
+  }
+
   const update: Record<string, unknown> = {};
   if (data.title !== undefined) update.title = data.title.trim();
   if (data.description !== undefined) update.description = data.description?.trim() || null;
@@ -300,7 +312,10 @@ export async function PATCH(
       const { syncInventoryToChannels } = await import("@/lib/channels/sync-inventory");
       const { mergeChannelSyncResults } = await import("@/lib/channels/channel-sync-merge");
       const contentResults = await updateStoreItemOnChannels(itemId);
-      const inventoryResults = await syncInventoryToChannels(itemId);
+      // Per-option listings push stock on updateListing; aggregate inventory sync overwrites sizes.
+      const inventoryResults = usesPerOptionInventorySync(item.variants)
+        ? []
+        : await syncInventoryToChannels(itemId);
       channelSync = mergeChannelSyncResults(contentResults, inventoryResults);
     } else if (data.syncToChannels === true) {
       // Newly enabling sync for an item that has no link yet -> publish it.

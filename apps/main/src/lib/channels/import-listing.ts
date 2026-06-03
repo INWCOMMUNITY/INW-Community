@@ -1,6 +1,6 @@
 import { prisma } from "database";
 import { resolveInwCategoryFromRemote } from "./category-resolver";
-import { normalizeVariantsFromProvider, sumVariantQuantities } from "./variant-sync";
+import { normalizeVariantsFromProvider, sumVariantQuantities, type InwVariantAxis } from "./variant-sync";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
@@ -71,10 +71,12 @@ export async function importRemoteListing(args: {
 
   try {
     const resolvedCat = resolveInwCategoryFromRemote(listing.category, listing.subcategory);
-    const normalizedVariants =
-      listing.variantsKnown !== false && listing.variants
-        ? normalizeVariantsFromProvider(provider, listing.variants)
-        : null;
+    const normalizedVariants: InwVariantAxis[] | null =
+      listing.variantsKnown === true && Array.isArray(listing.variants)
+        ? (listing.variants as InwVariantAxis[])
+        : listing.variantsKnown !== false && listing.variants
+          ? normalizeVariantsFromProvider(provider, listing.variants)
+          : null;
     const importQty =
       normalizedVariants && normalizedVariants.length > 0
         ? sumVariantQuantities(normalizedVariants)

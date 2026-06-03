@@ -17,6 +17,7 @@ import {
 import { fetchEbayConnectionConfig, readEbayConfig } from "./account";
 import { resolveProviderCategoryId } from "../category-map";
 import { buildEbayInventoryItem, buildEbayOffer, ebayListingToSummary } from "./mapping";
+import { hasOptionQuantities } from "../../store-item-variants";
 import { enumerateEbayListings } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
 
@@ -143,8 +144,17 @@ export const ebayAdapter: ChannelAdapter = {
     }
   },
 
-  async updateInventory(conn, externalListingId, absoluteQuantity): Promise<void> {
+  async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
     const sku = externalListingId;
+    if (hasOptionQuantities(item.variants)) {
+      await ebayJson(
+        conn.accessToken,
+        `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+        "PUT",
+        buildEbayInventoryItem(item)
+      );
+      return;
+    }
     const quantity = Math.max(0, absoluteQuantity);
     const offer = await findOffer(conn.accessToken, sku).catch(() => null);
     const request: Record<string, unknown> = {

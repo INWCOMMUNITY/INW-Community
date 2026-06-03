@@ -35,6 +35,14 @@ export function hasOptionQuantities(variants: unknown): boolean {
 }
 
 /**
+ * Items with per-option stock sync inventory via updateListing (option rows), not aggregate
+ * syncInventoryToChannels — which would overwrite each size with the total.
+ */
+export function usesPerOptionInventorySync(variants: unknown): boolean {
+  return hasOptionQuantities(variants);
+}
+
+/**
  * True when checkout sent a real variant map (e.g. { Size: "M" }). Empty objects are treated as missing
  * so we don't silently fall through to aggregate-only decrements on option-quantity listings.
  */

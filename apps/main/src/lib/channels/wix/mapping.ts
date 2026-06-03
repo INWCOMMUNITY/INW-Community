@@ -127,12 +127,18 @@ export type WixV1Product = {
     id?: string;
     price?: number;
     priceData?: { price?: number };
-    stock?: { quantity?: number; inStock?: boolean; trackInventory?: boolean };
+    stock?: { quantity?: number; inStock?: boolean; trackInventory?: boolean; trackQuantity?: boolean };
     media?: { image?: { url?: string } };
-    choices?: { description?: string; value?: string }[];
+    /** v1 API: option name -> choice value (not an array). */
+    choices?: Record<string, string> | { description?: string; value?: string }[];
     variant?: { choices?: { description?: string }[] };
   }[];
-  productOptions?: { name?: string; choices?: { description?: string; value?: string }[] }[];
+  productOptions?: {
+    name?: string;
+    optionType?: string;
+    choices?: { description?: string; value?: string; inStock?: boolean }[];
+  }[];
+  manageVariants?: boolean;
   productType?: string;
   ribbon?: string;
   additionalInfoSections?: { title?: string; description?: string }[];

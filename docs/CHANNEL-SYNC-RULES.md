@@ -329,12 +329,16 @@ These caused the Wix “finicky” bugs:
 
 ### Product options (Size, Color, Material)
 
+- **Cross-channel contract:** one option type per listing (e.g. Size) with `{ value, quantity }` rows. INW seller app and API enforce a single axis; multi-axis legacy data is collapsed to the first group on edit.
 - Canonical INW shape: `[{ name, options: [{ value, quantity }] }]`.
-- `variant-sync.ts`: normalize, fingerprint, sale-to-option matching.
+- `variant-sync.ts`: normalize, fingerprint, `validateInwVariantsForSave()`, sale-to-option matching.
+- **Seller save:** `updateStoreItemOnChannels` pushes option rows; **do not** run aggregate `syncInventoryToChannels` afterward (that would set every size to the total qty).
+- **Sales / cron inventory:** `updateInventory` is variant-aware on Wix v1, Shopify, eBay, and Etsy (per-option stock, not pooled total on every row).
 - **Etsy:** create/update inventory with taxonomy property values (`etsy/variants.ts`).
-- **Shopify:** up to 3 option axes, variant matrix on create/update.
-- **Wix v1:** `productOptions` + per-variant stock (`wix/collections.ts`).
-- **eBay:** single-axis variations on inventory item when options present.
+- **Shopify:** single-axis maps to `option1` + per-variant inventory levels.
+- **Wix v1:** `productOptions` + per-variant stock via `buildWixV1OptionsBody` / `pushWixV1PerOptionInventory`.
+- **eBay:** single-axis `variations[]` with per-value `shipToLocationAvailability.quantity`.
+- Inbound Wix v1: variant `choices` object `{ "Size": "M" }` parsed in `wix/collections.ts`; meta reconcile backfills empty INW variants.
 - Sales: `reconcile.ts` passes variant selection into `applyStoreItemDecrementAfterSale` when the channel exposes it.
 
 ### Meta reconcile
@@ -346,13 +350,15 @@ These caused the Wix “finicky” bugs:
 
 | Test | Expected |
 |------|----------|
+| Import Wix product with Size options | INW shows Size rows with per-value qty (not aggregate only) |
 | Import Wix product with unfamiliar category | INW gets fuzzy-matched preset **or** custom category string |
 | Set category in INW app → save | Etsy/eBay/Shopify/Wix receive taxonomy/collection/product_type |
-| Add Size options in INW → save | Options appear on linked Etsy/Shopify/Wix listings |
+| Add Size options in INW → save | Options appear on linked Etsy/Shopify/Wix/eBay listings |
+| Edit Medium qty in INW app → save | Wix Medium stock updates; other sizes unchanged |
 | Edit option qty on Wix | INW updates via webhook/cron meta pull; other channels get push |
 | Set shipping $5.99 in INW → Etsy | Listing uses/reuses `INW $5.99` shipping profile |
-| Sell variant on Shopify | Correct INW option qty decrements; other channels sync |
+| Sell variant on Shopify | Correct INW option qty decrements; other channels push per-size stock |
 
 ---
 
-*Last updated: June 2, 2026 — includes cross-channel category/shipping/options meta sync.*
+*Last updated: June 2, 2026 — single-axis options sync + no inventory wipe after option push.*

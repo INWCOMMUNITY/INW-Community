@@ -32,6 +32,14 @@ import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import type { EarnedBadgePayload } from "@/lib/share-utils";
+import {
+  ListingOptionsEditor,
+  buildVariantsPayload,
+  parseVariantsToEditor,
+  sumOptionRows,
+  type InventoryMode,
+  type OptionRow,
+} from "@/components/listing/ListingOptionsEditor";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -66,27 +74,6 @@ interface PoliciesResponse {
   acceptCashForPickupDelivery?: boolean;
 }
 
-type VariantOption = { value: string; quantity: number };
-type Variant = { name: string; options: VariantOption[] };
-
-function normalizeVariants(raw: unknown): Variant[] {
-  if (!raw || !Array.isArray(raw)) return [];
-  return raw.map((v: { name?: string; options?: unknown[] }) => {
-    const name = typeof v?.name === "string" ? v.name : "";
-    const opts = Array.isArray(v?.options) ? v.options : [];
-    const options: VariantOption[] = opts.map((o: unknown) => {
-      if (typeof o === "object" && o != null && "value" in o && "quantity" in o) {
-        return {
-          value: String((o as VariantOption).value),
-          quantity: Math.max(0, Number((o as VariantOption).quantity) || 0),
-        };
-      }
-      return { value: String(o ?? ""), quantity: 1 };
-    });
-    return { name, options };
-  });
-}
-
 const PLACEHOLDER_COLOR = "#888888";
 /** Must stay in sync with server [/api/upload] max size for listing photos. */
 const MAX_LISTING_PHOTO_BYTES = 160 * 1024 * 1024;
@@ -114,6 +101,7 @@ export default function ListItemScreen() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [storeCategories, setStoreCategories] = useState<StoreCategoryOption[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [metaSizes, setMetaSizes] = useState<string[]>([]);
   const [sellerProfileShippingPolicy, setSellerProfileShippingPolicy] = useState("");
   const [sellerProfileLocalDeliveryPolicy, setSellerProfileLocalDeliveryPolicy] = useState("");
   const [sellerProfilePickupPolicy, setSellerProfilePickupPolicy] = useState("");
@@ -146,8 +134,10 @@ export default function ListItemScreen() {
   const [localDeliveryTerms, setLocalDeliveryTerms] = useState("");
   const [inStorePickupAvailable, setInStorePickupAvailable] = useState(false);
   const [businessId, setBusinessId] = useState<string | null>(null);
-  const [variants, setVariants] = useState<Variant[]>([]);
-  const [optionsEnabled, setOptionsEnabled] = useState(false);
+  const [inventoryMode, setInventoryMode] = useState<InventoryMode>("simple");
+  const [optionName, setOptionName] = useState("Size");
+  const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
+  const [legacyMultiAxisNotice, setLegacyMultiAxisNotice] = useState(false);
   const [acceptOffers, setAcceptOffers] = useState(true);
   // Channel sync (Etsy). Only shown when the seller has connected an Etsy shop.
   const [etsyConnected, setEtsyConnected] = useState(false);
@@ -198,7 +188,9 @@ export default function ListItemScreen() {
   );
 
   const hasVariantsWithOptions =
-    optionsEnabled && variants.some((v) => v.name.trim() && v.options.length > 0);
+    inventoryMode === "options" &&
+    optionName.trim().length > 0 &&
+    optionRows.some((o) => o.value.trim());
   const hasContent =
     !!title.trim() ||
     !!description.trim() ||
@@ -206,9 +198,9 @@ export default function ListItemScreen() {
     !!category.trim() ||
     !!secondaryCategory.trim() ||
     !!priceCents ||
-    (!hasVariantsWithOptions && quantity !== "1" && !!quantity) ||
-    (hasVariantsWithOptions && variants.some((v) => v.options.some((o) => o.quantity > 0))) ||
-    variants.some((v) => v.name.trim() || v.options.length > 0) ||
+    (inventoryMode === "simple" && quantity !== "1" && !!quantity) ||
+    (hasVariantsWithOptions && sumOptionRows(optionRows) > 0) ||
+    optionRows.length > 0 ||
     !!shippingCostDollars ||
     !!shippingPolicy.trim() ||
     !!localDeliveryTerms.trim() ||
@@ -240,7 +232,7 @@ export default function ListItemScreen() {
       pickupTerms,
       useSellerProfilePickup,
       businessId,
-      variants,
+      variants: buildVariantsPayload(inventoryMode, optionName, optionRows) ?? [],
     });
     if (draftId) await deleteDraft(draftId);
     router.back();
@@ -267,7 +259,9 @@ export default function ListItemScreen() {
     pickupTerms,
     useSellerProfilePickup,
     businessId,
-    variants,
+    inventoryMode,
+    optionName,
+    optionRows,
     draftId,
     router,
   ]);
@@ -332,9 +326,11 @@ export default function ListItemScreen() {
           setInStorePickupAvailable(item.inStorePickupAvailable ?? false);
           setPickupTerms(item.pickupTerms ?? "");
           setBusinessId(item.businessId ?? null);
-          const normalized = normalizeVariants(item.variants);
-          setVariants(normalized);
-          setOptionsEnabled(normalized.some((v) => v.name.trim() && v.options.length > 0));
+          const parsed = parseVariantsToEditor(item.variants);
+          setInventoryMode(parsed.mode);
+          setOptionName(parsed.optionName);
+          setOptionRows(parsed.optionRows);
+          setLegacyMultiAxisNotice(parsed.hadMultipleAxes);
           if (item.condition === "used" || item.condition === "new") setCondition(item.condition);
           if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
           if (item.etsyWhoMade === "i_did" || item.etsyWhoMade === "someone_else" || item.etsyWhoMade === "collective") {
@@ -379,9 +375,11 @@ export default function ListItemScreen() {
           setPickupTerms(draft.pickupTerms ?? "");
           setUseSellerProfilePickup(draft.useSellerProfilePickup ?? true);
           setBusinessId(draft.businessId);
-          const normalized = normalizeVariants(draft.variants);
-          setVariants(normalized);
-          setOptionsEnabled(normalized.some((v) => v.name.trim() && v.options.length > 0));
+          const parsed = parseVariantsToEditor(draft.variants);
+          setInventoryMode(parsed.mode);
+          setOptionName(parsed.optionName);
+          setOptionRows(parsed.optionRows);
+          setLegacyMultiAxisNotice(parsed.hadMultipleAxes);
         }
         setLoadedDraft(true);
       });
@@ -441,8 +439,14 @@ export default function ListItemScreen() {
       .then((data) => setStoreCategories(data.categories ?? []))
       .catch(() => setStoreCategories([]));
     apiGet<Meta>("/api/store-items?list=meta")
-      .then((data) => setCategories((data as Meta).categories ?? []))
-      .catch(() => setCategories([]));
+      .then((data) => {
+        setCategories((data as Meta).categories ?? []);
+        setMetaSizes((data as Meta).sizes ?? []);
+      })
+      .catch(() => {
+        setCategories([]);
+        setMetaSizes([]);
+      });
     apiGet<{ provider: string; status: string }[]>("/api/channels")
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
@@ -593,37 +597,11 @@ export default function ListItemScreen() {
     setPhotos((p) => p.filter((u) => u !== url));
   };
 
-  const addVariantOption = (vi: number, value: string) => {
-    if (!value.trim()) return;
-    setVariants((prev) => {
-      const next = [...prev];
-      next[vi] = {
-        ...next[vi],
-        options: [...next[vi].options, { value: value.trim(), quantity: 1 }],
-      };
-      return next;
-    });
-  };
-
-  const setVariantOptionQuantity = (vi: number, oi: number, qty: number) => {
-    setVariants((prev) => {
-      const next = [...prev];
-      next[vi] = { ...next[vi], options: [...next[vi].options] };
-      next[vi].options[oi] = { ...next[vi].options[oi], quantity: Math.max(0, qty) };
-      return next;
-    });
-  };
-
-  const removeVariantOption = (vi: number, oi: number) => {
-    setVariants((prev) => {
-      const next = [...prev];
-      next[vi] = {
-        ...next[vi],
-        options: next[vi].options.filter((_, i) => i !== oi),
-      };
-      return next;
-    });
-  };
+  const optionNamePresets = useMemo(() => {
+    const base = ["Size", "Color", "Material"];
+    const extra = metaSizes.filter((s) => s && !base.includes(s));
+    return [...base, ...extra];
+  }, [metaSizes]);
 
   const effectiveShippingPolicy = useSellerProfileShipping
     ? sellerProfileShippingPolicy
@@ -653,10 +631,21 @@ export default function ListItemScreen() {
       return;
     }
     if (hasVariantsWithOptions) {
-      const totalOptionQty = variants.reduce(
-        (sum, v) => sum + v.options.reduce((s, o) => s + (o.quantity || 0), 0),
-        0
+      if (!optionName.trim()) {
+        setError("Option type is required (e.g. Size).");
+        return;
+      }
+      const dup = optionRows.some(
+        (o, i) =>
+          optionRows.findIndex(
+            (x) => x.value.trim().toLowerCase() === o.value.trim().toLowerCase()
+          ) !== i
       );
+      if (dup) {
+        setError("Each option value must be unique.");
+        return;
+      }
+      const totalOptionQty = sumOptionRows(optionRows);
       if (totalOptionQty < 1) {
         setError("Add at least one option with quantity 1 or more.");
         return;
@@ -692,25 +681,10 @@ export default function ListItemScreen() {
       return;
     }
 
-    const variantPayload = hasVariantsWithOptions
-      ? variants
-          .filter((v) => v.name.trim() && v.options.length > 0)
-          .map((v) => ({
-            name: v.name.trim(),
-            options: v.options
-              .filter((o) => o.value.trim())
-              .map((o) => ({ value: o.value.trim(), quantity: Math.max(0, o.quantity || 0) })),
-          }))
-          .filter((v) => v.options.length > 0)
-      : null;
+    const variantPayload = buildVariantsPayload(inventoryMode, optionName, optionRows);
 
     const payloadQuantity =
-      variantPayload != null
-        ? variants.reduce(
-            (sum, v) => sum + v.options.reduce((s, o) => s + Math.max(0, o.quantity || 0), 0),
-            0
-          )
-        : qty;
+      variantPayload != null ? sumOptionRows(optionRows) : qty;
 
     setSubmitting(true);
     setError(null);
@@ -983,108 +957,19 @@ export default function ListItemScreen() {
         autoCorrect={true}
       />
 
-      {/* Options: Enable Options checkbox, then either Quantity or option groups */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Options (Size, Color, etc.)</Text>
-        <View style={styles.checkboxRow}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.checkbox,
-              optionsEnabled && styles.checkboxChecked,
-              pressed && { opacity: 0.8 },
-            ]}
-            onPress={() => setOptionsEnabled((prev) => !prev)}
-          >
-            {optionsEnabled && <Text style={styles.checkboxCheck}>✓</Text>}
-          </Pressable>
-          <Text style={styles.switchLabel}>Enable Options</Text>
-        </View>
-        {optionsEnabled ? (
-          <>
-            <Text style={styles.hint}>
-              Add option groups like Size with values and quantity per option (e.g. Small: 2, Medium: 5).
-            </Text>
-            {variants.map((v, vi) => (
-              <View key={vi} style={styles.variantCard}>
-                <View style={styles.variantHeader}>
-                  <TextInput
-                    style={[styles.input, styles.variantName]}
-                    placeholder="Option name (e.g. Size)"
-                    placeholderTextColor={placeholderColor}
-                    value={v.name}
-                    onChangeText={(val) =>
-                      setVariants((prev) => {
-                        const next = [...prev];
-                        next[vi] = { ...next[vi], name: val };
-                        return next;
-                      })
-                    }
-                    autoCorrect={true}
-                  />
-                  <Pressable
-                    onPress={() =>
-                      setVariants((prev) => prev.filter((_, i) => i !== vi))
-                    }
-                  >
-                    <Text style={styles.removeVariantText}>Remove</Text>
-                  </Pressable>
-                </View>
-                <Text style={styles.hint}>Option value and Quantity (e.g. Small: 3, Medium: 5)</Text>
-                <View style={styles.variantOptions}>
-                  {v.options.map((opt, oi) => (
-                    <View key={oi} style={styles.optionChip}>
-                      <Text style={styles.optionChipText}>{opt.value}</Text>
-                      <TextInput
-                        style={styles.optionQtyInput}
-                        placeholder="0"
-                        placeholderTextColor={placeholderColor}
-                        value={String(opt.quantity || "")}
-                        onChangeText={(t) => {
-                          const n = parseInt(t.replace(/\D/g, ""), 10);
-                          setVariantOptionQuantity(vi, oi, Number.isNaN(n) ? 0 : n);
-                        }}
-                        keyboardType="number-pad"
-                        autoCorrect={true}
-                      />
-                      <Pressable
-                        onPress={() => removeVariantOption(vi, oi)}
-                        hitSlop={8}
-                      >
-                        <Text style={styles.optionChipRemove}>×</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-                  <AddOptionInput onAdd={(val) => addVariantOption(vi, val)} placeholderColor={placeholderColor} />
-                </View>
-              </View>
-            ))}
-            <Pressable
-              style={({ pressed }) => [
-                styles.addVariantBtn,
-                pressed && { opacity: 0.8 },
-              ]}
-              onPress={() =>
-                setVariants((prev) => [...prev, { name: "", options: [] }])
-              }
-            >
-              <Text style={styles.addVariantBtnText}>+ Add option group</Text>
-            </Pressable>
-          </>
-        ) : (
-          <>
-            <Text style={styles.label}>Quantity *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="1"
-              placeholderTextColor={placeholderColor}
-              value={quantity}
-              onChangeText={setQuantity}
-              keyboardType="number-pad"
-              autoCorrect={true}
-            />
-          </>
-        )}
-      </View>
+      <ListingOptionsEditor
+        mode={inventoryMode}
+        onModeChange={setInventoryMode}
+        optionName={optionName}
+        onOptionNameChange={setOptionName}
+        optionRows={optionRows}
+        onOptionRowsChange={setOptionRows}
+        simpleQuantity={quantity}
+        onSimpleQuantityChange={setQuantity}
+        optionNamePresets={optionNamePresets}
+        placeholderColor={placeholderColor}
+        legacyMultiAxisNotice={legacyMultiAxisNotice}
+      />
 
       <Text style={styles.label}>Category</Text>
       {useCustomCategory ? (
@@ -1715,45 +1600,6 @@ export default function ListItemScreen() {
   );
 }
 
-function AddOptionInput({
-  onAdd,
-  placeholderColor,
-}: {
-  onAdd: (value: string) => void;
-  placeholderColor: string;
-}) {
-  const [val, setVal] = useState("");
-  return (
-    <View style={styles.addOptionRow}>
-      <TextInput
-        style={styles.addOptionInput}
-        placeholder="+ Add (e.g. Small)"
-        placeholderTextColor={placeholderColor}
-        value={val}
-        onChangeText={setVal}
-        onSubmitEditing={() => {
-          if (val.trim()) {
-            onAdd(val.trim());
-            setVal("");
-          }
-        }}
-        autoCorrect={true}
-      />
-      <Pressable
-        style={({ pressed }) => [styles.addOptionBtn, pressed && { opacity: 0.8 }]}
-        onPress={() => {
-          if (val.trim()) {
-            onAdd(val.trim());
-            setVal("");
-          }
-        }}
-      >
-        <Text style={styles.addOptionBtnText}>+</Text>
-      </Pressable>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   screenWrapper: { flex: 1, backgroundColor: "#fff" },
   keyboardAvoid: { flex: 1 },
@@ -1935,83 +1781,6 @@ const styles = StyleSheet.create({
     color: defaultTheme.colors.primary,
     fontWeight: "600",
     fontSize: 15,
-  },
-  variantCard: {
-    backgroundColor: "#f9f9f9",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  variantHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
-  },
-  variantName: { flex: 1, marginBottom: 0 },
-  removeVariantText: { color: "#c62828", fontSize: 14 },
-  variantOptions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    alignItems: "center",
-  },
-  optionChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  optionChipText: { fontSize: 14, color: defaultTheme.colors.labelMuted },
-  optionChipRemove: { color: "#c62828", fontSize: 18, fontWeight: "700" },
-  addOptionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  addOptionInput: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 8,
-    fontSize: 14,
-    width: 120,
-    color: defaultTheme.colors.text,
-  },
-  optionQtyInput: {
-    width: 44,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    fontSize: 14,
-    textAlign: "center",
-    color: defaultTheme.colors.text,
-  },
-  addOptionBtn: {
-    padding: 8,
-  },
-  addOptionBtnText: {
-    color: defaultTheme.colors.primary,
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  addVariantBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: defaultTheme.colors.primary,
-    borderRadius: 8,
-  },
-  addVariantBtnText: {
-    color: defaultTheme.colors.primary,
-    fontWeight: "600",
   },
   bizRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
   bizBtn: {

@@ -19,10 +19,14 @@ import {
 } from "./catalog-api";
 import { ensureWixSiteId, wixSiteIdFromConn } from "./site";
 import { resolveProviderCategoryId } from "../category-map";
+import { hasOptionQuantities } from "../../store-item-variants";
 import {
   assignWixProductCollection,
+  attachWixVariantsToSummary,
   buildWixV1OptionsBody,
   ensureWixCollection,
+  fetchWixV1Product,
+  pushWixV1PerOptionInventory,
   wixV1ProductToVariants,
 } from "./collections";
 import {
@@ -207,10 +211,11 @@ async function queryAllProductsV1(
     const batch = pageProducts.filter((p) => p.id && isWixProductVisibleOnSite(p));
     for (const p of batch) {
       const s = wixV1ProductToSummary(p);
-      const vars = wixV1ProductToVariants(p);
-      if (vars) {
-        s.variants = vars;
-        s.variantsKnown = true;
+      attachWixVariantsToSummary(s, p);
+      // List query sometimes omits productOptions; GET fills them in for option products.
+      if (!s.variantsKnown && p.id && (p.manageVariants || (p.variants?.length ?? 0) > 1)) {
+        const full = await fetchWixV1Product(accessToken, p.id, opts);
+        if (full) attachWixVariantsToSummary(s, full);
       }
       if (s.externalListingId) summaries.push(s);
     }
@@ -587,7 +592,12 @@ async function applyWixCategoryAndOptions(
     }
   }
   if (v1) {
-    const optionsBody = buildWixV1OptionsBody(item, null);
+    const got = await wixGet<{ product?: WixV1Product }>(
+      conn.accessToken,
+      `/stores/v1/products/${encodeURIComponent(productId)}`,
+      opts
+    ).catch(() => null);
+    const optionsBody = buildWixV1OptionsBody(item, got?.product ?? null);
     if (optionsBody) {
       await wixJson(
         conn.accessToken,
@@ -686,25 +696,27 @@ export const wixAdapter: ChannelAdapter = {
               buildWixV1UpdateBody(item, v1Got.product ?? null),
               opts
             );
-            const optionsBody = buildWixV1OptionsBody(item, v1Got.product ?? null);
-            if (optionsBody) {
-              await wixJson(
-                conn.accessToken,
-                `/stores/v1/products/${encodeURIComponent(productId)}`,
-                "PATCH",
-                optionsBody,
-                opts
-              ).catch(() => {});
-            }
             await applyWixCategoryAndOptions(conn, productId, item, opts, true);
-            const strategy = await setInventoryAbsolute(
-              conn.accessToken,
-              productId,
-              item.quantity,
-              opts,
-              true
-            );
-            console.info("[wix] updateListing ok", { productId, catalog: "v1", inventoryStrategy: strategy });
+            if (!hasOptionQuantities(item.variants)) {
+              const strategy = await setInventoryAbsolute(
+                conn.accessToken,
+                productId,
+                item.quantity,
+                opts,
+                true
+              );
+              console.info("[wix] updateListing ok", {
+                productId,
+                catalog: "v1",
+                inventoryStrategy: strategy,
+              });
+            } else {
+              console.info("[wix] updateListing ok", {
+                productId,
+                catalog: "v1",
+                inventoryStrategy: "v1/options",
+              });
+            }
             return;
           }
           if (mode === "v3" || mode === "unknown") {
@@ -836,7 +848,7 @@ export const wixAdapter: ChannelAdapter = {
     return { quantity: 0, known: false };
   },
 
-  async updateInventory(conn, externalListingId, absoluteQuantity): Promise<void> {
+  async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
     let mode = await prepareWixConn(conn);
     const withSite = wixOpts(conn);
     const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
@@ -845,6 +857,38 @@ export const wixAdapter: ChannelAdapter = {
     for (let pass = 0; pass < 2; pass++) {
       for (const opts of attempts) {
         try {
+          if (mode === "v1" && hasOptionQuantities(item.variants)) {
+            const pushed = await pushWixV1PerOptionInventory(
+              conn.accessToken,
+              externalListingId,
+              item,
+              opts
+            );
+            if (pushed) {
+              const verified = await verifyWixQuantityApplied(
+                conn.accessToken,
+                externalListingId,
+                want,
+                opts,
+                true
+              );
+              if (!verified.ok) {
+                throw new WixApiError(
+                  `Wix accepted per-option inventory but total stock is still ` +
+                    `${verified.actual ?? "unknown"} (expected ${want}).`,
+                  409,
+                  null
+                );
+              }
+              console.info("[wix] updateInventory ok", {
+                productId: externalListingId,
+                strategy: "v1/options",
+                quantity: want,
+              });
+              return;
+            }
+          }
+
           const strategy = await setInventoryAbsolute(
             conn.accessToken,
             externalListingId,
