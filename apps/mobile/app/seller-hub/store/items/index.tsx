@@ -277,6 +277,42 @@ export default function MyItemsScreen() {
     );
   };
 
+  const linkedProvidersForItem = (item: StoreItem): ChannelProviderId[] =>
+    (item.channelLinks ?? []).map((l) => l.provider as ChannelProviderId);
+
+  const unpublishFromChannel = (storeItemId: string, provider: ChannelProviderId) => {
+    const label = CHANNEL_PROVIDER_LABEL[provider] ?? provider;
+    Alert.alert(
+      `Remove from ${label}?`,
+      `This deletes the listing on your ${label} store and stops sync. The item stays on INW; you can list on ${label} again later.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            setMenuItemId(null);
+            setActingId(storeItemId);
+            try {
+              const res = await apiPost<{
+                channelSync?: { provider: string; ok: boolean; error?: string }[];
+              }>(`/api/store-items/${storeItemId}/unpublish-channels`, {
+                providers: [provider],
+              });
+              alertChannelSyncFailures(res.channelSync, "removed");
+              load();
+            } catch (e) {
+              const err = e as { error?: string };
+              Alert.alert("Error", err.error ?? `Could not remove from ${label}.`);
+            } finally {
+              setActingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading && items.length === 0) {
     return (
       <View style={styles.center}>
@@ -462,17 +498,32 @@ export default function MyItemsScreen() {
               (() => {
                 const menuItem = items.find((i) => i.id === menuItemId);
                 if (!menuItem) return null;
-                return listableProvidersForItem(menuItem).map((provider) => (
-                  <Pressable
-                    key={provider}
-                    style={styles.menuOption}
-                    onPress={() => publishToChannel(menuItemId, provider)}
-                  >
-                    <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
-                      List on {CHANNEL_PROVIDER_LABEL[provider]}
-                    </Text>
-                  </Pressable>
-                ));
+                return (
+                  <>
+                    {listableProvidersForItem(menuItem).map((provider) => (
+                      <Pressable
+                        key={`list-${provider}`}
+                        style={styles.menuOption}
+                        onPress={() => publishToChannel(menuItemId, provider)}
+                      >
+                        <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
+                          List on {CHANNEL_PROVIDER_LABEL[provider]}
+                        </Text>
+                      </Pressable>
+                    ))}
+                    {linkedProvidersForItem(menuItem).map((provider) => (
+                      <Pressable
+                        key={`unlink-${provider}`}
+                        style={styles.menuOption}
+                        onPress={() => unpublishFromChannel(menuItemId, provider)}
+                      >
+                        <Text style={styles.menuOptionTextRed}>
+                          Remove from {CHANNEL_PROVIDER_LABEL[provider]}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </>
+                );
               })()}
             <Pressable
               style={styles.menuOption}

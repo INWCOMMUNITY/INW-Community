@@ -224,6 +224,20 @@ export function buildWixV1StockFields(quantity: number): Record<string, unknown>
   return { trackInventory: true, quantity: qty, inStock: qty > 0 };
 }
 
+/** Catalog v1 media block (external image URLs). */
+export function buildWixV1MediaFromPhotos(photos: string[]): Record<string, unknown> | undefined {
+  const urls = photos.filter(Boolean).slice(0, 12);
+  if (urls.length === 0) return undefined;
+  const [first, ...rest] = urls;
+  const media: Record<string, unknown> = {
+    mainMedia: { image: { url: first } },
+  };
+  if (rest.length > 0) {
+    media.items = rest.map((url) => ({ image: { url } }));
+  }
+  return media;
+}
+
 /** Catalog v1 create body (`POST /stores/v1/products`). */
 export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknown> {
   const product: Record<string, unknown> = {
@@ -236,6 +250,8 @@ export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknow
   if (item.category?.trim()) product.ribbon = item.category.trim().slice(0, 40);
   const desc = (item.description ?? "").trim();
   if (desc) product.description = desc;
+  const media = buildWixV1MediaFromPhotos(item.photos);
+  if (media) product.media = media;
   return { product };
 }
 
@@ -256,6 +272,8 @@ export function buildWixV1UpdateBody(
     description: (item.description ?? "").trim() || undefined,
     priceData: { price },
   };
+  const media = buildWixV1MediaFromPhotos(item.photos);
+  if (media) product.media = media;
   const variantRows = existing?.variants?.filter((v) => v.id) ?? [];
   if (variantRows.length > 0) {
     product.variants = variantRows.map((v) => ({

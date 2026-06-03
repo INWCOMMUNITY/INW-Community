@@ -213,12 +213,15 @@ export async function updateStoreItemOnChannels(
   return results;
 }
 
-/** Remove the external listing on every channel, then drop the links. Called before deleting a StoreItem. */
-export async function deleteStoreItemFromChannels(
-  storeItemId: string
+async function removeStoreItemFromChannelLinks(
+  storeItemId: string,
+  providers?: ChannelProvider[]
 ): Promise<ChannelSyncResult[]> {
   const links = await prisma.channelListingLink.findMany({
-    where: { storeItemId },
+    where: {
+      storeItemId,
+      ...(providers?.length ? { provider: { in: providers } } : {}),
+    },
     include: { connection: true },
   });
   const results: ChannelSyncResult[] = [];
@@ -242,4 +245,20 @@ export async function deleteStoreItemFromChannels(
     await prisma.channelListingLink.delete({ where: { id: link.id } }).catch(() => {});
   }
   return results;
+}
+
+/** Remove selected external listings and drop links; INW StoreItem is unchanged. */
+export async function unpublishStoreItemFromChannels(
+  storeItemId: string,
+  providers: ChannelProvider[]
+): Promise<ChannelSyncResult[]> {
+  if (providers.length === 0) return [];
+  return removeStoreItemFromChannelLinks(storeItemId, providers);
+}
+
+/** Remove the external listing on every channel, then drop the links. Called before deleting a StoreItem. */
+export async function deleteStoreItemFromChannels(
+  storeItemId: string
+): Promise<ChannelSyncResult[]> {
+  return removeStoreItemFromChannelLinks(storeItemId);
 }

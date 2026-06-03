@@ -16,7 +16,7 @@ const PROVIDER_LABEL: Record<string, string> = {
 /** Alert when a marketplace push failed after save or delete (API still succeeded locally). */
 export function alertChannelSyncFailures(
   channelSync: ChannelSyncRow[] | undefined,
-  action: "saved" | "deleted"
+  action: "saved" | "deleted" | "removed"
 ): void {
   const failed = (channelSync ?? []).filter((r) => !r.ok);
   if (failed.length === 0) return;
@@ -27,9 +27,22 @@ export function alertChannelSyncFailures(
     return detail ? `${label}: ${detail.slice(0, 200)}` : `${label}: sync failed`;
   });
 
+  const title =
+    action === "deleted"
+      ? "Removed from INW"
+      : action === "removed"
+        ? "Removed from store"
+        : "Saved on INW";
+  const intro =
+    action === "deleted"
+      ? "removed from INW Community"
+      : action === "removed"
+        ? "removed from the selected marketplace"
+        : "saved";
+
   Alert.alert(
-    action === "deleted" ? "Removed from INW" : "Saved on INW",
-    `Your listing was ${action === "deleted" ? "removed from INW Community" : "saved"}, but could not update ${failed.length === 1 ? "a connected store" : "some connected stores"}:\n\n${lines.join("\n\n")}`,
+    title,
+    `Your listing was ${intro}, but could not update ${failed.length === 1 ? "a connected store" : "some connected stores"}:\n\n${lines.join("\n\n")}`,
     [{ text: "OK" }]
   );
 }
