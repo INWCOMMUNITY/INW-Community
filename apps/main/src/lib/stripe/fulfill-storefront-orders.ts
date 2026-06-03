@@ -34,7 +34,7 @@ type FulfillOptions = {
  * Logs per-provider results so post-sale sync failures are visible in production logs. Idempotent:
  * uses the standard per-option-first Wix write, so repeat calls are safe.
  */
-async function syncStoreItemsAfterSale(
+export async function syncStoreItemsAfterSale(
   storeItemIds: Iterable<string>,
   logPrefix: string
 ): Promise<void> {

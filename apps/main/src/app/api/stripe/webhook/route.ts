@@ -29,7 +29,10 @@ import {
   assertPreTaxSplitMatchesOrderTotal,
   computeSellerTransferCents,
 } from "@/lib/storefront-payout";
-import { fulfillStoreOrdersFromCheckoutSession } from "@/lib/stripe/fulfill-storefront-orders";
+import {
+  fulfillStoreOrdersFromCheckoutSession,
+  syncStoreItemsAfterSale,
+} from "@/lib/stripe/fulfill-storefront-orders";
 import type { Plan } from "database";
 
 /**
@@ -604,6 +607,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Collect store items whose inventory must be pushed to linked channels (Wix, etc.). We push
+    // AFTER the loop and AWAIT it, so the serverless function doesn't return before the multi-step
+    // Wix write completes (fire-and-forget waitUntil was getting cut off, leaving Wix stale).
+    const piSyncStoreItemIds = new Set<string>();
+
     for (const orderId of orderIdsList) {
       const order = await prisma.storeOrder.findFirst({
         where: { id: orderId },
@@ -612,7 +620,13 @@ export async function POST(req: NextRequest) {
       if (!order) continue;
 
       // Idempotency: do not process the same payment twice (Stripe may redeliver payment_intent.succeeded)
-      if (order.status === "paid" && order.stripePaymentIntentId === paymentIntent.id) continue;
+      if (order.status === "paid" && order.stripePaymentIntentId === paymentIntent.id) {
+        // Redelivery after a timeout could mean the first pass's channel sync didn't finish — re-push.
+        if (order.orderKind !== "reward_redemption") {
+          for (const oi of order.items) piSyncStoreItemIds.add(oi.storeItemId);
+        }
+        continue;
+      }
 
       // Only process pending orders (avoid race / duplicate events)
       if (order.status !== "pending") continue;
@@ -727,8 +741,9 @@ export async function POST(req: NextRequest) {
           const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
           deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
         }
-        // Pooled inventory: push the new quantity out to any linked channels (Etsy, etc.).
-        syncInventoryToChannelsSafe(oi.storeItemId);
+        // Pooled inventory: push the new quantity out to any linked channels (Wix, Etsy, etc.).
+        // Awaited in bulk after the loop so the push actually completes before the function returns.
+        piSyncStoreItemIds.add(oi.storeItemId);
       }
 
       if (soldOutStoreItemIds.size > 0) {
@@ -831,6 +846,10 @@ export async function POST(req: NextRequest) {
         const sellerPoints = Math.round(totalCents / 100);
         await awardPoints(order.sellerId, sellerPoints);
       }
+    }
+
+    if (piSyncStoreItemIds.size > 0) {
+      await syncStoreItemsAfterSale(piSyncStoreItemIds, "[webhook:pi]");
     }
   }
 
