@@ -101,7 +101,6 @@ export default function ListItemScreen() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [storeCategories, setStoreCategories] = useState<StoreCategoryOption[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
-  const [metaSizes, setMetaSizes] = useState<string[]>([]);
   const [sellerProfileShippingPolicy, setSellerProfileShippingPolicy] = useState("");
   const [sellerProfileLocalDeliveryPolicy, setSellerProfileLocalDeliveryPolicy] = useState("");
   const [sellerProfilePickupPolicy, setSellerProfilePickupPolicy] = useState("");
@@ -439,14 +438,8 @@ export default function ListItemScreen() {
       .then((data) => setStoreCategories(data.categories ?? []))
       .catch(() => setStoreCategories([]));
     apiGet<Meta>("/api/store-items?list=meta")
-      .then((data) => {
-        setCategories((data as Meta).categories ?? []);
-        setMetaSizes((data as Meta).sizes ?? []);
-      })
-      .catch(() => {
-        setCategories([]);
-        setMetaSizes([]);
-      });
+      .then((data) => setCategories((data as Meta).categories ?? []))
+      .catch(() => setCategories([]));
     apiGet<{ provider: string; status: string }[]>("/api/channels")
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
@@ -596,12 +589,6 @@ export default function ListItemScreen() {
   const removePhoto = (url: string) => {
     setPhotos((p) => p.filter((u) => u !== url));
   };
-
-  const optionNamePresets = useMemo(() => {
-    const base = ["Size", "Color", "Material"];
-    const extra = metaSizes.filter((s) => s && !base.includes(s));
-    return [...base, ...extra];
-  }, [metaSizes]);
 
   const effectiveShippingPolicy = useSellerProfileShipping
     ? sellerProfileShippingPolicy
@@ -966,7 +953,6 @@ export default function ListItemScreen() {
         onOptionRowsChange={setOptionRows}
         simpleQuantity={quantity}
         onSimpleQuantityChange={setQuantity}
-        optionNamePresets={optionNamePresets}
         placeholderColor={placeholderColor}
         legacyMultiAxisNotice={legacyMultiAxisNotice}
       />
