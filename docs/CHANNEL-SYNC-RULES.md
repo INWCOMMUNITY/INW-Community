@@ -93,18 +93,53 @@ When we push INW → Wix, Wix’s `updatedDate` jumps to ~now. Without skew, the
 
 ### Outbound (INW → all channels)
 
-- Triggered on: listing save, local sale/refund, sold-out propagation
+- Triggered on: listing save, **local (INW) sale**, refund/relist/cancel, sold-out propagation
 - Push **absolute** quantity, not a delta (`sync-inventory.ts`)
 - Idempotent: safe to push back to the channel that originated the sale
+
+#### Where an INW sale fires the push (shared Stripe layer — applies to every channel)
+
+A storefront sale must run the same absolute-qty push as a manual edit. This is wired once in the
+Stripe layer; new channels inherit it automatically (no per-provider trigger code needed):
+
+| Checkout flow | Fulfilled by | Push call |
+|---------------|-------------|-----------|
+| Hosted **Checkout Session** (platform) | `checkout.session.completed` webhook **and** `success-summary` (safety net) → `fulfillStoreOrdersFromCheckoutSession` | `syncStoreItemsAfterSale()` (awaited) |
+| **PaymentIntent on the seller's Connect account** (storefront default — `storefront-checkout-intent`) | `payment_intent.succeeded` **Connect** webhook (`event.account` set) | `syncStoreItemsAfterSale()` (awaited) |
+
+**Hard-won rules (these were the actual production bugs — June 2026):**
+
+- **Know which webhook fulfills the sale.** The storefront uses **Connect PaymentIntents**, so sales are fulfilled by `payment_intent.succeeded`, *not* `checkout.session.completed`. `success-summary` only fulfills the `session_id` (hosted Checkout) path. Fixing the Checkout-Session path alone does nothing for storefront sales.
+- **Await the push; don't fire-and-forget it.** `waitUntil`/detached promises get killed on serverless before a multi-call channel write finishes, leaving the channel stale while INW shows the sale. Collect the sold `storeItemId`s and `await syncStoreItemsAfterSale(ids, prefix)` before the handler returns.
+- **Re-push on idempotent re-entry.** Two paths fulfill the same order (webhook + success-return; or Stripe redelivery). Whichever runs second finds the order already `paid` and returns early — it must still re-push inventory so a missed/failed first push self-heals.
+- **Log per-provider results** (`post-sale channel inventory sync ok/failed`) so production can tell "trigger didn't fire" from "channel write failed".
 
 ### Inbound quantity — two lanes
 
 | Lane | When | Direction | Wix status |
 |------|------|-----------|------------|
 | **Webhooks / targeted fetch** | Seller edits stock on channel, or inventory event | Channel → INW, then push to **other** channels (`skipProviders: [origin]`) | ✅ `pull-wix-inventory.ts` |
-| **Cron catalog reconcile** | Scheduled backup | **Push-only** INW → channel when values differ | ✅ Wix only |
+| **Cron catalog reconcile** | Scheduled backup (every 3 min) | **Push-only** INW → channel | ✅ Wix only |
 
-**Critical rule (learned from production):** Cron must **not** pull quantity from catalog list APIs when those APIs return stale or unknown stock. That caused INW to **revert** after a failed Wix write.
+**Critical rule (learned from production):** Cron must **not** pull quantity from catalog list APIs
+when those APIs return stale or unknown stock. That caused INW to **revert** after a failed write.
+
+**Critical backstop rule (June 2026 — the fix that finally made storefront→Wix reliable):** The cron
+push must trigger on **INW-vs-baseline divergence**, not only on a readable remote difference:
+
+```ts
+const inwQtyChangedSinceBaseline =
+  link.syncBaselineQty != null && item.quantity !== link.syncBaselineQty;
+const qtyDiffers =
+  (remoteQtyKnown && remote.quantity !== item.quantity) || inwQtyChangedSinceBaseline;
+```
+
+Why: classic **Wix v1** (and any channel whose list API returns `quantityKnown === false`) never
+satisfies `remote.quantity !== item.quantity`, so the cron would *never* push. That left the live
+sale webhook as the only path; if it was killed mid-write, nothing healed it. Pushing on baseline
+divergence makes the cron a real backstop (INW→channel within ~3 min) without depending on the
+flaky remote read. It stays **push-only** and the baseline only advances on a **verified** push, so
+a failed/no-op write never reverts INW and simply retries next pass.
 
 **Status:** ✅ Wix · 🔲 Etsy (webhook exists; no dedicated inventory pull) · 🔲 eBay (cron-only sales) · 🔲 Shopify (cron-only)
 
@@ -204,6 +239,13 @@ When building or hardening a provider adapter, implement these patterns from Wix
 - [ ] Webhook quantity pull → update baseline via `recordInventoryBaseline` pattern
 - [ ] Failed writes → **do not** update baseline
 
+### Sale trigger & backstop (shared infra — verify, don't rebuild)
+
+- [ ] Confirm `updateInventory` is **awaited** wherever `syncStoreItemsAfterSale` runs (no detached promise)
+- [ ] Confirm the cron reconciler pushes on **INW-vs-baseline** divergence (works even if `quantityKnown === false`)
+- [ ] If the channel's list API returns reliable stock, set `quantityKnown: true`; otherwise leave it `false` and rely on the baseline-divergence push
+- [ ] No per-channel sale-trigger code needed — the Stripe fulfill layer (§6) already calls the shared push for every linked provider
+
 ---
 
 ## 12. Wix-specific reference (do not copy blindly)
@@ -267,6 +309,10 @@ These caused the Wix “finicky” bugs:
 | Empty remote catalog → delete all links | Mass sold-out | Skip removal detection when list is empty |
 | Push when local qty is 0 only | Wipes remote restocks | Removed; use baseline diff instead |
 | Assume 200 OK = stock changed | Wix shows old qty | Read-back verification |
+| Gate cron qty push only on a *readable* remote qty | Never syncs on v1/classic stores (list API has no stock) — stays stale forever | Also push on INW-vs-`syncBaselineQty` divergence |
+| Fire-and-forget the post-sale push (`waitUntil`/detached) | Serverless kills it mid-write; channel stays stale while INW shows the sale | **Await** the push in the fulfill handler |
+| Fix only the Checkout-Session fulfill path | Storefront (Connect PaymentIntent) sales never push | Wire the push into `payment_intent.succeeded` too |
+| Skip channel sync when order already `paid` (idempotent re-entry) | A missed/failed first push never heals | Re-push inventory on re-entry for paid orders |
 
 ---
 
@@ -299,6 +345,8 @@ These caused the Wix “finicky” bugs:
 | `sync-inventory.ts` | Absolute qty push to all links |
 | `pull-wix-inventory.ts` | Webhook qty pull + baseline |
 | `reconcile.ts` | Sales poll + dedupe |
+| `stripe/fulfill-storefront-orders.ts` | Marks orders paid + `syncStoreItemsAfterSale()` (awaited post-sale push + logging) |
+| `api/stripe/webhook/route.ts` | `payment_intent.succeeded` (Connect) and `checkout.session.completed` fulfillment → post-sale push |
 | `types.ts` | Adapter contract, `RemoteListingSummary` |
 | `wix/adapter.ts` | Reference adapter (version routing, verify, variants) |
 | `wix/mapping.ts` | v1/v3 mapping, visibility, inventory bodies |
@@ -361,4 +409,4 @@ These caused the Wix “finicky” bugs:
 
 ---
 
-*Last updated: June 2, 2026 — single-axis options sync + no inventory wipe after option push.*
+*Last updated: June 2, 2026 — post-sale push reliability: Connect PaymentIntent fulfillment path, awaited (not fire-and-forget) push, idempotent re-entry re-push, and cron baseline-divergence backstop for classic/v1 stores. Plus single-axis options sync + no inventory wipe after option push.*
