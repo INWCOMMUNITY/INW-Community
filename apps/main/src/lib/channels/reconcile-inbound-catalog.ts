@@ -3,11 +3,10 @@ import { getConnectionContext } from "./connection";
 import {
   applyRemoteContentToStoreItem,
   applyRemoteListingRemoved,
-  applyRemoteQuantityToStoreItem,
 } from "./apply-remote-listing";
 import { getAdapter } from "./registry";
 import { updateStoreItemOnChannels } from "./outbound";
-import { syncInventoryToChannels } from "./sync-inventory";
+import { channelSyncSucceeded, syncInventoryToChannels } from "./sync-inventory";
 import {
   resolveSyncDirection,
   syncContentHash,
@@ -153,81 +152,79 @@ export async function reconcileConnectionInboundCatalog(
     const item = link.storeItem;
     const remoteQtyKnown = remote.quantityKnown !== false;
 
-    // Baseline = last agreed state. Default to the current INW state so legacy/new links don't
-    // trigger a destructive pull on first encounter; real divergences heal on the next pass.
+    // CONTENT (title/price/photos/description): value equality is unreliable because Wix re-hosts
+    // photo URLs, so use the stored baseline (INW hash) + Wix `updatedDate` to detect which side
+    // changed. Default to the current INW state so legacy/imported links (no baseline yet) don't
+    // trigger a content pull on first encounter.
     const inwHash = syncContentHash(item);
     const baseHash = link.syncBaselineHash ?? inwHash;
-    const baseQty = link.syncBaselineQty ?? item.quantity;
     const baseAt = link.syncBaselineAt ?? remote.remoteUpdatedAt ?? new Date();
-
     const inwContentChanged = inwHash !== baseHash;
-    const inwQtyChanged = item.quantity !== baseQty;
-    const wixQtyChanged = remoteQtyKnown && remote.quantity !== baseQty;
     const wixContentChanged =
       remote.remoteUpdatedAt != null && remote.remoteUpdatedAt.getTime() > baseAt.getTime();
-
     const contentDecision: SyncDirection = resolveSyncDirection({
       inwChanged: inwContentChanged,
       remoteChanged: wixContentChanged,
       inwUpdatedAt: item.updatedAt,
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     });
-    const qtyDecision: SyncDirection = resolveSyncDirection({
-      inwChanged: inwQtyChanged,
-      remoteChanged: wixQtyChanged,
-      inwUpdatedAt: item.updatedAt,
-      remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
-    });
 
-    if (contentDecision === "noop" && qtyDecision === "noop") {
-      // Initialize baseline for links that have never been reconciled with the new scheme.
+    // QUANTITY: numbers compare cleanly, so act purely on a real difference. The cron only ever
+    // PUSHES INW -> Wix (Wix -> INW quantity arrives via the live inventory webhook). This keeps a
+    // failed/no-op Wix write from reverting the seller's INW quantity on the next pass.
+    const qtyDiffers = remoteQtyKnown && remote.quantity !== item.quantity;
+
+    if (contentDecision === "noop" && !qtyDiffers) {
+      // Anchor a baseline for links that have never been reconciled with this scheme.
       if (link.syncBaselineHash == null || link.syncBaselineAt == null) {
         await writeBaseline(link.id, link.storeItemId, remote, false);
       }
       continue;
     }
 
-    // 1) Apply Wix -> INW pulls first so a later push carries the merged state.
+    // 1) Pull Wix -> INW content when Wix is the winner.
     let pulledContent = false;
-    let pulledQty = false;
-    if (qtyDecision === "pull" && remoteQtyKnown) {
-      pulledQty = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity);
-    }
     if (contentDecision === "pull") {
       pulledContent = await applyRemoteContentToStoreItem(link.storeItemId, remote);
     }
 
-    // 2) Push INW -> Wix (and all channels) when INW is the winner.
-    const pushedToWix = contentDecision === "push" || qtyDecision === "push";
+    // 2) Push INW -> Wix (and all channels). updateListing carries content + inventory; a qty-only
+    // difference uses the inventory push. Track whether Wix actually accepted the write.
+    let attemptedPush = false;
+    let wixPushOk = false;
     if (contentDecision === "push") {
-      // updateListing pushes content AND inventory, so this also covers a concurrent qty push.
-      await updateStoreItemOnChannels(link.storeItemId);
-    } else if (qtyDecision === "push") {
-      await syncInventoryToChannels(link.storeItemId);
+      attemptedPush = true;
+      wixPushOk = channelSyncSucceeded(await updateStoreItemOnChannels(link.storeItemId), "wix");
+    } else if (qtyDiffers) {
+      attemptedPush = true;
+      wixPushOk = channelSyncSucceeded(await syncInventoryToChannels(link.storeItemId), "wix");
     }
 
-    // 3) Propagate pulled changes to the OTHER channels (Wix already has them).
+    // 3) Propagate pulled content to the OTHER channels (Wix already has it).
     if (pulledContent && contentDecision !== "push") {
       await updateStoreItemOnChannels(link.storeItemId, { skipProviders: ["wix"] });
     }
-    if (pulledQty && !pushedToWix) {
-      await syncInventoryToChannels(link.storeItemId, { skipProviders: ["wix"] });
-    }
 
-    if (pulledContent || pulledQty) {
+    if (pulledContent) {
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: { lastInboundAt: new Date() },
       });
     }
-    if (pushedToWix) {
+    if (attemptedPush && wixPushOk) {
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: { lastPushedAt: new Date() },
       });
     }
 
-    await writeBaseline(link.id, link.storeItemId, remote, pushedToWix);
+    // Advance the baseline only when the winning side actually applied. A failed Wix push leaves the
+    // baseline untouched so the next pass retries the push (never reverts INW).
+    if (pulledContent || (attemptedPush && wixPushOk)) {
+      await writeBaseline(link.id, link.storeItemId, remote, attemptedPush && wixPushOk);
+    } else if (link.syncBaselineHash == null || link.syncBaselineAt == null) {
+      await writeBaseline(link.id, link.storeItemId, remote, false);
+    }
     updated += 1;
   }
 

@@ -55,7 +55,11 @@ export function buildWixCreateBody(item: SyncStoreItem): Record<string, unknown>
         {
           sku: item.id,
           price: { actualPrice: { amount: wixPriceFromCents(item.priceCents) } },
-          inventoryItem: { quantity: Math.max(0, item.quantity) },
+          inventoryItem: {
+            trackQuantity: true,
+            quantity: Math.max(0, item.quantity),
+            inStock: item.quantity > 0,
+          },
           physicalProperties: {},
         },
       ],

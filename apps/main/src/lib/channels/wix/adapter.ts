@@ -274,7 +274,10 @@ async function setInventoryViaProductPatchV3(
     const product = await getProduct(accessToken, productId, opts);
     if (!product?.revision) return false;
     const variantId = product.variantsInfo?.variants?.[0]?.id ?? null;
-    const variant: Record<string, unknown> = { inventoryItem: { quantity } };
+    // trackQuantity must be true or Wix treats the variant as always-in-stock and ignores quantity.
+    const variant: Record<string, unknown> = {
+      inventoryItem: { trackQuantity: true, quantity, inStock: quantity > 0 },
+    };
     if (variantId) variant.id = variantId;
     await wixJson(
       accessToken,
@@ -430,6 +433,30 @@ export async function readWixProductQuantity(
   return { quantity: 0, known: false };
 }
 
+/**
+ * Read stock back after a write to confirm it applied. Returns ok=true when the read is unavailable
+ * (cannot disprove the write) so we don't raise false errors on catalogs we can't read.
+ */
+async function verifyWixQuantityApplied(
+  accessToken: string,
+  productId: string,
+  want: number,
+  opts: WixRequestOpts,
+  v1Only: boolean
+): Promise<{ ok: boolean; actual: number | null }> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 900));
+    const r = await readWixProductQuantity(accessToken, productId, opts, v1Only).catch(() => ({
+      quantity: 0,
+      known: false,
+    }));
+    if (!r.known) return { ok: true, actual: null }; // can't read -> don't block the write
+    if (r.quantity === want) return { ok: true, actual: r.quantity };
+    if (attempt === 1) return { ok: false, actual: r.quantity };
+  }
+  return { ok: true, actual: null };
+}
+
 async function setInventoryViaV3InventoryItems(
   accessToken: string,
   productId: string,
@@ -446,7 +473,8 @@ async function setInventoryViaV3InventoryItems(
         `/stores/v3/inventory-items/${encodeURIComponent(item.id)}`,
         "PATCH",
         {
-          inventoryItem: { id: item.id, revision: item.revision, quantity },
+          // trackQuantity must be on or Wix keeps the item "in stock" and ignores the quantity.
+          inventoryItem: { id: item.id, revision: item.revision, trackQuantity: true, quantity },
           reason: "MANUAL",
         },
         opts
@@ -751,6 +779,7 @@ export const wixAdapter: ChannelAdapter = {
     let mode = await prepareWixConn(conn);
     const withSite = wixOpts(conn);
     const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+    const want = Math.max(0, Math.round(absoluteQuantity));
     let lastErr: unknown;
     for (let pass = 0; pass < 2; pass++) {
       for (const opts of attempts) {
@@ -762,10 +791,32 @@ export const wixAdapter: ChannelAdapter = {
             opts,
             mode === "v1"
           );
+
+          // Verify the write actually applied — some Wix catalog/inventory APIs return 200 without
+          // changing stock (silent no-op). Without this, we'd report success and the reconcile would
+          // pull Wix's stale qty back over the INW edit.
+          const verified = await verifyWixQuantityApplied(
+            conn.accessToken,
+            externalListingId,
+            want,
+            opts,
+            mode === "v1"
+          );
+          if (!verified.ok) {
+            throw new WixApiError(
+              `Wix accepted the inventory update (strategy ${strategy}) but stock is still ` +
+                `${verified.actual ?? "unknown"} (expected ${want}). The product may not have ` +
+                `inventory tracking enabled, or uses a different catalog/location.`,
+              409,
+              null
+            );
+          }
+
           console.info("[wix] updateInventory ok", {
             productId: externalListingId,
             strategy,
             mode,
+            quantity: want,
           });
           return;
         } catch (e) {
