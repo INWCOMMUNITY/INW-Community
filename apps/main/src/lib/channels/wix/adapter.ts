@@ -25,6 +25,7 @@ import {
   attachWixVariantsToSummary,
   ensureWixCollection,
   fetchWixV1Product,
+  mergeV2InventoryIntoV1Product,
   pushWixV1OptionsUpdate,
   pushWixV1PerOptionInventory,
   wixV1ProductToVariants,
@@ -210,6 +211,9 @@ async function queryAllProductsV1(
     const pageProducts = res.products ?? [];
     const batch = pageProducts.filter((p) => p.id && isWixProductVisibleOnSite(p));
     for (const p of batch) {
+      if (p.id) {
+        await mergeV2InventoryIntoV1Product(accessToken, p.id, p, opts);
+      }
       const s = wixV1ProductToSummary(p);
       attachWixVariantsToSummary(s, p);
       // List query sometimes omits productOptions; GET fills them in for option products.
@@ -593,6 +597,9 @@ async function applyWixCategoryAndOptions(
   }
   if (v1) {
     await pushWixV1OptionsUpdate(conn.accessToken, productId, item, opts);
+    if (hasOptionQuantities(item.variants)) {
+      await pushWixV1PerOptionInventory(conn.accessToken, productId, item, opts);
+    }
   }
 }
 
@@ -850,29 +857,34 @@ export const wixAdapter: ChannelAdapter = {
               item,
               opts
             );
-            if (pushed) {
-              const verified = await verifyWixQuantityApplied(
-                conn.accessToken,
-                externalListingId,
-                want,
-                opts,
-                true
+            if (!pushed) {
+              throw new WixApiError(
+                "Could not update per-option inventory on Wix (Stores v2).",
+                502,
+                null
               );
-              if (!verified.ok) {
-                throw new WixApiError(
-                  `Wix accepted per-option inventory but total stock is still ` +
-                    `${verified.actual ?? "unknown"} (expected ${want}).`,
-                  409,
-                  null
-                );
-              }
-              console.info("[wix] updateInventory ok", {
-                productId: externalListingId,
-                strategy: "v1/options",
-                quantity: want,
-              });
-              return;
             }
+            const verified = await verifyWixQuantityApplied(
+              conn.accessToken,
+              externalListingId,
+              want,
+              opts,
+              true
+            );
+            if (!verified.ok) {
+              throw new WixApiError(
+                `Wix accepted per-option inventory but total stock is still ` +
+                  `${verified.actual ?? "unknown"} (expected ${want}).`,
+                409,
+                null
+              );
+            }
+            console.info("[wix] updateInventory ok", {
+              productId: externalListingId,
+              strategy: "v1/options-v2",
+              quantity: want,
+            });
+            return;
           }
 
           const strategy = await setInventoryAbsolute(

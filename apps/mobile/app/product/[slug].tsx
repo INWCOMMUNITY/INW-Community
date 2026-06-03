@@ -35,6 +35,7 @@ import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { AppImage } from "@/components/AppImage";
 import {
   getAvailableQuantityForSelection,
+  hasPerOptionQuantities,
   normalizeProductVariants,
   optionIsSoldOut,
   type DisplayVariantAxis,
@@ -167,6 +168,22 @@ export default function ProductScreen() {
     if (!item) return 1;
     return Math.max(1, getAvailableQuantityForSelection(item, selectedVariant));
   }, [item, selectedVariant]);
+
+  const allOptionsSelected = useMemo(
+    () =>
+      displayVariants.length === 0 ||
+      displayVariants.every(
+        (v) => selectedVariant[v.name] != null && selectedVariant[v.name] !== ""
+      ),
+    [displayVariants, selectedVariant]
+  );
+
+  const showQuantityStepper =
+    displayVariants.length === 0 || hasPerOptionQuantities(displayVariants)
+      ? displayVariants.length === 0
+        ? maxPurchasableQty > 1
+        : allOptionsSelected && maxPurchasableQty > 0
+      : maxPurchasableQty > 1;
 
   useEffect(() => {
     setQuantity((q) => Math.min(Math.max(1, q), maxPurchasableQty));
@@ -720,29 +737,40 @@ export default function ProductScreen() {
             </View>
           )}
 
-          {maxPurchasableQty > 1 && (
+          {(showQuantityStepper ||
+            (displayVariants.length > 0 && hasPerOptionQuantities(displayVariants))) && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Quantity</Text>
-              <View style={styles.quantityRow}>
-                <Pressable
-                  style={styles.qtyBtn}
-                  onPress={() => setQuantity((q) => Math.max(1, q - 1))}
-                  disabled={quantity <= 1}
-                >
-                  <Ionicons name="remove" size={20} color={theme.colors.primary} />
-                </Pressable>
-                <Text style={styles.qtyText}>{quantity}</Text>
-                <Pressable
-                  style={styles.qtyBtn}
-                  onPress={() => setQuantity((q) => Math.min(maxPurchasableQty, q + 1))}
-                  disabled={quantity >= maxPurchasableQty}
-                >
-                  <Ionicons name="add" size={20} color={theme.colors.primary} />
-                </Pressable>
-              </View>
-              {maxPurchasableQty < 10 && (
-                <Text style={styles.stockHint}>Only {maxPurchasableQty} left</Text>
-              )}
+              {displayVariants.length > 0 &&
+              hasPerOptionQuantities(displayVariants) &&
+              !allOptionsSelected ? (
+                <Text style={styles.stockHint}>
+                  Select {displayVariants.map((v) => v.name).join(" / ")} first
+                </Text>
+              ) : showQuantityStepper ? (
+                <>
+                  <View style={styles.quantityRow}>
+                    <Pressable
+                      style={styles.qtyBtn}
+                      onPress={() => setQuantity((q) => Math.max(1, q - 1))}
+                      disabled={quantity <= 1}
+                    >
+                      <Ionicons name="remove" size={20} color={theme.colors.primary} />
+                    </Pressable>
+                    <Text style={styles.qtyText}>{quantity}</Text>
+                    <Pressable
+                      style={styles.qtyBtn}
+                      onPress={() => setQuantity((q) => Math.min(maxPurchasableQty, q + 1))}
+                      disabled={quantity >= maxPurchasableQty}
+                    >
+                      <Ionicons name="add" size={20} color={theme.colors.primary} />
+                    </Pressable>
+                  </View>
+                  {maxPurchasableQty < 10 && allOptionsSelected && (
+                    <Text style={styles.stockHint}>Only {maxPurchasableQty} left</Text>
+                  )}
+                </>
+              ) : null}
             </View>
           )}
 

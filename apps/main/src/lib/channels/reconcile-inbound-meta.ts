@@ -17,11 +17,28 @@ import {
   type SyncDirection,
 } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
+import type { InwVariantAxis } from "./variant-sync";
+import { sumVariantQuantities } from "./variant-sync";
+import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 
 function inwMissingVariants(variants: unknown): boolean {
   if (variants == null) return true;
   if (!Array.isArray(variants)) return true;
   return variants.length === 0;
+}
+
+function remoteVariantQtySum(remote: RemoteListingSummary): number {
+  if (!remote.variants || !Array.isArray(remote.variants)) return 0;
+  return (
+    sumVariantQuantities(remote.variants as InwVariantAxis[]) ||
+    sumOptionQuantities(remote.variants)
+  );
+}
+
+function inwAllOptionQtyZero(variants: unknown): boolean {
+  if (inwMissingVariants(variants)) return false;
+  if (!hasOptionQuantities(variants)) return false;
+  return sumOptionQuantities(variants) === 0;
 }
 
 type ConnectionRow = {
@@ -124,7 +141,11 @@ export async function reconcileConnectionInboundMeta(
     const siteId = wixSiteIdFromConn(ctx);
     const wixOpts = siteId ? { siteId } : {};
     for (const r of remoteList) {
-      if (r.variantsKnown || !r.externalListingId) continue;
+      if (!r.externalListingId) continue;
+      const needsFull =
+        !r.variantsKnown ||
+        (r.variantsKnown && remoteVariantQtySum(r) === 0);
+      if (!needsFull) continue;
       const full = await fetchWixV1Product(ctx.accessToken, r.externalListingId, wixOpts);
       if (full) attachWixVariantsToSummary(r, full);
     }
@@ -179,11 +200,14 @@ export async function reconcileConnectionInboundMeta(
 
     const item = link.storeItem;
 
-    // Backfill listings imported before Wix variant parsing was fixed.
+    // Backfill listings imported before Wix variant qty parsing was fixed.
     if (
-      inwMissingVariants(item.variants) &&
       remote.variantsKnown &&
-      remote.variants
+      remote.variants &&
+      (inwMissingVariants(item.variants) ||
+        (provider === "wix" &&
+          inwAllOptionQtyZero(item.variants) &&
+          remoteVariantQtySum(remote) > 0))
     ) {
       const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);
       if (vars) {

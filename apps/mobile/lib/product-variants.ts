@@ -49,12 +49,16 @@ export function getAvailableQuantityForSelection(
   const axes = normalizeProductVariants(item.variants);
   if (axes.length === 0) return item.quantity;
 
-  for (const axis of axes) {
-    const sel = selectedVariant[axis.name];
-    if (sel == null || !String(sel).trim()) continue;
-    const want = String(sel).trim().toLowerCase();
-    const opt = axis.options.find((o) => o.value.toLowerCase() === want);
-    if (opt && hasPerOptionQuantities(axes)) return Math.max(0, opt.quantity);
+  if (hasPerOptionQuantities(axes)) {
+    for (const axis of axes) {
+      const sel = selectedVariant[axis.name];
+      if (sel == null || !String(sel).trim()) continue;
+      const want = String(sel).trim().toLowerCase();
+      const opt = axis.options.find((o) => o.value.toLowerCase() === want);
+      if (opt) return Math.max(0, opt.quantity);
+    }
+    // Per-option stock is tied to a selected value — not the listing aggregate.
+    return 0;
   }
 
   return item.quantity;

@@ -129,6 +129,55 @@ export function wixV1ProductToVariants(product: WixV1Product): InwVariantAxis[] 
   return null;
 }
 
+/** Merge Stores v2 inventory quantities onto v1 product variant rows (in place). */
+export async function mergeV2InventoryIntoV1Product(
+  accessToken: string,
+  productId: string,
+  product: WixV1Product,
+  opts: WixRequestOpts
+): Promise<void> {
+  const got = await wixGet<{
+    inventoryItem?: { variants?: { variantId?: string; quantity?: number }[] };
+  }>(
+    accessToken,
+    `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
+    opts
+  ).catch(() => null);
+  const invVariants = got?.inventoryItem?.variants ?? [];
+  if (invVariants.length === 0) return;
+
+  const qtyMap = new Map<string, number>();
+  for (const v of invVariants) {
+    if (v.variantId && typeof v.quantity === "number") {
+      qtyMap.set(v.variantId, Math.max(0, Math.round(v.quantity)));
+    }
+  }
+
+  const rows = product.variants?.filter((v) => v.id) ?? [];
+  if (qtyMap.size === 0 && rows.length > 0) {
+    const n = Math.min(invVariants.length, rows.length);
+    for (let i = 0; i < n; i++) {
+      const q = invVariants[i].quantity;
+      if (typeof q === "number" && rows[i].id) {
+        qtyMap.set(rows[i].id!, Math.max(0, Math.round(q)));
+      }
+    }
+  }
+
+  if (qtyMap.size === 0) return;
+  for (const row of product.variants ?? []) {
+    if (!row.id) continue;
+    const q = qtyMap.get(row.id);
+    if (q == null) continue;
+    row.stock = {
+      ...(row.stock ?? {}),
+      trackInventory: true,
+      quantity: q,
+      inStock: q > 0,
+    };
+  }
+}
+
 type WixCollection = { id?: string; name?: string };
 
 /** Find or create a Wix collection by INW category label. */
@@ -314,6 +363,88 @@ export function buildWixV1ExistingVariantsPatchBody(
   return variants.length > 0 ? { product: { variants } } : null;
 }
 
+/** Map INW per-option quantities to Wix variant GUIDs on an existing v1 product. */
+export function mapInwQtyToWixVariantRows(
+  item: SyncStoreItem,
+  product: WixV1Product
+): { variantId: string; quantity: number }[] {
+  const primary = inwPrimaryAxis(item);
+  if (!primary) return [];
+
+  const qtyByValue = new Map(
+    primary.options.map((o) => [o.value.trim().toLowerCase(), Math.max(0, o.quantity)])
+  );
+  const rows = product.variants?.filter((v) => v.id) ?? [];
+  const out: { variantId: string; quantity: number }[] = [];
+  for (const row of rows) {
+    const map = wixVariantChoiceMap(row);
+    const axisKey =
+      Object.keys(map).find((k) => k.toLowerCase() === primary.name.trim().toLowerCase()) ??
+      Object.keys(map)[0];
+    const selected = axisKey ? map[axisKey] : Object.values(map)[0];
+    const qty = selected ? (qtyByValue.get(selected.trim().toLowerCase()) ?? 0) : 0;
+    out.push({ variantId: row.id!, quantity: qty });
+  }
+  return out;
+}
+
+type V2InventoryItem = {
+  id?: string;
+  productId?: string;
+  trackQuantity?: boolean;
+  variants?: { variantId?: string; quantity?: number; inStock?: boolean }[];
+};
+
+/** Push per-option stock via Stores v2 (Catalog v1 product PATCH does not reliably update inventory). */
+export async function pushWixV1PerOptionInventory(
+  accessToken: string,
+  productId: string,
+  item: SyncStoreItem,
+  opts: WixRequestOpts
+): Promise<boolean> {
+  const primary = inwPrimaryAxis(item);
+  if (!primary) return false;
+
+  let product = await fetchWixV1Product(accessToken, productId, opts);
+  let variantRows = product ? mapInwQtyToWixVariantRows(item, product) : [];
+
+  if (variantRows.length === 0) {
+    const structureOk = await pushWixV1OptionsUpdate(accessToken, productId, item, opts);
+    if (!structureOk) return false;
+    product = await fetchWixV1Product(accessToken, productId, opts);
+    variantRows = product ? mapInwQtyToWixVariantRows(item, product) : [];
+  }
+  if (variantRows.length === 0) return false;
+
+  const got = await wixGet<{ inventoryItem?: V2InventoryItem }>(
+    accessToken,
+    `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
+    opts
+  ).catch(() => null);
+
+  const variants = variantRows.map(({ variantId, quantity }) => ({
+    variantId,
+    quantity,
+    inStock: quantity > 0,
+  }));
+
+  await wixJson(
+    accessToken,
+    `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`,
+    "PATCH",
+    {
+      inventoryItem: {
+        ...(got?.inventoryItem?.id ? { id: got.inventoryItem.id } : {}),
+        productId,
+        trackQuantity: true,
+        variants,
+      },
+    },
+    opts
+  );
+  return true;
+}
+
 /** @deprecated Prefer pushWixV1OptionsUpdate — kept for callers that only build JSON. */
 export function buildWixV1OptionsBody(
   item: SyncStoreItem,
@@ -396,16 +527,6 @@ export async function pushWixV1OptionsUpdate(
   return true;
 }
 
-/** Push per-option stock to a v1 Wix product. */
-export async function pushWixV1PerOptionInventory(
-  accessToken: string,
-  productId: string,
-  item: SyncStoreItem,
-  opts: WixRequestOpts
-): Promise<boolean> {
-  return pushWixV1OptionsUpdate(accessToken, productId, item, opts);
-}
-
 /** GET full v1 product (query list may omit productOptions on some paths). */
 export async function fetchWixV1Product(
   accessToken: string,
@@ -417,7 +538,11 @@ export async function fetchWixV1Product(
     `/stores/v1/products/${encodeURIComponent(productId)}`,
     opts
   ).catch(() => null);
-  return got?.product ?? null;
+  const product = got?.product ?? null;
+  if (product?.id) {
+    await mergeV2InventoryIntoV1Product(accessToken, productId, product, opts);
+  }
+  return product;
 }
 
 /** Attach variants to a listing summary from a v1 product payload. */
