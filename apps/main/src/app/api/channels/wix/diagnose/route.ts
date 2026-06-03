@@ -5,7 +5,9 @@ import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { isWixConfigured } from "@/lib/channels/wix/config";
 import { ensureWixCatalogVersion, wixCatalogApiFromConn } from "@/lib/channels/wix/catalog-api";
-import { ensureWixSiteId, wixSiteIdFromConn } from "@/lib/channels/wix/site";
+import { ensureWixSiteId, remintWixAccessToken, wixSiteIdFromConn } from "@/lib/channels/wix/site";
+import { isWixMetasiteContextError } from "@/lib/channels/wix/client";
+import { resetCorruptBaselinesForConnection } from "@/lib/channels/reset-corrupt-baselines";
 import {
   diagnoseOrderFulfillment,
   diagnoseWixLinks,
@@ -13,6 +15,14 @@ import {
 } from "@/lib/channels/wix/diagnose-sync";
 
 export const dynamic = "force-dynamic";
+
+function isMetasiteOnLinks(
+  rows: { syncError: string | null; syncStatus: string }[]
+): boolean {
+  return rows.some(
+    (l) => l.syncStatus === "error" && isWixMetasiteContextError(new Error(l.syncError ?? ""))
+  );
+}
 
 /**
  * GET /api/channels/wix/diagnose
@@ -22,6 +32,7 @@ export const dynamic = "force-dynamic";
  *   - orderId — focus on items from this storefront order
  *   - storeItemId — focus on one linked item
  *   - repair=1 — run the same push as manual "Test Wix write", then re-diagnose (no new sale needed)
+ *   - resetBaseline=1 — reset poisoned syncBaselineQty values to current INW quantity (seller-only)
  *
  * Returns a single top-level `verdict`, `summary`, and `nextStep` plus per-link detail.
  * Does not expose tokens. Sign in as the seller (same as /api/channels/wix/health).
@@ -54,8 +65,17 @@ export async function GET(req: NextRequest) {
   const orderId = searchParams.get("orderId")?.trim() || null;
   const storeItemId = searchParams.get("storeItemId")?.trim() || null;
   const repair = searchParams.get("repair") === "1";
+  const resetBaseline = searchParams.get("resetBaseline") === "1";
 
   await ensureWixSiteId(ctx);
+
+  let baselineReset: { reset: number; linkIds: string[] } | undefined;
+  if (resetBaseline) {
+    baselineReset = await resetCorruptBaselinesForConnection({
+      connectionId: ctx.id,
+      memberId: userId,
+    });
+  }
   const siteId = wixSiteIdFromConn(ctx);
   const catalogApi = (await ensureWixCatalogVersion(ctx)) ?? wixCatalogApiFromConn(ctx);
 
@@ -121,7 +141,9 @@ export async function GET(req: NextRequest) {
       lastPushedAt: true,
       lastInboundAt: true,
       syncBaselineQty: true,
-      storeItem: { select: { title: true, quantity: true, status: true, updatedAt: true } },
+      storeItem: {
+        select: { title: true, quantity: true, status: true, updatedAt: true, variants: true },
+      },
     },
     take: 25,
   });
@@ -141,6 +163,10 @@ export async function GET(req: NextRequest) {
       stripeConnectWebhookHint:
         "After linking, storefront sales need the Connect webhook (payment_intent.succeeded) to decrement INW and push qty to Wix.",
     });
+  }
+
+  if (repair && isMetasiteOnLinks(linkRows)) {
+    await remintWixAccessToken(ctx);
   }
 
   if (repair) {
@@ -164,7 +190,9 @@ export async function GET(req: NextRequest) {
         lastPushedAt: true,
         lastInboundAt: true,
         syncBaselineQty: true,
-        storeItem: { select: { title: true, quantity: true, status: true, updatedAt: true } },
+        storeItem: {
+          select: { title: true, quantity: true, status: true, updatedAt: true, variants: true },
+        },
       },
     });
     const diagnosis = await diagnoseWixLinks(ctx, refreshed, catalogApi, siteId ?? null);
@@ -173,6 +201,7 @@ export async function GET(req: NextRequest) {
       order: orderBlock,
       repairAttempted: true,
       repairResults,
+      baselineReset,
     });
   }
 
@@ -181,7 +210,8 @@ export async function GET(req: NextRequest) {
     ...diagnosis,
     order: orderBlock,
     repairAttempted: false,
+    baselineReset,
     howToUse:
-      "After a test sale, open this URL again (same browser session). If verdict is not SYNC_OK, try ?repair=1 to force a push without another purchase.",
+      "After a test sale, open this URL again (same browser session). If verdict is BASELINE_CORRUPT, run ?resetBaseline=1 first. If not SYNC_OK, try ?repair=1.",
   });
 }

@@ -1,5 +1,6 @@
 import { prisma } from "database";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
+import { clampSaneInventoryQty } from "./inventory-sanity";
 import { plainListingDescription } from "./import-listing";
 import type { RemoteListingSummary } from "./types";
 
@@ -61,8 +62,11 @@ export async function applyRemoteQuantityToStoreItem(
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
   if (!item) return false;
 
-  // A restock on Wix should reactivate a sold-out INW listing (two-way, most-recent-wins).
-  const remoteQty = Math.max(0, remoteQuantity);
+  const remoteQty = clampSaneInventoryQty(remoteQuantity);
+  if (remoteQty == null) {
+    console.warn("[channels] rejected absurd inbound quantity", { storeItemId, remoteQuantity });
+    return false;
+  }
   if (item.quantity === remoteQty) return false;
 
   const nextStatus =

@@ -6,6 +6,7 @@ import {
   type InwVariantAxis,
 } from "./variant-sync";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
+import { clampSaneInventoryQty } from "./inventory-sanity";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
 /** Apply category + subcategory from a remote listing using fuzzy preset matching. */
@@ -88,7 +89,12 @@ export async function applyRemoteVariantAxesToStoreItem(
   });
   if (!item) return false;
 
-  const nextQty = sumVariantQuantities(axes) || sumOptionQuantities(axes);
+  const rawQty = sumVariantQuantities(axes) || sumOptionQuantities(axes);
+  const nextQty = clampSaneInventoryQty(rawQty);
+  if (nextQty == null) {
+    console.warn("[channels] rejected absurd inbound variant quantity", { storeItemId, rawQty });
+    return false;
+  }
   const variantsJson = axes as unknown;
   const sameVariants = JSON.stringify(item.variants) === JSON.stringify(variantsJson);
   if (sameVariants && item.quantity === nextQty) return false;

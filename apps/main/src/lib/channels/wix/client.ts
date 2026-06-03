@@ -42,12 +42,23 @@ function errorMessage(body: unknown, status: number): string {
   return `Wix API error (${status})`;
 }
 
+/** Wix OAuth app tokens are documented with a Bearer Authorization prefix. */
 function buildAuthHeader(accessToken: string, useBearer: boolean): string {
   const trimmed = accessToken.trim();
   if (useBearer) {
     return trimmed.startsWith("Bearer ") ? trimmed : `Bearer ${trimmed}`;
   }
   return trimmed.startsWith("Bearer ") ? trimmed.slice(7).trim() : trimmed;
+}
+
+export function isWixMetasiteContextError(err: unknown): boolean {
+  const msg =
+    err instanceof WixApiError
+      ? err.message
+      : err instanceof Error
+        ? err.message
+        : String(err);
+  return msg.includes("No Metasite Context") || msg.includes("MetaSite not found");
 }
 
 /**
@@ -60,7 +71,7 @@ async function wixRequest<T>(
   init: RequestInit & { headers?: Record<string, string> } = {},
   opts: WixRequestOpts = {},
   attempt = 0,
-  authVariant: 0 | 1 = 0
+  authVariant: 0 | 1 = 1
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${WIX_API_BASE}${path}`;
   const siteId = opts.siteId?.trim();

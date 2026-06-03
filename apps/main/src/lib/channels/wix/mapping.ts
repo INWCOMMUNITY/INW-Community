@@ -276,10 +276,14 @@ export function buildWixV1UpdateBody(
 export function buildWixV1InventoryOnlyBody(
   quantity: number,
   existing?: WixV1Product | null
-): Record<string, unknown> {
+): Record<string, unknown> | null {
   const stock = buildWixV1StockFields(quantity);
   const variantRows = existing?.variants?.filter((v) => v.id) ?? [];
-  if (variantRows.length > 0) {
+  if (variantRows.length > 1) {
+    // Never apply one aggregate stock value to every variant row (inflation loop).
+    return null;
+  }
+  if (variantRows.length === 1) {
     return { product: { variants: variantRows.map((v) => ({ id: v.id, stock })) } };
   }
   return { product: { stock } };

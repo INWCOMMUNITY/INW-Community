@@ -14,6 +14,7 @@ import {
   SYNC_ECHO_SKEW_MS,
   type SyncDirection,
 } from "./sync-baseline";
+import { clampSaneInventoryQty } from "./inventory-sanity";
 import { variantsFingerprint } from "./variant-sync";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
@@ -84,7 +85,9 @@ async function writeBaseline(
         syncBaselineHash: hash,
         syncBaselineMetaHash: metaHash,
         syncBaselineVariantsHash: variantsFingerprint(item.variants),
-        syncBaselineQty: item.quantity,
+        ...(clampSaneInventoryQty(item.quantity) != null
+          ? { syncBaselineQty: clampSaneInventoryQty(item.quantity)! }
+          : {}),
         syncBaselineAt: baselineAt,
       },
     })
@@ -92,10 +95,8 @@ async function writeBaseline(
 }
 
 /**
- * Two-way catalog reconcile for Wix linked products. Uses a stored per-link baseline (content hash +
- * quantity + timestamp) to detect which side changed since the last sync and pushes/pulls
- * accordingly; when both sides changed, the most recently edited side wins. Missing/hidden Wix
- * products mark the INW listing sold out.
+ * Two-way catalog reconcile for Wix linked products (manual / CHANNEL_CRON_SYNC_ENABLED only).
+ * Production inventory uses event-driven sync: listing save, storefront sale, Wix webhooks, connect import.
  */
 export async function reconcileConnectionInboundCatalog(
   connection: ConnectionRow

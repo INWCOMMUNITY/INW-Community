@@ -5,10 +5,20 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Reconciliation cron: polls every active channel connection for recent sales (catching anything
- * a webhook missed) and re-pushes current quantities. Auth via CRON_SECRET (same as other crons).
+ * Optional manual channel reconcile (sales poll, catalog, meta, import).
+ * Disabled by default — production uses event-driven sync only (listing save, sale webhooks, Wix webhooks).
+ * Set CHANNEL_CRON_SYNC_ENABLED=true in Vercel to run on demand via this route + CRON_SECRET.
  */
 export async function GET(req: NextRequest) {
+  if (process.env.CHANNEL_CRON_SYNC_ENABLED !== "true") {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason:
+        "Channel sync cron is disabled. Inventory updates run on listing save, storefront sale, and webhooks only.",
+    });
+  }
+
   const secret = process.env.CRON_SECRET;
   if (!secret) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });

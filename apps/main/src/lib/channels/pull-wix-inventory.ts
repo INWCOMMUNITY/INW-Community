@@ -7,6 +7,7 @@ import { syncInventoryToChannels } from "./sync-inventory";
 import { syncContentHash, syncMetaHash } from "./sync-baseline";
 import { variantsFingerprint } from "./variant-sync";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
+import { clampSaneInventoryQty } from "./inventory-sanity";
 import type { ChannelProvider } from "./types";
 
 /** After a webhook-driven qty pull, record the agreed baseline so the cron doesn't re-fight it. */
@@ -35,7 +36,9 @@ async function recordInventoryBaseline(linkId: string, storeItemId: string): Pro
         syncBaselineHash: syncContentHash(item),
         syncBaselineMetaHash: syncMetaHash(item),
         syncBaselineVariantsHash: variantsFingerprint(item.variants),
-        syncBaselineQty: item.quantity,
+        ...(clampSaneInventoryQty(item.quantity) != null
+          ? { syncBaselineQty: clampSaneInventoryQty(item.quantity)! }
+          : {}),
         syncBaselineAt: new Date(),
       },
     })

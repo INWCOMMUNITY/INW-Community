@@ -1,5 +1,12 @@
 import type { ChannelConnectionContext } from "../types";
 import { getAdapter } from "../registry";
+import {
+  isCorruptBaselineQty,
+  MAX_SANE_INVENTORY_QTY,
+} from "../inventory-sanity";
+import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
+import { fetchWixV1Product, wixV1ProductToVariants } from "./collections";
+import { wixSiteIdFromConn } from "./site";
 
 /** Machine-readable result — stable for logs, support, and future UI. */
 export type WixSyncVerdictCode =
@@ -11,9 +18,11 @@ export type WixSyncVerdictCode =
   | "PUSH_NEVER_RAN"
   | "PUSH_FAILED"
   | "WIX_WRITE_NOOP"
-  | "CRON_BACKSTOP_PENDING"
   | "WIX_QTY_UNREADABLE"
-  | "NOT_CONNECTED";
+  | "NOT_CONNECTED"
+  | "BASELINE_CORRUPT"
+  | "QTY_INFLATION_RISK"
+  | "WIX_METASITE_CONTEXT_ERROR";
 
 export type WixLinkDiagnosis = {
   storeItemId: string;
@@ -66,8 +75,21 @@ type LinkRow = {
     quantity: number;
     status: string;
     updatedAt: Date;
+    variants?: unknown;
   };
 };
+
+function isMetasiteContextError(syncError: string | null): boolean {
+  return Boolean(syncError?.includes("No Metasite Context"));
+}
+
+function isQtyInflationRisk(inwQty: number, wixQty: number | null, baselineQty: number | null): boolean {
+  if (inwQty > MAX_SANE_INVENTORY_QTY) return true;
+  if (isCorruptBaselineQty(baselineQty)) return true;
+  if (wixQty != null && wixQty > MAX_SANE_INVENTORY_QTY) return true;
+  if (wixQty != null && inwQty > 0 && wixQty >= inwQty * 10 && wixQty > 100) return true;
+  return false;
+}
 
 function verdictForLinkState(args: {
   inwQty: number;
@@ -80,29 +102,55 @@ function verdictForLinkState(args: {
 }): Pick<WixLinkDiagnosis, "verdict" | "summary" | "nextStep"> {
   const { inwQty, baselineQty, wixQty, wixKnown, syncStatus, syncError, lastPushedAt } = args;
 
+  if (isMetasiteContextError(syncError)) {
+    return {
+      verdict: "WIX_METASITE_CONTEXT_ERROR",
+      summary: "Wix rejected inventory writes: No Metasite Context in identity.",
+      nextStep:
+        "Sync Stores → Disconnect Wix → Connect Wix again (refreshes site token). Then run diagnose?resetBaseline=1 and ?repair=1.",
+    };
+  }
+
+  if (isCorruptBaselineQty(baselineQty)) {
+    return {
+      verdict: "BASELINE_CORRUPT",
+      summary: `Stored baseline quantity (${baselineQty}) is invalid; INW shows ${inwQty}.`,
+      nextStep:
+        "Run GET /api/channels/wix/diagnose?resetBaseline=1 while signed in, then ?repair=1 after fixing stock in Seller Hub.",
+    };
+  }
+
+  if (isQtyInflationRisk(inwQty, wixQty, baselineQty)) {
+    return {
+      verdict: "QTY_INFLATION_RISK",
+      summary: `Quantity looks inflated or unsafe (INW ${inwQty}, Wix ${wixQty ?? "unknown"}, baseline ${baselineQty ?? "none"}).`,
+      nextStep:
+        "Set true per-size stock in Seller Hub, align Wix admin variant stock, run resetBaseline=1, then repair=1. Do not rely on the old 3-minute cron (removed).",
+    };
+  }
+
   if (syncStatus === "error" && syncError) {
     return {
       verdict: "PUSH_FAILED",
       summary: `Last Wix push failed: ${syncError.slice(0, 200)}`,
       nextStep:
-        "Fix the error on My Items (Wix sync line), or run POST /api/channels/wix/diagnose?repair=1 while signed in to retry the push.",
+        "Fix the error on My Items (Wix sync line), or run /api/channels/wix/diagnose?repair=1 while signed in.",
     };
   }
 
   if (!wixKnown || wixQty == null) {
     if (baselineQty != null && inwQty !== baselineQty) {
       return {
-        verdict: "CRON_BACKSTOP_PENDING",
-        summary: `INW qty is ${inwQty} but baseline is still ${baselineQty}; Wix live stock could not be read.`,
+        verdict: "PUSH_NEVER_RAN",
+        summary: `INW qty is ${inwQty} but baseline is ${baselineQty}; live Wix stock could not be read.`,
         nextStep:
-          "Wait up to 3 minutes for the channel cron, then reload this diagnose URL. If still stale, run repair=1 or Test Wix write in Sync Stores.",
+          "Save the listing in Seller Hub or run ?repair=1 to push. Ensure STRIPE_CONNECT_WEBHOOK_SECRET for post-sale pushes.",
       };
     }
     return {
       verdict: "WIX_QTY_UNREADABLE",
       summary: "Could not read live quantity from Wix (common on Catalog v1).",
-      nextStep:
-        "Use POST /api/channels/wix/diagnose?repair=1 to force a push and read-back, or Test Wix write (qty push) in Sync Stores.",
+      nextStep: "Run diagnose?repair=1 to force a push and read-back.",
     };
   }
 
@@ -122,41 +170,40 @@ function verdictForLinkState(args: {
     };
   }
 
-  // INW != Wix — sale path usually decrements INW but baseline stays at pre-sale qty until a successful push
   if (baselineQty != null && inwQty !== baselineQty && inwQty !== wixQty) {
     const pushedRecently =
       lastPushedAt && Date.now() - lastPushedAt.getTime() < 5 * 60 * 1000;
     if (pushedRecently) {
       return {
         verdict: "WIX_WRITE_NOOP",
-        summary: `INW is ${inwQty} (baseline still ${baselineQty}) but Wix shows ${wixQty} after a recent push.`,
+        summary: `INW is ${inwQty} (baseline ${baselineQty}) but Wix shows ${wixQty} after a recent push.`,
         nextStep:
-          "The push ran but Wix did not apply stock. Check Vercel for [wix] updateInventory errors. Run repair=1; if repair works, auto post-sale push is not firing — fix Connect webhook.",
+          "Check Vercel for [wix] updateInventory errors. Run repair=1; if repair works, fix Connect webhook for automatic post-sale push.",
       };
     }
     return {
-      verdict: "CRON_BACKSTOP_PENDING",
-      summary: `INW is ${inwQty} after sale (baseline ${baselineQty}) but Wix still shows ${wixQty}.`,
+      verdict: "PUSH_NEVER_RAN",
+      summary: `INW is ${inwQty} after a change (baseline ${baselineQty}) but Wix shows ${wixQty}.`,
       nextStep:
-        "Wait 3 minutes and reload diagnose. If unchanged, run ?repair=1 (no new purchase). If repair works, configure STRIPE_CONNECT_WEBHOOK_SECRET so sales trigger push automatically.",
+        "Run ?repair=1 or save the listing in Seller Hub. For sales, configure STRIPE_CONNECT_WEBHOOK_SECRET (see stripeConnectWebhookHint).",
     };
   }
 
   if (baselineQty != null && inwQty === baselineQty && inwQty !== wixQty) {
     return {
       verdict: "PUSH_NEVER_RAN",
-      summary: `INW quantity (${inwQty}) matches the old baseline; the sale may not have decremented inventory. Wix shows ${wixQty}.`,
+      summary: `INW quantity (${inwQty}) matches baseline; Wix still shows ${wixQty}.`,
       nextStep:
-        "Confirm the order is paid in Seller Hub. If still pending, fix Stripe Connect webhook (stripeConnectWebhookHint).",
+        "Confirm the order is paid. Run repair=1 or edit qty in Seller Hub to trigger an event-driven push.",
     };
   }
 
   if (baselineQty != null && inwQty !== baselineQty && !lastPushedAt) {
     return {
       verdict: "PUSH_NEVER_RAN",
-      summary: `INW qty is ${inwQty} (baseline ${baselineQty}) but Wix shows ${wixQty}; no successful push recorded (lastPushedAt empty).`,
+      summary: `INW qty is ${inwQty} (baseline ${baselineQty}) but Wix shows ${wixQty}; no successful push recorded.`,
       nextStep:
-        "Storefront sales need payment_intent.succeeded on the Connect webhook. Configure STRIPE_CONNECT_WEBHOOK_SECRET, then run repair=1 or wait for the 3-minute cron.",
+        "Storefront sales need payment_intent.succeeded on the Connect webhook. Configure STRIPE_CONNECT_WEBHOOK_SECRET, then run repair=1.",
     };
   }
 
@@ -168,14 +215,14 @@ function verdictForLinkState(args: {
         verdict: "WIX_WRITE_NOOP",
         summary: `A push ran recently but Wix still shows ${wixQty} while INW shows ${inwQty}.`,
         nextStep:
-          "Wix may be ignoring the write (inventory tracking off, wrong variant IDs). Check Vercel logs for [wix] updateInventory. Run repair=1 and paste this JSON if it persists.",
+          "Wix may be ignoring the write. Check Vercel logs for [wix] updateInventory. Run repair=1.",
       };
     }
     return {
-      verdict: "CRON_BACKSTOP_PENDING",
-      summary: `INW is ${inwQty}, Wix is ${wixQty}, baseline is ${baselineQty}. Backstop should push INW → Wix within ~3 minutes.`,
+      verdict: "PUSH_NEVER_RAN",
+      summary: `INW is ${inwQty}, Wix is ${wixQty}, baseline is ${baselineQty}.`,
       nextStep:
-        "Wait 3 minutes and reload diagnose. If unchanged, run repair=1. If repair works but sales do not, fix Connect webhook (stripeConnectWebhookHint).",
+        "Run repair=1 or save the listing. Event-driven sync only (no background cron).",
     };
   }
 
@@ -186,23 +233,41 @@ function verdictForLinkState(args: {
   };
 }
 
+async function readLiveWixQuantity(
+  ctx: ChannelConnectionContext,
+  productId: string,
+  variants: unknown
+): Promise<{ quantity: number; known: boolean }> {
+  const siteId = wixSiteIdFromConn(ctx);
+  const opts = siteId ? { siteId } : {};
+  if (hasOptionQuantities(variants)) {
+    const product = await fetchWixV1Product(ctx.accessToken, productId, opts);
+    const axes = product ? wixV1ProductToVariants(product) : null;
+    if (axes && hasOptionQuantities(axes)) {
+      return { quantity: sumOptionQuantities(axes), known: true };
+    }
+  }
+  const adapter = getAdapter("wix");
+  if (adapter.fetchProductQuantity) {
+    return adapter.fetchProductQuantity(ctx, productId);
+  }
+  return { quantity: 0, known: false };
+}
+
 export async function diagnoseWixLinks(
   ctx: ChannelConnectionContext,
   linkRows: LinkRow[],
   catalogApi: string | null,
   siteId: string | null
 ): Promise<WixSyncDiagnosis> {
-  const adapter = getAdapter("wix");
   const links: WixLinkDiagnosis[] = await Promise.all(
     linkRows.map(async (l) => {
       let wixQuantity: number | null = null;
       let wixQuantityKnown = false;
       try {
-        if (adapter.fetchProductQuantity) {
-          const r = await adapter.fetchProductQuantity(ctx, l.externalListingId);
-          wixQuantity = r.quantity;
-          wixQuantityKnown = r.known;
-        }
+        const r = await readLiveWixQuantity(ctx, l.externalListingId, l.storeItem.variants);
+        wixQuantity = r.quantity;
+        wixQuantityKnown = r.known;
       } catch {
         /* best-effort */
       }
@@ -236,12 +301,14 @@ export async function diagnoseWixLinks(
   );
 
   const priority: WixSyncVerdictCode[] = [
+    "BASELINE_CORRUPT",
+    "QTY_INFLATION_RISK",
+    "WIX_METASITE_CONTEXT_ERROR",
     "PUSH_FAILED",
     "ORDER_STILL_PENDING",
     "INW_QTY_NOT_DECREMENTED",
     "PUSH_NEVER_RAN",
     "WIX_WRITE_NOOP",
-    "CRON_BACKSTOP_PENDING",
     "WIX_QTY_UNREADABLE",
     "SYNC_OK",
   ];

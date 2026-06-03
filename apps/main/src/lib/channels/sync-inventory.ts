@@ -2,6 +2,7 @@ import { waitUntil } from "@vercel/functions";
 import { prisma } from "database";
 import { getAdapter } from "./registry";
 import { getConnectionContext } from "./connection";
+import { assertSaneInventoryQty, clampSaneInventoryQty } from "./inventory-sanity";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 import { variantsFingerprint } from "./variant-sync";
@@ -42,7 +43,9 @@ export async function syncInventoryToChannels(
       if (!freshItem) continue;
       const adapter = getAdapter(provider);
       const item = toSyncStoreItem(freshItem);
-      await adapter.updateInventory(ctx, link.externalListingId, item.quantity, item);
+      const qty = assertSaneInventoryQty(item.quantity, `syncInventory(${provider})`);
+      await adapter.updateInventory(ctx, link.externalListingId, qty, item);
+      const baselineQty = clampSaneInventoryQty(qty);
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: {
@@ -52,7 +55,7 @@ export async function syncInventoryToChannels(
           syncBaselineHash: syncContentHash(item),
           syncBaselineMetaHash: syncMetaHash(item),
           syncBaselineVariantsHash: variantsFingerprint(item.variants),
-          syncBaselineQty: item.quantity,
+          ...(baselineQty != null ? { syncBaselineQty: baselineQty } : {}),
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },
       });

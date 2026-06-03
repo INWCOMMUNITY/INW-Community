@@ -56,7 +56,7 @@ Replace naive “compare current values” sync. Store the last **agreed** state
 
 - After a verified push → update baseline (+ echo skew, see §5)
 - After a successful pull → update baseline anchored to remote edit time
-- After a **failed** push → **do not** advance baseline (next cron retries; INW never reverts)
+- After a **failed** push → **do not** advance baseline (next event-driven push retries; INW never reverts)
 
 **Legacy links:** If baseline is null on first reconcile, default hash/time to current INW state so the first pass is a no-op, not a mass pull.
 
@@ -114,34 +114,20 @@ Stripe layer; new channels inherit it automatically (no per-provider trigger cod
 - **Re-push on idempotent re-entry.** Two paths fulfill the same order (webhook + success-return; or Stripe redelivery). Whichever runs second finds the order already `paid` and returns early — it must still re-push inventory so a missed/failed first push self-heals.
 - **Log per-provider results** (`post-sale channel inventory sync ok/failed`) so production can tell "trigger didn't fire" from "channel write failed".
 
-### Inbound quantity — two lanes
+### Inbound quantity — event-driven only (June 2026)
 
 | Lane | When | Direction | Wix status |
 |------|------|-----------|------------|
-| **Webhooks / targeted fetch** | Seller edits stock on channel, or inventory event | Channel → INW, then push to **other** channels (`skipProviders: [origin]`) | ✅ `pull-wix-inventory.ts` |
-| **Cron catalog reconcile** | Scheduled backup (every 3 min) | **Push-only** INW → channel | ✅ Wix only |
+| **Wix inventory webhooks** | Seller edits stock on Wix | Channel → INW (`pull-wix-inventory.ts`), then push to **other** channels | ✅ |
+| **INW listing save / sale / refund** | Seller or storefront changes qty | INW → all channels (`sync-inventory.ts`) | ✅ |
 
-**Critical rule (learned from production):** Cron must **not** pull quantity from catalog list APIs
-when those APIs return stale or unknown stock. That caused INW to **revert** after a failed write.
+**Scheduled `sync-channels` cron is removed** from production (`vercel.json`). Optional manual reconcile: set `CHANNEL_CRON_SYNC_ENABLED=true` and call `GET /api/cron/sync-channels` with `CRON_SECRET` — not used for Wix quantity in normal operation.
 
-**Critical backstop rule (June 2026 — the fix that finally made storefront→Wix reliable):** The cron
-push must trigger on **INW-vs-baseline divergence**, not only on a readable remote difference:
+**Critical rule:** Never pull Wix quantity by **summing** all variant rows into one INW aggregate for multi-option products. Never **write** one aggregate quantity onto **every** variant row (inflation loop).
 
-```ts
-const inwQtyChangedSinceBaseline =
-  link.syncBaselineQty != null && item.quantity !== link.syncBaselineQty;
-const qtyDiffers =
-  (remoteQtyKnown && remote.quantity !== item.quantity) || inwQtyChangedSinceBaseline;
-```
+**Seller recovery after inflation:** Set true stock in Seller Hub (per size if options exist) → Disconnect/Connect Wix if `No Metasite Context` → `GET /api/channels/wix/diagnose?resetBaseline=1` → `?repair=1`.
 
-Why: classic **Wix v1** (and any channel whose list API returns `quantityKnown === false`) never
-satisfies `remote.quantity !== item.quantity`, so the cron would *never* push. That left the live
-sale webhook as the only path; if it was killed mid-write, nothing healed it. Pushing on baseline
-divergence makes the cron a real backstop (INW→channel within ~3 min) without depending on the
-flaky remote read. It stays **push-only** and the baseline only advances on a **verified** push, so
-a failed/no-op write never reverts INW and simply retries next pass.
-
-**Status:** ✅ Wix · 🔲 Etsy (webhook exists; no dedicated inventory pull) · 🔲 eBay (cron-only sales) · 🔲 Shopify (cron-only)
+**Status:** ✅ Wix · 🔲 Etsy · 🔲 eBay (sales poll only when cron enabled) · 🔲 Shopify
 
 ---
 
@@ -151,7 +137,7 @@ a failed/no-op write never reverts INW and simply retries next pass.
 |---------|----------|
 | Seller saves in INW app | `updateStoreItemOnChannels()` — skip if `lastPushedHash` unchanged |
 | Remote edit on channel | Pull winning content → `applyRemoteContentToStoreItem()` → push to **other** channels (skip origin) |
-| Cron backup | Baseline diff + most-recent-wins (`reconcile-inbound-catalog.ts`) |
+| Manual reconcile only | `reconcile-inbound-catalog.ts` when `CHANNEL_CRON_SYNC_ENABLED=true` |
 
 **Guards:**
 
@@ -177,7 +163,7 @@ a failed/no-op write never reverts INW and simply retries next pass.
 
 ## 9. Sales handling
 
-1. Receive sale via webhook **or** `fetchRecentSales()` poll (cron every 3 min)
+1. Receive sale via webhook **or** `fetchRecentSales()` when manual cron is enabled
 2. Dedupe with `channelSyncEvent` unique `(provider, externalEventId)`
 3. Decrement shared `StoreItem.quantity`
 4. Mark sold out if variants/qty warrant it
@@ -316,19 +302,27 @@ These caused the Wix “finicky” bugs:
 
 ---
 
-## 15. Cron & infrastructure
+## 15. Anti-pattern: aggregate qty on every variant + sum on read
+
+| Bad write | `setInventoryViaStoresV2` / `buildWixV1InventoryOnlyBody` sets the **same** total on **every** variant |
+| Bad read | `readWixProductQuantity` **sums** all variant qtys into one INW number |
+| Effect | INW total becomes N × per-variant stock; baseline and pushes amplify every pass |
+| Fix | Per-option products: **only** `pushWixV1PerOptionInventory`; inbound via v1 variant axes; cap at `MAX_SANE_INVENTORY_QTY` (10_000) |
+
+---
+
+## 16. Cron & infrastructure
 
 | Item | Value |
 |------|-------|
-| Cron path | `GET /api/cron/sync-channels` |
-| Schedule | Every **3 minutes** |
-| Order per connection | Sales → catalog reconcile → auto-import |
-| Webhook role | Real-time; cron is backup |
+| Production schedule | **No** `sync-channels` cron in `vercel.json` |
+| Optional manual path | `CHANNEL_CRON_SYNC_ENABLED=true` + `GET /api/cron/sync-channels` + `CRON_SECRET` |
+| Wix quantity | Listing save, `payment_intent.succeeded`, refund/relist, Wix inventory webhooks, connect import |
 | After env change | **Redeploy** main app |
 
 ---
 
-## 16. Key source files
+## 17. Key source files
 
 | File | Role |
 |------|------|
@@ -353,7 +347,7 @@ These caused the Wix “finicky” bugs:
 
 ---
 
-## 17. Category, shipping & product options (cross-channel meta)
+## 18. Category, shipping & product options (cross-channel meta)
 
 **Status:** ✅ implemented across Etsy, eBay, Shopify, Wix
 
@@ -392,7 +386,7 @@ These caused the Wix “finicky” bugs:
 ### Meta reconcile
 
 - `syncBaselineMetaHash` on `ChannelListingLink` tracks category + shipping + variants separately from content hash.
-- `reconcile-inbound-meta.ts` runs for **all providers** on cron (most-recent-wins, baseline advances only on verified push/pull).
+- `reconcile-inbound-meta.ts` runs when manual cron is enabled (most-recent-wins, baseline advances only on verified push/pull).
 
 ### Manual test matrix
 
@@ -403,10 +397,10 @@ These caused the Wix “finicky” bugs:
 | Set category in INW app → save | Etsy/eBay/Shopify/Wix receive taxonomy/collection/product_type |
 | Add Size options in INW → save | Options appear on linked Etsy/Shopify/Wix/eBay listings |
 | Edit Medium qty in INW app → save | Wix Medium stock updates; other sizes unchanged |
-| Edit option qty on Wix | INW updates via webhook/cron meta pull; other channels get push |
+| Edit option qty on Wix | INW updates via inventory webhook; other channels get push |
 | Set shipping $5.99 in INW → Etsy | Listing uses/reuses `INW $5.99` shipping profile |
 | Sell variant on Shopify | Correct INW option qty decrements; other channels push per-size stock |
 
 ---
 
-*Last updated: June 2, 2026 — post-sale push reliability: Connect PaymentIntent fulfillment path, awaited (not fire-and-forget) push, idempotent re-entry re-push, and cron baseline-divergence backstop for classic/v1 stores. Plus single-axis options sync + no inventory wipe after option push.*
+*Last updated: June 3, 2026 — removed production sync-channels cron; event-driven Wix qty only; fail-closed per-option writes (no aggregate fallback); sane qty cap + corrupt baseline reset via diagnose; inflation anti-pattern documented.*

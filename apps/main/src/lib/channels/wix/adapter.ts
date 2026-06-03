@@ -17,9 +17,16 @@ import {
   resolveWixCatalogMode,
   type WixCatalogMode,
 } from "./catalog-api";
-import { ensureWixSiteId, wixSiteIdFromConn } from "./site";
+import {
+  ensureWixSiteId,
+  remintWixAccessToken,
+  wixInventoryRequestOpts,
+  wixSiteIdFromConn,
+} from "./site";
+import { isWixMetasiteContextError } from "./client";
 import { resolveProviderCategoryId } from "../category-map";
-import { hasOptionQuantities } from "../../store-item-variants";
+import { assertSaneInventoryQty } from "../inventory-sanity";
+import { hasOptionQuantities, sumOptionQuantities } from "../../store-item-variants";
 import {
   assignWixProductCollection,
   attachWixVariantsToSummary,
@@ -362,6 +369,14 @@ async function setInventoryViaStoresV2(
       prod?.product?.variants?.map((v) => v.id).filter((id): id is string => Boolean(id)) ?? [];
   }
 
+  if (variantIds.length > 1) {
+    throw new WixApiError(
+      "Cannot set the same aggregate quantity on every Wix variant; use per-option inventory sync.",
+      400,
+      null
+    );
+  }
+
   const variants = (variantIds.length > 0 ? variantIds : [WIX_DEFAULT_VARIANT_ID]).map(
     (variantId) => ({ variantId, quantity: qty, inStock: qty > 0 })
   );
@@ -396,11 +411,13 @@ async function setInventoryViaStoresV1(
     opts
   );
   if (!got.product) return false;
+  const body = buildWixV1InventoryOnlyBody(quantity, got.product);
+  if (!body) return false;
   await wixJson(
     accessToken,
     `/stores/v1/products/${encodeURIComponent(productId)}`,
     "PATCH",
-    buildWixV1InventoryOnlyBody(quantity, got.product),
+    body,
     opts
   );
   return true;
@@ -418,17 +435,21 @@ export async function readWixProductQuantity(
       inventoryItem?: { variants?: { quantity?: number; inStock?: boolean }[] };
     }>(accessToken, `/stores/v2/inventoryItems/product/${encodeURIComponent(productId)}`, opts);
     const variants = inv.inventoryItem?.variants ?? [];
-    let total = 0;
-    let sawQty = false;
-    let inStock = false;
-    for (const v of variants) {
-      if (typeof v.quantity === "number") {
-        total += v.quantity;
-        sawQty = true;
-      } else if (v.inStock) inStock = true;
+    if (variants.length > 1) {
+      // Summing per-variant quantities inflates totals for multi-option products.
+    } else {
+      let total = 0;
+      let sawQty = false;
+      let inStock = false;
+      for (const v of variants) {
+        if (typeof v.quantity === "number") {
+          total += v.quantity;
+          sawQty = true;
+        } else if (v.inStock) inStock = true;
+      }
+      if (sawQty) return { quantity: Math.max(0, total), known: true };
+      if (variants.length > 0) return { quantity: inStock ? 1 : 0, known: true };
     }
-    if (sawQty) return { quantity: Math.max(0, total), known: true };
-    if (variants.length > 0) return { quantity: inStock ? 1 : 0, known: true };
   } catch {
     /* try v1 product */
   }
@@ -466,20 +487,39 @@ export async function readWixProductQuantity(
  * Read stock back after a write to confirm it applied. Returns ok=true when the read is unavailable
  * (cannot disprove the write) so we don't raise false errors on catalogs we can't read.
  */
+async function readWixPerOptionAggregateQuantity(
+  accessToken: string,
+  productId: string,
+  opts: WixRequestOpts
+): Promise<{ quantity: number; known: boolean }> {
+  const product = await fetchWixV1Product(accessToken, productId, opts);
+  if (!product) return { quantity: 0, known: false };
+  const axes = wixV1ProductToVariants(product);
+  if (!axes || !hasOptionQuantities(axes)) return { quantity: 0, known: false };
+  return { quantity: sumOptionQuantities(axes), known: true };
+}
+
 async function verifyWixQuantityApplied(
   accessToken: string,
   productId: string,
   want: number,
   opts: WixRequestOpts,
-  v1Only: boolean
+  v1Only: boolean,
+  item?: SyncStoreItem
 ): Promise<{ ok: boolean; actual: number | null }> {
+  const readQty = async (): Promise<{ quantity: number; known: boolean }> => {
+    if (item && hasOptionQuantities(item.variants)) {
+      return readWixPerOptionAggregateQuantity(accessToken, productId, opts);
+    }
+    return readWixProductQuantity(accessToken, productId, opts, v1Only);
+  };
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 900));
-    const r = await readWixProductQuantity(accessToken, productId, opts, v1Only).catch(() => ({
+    const r = await readQty().catch(() => ({
       quantity: 0,
       known: false,
     }));
-    if (!r.known) return { ok: true, actual: null }; // can't read -> don't block the write
+    if (!r.known) return { ok: true, actual: null };
     if (r.quantity === want) return { ok: true, actual: r.quantity };
     if (attempt === 1) return { ok: false, actual: r.quantity };
   }
@@ -843,70 +883,51 @@ export const wixAdapter: ChannelAdapter = {
 
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
     let mode = await prepareWixConn(conn);
-    const withSite = wixOpts(conn);
-    const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
-    const want = Math.max(0, Math.round(absoluteQuantity));
+    const attempts = wixInventoryRequestOpts(conn);
+    const want = assertSaneInventoryQty(
+      Math.max(0, Math.round(absoluteQuantity)),
+      "wix.updateInventory"
+    );
+    const verifyWant = hasOptionQuantities(item.variants)
+      ? sumOptionQuantities(item.variants)
+      : want;
     let lastErr: unknown;
     for (let pass = 0; pass < 2; pass++) {
       for (const opts of attempts) {
         try {
           if (mode === "v1" && hasOptionQuantities(item.variants)) {
-            // Attempt per-option inventory push. Wrap in its own try/catch so ANY failure
-            // (thrown exception OR false return) falls through to the aggregate fallback
-            // below — Wix must never be left stale or at zero after a sale.
-            try {
-              const pushed = await pushWixV1PerOptionInventory(
-                conn.accessToken,
-                externalListingId,
-                item,
-                opts
-              );
-              if (pushed) {
-                const verified = await verifyWixQuantityApplied(
-                  conn.accessToken,
-                  externalListingId,
-                  want,
-                  opts,
-                  true
-                );
-                if (verified.ok) {
-                  console.info("[wix] updateInventory ok", {
-                    productId: externalListingId,
-                    strategy: "v1/options-v2",
-                    quantity: want,
-                  });
-                  return;
-                }
-                console.warn("[wix] per-option push ok but verify failed — falling back to aggregate", {
-                  productId: externalListingId,
-                  want,
-                  actual: verified.actual,
-                });
-              } else {
-                console.warn("[wix] per-option push returned false — falling back to aggregate", {
-                  productId: externalListingId,
-                  want,
-                });
-              }
-            } catch (perOptionErr) {
-              console.warn("[wix] per-option push threw — falling back to aggregate", {
-                productId: externalListingId,
-                want,
-                error: perOptionErr instanceof Error ? perOptionErr.message : String(perOptionErr),
-              });
-            }
-            // Guaranteed fallback: push aggregate qty so Wix is always up to date after a sale.
-            const strategy = await setInventoryAbsolute(
+            const pushed = await pushWixV1PerOptionInventory(
               conn.accessToken,
               externalListingId,
-              absoluteQuantity,
-              opts,
-              true
+              item,
+              opts
             );
-            console.info("[wix] updateInventory ok (aggregate fallback)", {
+            if (!pushed) {
+              throw new WixApiError(
+                "Could not update per-option inventory on Wix (Catalog v1). Check variant mapping in Sync Stores.",
+                502,
+                null
+              );
+            }
+            const verified = await verifyWixQuantityApplied(
+              conn.accessToken,
+              externalListingId,
+              verifyWant,
+              opts,
+              true,
+              item
+            );
+            if (!verified.ok) {
+              throw new WixApiError(
+                `Wix per-option inventory still shows ${verified.actual ?? "unknown"} (expected sum ${verifyWant}).`,
+                409,
+                null
+              );
+            }
+            console.info("[wix] updateInventory ok", {
               productId: externalListingId,
-              strategy,
-              quantity: want,
+              strategy: "v1/options-v2",
+              quantity: verifyWant,
             });
             return;
           }
@@ -914,20 +935,18 @@ export const wixAdapter: ChannelAdapter = {
           const strategy = await setInventoryAbsolute(
             conn.accessToken,
             externalListingId,
-            absoluteQuantity,
+            want,
             opts,
             mode === "v1"
           );
 
-          // Verify the write actually applied — some Wix catalog/inventory APIs return 200 without
-          // changing stock (silent no-op). Without this, we'd report success and the reconcile would
-          // pull Wix's stale qty back over the INW edit.
           const verified = await verifyWixQuantityApplied(
             conn.accessToken,
             externalListingId,
             want,
             opts,
-            mode === "v1"
+            mode === "v1",
+            item
           );
           if (!verified.ok) {
             throw new WixApiError(
@@ -948,6 +967,10 @@ export const wixAdapter: ChannelAdapter = {
           return;
         } catch (e) {
           lastErr = e;
+          if (isWixMetasiteContextError(e) && pass === 0) {
+            const reminted = await remintWixAccessToken(conn);
+            if (reminted) break;
+          }
           const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
           if (corrected && pass === 0) {
             mode = corrected;

@@ -1,4 +1,5 @@
 import type { SyncStoreItem } from "../types";
+import { assertSaneInventoryQty } from "../inventory-sanity";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import { wixGet, wixJson, type WixRequestOpts } from "./client";
 import type { WixV1Product } from "./mapping";
@@ -462,7 +463,8 @@ export async function pushWixV1PerOptionInventory(
       continue;
     }
     resolved += 1;
-    variants.push({ variantId, quantity: mapped, inStock: mapped > 0 });
+    const qty = assertSaneInventoryQty(mapped, "pushWixV1PerOptionInventory");
+    variants.push({ variantId, quantity: qty, inStock: qty > 0 });
   }
 
   // Could not map any variant to an INW option -> structure mismatch; do not wipe Wix to zeros.

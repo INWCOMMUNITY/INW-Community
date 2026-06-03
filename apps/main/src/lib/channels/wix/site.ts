@@ -1,6 +1,8 @@
 import { prisma } from "database";
+import { encrypt } from "@/lib/encrypt";
 import type { ChannelConnectionContext } from "../types";
-import { wixGet } from "./client";
+import { wixGet, type WixRequestOpts } from "./client";
+import { mintWixToken } from "./oauth";
 
 type AppInstanceResponse = {
   site?: { siteId?: string; siteDisplayName?: string };
@@ -16,6 +18,49 @@ export async function fetchWixSiteId(accessToken: string): Promise<string | null
   } catch (e) {
     console.warn("[wix] fetch site id failed", { error: String(e) });
     return null;
+  }
+}
+
+/**
+ * Request option order for Stores inventory writes.
+ * App tokens minted with instance_id already carry site context; sending wix-site-id first can
+ * trigger "No Metasite Context in identity" on PATCH while GET still succeeds.
+ */
+export function wixInventoryRequestOpts(conn: ChannelConnectionContext): WixRequestOpts[] {
+  const siteId = wixSiteIdFromConn(conn);
+  const hasInstance =
+    typeof conn.config?.instanceId === "string" && Boolean(conn.config.instanceId.trim());
+  if (!siteId) return [{}];
+  if (hasInstance) return [{}, { siteId }];
+  return [{ siteId }, {}];
+}
+
+/** Re-mint a 4h app access token from the stored instance id (fixes stale identity context). */
+export async function remintWixAccessToken(
+  conn: ChannelConnectionContext
+): Promise<boolean> {
+  const instanceId =
+    typeof conn.config?.instanceId === "string" ? conn.config.instanceId.trim() : "";
+  if (!instanceId) return false;
+  try {
+    const tokens = await mintWixToken(instanceId);
+    conn.accessToken = tokens.accessToken;
+    await prisma.channelConnection.update({
+      where: { id: conn.id },
+      data: {
+        accessTokenEncrypted: encrypt(tokens.accessToken),
+        tokenExpiresAt: tokens.expiresInSec
+          ? new Date(Date.now() + tokens.expiresInSec * 1000)
+          : null,
+        status: "active",
+        lastError: null,
+      },
+    });
+    console.info("[wix] reminted access token", { connectionId: conn.id });
+    return true;
+  } catch (e) {
+    console.error("[wix] remint access token failed", { connectionId: conn.id, error: String(e) });
+    return false;
   }
 }
 

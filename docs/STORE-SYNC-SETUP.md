@@ -48,10 +48,8 @@ Do this once before connecting any marketplace.
   npx prisma migrate deploy
   ```
 
-- [ ] **A3 — Cron job**  
-  Vercel → your project → **Cron Jobs** → confirm:
-  - Path: `GET /api/cron/sync-channels`
-  - Schedule: every **3 minutes**
+- [ ] **A3 — Channel sync (event-driven)**  
+  Production does **not** run a `sync-channels` cron. Wix quantity updates on listing save, storefront sale (`STRIPE_CONNECT_WEBHOOK_SECRET`), Wix inventory webhooks, and connect import. Optional manual reconcile: `CHANNEL_CRON_SYNC_ENABLED=true` + `GET /api/cron/sync-channels` with `CRON_SECRET`.
 
 - [ ] **A4 — Policies**  
   Review `apps/main/src/lib/terms-content.ts` and `privacy-content.ts`. Re-export PDFs if you distribute them.
@@ -250,8 +248,8 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
      - **Manage Your App** (resolve site id via app instance API)
      - Optional: **Site Properties** — read (shop name in app)
      - If import fails after connect, reconnect once after adding **inventory read**.
-7. **Webhooks** (required for “as fast as Wix” inbound sync; cron is backup every **3 minutes**):
-   - Dev Center → your app → **Webhooks** → **Get Public Key** → save as `WIX_WEBHOOK_PUBLIC_KEY` in Vercel (without this, `/api/channels/wix/webhook` returns 503 and only cron runs)
+7. **Webhooks** (required for Wix inbound sync — there is no quantity cron):
+   - Dev Center → your app → **Webhooks** → **Get Public Key** → save as `WIX_WEBHOOK_PUBLIC_KEY` in Vercel (without this, `/api/channels/wix/webhook` returns 503)
    - Callback URL: `https://www.inwcommunity.com/api/channels/wix/webhook`
    - Subscribe **all** that apply to your site (Wix shows Catalog **v1** and/or **v3** — enable both groups if listed):
      - **eCommerce:** Order Created, **Order Approved** (paid), Order Updated, Order Canceled
@@ -266,7 +264,7 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
    - Skip unrelated events (contacts, bookings, carts) unless you need them
    - **Inventory webhooks** → pull live qty from Wix (manual stock edits on Wix)
    - **Order / product webhooks** → full reconcile: sales, catalog content (title/price/photos), new product import
-   - The **3-minute cron** does the same as backup; it no longer overwrites INW quantity from the product list (classic sites often return incomplete stock in list APIs)
+   - **Storefront sales on INW** need `STRIPE_CONNECT_WEBHOOK_SECRET` and `payment_intent.succeeded` on the Connect webhook endpoint
 8. **External Install / callback:**
    - Find **OAuth** → **Redirect URLs** or **External install** / **Post-installation URL**.
    - Set to: `https://www.inwcommunity.com/api/channels/wix/callback`
@@ -305,14 +303,15 @@ Sellers **install your Wix app** on their site. You store the site `instanceId`;
 | **Delete on INW not on Wix** | Use **Remove listing** (not Mark as sold). Failed delete shows an alert with the Wix error |
 | **Wix changes don’t reach INW** | Set `WIX_WEBHOOK_PUBLIC_KEY` + subscribe inventory/product webhooks (see step 7) |
 | **Sync issue on card** | Disconnect → Connect Wix again (refreshes `siteId` + token) |
-| **INW sale but Wix qty unchanged** | While signed in: open `https://www.inwcommunity.com/api/channels/wix/diagnose` — returns `verdict`, `summary`, `nextStep`. Add `?orderId=<id>` from Seller Hub → Orders, or `?repair=1` to force a push **without another test purchase**. |
+| **INW sale but Wix qty unchanged** | While signed in: `https://www.inwcommunity.com/api/channels/wix/diagnose` — add `?orderId=<id>` or `?repair=1`. If `BASELINE_CORRUPT`, run `?resetBaseline=1` first. If `WIX_METASITE_CONTEXT_ERROR`, Disconnect → Connect Wix. |
+| **Qty inflating on its own** | Redeploy latest `main` (cron removed). Fix stock in Seller Hub + Wix admin per size. `?resetBaseline=1` then `?repair=1`. See `CHANNEL-SYNC-RULES.md` anti-pattern section. |
 
 ### D — Test in app
 
 1. Sync Stores → **Connect Wix** → install on a test site (existing Wix products auto-import to INW)
-2. Create a product on Wix → appears in INW within ~3 min (cron) or seconds (webhooks configured)
-3. Edit **price/title/photos** on Wix → INW updates via webhook/cron; edit in INW app → Wix updates on **save**
-4. Edit **quantity on Wix** → INW updates via **inventory webhooks** (or cron sales path after an order)
+2. Create a product on Wix → appears in INW via **product created** webhook or on **Connect Wix** import
+3. Edit **price/title/photos** on Wix → INW updates via product webhooks; edit in INW app → Wix updates on **save**
+4. Edit **quantity on Wix** → INW updates via **inventory webhooks**
 5. Sell on Wix → INW quantity drops; sell on INW → Wix quantity should drop within seconds
 6. Wait **5+ minutes** after an INW-only sale → INW quantity should **stay** reduced (not revert)
 7. Delete on Wix → INW listing marked sold out; **Remove listing** in INW → deleted on Wix (v1 + v3 delete)
@@ -403,7 +402,7 @@ Each seller connects their own `{shop}.myshopify.com`. After OAuth we store a **
 ### Shared
 - [ ] [Vercel env vars](https://vercel.com/docs/projects/environment-variables): `ENCRYPTION_KEY`, `CRON_SECRET`, `NEXTAUTH_SECRET`
 - [ ] DB migrations deployed
-- [ ] Cron `sync-channels` every 3 min
+- [ ] Wix webhooks + `STRIPE_CONNECT_WEBHOOK_SECRET` for event-driven sync (no qty cron)
 - [ ] Policies reviewed
 
 ### Etsy — [your-apps](https://www.etsy.com/developers/your-apps)
@@ -491,10 +490,10 @@ Do **not** change `ENCRYPTION_KEY`, `CRON_SECRET`, or `NEXTAUTH_SECRET` if they 
 | Keys added in Vercel but connect still fails | **Redeploy** main app after saving env vars |
 | Wix install doesn’t return to app | Callback must be `https://www.inwcommunity.com/api/channels/wix/callback` |
 | Wix **Import** fails / “Could not reach store” | **Redeploy**; **disconnect and reconnect** Wix (saves real `siteId`); ensure **Stores product read** + **Manage Your App** permissions |
-| New product on **Wix** not in INW | Auto-import runs on connect and every **~3 min** cron; seller needs an active **NWC plan**; price must be &gt; $0 on Wix |
+| New product on **Wix** not in INW | Auto-import on **Connect Wix** + product webhooks; seller needs an active **NWC plan**; price must be &gt; $0 on Wix |
 | Shopify “redirect_uri mismatch” | Allowed redirection URL in Partners must match our callback |
-| Sales slow to show in INW | Set `WIX_WEBHOOK_PUBLIC_KEY` and subscribe **Order Created** + **Order Approved**; cron runs every **3 minutes** as backup |
-| INW qty **reverts** after a few minutes | Fixed in app: cron no longer pulls stale qty from product list; redeploy latest `main` |
+| Sales slow to show in INW | Set `WIX_WEBHOOK_PUBLIC_KEY` and subscribe **Order Created** + **Order Approved** |
+| INW qty **inflates** or drifts | Redeploy; fix per-size stock; `diagnose?resetBaseline=1`; never write aggregate qty to every Wix variant |
 | INW edit doesn’t update Wix | Save listing in app; check **Wix: sync error** on My Items; classic sites use v1/v2 write APIs |
 | Wix qty edit slow on INW | Enable all **inventory** webhooks; they pull qty without full catalog reconcile |
 | Delete on INW but still on Wix | Redeploy (v1 delete API); confirm Manage Products permission on Wix app |
