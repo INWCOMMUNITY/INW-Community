@@ -50,6 +50,7 @@ import {
   type WixProduct,
   type WixV1Product,
 } from "./mapping";
+import { syncWixProductMedia } from "./media";
 
 type ProductResponse = { product?: WixProduct };
 type ProductsQueryResponse = {
@@ -693,6 +694,7 @@ export const wixAdapter: ChannelAdapter = {
           throw new Error("Wix did not return a product id for the created listing.");
         }
         await applyWixCategoryAndOptions(conn, productId, item, opts, mode === "v1");
+        await syncWixProductMedia(conn, productId, item.photos);
         return { externalListingId: productId, externalShopId: conn.externalShopId };
       } catch (e) {
         const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
@@ -730,6 +732,9 @@ export const wixAdapter: ChannelAdapter = {
               opts
             );
             await applyWixCategoryAndOptions(conn, productId, item, opts, true);
+            if (item.photos.length > 0) {
+              await syncWixProductMedia(conn, productId, item.photos, { replace: true });
+            }
             if (!hasOptionQuantities(item.variants)) {
               const strategy = await setInventoryAbsolute(
                 conn.accessToken,
@@ -770,6 +775,16 @@ export const wixAdapter: ChannelAdapter = {
               opts,
               false
             );
+            if (item.photos.length > 0) {
+              await syncWixProductMedia(conn, productId, item.photos, { replace: true }).catch(
+                (e) => {
+                  console.warn("[wix] updateListing v3 media sync failed", {
+                    productId,
+                    message: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              );
+            }
             console.info("[wix] updateListing ok", { productId, catalog: "v3", inventoryStrategy: strategy });
             return;
           }

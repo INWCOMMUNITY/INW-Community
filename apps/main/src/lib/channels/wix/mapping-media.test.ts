@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildWixV1AddProductMediaPayload } from "./media";
 import { buildWixV1CreateBody, buildWixV1MediaFromPhotos } from "./mapping";
 import type { SyncStoreItem } from "../types";
 
@@ -11,6 +12,12 @@ describe("buildWixV1MediaFromPhotos", () => {
     expect(media).toEqual({
       mainMedia: { image: { url: "https://cdn.example.com/a.jpg" } },
       items: [{ image: { url: "https://cdn.example.com/b.jpg" } }],
+    });
+  });
+
+  it("builds Add Product Media payload with external urls", () => {
+    expect(buildWixV1AddProductMediaPayload(["https://cdn.example.com/a.jpg"])).toEqual({
+      media: [{ url: "https://cdn.example.com/a.jpg" }],
     });
   });
 

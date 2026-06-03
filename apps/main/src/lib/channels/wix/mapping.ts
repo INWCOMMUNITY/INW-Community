@@ -155,7 +155,7 @@ function parseWixDate(value?: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function v1Photos(product: WixV1Product): string[] {
+export function v1Photos(product: WixV1Product): string[] {
   const urls: string[] = [];
   const main = product.media?.mainMedia?.image?.url;
   if (main) urls.push(main);

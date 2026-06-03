@@ -89,6 +89,21 @@ export async function publishStoreItemToChannels(
       where: { storeItemId_provider: { storeItemId, provider } },
     });
     if (existing) {
+      if (provider === "wix" && item.photos.length > 0) {
+        try {
+          const { syncWixProductMedia } = await import("./wix/media");
+          await syncWixProductMedia(conn, existing.externalListingId, item.photos);
+        } catch (e) {
+          const msg = String(e).slice(0, 500);
+          console.warn("[channels] wix media backfill failed", {
+            storeItemId,
+            externalListingId: existing.externalListingId,
+            error: msg,
+          });
+          results.push({ provider, ok: false, error: msg });
+          continue;
+        }
+      }
       results.push({ provider, ok: true });
       continue;
     }
