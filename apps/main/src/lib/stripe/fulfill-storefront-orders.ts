@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { awardPoints } from "@/lib/award-points";
 import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
+import type { ChannelSyncResult } from "@/lib/channels/types";
 import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-points";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
@@ -27,6 +28,43 @@ type FulfillOptions = {
   buyerId?: string;
   logPrefix?: string;
 };
+
+/**
+ * Push the current (authoritative) StoreItem quantity out to every linked channel after a sale.
+ * Logs per-provider results so post-sale sync failures are visible in production logs. Idempotent:
+ * uses the standard per-option-first Wix write, so repeat calls are safe.
+ */
+async function syncStoreItemsAfterSale(
+  storeItemIds: Iterable<string>,
+  logPrefix: string
+): Promise<void> {
+  const ids = [...new Set(storeItemIds)];
+  if (ids.length === 0) return;
+
+  const results = await Promise.all(ids.map((id) => syncInventoryToChannelsAfterSale(id)));
+  for (let i = 0; i < ids.length; i++) {
+    const storeItemId = ids[i];
+    const rows: ChannelSyncResult[] = results[i] ?? [];
+    if (rows.length === 0) {
+      console.info(`${logPrefix} no linked channels for post-sale inventory sync`, { storeItemId });
+      continue;
+    }
+    for (const row of rows) {
+      if (row.ok) {
+        console.info(`${logPrefix} post-sale channel inventory sync ok`, {
+          storeItemId,
+          provider: row.provider,
+        });
+      } else {
+        console.error(`${logPrefix} post-sale channel inventory sync failed`, {
+          storeItemId,
+          provider: row.provider,
+          error: row.error,
+        });
+      }
+    }
+  }
+}
 
 /**
  * Mark pending storefront orders paid, transfer to sellers, decrement inventory, sync channels.
@@ -71,6 +109,20 @@ export async function fulfillStoreOrdersFromCheckoutSession(
   }
 
   if (ordersToFulfill.length === 0) {
+    // Idempotent re-entry: the Stripe webhook and the app success-return both fulfill the same
+    // checkout. Whichever runs second finds the order already `paid` and would otherwise return
+    // without pushing inventory — so if the first pass's channel sync was skipped or failed, Wix
+    // (etc.) stays stale until a manual push. Always retry the inventory push for paid orders.
+    if (session.payment_status === "paid" && toProcess.length > 0) {
+      const paidOrders = await prisma.storeOrder.findMany({
+        where: { id: { in: toProcess }, status: "paid", orderKind: { not: "reward_redemption" } },
+        include: { items: true },
+      });
+      await syncStoreItemsAfterSale(
+        paidOrders.flatMap((o) => o.items.map((i) => i.storeItemId)),
+        log
+      );
+    }
     return { orderIds: toProcess };
   }
 
@@ -396,9 +448,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
     }
 
     if (storeItemIdsToSyncChannels.size > 0) {
-      await Promise.all(
-        [...storeItemIdsToSyncChannels].map((id) => syncInventoryToChannelsAfterSale(id))
-      );
+      await syncStoreItemsAfterSale(storeItemIdsToSyncChannels, log);
     }
   }
 
