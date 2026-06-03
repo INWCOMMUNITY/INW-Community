@@ -857,31 +857,44 @@ export const wixAdapter: ChannelAdapter = {
               item,
               opts
             );
-            if (!pushed) {
-              throw new WixApiError(
-                "Could not update per-option inventory on Wix (Stores v2).",
-                502,
-                null
+            if (pushed) {
+              const verified = await verifyWixQuantityApplied(
+                conn.accessToken,
+                externalListingId,
+                want,
+                opts,
+                true
               );
+              if (verified.ok) {
+                console.info("[wix] updateInventory ok", {
+                  productId: externalListingId,
+                  strategy: "v1/options-v2",
+                  quantity: want,
+                });
+                return;
+              }
+              console.warn("[wix] per-option push succeeded but verify failed — falling back to aggregate", {
+                productId: externalListingId,
+                want,
+                actual: verified.actual,
+              });
+            } else {
+              console.warn("[wix] per-option push returned false — falling back to aggregate", {
+                productId: externalListingId,
+                want,
+              });
             }
-            const verified = await verifyWixQuantityApplied(
+            // Fallback: push aggregate quantity so Wix is never left stale or at zero after a sale.
+            const strategy = await setInventoryAbsolute(
               conn.accessToken,
               externalListingId,
-              want,
+              absoluteQuantity,
               opts,
               true
             );
-            if (!verified.ok) {
-              throw new WixApiError(
-                `Wix accepted per-option inventory but total stock is still ` +
-                  `${verified.actual ?? "unknown"} (expected ${want}).`,
-                409,
-                null
-              );
-            }
-            console.info("[wix] updateInventory ok", {
+            console.info("[wix] updateInventory ok (aggregate fallback)", {
               productId: externalListingId,
-              strategy: "v1/options-v2",
+              strategy,
               quantity: want,
             });
             return;
