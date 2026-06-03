@@ -353,7 +353,9 @@ export function buildWixV1ExistingVariantsPatchBody(
       Object.keys(map).find((k) => k.toLowerCase() === primary.name.trim().toLowerCase()) ??
       Object.keys(map)[0];
     const selected = axisKey ? map[axisKey] : Object.values(map)[0];
-    const qty = selected ? (qtyByValue.get(selected.trim().toLowerCase()) ?? 0) : 0;
+    const mapped = selected ? qtyByValue.get(selected.trim().toLowerCase()) : undefined;
+    // Preserve the variant's current Wix stock when we can't map it, rather than zeroing it.
+    const qty = mapped ?? Math.max(0, row.stock?.quantity ?? 0);
     variants.push({
       id: row.id,
       stock: { trackInventory: true, quantity: qty, inStock: qty > 0 },
@@ -390,11 +392,17 @@ type V2InventoryItem = {
 };
 
 /**
- * Push per-option stock via Stores v2. Wix keys inventory by the inventory item's OWN variantIds
- * (which can differ from the v1 product variant ids), so we PATCH only those ids and resolve each
- * one's quantity by bridging to the v1 product's choice value (id match, then index alignment).
- * Returns false (instead of zeroing) when the structure has not propagated, so the caller surfaces
- * a clear error rather than wiping Wix stock.
+ * Push per-option stock via Stores v2 inventory.
+ *
+ * For a Catalog v1 product the Stores v2 inventory is keyed by the *v1 product variant ids*
+ * (the same GUIDs `setInventoryViaStoresV2` uses as its fallback), so we PATCH those ids directly,
+ * mapping each variant row's option value to its INW quantity. This avoids the fragile v2↔v1
+ * index/id bridging that could collapse to "nothing resolved".
+ *
+ * Safety: we only ever *create* the option structure when the product has no managed variants at
+ * all (so we never call the destructive resetToDefault here), and any variant we can't confidently
+ * map keeps its current Wix quantity instead of being zeroed. Returns false only when there is no
+ * variant structure to write to, so the caller surfaces a clear error rather than wiping stock.
  */
 export async function pushWixV1PerOptionInventory(
   accessToken: string,
@@ -413,46 +421,60 @@ export async function pushWixV1PerOptionInventory(
     ).catch(() => null);
 
   let product = await fetchWixV1Product(accessToken, productId, opts);
-  let inv = await fetchInventory();
-  let v1vars = product?.variants?.filter((v) => v.id) ?? [];
-  let v2vars = (inv?.inventoryItem?.variants ?? []).filter((v) => v.variantId);
+  let rows = product?.variants?.filter((v) => v.id) ?? [];
 
-  // No managed variants yet (or only the default row): create the option structure first, then refetch.
-  if (v1vars.length === 0 || v2vars.length <= 1) {
+  // Create the option structure ONLY when the product genuinely has no managed variants.
+  // (Never reset/replace an existing structure here — that path can wipe live Wix stock.)
+  if (rows.length === 0) {
     const structureOk = await pushWixV1OptionsUpdate(accessToken, productId, item, opts);
-    if (!structureOk) return false;
+    if (!structureOk) {
+      console.warn("[wix] pushWixV1PerOptionInventory: no variants and structure create failed", {
+        productId,
+      });
+      return false;
+    }
     product = await fetchWixV1Product(accessToken, productId, opts);
-    inv = await fetchInventory();
-    v1vars = product?.variants?.filter((v) => v.id) ?? [];
-    v2vars = (inv?.inventoryItem?.variants ?? []).filter((v) => v.variantId);
+    rows = product?.variants?.filter((v) => v.id) ?? [];
+    if (rows.length === 0) {
+      console.warn("[wix] pushWixV1PerOptionInventory: structure did not propagate", { productId });
+      return false;
+    }
   }
 
-  // Without v2 inventory variant ids there is nothing valid to PATCH — bail rather than guess.
-  if (v2vars.length === 0) return false;
-
-  const v1ById = new Map(v1vars.map((v) => [v.id as string, v]));
-  const sameCount = v1vars.length === v2vars.length;
+  const inv = await fetchInventory();
+  const v2QtyById = new Map<string, number>();
+  for (const v of inv?.inventoryItem?.variants ?? []) {
+    if (v.variantId && typeof v.quantity === "number") {
+      v2QtyById.set(v.variantId, Math.max(0, Math.round(v.quantity)));
+    }
+  }
 
   const variants: { variantId: string; quantity: number; inStock: boolean }[] = [];
   let resolved = 0;
-  for (let i = 0; i < v2vars.length; i++) {
-    const v2 = v2vars[i];
-    const variantId = v2.variantId as string;
-    // Bridge v2 variant -> v1 variant: prefer shared id, fall back to index when counts match.
-    const v1row = v1ById.get(variantId) ?? (sameCount ? v1vars[i] : undefined);
-    const value = v1row ? v1VariantSelectedValue(v1row, inw.axisName) : null;
-    const qty = value != null ? inw.qty.get(value) : undefined;
-    if (qty == null) {
-      // Keep Wix's current quantity for anything we can't confidently map.
-      variants.push({ variantId, quantity: Math.max(0, v2.quantity ?? 0), inStock: (v2.quantity ?? 0) > 0 });
+  for (const row of rows) {
+    const variantId = row.id as string;
+    const value = v1VariantSelectedValue(row, inw.axisName);
+    const mapped = value != null ? inw.qty.get(value) : undefined;
+    if (mapped == null) {
+      // Unknown mapping: preserve whatever Wix currently has (never zero by accident).
+      const current = v2QtyById.get(variantId) ?? Math.max(0, row.stock?.quantity ?? 0);
+      variants.push({ variantId, quantity: current, inStock: current > 0 });
       continue;
     }
     resolved += 1;
-    variants.push({ variantId, quantity: qty, inStock: qty > 0 });
+    variants.push({ variantId, quantity: mapped, inStock: mapped > 0 });
   }
 
   // Could not map any variant to an INW option -> structure mismatch; do not wipe Wix to zeros.
-  if (resolved === 0) return false;
+  if (resolved === 0) {
+    console.warn("[wix] pushWixV1PerOptionInventory: no variant matched an INW option value", {
+      productId,
+      axis: inw.axisName,
+      inwValues: [...inw.qty.keys()],
+      wixValues: rows.map((r) => v1VariantSelectedValue(r, inw.axisName)),
+    });
+    return false;
+  }
 
   await wixJson(
     accessToken,
