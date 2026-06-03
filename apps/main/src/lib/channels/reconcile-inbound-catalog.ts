@@ -185,10 +185,16 @@ export async function reconcileConnectionInboundCatalog(
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     });
 
-    // QUANTITY: numbers compare cleanly, so act purely on a real difference. The cron only ever
-    // PUSHES INW -> Wix (Wix -> INW quantity arrives via the live inventory webhook). This keeps a
-    // failed/no-op Wix write from reverting the seller's INW quantity on the next pass.
-    const qtyDiffers = remoteQtyKnown && remote.quantity !== item.quantity;
+    // QUANTITY: push INW -> Wix when the live numbers differ OR when INW changed since our last
+    // agreed baseline. The baseline check is essential for classic (v1) Wix stores whose product
+    // list API doesn't report reliable stock (`remoteQtyKnown === false`): without it, an INW-origin
+    // sale would never reach Wix if the checkout webhook's push was missed or killed mid-write. The
+    // cron stays PUSH-ONLY (Wix -> INW quantity still arrives via the live inventory webhook), and
+    // the baseline only advances on a verified push, so a failed/no-op write never reverts INW.
+    const inwQtyChangedSinceBaseline =
+      link.syncBaselineQty != null && item.quantity !== link.syncBaselineQty;
+    const qtyDiffers =
+      (remoteQtyKnown && remote.quantity !== item.quantity) || inwQtyChangedSinceBaseline;
 
     if (contentDecision === "noop" && !qtyDiffers) {
       // Anchor a baseline for links that have never been reconciled with this scheme.
