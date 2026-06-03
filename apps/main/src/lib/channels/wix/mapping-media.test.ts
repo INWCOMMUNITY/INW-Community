@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildWixV1AddProductMediaPayload } from "./media";
+import type { WixProductMediaRef } from "./media-import";
 import { buildWixV1CreateBody, buildWixV1MediaFromPhotos } from "./mapping";
 import type { SyncStoreItem } from "../types";
 
@@ -15,9 +16,13 @@ describe("buildWixV1MediaFromPhotos", () => {
     });
   });
 
-  it("builds Add Product Media payload with external urls", () => {
-    expect(buildWixV1AddProductMediaPayload(["https://cdn.example.com/a.jpg"])).toEqual({
-      media: [{ url: "https://cdn.example.com/a.jpg" }],
+  it("builds Add Product Media payload with mediaId or url", () => {
+    const refs: WixProductMediaRef[] = [
+      { mediaId: "abc~mv2.jpg", wixUrl: "https://static.wixstatic.com/media/abc~mv2.jpg" },
+      { url: "https://cdn.example.com/b.jpg" },
+    ];
+    expect(buildWixV1AddProductMediaPayload(refs)).toEqual({
+      media: [{ mediaId: "abc~mv2.jpg" }, { url: "https://cdn.example.com/b.jpg" }],
     });
   });
 

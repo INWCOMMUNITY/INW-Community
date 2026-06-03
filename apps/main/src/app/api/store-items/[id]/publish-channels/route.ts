@@ -7,6 +7,8 @@ import { validateProvidersForPublish } from "@/lib/channels/connection-publish";
 import type { ChannelProvider } from "@/lib/channels/types";
 
 export const dynamic = "force-dynamic";
+/** Wix media import can take tens of seconds for multiple photos. */
+export const maxDuration = 120;
 
 const bodySchema = z.object({
   providers: z

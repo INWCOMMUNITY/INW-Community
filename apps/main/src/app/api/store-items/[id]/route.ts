@@ -39,6 +39,8 @@ const bodySchema = z.object({
   // Channel sync (Etsy, eBay, Wix, Shopify)
   syncToChannels: z.boolean().optional(),
   channelProviders: z.array(z.enum(["etsy", "ebay", "shopify", "wix"])).optional(),
+  /** When marking sold: delete external listings on these channels and drop links. */
+  unpublishChannelProviders: z.array(z.enum(["etsy", "ebay", "shopify", "wix"])).optional(),
   etsyWhoMade: z.string().nullable().optional(),
   etsyWhenMade: z.string().nullable().optional(),
   etsyIsSupply: z.boolean().nullable().optional(),
@@ -302,7 +304,11 @@ export async function PATCH(
   let channelSync: { provider: string; ok: boolean; error?: string }[] = [];
   try {
     const existingLinks = await prisma.channelListingLink.count({ where: { storeItemId: itemId } });
-    if (data.syncToChannels === false && existingLinks > 0) {
+    const unpublishProviders = data.unpublishChannelProviders ?? [];
+    if (item.status === "sold_out" && unpublishProviders.length > 0) {
+      const { unpublishStoreItemFromChannels } = await import("@/lib/channels/outbound");
+      channelSync = await unpublishStoreItemFromChannels(itemId, unpublishProviders);
+    } else if (data.syncToChannels === false && existingLinks > 0) {
       // Stop syncing this item but leave the external listing in place.
       await prisma.channelListingLink.updateMany({
         where: { storeItemId: itemId },

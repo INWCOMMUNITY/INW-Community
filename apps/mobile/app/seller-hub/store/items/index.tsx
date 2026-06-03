@@ -173,28 +173,72 @@ export default function MyItemsScreen() {
     router.push(`/seller-hub/store/new?edit=${itemId}` as never);
   };
 
-  const markAsSold = async (id: string) => {
+  const markAsSold = async (id: string, unpublishProviders?: ChannelProviderId[]) => {
     setActingId(id);
     try {
+      const body: { status: "sold_out"; unpublishChannelProviders?: ChannelProviderId[] } = {
+        status: "sold_out",
+      };
+      if (unpublishProviders?.length) {
+        body.unpublishChannelProviders = unpublishProviders;
+      }
       const res = await apiPatch<{ channelSync?: { provider: string; ok: boolean; error?: string }[] }>(
         `/api/store-items/${id}`,
-        { status: "sold_out" }
+        body
       );
-      alertChannelSyncFailures(res.channelSync, "saved");
+      alertChannelSyncFailures(
+        res.channelSync,
+        unpublishProviders?.length ? "removed" : "saved"
+      );
       setItems((prev) => prev.filter((i) => i.id !== id));
-      Alert.alert("Marked as sold", "This item has been moved to Sold Items and no longer appears in My Items.", [
-        { text: "OK" },
-        {
-          text: "View Sold Items",
-          onPress: () => (router.push as (href: string) => void)("/seller-hub/store/sold"),
-        },
-      ]);
+      const removedNote =
+        unpublishProviders?.length
+          ? ` Removed from ${unpublishProviders.map((p) => CHANNEL_PROVIDER_LABEL[p]).join(", ")}.`
+          : "";
+      Alert.alert(
+        "Marked as sold",
+        `This item has been moved to Sold Items and no longer appears in My Items.${removedNote}`,
+        [
+          { text: "OK" },
+          {
+            text: "View Sold Items",
+            onPress: () => (router.push as (href: string) => void)("/seller-hub/store/sold"),
+          },
+        ]
+      );
     } catch (e) {
       const err = e as { error?: string };
       Alert.alert("Error", err.error ?? "Failed to mark as sold");
     } finally {
       setActingId(null);
     }
+  };
+
+  const confirmMarkAsSold = (id: string) => {
+    setMenuItemId(null);
+    const item = items.find((i) => i.id === id);
+    const linked = (item?.channelLinks ?? []).map((l) => l.provider as ChannelProviderId);
+    if (linked.length === 0) {
+      void markAsSold(id);
+      return;
+    }
+    const storeList = linked.map((p) => CHANNEL_PROVIDER_LABEL[p]).join(", ");
+    Alert.alert(
+      "Mark as sold?",
+      `This item is synced to ${storeList}. Remove the listing from ${linked.length === 1 ? "that store" : "those stores"} too?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Keep on stores",
+          onPress: () => void markAsSold(id),
+        },
+        {
+          text: linked.length === 1 ? `Remove from ${CHANNEL_PROVIDER_LABEL[linked[0]]}` : "Remove from all",
+          style: "destructive",
+          onPress: () => void markAsSold(id, linked),
+        },
+      ]
+    );
   };
 
   const deleteItem = (id: string) => {
@@ -540,10 +584,7 @@ export default function MyItemsScreen() {
               <Pressable
                 style={styles.menuOption}
                 onPress={() => {
-                  if (menuItemId) {
-                    setMenuItemId(null);
-                    markAsSold(menuItemId);
-                  }
+                  if (menuItemId) confirmMarkAsSold(menuItemId);
                 }}
               >
                 <Text style={styles.menuOptionTextGreen}>Mark sold</Text>

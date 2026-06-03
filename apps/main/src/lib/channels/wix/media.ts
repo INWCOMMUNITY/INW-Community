@@ -5,16 +5,23 @@ import { ensureWixSiteId, wixSiteIdFromConn } from "./site";
 import { v1Photos, type WixProduct } from "./mapping";
 import { wixGet } from "./client";
 import type { ChannelConnectionContext } from "../types";
+import {
+  resolveWixProductMediaRefs,
+  type WixProductMediaRef,
+} from "./media-import";
 
 type ProductResponse = { product?: WixProduct };
 
-/** Payload for Catalog v1 Add Product Media (external URLs). */
+/** Payload for Catalog v1 Add Product Media (mediaId preferred, url fallback). */
 export function buildWixV1AddProductMediaPayload(
-  photos: string[]
-): { media: { url: string }[] } | null {
-  const urls = photos.filter(Boolean).slice(0, 50);
-  if (urls.length === 0) return null;
-  return { media: urls.map((url) => ({ url })) };
+  refs: WixProductMediaRef[]
+): { media: Array<{ mediaId?: string; url?: string }> } | null {
+  if (refs.length === 0) return null;
+  return {
+    media: refs.map((r) =>
+      "mediaId" in r ? { mediaId: r.mediaId } : { url: r.url }
+    ),
+  };
 }
 
 /**
@@ -28,7 +35,8 @@ export async function pushWixV1ProductMedia(
   opts: WixRequestOpts,
   replace = false
 ): Promise<void> {
-  const payload = buildWixV1AddProductMediaPayload(photos);
+  const refs = await resolveWixProductMediaRefs(accessToken, photos, opts);
+  const payload = buildWixV1AddProductMediaPayload(refs);
   if (!payload) return;
 
   if (replace) {
@@ -51,9 +59,11 @@ export async function pushWixV1ProductMedia(
     payload,
     opts
   );
+  const mediaIds = refs.filter((r) => "mediaId" in r).length;
   console.info("[wix] pushWixV1ProductMedia ok", {
     productId,
     count: payload.media.length,
+    mediaIds,
     replace,
   });
 }
@@ -76,6 +86,10 @@ async function pushWixV3ProductMediaIfMissing(
     Boolean(product.media?.main?.url || product.media?.main?.image?.url) ||
     (product.media?.itemsInfo?.items?.length ?? 0) > 0;
   if (hasMedia) return;
+  const refs = await resolveWixProductMediaRefs(accessToken, photos, opts);
+  const items = refs.map((r) =>
+    "mediaId" in r ? { url: r.wixUrl } : { url: r.url }
+  );
   await wixJson(
     accessToken,
     `/stores/v3/products/${encodeURIComponent(productId)}`,
@@ -83,16 +97,15 @@ async function pushWixV3ProductMediaIfMissing(
     {
       product: {
         revision: product.revision,
-        media: {
-          itemsInfo: {
-            items: photos.slice(0, 12).map((url) => ({ url })),
-          },
-        },
+        media: { itemsInfo: { items } },
       },
     },
     opts
   );
-  console.info("[wix] pushWixV3ProductMediaIfMissing ok", { productId, count: photos.length });
+  console.info("[wix] pushWixV3ProductMediaIfMissing ok", {
+    productId,
+    count: items.length,
+  });
 }
 
 /** Push listing photos to Wix when the catalog API does not accept media on create/PATCH. */

@@ -8,6 +8,7 @@ import { hasBusinessHubAccess } from "@/lib/business-hub-access";
 import path from "path";
 import fs from "fs/promises";
 import { padBusinessLogoToSquareJpeg } from "@/lib/business-logo-square";
+import { optimizeListingPhoto } from "@/lib/listing-photo-optimize";
 
 const MAX_SIZE = 120 * 1024 * 1024; // 120MB (business / listing uploads via this route)
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -54,8 +55,9 @@ export async function POST(req: NextRequest) {
   let contentType = file.type;
   let uploadBuffer: Buffer | null = null;
 
+  const rawBuffer = Buffer.from(await file.arrayBuffer());
+
   if (letterboxLogo) {
-    const rawBuffer = Buffer.from(await file.arrayBuffer());
     try {
       uploadBuffer = await padBusinessLogoToSquareJpeg(rawBuffer);
       outExt = ".jpg";
@@ -65,6 +67,15 @@ export async function POST(req: NextRequest) {
       uploadBuffer = rawBuffer;
       outExt = path.extname(file.name) || ".jpg";
       contentType = file.type;
+    }
+  } else {
+    try {
+      uploadBuffer = await optimizeListingPhoto(rawBuffer);
+      outExt = ".jpg";
+      contentType = "image/jpeg";
+    } catch (e) {
+      console.error("[upload] listing photo optimize failed, storing original", e);
+      uploadBuffer = rawBuffer;
     }
   }
 
