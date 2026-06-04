@@ -102,7 +102,7 @@ export function EventInvitationsSidebar() {
   return (
     <aside className="w-full shrink-0 order-3 lg:pr-5">
       <div
-        className="rounded-lg border-2 p-4 bg-white sticky top-24 shadow-sm"
+        className="rounded-lg border-2 p-4 bg-white shadow-sm"
         style={{ borderColor: "var(--color-primary)" }}
       >
         <h2

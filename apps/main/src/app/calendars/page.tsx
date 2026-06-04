@@ -10,15 +10,20 @@ export default async function CalendarsPage() {
   return (
     <section className="pt-20 pb-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto text-center">
-        <div className="flex flex-col items-center gap-4 mb-8 w-full max-md:px-2">
-          <h1 className="text-3xl font-bold mb-2">Northwest Community Calendars</h1>
-          <p className="opacity-80 max-w-xl">
-            Local events not run by NWC. See what&apos;s happening in our area!
-          </p>
-          <div className="w-full max-md:flex max-md:justify-center">
+        <div
+          className="mb-8 mx-auto flex w-full max-w-2xl flex-col items-center gap-4 rounded-lg border-2 border-[var(--color-primary)] p-6 sm:p-8 max-md:px-2"
+          style={{ backgroundColor: "var(--color-section-alt)" }}
+        >
+          <div className="flex flex-col items-center gap-1">
+            <h1 className="text-3xl font-bold">Northwest Community Calendars</h1>
+            <p className="opacity-80 max-w-xl">
+              Take a look at the events happening in Spokane &amp; Kootenai County!
+            </p>
+          </div>
+          <div className="flex w-full max-w-xs justify-center sm:max-w-sm">
             <Link
               href={postEventHref}
-              className="btn inline-block"
+              className="btn inline-block w-full text-center px-8 py-2.5 text-sm sm:text-base"
             >
               Post Event
             </Link>

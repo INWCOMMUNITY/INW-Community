@@ -10,7 +10,7 @@ import {
   toggleBusinessFeedLike,
   type BusinessFeedPost,
 } from "@/lib/business-feed-api";
-import { BUSINESS_SECTION_TITLE } from "@/components/business/business-page-layout";
+import { BUSINESS_SECTION_TITLE, BUSINESS_TEXT_SM } from "@/components/business/business-page-layout";
 
 export function BusinessCommunityFeed({ businessId }: { businessId: string }) {
   const router = useRouter();
@@ -118,16 +118,16 @@ export function BusinessCommunityFeed({ businessId }: { businessId: string }) {
       <p className={BUSINESS_SECTION_TITLE} style={{ color: "var(--color-heading)" }}>
         Community posts
       </p>
-      <p className="text-sm mb-3" style={{ color: "var(--color-text)" }}>
+      <p className={`mb-3 ${BUSINESS_TEXT_SM}`} style={{ color: "var(--color-text)" }}>
         Posts that share this business or its coupons and rewards on the community feed.
       </p>
 
       {loading && posts.length === 0 ? (
-        <p className="text-center text-gray-500 py-6 text-sm">Loading posts…</p>
+        <p className={`text-center text-gray-500 py-6 ${BUSINESS_TEXT_SM}`}>Loading posts…</p>
       ) : null}
 
       {!loading && posts.length === 0 ? (
-        <p className="text-center text-gray-500 py-4 text-sm">No posts yet.</p>
+        <p className={`text-center text-gray-500 py-4 ${BUSINESS_TEXT_SM}`}>No posts yet.</p>
       ) : (
         <div className="space-y-4">
           {posts.map((post) => (

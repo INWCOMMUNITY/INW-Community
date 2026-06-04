@@ -1,0 +1,28 @@
+import { redirect } from "next/navigation";
+import { getServerSession } from "next-auth";
+import { prisma } from "database";
+import { authOptions } from "@/lib/auth";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+
+export default async function SellerHubChannelsLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    redirect("/login?callbackUrl=/seller-hub/channels");
+  }
+  const sub = await prisma.subscription.findFirst({
+    where: prismaWhereMemberSellerPlanAccess(session.user.id),
+  });
+  const isAdmin = (session.user as { isAdmin?: boolean }).isAdmin === true;
+  if (!sub && !isAdmin) {
+    redirect("/seller-hub");
+  }
+  return (
+    <div className="py-8" style={{ padding: "var(--section-padding)" }}>
+      <main className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">{children}</main>
+    </div>
+  );
+}

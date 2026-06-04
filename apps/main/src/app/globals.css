@@ -37,7 +37,8 @@
 }
 
 html {
-  overflow-x: hidden;
+  /* clip (not hidden) — hidden forces overflow-y:auto and breaks position:sticky in descendants */
+  overflow-x: clip;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -48,7 +49,7 @@ body {
   line-height: var(--line-height);
   color: var(--color-text);
   background-color: var(--color-background);
-  overflow-x: hidden;
+  overflow-x: clip;
   max-width: 100vw;
 }
 

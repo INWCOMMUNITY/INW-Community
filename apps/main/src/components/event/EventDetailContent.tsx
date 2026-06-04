@@ -15,8 +15,8 @@ import {
   downloadEventIcs,
   type EventCalendarInput,
 } from "@/lib/event-calendar-export-web";
+import { SiteNavAlignedColumn } from "@/components/SiteNavAlignedColumn";
 
-const EVENT_PAGE_SHELL = "max-w-[var(--max-width)] mx-auto px-5 sm:px-6 lg:px-8";
 const EVENT_SECTION_STACK = "flex flex-col gap-2";
 
 export type EventDetailData = {
@@ -263,22 +263,31 @@ export function EventDetailContent({
 
   return (
     <div className="bg-white min-h-[50vh]">
-      <div className={EVENT_PAGE_SHELL}>
+      <SiteNavAlignedColumn>
         <div
-          className="flex items-center gap-2 py-2 rounded-lg border-b-2 border-black mt-1"
+          className="flex items-center gap-2 py-2 rounded-lg border-b-2 border-black mt-4 md:mt-5"
           style={{ backgroundColor: "var(--color-primary)" }}
         >
           <Link
             href={backHref}
-            className="p-1.5 text-white hover:opacity-90"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-white hover:opacity-90"
             aria-label="Back"
           >
             <IonIcon name="arrow-back" size={22} className="text-white" />
           </Link>
-          <span className="flex-1 text-base font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>
-            Event
+          <span
+            className="flex min-w-0 flex-1 items-center justify-center truncate px-1 text-base font-bold leading-snug text-white"
+            style={{ fontFamily: "var(--font-heading)" }}
+            title={event.title}
+          >
+            {event.title}
           </span>
-          <button type="button" onClick={reportEvent} className="p-1.5 text-white hover:opacity-90" aria-label="Report event">
+          <button
+            type="button"
+            onClick={reportEvent}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-white hover:opacity-90"
+            aria-label="Report event"
+          >
             <IonIcon name="flag-outline" size={20} className="text-white" />
           </button>
         </div>
@@ -293,7 +302,7 @@ export function EventDetailContent({
 
         <div className={`${EVENT_SECTION_STACK} pb-6 pt-2`}>
           <h1
-            className="text-center text-2xl font-bold pt-2 mb-1"
+            className="text-center text-3xl font-bold pt-2 mb-1"
             style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
           >
             {event.title}
@@ -313,7 +322,7 @@ export function EventDetailContent({
           ) : null}
 
           <div className="flex gap-2.5 py-2">
-            <div className="flex-1 p-2 rounded-lg border-2 border-[var(--color-primary)] bg-white">
+            <div className="flex-1 p-2 rounded-lg border-2 border-[var(--color-primary)] bg-white text-center">
               <p className="text-sm font-semibold mb-0.5" style={{ color: "var(--color-primary)" }}>
                 Date
               </p>
@@ -321,7 +330,7 @@ export function EventDetailContent({
                 {dateStr}
               </p>
             </div>
-            <div className="flex-1 p-2 rounded-lg border-2 border-[var(--color-primary)] bg-white">
+            <div className="flex-1 p-2 rounded-lg border-2 border-[var(--color-primary)] bg-white text-center">
               <p className="text-sm font-semibold mb-0.5" style={{ color: "var(--color-primary)" }}>
                 Time
               </p>
@@ -361,8 +370,13 @@ export function EventDetailContent({
           </button>
 
           {event.inviteStats ? (
-            <div className="pt-1">
-              <p className="text-xs font-bold uppercase tracking-wide text-[#5a6570] mb-0.5">Your invite activity</p>
+            <div className="mt-3 rounded-lg border-2 border-[var(--color-primary)] bg-white p-3 text-center">
+              <p
+                className="mb-2 text-xs font-bold uppercase tracking-wide"
+                style={{ color: "var(--color-primary)" }}
+              >
+                Your invite activity
+              </p>
               <EventInviteStatsBlocks stats={event.inviteStats} />
             </div>
           ) : null}
@@ -418,7 +432,7 @@ export function EventDetailContent({
             </>
           ) : null}
         </div>
-      </div>
+      </SiteNavAlignedColumn>
 
       <Sheet open={rsvpOpen} onClose={() => !rsvpSubmitting && setRsvpOpen(false)} title="RSVP" subtitle="How would you like to respond?">
         {rsvpSubmitting ? (

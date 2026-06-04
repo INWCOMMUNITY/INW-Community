@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { IonIcon } from "@/components/IonIcon";
+import { CreatePostButton } from "@/components/CreatePostButton";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { CreatePostModal, type EditFeedPostPayload } from "@/components/CreatePostModal";
 
@@ -146,10 +148,12 @@ export default function CommunityFeedPage() {
 
   return (
     <div>
-      <div className="flex flex-col max-md:items-center md:flex-row md:flex-wrap md:items-center md:justify-between gap-4 mb-6">
-        <h1 className="text-2xl font-bold max-md:text-center md:order-1">Northwest Community Feed</h1>
-      </div>
-      <p className="text-gray-600 mb-6 max-md:text-center">
+      <div
+        className="text-center mb-6 rounded-lg border-2 bg-gray-50 px-4 py-4"
+        style={{ borderColor: "var(--color-primary)" }}
+      >
+        <h1 className="text-2xl font-bold mb-1.5">Northwest Community Feed</h1>
+        <p className="text-gray-600 text-lg md:text-xl">
         {isGuest ? (
           <>
             Public posts from members and businesses.{" "}
@@ -159,12 +163,37 @@ export default function CommunityFeedPage() {
             to like, comment, share, and see a personalized feed.
           </>
         ) : (
-          <>
-            Posts from you and your friends, groups you&apos;ve joined, tags you follow, and businesses you follow (including
-            their updates). Share a blog or other item to add it here.
-          </>
+          <>North Idaho & Spokane Residents Community Page</>
         )}
-      </p>
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-3 mt-3">
+          <Link
+            href={isGuest ? "/login?callbackUrl=/my-community/groups" : "/my-community/groups"}
+            prefetch={false}
+            className="inline-flex items-center gap-2 rounded-lg border-2 px-4 py-2 font-medium text-base text-gray-800 bg-white hover:bg-gray-100 transition"
+            style={{ borderColor: "var(--color-primary)" }}
+          >
+            <IonIcon name="people-circle-outline" size={20} className="shrink-0" />
+            Groups
+          </Link>
+          <CreatePostButton
+            returnTo="/my-community/feed"
+            className="inline-flex items-center gap-2 rounded-lg border-2 border-[var(--color-primary)] px-4 py-2 font-medium text-base text-gray-800 bg-white hover:bg-gray-100 transition"
+          >
+            <IonIcon name="add-circle-outline" size={20} className="shrink-0" />
+            Create Post
+          </CreatePostButton>
+          <Link
+            href={isGuest ? "/login?callbackUrl=/my-community/friends" : "/my-community/friends"}
+            prefetch={false}
+            className="inline-flex items-center gap-2 rounded-lg border-2 px-4 py-2 font-medium text-base text-gray-800 bg-white hover:bg-gray-100 transition"
+            style={{ borderColor: "var(--color-primary)" }}
+          >
+            <IonIcon name="people-outline" size={20} className="shrink-0" />
+            My Friends
+          </Link>
+        </div>
+      </div>
       {posts.length === 0 ? (
         <p className="text-gray-500">
           {isGuest

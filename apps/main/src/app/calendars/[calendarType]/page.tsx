@@ -45,14 +45,12 @@ export default async function CalendarTypePage({
       <div className="relative z-10 mx-auto mt-0 w-full max-w-[var(--max-width)] max-md:max-w-full md:mt-8">
         <div className="overflow-hidden rounded-xl bg-white shadow-lg max-md:rounded-lg max-md:shadow-md">
           <div className="p-6 border-b border-gray-200 max-md:hidden">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <Link href="/calendars" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
-                  ← Back to NWC Calendar & Events Page
-                </Link>
-                <h1 className="text-3xl font-bold mb-2">Northwest Community</h1>
-                <h2 className="text-2xl font-semibold">{label}</h2>
-              </div>
+            <div>
+              <Link href="/calendars" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
+                ← Back to NWC Calendar & Events Page
+              </Link>
+              <h1 className="text-3xl font-bold mb-2">Northwest Community</h1>
+              <h2 className="text-2xl font-semibold mb-4">{label}</h2>
               <PostEventModal calendarType={calendarType} calendarLabel={label} />
             </div>
           </div>

@@ -9,21 +9,21 @@ const ROW = [
 
 export function EventInviteStatsBlocks({ stats }: { stats: EventInviteStats }) {
   return (
-    <div className="grid grid-cols-4 gap-1 mt-1.5 w-full">
+    <div className="mx-auto flex w-full max-w-md gap-1.5">
       {ROW.map(({ key, label }) => (
         <div
           key={key}
-          className="aspect-square max-h-[3.5rem] rounded-lg flex flex-col items-center justify-center px-0.5 py-1"
+          className="flex min-w-0 flex-1 flex-col items-center justify-center aspect-square max-h-[4.5rem] rounded-lg px-1 py-2 text-center"
           style={{ backgroundColor: "#FDEDCC" }}
           aria-label={`${label}: ${stats[key]}`}
         >
           <span
-            className="text-sm sm:text-base font-bold leading-none"
+            className="text-base font-bold leading-none"
             style={{ color: "var(--color-heading)" }}
           >
             {stats[key]}
           </span>
-          <span className="text-[9px] sm:text-[10px] font-semibold text-center leading-tight text-[#5a6570] mt-0.5">
+          <span className="mt-1 text-[10px] font-semibold leading-tight text-[#5a6570]">
             {label}
           </span>
         </div>

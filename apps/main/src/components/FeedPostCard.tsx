@@ -248,7 +248,7 @@ export function FeedPostCard({
   useLockBodyScroll(galleryOpen);
 
   return (
-    <article className="border rounded-lg bg-white shadow-sm overflow-hidden max-w-2xl w-full">
+    <article className="border rounded-lg bg-white shadow-sm overflow-hidden w-full">
       <div className="p-4">
         <div className="flex items-start justify-between gap-3 mb-3">
           {post.type === "shared_business" && post.sourceBusiness ? (
@@ -357,6 +357,38 @@ export function FeedPostCard({
               )}
           </div>
         </div>
+
+        {content && (
+          <p className="text-gray-800 whitespace-pre-wrap mb-2">
+            {displayContent}
+            {isLong && !expanded && (
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="hover:underline ml-1 font-medium"
+                style={{ color: "var(--color-primary)" }}
+              >
+                See More
+              </button>
+            )}
+          </p>
+        )}
+        {post.tags && post.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {post.tags.map((t) => (
+              <span key={t.id} className="text-sm" style={{ color: "var(--color-primary)" }}>
+                #{t.name}
+              </span>
+            ))}
+          </div>
+        )}
+        {feedMediaItems.length > 0 && (
+          <FeedPostMediaCarousel
+            className="mb-3"
+            items={feedMediaItems}
+            onOpenItem={(index) => openGallery(allMedia, index)}
+          />
+        )}
 
         {post.type === "shared_blog" && post.sourceBlog && (
           <div className="border rounded p-4 bg-gray-50 mb-3">
@@ -500,6 +532,18 @@ export function FeedPostCard({
                 </span>
               </div>
             )}
+            {post.sourcePost.content && (
+              <p className="text-gray-800 text-sm whitespace-pre-wrap mb-2">{post.sourcePost.content.slice(0, 300)}{post.sourcePost.content.length > 300 ? "…" : ""}</p>
+            )}
+            {post.sourcePost.tags && post.sourcePost.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-2">
+                {post.sourcePost.tags.map((t) => (
+                  <span key={t.id} className="text-xs" style={{ color: "var(--color-primary)" }}>
+                    #{t.name}
+                  </span>
+                ))}
+              </div>
+            )}
             {post.sourcePost.type === "shared_blog" && post.sourcePost.sourceBlog && (
               <div className="border rounded p-3 bg-white mb-2">
                 <Link href={`/blog/${post.sourcePost.sourceBlog.slug}`} className="block hover:opacity-90">
@@ -562,18 +606,6 @@ export function FeedPostCard({
                 </Link>
               </div>
             )}
-            {post.sourcePost.content && (
-              <p className="text-gray-800 text-sm whitespace-pre-wrap mb-2">{post.sourcePost.content.slice(0, 300)}{post.sourcePost.content.length > 300 ? "…" : ""}</p>
-            )}
-            {post.sourcePost.tags && post.sourcePost.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1 mb-2">
-                {post.sourcePost.tags.map((t) => (
-                  <span key={t.id} className="text-xs" style={{ color: "var(--color-primary)" }}>
-                    #{t.name}
-                  </span>
-                ))}
-              </div>
-            )}
             {(post.sourcePost.photos?.length ?? 0) + (post.sourcePost.videos?.length ?? 0) > 0 && (
               <FeedPostMediaCarousel
                 className="mt-2"
@@ -585,38 +617,6 @@ export function FeedPostCard({
               />
             )}
           </div>
-        )}
-
-        {content && (
-          <p className="text-gray-800 whitespace-pre-wrap mb-2">
-            {displayContent}
-            {isLong && !expanded && (
-              <button
-                type="button"
-                onClick={() => setExpanded(true)}
-                className="hover:underline ml-1 font-medium"
-                style={{ color: "var(--color-primary)" }}
-              >
-                See More
-              </button>
-            )}
-          </p>
-        )}
-        {post.tags && post.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {post.tags.map((t) => (
-              <span key={t.id} className="text-sm" style={{ color: "var(--color-primary)" }}>
-                #{t.name}
-              </span>
-            ))}
-          </div>
-        )}
-        {feedMediaItems.length > 0 && (
-          <FeedPostMediaCarousel
-            className="mb-3"
-            items={feedMediaItems}
-            onOpenItem={(index) => openGallery(allMedia, index)}
-          />
         )}
 
         {galleryOpen && galleryMedia.length > 0 && galleryItem && (

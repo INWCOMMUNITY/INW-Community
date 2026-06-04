@@ -50,11 +50,14 @@ export function MyCommunitySidebar() {
 
   return (
     <nav
-      className="border-2 rounded-lg p-4 bg-gray-50 sticky top-24"
+      className="border-2 rounded-lg p-2.5 bg-gray-50 text-base leading-snug"
       style={{ borderColor: "var(--color-primary)" }}
     >
-      <h2 className="text-sm font-semibold uppercase tracking-wider mb-3 px-1" style={{ color: "var(--color-primary)" }}>
-        Inland Northwest Community
+      <h2
+        className="text-xs font-semibold uppercase tracking-wide mb-2.5 px-1 leading-tight"
+        style={{ color: "var(--color-primary)" }}
+      >
+        INW Community
       </h2>
       <ul className="space-y-1">
         {sidebarItems.map((item, i) =>
@@ -64,15 +67,15 @@ export function MyCommunitySidebar() {
               className="pt-3 mt-3 border-t first:pt-0 first:mt-0 first:border-0"
               style={{ borderColor: "var(--color-primary)" }}
             >
-              <span className="block py-1 px-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-primary)" }}>
+              <span className="block py-0.5 px-2.5 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-primary)" }}>
                 {item.divider}
               </span>
             </li>
           ) : "action" in item && item.action === "create-post" ? (
             <li key="create-post">
-              <CreatePostButton className="flex items-center gap-2 w-full text-left py-2 px-3 rounded transition font-medium text-gray-800 hover:bg-gray-200">
-                <IonIcon name={item.icon} size={20} />
-                {item.label}
+              <CreatePostButton className="flex items-center gap-2 w-full text-left py-2 px-2.5 rounded transition font-medium text-gray-800 hover:bg-gray-200 text-base">
+                <IonIcon name={item.icon} size={20} className="shrink-0" />
+                <span className="truncate">{item.label}</span>
               </CreatePostButton>
             </li>
           ) : "href" in item ? (
@@ -80,7 +83,7 @@ export function MyCommunitySidebar() {
               <Link
                 href={item.href}
                 prefetch={false}
-                className={`flex items-center gap-2 py-2 px-3 rounded transition font-medium ${
+                className={`flex items-center gap-2 py-2 px-2.5 rounded transition font-medium text-base ${
                   isActive(pathname, item.href)
                     ? "text-white"
                     : "text-gray-800 hover:bg-gray-200"
@@ -91,18 +94,18 @@ export function MyCommunitySidebar() {
                     : undefined
                 }
               >
-                <IonIcon name={item.icon} size={20} />
-                {item.label}
+                <IonIcon name={item.icon} size={20} className="shrink-0" />
+                <span className="truncate">{item.label}</span>
               </Link>
             </li>
           ) : null
         )}
         {isAdmin && (
-          <li className="pt-3 mt-3 border-t" style={{ borderColor: "var(--color-primary)" }}>
+          <li className="pt-2 mt-2 border-t" style={{ borderColor: "var(--color-primary)" }}>
             <Link
               href="/admin"
               prefetch={false}
-              className={`flex items-center gap-2 py-2 px-3 rounded transition font-medium ${
+              className={`flex items-center gap-2 py-2 px-2.5 rounded transition font-medium text-base ${
                 pathname.startsWith("/admin")
                   ? "text-white"
                   : "text-gray-800 hover:bg-gray-200"
@@ -113,8 +116,8 @@ export function MyCommunitySidebar() {
                   : undefined
               }
             >
-              <IonIcon name="shield-checkmark-outline" size={20} />
-              Admin
+              <IonIcon name="shield-checkmark-outline" size={20} className="shrink-0" />
+              <span className="truncate">Admin</span>
             </Link>
           </li>
         )}

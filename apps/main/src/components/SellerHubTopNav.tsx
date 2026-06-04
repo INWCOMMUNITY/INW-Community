@@ -121,6 +121,7 @@ export function SellerHubTopNav() {
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "#stripe", label: "Stripe", icon: "card-outline" },
     { href: "https://apps.goshippo.com/", label: "Shippo", icon: "boat-outline" },
+    { href: "/seller-hub/channels", label: "Sync Stores", icon: "sync-outline" },
   ];
 
   const getPaidChildren: Child[] = pending.payoutSetupComplete

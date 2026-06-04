@@ -78,7 +78,7 @@ export default async function SellerHubPage() {
           }}
         >
           <div className="relative z-10 w-full max-w-2xl mx-auto px-3 max-md:px-2 py-4 max-md:py-3 md:px-6 md:py-10">
-            <div className="bg-white/60 backdrop-blur-sm rounded-lg shadow-lg p-4 max-md:p-3 md:p-10 text-center max-md:max-h-[85%] max-md:overflow-auto max-md:max-w-[300px] max-md:mx-auto">
+            <div className="bg-white rounded-lg shadow-lg p-4 max-md:p-3 md:p-10 text-center max-md:max-h-[85%] max-md:overflow-auto max-md:max-w-[300px] max-md:mx-auto">
               <h1 className="text-[2.1rem] max-md:text-lg md:text-5xl font-bold mb-3 max-md:mb-2 text-black">
                 Seller Hub
               </h1>
@@ -97,34 +97,13 @@ export default async function SellerHubPage() {
         <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
           <div className="flex flex-wrap justify-center gap-8">
             <Link
-              href="/seller-hub/store"
-              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <IonIcon name="storefront" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">Storefront Info</h2>
-              <p className="text-sm text-gray-600">
-                View and edit your store information, policies, and payment setup.
-              </p>
-            </Link>
-            <Link
-              href="/seller-hub/store/items"
+              href="/seller-hub/store/new"
               className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
             >
               <IonIcon name="add-circle" size={28} className="text-[var(--color-primary)] mb-2" />
               <h2 className="text-xl font-bold mb-2">List Items</h2>
               <p className="text-sm text-gray-600">
                 Add products to the NWC Storefront. Set prices, photos, shipping, and receive payments directly.
-              </p>
-            </Link>
-            <Link
-              href="/seller-hub/store/manage"
-              className="relative hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-            >
-              <HubExclamationBadge show={pendingOffersNewCount > 0} />
-              <IonIcon name="list" size={28} className="text-[var(--color-primary)] mb-2" />
-              <h2 className="text-xl font-bold mb-2">Manage Store</h2>
-              <p className="text-sm text-gray-600">
-                View your listings, sold items, offers, and refund requests.
               </p>
             </Link>
             <Link
@@ -136,6 +115,27 @@ export default async function SellerHubPage() {
               <h2 className="text-xl font-bold mb-2">My Orders / Ship Items</h2>
               <p className="text-sm text-gray-600">
                 View orders and purchase shipping labels.
+              </p>
+            </Link>
+            <Link
+              href="/seller-hub/store"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+            >
+              <IonIcon name="storefront" size={28} className="text-[var(--color-primary)] mb-2" />
+              <h2 className="text-xl font-bold mb-2">Storefront Info</h2>
+              <p className="text-sm text-gray-600">
+                View and edit your store information, policies, and payment setup.
+              </p>
+            </Link>
+            <Link
+              href="/seller-hub/store/manage"
+              className="relative hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+            >
+              <HubExclamationBadge show={pendingOffersNewCount > 0} />
+              <IonIcon name="list" size={28} className="text-[var(--color-primary)] mb-2" />
+              <h2 className="text-xl font-bold mb-2">Manage Store</h2>
+              <p className="text-sm text-gray-600">
+                View your listings, sold items, offers, and refund requests.
               </p>
             </Link>
             {hasLocalDelivery && (
@@ -168,6 +168,16 @@ export default async function SellerHubPage() {
               <h2 className="text-xl font-bold mb-2">Payouts</h2>
               <p className="text-sm text-gray-600">
                 View your balance and send funds to your bank account.
+              </p>
+            </Link>
+            <Link
+              href="/seller-hub/channels"
+              className="hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+            >
+              <IonIcon name="sync-outline" size={28} className="text-[var(--color-primary)] mb-2" />
+              <h2 className="text-xl font-bold mb-2">Sync Stores</h2>
+              <p className="text-sm text-gray-600">
+                Connect Etsy, eBay, Wix, or Shopify and keep inventory in sync across marketplaces.
               </p>
             </Link>
             <Link

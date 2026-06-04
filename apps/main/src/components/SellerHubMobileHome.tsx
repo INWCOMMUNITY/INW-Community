@@ -87,6 +87,7 @@ export function SellerHubMobileHome({ hasLocalDelivery }: { hasLocalDelivery: bo
       },
       { label: "Pick Up", href: "/seller-hub/pickups", icon: "hand-left-outline" },
       { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
+      { label: "Sync Stores", href: "/seller-hub/channels", icon: "sync-outline" },
       {
         label: sellerSetupComplete ? "Seller Variables" : "Before You Start",
         href: "/seller-hub/shipping-setup",

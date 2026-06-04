@@ -4,6 +4,13 @@ import { useState, useRef, useEffect } from "react";
 import { getErrorMessage } from "@/lib/api-error";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { IonIcon } from "@/components/IonIcon";
+
+const POST_ACTION_BTN =
+  "inline-flex items-center gap-2 rounded-lg border-2 border-[var(--color-primary)] px-3 py-2 font-medium text-sm text-gray-800 bg-white hover:bg-gray-100 transition";
+
+const FORM_FOOTER_BTN =
+  "btn inline-flex items-center justify-center gap-2 py-1.5 px-3 text-sm min-h-0";
 
 interface Group {
   id: string;
@@ -69,7 +76,9 @@ export function CreatePostForm({
   const [friends, setFriends] = useState<Friend[]>([]);
   const [taggedFriendIds, setTaggedFriendIds] = useState<Set<string>>(new Set());
   const [tagFriendsOpen, setTagFriendsOpen] = useState(false);
+  const [tagPanelOpen, setTagPanelOpen] = useState(false);
   const mediaInputRef = useRef<HTMLInputElement>(null);
+  const tagInputRef = useRef<HTMLInputElement>(null);
   const lockPostingContext = !!editPostId;
 
   useEffect(() => {
@@ -152,24 +161,22 @@ export function CreatePostForm({
     }
   }
 
-  function addLink() {
-    const url = prompt("Enter URL:");
-    if (url) {
-      try {
-        new URL(url);
-        setLinks((prev) => [...prev, { url, title: "" }]);
-      } catch {
-        alert("Invalid URL");
-      }
-    }
+  function addLinkRow() {
+    setLinks((prev) => [...prev, { url: "", title: "" }]);
   }
 
   function addTag() {
-    const t = tagInput.trim();
+    const t = tagInput.trim().replace(/^#/, "");
     if (t && !tags.includes(t)) {
       setTags((prev) => [...prev, t]);
       setTagInput("");
+      setTagPanelOpen(true);
     }
+  }
+
+  function openTagPanel() {
+    setTagPanelOpen(true);
+    requestAnimationFrame(() => tagInputRef.current?.focus());
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -276,19 +283,7 @@ export function CreatePostForm({
           </div>
         )}
         <div>
-          <label htmlFor="content" className="block text-sm font-medium mb-1">What&apos;s on your mind?</label>
-          <textarea
-            id="content"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            maxLength={5000}
-            rows={5}
-            className="border rounded px-3 py-2 w-full"
-            placeholder="Share an update, link, or thought..."
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Photos & videos</label>
+          <label className="block text-sm font-medium mb-1">Photos & Videos</label>
           <input
             ref={mediaInputRef}
             type="file"
@@ -332,116 +327,159 @@ export function CreatePostForm({
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Links</label>
-          {links.map((l, i) => (
-            <div key={i} className="flex gap-2 mb-2">
-              <input
-                type="url"
-                value={l.url}
-                onChange={(e) =>
-                  setLinks((prev) => prev.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))
-                }
-                className="border rounded px-3 py-2 flex-1"
-                placeholder="URL"
-              />
-              <input
-                type="text"
-                value={l.title}
-                onChange={(e) =>
-                  setLinks((prev) => prev.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))
-                }
-                className="border rounded px-3 py-2 w-32"
-                placeholder="Title"
-              />
+          <label htmlFor="content" className="block text-sm font-medium mb-1">Add Caption</label>
+          <textarea
+            id="content"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            maxLength={5000}
+            rows={5}
+            className="border rounded px-3 py-2 w-full"
+            placeholder="Add a caption for your post..."
+          />
+          <div className="flex flex-wrap gap-2 mt-3">
+            {friends.length > 0 && (
               <button
                 type="button"
-                onClick={() => setLinks((prev) => prev.filter((_, j) => j !== i))}
-                className="text-red-600 hover:underline"
+                onClick={() => setTagFriendsOpen((o) => !o)}
+                className={POST_ACTION_BTN}
+                aria-expanded={tagFriendsOpen}
               >
-                Remove
+                <IonIcon name="people-outline" size={18} className="text-[var(--color-primary)]" />
+                Tag Friends
+                {taggedFriendIds.size > 0 ? ` (${taggedFriendIds.size})` : ""}
               </button>
-            </div>
-          ))}
-          <button type="button" onClick={addLink} className="text-sm hover:underline font-medium"
-          style={{ color: "var(--color-primary)" }}>
-            + Add link
-          </button>
-        </div>
-        {friends.length > 0 && (
-          <div>
-            <label className="block text-sm font-medium mb-1">Tag friends</label>
+            )}
             <button
               type="button"
-              onClick={() => setTagFriendsOpen((o) => !o)}
-              className="btn border text-sm"
+              onClick={() => (tagPanelOpen ? setTagPanelOpen(false) : openTagPanel())}
+              className={POST_ACTION_BTN}
+              aria-expanded={tagPanelOpen}
             >
-              {tagFriendsOpen ? "Hide friends" : taggedFriendIds.size > 0 ? `${taggedFriendIds.size} friend(s) tagged` : "Select friends to tag"}
+              <IonIcon name="pricetag-outline" size={18} className="text-[var(--color-primary)]" />
+              Create Tag
             </button>
-            {tagFriendsOpen && (
-              <div className="mt-2 p-3 border rounded-lg bg-gray-50 max-h-48 overflow-y-auto">
-                <ul className="space-y-1">
-                  {friends.map((f) => (
-                    <li key={f.id} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id={`tag-friend-${f.id}`}
-                        checked={taggedFriendIds.has(f.id)}
-                        onChange={() => toggleTaggedFriend(f.id)}
-                        className="rounded"
-                      />
-                      <label htmlFor={`tag-friend-${f.id}`} className="cursor-pointer text-sm">
-                        {f.firstName} {f.lastName}
-                      </label>
-                    </li>
+            <button type="button" onClick={addLinkRow} className={POST_ACTION_BTN}>
+              <IonIcon name="link-outline" size={18} className="text-[var(--color-primary)]" />
+              Add Link
+            </button>
+          </div>
+          {links.length > 0 && (
+            <div className="mt-3 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <p className="text-xs font-medium text-gray-600">Links</p>
+              {links.map((l, i) => (
+                <div key={i} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="url"
+                    value={l.url}
+                    onChange={(e) =>
+                      setLinks((prev) => prev.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))
+                    }
+                    className="border rounded px-3 py-2 flex-1 bg-white text-sm"
+                    placeholder="https://..."
+                  />
+                  <input
+                    type="text"
+                    value={l.title}
+                    onChange={(e) =>
+                      setLinks((prev) => prev.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))
+                    }
+                    className="border rounded px-3 py-2 sm:w-36 bg-white text-sm"
+                    placeholder="Title (optional)"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLinks((prev) => prev.filter((_, j) => j !== i))}
+                    className="text-sm text-red-600 hover:underline shrink-0"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {friends.length > 0 && tagFriendsOpen && (
+            <div className="mt-3 p-3 border-2 border-[var(--color-primary)] rounded-lg bg-gray-50 max-h-48 overflow-y-auto">
+              <p className="text-xs font-medium text-gray-600 mb-2">Tag Friends</p>
+              <ul className="space-y-1">
+                {friends.map((f) => (
+                  <li key={f.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id={`tag-friend-${f.id}`}
+                      checked={taggedFriendIds.has(f.id)}
+                      onChange={() => toggleTaggedFriend(f.id)}
+                      className="rounded border-[var(--color-primary)]"
+                    />
+                    <label htmlFor={`tag-friend-${f.id}`} className="cursor-pointer text-sm">
+                      {f.firstName} {f.lastName}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(tagPanelOpen || tags.length > 0) && (
+            <div className="mt-3 p-3 border-2 border-[var(--color-primary)] rounded-lg bg-gray-50">
+              <p className="text-xs font-medium text-gray-600 mb-2">Tags</p>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {tags.map((t, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-primary)] bg-white px-2 py-0.5 text-sm"
+                    >
+                      #{t}
+                      <button
+                        type="button"
+                        onClick={() => setTags((p) => p.filter((_, j) => j !== i))}
+                        className="text-gray-600 hover:text-red-600 leading-none"
+                        aria-label={`Remove tag ${t}`}
+                      >
+                        ×
+                      </button>
+                    </span>
                   ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-        <div>
-          <label className="block text-sm font-medium mb-1">Tags (visible with post)</label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {tags.map((t, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center gap-1 bg-gray-200 rounded px-2 py-0.5 text-sm"
-              >
-                #{t}
-                <button
-                  type="button"
-                  onClick={() => setTags((p) => p.filter((_, j) => j !== i))}
-                  className="text-gray-600 hover:text-red-600"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addTag())}
-              placeholder="Add tag (create new or existing)"
-              className="border rounded px-3 py-2 flex-1"
-            />
-            <button type="button" onClick={addTag} className="btn text-sm">
-              Add
-            </button>
-          </div>
+                </div>
+              )}
+              {tagPanelOpen && (
+                <div className="flex gap-2">
+                  <input
+                    ref={tagInputRef}
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addTag())}
+                    placeholder="New tag name"
+                    className="border rounded px-3 py-2 flex-1 bg-white text-sm"
+                  />
+                  <button type="button" onClick={addTag} className={POST_ACTION_BTN}>
+                    Add
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex gap-3">
-          <button type="submit" disabled={loading} className="btn">
+          <button type="submit" disabled={loading} className={FORM_FOOTER_BTN}>
+            {!loading && (
+              <IonIcon
+                name={editPostId ? "checkmark-outline" : "send-outline"}
+                size={18}
+                className="shrink-0"
+              />
+            )}
             {loading ? (editPostId ? "Saving…" : "Posting…") : editPostId ? "Save changes" : "Post"}
           </button>
           {onCancel ? (
-            <button type="button" onClick={onCancel} className="btn border">
+            <button type="button" onClick={onCancel} className={`${FORM_FOOTER_BTN} border`}>
+              <IonIcon name="close-outline" size={18} className="shrink-0" />
               Cancel
             </button>
           ) : (
-            <Link href="/my-community/feed" className="btn border">
+            <Link href="/my-community/feed" className={`${FORM_FOOTER_BTN} border`}>
+              <IonIcon name="close-outline" size={18} className="shrink-0" />
               Cancel
             </Link>
           )}

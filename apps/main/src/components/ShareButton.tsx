@@ -12,6 +12,9 @@ interface ShareButtonBaseProps {
   id: string;
   title?: string;
   className?: string;
+  iconSize?: number;
+  variant?: "icon" | "full";
+  label?: string;
 }
 
 interface ShareButtonStoreItemProps extends ShareButtonBaseProps {
@@ -84,7 +87,18 @@ const SHARED_TYPE_MAP: Record<ShareButtonType, "post" | "blog" | "store_item" | 
 };
 
 export function ShareButton(props: ShareButtonProps) {
-  const { type, id, title, className = "" } = props;
+  const {
+    type,
+    id,
+    title,
+    className = "",
+    iconSize = 22,
+    variant = "icon",
+    label = "Share",
+  } = props;
+  const isFull = variant === "full";
+  const fullBtnClass = `flex w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border-2 border-[var(--color-primary)] bg-white py-3 text-[15px] font-bold text-[var(--color-primary)] transition-opacity hover:opacity-90 ${className}`;
+  const iconBtnClass = `inline-flex items-center justify-center rounded border border-gray-300 bg-white p-2 hover:bg-gray-50 ${className}`;
   const { data: session, status } = useSession();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -255,14 +269,22 @@ export function ShareButton(props: ShareButtonProps) {
   }
 
   const buttonContent = (
-    <IonIcon name="share-outline" size={22} className="text-gray-600" aria-hidden />
+    <>
+      <IonIcon
+        name="share-outline"
+        size={iconSize}
+        className={isFull ? "text-[var(--color-primary)]" : "text-gray-600"}
+        aria-hidden
+      />
+      {isFull ? <span>{label}</span> : null}
+    </>
   );
 
   if (status !== "authenticated") {
     return (
       <Link
         href={`/login?callbackUrl=${typeof window !== "undefined" ? window.location.pathname : "/"}`}
-        className={`inline-flex items-center justify-center p-2 rounded border border-gray-300 bg-white hover:bg-gray-50 ${className}`}
+        className={isFull ? fullBtnClass : iconBtnClass}
         title="Share (log in)"
       >
         {buttonContent}
@@ -271,11 +293,11 @@ export function ShareButton(props: ShareButtonProps) {
   }
 
   return (
-    <div className="relative inline-block" ref={menuRef}>
+    <div className={isFull ? "relative min-w-0 flex-1" : "relative inline-block"} ref={menuRef}>
       <button
         type="button"
         onClick={toggleOpen}
-        className={`inline-flex items-center justify-center p-2 rounded border border-gray-300 bg-white hover:bg-gray-50 ${className}`}
+        className={isFull ? fullBtnClass : iconBtnClass}
         title="Share"
         aria-expanded={open}
         aria-haspopup="true"

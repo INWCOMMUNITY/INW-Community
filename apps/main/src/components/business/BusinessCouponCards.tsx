@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { CouponPopup } from "@/components/CouponPopup";
+import { BUSINESS_TEXT_SM } from "@/components/business/business-page-layout";
 
 export type BusinessCouponItem = {
   id: string;
@@ -37,10 +38,10 @@ export function BusinessCouponCards({ coupons }: { coupons: BusinessCouponItem[]
             className="w-full text-left p-4 rounded-lg border-2 border-[var(--color-primary)] hover:opacity-90 transition-opacity"
             style={{ backgroundColor: "#FFF8E1" }}
           >
-            <p className="font-semibold text-base" style={{ color: "var(--color-heading)" }}>
+            <p className="font-semibold text-base md:text-2xl" style={{ color: "var(--color-heading)" }}>
               {c.name}
             </p>
-            <p className="text-sm mt-0.5" style={{ color: "var(--color-text)" }}>
+            <p className={`mt-0.5 ${BUSINESS_TEXT_SM}`} style={{ color: "var(--color-text)" }}>
               {c.discount}
             </p>
           </button>
