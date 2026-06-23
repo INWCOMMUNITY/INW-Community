@@ -3,7 +3,7 @@
     "apps": [],
     "details": [
       {
-        "appIDs": ["B8YW2Z4Y69.com.northwestcommunity.app"],
+        "appIDs": ["5K859Z5UW9.com.northwestcommunity.app"],
         "components": [
           {
             "/": "/my-community/posts/*",
