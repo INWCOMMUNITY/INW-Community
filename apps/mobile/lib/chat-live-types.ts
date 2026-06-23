@@ -48,6 +48,12 @@ export type LiveSocketMessagePayload = {
     logoUrl: string | null;
     shortDescription: string | null;
   };
+  sharedPost?: {
+    id: string;
+    contentSnippet: string;
+    coverPhotoUrl: string | null;
+    authorName: string;
+  };
 };
 
 /** Payload for `resale:offer_update` — merge into the message row that carries the offer card (`messageId`). */

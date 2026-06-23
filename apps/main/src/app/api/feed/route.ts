@@ -10,6 +10,7 @@ import {
   mergePostBusinessLookupIds,
   taggedBusinessesFromIds,
 } from "@/lib/feed-tagged-businesses";
+import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -124,7 +125,7 @@ export async function GET(req: NextRequest) {
         },
       ])
     );
-    const [likeCounts, commentCounts] = await Promise.all([
+    const [likeCounts, commentCounts, shareCountMap] = await Promise.all([
       prisma.postLike.groupBy({
         by: ["postId"],
         where: { postId: { in: postIds } },
@@ -135,6 +136,7 @@ export async function GET(req: NextRequest) {
         where: { postId: { in: postIds } },
         _count: { postId: true },
       }),
+      getShareCountBySourcePostId(postIds),
     ]);
     const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.postId, l._count.postId]));
     const commentCountMap = Object.fromEntries(commentCounts.map((c) => [c.postId, c._count.postId]));
@@ -153,6 +155,7 @@ export async function GET(req: NextRequest) {
         liked: false,
         likeCount: likeCountMap[p.id] ?? 0,
         commentCount: commentCountMap[p.id] ?? 0,
+        shareCount: shareCountMap[p.id] ?? 0,
       }))
       .filter(isFeedPostRenderable)
       .filter((p) => p.type !== "shared_post" || p.sourcePost?.author?.privacyLevel === "public");
@@ -480,7 +483,7 @@ export async function GET(req: NextRequest) {
     ])
   );
 
-  const [likes, likeCounts, commentCounts] = await Promise.all([
+  const [likes, likeCounts, commentCounts, shareCountMap] = await Promise.all([
     prisma.postLike.findMany({
       where: { postId: { in: postIds }, memberId: viewerId },
       select: { postId: true },
@@ -495,6 +498,7 @@ export async function GET(req: NextRequest) {
       where: { postId: { in: postIds } },
       _count: { postId: true },
     }),
+    getShareCountBySourcePostId(postIds),
   ]);
   const likedSet = new Set(likes.map((l) => l.postId));
   const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.postId, l._count.postId]));
@@ -516,6 +520,7 @@ export async function GET(req: NextRequest) {
       liked: likedSet.has(p.id),
       likeCount: likeCountMap[p.id] ?? 0,
       commentCount: commentCountMap[p.id] ?? 0,
+      shareCount: shareCountMap[p.id] ?? 0,
     }))
     .filter(isFeedPostRenderable);
 

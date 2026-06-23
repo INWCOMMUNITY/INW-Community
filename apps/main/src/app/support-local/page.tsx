@@ -46,7 +46,7 @@ export default async function SupportLocalPage() {
             Local Business Directory
           </h1>
           <p className="mb-6 leading-relaxed opacity-90" style={{ color: "#000" }}>
-            Check out the local companies that make this business possible. Without our sponsors, our company cannot succeed. So thank you to our sponsors, and thank you for the services you provide to keep this area thriving! Check out their business information, purchase items from them with our storefront, or submit request forms to local businesses.
+            Check out the local companies that make this business possible. Without the businesses who join the directory, our app and resources cannot succeed. So thank you to our sponsors, and thank you for the services you provide to keep this area thriving! Check them out! If you are a local business owner, consider tagging along.
           </p>
           <Link
             href="/sponsor-nwc"

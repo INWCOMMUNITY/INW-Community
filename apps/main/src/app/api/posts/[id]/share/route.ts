@@ -3,6 +3,8 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { z } from "zod";
+import { recordContentShare } from "@/lib/record-content-share";
+import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
 
 const bodySchema = z.object({
   content: z.string().max(5000).optional().nullable(),
@@ -123,5 +125,16 @@ export async function POST(
     },
   });
 
-  return NextResponse.json({ post });
+  const shareResult = await recordContentShare({
+    memberId: session.user.id,
+    contentType: "post",
+    contentId: sourcePostId,
+    channel: groupId ? "group_reshare" : "feed_reshare",
+  }).catch(async (e) => {
+    console.error("[POST posts/share] recordContentShare failed:", e);
+    const map = await getShareCountBySourcePostId([sourcePostId]);
+    return { recorded: true, shareCount: Math.max((map[sourcePostId] ?? 0), 1) };
+  });
+
+  return NextResponse.json({ post, shareCount: shareResult.shareCount, shareRecorded: shareResult.recorded });
 }

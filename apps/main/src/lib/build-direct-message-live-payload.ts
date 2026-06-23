@@ -1,5 +1,6 @@
 import { prisma } from "database";
 import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
+import { loadSharedPostPreview } from "@/lib/enrich-shared-post-preview";
 
 type MessageRow = {
   id: string;
@@ -77,6 +78,13 @@ export async function buildDirectMessageLivePayload(
         logoUrl: b.logoUrl,
         shortDescription: b.shortDescription,
       };
+    }
+  }
+
+  if (m.sharedContentType === "post" && m.sharedContentId) {
+    const preview = await loadSharedPostPreview(m.sharedContentId);
+    if (preview) {
+      base.sharedPost = preview;
     }
   }
 

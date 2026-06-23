@@ -527,9 +527,10 @@ function SupportLocalGalleryDesktop({
                   )}
                   <Link
                     href={`/support-local/${b.slug}`}
-                    className="btn mt-4 w-full flex items-center justify-center text-sm py-2 px-3 min-w-0 whitespace-nowrap"
+                    className="btn mt-4 w-full !flex items-center justify-center gap-2 text-sm py-2 px-3 min-w-0 whitespace-nowrap"
                   >
-                    See Business!
+                    <IonIcon name="storefront-outline" size={18} className="shrink-0" />
+                    See Local Business
                   </Link>
                 </div>
               </div>
@@ -593,10 +594,11 @@ function BusinessCardMobile({
       <Link
         href={`/support-local/${b.slug}`}
         prefetch={false}
-        className="mx-3 mb-3 block rounded-lg py-2.5 text-center text-sm font-semibold text-white"
+        className="mx-3 mb-3 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white"
         style={{ backgroundColor: "var(--color-primary)" }}
       >
-        See Business
+        <IonIcon name="storefront-outline" size={18} className="shrink-0" />
+        See Local Business
       </Link>
     </div>
   );

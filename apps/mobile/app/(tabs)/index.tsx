@@ -23,6 +23,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { CommunityUgcTermsModal } from "@/components/CommunityUgcTermsModal";
 import {
   fetchFeed,
+  nextShareCountAfterShare,
   toggleLike,
   deletePost,
   type FeedPost,
@@ -342,6 +343,20 @@ export default function CommunityScreen() {
     );
   }, [commentPostId]);
 
+  const handleSourcePostShared = useCallback(
+    (sourcePostId: string, opts?: { recorded?: boolean; shareCount?: number }) => {
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p.id !== sourcePostId) return p;
+          const next = nextShareCountAfterShare(p.shareCount, opts);
+          if (next == null) return p;
+          return { ...p, shareCount: next };
+        })
+      );
+    },
+    []
+  );
+
   const handleDeletePost = useCallback(
     (postId: string) => {
       Alert.alert(
@@ -600,6 +615,7 @@ export default function CommunityScreen() {
           visible={!!shareToChatPost}
           onClose={() => setShareToChatPost(null)}
           sharedContent={{ type: "post", id: shareToChatPost.id, slug: shareToChatPost.slug }}
+          onSourcePostShared={handleSourcePostShared}
         />
       )}
 
@@ -618,6 +634,8 @@ export default function CommunityScreen() {
     </>
   );
 }
+
+const feedActionBtnBorder = "#c99d5f";
 
 const styles = StyleSheet.create({
   center: {
@@ -679,6 +697,8 @@ const styles = StyleSheet.create({
   headerSideBtn: {
     backgroundColor: theme.colors.primary,
     borderRadius: 6,
+    borderWidth: 2,
+    borderColor: feedActionBtnBorder,
     minWidth: 52,
     paddingVertical: 8,
     paddingHorizontal: 4,
@@ -736,6 +756,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 6,
+    borderWidth: 2,
+    borderColor: feedActionBtnBorder,
     alignItems: "center",
     justifyContent: "center",
   },

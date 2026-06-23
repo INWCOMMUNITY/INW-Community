@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { canViewerSeeFullMemberProfile } from "@/lib/member-profile-access";
 import { hasBlockBetween } from "@/lib/member-block";
 import { memberIsSiteVisible } from "@/lib/member-public-visibility";
+import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
 
 /**
  * GET /api/members/[id]/posts?limit=30&cursor=...
@@ -67,7 +68,7 @@ export async function GET(
   const nextCursor = hasMore ? items[items.length - 1]?.id : null;
   const postIds = items.map((p) => p.id);
 
-  const [likes, likeCounts, commentCounts] = await Promise.all([
+  const [likes, likeCounts, commentCounts, shareCountMap] = await Promise.all([
     viewerId
       ? prisma.postLike.findMany({
           where: { postId: { in: postIds }, memberId: viewerId },
@@ -84,6 +85,7 @@ export async function GET(
       where: { postId: { in: postIds } },
       _count: { postId: true },
     }),
+    getShareCountBySourcePostId(postIds),
   ]);
 
   const likedSet = new Set(likes.map((l) => l.postId));
@@ -97,6 +99,7 @@ export async function GET(
     liked: viewerId ? likedSet.has(p.id) : false,
     likeCount: likeCountMap[p.id] ?? 0,
     commentCount: commentCountMap[p.id] ?? 0,
+    shareCount: shareCountMap[p.id] ?? 0,
   }));
 
   return NextResponse.json({

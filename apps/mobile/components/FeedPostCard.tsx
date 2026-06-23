@@ -396,6 +396,10 @@ export function FeedPostCard({
     (router.push as (href: string) => void)(`/post/${sourcePostId}`);
   };
 
+  const hasComments = post.commentCount > 0;
+  const shareCount = post.shareCount ?? 0;
+  const hasShares = shareCount > 0;
+
   return (
     <View style={[styles.card, feedPhotoZoomActive && styles.cardFeedZoomLift]}>
       <View style={styles.header}>
@@ -1218,7 +1222,7 @@ export function FeedPostCard({
 
       <View style={styles.actions}>
         <Pressable
-          style={styles.actionBtn}
+          style={[styles.actionBtn, post.liked && styles.actionBtnActive]}
           onPress={() => onLike(post.id)}
           accessibilityRole="button"
           accessibilityLabel={
@@ -1228,7 +1232,7 @@ export function FeedPostCard({
           }
         >
           <View style={styles.actionRow}>
-            <Ionicons name="leaf" size={20} color={post.liked ? theme.colors.primary : "#666"} />
+            <Ionicons name="leaf" size={20} color={post.liked ? ACTION_ACCENT : "#666"} />
             {post.likeCount > 0 ? (
               <Text style={[styles.actionCount, post.liked && styles.actionTextActive]}>
                 {post.likeCount}
@@ -1237,31 +1241,44 @@ export function FeedPostCard({
           </View>
         </Pressable>
         <Pressable
-          style={styles.actionBtn}
+          style={[styles.actionBtn, hasComments && styles.actionBtnActive]}
           onPress={() => onComment?.(post.id)}
           accessibilityRole="button"
           accessibilityLabel={
-            post.commentCount > 0
-              ? `Comment, ${post.commentCount} comments`
-              : "Comment"
+            hasComments ? `Comment, ${post.commentCount} comments` : "Comment"
           }
         >
           <View style={styles.actionRow}>
-            <Ionicons name="chatbubble-outline" size={20} color="#666" />
-            {post.commentCount > 0 ? (
-              <Text style={styles.actionCount}>{post.commentCount}</Text>
+            <Ionicons
+              name="chatbubble-outline"
+              size={20}
+              color={hasComments ? ACTION_ACCENT : "#666"}
+            />
+            {hasComments ? (
+              <Text style={[styles.actionCount, styles.actionTextActive]}>
+                {post.commentCount}
+              </Text>
             ) : null}
           </View>
         </Pressable>
         {onShare ? (
           <Pressable
-            style={styles.actionBtn}
+            style={[styles.actionBtn, hasShares && styles.actionBtnActive]}
             onPress={() => onShare(post.id)}
             accessibilityRole="button"
-            accessibilityLabel="Share post"
+            accessibilityLabel={
+              hasShares ? `Share post, ${shareCount} shares` : "Share post"
+            }
           >
             <View style={styles.actionRow}>
-              <Ionicons name="share-outline" size={20} color="#666" />
+              <Ionicons
+                name="share-outline"
+                size={20}
+                color={hasShares ? ACTION_ACCENT : "#666"}
+              />
+              {hasShares ? (
+                <Text style={[styles.actionCount, styles.actionTextActive]}>{shareCount}</Text>
+              ) : null}
             </View>
           </Pressable>
         ) : null}
@@ -1270,6 +1287,8 @@ export function FeedPostCard({
     </View>
   );
 }
+
+const ACTION_ACCENT = "#c99d5f";
 
 const styles = StyleSheet.create({
   card: {
@@ -1496,6 +1515,12 @@ const styles = StyleSheet.create({
   actionBtn: {
     paddingVertical: 4,
     paddingHorizontal: 8,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  actionBtnActive: {
+    borderColor: ACTION_ACCENT,
   },
   actionRow: {
     flexDirection: "row",
@@ -1514,7 +1539,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   actionTextActive: {
-    color: theme.colors.primary,
+    color: ACTION_ACCENT,
   },
   actionMuted: {
     color: "#999",

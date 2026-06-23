@@ -8,6 +8,8 @@ import { isBlocked } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { checkMemberRateLimit } from "@/lib/member-rate-limit";
+import { loadSharedPostPreviewMap } from "@/lib/enrich-shared-post-preview";
+import { recordContentShare } from "@/lib/record-content-share";
 import { z } from "zod";
 
 function isDirectConversationColumnError(e: unknown): boolean {
@@ -120,6 +122,11 @@ export async function GET(
     }
   }
 
+  const postIds = conversation.messages
+    .filter((m) => m.sharedContentType === "post" && m.sharedContentId)
+    .map((m) => m.sharedContentId as string);
+  const postMap = postIds.length > 0 ? await loadSharedPostPreviewMap(postIds) : {};
+
   const messageIds = conversation.messages.map((m) => m.id);
   let likeCountMap: Record<string, number> = {};
   let likedSet = new Set<string>();
@@ -164,6 +171,9 @@ export async function GET(
     }
     if (m.sharedContentType === "store_item" && m.sharedContentId && storeItemMap[m.sharedContentId]) {
       (base as { sharedStoreItem?: unknown }).sharedStoreItem = storeItemMap[m.sharedContentId];
+    }
+    if (m.sharedContentType === "post" && m.sharedContentId && postMap[m.sharedContentId]) {
+      (base as { sharedPost?: unknown }).sharedPost = postMap[m.sharedContentId];
     }
     (base as { likeCount?: number; liked?: boolean; likedBy?: { id: string; profilePhotoUrl: string | null; firstName: string }[] }).likeCount = likeCountMap[m.id] ?? 0;
     (base as { liked?: boolean }).liked = likedSet.has(m.id);
@@ -269,6 +279,8 @@ export async function POST(
     }
   }
 
+  let shareRecorded: boolean | undefined;
+  let shareCount: number | undefined;
   const message = await prisma.directMessage.create({
     data: {
       conversationId: id,
@@ -280,6 +292,23 @@ export async function POST(
     },
     include: { sender: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } } },
   });
+
+  if (data.sharedContentType === "post" && data.sharedContentId) {
+    try {
+      const r = await recordContentShare({
+        memberId: session.user.id,
+        contentType: "post",
+        contentId: data.sharedContentId,
+        channel: "dm",
+      });
+      shareRecorded = r.recorded;
+      shareCount = r.shareCount;
+    } catch (e) {
+      console.error("[POST direct-conversations/[id]] recordContentShare failed:", e);
+      shareRecorded = true;
+      shareCount = undefined;
+    }
+  }
 
   try {
     await prisma.directConversation.update({
@@ -357,7 +386,15 @@ export async function POST(
     scheduleRealtimePublish(publishDirectConversationMessage(id, botPayload as Record<string, unknown>));
   }
 
-  return NextResponse.json(botReply ? { ...message, botReply } : message);
+  return NextResponse.json(
+    botReply
+      ? {
+          ...message,
+          botReply,
+          ...(shareRecorded !== undefined ? { shareRecorded, shareCount } : {}),
+        }
+      : { ...message, ...(shareRecorded !== undefined ? { shareRecorded, shareCount } : {}) }
+  );
 }
 
 const patchBodySchema = z.object({

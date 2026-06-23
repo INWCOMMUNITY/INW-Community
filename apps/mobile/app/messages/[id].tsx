@@ -45,6 +45,7 @@ import {
 } from "@/components/ChatTypingRow";
 import { GifPickerModal } from "@/components/GifPickerModal";
 import { fetchEventBySlug } from "@/lib/events-api";
+import { fetchPostById } from "@/lib/feed-api";
 import { fetchStoreItemPreviewPayload, fetchStoreItemsByIdsBatch } from "@/lib/fetch-store-item-preview";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -74,6 +75,13 @@ interface SharedStoreItemPreview {
   coverPhotoUrl: string | null;
 }
 
+interface SharedPostPreview {
+  id: string;
+  contentSnippet: string;
+  coverPhotoUrl: string | null;
+  authorName: string;
+}
+
 interface DirectConversation {
   id: string;
   status?: string;
@@ -93,6 +101,7 @@ interface DirectConversation {
     sharedBusiness?: SharedBusiness;
     sharedEvent?: SharedEventPreview;
     sharedStoreItem?: SharedStoreItemPreview;
+    sharedPost?: SharedPostPreview;
     likeCount?: number;
     liked?: boolean;
     likedBy?: { id: string; profilePhotoUrl: string | null; firstName: string }[];
@@ -300,6 +309,7 @@ export default function DirectConversationScreen() {
   const eventPreviewFetchedSlugsRef = useRef<Set<string>>(new Set());
   /** Store item ids we successfully hydrated or gave up on (avoid duplicate network). */
   const storeItemPreviewFetchedIdsRef = useRef<Set<string>>(new Set());
+  const postPreviewFetchedIdsRef = useRef<Set<string>>(new Set());
   /** Bumps at each conversation load and when leaving a thread so in-flight hydration never applies stale results. */
   const dmHydrationGenRef = useRef(0);
   /** Prevents double submit (rapid double-tap, multiline keyboard + send button). */
@@ -315,6 +325,7 @@ export default function DirectConversationScreen() {
     dmHydrationGenRef.current += 1;
     eventPreviewFetchedSlugsRef.current.clear();
     storeItemPreviewFetchedIdsRef.current.clear();
+    postPreviewFetchedIdsRef.current.clear();
     setLoadError(null);
     try {
       const data = await apiGet<DirectConversation>(`/api/direct-conversations/${convId}`);
@@ -481,6 +492,72 @@ export default function DirectConversationScreen() {
     })();
   }, [conv]);
 
+  useEffect(() => {
+    if (!conv?.messages?.length) return;
+
+    const genAtStart = dmHydrationGenRef.current;
+
+    const todo = conv.messages.filter((m) => {
+      if (m.sharedContentType !== "post" || !m.sharedContentId) return false;
+      if (m.sharedPost?.authorName && m.sharedPost.contentSnippet) return false;
+      if (postPreviewFetchedIdsRef.current.has(m.sharedContentId)) return false;
+      return true;
+    });
+
+    if (todo.length === 0) return;
+
+    const uniqueIds = [...new Set(todo.map((m) => m.sharedContentId as string))].slice(0, 12);
+
+    void (async () => {
+      const previews = await Promise.all(
+        uniqueIds.map(async (id) => {
+          try {
+            const post = await fetchPostById(id);
+            const content = post.content?.trim() ?? "";
+            const snippet =
+              content.length <= 120 ? content : `${content.slice(0, 120)}…`;
+            const authorName =
+              `${post.author.firstName ?? ""} ${post.author.lastName ?? ""}`.trim() ||
+              "Community member";
+            const coverPhotoUrl = post.photos?.[0] ?? post.videos?.[0] ?? null;
+            return {
+              id,
+              preview: {
+                id,
+                contentSnippet: snippet || "Shared post",
+                coverPhotoUrl,
+                authorName,
+              } as SharedPostPreview,
+            };
+          } catch {
+            return { id, preview: null };
+          }
+        })
+      );
+
+      if (dmHydrationGenRef.current !== genAtStart) return;
+      uniqueIds.forEach((id) => postPreviewFetchedIdsRef.current.add(id));
+
+      const previewById = new Map(
+        previews.filter((p) => p.preview).map((p) => [p.id, p.preview!])
+      );
+      if (previewById.size === 0) return;
+
+      setConv((prev) => {
+        if (!prev || dmHydrationGenRef.current !== genAtStart) return prev;
+        return {
+          ...prev,
+          messages: prev.messages.map((m) => {
+            if (m.sharedContentType !== "post" || !m.sharedContentId) return m;
+            const preview = previewById.get(m.sharedContentId);
+            if (!preview) return m;
+            return { ...m, sharedPost: preview };
+          }),
+        };
+      });
+    })();
+  }, [conv]);
+
   const directTypingNames = useMemo(() => {
     if (!conv || !member?.id) return undefined;
     const other = conv.memberA.id === member.id ? conv.memberB : conv.memberA;
@@ -515,6 +592,7 @@ export default function DirectConversationScreen() {
             sharedEvent: p.sharedEvent,
             sharedStoreItem: p.sharedStoreItem,
             sharedBusiness: p.sharedBusiness,
+            sharedPost: p.sharedPost,
             sender: p.sender
               ? {
                   id: p.sender.id,
@@ -1115,7 +1193,11 @@ export default function DirectConversationScreen() {
           const hasStoreShare =
             item.sharedContentType === "store_item" &&
             !!(item.sharedStoreItem?.slug || item.sharedContentSlug);
-          const showSharedLinkCard = hasEventShare || hasStoreShare || hasBusinessShare;
+          const hasPostShare =
+            item.sharedContentType === "post" &&
+            !!(item.sharedPost?.id || item.sharedContentId);
+          const showSharedLinkCard =
+            hasEventShare || hasStoreShare || hasBusinessShare || hasPostShare;
 
           const hasPhotoAttachment =
             item.sharedContentType === "photo" && !!item.sharedContentId;
@@ -1178,12 +1260,27 @@ export default function DirectConversationScreen() {
               const slug = item.sharedBusiness?.slug ?? item.sharedContentSlug;
               if (slug) router.push(`/business/${slug}`);
             };
+          } else if (hasPostShare) {
+            cornerIcon = "document-text-outline";
+            heroPlaceholderIcon = "document-text-outline";
+            const raw = item.sharedPost?.coverPhotoUrl;
+            heroUri =
+              raw != null && String(raw).trim() !== ""
+                ? resolvePhotoUrl(raw) ?? raw
+                : null;
+            cardTitle = item.sharedPost?.authorName ?? "Community post";
+            cardSubtitle = item.sharedPost?.contentSnippet?.trim() || null;
+            onOpenShared = () => {
+              const postId = item.sharedPost?.id ?? item.sharedContentId;
+              if (postId) router.push(`/post/${postId}`);
+            };
           }
 
           let seeDetailsCta = "See Details!";
           if (hasEventShare) seeDetailsCta = "See Event Details!";
           else if (hasStoreShare) seeDetailsCta = "See Item Details!";
           else if (hasBusinessShare) seeDetailsCta = "See Business Details!";
+          else if (hasPostShare) seeDetailsCta = "See Post!";
 
           return (
             <View style={[styles.bubbleWrap, isMe && styles.bubbleWrapMe]}>

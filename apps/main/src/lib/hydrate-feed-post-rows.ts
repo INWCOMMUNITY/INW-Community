@@ -5,6 +5,7 @@ import {
   mergePostBusinessLookupIds,
   taggedBusinessesFromIds,
 } from "@/lib/feed-tagged-businesses";
+import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
 
 /** Matches feed / group-feed includes for hydration + API responses. */
 export const feedPostListInclude = {
@@ -51,7 +52,7 @@ export async function hydrateFeedPostRows(
   const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
   const postGroupIds = items.filter((p) => p.groupId).map((p) => p.groupId!);
 
-  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, groups, likes, likeCounts, commentCounts] =
+  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, groups, likes, likeCounts, commentCounts, shareCountMap] =
     await Promise.all([
       sourceBlogIds.length > 0
         ? prisma.blog.findMany({
@@ -140,6 +141,7 @@ export async function hydrateFeedPostRows(
         where: { postId: { in: postIds } },
         _count: { postId: true },
       }),
+      getShareCountBySourcePostId(postIds),
     ]);
 
   const blogMap = Object.fromEntries(blogs.map((b) => [b.id, b]));
@@ -265,6 +267,7 @@ export async function hydrateFeedPostRows(
     liked: likedSet.has(p.id),
     likeCount: likeCountMap[p.id] ?? 0,
     commentCount: commentCountMap[p.id] ?? 0,
+    shareCount: shareCountMap[p.id] ?? 0,
   })) as Array<
     Record<string, unknown> & {
       id: string;

@@ -9,6 +9,7 @@ import {
   mergePostBusinessLookupIds,
   taggedBusinessesFromIds,
 } from "@/lib/feed-tagged-businesses";
+import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -84,7 +85,7 @@ export async function GET(
   const sourceEventIds = items.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
   const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
 
-  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, likes, likeCounts, commentCounts] = await Promise.all([
+  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, likes, likeCounts, commentCounts, shareCountMap] = await Promise.all([
     sourceBlogIds.length > 0
       ? prisma.blog.findMany({
           where: { id: { in: sourceBlogIds } },
@@ -153,6 +154,7 @@ export async function GET(
       where: { postId: { in: postIds } },
       _count: { postId: true },
     }),
+    getShareCountBySourcePostId(postIds),
   ]);
 
   const blogMap = Object.fromEntries(blogs.map((b) => [b.id, b]));
@@ -264,6 +266,7 @@ export async function GET(
     liked: likedSet.has(p.id),
     likeCount: likeCountMap[p.id] ?? 0,
     commentCount: commentCountMap[p.id] ?? 0,
+    shareCount: shareCountMap[p.id] ?? 0,
   }));
 
   return NextResponse.json({

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Section } from "design-tokens";
-import { WIX_IMG, WIX_HERO_GALLERY, WIX_SUBSCRIBE_BACKGROUND, CALENDAR_IMAGES } from "@/lib/wix-media";
+import { WIX_IMG, WIX_SUBSCRIBE_BACKGROUND, CALENDAR_IMAGES } from "@/lib/wix-media";
 import { getSiteImageUrl } from "@/lib/site-images";
 import { DownloadAppStoreButtons } from "@/components/DownloadAppStoreButtons";
 import { getAndroidPlayStoreUrl, getIosAppStoreUrl } from "@/lib/app-store-urls";
@@ -10,7 +10,10 @@ import { getAndroidPlayStoreUrl, getIosAppStoreUrl } from "@/lib/app-store-urls"
 const SECTION_GREEN_BG = "rgba(80, 85, 66, 0.8)";
 
 export default async function HomePage() {
-  const thanksLandscapeUrl = await getSiteImageUrl("thanks-landscape");
+  const founderThanksUrl = (await getSiteImageUrl("founder-thanks")) ?? "/founder-thanks.png?v=4";
+  const heroBackgroundUrl = (await getSiteImageUrl("hero-background")) ?? "/hero-background.png";
+  const appLogoUrl = (await getSiteImageUrl("nwc-logo-circle")) ?? "/nwc-logo-circle.png";
+  const communityGoalsUrl = (await getSiteImageUrl("community-goals")) ?? "/community-goals.png";
   const iosAppStoreUrl = getIosAppStoreUrl();
   const androidPlayStoreUrl = getAndroidPlayStoreUrl();
   return (
@@ -19,13 +22,9 @@ export default async function HomePage() {
         {/* Background photo — desktop only; mobile hero is logo on solid cream */}
         <div
           className="absolute inset-0 hidden bg-cover bg-center md:block"
-          style={{
-            backgroundImage: `url(${WIX_IMG(WIX_HERO_GALLERY)})`,
-            filter: "brightness(1.2) contrast(1.1) saturate(1.05)",
-          }}
+          style={{ backgroundImage: `url(${heroBackgroundUrl})` }}
           aria-hidden
         />
-        <div className="absolute inset-0 hidden bg-black/30 md:block" aria-hidden />
         <div className="relative z-10 max-w-[var(--max-width)] mx-auto w-full">
           <div className="relative mx-auto aspect-square w-[min(100%,min(92vw,420px))] md:hidden">
             <Image
@@ -38,22 +37,26 @@ export default async function HomePage() {
             />
           </div>
           <div className="hidden md:block">
-            <h1
-              className="text-4xl md:text-5xl font-bold mb-4 text-white"
-              style={{ fontFamily: "var(--font-heading)" }}
+            <div
+              className="mx-auto max-w-2xl rounded-xl border-2 px-8 py-8 md:px-10 md:py-10 text-center"
+              style={{
+                backgroundColor: "rgba(245, 233, 211, 0.8)",
+                borderColor: "var(--color-primary)",
+              }}
             >
-              Northwest Community
-            </h1>
-            <p className="text-lg max-w-2xl mx-auto mb-8 text-white/95 leading-relaxed">
-              Connecting the good people of Spokane & Kootenai County through our community feed and messaging, selling local goods, event calendars, NWC Requests, local coupons, and of course, fun events that bring the community together and support the beautiful Northwest we live in. This website is for residents of the Inland Northwest, a region of the beautiful PNW. Welcome, residents of Eastern Washington and North Idaho. This is your one-stop shop for supporting locally owned businesses and local people.
-            </p>
-            <Link
-              href="/signup"
-              className="inline-block px-8 py-3 rounded-lg bg-gray-400/80 text-white font-medium border-2 border-white hover:bg-gray-500/90 transition-colors"
-              style={{ fontFamily: "var(--font-heading)" }}
-            >
-              Join Now
-            </Link>
+              <h1
+                className="text-4xl md:text-5xl font-bold mb-4"
+                style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+              >
+                Northwest Community
+              </h1>
+              <p className="text-lg mb-4 leading-relaxed" style={{ color: "var(--color-text)" }}>
+                Connecting the good people of Spokane & Kootenai County through our community feed and messaging, selling local goods, event calendars, NWC Requests, local coupons, and of course, fun events that bring the community together and support the beautiful Northwest we live in. This website is for residents of the Inland Northwest, a region of the beautiful PNW. Welcome, residents of Eastern Washington and North Idaho. This is your one-stop shop for supporting locally owned businesses and local people.
+              </p>
+              <Link href="/signup" className="btn inline-block">
+                Join Now
+              </Link>
+            </div>
           </div>
         </div>
       </section>
@@ -63,6 +66,14 @@ export default async function HomePage() {
         style={{ borderColor: SECTION_GREEN_BG }}
       >
         <div className="max-w-2xl mx-auto text-center">
+          <Image
+            src={appLogoUrl}
+            alt="Northwest Community"
+            width={140}
+            height={140}
+            className="mx-auto mb-6 rounded-full object-cover"
+            quality={100}
+          />
           <h2
             className="text-2xl md:text-3xl font-bold mb-4"
             style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
@@ -115,11 +126,11 @@ export default async function HomePage() {
           style={{ backgroundColor: SECTION_GREEN_BG }}
         >
           <Image
-            src={WIX_IMG("2bdd49_9e1e39816a194b7d9e3557eb8a025cad~mv2.jpg/v1/fill/w_1400,h_1446,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Photo%20Nov%2007%202025%2C%209%2033%2002%20PM.jpg")}
+            src={communityGoalsUrl}
             alt="Northwest Community"
-            className="rounded-lg object-cover border-2 border-[var(--color-secondary)] w-[60%] max-w-[560px]"
-            width={560}
-            height={578}
+            className="rounded-lg object-cover object-bottom border-2 border-[var(--color-secondary)] w-[60%] max-w-[420px] aspect-square"
+            width={420}
+            height={420}
             sizes="(max-width: 768px) 100vw, 50vw"
             quality={95}
           />
@@ -195,16 +206,20 @@ export default async function HomePage() {
               <Link href="/support-nwc" className="btn-sponsors text-sm py-1.5 px-3 md:text-base md:py-2 md:px-4">Support NWC</Link>
             </div>
           </div>
-          <div className="flex justify-center">
-            <Image
-              src={WIX_IMG("2bdd49_0061748f80f642939a6f4b70ddb4a27d~mv2.jpg/v1/fill/w_1449,h_1482,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Photo%20Nov%2007%202025%2C%208%2056%2020%20PM_edited_edited.jpg")}
-              alt="Northwest Community"
-              className="rounded-lg object-cover"
-              width={966}
-              height={988}
-              sizes="(max-width: 768px) 100vw, 50vw"
-              quality={95}
-            />
+          <div className="flex justify-center w-full">
+            <div
+              className="relative aspect-square w-full max-w-[420px] overflow-hidden rounded-lg border-2 border-[var(--color-primary)] p-2 md:p-3"
+              style={{ backgroundColor: SECTION_GREEN_BG }}
+            >
+              <Image
+                src={WIX_IMG("2bdd49_0061748f80f642939a6f4b70ddb4a27d~mv2.jpg/v1/fill/w_1449,h_1482,al_c,q_95,usm_0.66_1.00_0.01,enc_avif,quality_auto/Photo%20Nov%2007%202025%2C%208%2056%2020%20PM_edited_edited.jpg")}
+                alt="Northwest Community"
+                fill
+                className="rounded-md object-cover"
+                sizes="(max-width: 768px) 100vw, 420px"
+                quality={95}
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -242,22 +257,30 @@ export default async function HomePage() {
       </section>
 
       <section
-        className="grid grid-cols-1 md:grid-cols-2 min-w-0 w-full max-w-none min-h-[500px]"
+        className="grid grid-cols-1 md:grid-cols-2 min-w-0 w-full max-w-none items-stretch"
         style={{ backgroundColor: "#FFF8E1" }}
       >
-        <div className="relative min-h-[400px] md:min-h-[500px] order-2 md:order-1">
-          <Image
-            src={thanksLandscapeUrl ?? "/thanks-landscape.png"}
-            alt="Northwest landscape — river and forest"
-            className="object-cover"
-            fill
-            sizes="(max-width: 768px) 100vw, 50vw"
-            quality={100}
-          />
+        <div
+          className="flex justify-center p-8 md:p-12 order-2 md:order-1 min-h-[320px] md:min-h-0 h-full"
+          style={{ backgroundColor: "#FFF8E1" }}
+        >
+          <div className="relative max-w-xl w-full mx-auto h-full min-h-[280px] overflow-hidden rounded-lg border-2 border-[var(--color-secondary)]">
+            <Image
+              src={founderThanksUrl}
+              alt="Northwest Community — pet area and local community"
+              fill
+              className="object-cover object-center"
+              sizes="(max-width: 768px) 100vw, 576px"
+              quality={100}
+            />
+          </div>
         </div>
-        <div className="flex items-center justify-center p-8 md:p-12 order-1 md:order-2" style={{ backgroundColor: "#FFF8E1" }}>
+        <div
+          className="flex justify-center p-8 md:p-12 order-1 md:order-2 h-full"
+          style={{ backgroundColor: "#FFF8E1" }}
+        >
           <div
-            className="p-8 md:p-10 max-w-xl w-full md:-ml-16 bg-white border-0"
+            className="p-8 md:p-10 max-w-xl w-full mx-auto bg-white border-0 h-full"
             style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}
           >
             <h1 className="text-2xl md:text-3xl font-bold mb-4 text-left" style={{ fontFamily: "var(--font-heading)", color: "#333" }}>

@@ -6,6 +6,7 @@ import { sortConversationsByLastMessageDesc } from "@/lib/conversation-inbox-sor
 import { validateText } from "@/lib/content-moderation";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
 import { checkMemberRateLimit } from "@/lib/member-rate-limit";
+import { recordContentShare } from "@/lib/record-content-share";
 import { z } from "zod";
 
 function normalizePair(a: string, b: string): [string, string] {
@@ -231,6 +232,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: contentCheck.reason ?? "Message not allowed." }, { status: 400 });
       }
     }
+    let shareRecorded: boolean | undefined;
+    let shareCount: number | undefined;
     const message = await prisma.directMessage.create({
       data: {
         conversationId: conversation.id,
@@ -242,6 +245,22 @@ export async function POST(req: NextRequest) {
       },
       include: { sender: { select: { id: true, firstName: true, lastName: true } } },
     });
+    if (data.sharedContentType === "post" && data.sharedContentId) {
+      try {
+        const r = await recordContentShare({
+          memberId: session.user.id,
+          contentType: "post",
+          contentId: data.sharedContentId,
+          channel: "dm",
+        });
+        shareRecorded = r.recorded;
+        shareCount = r.shareCount;
+      } catch (e) {
+        console.error("[POST direct-conversations] recordContentShare failed:", e);
+        shareRecorded = true;
+        shareCount = undefined;
+      }
+    }
     try {
       await prisma.directConversation.update({
         where: { id: conversation.id },
@@ -278,7 +297,10 @@ export async function POST(req: NextRequest) {
           category: "messages",
         }).catch(() => {});
         const withNewMessage = { ...conversation, messages: [...(conversation.messages ?? []), message] };
-        return NextResponse.json(withNewMessage);
+        return NextResponse.json({
+          ...withNewMessage,
+          ...(shareRecorded !== undefined ? { shareRecorded, shareCount } : {}),
+        });
       }
       throw e;
     }
@@ -302,7 +324,10 @@ export async function POST(req: NextRequest) {
       data: { screen: "messages", conversationId: conversation.id },
       category: "messages",
     }).catch(() => {});
-    return NextResponse.json(conversation);
+    return NextResponse.json({
+      ...conversation,
+      ...(shareRecorded !== undefined ? { shareRecorded, shareCount } : {}),
+    });
   }
 
   return NextResponse.json(conversation);

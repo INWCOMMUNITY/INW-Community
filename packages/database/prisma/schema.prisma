@@ -114,6 +114,7 @@ model Member {
   referralSignupsAsReferrer ReferralSignup[] @relation("ReferralSignupReferrer")
   referralSignupsAsNewMember ReferralSignup[] @relation("ReferralSignupNewMember")
   appShares MemberAppShare[]
+  contentShareEvents ContentShareEvent[]
   reports                  Report[]
   pushTokens               MemberPushToken[]
   notificationPreferences MemberNotificationPreferences?
@@ -1446,6 +1447,23 @@ model MemberAppShare {
 
   @@index([memberId, createdAt])
   @@map("member_app_share")
+}
+
+// Tracks content shares across channels (feed, DM, link copy, etc.) with daily dedupe per member + channel.
+model ContentShareEvent {
+  id          String   @id @default(cuid())
+  memberId    String   @map("member_id")
+  contentType String   @map("content_type")
+  contentId   String   @map("content_id")
+  channel     String
+  shareDay    DateTime @map("share_day") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, contentType, contentId, channel, shareDay])
+  @@index([contentType, contentId])
+  @@map("content_share_event")
 }
 
 // Messages/requests from users to admin (NWC Requests form, app Support & contact)

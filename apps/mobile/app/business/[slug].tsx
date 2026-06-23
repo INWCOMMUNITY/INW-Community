@@ -25,7 +25,7 @@ import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { AppImage } from "@/components/AppImage";
 import { useAuth, type Member } from "@/contexts/AuthContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
-import { fetchBusinessFeed, toggleLike, deletePost, type FeedPost } from "@/lib/feed-api";
+import { fetchBusinessFeed, toggleLike, deletePost, nextShareCountAfterShare, type FeedPost } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 
@@ -480,6 +480,20 @@ export default function BusinessScreen() {
     );
   }, [feedCommentPostId]);
 
+  const handleFeedSourcePostShared = useCallback(
+    (sourcePostId: string, opts?: { recorded?: boolean; shareCount?: number }) => {
+      setFeedPosts((prev) =>
+        prev.map((p) => {
+          if (p.id !== sourcePostId) return p;
+          const next = nextShareCountAfterShare(p.shareCount, opts);
+          if (next == null) return p;
+          return { ...p, shareCount: next };
+        })
+      );
+    },
+    []
+  );
+
   const handleFeedDeletePost = useCallback((postId: string) => {
     Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
       { text: "Cancel", style: "cancel" },
@@ -810,6 +824,7 @@ export default function BusinessScreen() {
           visible={!!feedSharePost}
           onClose={() => setFeedSharePost(null)}
           sharedContent={{ type: "post", id: feedSharePost.id }}
+          onSourcePostShared={handleFeedSourcePostShared}
         />
       )}
     </View>

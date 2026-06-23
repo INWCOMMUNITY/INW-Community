@@ -28,8 +28,10 @@ import {
   buildShareUrl,
   shareToFeed,
   shareToGroup,
+  recordPostShareEvent,
   type EarnedBadgePayload,
   type ShareContent,
+  type PostShareChannel,
 } from "@/lib/share-utils";
 import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import { fetchStoreItemPreviewPayload } from "@/lib/fetch-store-item-preview";
@@ -86,6 +88,11 @@ interface ShareToChatModalProps {
   defaultFeedGroupId?: string | null;
   /** Called after a successful “Share to feed” (e.g. refresh group feed). */
   onShareToFeedComplete?: () => void;
+  /** Called when a post share is recorded (feed, group, DM, or external). */
+  onSourcePostShared?: (
+    sourcePostId: string,
+    opts?: { recorded?: boolean; shareCount?: number }
+  ) => void;
 }
 
 const SHARE_TITLE = "Check this out";
@@ -98,6 +105,7 @@ export function ShareToChatModal({
   sharedContent,
   defaultFeedGroupId = null,
   onShareToFeedComplete,
+  onSourcePostShared,
 }: ShareToChatModalProps) {
   const router = useRouter();
   const { member } = useAuth();
@@ -203,6 +211,27 @@ export function ShareToChatModal({
     }
   }, [visible]);
 
+  const notifyPostShared = useCallback(
+    (recorded?: boolean, shareCount?: number) => {
+      if (sharedContent.type !== "post") return;
+      onSourcePostShared?.(sharedContent.id, { recorded, shareCount });
+    },
+    [sharedContent.type, sharedContent.id, onSourcePostShared]
+  );
+
+  const trackExternalPostShare = useCallback(
+    async (channel: PostShareChannel) => {
+      if (sharedContent.type !== "post") return;
+      try {
+        const res = await recordPostShareEvent(sharedContent.id, channel);
+        notifyPostShared(res.recorded, res.shareCount);
+      } catch (e) {
+        console.warn("[ShareToChatModal] recordPostShareEvent failed:", e);
+      }
+    },
+    [sharedContent.type, sharedContent.id, notifyPostShared]
+  );
+
   const sendToFriend = async (addresseeId: string) => {
     const key = `friend-${addresseeId}`;
     setSending(key);
@@ -216,7 +245,13 @@ export function ShareToChatModal({
         sharedContentId: sharedContent.id,
         sharedContentSlug: sharedContent.slug ?? undefined,
       };
-      const conv = await apiPost<{ id: string }>("/api/direct-conversations", payload);
+      const conv = await apiPost<{ id: string; shareRecorded?: boolean; shareCount?: number }>(
+        "/api/direct-conversations",
+        payload
+      );
+      if (sharedContent.type === "post") {
+        notifyPostShared(conv.shareRecorded, conv.shareCount);
+      }
       onClose();
       router.push(`/messages/${conv.id}`);
     } catch (e) {
@@ -238,6 +273,9 @@ export function ShareToChatModal({
       );
       setShareToFeedText("");
       setComposing(false);
+      if (sharedContent.type === "post") {
+        notifyPostShared(res.shareRecorded, res.shareCount);
+      }
       onShareToFeedComplete?.();
       if (earned.length > 0) {
         setFeedEarnedBadges(earned);
@@ -266,7 +304,10 @@ export function ShareToChatModal({
   const handleShareToGroup = async (groupId: string) => {
     setShareToGroupLoading(groupId);
     try {
-      await shareToGroup(content, groupId);
+      const res = await shareToGroup(content, groupId);
+      if (sharedContent.type === "post") {
+        notifyPostShared(res.shareRecorded, res.shareCount);
+      }
       onClose();
     } catch {
       Alert.alert("Error", "Could not share to group. Try again.");
@@ -282,22 +323,25 @@ export function ShareToChatModal({
         url,
         title: SHARE_TITLE,
       });
+      await trackExternalPostShare("link_copy");
       onClose();
     } catch {
       // dismissed
     }
   };
 
-  const handleShareViaText = () => {
+  const handleShareViaText = async () => {
     const body = encodeURIComponent(`${SHARE_TITLE} ${url}`);
     Linking.openURL(`sms:?body=${body}`).catch(() => {});
+    await trackExternalPostShare("sms");
     onClose();
   };
 
-  const handleShareViaEmail = () => {
+  const handleShareViaEmail = async () => {
     const subject = encodeURIComponent(SHARE_TITLE);
     const body = encodeURIComponent(`${SHARE_TITLE}\n\n${url}`);
     Linking.openURL(`mailto:?subject=${subject}&body=${body}`).catch(() => {});
+    await trackExternalPostShare("email");
     onClose();
   };
 

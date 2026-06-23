@@ -62,6 +62,13 @@ export type LiveSocketMessagePayload = {
     logoUrl: string | null;
     shortDescription: string | null;
   };
+  /** Present when sharedContentType is "post" — rich preview in chat. */
+  sharedPost?: {
+    id: string;
+    contentSnippet: string;
+    coverPhotoUrl: string | null;
+    authorName: string;
+  };
 };
 
 export function isLiveSocketMessagePayload(p: unknown): p is LiveSocketMessagePayload {

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { DownloadAppStoreButtons } from "@/components/DownloadAppStoreButtons";
+import { getSiteImageUrl } from "@/lib/site-images";
 import {
   getAndroidPlayStoreUrl,
   getIosAppStoreUrl,
@@ -12,9 +14,10 @@ export const metadata: Metadata = {
     "Download the INW Community App for reward points, supporting local businesses, community groups, calendars, coupons, local goods, and more in the Inland Northwest.",
 };
 
-export default function DownloadAppPage() {
+export default async function DownloadAppPage() {
   const iosUrl = getIosAppStoreUrl();
   const androidUrl = getAndroidPlayStoreUrl();
+  const appLogoUrl = (await getSiteImageUrl("nwc-logo-circle")) ?? "/nwc-logo-circle.png";
 
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
@@ -25,6 +28,14 @@ export default function DownloadAppPage() {
           </Link>
         </div>
 
+        <Image
+          src={appLogoUrl}
+          alt="Northwest Community"
+          width={140}
+          height={140}
+          className="mx-auto mb-6 rounded-full object-cover"
+          quality={100}
+        />
         <h1 className="text-3xl font-bold mb-4" style={{ fontFamily: "var(--font-heading)" }}>
           Download the INW Community App
         </h1>

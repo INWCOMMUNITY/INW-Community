@@ -16,6 +16,7 @@ import {
   fetchPostById,
   toggleLike,
   deletePost,
+  nextShareCountAfterShare,
   type FeedPost,
 } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
@@ -122,6 +123,18 @@ export default function SinglePostScreen() {
     ]);
   }, [router]);
 
+  const handleSourcePostShared = useCallback(
+    (sourcePostId: string, opts?: { recorded?: boolean; shareCount?: number }) => {
+      setPost((prev) => {
+        if (!prev || prev.id !== sourcePostId) return prev;
+        const next = nextShareCountAfterShare(prev.shareCount, opts);
+        if (next == null) return prev;
+        return { ...prev, shareCount: next };
+      });
+    },
+    []
+  );
+
   if (loading || !id) {
     return (
       <View style={styles.center}>
@@ -208,6 +221,7 @@ export default function SinglePostScreen() {
           onClose={() => setShareOpen(false)}
           sharedContent={{ type: "post", id: post.id }}
           defaultFeedGroupId={post.sourceGroup?.id ?? post.groupId ?? null}
+          onSourcePostShared={handleSourcePostShared}
         />
       )}
     </>

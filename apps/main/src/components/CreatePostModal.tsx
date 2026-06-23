@@ -6,6 +6,12 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { CreatePostForm } from "@/components/CreatePostForm";
+import {
+  SITE_NAV_BAND,
+  SITE_PAGE_SHELL,
+  SiteHeaderActionsSpacer,
+  SiteHeaderLogoSpacer,
+} from "@/components/SiteNavAlignedColumn";
 
 export type EditFeedPostPayload = {
   id: string;
@@ -38,9 +44,9 @@ interface CreatePostModalProps {
 }
 
 const backdropClass =
-  "fixed left-0 right-0 bottom-0 z-[110] flex items-center justify-center p-4 bg-black/50 overflow-y-auto";
+  "fixed left-0 right-0 bottom-0 z-[110] bg-black/50 overflow-y-auto";
 const panelClass =
-  "relative z-[1] isolate rounded-xl shadow-xl bg-white w-full max-w-2xl overflow-y-auto border-2 border-[var(--color-primary)]";
+  "relative z-[1] isolate rounded-xl shadow-xl bg-white w-full max-w-2xl overflow-y-auto border-2 border-[var(--color-primary)] pointer-events-auto";
 
 export function CreatePostModal({
   open,
@@ -70,6 +76,68 @@ export function CreatePostModal({
 
   if (!open || !mounted) return null;
 
+  const panelMaxHeight =
+    "min(90vh, calc(100dvh - var(--site-header-height, 5rem) - 2rem))";
+
+  const panel = (
+    <div
+      className={panelClass}
+      style={{ maxHeight: panelMaxHeight }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="sticky top-0 z-10 bg-white border-b px-6 py-4 flex items-center justify-between gap-4">
+        <h2 id="create-post-modal-title" className="text-xl font-bold">
+          {editPost ? "Edit post" : "Create Post"}
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-100"
+          aria-label="Close"
+        >
+          <span className="text-xl leading-none">×</span>
+        </button>
+      </div>
+      <div className="p-6 bg-white">
+        {noBusinessMessage && !sharedBusinessId && !editPost ? (
+          <>
+            <p className="text-gray-700 mb-4">{noBusinessMessage}</p>
+            <Link
+              href="/seller-hub/store"
+              className="btn inline-block"
+              onClick={() => onClose()}
+            >
+              Go to Seller Storefront
+            </Link>
+          </>
+        ) : (
+          <CreatePostForm
+            key={editPost?.id ?? "create"}
+            initialGroupId={editPost ? (editPost.groupId ?? "") : groupId}
+            initialSharedBusinessId={
+              editPost?.type === "shared_business" && editPost.sourceBusiness?.id
+                ? editPost.sourceBusiness.id
+                : sharedBusinessId
+            }
+            initialSharedBusinessName={
+              editPost?.type === "shared_business" && editPost.sourceBusiness
+                ? editPost.sourceBusiness.name
+                : sharedBusinessName
+            }
+            returnTo={returnTo ?? "/my-community/feed"}
+            onSuccess={handleSuccess}
+            onCancel={onClose}
+            editPostId={editPost?.id}
+            initialContent={editPost?.content}
+            initialPhotos={editPost?.photos}
+            initialVideos={editPost?.videos}
+            initialTags={editPost?.tags?.map((t) => t.name)}
+          />
+        )}
+      </div>
+    </div>
+  );
+
   const modal = (
     <div
       className={backdropClass}
@@ -79,64 +147,21 @@ export function CreatePostModal({
       aria-labelledby="create-post-modal-title"
       onClick={onClose}
     >
-      <div
-        className={panelClass}
-        style={{
-          maxHeight:
-            "min(90vh, calc(100dvh - var(--site-header-height, 5rem) - 2rem))",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 bg-white border-b px-6 py-4 flex items-center justify-between gap-4">
-          <h2 id="create-post-modal-title" className="text-xl font-bold">
-            {editPost ? "Edit post" : "Create Post"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-100"
-            aria-label="Close"
+      {/* Desktop: center in Home–Members nav band (under Store) */}
+      <div className={`hidden md:block ${SITE_PAGE_SHELL} min-h-full`}>
+        <div className="grid grid-cols-[auto_1fr_auto] min-h-full items-center">
+          <SiteHeaderLogoSpacer />
+          <div
+            className={`${SITE_NAV_BAND} min-w-0 flex justify-center items-center py-4 px-4`}
           >
-            <span className="text-xl leading-none">×</span>
-          </button>
+            {panel}
+          </div>
+          <SiteHeaderActionsSpacer />
         </div>
-        <div className="p-6 bg-white">
-          {noBusinessMessage && !sharedBusinessId && !editPost ? (
-            <>
-              <p className="text-gray-700 mb-4">{noBusinessMessage}</p>
-              <Link
-                href="/seller-hub/store"
-                className="btn inline-block"
-                onClick={() => onClose()}
-              >
-                Go to Seller Storefront
-              </Link>
-            </>
-          ) : (
-            <CreatePostForm
-              key={editPost?.id ?? "create"}
-              initialGroupId={editPost ? (editPost.groupId ?? "") : groupId}
-              initialSharedBusinessId={
-                editPost?.type === "shared_business" && editPost.sourceBusiness?.id
-                  ? editPost.sourceBusiness.id
-                  : sharedBusinessId
-              }
-              initialSharedBusinessName={
-                editPost?.type === "shared_business" && editPost.sourceBusiness
-                  ? editPost.sourceBusiness.name
-                  : sharedBusinessName
-              }
-              returnTo={returnTo ?? "/my-community/feed"}
-              onSuccess={handleSuccess}
-              onCancel={onClose}
-              editPostId={editPost?.id}
-              initialContent={editPost?.content}
-              initialPhotos={editPost?.photos}
-              initialVideos={editPost?.videos}
-              initialTags={editPost?.tags?.map((t) => t.name)}
-            />
-          )}
-        </div>
+      </div>
+      {/* Mobile: full-width center */}
+      <div className="md:hidden flex min-h-full items-center justify-center p-4">
+        {panel}
       </div>
     </div>
   );

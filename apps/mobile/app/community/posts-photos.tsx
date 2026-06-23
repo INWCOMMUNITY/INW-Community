@@ -19,6 +19,7 @@ import {
   fetchMyPosts,
   toggleLike,
   deletePost,
+  nextShareCountAfterShare,
   type FeedPost,
 } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
@@ -159,6 +160,20 @@ export default function PostsAndPhotosScreen() {
     );
   }, [commentPostId]);
 
+  const handleSourcePostShared = useCallback(
+    (sourcePostId: string, opts?: { recorded?: boolean; shareCount?: number }) => {
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p.id !== sourcePostId) return p;
+          const next = nextShareCountAfterShare(p.shareCount, opts);
+          if (next == null) return p;
+          return { ...p, shareCount: next };
+        })
+      );
+    },
+    []
+  );
+
   const handleDeletePost = useCallback((postId: string) => {
     Alert.alert(
       "Delete post",
@@ -298,6 +313,7 @@ export default function PostsAndPhotosScreen() {
             id: shareToChatPost.id,
             slug: shareToChatPost.slug,
           }}
+          onSourcePostShared={handleSourcePostShared}
         />
       )}
 

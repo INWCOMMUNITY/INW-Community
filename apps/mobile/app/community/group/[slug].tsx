@@ -19,7 +19,7 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch } from "@/lib/api";
-import { fetchGroupFeed, toggleLike, deletePost, type FeedPost } from "@/lib/feed-api";
+import { fetchGroupFeed, toggleLike, deletePost, nextShareCountAfterShare, type FeedPost } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -338,6 +338,20 @@ export default function GroupDetailScreen() {
     );
   }, [commentPostId]);
 
+  const handleSourcePostShared = useCallback(
+    (sourcePostId: string, opts?: { recorded?: boolean; shareCount?: number }) => {
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p.id !== sourcePostId) return p;
+          const next = nextShareCountAfterShare(p.shareCount, opts);
+          if (next == null) return p;
+          return { ...p, shareCount: next };
+        })
+      );
+    },
+    []
+  );
+
   const handleDeletePost = useCallback((postId: string) => {
     Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
       { text: "Cancel", style: "cancel" },
@@ -618,6 +632,7 @@ export default function GroupDetailScreen() {
           sharedContent={{ type: "post", id: shareToChatPost.id }}
           defaultFeedGroupId={group.id}
           onShareToFeedComplete={refreshGroupFeed}
+          onSourcePostShared={handleSourcePostShared}
         />
       )}
 

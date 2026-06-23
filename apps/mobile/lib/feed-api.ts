@@ -82,6 +82,17 @@ export interface FeedPost {
   liked: boolean;
   likeCount: number;
   commentCount: number;
+  shareCount: number;
+}
+
+/** Returns the share count to show after a share action, or null if the UI should not change. */
+export function nextShareCountAfterShare(
+  current: number | undefined,
+  opts?: { recorded?: boolean; shareCount?: number }
+): number | null {
+  if (opts?.shareCount != null) return opts.shareCount;
+  if (opts?.recorded === true) return (current ?? 0) + 1;
+  return null;
 }
 
 export interface FeedResponse {

@@ -70,6 +70,7 @@ const logoSource = require("@/assets/images/nwc-logo-home.png");
 const logoAsset = Asset.fromModule(logoSource);
 
 const homeShortcutGap = 12;
+const homeShortcutWrapColor = "#c99d5f";
 
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
@@ -112,6 +113,8 @@ export default function HomeScreen() {
     width: "100%",
     paddingVertical: 18,
     borderRadius: 12,
+    borderWidth: 2,
+    borderColor: homeShortcutWrapColor,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
@@ -134,6 +137,8 @@ export default function HomeScreen() {
     paddingVertical: 14,
     paddingHorizontal: 12,
     borderRadius: 8,
+    borderWidth: 2,
+    borderColor: homeShortcutWrapColor,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -585,6 +590,8 @@ export default function HomeScreen() {
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
+    borderWidth: 2,
+    borderColor: homeShortcutWrapColor,
   },
   nwcRequestButtonText: {
     color: theme.colors.buttonText,
@@ -611,6 +618,8 @@ export default function HomeScreen() {
     paddingHorizontal: 24,
     borderRadius: 8,
     alignSelf: "center",
+    borderWidth: 2,
+    borderColor: homeShortcutWrapColor,
   },
   subscribeHomeBtnText: {
     color: theme.colors.buttonText,

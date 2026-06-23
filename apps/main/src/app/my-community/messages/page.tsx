@@ -139,7 +139,9 @@ function sharedContentLink(msg: {
     case "reward":
       return `${base}/rewards`;
     case "post":
-      return `${base}/my-community`;
+      return msg.sharedContentId
+        ? `${base}/my-community/posts/${msg.sharedContentId}`
+        : `${base}/my-community`;
     case "event":
       return `${base}/events/${msg.sharedContentSlug || msg.sharedContentId}`;
     default:

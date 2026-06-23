@@ -38,6 +38,7 @@ const SHORT_LIST_MAX_ITEMS_FOR_SCROLL_COLLAPSE = 2;
 
 const CARD_GAP = 12;
 const CARD_PADDING = 16;
+const accentBorder = "#c99d5f";
 
 interface Business {
   id: string;
@@ -418,7 +419,7 @@ export default function SupportLocalScreen() {
           borderRadius: 20,
           backgroundColor: "#fff",
           borderWidth: 2,
-          borderColor: "#000",
+          borderColor: accentBorder,
           maxWidth: "100%",
           minWidth: 0,
           alignSelf: "stretch",
@@ -445,7 +446,7 @@ export default function SupportLocalScreen() {
         searchInput: {
           backgroundColor: "#fff",
           borderWidth: 2,
-          borderColor: "#000",
+          borderColor: accentBorder,
           borderRadius: 8,
           paddingHorizontal: 12,
           paddingVertical: 10,

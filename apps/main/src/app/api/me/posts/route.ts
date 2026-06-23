@@ -9,6 +9,7 @@ import {
   mergePostBusinessLookupIds,
   taggedBusinessesFromIds,
 } from "@/lib/feed-tagged-businesses";
+import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
 
 /**
  * GET /api/me/posts?limit=30&cursor=...
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
   const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
   const postGroupIds = items.filter((p) => p.groupId).map((p) => p.groupId!);
 
-  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, groups, likes, likeCounts, commentCounts] = await Promise.all([
+  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, groups, likes, likeCounts, commentCounts, shareCountMap] = await Promise.all([
     sourceBlogIds.length > 0
       ? prisma.blog.findMany({
           where: { id: { in: sourceBlogIds } },
@@ -128,6 +129,7 @@ export async function GET(req: NextRequest) {
       where: { postId: { in: postIds } },
       _count: { postId: true },
     }),
+    getShareCountBySourcePostId(postIds),
   ]);
 
   const blogMap = Object.fromEntries(blogs.map((b) => [b.id, b]));
@@ -238,6 +240,7 @@ export async function GET(req: NextRequest) {
       liked: likedSet.has(p.id),
       likeCount: likeCountMap[p.id] ?? 0,
       commentCount: commentCountMap[p.id] ?? 0,
+      shareCount: shareCountMap[p.id] ?? 0,
     }))
     .filter(isFeedPostRenderable);
 

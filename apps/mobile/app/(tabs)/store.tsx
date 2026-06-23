@@ -29,6 +29,7 @@ import { AppImage, prefetchImages } from "@/components/AppImage";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const HEADER_LIST_GAP = 16;
+const accentBorder = "#c99d5f";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 interface StoreItem {
@@ -565,7 +566,7 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     backgroundColor: "#fff",
     borderWidth: 2,
-    borderColor: "#C9A86C",
+    borderColor: accentBorder,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
