@@ -2,7 +2,7 @@
   "expo": {
     "name": "INW Community",
     "slug": "mobile",
-    "version": "5.0.0",
+    "version": "6.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "inwcommunity",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.northwestcommunity.app",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "associatedDomains": ["applinks:www.inwcommunity.com"],
       "infoPlist": {
         "LSApplicationQueriesSchemes": ["maps", "http", "https", "geo"],
@@ -33,7 +33,7 @@
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#f8e7c9"

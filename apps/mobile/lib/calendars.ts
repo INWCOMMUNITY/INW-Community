@@ -13,7 +13,7 @@ export type EventCity = (typeof EVENT_CITIES)[number];
 export const EVENT_CITIES_FORM = EVENT_CITIES.filter((c) => c !== "All cities");
 
 export const CALENDAR_TYPES = [
-  { value: "fun_events", label: "Fun Events Calendar" },
+  { value: "fun_events", label: "Fun Events\nCalendar" },
   { value: "local_art_music", label: "Local Art & Music Calendar" },
   { value: "non_profit", label: "Non-Profit Events Calendar" },
   { value: "business_promotional", label: "Community Events Calendar" },
