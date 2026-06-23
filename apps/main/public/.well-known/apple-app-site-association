@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["B8YW2Z4Y69.com.northwestcommunity.app"],
+        "components": [
+          {
+            "/": "/my-community/posts/*",
+            "comment": "Shared post links open in app"
+          }
+        ]
+      }
+    ]
+  }
+}

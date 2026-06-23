@@ -17,6 +17,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.northwestcommunity.app",
       "buildNumber": "4",
+      "associatedDomains": ["applinks:www.inwcommunity.com"],
       "infoPlist": {
         "LSApplicationQueriesSchemes": ["maps", "http", "https", "geo"],
         "ITSAppUsesNonExemptEncryption": false,
@@ -43,6 +44,20 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "www.inwcommunity.com",
+              "pathPrefix": "/my-community/posts/"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
       ]
     },
     "web": {

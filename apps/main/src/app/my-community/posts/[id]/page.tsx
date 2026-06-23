@@ -14,8 +14,9 @@ export default function SingleCommunityPostPage() {
   const searchParams = useSearchParams();
   const id = typeof params?.id === "string" ? params.id : "";
   const initialCommentId = searchParams?.get("comment");
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const viewerUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
+  const isGuest = sessionStatus !== "loading" && !viewerUserId;
 
   const [post, setPost] = useState<PostShape | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,6 +44,7 @@ export default function SingleCommunityPostPage() {
   }, [load]);
 
   async function toggleLike(postId: string) {
+    if (isGuest) return;
     const res = await fetch(`/api/posts/${postId}/like`, { method: "POST", credentials: "include" });
     if (res.ok) {
       const data = await res.json();
@@ -55,6 +57,7 @@ export default function SingleCommunityPostPage() {
   }
 
   async function handleShare(postId: string) {
+    if (isGuest) return;
     const res = await fetch(`/api/posts/${postId}/share`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -111,6 +114,32 @@ export default function SingleCommunityPostPage() {
 
   return (
     <div>
+      {isGuest && (
+        <div className="mb-4 rounded-lg border p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3" style={{ borderColor: "var(--color-primary)", background: "rgba(201,157,95,0.06)" }}>
+          <div className="flex-1">
+            <p className="font-semibold text-sm" style={{ color: "var(--color-primary)" }}>
+              Join the community to like, comment, and share
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">Sign up free or download the app</p>
+          </div>
+          <div className="flex gap-2">
+            <Link
+              href="/login"
+              className="px-4 py-1.5 rounded-full text-sm font-medium text-white"
+              style={{ background: "var(--color-primary)" }}
+            >
+              Sign in
+            </Link>
+            <Link
+              href="/download-app"
+              className="px-4 py-1.5 rounded-full text-sm font-medium border"
+              style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+            >
+              Get the app
+            </Link>
+          </div>
+        </div>
+      )}
       <div className="mb-6">
         <Link
           href="/my-community/feed"
@@ -123,18 +152,21 @@ export default function SingleCommunityPostPage() {
       <FeedPostCard
         post={post}
         onLike={toggleLike}
-        onShare={handleShare}
+        onShare={isGuest ? undefined : handleShare}
         viewerUserId={viewerUserId}
-        onEditPost={openEditFeedPost}
-        onDeletePost={handleDeletePost}
+        onEditPost={isGuest ? undefined : openEditFeedPost}
+        onDeletePost={isGuest ? undefined : handleDeletePost}
+        readOnlyInteractions={isGuest}
         initialCommentId={initialCommentId}
-        onCommentAdded={(postId) => {
+        onCommentAdded={isGuest ? undefined : (postId) => {
           setPost((p) =>
             p && p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p
           );
         }}
       />
-      <CreatePostModal open={!!editPost} onClose={() => setEditPost(null)} editPost={editPost} onAfterSuccess={load} />
+      {!isGuest && (
+        <CreatePostModal open={!!editPost} onClose={() => setEditPost(null)} editPost={editPost} onAfterSuccess={load} />
+      )}
     </div>
   );
 }

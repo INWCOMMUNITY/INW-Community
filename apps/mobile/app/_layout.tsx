@@ -250,6 +250,25 @@ function ReferralDeepLinkHandler() {
   return null;
 }
 
+/** Universal link handler: https://www.inwcommunity.com/my-community/posts/{id} opens in-app. */
+function PostUniversalLinkHandler() {
+  const router = useRouter();
+  useEffect(() => {
+    const POST_PATH_RE = /\/my-community\/posts\/([^/?#]+)/;
+    const handleUrl = (url: string | null) => {
+      if (!url) return;
+      const match = url.match(POST_PATH_RE);
+      if (match?.[1]) {
+        router.push(`/post/${match[1]}` as never);
+      }
+    };
+    void Linking.getInitialURL().then(handleUrl);
+    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    return () => sub.remove();
+  }, [router]);
+  return null;
+}
+
 function ProfileViewLayout({ children }: { children: React.ReactNode }) {
   const { member, subscriptionPlan } = useAuth();
   const hasSponsor = member?.subscriptions?.some((s) => s.plan === "sponsor") ?? false;
@@ -342,6 +361,7 @@ function RootLayoutNav() {
       <AuthDeepLinkHandler />
       <StripeConnectDeepLinkHandler />
       <ReferralDeepLinkHandler />
+      <PostUniversalLinkHandler />
       <PushNotificationHandler />
       <EventInvitePopupHost />
       <WelcomeGalleryHost />

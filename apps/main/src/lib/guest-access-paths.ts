@@ -21,6 +21,7 @@ export function isGuestAllowedMyCommunityPath(pathname: string): boolean {
   if (p === "/my-community/local-events" || p.startsWith("/my-community/local-events/"))
     return true;
   if (p === "/my-community/rewards" || p.startsWith("/my-community/rewards/")) return true;
+  if (p.startsWith("/my-community/posts/")) return true;
   return false;
 }
 
