@@ -72,8 +72,11 @@ function mobileCorsHeaders(req: NextRequest) {
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
 
-  // Stripe must receive the request unchanged; do not add CORS or other logic here.
-  if (pathname === "/api/stripe/webhook") {
+  // External webhooks must receive the request unchanged; do not add CORS or other logic here.
+  if (
+    pathname === "/api/stripe/webhook" ||
+    pathname === "/api/channels/ebay/account-deletion"
+  ) {
     return NextResponse.next();
   }
 
@@ -148,6 +151,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api/stripe/webhook|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api/stripe/webhook|api/channels/ebay/account-deletion|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

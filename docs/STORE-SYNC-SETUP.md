@@ -147,15 +147,37 @@ Do this once before connecting any marketplace.
 | **RuNames** (OAuth redirect name) | [developer.ebay.com/my/auth/?env=production&index=0](https://developer.ebay.com/my/auth/?env=production&index=0) |
 | OAuth guide | [developer.ebay.com/api-docs/static/oauth-consent-request.html](https://developer.ebay.com/api-docs/static/oauth-consent-request.html) |
 | **RuName “auth accepted URL”** (not `EBAY_RUNAME`) | `https://www.inwcommunity.com/api/channels/ebay/callback` |
+| **Account deletion endpoint** (required before keys work) | `https://www.inwcommunity.com/api/channels/ebay/account-deletion` |
+| Account deletion guide | [developer.ebay.com/marketplace-account-deletion](https://developer.ebay.com/marketplace-account-deletion) |
 | Seller policies (tell sellers) | [ebay.com/sh/ovw](https://www.ebay.com/sh/ovw) |
 
 ### C — To-do checklist
 
+- [ ] C0 Enable Production keyset (Marketplace Account Deletion — see below)
 - [ ] C1 Create **Production** keyset (not Sandbox)
 - [ ] C2 Create **RuName** with auth accepted URL = our callback
 - [ ] C3 Copy App ID, Cert ID, RuName **string** → Vercel
 - [ ] C4 Redeploy main app
 - [ ] C5 Test: Connect → Import → Publish → Sell both ways
+
+### C — Enable Production keyset (Marketplace Account Deletion)
+
+eBay disables new Production keys until you validate an account-deletion endpoint.
+
+1. **Deploy** the main app (route: `/api/channels/ebay/account-deletion`).
+2. In **Vercel**, add `EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN` — a random 32–80 character string (letters, numbers, `_`, `-` only). **Redeploy.**
+3. In eBay → Application Keys → **INW Community** → **Notifications**:
+   - Event type: **Marketplace Account Deletion**
+   - Alert email: your email
+   - Notification Endpoint URL: `https://www.inwcommunity.com/api/channels/ebay/account-deletion`
+   - Verification token: **the same string** as `EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN`
+4. Click **Save**. eBay sends a GET challenge; our endpoint responds automatically.
+5. If validation fails, set optional `EBAY_ACCOUNT_DELETION_ENDPOINT` in Vercel to the **exact** URL you typed in eBay (no trailing slash), redeploy, and save again in eBay.
+
+| Vercel name | Required? | Notes |
+|-------------|-----------|-------|
+| `EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN` | Yes (to enable keys) | Must match eBay portal token exactly |
+| `EBAY_ACCOUNT_DELETION_ENDPOINT` | No | Only if challenge validation fails due to URL mismatch |
 
 ### C — Find API keys (numbered clicks)
 
