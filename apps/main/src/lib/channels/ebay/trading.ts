@@ -4,6 +4,7 @@ import {
   EBAY_TRADING_SITE_ID,
 } from "./config";
 import { ebayGet, ebayJson } from "./client";
+import { describeEbayThrownError, formatMigrateListingError } from "./errors";
 import { allTags, extractEbayItemPhotos, normalizeEbayPhotoUrl, tag } from "./photos";
 
 /** A classic (Trading API) eBay listing enumerated for import preview. */
@@ -156,11 +157,78 @@ type MigrateResponse = {
     statusCode?: number;
     inventoryItems?: { sku?: string }[];
     offers?: { offerId?: string }[];
-    errors?: { message?: string; longMessage?: string }[];
+    errors?: { errorId?: number; message?: string; longMessage?: string }[];
   }[];
 };
 
 export type MigrationResult = { sku?: string; offerId?: string; error?: string };
+
+function formatMigrationError(e: unknown): string {
+  return describeEbayThrownError(e);
+}
+
+/** Listing may already be on the Inventory model from a prior partial migrate. */
+async function findExistingInventorySku(
+  accessToken: string,
+  listingId: string
+): Promise<{ sku: string; offerId?: string } | null> {
+  type OfferRow = { sku?: string; offerId?: string; listing?: { listingId?: string } };
+  let offset = 0;
+  for (let page = 0; page < 5; page += 1) {
+    const res = await ebayGet<{ offers?: OfferRow[] }>(
+      accessToken,
+      `/sell/inventory/v1/offer?marketplace_id=EBAY_US&limit=200&offset=${offset}`
+    ).catch(() => null);
+    const offers = res?.offers ?? [];
+    for (const offer of offers) {
+      if (offer.listing?.listingId === listingId && offer.sku) {
+        return { sku: offer.sku, offerId: offer.offerId };
+      }
+    }
+    if (offers.length < 200) break;
+    offset += 200;
+  }
+  return null;
+}
+
+function applyMigrateResponse(
+  result: Map<string, MigrationResult>,
+  res: MigrateResponse,
+  batch: string[]
+): void {
+  for (const r of res.responses ?? []) {
+    if (!r.listingId) continue;
+    const ok = r.statusCode != null && r.statusCode >= 200 && r.statusCode < 300;
+    if (!ok) {
+      result.set(r.listingId, { error: formatMigrateListingError(r) });
+      continue;
+    }
+    const sku = r.inventoryItems?.[0]?.sku;
+    if (!sku) {
+      result.set(r.listingId, { error: "migration_missing_sku" });
+      continue;
+    }
+    result.set(r.listingId, {
+      sku,
+      offerId: r.offers?.[0]?.offerId,
+    });
+  }
+  for (const id of batch) {
+    if (!result.has(id)) result.set(id, { error: "no_response" });
+  }
+}
+
+async function migrateListingBatch(
+  accessToken: string,
+  listingIds: string[]
+): Promise<MigrateResponse> {
+  return ebayJson<MigrateResponse>(
+    accessToken,
+    "/sell/inventory/v1/bulk_migrate_listing",
+    "POST",
+    { requests: listingIds.map((listingId) => ({ listingId })) }
+  );
+}
 
 /**
  * Bring classic listings under the Inventory model so unified inventory updates work.
@@ -171,35 +239,41 @@ export async function migrateEbayListings(
   listingIds: string[]
 ): Promise<Map<string, MigrationResult>> {
   const result = new Map<string, MigrationResult>();
-  // bulk_migrate_listing accepts up to 5 listings per call.
-  for (let i = 0; i < listingIds.length; i += 5) {
-    const batch = listingIds.slice(i, i + 5);
-    let res: MigrateResponse;
-    try {
-      res = await ebayJson<MigrateResponse>(
-        accessToken,
-        "/sell/inventory/v1/bulk_migrate_listing",
-        "POST",
-        { requests: batch.map((listingId) => ({ listingId })) }
-      );
-    } catch (e) {
-      for (const id of batch) result.set(id, { error: String(e).slice(0, 200) });
-      continue;
+  const pending: string[] = [];
+
+  for (const listingId of listingIds) {
+    const existing = await findExistingInventorySku(accessToken, listingId);
+    if (existing) {
+      result.set(listingId, { sku: existing.sku, offerId: existing.offerId });
+    } else {
+      pending.push(listingId);
     }
-    for (const r of res.responses ?? []) {
-      if (!r.listingId) continue;
-      const ok = r.statusCode != null && r.statusCode >= 200 && r.statusCode < 300;
-      if (!ok) {
-        const err = r.errors?.[0]?.longMessage || r.errors?.[0]?.message || "migration_failed";
-        result.set(r.listingId, { error: err });
-        continue;
-      }
-      result.set(r.listingId, {
-        sku: r.inventoryItems?.[0]?.sku,
-        offerId: r.offers?.[0]?.offerId,
+  }
+
+  // bulk_migrate_listing accepts up to 5 listings per call and is known to be flaky (HTTP 500).
+  for (let i = 0; i < pending.length; i += 5) {
+    const batch = pending.slice(i, i + 5);
+    try {
+      const res = await migrateListingBatch(accessToken, batch);
+      applyMigrateResponse(result, res, batch);
+      continue;
+    } catch (batchErr) {
+      console.warn("[ebay] bulk_migrate_listing batch failed; retrying one-by-one", {
+        batch,
+        error: formatMigrationError(batchErr),
       });
     }
-    for (const id of batch) if (!result.has(id)) result.set(id, { error: "no_response" });
+
+    for (const listingId of batch) {
+      if (result.has(listingId)) continue;
+      try {
+        const res = await migrateListingBatch(accessToken, [listingId]);
+        applyMigrateResponse(result, res, [listingId]);
+      } catch (singleErr) {
+        result.set(listingId, { error: formatMigrationError(singleErr) });
+      }
+    }
   }
+
   return result;
 }

@@ -79,27 +79,28 @@ export default function ChannelImportScreen() {
     try {
       const res = await apiPost<{
         imported: unknown[];
-        skipped?: { externalListingId: string; reason: string }[];
+        skipped?: {
+          externalListingId: string;
+          title?: string;
+          step?: string;
+          reason: string;
+          hint?: string;
+        }[];
+        summary?: string;
         hint?: string;
       }>(importPath, {
         listingIds: Array.from(selected),
       });
       const importedCount = res.imported?.length ?? 0;
       const skipped = res.skipped ?? [];
-      const skippedCount = skipped.length;
-      const reasonLine =
-        skippedCount > 0
-          ? ` Skipped: ${[...new Set(skipped.map((s) => s.reason))].join(", ")}.`
-          : "";
-      setDone(
+      const summary =
+        res.summary ??
         (importedCount > 0
           ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
-          : "No listings were imported.") +
-          (skippedCount > 0 ? ` (${skippedCount} skipped).${reasonLine}` : "") +
-          (res.hint ? ` ${res.hint}` : "")
-      );
-      if (importedCount === 0 && (res.hint || skippedCount > 0)) {
-        setError(res.hint ?? (reasonLine.trim() || "Import failed for all selected items."));
+          : "No listings were imported.");
+      setDone(summary);
+      if (importedCount === 0 && (res.hint || skipped.length > 0)) {
+        setError(res.hint ?? summary);
       }
       setSelected(new Set());
       await load();

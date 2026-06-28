@@ -80,20 +80,14 @@ export function ChannelImportContent() {
       }
       const importedCount = data.imported?.length ?? 0;
       const skipped = data.skipped ?? [];
-      const skippedCount = skipped.length;
-      const reasonLine =
-        skippedCount > 0
-          ? ` Skipped: ${[...new Set(skipped.map((s: { reason: string }) => s.reason))].join(", ")}.`
-          : "";
-      setDone(
+      const summary =
+        data.summary ??
         (importedCount > 0
           ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
-          : "No listings were imported.") +
-          (skippedCount > 0 ? ` (${skippedCount} skipped).${reasonLine}` : "") +
-          (data.hint ? ` ${data.hint}` : "")
-      );
-      if (importedCount === 0 && (data.hint || skippedCount > 0)) {
-        setError(data.hint ?? (reasonLine.trim() || "Import failed for all selected items."));
+          : "No listings were imported.");
+      setDone(summary);
+      if (importedCount === 0 && (data.hint || skipped.length > 0)) {
+        setError(data.hint ?? summary);
       }
       setSelected(new Set());
       await load();

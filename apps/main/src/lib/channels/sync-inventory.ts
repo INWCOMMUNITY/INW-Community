@@ -7,6 +7,7 @@ import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 import { variantsFingerprint } from "./variant-sync";
 import type { ChannelProvider, ChannelSyncResult } from "./types";
+import { describeChannelSyncError } from "./ebay/errors";
 
 /**
  * Push the StoreItem's current (authoritative) quantity out to every linked channel as an
@@ -61,7 +62,7 @@ export async function syncInventoryToChannels(
       });
       results.push({ provider, ok: true });
     } catch (e) {
-      const msg = String(e).slice(0, 500);
+      const msg = describeChannelSyncError(provider, e);
       console.error("[channels] inventory sync failed", {
         storeItemId,
         provider: link.provider,

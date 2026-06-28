@@ -4,18 +4,10 @@ import {
   EBAY_CONTENT_LANGUAGE,
   EBAY_MARKETPLACE_ID,
 } from "./config";
+import { EbayApiError, formatEbayApiErrorMessage } from "./errors";
 
-/** Error carrying the HTTP status so callers can branch (e.g. 404 -> already withdrawn). */
-export class EbayApiError extends Error {
-  status: number;
-  body: unknown;
-  constructor(message: string, status: number, body: unknown) {
-    super(message);
-    this.name = "EbayApiError";
-    this.status = status;
-    this.body = body;
-  }
-}
+export { EbayApiError } from "./errors";
+export { describeEbayThrownError, describeChannelSyncError, ebayErrorActionHint } from "./errors";
 
 function baseHeaders(accessToken: string, opts?: { contentLanguage?: boolean }): Record<string, string> {
   const headers: Record<string, string> = {
@@ -41,18 +33,11 @@ async function parseBody(res: Response): Promise<unknown> {
   }
 }
 
-/** eBay error envelopes use { errors: [{ message, longMessage, errorId }] }. */
-function errorMessage(body: unknown, status: number): string {
-  if (body && typeof body === "object") {
-    const b = body as { errors?: { message?: string; longMessage?: string }[]; message?: string };
-    const first = Array.isArray(b.errors) ? b.errors[0] : undefined;
-    return first?.longMessage || first?.message || b.message || `eBay API error (${status})`;
-  }
-  if (typeof body === "string" && body.trim()) return body.slice(0, 300);
-  return `eBay API error (${status})`;
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504 || status >= 500;
 }
 
-/** Core eBay Sell request. Retries once on 429 after a short backoff. */
+/** Core eBay Sell request. Retries transient 429/5xx once after a short backoff. */
 async function ebayRequest<T>(
   accessToken: string,
   path: string,
@@ -65,13 +50,13 @@ async function ebayRequest<T>(
     ...fetchInit,
     headers: { ...baseHeaders(accessToken, { contentLanguage }), ...(extraHeaders ?? {}) },
   });
-  if (res.status === 429 && attempt < 2) {
+  if (isRetryableStatus(res.status) && attempt < 2) {
     await new Promise((r) => setTimeout(r, 1100 * (attempt + 1)));
     return ebayRequest<T>(accessToken, path, init, attempt + 1);
   }
   const body = await parseBody(res);
   if (!res.ok) {
-    throw new EbayApiError(errorMessage(body, res.status), res.status, body);
+    throw new EbayApiError(formatEbayApiErrorMessage(body, res.status), res.status, body);
   }
   return body as T;
 }

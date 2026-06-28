@@ -11,6 +11,7 @@ import type {
   ChannelSyncResult,
   SyncStoreItem,
 } from "./types";
+import { describeChannelSyncError } from "./ebay/errors";
 
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
@@ -132,7 +133,7 @@ export async function publishStoreItemToChannels(
       });
       results.push({ provider, ok: true });
     } catch (e) {
-      const msg = String(e).slice(0, 500);
+      const msg = describeChannelSyncError(provider, e);
       console.error("[channels] createListing failed", {
         storeItemId,
         provider,
@@ -210,7 +211,7 @@ export async function updateStoreItemOnChannels(
       });
       results.push({ provider, ok: true });
     } catch (e) {
-      const msg = String(e).slice(0, 500);
+      const msg = describeChannelSyncError(provider, e);
       console.error("[channels] updateListing failed", {
         storeItemId,
         provider: link.provider,
@@ -249,7 +250,7 @@ async function removeStoreItemFromChannelLinks(
       await adapter.deleteListing(ctx, link.externalListingId);
       results.push({ provider, ok: true });
     } catch (e) {
-      const msg = String(e).slice(0, 500);
+      const msg = describeChannelSyncError(provider, e);
       console.error("[channels] deleteListing failed", {
         storeItemId,
         provider: link.provider,

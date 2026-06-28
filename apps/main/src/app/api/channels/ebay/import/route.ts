@@ -11,8 +11,35 @@ import { plainListingDescription } from "@/lib/channels/import-listing";
 import { resolveInwCategoryFromRemote } from "@/lib/channels/category-resolver";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
 import { variantsFingerprint } from "@/lib/channels/variant-sync";
+import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
 
 export const dynamic = "force-dynamic";
+
+type ImportSkipEntry = {
+  externalListingId: string;
+  title?: string;
+  step: "migration" | "dedupe" | "validation" | "create";
+  reason: string;
+  hint?: string;
+};
+
+function buildImportSummary(importedCount: number, skipped: ImportSkipEntry[]): string {
+  const lines: string[] = [];
+  if (importedCount > 0) {
+    lines.push(`Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`);
+  } else {
+    lines.push("No listings were imported.");
+  }
+  if (skipped.length > 0) {
+    lines.push(`${skipped.length} skipped:`);
+    for (const row of skipped) {
+      const label = row.title ? `"${row.title}"` : row.externalListingId;
+      lines.push(`• ${label} (${row.step}): ${row.reason}`);
+      if (row.hint) lines.push(`  → ${row.hint}`);
+    }
+  }
+  return lines.join("\n");
+}
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -92,7 +119,7 @@ export async function GET(req: NextRequest) {
     const { listings } = await loadRemoteWithLinkState(userId);
     return NextResponse.json({ listings });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Could not load eBay listings.";
+    const msg = describeEbayThrownError(e);
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }
@@ -134,12 +161,28 @@ export async function POST(req: NextRequest) {
       body.listingIds.includes(l.externalListingId)
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Could not load eBay listings.";
+    const msg = describeEbayThrownError(e);
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 
+  const titleById = new Map(remote.map((l) => [l.externalListingId, l.title]));
+  const pushSkip = (
+    skipped: ImportSkipEntry[],
+    externalListingId: string,
+    step: ImportSkipEntry["step"],
+    reason: string
+  ) => {
+    skipped.push({
+      externalListingId,
+      title: titleById.get(externalListingId),
+      step,
+      reason,
+      hint: ebayErrorActionHint(reason),
+    });
+  };
+
   const imported: { externalListingId: string; storeItemId: string }[] = [];
-  const skipped: { externalListingId: string; reason: string }[] = [];
+  const skipped: ImportSkipEntry[] = [];
 
   // Migrate the classic listings to the Inventory model; this yields the SKU we link on.
   let migration: Awaited<ReturnType<typeof migrateEbayListings>>;
@@ -149,7 +192,7 @@ export async function POST(req: NextRequest) {
       remote.map((l) => l.externalListingId)
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Could not migrate eBay listings.";
+    const msg = describeEbayThrownError(e);
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 
@@ -157,7 +200,7 @@ export async function POST(req: NextRequest) {
     const legacyId = listing.externalListingId;
     const result = migration.get(legacyId);
     if (!result || result.error || !result.sku) {
-      skipped.push({ externalListingId: legacyId, reason: result?.error || "migration_failed" });
+      pushSkip(skipped, legacyId, "migration", result?.error || "migration_failed");
       continue;
     }
     const sku = result.sku;
@@ -170,14 +213,14 @@ export async function POST(req: NextRequest) {
       if (!existing.storeItem) {
         await prisma.channelListingLink.delete({ where: { id: existing.id } }).catch(() => {});
       } else {
-        skipped.push({ externalListingId: legacyId, reason: "already_linked" });
+        pushSkip(skipped, legacyId, "dedupe", "already_linked");
         continue;
       }
     }
 
     const safePriceCents = Math.max(0, Math.round(Number(listing.priceCents) || 0));
     if (safePriceCents < 1) {
-      skipped.push({ externalListingId: legacyId, reason: "invalid_price" });
+      pushSkip(skipped, legacyId, "validation", "invalid_price — listing price must be at least $0.01");
       continue;
     }
 
@@ -244,7 +287,7 @@ export async function POST(req: NextRequest) {
         await prisma.storeItem.delete({ where: { id: storeItem.id } }).catch(() => {});
         createdStoreItemId = null;
         if (linkErr instanceof Prisma.PrismaClientKnownRequestError && linkErr.code === "P2002") {
-          skipped.push({ externalListingId: legacyId, reason: "already_linked" });
+          pushSkip(skipped, legacyId, "dedupe", "already_linked");
           continue;
         }
         throw linkErr;
@@ -258,9 +301,23 @@ export async function POST(req: NextRequest) {
       }
       const reason = describeImportError(e);
       console.error("[channels] ebay import failed", { externalListingId: legacyId, reason });
-      skipped.push({ externalListingId: legacyId, reason });
+      pushSkip(skipped, legacyId, "create", reason);
     }
   }
 
-  return NextResponse.json({ ok: true, imported, skipped });
+  const summary = buildImportSummary(imported.length, skipped);
+  const topHint =
+    imported.length === 0 && skipped.length > 0
+      ? skipped.find((s) => s.hint)?.hint ??
+        ebayErrorActionHint(skipped[0]?.reason ?? "") ??
+        undefined
+      : undefined;
+
+  return NextResponse.json({
+    ok: true,
+    imported,
+    skipped,
+    summary,
+    hint: topHint,
+  });
 }

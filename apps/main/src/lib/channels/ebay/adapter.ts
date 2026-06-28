@@ -8,6 +8,7 @@ import type {
   TokenResponse,
 } from "../types";
 import { EbayApiError, ebayAction, ebayGet, ebayJson } from "./client";
+import { describeEbayThrownError } from "./errors";
 import {
   exchangeEbayCode,
   fetchEbayShopInfo,
@@ -87,7 +88,7 @@ async function upsertListing(
     try {
       await publishOffer(conn.accessToken, offerId);
     } catch (e) {
-      const msg = e instanceof EbayApiError ? e.message : String(e);
+      const msg = describeEbayThrownError(e);
       console.error("[ebay] publish failed; left as draft", { offerId, error: msg });
       return { sku, publishError: msg };
     }

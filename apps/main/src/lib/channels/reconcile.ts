@@ -9,6 +9,7 @@ import { reconcileConnectionInboundListings } from "./reconcile-inbound";
 import { reconcileConnectionInboundCatalog } from "./reconcile-inbound-catalog";
 import { reconcileConnectionInboundMeta } from "./reconcile-inbound-meta";
 import type { ChannelProvider } from "./types";
+import { describeChannelSyncError } from "./ebay/errors";
 import { matchSaleToVariantOption } from "./variant-sync";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
@@ -49,9 +50,10 @@ export async function reconcileConnectionSales(
   try {
     sales = await adapter.fetchRecentSales(ctx, since);
   } catch (e) {
-    console.error("[channels] fetchRecentSales failed", { provider, error: String(e) });
+    const msg = describeChannelSyncError(provider, e);
+    console.error("[channels] fetchRecentSales failed", { provider, error: msg });
     await prisma.channelConnection
-      .update({ where: { id: connection.id }, data: { status: "error", lastError: String(e).slice(0, 500) } })
+      .update({ where: { id: connection.id }, data: { status: "error", lastError: msg } })
       .catch(() => {});
     return { applied: 0 };
   }
