@@ -9,8 +9,9 @@ export const EBAY_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token";
 /** Opens eBay's sign-out page in the device browser (clears the shared OAuth cookie session). */
 export const EBAY_SIGN_OUT_URL = "https://signin.ebay.com/logout/confirm";
 
-/** US marketplace. Localized listing content uses Content-Language: en-US. */
+/** US marketplace. eBay REST headers must use simple locale tags (en-US), not browser q-values. */
 export const EBAY_MARKETPLACE_ID = "EBAY_US";
+export const EBAY_ACCEPT_LANGUAGE = "en-US";
 export const EBAY_CONTENT_LANGUAGE = "en-US";
 export const EBAY_CURRENCY = "USD";
 /** Trading API site id for the US (used by the legacy enumeration call). */

@@ -1,4 +1,9 @@
-import { EBAY_API_BASE, EBAY_CONTENT_LANGUAGE, EBAY_MARKETPLACE_ID } from "./config";
+import {
+  EBAY_ACCEPT_LANGUAGE,
+  EBAY_API_BASE,
+  EBAY_CONTENT_LANGUAGE,
+  EBAY_MARKETPLACE_ID,
+} from "./config";
 
 /** Error carrying the HTTP status so callers can branch (e.g. 404 -> already withdrawn). */
 export class EbayApiError extends Error {
@@ -12,13 +17,18 @@ export class EbayApiError extends Error {
   }
 }
 
-function baseHeaders(accessToken: string): Record<string, string> {
-  return {
+function baseHeaders(accessToken: string, opts?: { contentLanguage?: boolean }): Record<string, string> {
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
     "X-EBAY-C-MARKETPLACE-ID": EBAY_MARKETPLACE_ID,
-    "Content-Language": EBAY_CONTENT_LANGUAGE,
     Accept: "application/json",
+    // eBay rejects browser-style values like "en-US,en;q=0.9"; pin a simple locale tag.
+    "Accept-Language": EBAY_ACCEPT_LANGUAGE,
   };
+  if (opts?.contentLanguage) {
+    headers["Content-Language"] = EBAY_CONTENT_LANGUAGE;
+  }
+  return headers;
 }
 
 async function parseBody(res: Response): Promise<unknown> {
@@ -46,13 +56,14 @@ function errorMessage(body: unknown, status: number): string {
 async function ebayRequest<T>(
   accessToken: string,
   path: string,
-  init: RequestInit & { headers?: Record<string, string> } = {},
+  init: RequestInit & { headers?: Record<string, string>; contentLanguage?: boolean } = {},
   attempt = 0
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${EBAY_API_BASE}${path}`;
+  const { contentLanguage, headers: extraHeaders, ...fetchInit } = init;
   const res = await fetch(url, {
-    ...init,
-    headers: { ...baseHeaders(accessToken), ...(init.headers ?? {}) },
+    ...fetchInit,
+    headers: { ...baseHeaders(accessToken, { contentLanguage }), ...(extraHeaders ?? {}) },
   });
   if (res.status === 429 && attempt < 2) {
     await new Promise((r) => setTimeout(r, 1100 * (attempt + 1)));
@@ -73,12 +84,14 @@ export function ebayJson<T>(
   accessToken: string,
   path: string,
   method: "POST" | "PUT" | "PATCH",
-  json: unknown
+  json: unknown,
+  opts?: { contentLanguage?: boolean }
 ): Promise<T> {
   return ebayRequest<T>(accessToken, path, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(json),
+    contentLanguage: opts?.contentLanguage ?? !path.includes("bulk_migrate_listing"),
   });
 }
 
