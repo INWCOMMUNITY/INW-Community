@@ -56,7 +56,7 @@ async function ebayRequest<T>(
   }
   const body = await parseBody(res);
   if (!res.ok) {
-    throw new EbayApiError(formatEbayApiErrorMessage(body, res.status), res.status, body);
+    throw new EbayApiError(formatEbayApiErrorMessage(body, res.status, path), res.status, body, path);
   }
   return body as T;
 }
@@ -76,7 +76,7 @@ export function ebayJson<T>(
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(json),
-    contentLanguage: opts?.contentLanguage ?? !path.includes("bulk_migrate_listing"),
+    contentLanguage: opts?.contentLanguage ?? true,
   });
 }
 

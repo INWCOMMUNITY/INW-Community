@@ -4,7 +4,8 @@ import {
   EBAY_TRADING_SITE_ID,
 } from "./config";
 import { ebayGet, ebayJson } from "./client";
-import { describeEbayThrownError, formatMigrateListingError } from "./errors";
+import { EbayApiError } from "./errors";
+import { describeEbayThrownError, extractBulkMigrateResponse, formatMigrateListingError } from "./errors";
 import { allTags, extractEbayItemPhotos, normalizeEbayPhotoUrl, tag } from "./photos";
 
 /** A classic (Trading API) eBay listing enumerated for import preview. */
@@ -155,7 +156,7 @@ type MigrateResponse = {
   responses?: {
     listingId?: string;
     statusCode?: number;
-    inventoryItems?: { sku?: string }[];
+    inventoryItems?: { sku?: string; offerId?: string }[];
     offers?: { offerId?: string }[];
     errors?: { errorId?: number; message?: string; longMessage?: string }[];
   }[];
@@ -210,7 +211,7 @@ function applyMigrateResponse(
     }
     result.set(r.listingId, {
       sku,
-      offerId: r.offers?.[0]?.offerId,
+      offerId: r.offers?.[0]?.offerId ?? r.inventoryItems?.[0]?.offerId,
     });
   }
   for (const id of batch) {
@@ -222,12 +223,37 @@ async function migrateListingBatch(
   accessToken: string,
   listingIds: string[]
 ): Promise<MigrateResponse> {
-  return ebayJson<MigrateResponse>(
-    accessToken,
-    "/sell/inventory/v1/bulk_migrate_listing",
-    "POST",
-    { requests: listingIds.map((listingId) => ({ listingId })) }
-  );
+  const validIds = listingIds.filter((id) => /^\d+$/.test(id.trim()));
+  if (validIds.length === 0) {
+    throw new Error("Invalid eBay listing id — expected a numeric Item ID from your active listings.");
+  }
+  const payload = { requests: validIds.map((listingId) => ({ listingId: listingId.trim() })) };
+  try {
+    return await ebayJson<MigrateResponse>(
+      accessToken,
+      "/sell/inventory/v1/bulk_migrate_listing",
+      "POST",
+      payload
+    );
+  } catch (e) {
+    // eBay sometimes returns HTTP 400/500 with a bulk `responses` array instead of top-level `errors`.
+    if (e instanceof EbayApiError) {
+      const bulk = extractBulkMigrateResponse(e.body);
+      if (bulk) {
+        console.warn("[ebay] bulk_migrate_listing returned non-2xx with per-listing responses", {
+          httpStatus: e.status,
+          listingIds: validIds,
+        });
+        return bulk;
+      }
+      console.error("[ebay] bulk_migrate_listing failed", {
+        httpStatus: e.status,
+        listingIds: validIds,
+        body: e.body,
+      });
+    }
+    throw e;
+  }
 }
 
 /**

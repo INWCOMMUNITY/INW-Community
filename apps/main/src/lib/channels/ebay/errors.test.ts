@@ -27,8 +27,30 @@ describe("formatEbayApiBody", () => {
     expect(msg).not.toBe("eBay API error (500)");
   });
 
-  it("explains when eBay returns an empty body", () => {
-    expect(formatEbayApiBody(null, 500)).toContain("no error details");
+  it("reads errors nested under bulk migrate responses", () => {
+    const msg = formatEbayApiBody(
+      {
+        responses: [
+          {
+            listingId: "1234567890",
+            statusCode: 400,
+            errors: [{ errorId: 25718, longMessage: "Cannot migrate listing. No SKU." }],
+          },
+        ],
+      },
+      400,
+      "/sell/inventory/v1/bulk_migrate_listing"
+    );
+    expect(msg).toContain("#25718");
+    expect(msg).toContain("Cannot migrate listing");
+    expect(msg).toContain("1234567890");
+  });
+
+  it("explains empty HTTP 400 with endpoint context", () => {
+    const msg = formatEbayApiBody(null, 400, "/sell/inventory/v1/bulk_migrate_listing");
+    expect(msg).toContain("HTTP 400");
+    expect(msg).toContain("bulk_migrate_listing");
+    expect(msg).toContain("SKU");
   });
 });
 
