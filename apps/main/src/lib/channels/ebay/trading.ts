@@ -3,10 +3,10 @@ import {
   EBAY_TRADING_COMPAT_LEVEL,
   EBAY_TRADING_SITE_ID,
 } from "./config";
-import { ebayGet, ebayJson } from "./client";
+import { ebayJson } from "./client";
 import { EbayApiError } from "./errors";
 import { describeEbayThrownError, extractBulkMigrateResponse, formatMigrateListingError } from "./errors";
-import { allTags, extractEbayItemPhotos, normalizeEbayPhotoUrl, tag } from "./photos";
+import { allTags, extractEbayItemPhotos, tag } from "./photos";
 import {
   parseEbayDescription,
   parseEbayItemSpecifics,
@@ -112,53 +112,22 @@ export async function fetchEbayItemDetails(
   }
 }
 
-async function enrichPhotosFromInventoryApi(
+/**
+ * Fill in photos for listings where GetMyeBaySelling omitted them (gallery-only rows).
+ *
+ * NOTE: We deliberately do NOT use the Inventory API `getOffers` endpoint here. That
+ * endpoint REQUIRES a `sku` query parameter and can only see offers created through the
+ * Inventory API — classic website listings are invisible to it. GetItem (Trading API)
+ * works for every active listing, so we use it directly.
+ */
+async function enrichPhotosViaGetItem(
   accessToken: string,
   listings: EbayTradingListing[]
 ): Promise<void> {
   const needs = listings.filter((l) => l.photos.length === 0);
   if (needs.length === 0) return;
 
-  const needIds = new Set(needs.map((l) => l.listingId));
-  type OfferRow = {
-    sku?: string;
-    listing?: { listingId?: string };
-  };
-  type InventoryProduct = { imageUrls?: string[] };
-
-  const photosByListingId = new Map<string, string[]>();
-  let offset = 0;
-  for (let page = 0; page < 5; page += 1) {
-    const res = await ebayGet<{ offers?: OfferRow[] }>(
-      accessToken,
-      `/sell/inventory/v1/offer?marketplace_id=EBAY_US&limit=200&offset=${offset}`
-    ).catch(() => null);
-    const offers = res?.offers ?? [];
-    for (const offer of offers) {
-      const listingId = offer.listing?.listingId;
-      const sku = offer.sku;
-      if (!listingId || !sku || !needIds.has(listingId) || photosByListingId.has(listingId)) {
-        continue;
-      }
-      const inv = await ebayGet<{ product?: InventoryProduct }>(
-        accessToken,
-        `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`
-      ).catch(() => null);
-      const urls = (inv?.product?.imageUrls ?? [])
-        .map((u) => normalizeEbayPhotoUrl(u))
-        .filter((u): u is string => Boolean(u));
-      if (urls.length > 0) photosByListingId.set(listingId, urls);
-    }
-    if (offers.length < 200 || photosByListingId.size >= needIds.size) break;
-    offset += 200;
-  }
-
   for (const listing of needs) {
-    const fromInventory = photosByListingId.get(listing.listingId);
-    if (fromInventory?.length) {
-      listing.photos = fromInventory;
-      continue;
-    }
     const fromGetItem = await fetchEbayItemPhotos(accessToken, listing.listingId);
     if (fromGetItem.length > 0) listing.photos = fromGetItem;
   }
@@ -197,7 +166,7 @@ export async function enumerateEbayListings(accessToken: string): Promise<EbayTr
     // Stop early if this page was not full (no further pages).
     if (items.length < 100) break;
   }
-  await enrichPhotosFromInventoryApi(accessToken, out);
+  await enrichPhotosViaGetItem(accessToken, out);
   return out;
 }
 
@@ -217,28 +186,101 @@ function formatMigrationError(e: unknown): string {
   return describeEbayThrownError(e);
 }
 
-/** Listing may already be on the Inventory model from a prior partial migrate. */
-async function findExistingInventorySku(
+/** Inventory API SKU for a migrated listing. Must be alphanumeric and <= 50 chars. */
+function generateMigrationSku(listingId: string): string {
+  return `inw${listingId}`.replace(/[^a-zA-Z0-9]/g, "").slice(0, 50);
+}
+
+/**
+ * eBay's bulkMigrateListing REQUIRES that the listing already has a seller-defined SKU
+ * (Custom Label). Listings created on the eBay website usually have none, so migration
+ * fails with a "no SKU" error. eBay's documented remediation is to ReviseFixedPriceItem
+ * to add a SKU, then migrate again — that's what this detects.
+ */
+function migrationErrorLikelyMissingSku(reason: string): boolean {
+  if (!reason) return false;
+  // Listing tracked by SKU (InventoryTrackingMethod=SKU) needs a different fix — skip.
+  if (/tracked by sku|inventorytrackingmethod/i.test(reason)) return false;
+  if (/sku/i.test(reason)) return true;
+  // A bare 400 / "no details" migrate failure is most commonly a missing SKU.
+  return /http 400|bad request|migration_failed|migration_missing_sku|no error details|no_response|2571[08]/i.test(
+    reason
+  );
+}
+
+/** Auctions / non-GTC / classified-ad listings can never be migrated; SKU won't help. */
+function migrationErrorNonRemediable(reason: string): boolean {
+  return /auction|classified|listingtype|not a fixed|non-fixed|good 'til|\bgtc\b|duration/i.test(reason);
+}
+
+function buildReviseSkuXml(listingId: string, sku: string): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Item>
+    <ItemID>${listingId}</ItemID>
+    <SKU>${sku}</SKU>
+  </Item>
+</ReviseFixedPriceItemRequest>`;
+}
+
+/** Trading API returns HTTP 200 with <Ack>Failure</Ack> + <Errors> for logical failures. */
+function parseTradingAck(xml: string): { ok: boolean; error?: string } {
+  const ack = (tag(xml, "Ack") ?? "").trim();
+  if (/success|warning/i.test(ack)) return { ok: true };
+  const errors = tag(xml, "Errors") ?? "";
+  const msg = (tag(errors, "LongMessage") ?? tag(errors, "ShortMessage") ?? "ReviseFixedPriceItem failed").trim();
+  return { ok: false, error: msg };
+}
+
+/** Add a seller-defined SKU (Custom Label) to a live fixed-price listing. */
+async function setEbayListingSku(
   accessToken: string,
-  listingId: string
-): Promise<{ sku: string; offerId?: string } | null> {
-  type OfferRow = { sku?: string; offerId?: string; listing?: { listingId?: string } };
-  let offset = 0;
-  for (let page = 0; page < 5; page += 1) {
-    const res = await ebayGet<{ offers?: OfferRow[] }>(
-      accessToken,
-      `/sell/inventory/v1/offer?marketplace_id=EBAY_US&limit=200&offset=${offset}`
-    ).catch(() => null);
-    const offers = res?.offers ?? [];
-    for (const offer of offers) {
-      if (offer.listing?.listingId === listingId && offer.sku) {
-        return { sku: offer.sku, offerId: offer.offerId };
-      }
-    }
-    if (offers.length < 200) break;
-    offset += 200;
+  listingId: string,
+  sku: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const xml = await callTrading(accessToken, "ReviseFixedPriceItem", buildReviseSkuXml(listingId, sku));
+    return parseTradingAck(xml);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
-  return null;
+}
+
+/**
+ * For listings that failed migration because they lack a SKU, add one via
+ * ReviseFixedPriceItem and retry the migration. Mutates `result` in place.
+ */
+async function remediateMissingSkus(
+  accessToken: string,
+  result: Map<string, MigrationResult>
+): Promise<void> {
+  for (const [listingId, res] of result) {
+    if (!res.error || res.sku) continue;
+    if (!/^\d+$/.test(listingId)) continue;
+    if (!migrationErrorLikelyMissingSku(res.error) || migrationErrorNonRemediable(res.error)) continue;
+
+    const set = await setEbayListingSku(accessToken, listingId, generateMigrationSku(listingId));
+    if (!set.ok) {
+      if (set.error && /fixed price|fixed-price|auction|not.*fixed/i.test(set.error)) {
+        result.set(listingId, {
+          error:
+            "not_fixed_price — eBay can only sync fixed-price (Buy It Now) listings. Auctions and classified ads can't be synced.",
+        });
+      }
+      // Otherwise keep the original migration error.
+      continue;
+    }
+
+    try {
+      const retry = await migrateListingBatch(accessToken, [listingId]);
+      const retryMap = new Map<string, MigrationResult>();
+      applyMigrateResponse(retryMap, retry, [listingId]);
+      const r = retryMap.get(listingId);
+      if (r) result.set(listingId, r);
+    } catch (e) {
+      result.set(listingId, { error: formatMigrationError(e) });
+    }
+  }
 }
 
 function applyMigrateResponse(
@@ -314,16 +356,9 @@ export async function migrateEbayListings(
   listingIds: string[]
 ): Promise<Map<string, MigrationResult>> {
   const result = new Map<string, MigrationResult>();
-  const pending: string[] = [];
-
-  for (const listingId of listingIds) {
-    const existing = await findExistingInventorySku(accessToken, listingId);
-    if (existing) {
-      result.set(listingId, { sku: existing.sku, offerId: existing.offerId });
-    } else {
-      pending.push(listingId);
-    }
-  }
+  // The Inventory API `getOffers` endpoint cannot look up offers by listingId (it requires
+  // a SKU and only sees Inventory-API-created offers), so we attempt migration directly.
+  const pending: string[] = [...listingIds];
 
   // bulk_migrate_listing accepts up to 5 listings per call and is known to be flaky (HTTP 500).
   for (let i = 0; i < pending.length; i += 5) {
@@ -349,6 +384,10 @@ export async function migrateEbayListings(
       }
     }
   }
+
+  // Listings that failed because they lack a SKU: add one via ReviseFixedPriceItem and retry.
+  // This is eBay's documented remediation and unblocks website-created listings.
+  await remediateMissingSkus(accessToken, result);
 
   return result;
 }

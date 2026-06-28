@@ -80,11 +80,7 @@ function summarizeRawBody(body: unknown): string | null {
 
 /** Full message from an eBay error response body. */
 export function formatEbayApiBody(body: unknown, httpStatus: number, path?: string): string {
-  const rows = parseEbayErrorRows(body);
-  if (rows.length > 0) {
-    return rows.map((row) => formatEbayErrorRow(row, httpStatus)).join(" | ").slice(0, 500);
-  }
-
+  // Per-listing bulk-migrate failures first, so the message names the offending listing id.
   const migrate = extractBulkMigrateResponse(body);
   if (migrate?.responses?.length) {
     const lines = migrate.responses.map((r) => {
@@ -95,6 +91,11 @@ export function formatEbayApiBody(body: unknown, httpStatus: number, path?: stri
       return `${listing}: ${code} — no error details for this item`;
     });
     return lines.join(" | ").slice(0, 500);
+  }
+
+  const rows = parseEbayErrorRows(body);
+  if (rows.length > 0) {
+    return rows.map((row) => formatEbayErrorRow(row, httpStatus)).join(" | ").slice(0, 500);
   }
 
   const raw = summarizeRawBody(body);
@@ -143,8 +144,14 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/25001|system error has occurred|Internal error/i.test(reason)) {
     return "eBay's migration service hit a temporary server error. Wait a minute and try again.";
   }
+  if (/not_fixed_price|not a fixed|auction|classified/i.test(reason)) {
+    return "eBay only syncs fixed-price (Buy It Now) listings. Convert auctions/classified ads to fixed price to sync them.";
+  }
+  if (/multi-variation|variation/i.test(reason)) {
+    return "Multi-variation listings need a unique SKU per variation in Seller Hub before they can sync.";
+  }
   if (/25718|Cannot migrate listing|bad request|HTTP 400/i.test(reason)) {
-    return "This listing may already be on eBay's Inventory model, be an auction/variation listing, or need a SKU added in Seller Hub.";
+    return "eBay couldn't migrate this listing. Make sure it's a fixed-price GTC listing with payment/return/shipping policies and a merchant location set in Seller Hub.";
   }
   if (/Accept-Language/i.test(reason)) {
     return "eBay rejected the locale header. Make sure the latest app version is deployed.";
