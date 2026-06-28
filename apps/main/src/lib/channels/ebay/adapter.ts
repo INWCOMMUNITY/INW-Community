@@ -44,14 +44,19 @@ async function publishOffer(accessToken: string, offerId: string): Promise<void>
 
 /**
  * Create/update the inventory item + offer for a StoreItem and (when policies allow) publish.
- * eBay externalListingId is the SKU (= StoreItem id for items we create); offerId is resolved
- * on demand so reconciliation can match Fulfillment line items by SKU.
+ *
+ * For INW-created listings the SKU = StoreItem.id. For imported listings the eBay-assigned
+ * migrated SKU differs from item.id; callers pass it via `linkedSku` so we target the
+ * correct inventory item + offer on eBay rather than creating an orphan.
  */
+type UpsertResult = { sku: string; publishError?: string };
+
 async function upsertListing(
   conn: ChannelConnectionContext,
-  item: SyncStoreItem
-): Promise<string> {
-  const sku = item.id;
+  item: SyncStoreItem,
+  linkedSku?: string
+): Promise<UpsertResult> {
+  const sku = linkedSku || item.id;
   const cfg = readEbayConfig(conn.config);
   const cat = await resolveProviderCategoryId(conn, "ebay", item.category);
 
@@ -62,7 +67,7 @@ async function upsertListing(
     buildEbayInventoryItem(item)
   );
 
-  const offerBody = buildEbayOffer(item, cfg, cat.ebayCategoryId ?? null);
+  const offerBody = buildEbayOffer(item, cfg, cat.ebayCategoryId ?? null, sku);
   const existing = await findOffer(conn.accessToken, sku);
   let offerId = existing?.offerId ?? null;
   if (offerId) {
@@ -77,19 +82,17 @@ async function upsertListing(
     offerId = created.offerId ?? null;
   }
 
-  // Publish best-effort, mirroring Etsy's draft fallback: if policies/location are missing or
-  // eBay rejects publish (e.g. category-specific required aspects), the offer is left as an
-  // unpublished draft on eBay but the StoreItem still gets linked here so it stays in sync.
-  // The Sync Stores screen surfaces the "add business policies + location" readiness warning.
   const shouldPublish = cfg.canPublish && item.status === "active" && item.quantity > 0 && !!offerId;
   if (shouldPublish && offerId) {
     try {
       await publishOffer(conn.accessToken, offerId);
     } catch (e) {
-      console.error("[ebay] publish failed; left as draft", { offerId, error: String(e) });
+      const msg = e instanceof EbayApiError ? e.message : String(e);
+      console.error("[ebay] publish failed; left as draft", { offerId, error: msg });
+      return { sku, publishError: msg };
     }
   }
-  return sku;
+  return { sku };
 }
 
 export const ebayAdapter: ChannelAdapter = {
@@ -115,12 +118,21 @@ export const ebayAdapter: ChannelAdapter = {
   },
 
   async createListing(conn, item): Promise<CreateListingResult> {
-    const sku = await upsertListing(conn, item);
+    const { sku, publishError } = await upsertListing(conn, item);
+    if (publishError) {
+      console.warn("[ebay] createListing: inventory item + offer saved, but publish failed", {
+        sku,
+        publishError,
+      });
+    }
     return { externalListingId: sku, externalShopId: conn.externalShopId };
   },
 
-  async updateListing(conn, _externalListingId, item): Promise<void> {
-    await upsertListing(conn, item);
+  async updateListing(conn, externalListingId, item): Promise<void> {
+    const { publishError } = await upsertListing(conn, item, externalListingId);
+    if (publishError) {
+      throw new Error(`eBay content updated but publish failed: ${publishError}`);
+    }
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {
@@ -201,12 +213,19 @@ export const ebayAdapter: ChannelAdapter = {
       }>(
         conn.accessToken,
         `/sell/fulfillment/v1/order?filter=creationdate:%5B${encodeURIComponent(sinceIso)}..%5D&limit=200&offset=${offset}`
-      ).catch(() => null);
+      );
       const orders = res?.orders ?? [];
       for (const order of orders) {
         for (const li of order.lineItems ?? []) {
           const sku = li.sku || null;
-          if (!sku) continue; // only inventory-model listings (created/migrated) carry a SKU
+          if (!sku) {
+            console.warn("[ebay] sale line without SKU (legacy listing); cannot reconcile", {
+              orderId: order.orderId,
+              lineItemId: li.lineItemId,
+              legacyItemId: li.legacyItemId,
+            });
+            continue;
+          }
           sales.push({
             externalEventId: `order:${order.orderId}:line:${li.lineItemId}`,
             externalListingId: sku,

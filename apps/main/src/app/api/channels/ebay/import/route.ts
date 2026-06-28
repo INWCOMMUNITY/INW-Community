@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 import { migrateEbayListings } from "@/lib/channels/ebay/trading";
+import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
+import { plainListingDescription } from "@/lib/channels/import-listing";
+import { resolveInwCategoryFromRemote } from "@/lib/channels/category-resolver";
+import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
+import { variantsFingerprint } from "@/lib/channels/variant-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -16,22 +21,60 @@ function uniqueSlug(base: string): string {
   return `${base || "ebay-item"}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function describeImportError(e: unknown): string {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    const target = Array.isArray(e.meta?.target)
+      ? (e.meta?.target as string[]).join(",")
+      : typeof e.meta?.target === "string"
+        ? e.meta.target
+        : undefined;
+    const detail = e.message.split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";
+    return `create_failed: ${e.code}${target ? ` (${target})` : ""} ${detail}`.slice(0, 300);
+  }
+  if (e instanceof Prisma.PrismaClientValidationError) {
+    const detail = e.message.split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? e.message;
+    return `create_failed: validation ${detail}`.slice(0, 300);
+  }
+  if (e instanceof Error) return `create_failed: ${e.message}`.slice(0, 300);
+  return `create_failed: ${String(e)}`.slice(0, 300);
+}
+
+function autoPostStoreItemToFeed(authorId: string, storeItemId: string): void {
+  prisma.post
+    .create({
+      data: {
+        type: "shared_store_item",
+        authorId,
+        sourceStoreItemId: storeItemId,
+      },
+    })
+    .catch((err) => console.error("[channels] ebay import auto-post failed", err));
+}
+
 async function loadRemoteWithLinkState(userId: string) {
   const ctx = await getMemberConnectionContext(userId, "ebay");
   if (!ctx) {
     return { ctx: null, listings: [] as Awaited<ReturnType<ReturnType<typeof getAdapter>["listRemoteListings"]>> };
   }
   const listings = await getAdapter("ebay").listRemoteListings(ctx);
-  // Existing links key on the eBay SKU; the preview keys on the legacy listing id, so this flag
-  // is best-effort. The POST import dedupes precisely by SKU after migration.
+
   const linked = await prisma.channelListingLink.findMany({
     where: { provider: "ebay", connectionId: ctx.id },
-    select: { externalListingId: true },
+    select: { externalListingId: true, storeItem: { select: { title: true } } },
   });
-  const linkedSet = new Set(linked.map((l) => l.externalListingId));
+  const linkedSkus = new Set(linked.map((l) => l.externalListingId));
+  const linkedTitles = new Set(
+    linked.map((l) => l.storeItem?.title?.trim().toLowerCase()).filter(Boolean)
+  );
+
   return {
     ctx,
-    listings: listings.map((l) => ({ ...l, alreadyLinked: linkedSet.has(l.externalListingId) })),
+    listings: listings.map((l) => ({
+      ...l,
+      alreadyLinked:
+        linkedSkus.has(l.externalListingId) ||
+        linkedTitles.has(l.title.trim().toLowerCase()),
+    })),
   };
 }
 
@@ -121,34 +164,64 @@ export async function POST(req: NextRequest) {
 
     const existing = await prisma.channelListingLink.findUnique({
       where: { provider_externalListingId: { provider: "ebay", externalListingId: sku } },
+      include: { storeItem: { select: { memberId: true } } },
     });
     if (existing) {
-      skipped.push({ externalListingId: legacyId, reason: "already_linked" });
-      continue;
+      if (!existing.storeItem) {
+        await prisma.channelListingLink.delete({ where: { id: existing.id } }).catch(() => {});
+      } else {
+        skipped.push({ externalListingId: legacyId, reason: "already_linked" });
+        continue;
+      }
     }
-    if (listing.priceCents < 1) {
+
+    const safePriceCents = Math.max(0, Math.round(Number(listing.priceCents) || 0));
+    if (safePriceCents < 1) {
       skipped.push({ externalListingId: legacyId, reason: "invalid_price" });
       continue;
     }
 
+    const photos = listing.photos
+      .map((u) => normalizeEbayPhotoUrl(u))
+      .filter((u): u is string => Boolean(u));
+    const resolvedCat = resolveInwCategoryFromRemote(listing.category ?? null, listing.subcategory ?? null);
+    const importQty = Math.max(0, Math.round(Number(listing.quantity) || 0));
+
+    let createdStoreItemId: string | null = null;
     try {
-      const created = await prisma.$transaction(async (tx) => {
-        const storeItem = await tx.storeItem.create({
-          data: {
-            memberId: userId,
-            title: listing.title.slice(0, 200),
-            description: listing.description,
-            photos: listing.photos,
-            priceCents: listing.priceCents,
-            quantity: Math.max(0, listing.quantity),
-            status: listing.quantity > 0 ? "active" : "sold_out",
-            condition: "used",
-            listingType: "new",
-            acceptOffers: false,
-            slug: uniqueSlug(slugify(listing.title)),
-          },
-        });
-        await tx.channelListingLink.create({
+      const storeItem = await prisma.storeItem.create({
+        data: {
+          memberId: userId,
+          title: listing.title.slice(0, 200),
+          description: plainListingDescription(listing.description),
+          photos,
+          priceCents: safePriceCents,
+          quantity: importQty,
+          status: importQty > 0 ? "active" : "sold_out",
+          condition: "used",
+          listingType: "new",
+          acceptOffers: false,
+          slug: uniqueSlug(slugify(listing.title)),
+          category: resolvedCat?.category ?? listing.category?.slice(0, 200) ?? null,
+          subcategory: resolvedCat?.subcategory ?? listing.subcategory?.slice(0, 200) ?? null,
+          ...(listing.remoteCategoryId
+            ? { ebayCategoryId: Number(listing.remoteCategoryId) || undefined }
+            : {}),
+        },
+      });
+      createdStoreItemId = storeItem.id;
+
+      const contentHash = syncContentHash(storeItem);
+      const metaHash = syncMetaHash({
+        category: storeItem.category,
+        subcategory: storeItem.subcategory,
+        secondaryCategory: storeItem.secondaryCategory,
+        shippingCostCents: storeItem.shippingCostCents,
+        variants: storeItem.variants,
+      });
+
+      try {
+        await prisma.channelListingLink.create({
           data: {
             storeItemId: storeItem.id,
             connectionId: ctx.id,
@@ -159,14 +232,33 @@ export async function POST(req: NextRequest) {
             syncStatus: "synced",
             lastPushedAt: new Date(),
             lastInboundAt: new Date(),
+            lastPushedHash: contentHash,
+            syncBaselineHash: contentHash,
+            syncBaselineMetaHash: metaHash,
+            syncBaselineVariantsHash: variantsFingerprint(storeItem.variants),
+            syncBaselineQty: storeItem.quantity,
+            syncBaselineAt: new Date(),
           },
         });
-        return storeItem;
-      });
-      imported.push({ externalListingId: legacyId, storeItemId: created.id });
+      } catch (linkErr) {
+        await prisma.storeItem.delete({ where: { id: storeItem.id } }).catch(() => {});
+        createdStoreItemId = null;
+        if (linkErr instanceof Prisma.PrismaClientKnownRequestError && linkErr.code === "P2002") {
+          skipped.push({ externalListingId: legacyId, reason: "already_linked" });
+          continue;
+        }
+        throw linkErr;
+      }
+
+      autoPostStoreItemToFeed(userId, storeItem.id);
+      imported.push({ externalListingId: legacyId, storeItemId: storeItem.id });
     } catch (e) {
-      console.error("[channels] ebay import failed", { externalListingId: legacyId, error: String(e) });
-      skipped.push({ externalListingId: legacyId, reason: "create_failed" });
+      if (createdStoreItemId) {
+        await prisma.storeItem.delete({ where: { id: createdStoreItemId } }).catch(() => {});
+      }
+      const reason = describeImportError(e);
+      console.error("[channels] ebay import failed", { externalListingId: legacyId, reason });
+      skipped.push({ externalListingId: legacyId, reason });
     }
   }
 

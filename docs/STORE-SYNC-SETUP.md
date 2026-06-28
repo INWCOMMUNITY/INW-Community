@@ -157,8 +157,9 @@ Do this once before connecting any marketplace.
 - [ ] C1 Create **Production** keyset (not Sandbox)
 - [ ] C2 Create **RuName** with auth accepted URL = our callback
 - [ ] C3 Copy App ID, Cert ID, RuName **string** → Vercel
-- [ ] C4 Redeploy main app
-- [ ] C5 Test: Connect → Import → Publish → Sell both ways
+- [ ] C4 Set `CHANNEL_CRON_SYNC_ENABLED=true` in Vercel (enables eBay sales poll; no webhook in v1)
+- [ ] C5 Redeploy main app
+- [ ] C6 Test: Connect → Import → Publish → Sell both ways
 
 ### C — Enable Production keyset (Marketplace Account Deletion)
 
@@ -209,6 +210,7 @@ eBay disables new Production keys until you validate an account-deletion endpoin
 | `EBAY_CLIENT_ID` | Yes | App ID (Client ID) — Production keyset |
 | `EBAY_CLIENT_SECRET` | Yes | Cert ID (Client Secret) |
 | `EBAY_RUNAME` | Yes | RuName **string** only |
+| `CHANNEL_CRON_SYNC_ENABLED` | Yes | Set to `true` — enables eBay sales polling (no eBay webhook in v1) |
 | `EBAY_DEFAULT_CATEGORY_ID` | No | Leaf category id |
 
 ### C — Tell sellers

@@ -2,6 +2,7 @@ import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID, getEbayConfig } from "./config";
 import type { EbayConnectionConfig } from "./account";
+import { normalizeEbayPhotoUrl } from "./photos";
 
 /** cents -> "12.34" (eBay expects a string decimal price). */
 export function ebayPriceFromCents(cents: number): string {
@@ -71,11 +72,12 @@ export function resolveCategoryId(item: SyncStoreItem, overrideId?: string | nul
 export function buildEbayOffer(
   item: SyncStoreItem,
   cfg: EbayConnectionConfig,
-  categoryOverride?: string | null
+  categoryOverride?: string | null,
+  sku?: string
 ): Record<string, unknown> {
   const categoryId = resolveCategoryId(item, categoryOverride);
   const offer: Record<string, unknown> = {
-    sku: item.id,
+    sku: sku || item.id,
     marketplaceId: EBAY_MARKETPLACE_ID,
     format: "FIXED_PRICE",
     availableQuantity: Math.max(0, item.quantity),
@@ -120,7 +122,11 @@ export function ebayListingToSummary(row: EbayInventorySummaryRow): RemoteListin
     description: null,
     priceCents: priceStringToCents(row.price?.value),
     quantity: Math.max(0, row.availableQuantity ?? 0),
-    photos: Array.isArray(row.imageUrls) ? row.imageUrls : [],
+    photos: Array.isArray(row.imageUrls)
+      ? row.imageUrls
+          .map((u) => normalizeEbayPhotoUrl(u))
+          .filter((u): u is string => Boolean(u))
+      : [],
     url: listingId ? `https://www.ebay.com/itm/${listingId}` : undefined,
     remoteUpdatedAt: null,
     variantsKnown: false,

@@ -278,26 +278,22 @@ export function ChannelsSyncContent() {
                         {busy === conn.id ? "Disconnecting…" : `Disconnect ${p.name}`}
                       </button>
                       {p.provider === "ebay" && (
-                        <>
-                          <p className="text-xs text-gray-600 mt-2">
-                            Disconnect only removes the link in INW. Your browser may still be signed in
-                            to eBay.
-                          </p>
-                          <a
-                            href={EBAY_SIGN_OUT_URL}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={btnOutline}
-                          >
-                            Sign out of eBay on this device
-                          </a>
-                          <a
-                            href="/api/channels/ebay/connect?forceLogin=1"
-                            className={btnOutline}
-                          >
-                            Connect a different eBay account
-                          </a>
-                        </>
+                        <button
+                          type="button"
+                          className={btnOutline}
+                          onClick={() => {
+                            const name = conn.shopName || conn.shopId || "eBay";
+                            if (
+                              window.confirm(
+                                `Logout of ${name}?\n\nThis only clears the eBay browser session. Your INW ↔ eBay sync keeps running until you Disconnect.\n\nSign-out lets you reconnect a different eBay account next time.`
+                              )
+                            ) {
+                              window.open(EBAY_SIGN_OUT_URL, "_blank", "noopener,noreferrer");
+                            }
+                          }}
+                        >
+                          Logout of {conn.shopName || conn.shopId || "eBay"}
+                        </button>
                       )}
                     </div>
                   </>
@@ -345,24 +341,6 @@ export function ChannelsSyncContent() {
                       >
                         Connect {p.name}
                       </a>
-                    )}
-                    {p.provider === "ebay" && (
-                      <>
-                        <a
-                          href="/api/channels/ebay/connect?forceLogin=1"
-                          className={btnOutline}
-                        >
-                          Connect a different eBay account
-                        </a>
-                        <a
-                          href={EBAY_SIGN_OUT_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={btnLink}
-                        >
-                          Sign out of eBay on this device
-                        </a>
-                      </>
                     )}
                   </>
                 )}

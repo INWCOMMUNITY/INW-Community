@@ -128,7 +128,7 @@ export default function ChannelsScreen() {
   const connectionFor = (provider: string) =>
     connections.find((c) => c.provider === provider && c.status !== "disconnected");
 
-  const connect = async (provider: string, opts?: { forceLogin?: boolean }) => {
+  const connect = async (provider: string) => {
     if (provider === "shopify" && !shopifyShop.trim()) {
       setError("Enter your Shopify store domain (e.g. mystore or mystore.myshopify.com).");
       return;
@@ -137,12 +137,7 @@ export default function ChannelsScreen() {
     setError(null);
     setSuccess(null);
     try {
-      const body =
-        provider === "shopify"
-          ? { shop: shopifyShop.trim() }
-          : provider === "ebay" && opts?.forceLogin
-            ? { forceLogin: true }
-            : {};
+      const body = provider === "shopify" ? { shop: shopifyShop.trim() } : {};
       const { url } = await apiPost<{ url: string }>(`/api/channels/${provider}/connect`, body);
       if (!url) {
         setError("Could not start the connection.");
@@ -166,15 +161,27 @@ export default function ChannelsScreen() {
     }
   };
 
-  const signOutEbay = async () => {
-    setError(null);
-    setSuccess(null);
-    try {
-      await WebBrowser.openBrowserAsync(EBAY_SIGN_OUT_URL);
-      setSuccess("eBay sign-out page opened. After signing out, use Connect a different eBay account.");
-    } catch {
-      setError("Could not open eBay sign out. Try again or sign out at ebay.com in Safari.");
-    }
+  const logoutEbay = (ebayName: string) => {
+    Alert.alert(
+      `Logout of ${ebayName}?`,
+      "This only clears the eBay browser session on this device. Your INW ↔ eBay sync keeps running until you tap Disconnect.\n\nSign-out lets you reconnect a different eBay account next time.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          onPress: async () => {
+            setError(null);
+            setSuccess(null);
+            try {
+              await WebBrowser.openBrowserAsync(EBAY_SIGN_OUT_URL);
+              setSuccess(`eBay sign-out opened for ${ebayName}. Reconnect when you're ready.`);
+            } catch {
+              setError("Could not open eBay sign out. Try again or sign out at ebay.com in Safari.");
+            }
+          },
+        },
+      ]
+    );
   };
 
   const testWix = async () => {
@@ -418,29 +425,18 @@ export default function ChannelsScreen() {
                     <Text style={styles.linkBtnText}>Disconnect {p.name}</Text>
                   </Pressable>
                   {p.provider === "ebay" && (
-                    <>
-                      <Text style={styles.ebayHint}>
-                        Disconnect only removes the link in INW. Your phone may still be signed in to
-                        eBay in the browser.
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.secondaryBtn,
+                        styles.secondaryBtnSpaced,
+                        pressed && { opacity: 0.85 },
+                      ]}
+                      onPress={() => void logoutEbay(conn.shopName || conn.shopId || "eBay")}
+                    >
+                      <Text style={styles.secondaryBtnText}>
+                        Logout of {conn.shopName || conn.shopId || "eBay"}
                       </Text>
-                      <Pressable
-                        style={({ pressed }) => [styles.secondaryBtn, styles.secondaryBtnSpaced, pressed && { opacity: 0.85 }]}
-                        onPress={() => void signOutEbay()}
-                      >
-                        <Text style={styles.secondaryBtnText}>Sign out of eBay on this device</Text>
-                      </Pressable>
-                      <Pressable
-                        style={({ pressed }) => [styles.secondaryBtn, styles.secondaryBtnSpaced, pressed && { opacity: 0.85 }]}
-                        onPress={() => connect("ebay", { forceLogin: true })}
-                        disabled={connecting === "ebay"}
-                      >
-                        {connecting === "ebay" ? (
-                          <ActivityIndicator color={theme.colors.primary} size="small" />
-                        ) : (
-                          <Text style={styles.secondaryBtnText}>Connect a different eBay account</Text>
-                        )}
-                      </Pressable>
-                    </>
+                    </Pressable>
                   )}
                 </>
               ) : (
@@ -473,32 +469,6 @@ export default function ChannelsScreen() {
                     </Text>
                   )}
                 </Pressable>
-                  {p.provider === "ebay" && (
-                    <>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.secondaryBtn,
-                          styles.secondaryBtnSpaced,
-                          pressed && { opacity: 0.85 },
-                          connecting === "ebay" && styles.primaryBtnDisabled,
-                        ]}
-                        onPress={() => connect("ebay", { forceLogin: true })}
-                        disabled={connecting === "ebay"}
-                      >
-                        {connecting === "ebay" ? (
-                          <ActivityIndicator color={theme.colors.primary} size="small" />
-                        ) : (
-                          <Text style={styles.secondaryBtnText}>Connect a different eBay account</Text>
-                        )}
-                      </Pressable>
-                      <Pressable
-                        style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.6 }]}
-                        onPress={() => void signOutEbay()}
-                      >
-                        <Text style={styles.linkBtnText}>Sign out of eBay on this device</Text>
-                      </Pressable>
-                    </>
-                  )}
                 </>
               )}
             </View>
@@ -571,7 +541,6 @@ const styles = StyleSheet.create({
   secondaryBtnText: { color: theme.colors.primary, fontWeight: "600", fontSize: 15 },
   linkBtn: { paddingVertical: 12, alignItems: "center" },
   linkBtnText: { color: "#c62828", fontSize: 14 },
-  ebayHint: { fontSize: 12, color: "#666", marginTop: 8, marginBottom: 4, lineHeight: 17 },
   success: { color: "#2e7d32", marginTop: 8, fontSize: 14 },
   err: { color: "#c62828", marginTop: 8, fontSize: 14 },
 });
