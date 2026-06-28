@@ -10,12 +10,33 @@ import {
   STORE_CATEGORIES,
   getSubcategoriesForCategory,
 } from "@/lib/store-categories";
+import {
+  EBAY_TITLE_MAX,
+  EBAY_ASPECT_NAME_MAX,
+  EBAY_ASPECT_VALUE_MAX,
+  MAX_ASPECTS,
+  type ListingAspect,
+} from "@/lib/listing-limits";
 
 interface Business {
   id: string;
   name: string;
   slug: string;
 }
+
+type EbayCategorySuggestion = {
+  categoryId: string;
+  categoryName: string;
+  categoryPath?: string;
+};
+
+type EbayCategoryAspect = {
+  name: string;
+  required: boolean;
+  mode: "FREE_TEXT" | "SELECTION_ONLY";
+  cardinality: "SINGLE" | "MULTI";
+  suggestedValues: string[];
+};
 
 interface StoreItemFormProps {
   existing?: {
@@ -41,6 +62,8 @@ interface StoreItemFormProps {
     pickupTerms?: string | null;
     acceptOffers?: boolean;
     minOfferCents?: number | null;
+    ebayCategoryId?: number | null;
+    aspects?: { name: string; value: string }[] | null;
   };
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
   successRedirect?: string;
@@ -60,6 +83,21 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const c = existing?.category ?? "";
     return !!c && !STORE_CATEGORIES.some((x) => x.label === c);
   });
+  // eBay integration: live leaf-category picker + item specifics (Details).
+  const [ebayConnected, setEbayConnected] = useState(false);
+  const [ebayCategoryId, setEbayCategoryId] = useState<string>(
+    existing?.ebayCategoryId != null ? String(existing.ebayCategoryId) : ""
+  );
+  const [ebayCategoryLabel, setEbayCategoryLabel] = useState<string>("");
+  const [ebayCategorySearch, setEbayCategorySearch] = useState("");
+  const [ebayCategoryResults, setEbayCategoryResults] = useState<EbayCategorySuggestion[]>([]);
+  const [ebaySearching, setEbaySearching] = useState(false);
+  const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspect[]>([]);
+  const [aspects, setAspects] = useState<ListingAspect[]>(() =>
+    Array.isArray(existing?.aspects)
+      ? existing!.aspects!.map((a) => ({ name: String(a.name ?? ""), value: String(a.value ?? "") }))
+      : []
+  );
   const [priceDollars, setPriceDollars] = useState(
     existing ? (existing.priceCents / 100).toFixed(2) : ""
   );
@@ -227,6 +265,89 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     if (!offerLocalPickup) setInStorePickupAvailable(false);
   }, [offerFlagsLoaded, offerShipping, offerLocalDelivery, offerLocalPickup]);
 
+  // Detect whether the seller has an active eBay connection (enables the category + Details pickers).
+  useEffect(() => {
+    fetch("/api/channels", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: { provider?: string; status?: string }[]) => {
+        if (Array.isArray(data)) {
+          setEbayConnected(
+            data.some((c) => c.provider === "ebay" && c.status !== "disconnected")
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Debounced live eBay category search.
+  useEffect(() => {
+    if (!ebayConnected) return;
+    const q = ebayCategorySearch.trim();
+    if (q.length < 2) {
+      setEbayCategoryResults([]);
+      return;
+    }
+    let cancelled = false;
+    setEbaySearching(true);
+    const t = setTimeout(() => {
+      fetch(`/api/channels/ebay/categories?q=${encodeURIComponent(q)}`, {
+        credentials: "include",
+      })
+        .then((r) => r.json())
+        .then((data: { categories?: EbayCategorySuggestion[] }) => {
+          if (!cancelled) setEbayCategoryResults(data.categories ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setEbayCategoryResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setEbaySearching(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [ebayCategorySearch, ebayConnected]);
+
+  // When an eBay category is chosen, load its required/recommended item specifics and pre-seed rows.
+  const loadCategoryAspects = useCallback(
+    async (categoryId: string) => {
+      if (!categoryId) {
+        setCategoryAspects([]);
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}`,
+          { credentials: "include" }
+        );
+        const data: { aspects?: EbayCategoryAspect[] } = await res.json();
+        const list = data.aspects ?? [];
+        setCategoryAspects(list);
+        // Pre-seed required aspects that the seller has not already filled in.
+        setAspects((prev) => {
+          const existingNames = new Set(prev.map((a) => a.name.trim().toLowerCase()));
+          const seeded = list
+            .filter((a) => a.required && !existingNames.has(a.name.trim().toLowerCase()))
+            .map((a) => ({ name: a.name, value: "" }));
+          return [...prev, ...seeded].slice(0, MAX_ASPECTS);
+        });
+      } catch {
+        setCategoryAspects([]);
+      }
+    },
+    []
+  );
+
+  // Load aspects for a previously-saved eBay category on edit.
+  useEffect(() => {
+    if (ebayConnected && ebayCategoryId) {
+      void loadCategoryAspects(ebayCategoryId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ebayConnected]);
+
   async function uploadFile(file: File): Promise<string> {
     const formData = new FormData();
     formData.append("file", file);
@@ -328,6 +449,26 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setError("Pickup terms are required when you offer local pickup. Set them in Policies or use Sync here.");
       return;
     }
+    const cleanedAspects = aspects
+      .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
+      .filter((a) => a.name && a.value);
+    if (ebayConnected && ebayCategoryId) {
+      const missingRequired = categoryAspects
+        .filter((a) => a.required)
+        .filter(
+          (a) =>
+            !cleanedAspects.some(
+              (c) => c.name.toLowerCase() === a.name.trim().toLowerCase() && c.value
+            )
+        )
+        .map((a) => a.name);
+      if (missingRequired.length > 0) {
+        setError(
+          `eBay requires these item details for this category: ${missingRequired.join(", ")}. Fill them in under "Item details".`
+        );
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       const payload = {
@@ -337,6 +478,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         photos,
         category: category.trim() || null,
         subcategory: subcategory.trim() || null,
+        ebayCategoryId: ebayConnected && ebayCategoryId ? Number(ebayCategoryId) : null,
+        aspects: cleanedAspects,
         priceCents,
         status: "active",
         condition,
@@ -447,6 +590,29 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       if (next[vi]) next[vi].options = next[vi].options.filter((_, i) => i !== oi);
       return next;
     });
+  }
+
+  function addAspectRow() {
+    setAspects((prev) => (prev.length >= MAX_ASPECTS ? prev : [...prev, { name: "", value: "" }]));
+  }
+  function setAspectName(i: number, name: string) {
+    setAspects((prev) => prev.map((a, idx) => (idx === i ? { ...a, name: name.slice(0, EBAY_ASPECT_NAME_MAX) } : a)));
+  }
+  function setAspectValue(i: number, value: string) {
+    setAspects((prev) => prev.map((a, idx) => (idx === i ? { ...a, value: value.slice(0, EBAY_ASPECT_VALUE_MAX) } : a)));
+  }
+  function removeAspectRow(i: number) {
+    setAspects((prev) => prev.filter((_, idx) => idx !== i));
+  }
+  /** Suggested values for a Descriptor that matches a known eBay category aspect. */
+  function suggestionsForAspect(name: string): string[] {
+    const match = categoryAspects.find((a) => a.name.trim().toLowerCase() === name.trim().toLowerCase());
+    return match?.suggestedValues ?? [];
+  }
+  function isRequiredAspect(name: string): boolean {
+    return categoryAspects.some(
+      (a) => a.required && a.name.trim().toLowerCase() === name.trim().toLowerCase()
+    );
   }
 
   return (
@@ -586,10 +752,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         <input
           type="text"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          maxLength={EBAY_TITLE_MAX}
+          onChange={(e) => setTitle(e.target.value.slice(0, EBAY_TITLE_MAX))}
           className="w-full border rounded px-3 py-2"
           required
         />
+        <p className={`text-xs mt-1 text-right ${title.length >= EBAY_TITLE_MAX ? "text-red-600" : "text-gray-500"}`}>
+          {title.length}/{EBAY_TITLE_MAX}
+        </p>
       </div>
 
       {/* 3. Item Description */}
@@ -698,6 +868,145 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           </>
         )}
       </div>
+
+      {/* 4b. eBay category + item details (only when eBay is connected) */}
+      {ebayConnected && (
+        <div className="space-y-4 border-t border-gray-200 pt-6 text-left">
+          <div>
+            <h3 className="text-base font-bold text-gray-900 mb-1">eBay category &amp; details</h3>
+            <p className="text-xs text-gray-500">
+              Pick the eBay category so this listing publishes with the right item specifics. eBay
+              requires certain details (Brand, Type, etc.) before a listing can go live.
+            </p>
+          </div>
+
+          {ebayCategoryId ? (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {ebayCategoryLabel || `eBay category #${ebayCategoryId}`}
+                </p>
+                <p className="text-xs text-gray-500">eBay category #{ebayCategoryId}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEbayCategoryId("");
+                  setEbayCategoryLabel("");
+                  setEbayCategorySearch("");
+                  setCategoryAspects([]);
+                }}
+                className="text-sm text-red-600 hover:underline shrink-0"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={ebayCategorySearch}
+                onChange={(e) => setEbayCategorySearch(e.target.value)}
+                placeholder="Search eBay categories (e.g. US coins, sneakers)…"
+                className="w-full border rounded px-3 py-2"
+              />
+              {ebaySearching && <p className="text-xs text-gray-500">Searching eBay…</p>}
+              {ebayCategoryResults.length > 0 && (
+                <ul className="max-h-56 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+                  {ebayCategoryResults.map((c) => (
+                    <li key={c.categoryId}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEbayCategoryId(c.categoryId);
+                          setEbayCategoryLabel(c.categoryPath || c.categoryName);
+                          setEbayCategoryResults([]);
+                          setEbayCategorySearch("");
+                          void loadCategoryAspects(c.categoryId);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                      >
+                        <span className="font-medium text-gray-900">{c.categoryName}</span>
+                        {c.categoryPath && c.categoryPath !== c.categoryName && (
+                          <span className="block text-xs text-gray-500 truncate">{c.categoryPath}</span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Item details (eBay item specifics) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-900">Item details</span>
+              <span className="text-xs text-gray-500">
+                {aspects.length}/{MAX_ASPECTS}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500">
+              Add a detail (Descriptor + Value), e.g. Brand → Nike, Year → 1921. Required details are
+              marked with *.
+            </p>
+            {aspects.map((a, i) => {
+              const required = isRequiredAspect(a.name);
+              const suggestions = suggestionsForAspect(a.name);
+              const listId = `aspect-values-${i}`;
+              return (
+                <div key={i} className="flex flex-wrap gap-2 items-start">
+                  <input
+                    type="text"
+                    value={a.name}
+                    maxLength={EBAY_ASPECT_NAME_MAX}
+                    onChange={(e) => setAspectName(i, e.target.value)}
+                    placeholder="Descriptor (e.g. Brand)"
+                    className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
+                  />
+                  <div className="flex-1 min-w-[120px]">
+                    <input
+                      type="text"
+                      value={a.value}
+                      maxLength={EBAY_ASPECT_VALUE_MAX}
+                      list={suggestions.length > 0 ? listId : undefined}
+                      onChange={(e) => setAspectValue(i, e.target.value)}
+                      placeholder={required ? "Value (required)" : "Value"}
+                      className={`w-full border rounded px-2 py-1.5 text-sm ${
+                        required && !a.value.trim() ? "border-red-400" : ""
+                      }`}
+                    />
+                    {suggestions.length > 0 && (
+                      <datalist id={listId}>
+                        {suggestions.map((s) => (
+                          <option key={s} value={s} />
+                        ))}
+                      </datalist>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeAspectRow(i)}
+                    className="text-red-500 hover:text-red-700 font-bold leading-none px-2 py-1.5"
+                    aria-label="Remove detail"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+            {aspects.length < MAX_ASPECTS && (
+              <button
+                type="button"
+                onClick={addAspectRow}
+                className="py-2 px-4 border border-gray-300 rounded-lg bg-white text-gray-800 font-semibold text-sm hover:bg-gray-50"
+              >
+                + Add a detail
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 5. Price */}
       <div>

@@ -7,6 +7,7 @@ import {
 } from "./variant-sync";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
 import { clampSaneInventoryQty } from "./inventory-sanity";
+import { normalizeListingAspects } from "@/lib/listing-limits";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
 /** Apply category + subcategory from a remote listing using fuzzy preset matching. */
@@ -125,16 +126,44 @@ export async function applyRemoteVariantsToStoreItem(
   return applyRemoteVariantAxesToStoreItem(storeItemId, normalized);
 }
 
-/** Apply all remote meta fields (category, shipping, variants). */
+/** Apply remote item specifics (aspects) to a StoreItem when the channel provided them. */
+export async function applyRemoteAspectsToStoreItem(
+  storeItemId: string,
+  remote: RemoteListingSummary
+): Promise<boolean> {
+  if (remote.aspectsKnown === false) return false;
+  if (!Array.isArray(remote.aspects) || remote.aspects.length === 0) return false;
+
+  const next = normalizeListingAspects(remote.aspects);
+  if (next.length === 0) return false;
+
+  const item = await prisma.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { aspects: true },
+  });
+  if (!item) return false;
+
+  const current = normalizeListingAspects(item.aspects);
+  if (JSON.stringify(current) === JSON.stringify(next)) return false;
+
+  await prisma.storeItem.update({
+    where: { id: storeItemId },
+    data: { aspects: next as object },
+  });
+  return true;
+}
+
+/** Apply all remote meta fields (category, shipping, variants, aspects). */
 export async function applyRemoteMetaToStoreItem(
   storeItemId: string,
   remote: RemoteListingSummary,
   provider: ChannelProvider
-): Promise<{ category: boolean; shipping: boolean; variants: boolean }> {
-  const [category, shipping, variants] = await Promise.all([
+): Promise<{ category: boolean; shipping: boolean; variants: boolean; aspects: boolean }> {
+  const [category, shipping, variants, aspects] = await Promise.all([
     applyRemoteCategoryToStoreItem(storeItemId, remote, provider),
     applyRemoteShippingToStoreItem(storeItemId, remote),
     applyRemoteVariantsToStoreItem(storeItemId, remote, provider),
+    applyRemoteAspectsToStoreItem(storeItemId, remote),
   ]);
-  return { category, shipping, variants };
+  return { category, shipping, variants, aspects };
 }

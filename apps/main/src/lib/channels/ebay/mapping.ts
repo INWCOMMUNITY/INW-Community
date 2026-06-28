@@ -3,6 +3,11 @@ import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-s
 import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID, getEbayConfig } from "./config";
 import type { EbayConnectionConfig } from "./account";
 import { normalizeEbayPhotoUrl } from "./photos";
+import {
+  EBAY_TITLE_MAX,
+  aspectsToEbayProductAspects,
+  parseStoredAspects,
+} from "@/lib/listing-limits";
 
 /** cents -> "12.34" (eBay expects a string decimal price). */
 export function ebayPriceFromCents(cents: number): string {
@@ -21,8 +26,11 @@ function plainText(html: string | null, fallback: string): string {
 
 /** Build the PUT /inventory_item/{sku} body for a StoreItem. */
 export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unknown> {
-  const title = item.title.slice(0, 80);
+  const title = item.title.slice(0, EBAY_TITLE_MAX);
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[] | null;
+
+  // Seller-entered item specifics (Brand/Type/Size/...) — required by most eBay categories.
+  const storedAspects = aspectsToEbayProductAspects(parseStoredAspects(item.aspects));
 
   const product: Record<string, unknown> = {
     title,
@@ -32,7 +40,8 @@ export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unkn
 
   if (axes && axes.length > 0) {
     const primary = axes[0];
-    product.aspects = { [primary.name]: primary.options.map((o) => o.value) };
+    // Variant axis values join the stored specifics; the axis name wins if both are present.
+    product.aspects = { ...storedAspects, [primary.name]: primary.options.map((o) => o.value) };
     const variations = primary.options.map((o) => ({
       sku: `${item.id}-${o.value}`.slice(0, 50),
       aspects: { [primary.name]: [o.value] },
@@ -43,6 +52,10 @@ export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unkn
       product,
       variations,
     };
+  }
+
+  if (Object.keys(storedAspects).length > 0) {
+    product.aspects = storedAspects;
   }
 
   return {
@@ -105,6 +118,9 @@ type EbayInventorySummaryRow = {
   price?: { value?: string; currency?: string };
   imageUrls?: string[];
   listing?: { listingId?: string };
+  /** eBay leaf category id + name (from the Trading API PrimaryCategory). */
+  categoryId?: string | null;
+  categoryName?: string | null;
 };
 
 function priceStringToCents(value?: string): number {
@@ -129,6 +145,8 @@ export function ebayListingToSummary(row: EbayInventorySummaryRow): RemoteListin
       : [],
     url: listingId ? `https://www.ebay.com/itm/${listingId}` : undefined,
     remoteUpdatedAt: null,
+    category: row.categoryName ?? null,
+    remoteCategoryId: row.categoryId ?? null,
     variantsKnown: false,
     shippingKnown: false,
   };

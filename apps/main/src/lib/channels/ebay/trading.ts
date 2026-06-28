@@ -7,6 +7,12 @@ import { ebayGet, ebayJson } from "./client";
 import { EbayApiError } from "./errors";
 import { describeEbayThrownError, extractBulkMigrateResponse, formatMigrateListingError } from "./errors";
 import { allTags, extractEbayItemPhotos, normalizeEbayPhotoUrl, tag } from "./photos";
+import {
+  parseEbayDescription,
+  parseEbayItemSpecifics,
+  parseEbayPrimaryCategory,
+} from "./item-specifics";
+import type { ListingAspect } from "@/lib/listing-limits";
 
 /** A classic (Trading API) eBay listing enumerated for import preview. */
 export type EbayTradingListing = {
@@ -15,6 +21,17 @@ export type EbayTradingListing = {
   priceCents: number;
   quantity: number;
   photos: string[];
+  /** eBay leaf category id (from PrimaryCategory) when known. */
+  remoteCategoryId?: string | null;
+  categoryName?: string | null;
+};
+
+/** Full item specifics + description for a listing (fetched on import, not preview). */
+export type EbayItemDetails = {
+  aspects: ListingAspect[];
+  remoteCategoryId: string | null;
+  categoryName: string | null;
+  description: string | null;
 };
 
 const TRADING_ENDPOINT = `${EBAY_API_BASE}/ws/api.dll`;
@@ -38,7 +55,7 @@ function buildGetItemXml(listingId: string): string {
 <GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <ItemID>${listingId}</ItemID>
   <DetailLevel>ReturnAll</DetailLevel>
-  <IncludeItemSpecifics>false</IncludeItemSpecifics>
+  <IncludeItemSpecifics>true</IncludeItemSpecifics>
 </GetItemRequest>`;
 }
 
@@ -69,6 +86,29 @@ async function fetchEbayItemPhotos(accessToken: string, listingId: string): Prom
     return extractEbayItemPhotos(item);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Fetch full item specifics + primary category + description for one listing via GetItem.
+ * Used on import (not preview) so we round-trip the details eBay requires for two-way sync.
+ */
+export async function fetchEbayItemDetails(
+  accessToken: string,
+  listingId: string
+): Promise<EbayItemDetails> {
+  try {
+    const xml = await callTrading(accessToken, "GetItem", buildGetItemXml(listingId));
+    const item = tag(xml, "Item") ?? xml;
+    const { categoryId, categoryName } = parseEbayPrimaryCategory(item);
+    return {
+      aspects: parseEbayItemSpecifics(item),
+      remoteCategoryId: categoryId,
+      categoryName,
+      description: parseEbayDescription(item),
+    };
+  } catch {
+    return { aspects: [], remoteCategoryId: null, categoryName: null, description: null };
   }
 }
 
@@ -143,7 +183,16 @@ export async function enumerateEbayListings(accessToken: string): Promise<EbayTr
       const qtyStr = tag(item, "QuantityAvailable") ?? tag(item, "Quantity") ?? "0";
       const quantity = Math.max(0, Number(qtyStr) || 0);
       const photos = extractEbayItemPhotos(item);
-      out.push({ listingId, title, priceCents, quantity, photos });
+      const { categoryId, categoryName } = parseEbayPrimaryCategory(item);
+      out.push({
+        listingId,
+        title,
+        priceCents,
+        quantity,
+        photos,
+        remoteCategoryId: categoryId,
+        categoryName,
+      });
     }
     // Stop early if this page was not full (no further pages).
     if (items.length < 100) break;

@@ -54,4 +54,4 @@ export function extractEbayItemPhotos(itemXml: string): string[] {
   return urls.slice(0, 12);
 }
 
-export { tag, allTags };
+export { tag, allTags, decodeXmlEntities };

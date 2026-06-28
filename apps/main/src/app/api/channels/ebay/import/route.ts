@@ -5,7 +5,8 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
-import { migrateEbayListings } from "@/lib/channels/ebay/trading";
+import { migrateEbayListings, fetchEbayItemDetails } from "@/lib/channels/ebay/trading";
+import { normalizeListingAspects } from "@/lib/listing-limits";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
 import { plainListingDescription } from "@/lib/channels/import-listing";
 import { resolveInwCategoryFromRemote } from "@/lib/channels/category-resolver";
@@ -230,13 +231,20 @@ export async function POST(req: NextRequest) {
     const resolvedCat = resolveInwCategoryFromRemote(listing.category ?? null, listing.subcategory ?? null);
     const importQty = Math.max(0, Math.round(Number(listing.quantity) || 0));
 
+    // Pull full item specifics + description + category for true two-way round-trip (per selected listing).
+    const details = await fetchEbayItemDetails(ctx.accessToken, legacyId);
+    const importedAspects = normalizeListingAspects(details.aspects);
+    const remoteCategoryId = details.remoteCategoryId ?? listing.remoteCategoryId ?? null;
+    const importedDescription =
+      plainListingDescription(details.description) ?? plainListingDescription(listing.description);
+
     let createdStoreItemId: string | null = null;
     try {
       const storeItem = await prisma.storeItem.create({
         data: {
           memberId: userId,
           title: listing.title.slice(0, 200),
-          description: plainListingDescription(listing.description),
+          description: importedDescription,
           photos,
           priceCents: safePriceCents,
           quantity: importQty,
@@ -247,8 +255,9 @@ export async function POST(req: NextRequest) {
           slug: uniqueSlug(slugify(listing.title)),
           category: resolvedCat?.category ?? listing.category?.slice(0, 200) ?? null,
           subcategory: resolvedCat?.subcategory ?? listing.subcategory?.slice(0, 200) ?? null,
-          ...(listing.remoteCategoryId
-            ? { ebayCategoryId: Number(listing.remoteCategoryId) || undefined }
+          ...(importedAspects.length > 0 ? { aspects: importedAspects as object } : {}),
+          ...(remoteCategoryId
+            ? { ebayCategoryId: Number(remoteCategoryId) || undefined }
             : {}),
         },
       });

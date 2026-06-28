@@ -191,6 +191,8 @@ export const ebayAdapter: ChannelAdapter = {
         price: { value: (l.priceCents / 100).toFixed(2), currency: "USD" },
         availableQuantity: l.quantity,
         imageUrls: l.photos,
+        categoryId: l.remoteCategoryId ?? null,
+        categoryName: l.categoryName ?? null,
       })
     );
   },

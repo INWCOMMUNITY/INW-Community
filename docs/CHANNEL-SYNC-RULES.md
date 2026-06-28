@@ -271,6 +271,7 @@ Use this when we pick up the next provider:
 - [ ] Map `remoteUpdatedAt` from item revision / LastModifiedTime
 - [ ] Ended/unpublished listing → sold out on INW
 - [ ] Business policies / merchant location already gated at publish
+- [x] Item specifics (aspects) two-way: live category + required-aspect pickers; `product.aspects` on push; `ItemSpecifics` parsed on import (see §18)
 
 ### Shopify
 
@@ -383,10 +384,22 @@ These caused the Wix “finicky” bugs:
 - Inbound Wix v1: variant `choices` object `{ "Size": "M" }` parsed in `wix/collections.ts`; meta reconcile backfills empty INW variants.
 - Sales: `reconcile.ts` passes variant selection into `applyStoreItemDecrementAfterSale` when the channel exposes it.
 
+### Item specifics / aspects (eBay)
+
+**Status:** ✅ eBay (two-way) · ignored by Etsy/Wix/Shopify adapters (additive, never breaks them)
+
+- Stored on `StoreItem.aspects` (JSON) as `[{ name, value }]` — the form "Add a detail" rows (Descriptor + Value). Separate from `variants` (the single Size/Color axis).
+- **Shared caps** in `apps/main/src/lib/listing-limits.ts`: title ≤ 80, aspect name ≤ 40, value ≤ 50, ≤ 30 specifics. Enforced by API zod, both forms, and the eBay mapper so they never drift.
+- **Form pickers** (mobile `new.tsx` + web `StoreItemForm.tsx`, shown only when eBay is connected):
+  - Live category search → `GET /api/channels/ebay/categories?q=` (Taxonomy `get_category_suggestions`). Persists `ebayCategoryId`.
+  - Choosing a category loads `GET /api/channels/ebay/category-aspects?categoryId=` (Taxonomy `get_item_aspects_for_category`) and pre-seeds **required** aspects; save is blocked until required values are filled.
+- **Outbound:** `buildEbayInventoryItem` merges stored aspects into `product.aspects` (`aspectsToEbayProductAspects` groups same-descriptor rows into eBay MULTI arrays). This is the fix that lets categories requiring Brand/Type/etc. publish.
+- **Inbound:** `trading.ts` calls `GetItem` with `IncludeItemSpecifics=true`; `item-specifics.ts` parses `ItemSpecifics > NameValueList`, `PrimaryCategory`, and `Description`. Import writes `aspects` + `ebayCategoryId` + description; `applyRemoteAspectsToStoreItem()` round-trips them on meta reconcile.
+
 ### Meta reconcile
 
 - `syncBaselineMetaHash` on `ChannelListingLink` tracks category + shipping + variants separately from content hash.
-- `reconcile-inbound-meta.ts` runs when manual cron is enabled (most-recent-wins, baseline advances only on verified push/pull).
+- `reconcile-inbound-meta.ts` runs when manual cron is enabled (most-recent-wins, baseline advances only on verified push/pull). Now also pulls remote aspects via `applyRemoteAspectsToStoreItem()`.
 
 ### Manual test matrix
 

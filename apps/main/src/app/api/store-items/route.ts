@@ -5,6 +5,7 @@ import { containsProhibitedCategory, validateText } from "@/lib/content-moderati
 import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
+import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
 import { REWARD_PLACEHOLDER_TITLE } from "@/lib/reward-fulfillment-store-item";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
@@ -493,6 +494,11 @@ const bodySchema = z.object({
   etsyIsSupply: z.boolean().nullable().optional(),
   etsyTaxonomyId: z.coerce.number().int().positive().nullable().optional(),
   ebayCategoryId: z.coerce.number().int().positive().nullable().optional(),
+  // Item specifics / product aspects (Descriptor + Value rows). Synced to eBay product.aspects.
+  aspects: z
+    .array(z.object({ name: z.string(), value: z.string() }))
+    .nullable()
+    .optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -658,11 +664,12 @@ export async function POST(req: NextRequest) {
       if (s === p) return null;
       return s;
     })();
+    const normalizedAspects = normalizeListingAspects(data.aspects);
     const item = await prisma.storeItem.create({
       data: {
         memberId: userId,
         businessId: data.businessId || null,
-        title: data.title.trim(),
+        title: clampListingTitle(data.title.trim()),
         description: data.description?.trim() || null,
         photos: Array.isArray(data.photos) ? data.photos.map((p) => (p != null ? String(p) : "")).filter(Boolean) : [],
         category: data.category?.trim() || null,
@@ -670,6 +677,7 @@ export async function POST(req: NextRequest) {
         subcategory: data.subcategory?.trim() || null,
         priceCents,
         variants: data.variants === null ? Prisma.JsonNull : (data.variants as object),
+        aspects: normalizedAspects.length > 0 ? (normalizedAspects as object) : Prisma.JsonNull,
         quantity,
         status: data.status,
         shippingCostCents: data.shippingCostCents ?? null,

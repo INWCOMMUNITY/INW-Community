@@ -12,6 +12,8 @@ import {
 import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
 import { z } from "zod";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
+import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
+import { Prisma } from "database";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -46,6 +48,11 @@ const bodySchema = z.object({
   etsyIsSupply: z.boolean().nullable().optional(),
   etsyTaxonomyId: z.coerce.number().int().positive().nullable().optional(),
   ebayCategoryId: z.coerce.number().int().positive().nullable().optional(),
+  // Item specifics / product aspects (Descriptor + Value rows). Synced to eBay product.aspects.
+  aspects: z
+    .array(z.object({ name: z.string(), value: z.string() }))
+    .nullable()
+    .optional(),
 });
 
 export async function GET(
@@ -210,7 +217,7 @@ export async function PATCH(
   }
 
   const update: Record<string, unknown> = {};
-  if (data.title !== undefined) update.title = data.title.trim();
+  if (data.title !== undefined) update.title = clampListingTitle(data.title.trim());
   if (data.description !== undefined) update.description = data.description?.trim() || null;
   if (data.photos !== undefined) update.photos = data.photos;
   if (data.category !== undefined) update.category = data.category?.trim() || null;
@@ -252,6 +259,10 @@ export async function PATCH(
   if (data.etsyIsSupply !== undefined) update.etsyIsSupply = data.etsyIsSupply;
   if (data.etsyTaxonomyId !== undefined) update.etsyTaxonomyId = data.etsyTaxonomyId;
   if (data.ebayCategoryId !== undefined) update.ebayCategoryId = data.ebayCategoryId;
+  if (data.aspects !== undefined) {
+    const normalizedAspects = normalizeListingAspects(data.aspects);
+    update.aspects = normalizedAspects.length > 0 ? (normalizedAspects as object) : Prisma.JsonNull;
+  }
 
   const mergedStatus =
     data.status !== undefined ? data.status : existing.status;

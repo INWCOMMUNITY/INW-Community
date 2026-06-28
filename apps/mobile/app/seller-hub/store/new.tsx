@@ -51,6 +51,22 @@ import {
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
+// eBay listing field caps (mirror of apps/main/src/lib/listing-limits.ts).
+const EBAY_TITLE_MAX = 80;
+const EBAY_ASPECT_NAME_MAX = 40;
+const EBAY_ASPECT_VALUE_MAX = 50;
+const MAX_ASPECTS = 30;
+
+type ListingAspect = { name: string; value: string };
+type EbayCategorySuggestion = { categoryId: string; categoryName: string; categoryPath?: string };
+type EbayCategoryAspect = {
+  name: string;
+  required: boolean;
+  mode: "FREE_TEXT" | "SELECTION_ONLY";
+  cardinality: "SINGLE" | "MULTI";
+  suggestedValues: string[];
+};
+
 function toFullUrl(url: string): string {
   return url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
 }
@@ -156,6 +172,12 @@ export default function ListItemScreen() {
   // Channel sync (eBay). Only shown when the seller has connected an eBay account.
   const [ebayConnected, setEbayConnected] = useState(false);
   const [ebayCategoryId, setEbayCategoryId] = useState("");
+  const [ebayCategoryLabel, setEbayCategoryLabel] = useState("");
+  const [ebayCategorySearch, setEbayCategorySearch] = useState("");
+  const [ebayCategoryResults, setEbayCategoryResults] = useState<EbayCategorySuggestion[]>([]);
+  const [ebaySearching, setEbaySearching] = useState(false);
+  const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspect[]>([]);
+  const [aspects, setAspects] = useState<ListingAspect[]>([]);
   const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
   const [showChannelPublishModal, setShowChannelPublishModal] = useState(false);
   const pendingCreatePayloadRef = useRef<Record<string, unknown> | null>(null);
@@ -307,6 +329,7 @@ export default function ListItemScreen() {
         etsyWhenMade?: string | null;
         etsyIsSupply?: boolean | null;
         ebayCategoryId?: number | null;
+        aspects?: { name?: unknown; value?: unknown }[] | null;
       }>(`/api/store-items/${editId}`)
         .then((item) => {
           setTitle(item.title ?? "");
@@ -350,6 +373,11 @@ export default function ListItemScreen() {
           }
           if (typeof item.etsyIsSupply === "boolean") setEtsyIsSupply(item.etsyIsSupply);
           if (item.ebayCategoryId != null) setEbayCategoryId(String(item.ebayCategoryId));
+          if (Array.isArray(item.aspects)) {
+            setAspects(
+              item.aspects.map((a) => ({ name: String(a?.name ?? ""), value: String(a?.value ?? "") }))
+            );
+          }
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
@@ -498,6 +526,83 @@ export default function ListItemScreen() {
       subHide.remove();
     };
   }, []);
+
+  // Load required/recommended item specifics for an eBay leaf category; pre-seed required rows.
+  const loadCategoryAspects = useCallback(async (categoryId: string) => {
+    if (!categoryId) {
+      setCategoryAspects([]);
+      return;
+    }
+    try {
+      const data = await apiGet<{ aspects?: EbayCategoryAspect[] }>(
+        `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}`
+      );
+      const list = data.aspects ?? [];
+      setCategoryAspects(list);
+      setAspects((prev) => {
+        const existingNames = new Set(prev.map((a) => a.name.trim().toLowerCase()));
+        const seeded = list
+          .filter((a) => a.required && !existingNames.has(a.name.trim().toLowerCase()))
+          .map((a) => ({ name: a.name, value: "" }));
+        return [...prev, ...seeded].slice(0, MAX_ASPECTS);
+      });
+    } catch {
+      setCategoryAspects([]);
+    }
+  }, []);
+
+  // Debounced live eBay category search.
+  useEffect(() => {
+    if (!ebayConnected) return;
+    const q = ebayCategorySearch.trim();
+    if (q.length < 2) {
+      setEbayCategoryResults([]);
+      return;
+    }
+    let cancelled = false;
+    setEbaySearching(true);
+    const t = setTimeout(() => {
+      apiGet<{ categories?: EbayCategorySuggestion[] }>(
+        `/api/channels/ebay/categories?q=${encodeURIComponent(q)}`
+      )
+        .then((data) => {
+          if (!cancelled) setEbayCategoryResults(data.categories ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setEbayCategoryResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setEbaySearching(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [ebayCategorySearch, ebayConnected]);
+
+  // Load aspects for a previously-saved eBay category once the connection is known.
+  useEffect(() => {
+    if (ebayConnected && ebayCategoryId) void loadCategoryAspects(ebayCategoryId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ebayConnected]);
+
+  const addAspectRow = () =>
+    setAspects((prev) => (prev.length >= MAX_ASPECTS ? prev : [...prev, { name: "", value: "" }]));
+  const setAspectName = (i: number, name: string) =>
+    setAspects((prev) =>
+      prev.map((a, idx) => (idx === i ? { ...a, name: name.slice(0, EBAY_ASPECT_NAME_MAX) } : a))
+    );
+  const setAspectValue = (i: number, value: string) =>
+    setAspects((prev) =>
+      prev.map((a, idx) => (idx === i ? { ...a, value: value.slice(0, EBAY_ASPECT_VALUE_MAX) } : a))
+    );
+  const removeAspectRow = (i: number) =>
+    setAspects((prev) => prev.filter((_, idx) => idx !== i));
+  const isRequiredAspect = (name: string) =>
+    categoryAspects.some(
+      (a) => a.required && a.name.trim().toLowerCase() === name.trim().toLowerCase()
+    );
 
   const syncShippingPolicy = () => {
     apiGet<PoliciesResponse>("/api/me/policies")
@@ -653,6 +758,21 @@ export default function ListItemScreen() {
       setError("You must offer at least one form of delivery (shipping, local delivery, or pickup).");
       return;
     }
+    if (ebayConnected && ebayCategoryId.trim()) {
+      const filled = aspects
+        .map((a) => ({ name: a.name.trim().toLowerCase(), value: a.value.trim() }))
+        .filter((a) => a.name && a.value);
+      const missingRequired = categoryAspects
+        .filter((a) => a.required)
+        .filter((a) => !filled.some((f) => f.name === a.name.trim().toLowerCase()))
+        .map((a) => a.name);
+      if (missingRequired.length > 0) {
+        setError(
+          `eBay requires these item details for this category: ${missingRequired.join(", ")}. Add them under "Item details".`
+        );
+        return;
+      }
+    }
     if (
       !shippingDisabled &&
       !(useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy).trim()
@@ -689,8 +809,15 @@ export default function ListItemScreen() {
     const catTrim = category.trim();
     const secTrim = secondaryCategory.trim();
     const secondaryPayload = secTrim && secTrim !== catTrim ? secTrim : null;
+    const cleanedAspects = aspects
+      .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
+      .filter((a) => a.name && a.value);
     const basePayload: Record<string, unknown> = {
-      title: title.trim(),
+      title: title.trim().slice(0, EBAY_TITLE_MAX),
+      aspects: cleanedAspects,
+      ...(ebayConnected && ebayCategoryId.trim()
+        ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
+        : {}),
       description: description.trim() || null,
       photos,
       category: catTrim || null,
@@ -979,10 +1106,13 @@ export default function ListItemScreen() {
         placeholder="Item title"
         placeholderTextColor={placeholderColor}
         value={title}
-        onChangeText={setTitle}
-        maxLength={200}
+        onChangeText={(t) => setTitle(t.slice(0, EBAY_TITLE_MAX))}
+        maxLength={EBAY_TITLE_MAX}
         autoCorrect={true}
       />
+      <Text style={[styles.hint, { textAlign: "right" }, title.length >= EBAY_TITLE_MAX ? { color: "#dc2626" } : null]}>
+        {title.length}/{EBAY_TITLE_MAX}
+      </Text>
 
       <Text style={styles.label}>Description</Text>
       <TextInput
@@ -1608,19 +1738,99 @@ export default function ListItemScreen() {
             store updates inventory on both. eBay listings publish live only when your eBay account
             has business policies (payment, return, shipping) and a merchant location.
           </Text>
-          <Text style={styles.label}>eBay category ID (optional)</Text>
-          <TextInput
-            style={styles.input}
-            value={ebayCategoryId}
-            onChangeText={(t) => setEbayCategoryId(t.replace(/[^0-9]/g, ""))}
-            placeholder="e.g. 11450"
-            keyboardType="number-pad"
-            placeholderTextColor="#999"
-          />
+          <Text style={styles.label}>eBay category</Text>
+          {ebayCategoryId ? (
+            <View style={styles.ebayCategoryChip}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.ebayCategoryChipLabel} numberOfLines={2}>
+                  {ebayCategoryLabel || `eBay category #${ebayCategoryId}`}
+                </Text>
+                <Text style={styles.hint}>eBay category #{ebayCategoryId}</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setEbayCategoryId("");
+                  setEbayCategoryLabel("");
+                  setEbayCategorySearch("");
+                  setCategoryAspects([]);
+                }}
+              >
+                <Text style={styles.ebayCategoryChange}>Change</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <TextInput
+                style={styles.input}
+                value={ebayCategorySearch}
+                onChangeText={setEbayCategorySearch}
+                placeholder="Search eBay categories (e.g. US coins)"
+                placeholderTextColor="#999"
+              />
+              {ebaySearching ? <Text style={styles.hint}>Searching eBay…</Text> : null}
+              {ebayCategoryResults.map((c) => (
+                <Pressable
+                  key={c.categoryId}
+                  style={styles.ebayCategoryResult}
+                  onPress={() => {
+                    setEbayCategoryId(c.categoryId);
+                    setEbayCategoryLabel(c.categoryPath || c.categoryName);
+                    setEbayCategoryResults([]);
+                    setEbayCategorySearch("");
+                    void loadCategoryAspects(c.categoryId);
+                  }}
+                >
+                  <Text style={styles.ebayCategoryResultName}>{c.categoryName}</Text>
+                  {c.categoryPath && c.categoryPath !== c.categoryName ? (
+                    <Text style={styles.hint} numberOfLines={1}>
+                      {c.categoryPath}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              ))}
+            </>
+          )}
+
+          <Text style={styles.label}>Item details</Text>
           <Text style={styles.hint}>
-            Leave blank to use the store default category. Find a category ID with eBay&apos;s
-            category lookup if your items need a specific one.
+            Add a detail (Descriptor + Value), e.g. Brand → Nike. eBay requires certain details to
+            publish. Required details are marked *.
           </Text>
+          {aspects.map((a, i) => {
+            const required = isRequiredAspect(a.name);
+            return (
+              <View key={i} style={styles.aspectRow}>
+                <TextInput
+                  style={[styles.input, styles.aspectInput]}
+                  value={a.name}
+                  onChangeText={(t) => setAspectName(i, t)}
+                  placeholder="Descriptor"
+                  maxLength={EBAY_ASPECT_NAME_MAX}
+                  placeholderTextColor="#999"
+                />
+                <TextInput
+                  style={[
+                    styles.input,
+                    styles.aspectInput,
+                    required && !a.value.trim() ? styles.aspectInputRequired : null,
+                  ]}
+                  value={a.value}
+                  onChangeText={(t) => setAspectValue(i, t)}
+                  placeholder={required ? "Value (required)" : "Value"}
+                  maxLength={EBAY_ASPECT_VALUE_MAX}
+                  placeholderTextColor="#999"
+                />
+                <Pressable onPress={() => removeAspectRow(i)} style={styles.aspectRemove}>
+                  <Text style={styles.aspectRemoveText}>×</Text>
+                </Pressable>
+              </View>
+            );
+          })}
+          {aspects.length < MAX_ASPECTS ? (
+            <Pressable style={styles.addDetailBtn} onPress={addAspectRow}>
+              <Text style={styles.addDetailBtnText}>+ Add a detail</Text>
+            </Pressable>
+          ) : null}
         </>
       )}
 
@@ -1781,6 +1991,41 @@ const styles = StyleSheet.create({
     color: "#000",
     marginBottom: 12,
   },
+  ebayCategoryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    backgroundColor: "#f7f7f7",
+    padding: 12,
+    marginBottom: 8,
+  },
+  ebayCategoryChipLabel: { fontSize: 14, fontWeight: "600", color: "#000" },
+  ebayCategoryChange: { color: "#dc2626", fontSize: 14, fontWeight: "600" },
+  ebayCategoryResult: {
+    borderWidth: 1,
+    borderColor: "#eee",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 6,
+  },
+  ebayCategoryResultName: { fontSize: 14, fontWeight: "600", color: "#000" },
+  aspectRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  aspectInput: { flex: 1, marginBottom: 0 },
+  aspectInputRequired: { borderColor: "#f87171" },
+  aspectRemove: { paddingHorizontal: 6, paddingVertical: 4 },
+  aspectRemoveText: { color: "#dc2626", fontSize: 22, fontWeight: "700", lineHeight: 24 },
+  addDetailBtn: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  addDetailBtnText: { color: "#333", fontSize: 14, fontWeight: "600" },
   switchRow: {
     flexDirection: "row",
     justifyContent: "space-between",

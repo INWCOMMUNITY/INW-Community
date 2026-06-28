@@ -46,6 +46,7 @@ describe("buildWixV1MediaFromPhotos", () => {
       etsyIsSupply: null,
       etsyTaxonomyId: null,
       ebayCategoryId: null,
+      aspects: null,
     };
     const body = buildWixV1CreateBody(item) as { product: { media?: unknown } };
     expect(body.product.media).toEqual({

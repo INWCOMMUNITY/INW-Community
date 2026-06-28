@@ -35,6 +35,8 @@ export type SyncStoreItem = {
   etsyIsSupply: boolean | null;
   etsyTaxonomyId: number | null;
   ebayCategoryId: number | null;
+  /** Item specifics / product aspects: [{ name, value }]. Mapped to eBay product.aspects. */
+  aspects: unknown;
 };
 
 /** A live connection with a fresh (decrypted, non-expired) access token. */
@@ -82,6 +84,9 @@ export type RemoteListingSummary = {
   /** Normalized INW-shaped variant axes from the remote listing. */
   variants?: unknown;
   variantsKnown?: boolean;
+  /** Item specifics parsed from the remote listing: [{ name, value }]. */
+  aspects?: { name: string; value: string }[];
+  aspectsKnown?: boolean;
 };
 
 export type ChannelSyncResult = {

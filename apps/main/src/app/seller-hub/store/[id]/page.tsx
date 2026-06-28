@@ -69,6 +69,13 @@ export default async function EditStoreItemPage({
             localDeliveryTerms: (item as { localDeliveryTerms?: string | null }).localDeliveryTerms ?? null,
             acceptOffers: item.acceptOffers,
             minOfferCents: item.minOfferCents,
+            ebayCategoryId: (item as { ebayCategoryId?: number | null }).ebayCategoryId ?? null,
+            aspects: Array.isArray((item as { aspects?: unknown }).aspects)
+              ? ((item as { aspects?: { name?: unknown; value?: unknown }[] }).aspects ?? []).map((a) => ({
+                  name: String(a?.name ?? ""),
+                  value: String(a?.value ?? ""),
+                }))
+              : null,
           }}
         />
       </div>

@@ -911,6 +911,9 @@ model StoreItem {
   subcategory         String?  @map("subcategory")
   priceCents          Int      @map("price_cents")
   variants            Json?    // [{ name: "Size", options: ["S","M","L"] }, ...]
+  /// Item specifics / product aspects: [{ name: "Brand", value: "Nike" }, ...].
+  /// Maps to eBay product.aspects; ignored by Etsy/Wix/Shopify adapters.
+  aspects             Json?    @map("aspects")
   quantity            Int      @default(0)
   status              String   @default("active") // active | sold_out | inactive
   shippingCostCents   Int?     @map("shipping_cost_cents")

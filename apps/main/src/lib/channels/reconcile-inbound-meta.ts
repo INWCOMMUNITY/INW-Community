@@ -5,6 +5,7 @@ import {
   applyRemoteCategoryToStoreItem,
   applyRemoteShippingToStoreItem,
   applyRemoteVariantsToStoreItem,
+  applyRemoteAspectsToStoreItem,
 } from "./apply-remote-meta";
 import { getAdapter } from "./registry";
 import { updateStoreItemOnChannels } from "./outbound";
@@ -267,7 +268,8 @@ export async function reconcileConnectionInboundMeta(
     if (metaDecision === "pull") {
       const cat = await applyRemoteCategoryToStoreItem(link.storeItemId, remote, provider);
       const ship = await applyRemoteShippingToStoreItem(link.storeItemId, remote);
-      pulled = cat || ship || pulled;
+      const asp = await applyRemoteAspectsToStoreItem(link.storeItemId, remote);
+      pulled = cat || ship || asp || pulled;
     }
     if (varDecision === "pull") {
       const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);

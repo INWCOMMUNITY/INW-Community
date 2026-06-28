@@ -218,16 +218,17 @@ eBay disables new Production keys until you validate an account-deletion endpoin
 - [ ] **Business Policies** on eBay: payment, return, fulfillment/shipping ([Seller Hub](https://www.ebay.com/sh/ovw))
 - [ ] At least one **merchant location**
 - Without these, listings stay **unpublished** until they fix eBay and re-save in INW
+- **Item details (eBay item specifics):** When eBay is connected, the listing form shows a live **eBay category** search and an **"Add a detail"** section (Descriptor + Value, e.g. Brand → Nike). Picking a category pre-fills the details eBay **requires** for that category; sellers must fill required values before saving or eBay will reject the publish. Titles are capped at **80 characters** (eBay's limit) on both the app and website.
 
 ### C — Test in app
 
 1. Sync Stores → **Connect eBay**
 2. Fix policy/location warning if shown
-3. **Import existing listings** (some legacy listings may skip — app shows why)
-4. Create/edit on INW → check eBay
+3. **Import existing listings** (some legacy listings may skip — app shows why). Imported items pull eBay's **category + item specifics + description** so they round-trip.
+4. Create/edit on INW → pick an eBay category, fill required details → check eBay listing shows the same item specifics
 5. Sell on eBay / INW → qty syncs (~15 min)
 
-**You're done with eBay when:** OAuth connects, import works, and quantities update after a test sale.
+**You're done with eBay when:** OAuth connects, import works, item specifics appear on both sides, and quantities update after a test sale.
 
 ---
 
