@@ -126,6 +126,8 @@ export interface ChannelAdapter {
     redirectUri: string;
     /** Shopify only: normalized `{slug}.myshopify.com` host. */
     shop?: string;
+    /** eBay only: pass "login" to force the sign-in screen when switching accounts. */
+    prompt?: string;
   }): string;
   exchangeCode(args: {
     code: string;

@@ -15,6 +15,8 @@ export function getEbayAuthUrl(args: {
   state: string;
   codeChallenge: string;
   redirectUri: string;
+  /** Set to "login" to force the eBay sign-in screen (switch accounts). */
+  prompt?: string;
 }): string {
   const { clientId, ruName } = getEbayConfig();
   const params = new URLSearchParams({
@@ -24,6 +26,9 @@ export function getEbayAuthUrl(args: {
     scope: EBAY_SCOPES.join(" "),
     state: args.state,
   });
+  if (args.prompt?.trim()) {
+    params.set("prompt", args.prompt.trim());
+  }
   return `${EBAY_AUTH_URL}?${params.toString()}`;
 }
 

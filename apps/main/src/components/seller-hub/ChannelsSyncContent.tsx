@@ -9,6 +9,7 @@ import {
   formatChannelQueryError,
   type ChannelConnectionSummary,
 } from "@/lib/channels/provider-ui";
+import { EBAY_SIGN_OUT_URL } from "@/lib/channels/ebay/config";
 
 export function ChannelsSyncContent() {
   const searchParams = useSearchParams();
@@ -276,6 +277,28 @@ export function ChannelsSyncContent() {
                       >
                         {busy === conn.id ? "Disconnecting…" : `Disconnect ${p.name}`}
                       </button>
+                      {p.provider === "ebay" && (
+                        <>
+                          <p className="text-xs text-gray-600 mt-2">
+                            Disconnect only removes the link in INW. Your browser may still be signed in
+                            to eBay.
+                          </p>
+                          <a
+                            href={EBAY_SIGN_OUT_URL}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={btnOutline}
+                          >
+                            Sign out of eBay on this device
+                          </a>
+                          <a
+                            href="/api/channels/ebay/connect?forceLogin=1"
+                            className={btnOutline}
+                          >
+                            Connect a different eBay account
+                          </a>
+                        </>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -322,6 +345,24 @@ export function ChannelsSyncContent() {
                       >
                         Connect {p.name}
                       </a>
+                    )}
+                    {p.provider === "ebay" && (
+                      <>
+                        <a
+                          href="/api/channels/ebay/connect?forceLogin=1"
+                          className={btnOutline}
+                        >
+                          Connect a different eBay account
+                        </a>
+                        <a
+                          href={EBAY_SIGN_OUT_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={btnLink}
+                        >
+                          Sign out of eBay on this device
+                        </a>
+                      </>
                     )}
                   </>
                 )}

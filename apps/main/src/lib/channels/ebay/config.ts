@@ -6,6 +6,8 @@ export const EBAY_API_BASE = "https://api.ebay.com";
 export const EBAY_APIZ_BASE = "https://apiz.ebay.com";
 export const EBAY_AUTH_URL = "https://auth.ebay.com/oauth2/authorize";
 export const EBAY_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token";
+/** Opens eBay's sign-out page in the device browser (clears the shared OAuth cookie session). */
+export const EBAY_SIGN_OUT_URL = "https://signin.ebay.com/logout/confirm";
 
 /** US marketplace. Localized listing content uses Content-Language: en-US. */
 export const EBAY_MARKETPLACE_ID = "EBAY_US";

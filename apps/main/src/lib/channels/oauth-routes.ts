@@ -43,7 +43,8 @@ async function buildAuthUrl(
   provider: ChannelProvider,
   userId: string,
   app: boolean,
-  shopInput?: string | null
+  shopInput?: string | null,
+  options?: { forceLogin?: boolean }
 ): Promise<string> {
   const profile = getOAuthProfile(provider);
   if (!profile) throw new Error(`No OAuth profile for provider "${provider}".`);
@@ -68,6 +69,7 @@ async function buildAuthUrl(
     codeChallenge: challenge,
     redirectUri: profile.redirectUri(getBaseUrl(req)),
     shop: shop ?? undefined,
+    prompt: provider === "ebay" && options?.forceLogin ? "login" : undefined,
   });
 }
 
@@ -97,7 +99,10 @@ export async function channelConnectGET(
   }
   try {
     const shopParam = new URL(req.url).searchParams.get("shop");
-    return NextResponse.redirect(await buildAuthUrl(req, provider, userId, false, shopParam));
+    const forceLogin = new URL(req.url).searchParams.get("forceLogin") === "1";
+    return NextResponse.redirect(
+      await buildAuthUrl(req, provider, userId, false, shopParam, { forceLogin })
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : `Could not start ${provider} connect.`;
     return NextResponse.redirect(
@@ -131,17 +136,23 @@ export async function channelConnectPOST(
   }
   try {
     let shopInput: string | undefined;
-    if (provider === "shopify") {
-      const body = (await req.json().catch(() => null)) as { shop?: string } | null;
-      shopInput = body?.shop;
-      if (!shopInput?.trim()) {
-        return NextResponse.json(
-          { error: "Shopify store domain is required (e.g. mystore.myshopify.com)." },
-          { status: 400 }
-        );
+    let forceLogin = false;
+    if (provider === "shopify" || provider === "ebay") {
+      const body = (await req.json().catch(() => null)) as
+        | { shop?: string; forceLogin?: boolean }
+        | null;
+      if (provider === "shopify") {
+        shopInput = body?.shop;
+        if (!shopInput?.trim()) {
+          return NextResponse.json(
+            { error: "Shopify store domain is required (e.g. mystore.myshopify.com)." },
+            { status: 400 }
+          );
+        }
       }
+      forceLogin = body?.forceLogin === true;
     }
-    const url = await buildAuthUrl(req, provider, userId, true, shopInput);
+    const url = await buildAuthUrl(req, provider, userId, true, shopInput, { forceLogin });
     return NextResponse.json({ url });
   } catch (e) {
     const msg = e instanceof Error ? e.message : `Could not start ${provider} connect.`;
