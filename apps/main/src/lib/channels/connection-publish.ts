@@ -12,6 +12,9 @@ export function connectionReadyToPublish(c: ConnectionRow): boolean {
   const config = (c.config ?? {}) as Record<string, unknown>;
   if (c.provider === "etsy") return Boolean(c.etsyShippingProfileId);
   if (c.provider === "ebay") {
+    // Use the stored canPublish flag if available (includes opt-in + location enabled checks)
+    if (typeof config.canPublish === "boolean") return config.canPublish;
+    // Fallback for older connections without canPublish flag
     return Boolean(
       config.fulfillmentPolicyId &&
         config.paymentPolicyId &&
@@ -31,7 +34,12 @@ export function publishBlockReason(c: ConnectionRow): string | null {
     return "Connection needs attention. Open Sync Stores and reconnect.";
   }
   if (!connectionReadyToPublish(c)) {
+    const config = (c.config ?? {}) as Record<string, unknown>;
     if (c.provider === "ebay") {
+      // Use the detailed publishBlockReason if available
+      if (typeof config.publishBlockReason === "string" && config.publishBlockReason) {
+        return config.publishBlockReason;
+      }
       return "Complete eBay business policies and a merchant location in Sync Stores first.";
     }
     if (c.provider === "etsy") {

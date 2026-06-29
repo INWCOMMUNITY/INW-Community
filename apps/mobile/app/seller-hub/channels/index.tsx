@@ -15,6 +15,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
 import { theme } from "@/lib/theme";
 import { apiPost, apiGet, apiDelete } from "@/lib/api";
+import { EbaySetupCard } from "@/components/channels/EbaySetupCard";
 
 type Connection = {
   id: string;
@@ -347,10 +348,7 @@ export default function ChannelsScreen() {
                       </Text>
                     )}
                     {p.provider === "ebay" && conn.readyToPublish === false && (
-                      <Text style={styles.warn}>
-                        Add eBay business policies (payment, return, shipping) and a merchant location
-                        so listings can publish live.
-                      </Text>
+                      <EbaySetupCard onSetupComplete={refresh} />
                     )}
                     {p.provider === "wix" && (
                       <>

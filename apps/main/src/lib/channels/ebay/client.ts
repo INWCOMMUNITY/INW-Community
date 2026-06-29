@@ -80,11 +80,29 @@ export function ebayJson<T>(
   });
 }
 
-/** POST/PUT with no body (e.g. publish/withdraw). */
+/** POST/PUT with no body (e.g. publish/withdraw). Includes Content-Language for write operations. */
 export function ebayAction<T>(
   accessToken: string,
   path: string,
   method: "POST" | "PUT" | "DELETE" = "POST"
 ): Promise<T> {
-  return ebayRequest<T>(accessToken, path, { method });
+  // eBay requires Content-Language on write operations (POST/PUT), not on DELETE
+  const contentLanguage = method !== "DELETE";
+  return ebayRequest<T>(accessToken, path, { method, contentLanguage });
+}
+
+/**
+ * Fetch an inventory item by SKU to verify the current state after a write.
+ * Returns null if the item doesn't exist (404).
+ */
+export async function ebayGetInventoryItem(
+  accessToken: string,
+  sku: string
+): Promise<{ availability?: { shipToLocationAvailability?: { quantity?: number } } } | null> {
+  try {
+    return await ebayGet(accessToken, `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`);
+  } catch (e) {
+    if (e instanceof EbayApiError && e.status === 404) return null;
+    throw e;
+  }
 }

@@ -38,6 +38,7 @@ type EbayTokenPayload = {
   expires_in?: number;
   refresh_token_expires_in?: number;
   token_type?: string;
+  scope?: string;
   error?: string;
   error_description?: string;
 };
@@ -45,6 +46,28 @@ type EbayTokenPayload = {
 function basicAuthHeader(): string {
   const { clientId, clientSecret } = getEbayConfig();
   return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+}
+
+/**
+ * Validate that the returned token has all required scopes.
+ * eBay may return a subset of requested scopes if the app lacks permissions.
+ */
+function validateScopes(grantedScopes: string | undefined): { valid: boolean; missing: string[] } {
+  if (!grantedScopes) {
+    // If eBay doesn't return scopes, we can't validate - assume OK
+    return { valid: true, missing: [] };
+  }
+
+  const granted = new Set(grantedScopes.split(/\s+/).filter(Boolean));
+  const missing: string[] = [];
+
+  for (const required of EBAY_SCOPES) {
+    if (!granted.has(required)) {
+      missing.push(required);
+    }
+  }
+
+  return { valid: missing.length === 0, missing };
 }
 
 async function postToken(body: URLSearchParams): Promise<TokenResponse> {
@@ -61,11 +84,23 @@ async function postToken(body: URLSearchParams): Promise<TokenResponse> {
     const msg = data?.error_description || data?.error || `eBay token request failed (${res.status})`;
     throw new Error(msg);
   }
+
+  // Validate that we got all required scopes
+  const scopeValidation = validateScopes(data.scope);
+  if (!scopeValidation.valid) {
+    console.warn("[ebay] Token missing required scopes", {
+      missing: scopeValidation.missing,
+      granted: data.scope,
+    });
+    // Don't fail the connection - the seller can still use it, but some operations may fail.
+    // This is logged so we can diagnose issues.
+  }
+
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token ?? null,
     expiresInSec: data.expires_in ?? null,
-    scopes: EBAY_SCOPES.join(" "),
+    scopes: data.scope || EBAY_SCOPES.join(" "),
   };
 }
 

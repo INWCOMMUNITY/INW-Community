@@ -139,10 +139,173 @@ export function formatMigrateListingError(args: {
   return "migration_failed — eBay returned no details for this listing";
 }
 
+/**
+ * eBay error codes with specific meanings and recommended actions.
+ * See: https://developer.ebay.com/api-docs/sell/inventory/handling-errors.html
+ */
+export type EbayErrorAction = {
+  message: string;
+  action: "refresh_token" | "reauthorize" | "retry" | "seller_action" | "none";
+  retryable: boolean;
+};
+
+const ERROR_CODE_ACTIONS: Record<number, EbayErrorAction> = {
+  // OAuth / Token errors
+  1001: {
+    message: "Invalid access token",
+    action: "refresh_token",
+    retryable: true,
+  },
+  1002: {
+    message: "Missing access token",
+    action: "reauthorize",
+    retryable: false,
+  },
+  1003: {
+    message: "Invalid token type",
+    action: "reauthorize",
+    retryable: false,
+  },
+  1004: {
+    message: "Error processing access token",
+    action: "retry",
+    retryable: true,
+  },
+  1100: {
+    message: "Insufficient permissions - the token lacks required scopes",
+    action: "reauthorize",
+    retryable: false,
+  },
+
+  // Inventory API errors
+  25001: {
+    message: "eBay system error",
+    action: "retry",
+    retryable: true,
+  },
+  25002: {
+    message: "User error in request",
+    action: "none",
+    retryable: false,
+  },
+  25003: {
+    message: "Invalid price",
+    action: "seller_action",
+    retryable: false,
+  },
+  25004: {
+    message: "Invalid quantity",
+    action: "seller_action",
+    retryable: false,
+  },
+  25005: {
+    message: "Invalid category ID",
+    action: "seller_action",
+    retryable: false,
+  },
+  25017: {
+    message: "Missing required fields for listing",
+    action: "seller_action",
+    retryable: false,
+  },
+  25018: {
+    message: "Incomplete seller account setup",
+    action: "seller_action",
+    retryable: false,
+  },
+  25019: {
+    message: "Cannot revise listing (may have active bids or ending soon)",
+    action: "none",
+    retryable: false,
+  },
+  25025: {
+    message: "Concurrent access conflict",
+    action: "retry",
+    retryable: true,
+  },
+  25026: {
+    message: "eBay selling limit exceeded",
+    action: "seller_action",
+    retryable: false,
+  },
+};
+
+/**
+ * Get specific error info for a known eBay error code.
+ */
+export function getEbayErrorInfo(errorId: number | undefined): EbayErrorAction | null {
+  if (errorId === undefined) return null;
+  return ERROR_CODE_ACTIONS[errorId] ?? null;
+}
+
+/**
+ * Extract error IDs from an error body for targeted handling.
+ */
+export function extractErrorIds(body: unknown): number[] {
+  const rows = parseEbayErrorRows(body);
+  return rows.map((r) => r.errorId).filter((id): id is number => id !== undefined);
+}
+
+/**
+ * Check if an error is retryable based on its error codes.
+ */
+export function isRetryableError(body: unknown): boolean {
+  const errorIds = extractErrorIds(body);
+  if (errorIds.length === 0) return false;
+  return errorIds.every((id) => {
+    const info = getEbayErrorInfo(id);
+    return info?.retryable ?? false;
+  });
+}
+
+/**
+ * Check if an error requires token refresh.
+ */
+export function needsTokenRefresh(body: unknown): boolean {
+  const errorIds = extractErrorIds(body);
+  return errorIds.some((id) => {
+    const info = getEbayErrorInfo(id);
+    return info?.action === "refresh_token";
+  });
+}
+
+/**
+ * Check if an error requires full reauthorization.
+ */
+export function needsReauthorization(body: unknown): boolean {
+  const errorIds = extractErrorIds(body);
+  return errorIds.some((id) => {
+    const info = getEbayErrorInfo(id);
+    return info?.action === "reauthorize";
+  });
+}
+
 /** Actionable hint for common eBay error patterns (import UI, sync stores). */
 export function ebayErrorActionHint(reason: string): string | undefined {
-  if (/25001|system error has occurred|Internal error/i.test(reason)) {
-    return "eBay's migration service hit a temporary server error. Wait a minute and try again.";
+  // Check for specific error codes first
+  if (/\b1001\b|Invalid access token/i.test(reason)) {
+    return "eBay session expired — disconnect and reconnect eBay in Sync Stores.";
+  }
+  if (/\b1100\b|Insufficient permissions/i.test(reason)) {
+    return "Your eBay connection lacks required permissions. Disconnect and reconnect eBay to grant all needed scopes.";
+  }
+  if (/\b25017\b|Missing.*field|required field/i.test(reason)) {
+    return "This listing is missing required information. Check that title, description, price, category, and item specifics are filled in.";
+  }
+  if (/\b25018\b|Incomplete.*account/i.test(reason)) {
+    return "Your eBay seller account setup is incomplete. Visit eBay Seller Hub to finish account setup.";
+  }
+  if (/\b25019\b|Cannot revise|active bid|ending soon/i.test(reason)) {
+    return "This listing cannot be revised right now. It may have active bids or be ending within 12 hours.";
+  }
+  if (/\b25025\b|Concurrent access/i.test(reason)) {
+    return "eBay detected a conflict. Wait a moment and try again.";
+  }
+  if (/\b25026\b|selling limit/i.test(reason)) {
+    return "You've reached your eBay selling limit. Contact eBay to request a limit increase.";
+  }
+  if (/\b25001\b|system error has occurred|Internal error/i.test(reason)) {
+    return "eBay's service hit a temporary error. Wait a minute and try again.";
   }
   if (/not_fixed_price|not a fixed|auction|classified/i.test(reason)) {
     return "eBay only syncs fixed-price (Buy It Now) listings. Convert auctions/classified ads to fixed price to sync them.";
@@ -156,14 +319,14 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/Accept-Language/i.test(reason)) {
     return "eBay rejected the locale header. Make sure the latest app version is deployed.";
   }
-  if (/Invalid access token|1001/i.test(reason)) {
-    return "eBay session expired — disconnect and reconnect eBay in Sync Stores.";
-  }
   if (/25709|Content-Language/i.test(reason)) {
     return "eBay rejected a content locale header during listing sync.";
   }
   if (/business polic|fulfillmentPolicy|paymentPolicy|returnPolicy|merchant location/i.test(reason)) {
     return "Add payment, return, and shipping policies plus a merchant location in eBay Seller Hub.";
+  }
+  if (/revision limit|250.*revision/i.test(reason)) {
+    return "This listing has reached eBay's daily revision limit (250 per day). Try again tomorrow.";
   }
   return undefined;
 }
