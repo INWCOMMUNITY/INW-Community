@@ -20,8 +20,9 @@ import { checkRevisionLimit, getRevisionLimitWarning, recordRevision } from "./r
 import { resolveProviderCategoryId } from "../category-map";
 import { buildEbayInventoryItem, buildEbayOffer, ebayListingToSummary } from "./mapping";
 import { hasOptionQuantities } from "../../store-item-variants";
-import { enumerateEbayListings } from "./trading";
+import { enumerateEbayListings, subscribeToEbayNotifications } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
+import { getBaseUrl } from "@/lib/get-base-url";
 
 type EbayOffer = { offerId?: string; status?: string; listing?: { listingId?: string } };
 type OfferSearch = { offers?: EbayOffer[] };
@@ -170,7 +171,18 @@ export const ebayAdapter: ChannelAdapter = {
 
   async getInitialConfig(accessToken): Promise<Record<string, unknown>> {
     const cfg = await fetchEbayConnectionConfig(accessToken);
-    return { ...cfg };
+
+    // Subscribe to eBay Platform Notifications for real-time sync
+    const webhookUrl = `${getBaseUrl()}/api/channels/ebay/webhook`;
+    const notifResult = await subscribeToEbayNotifications(accessToken, webhookUrl);
+
+    return {
+      ...cfg,
+      notificationsEnabled: notifResult.success,
+      notificationsWebhookUrl: notifResult.success ? webhookUrl : undefined,
+      notificationsEnabledAt: notifResult.success ? new Date().toISOString() : undefined,
+      notificationsError: notifResult.error,
+    };
   },
 
   async createListing(conn, item): Promise<CreateListingResult> {

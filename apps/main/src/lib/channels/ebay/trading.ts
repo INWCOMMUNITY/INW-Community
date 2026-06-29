@@ -514,3 +514,119 @@ export async function migrateEbayListings(
 
   return result;
 }
+
+/**
+ * Subscribe to eBay Platform Notifications for item changes.
+ * This enables real-time sync when listings are edited on eBay.
+ *
+ * Events subscribed:
+ * - ItemRevised: Listing was edited
+ * - ItemClosed: Listing ended
+ * - ItemSold: Full sale (quantity reached 0)
+ * - FixedPriceTransaction: Partial sale (quantity decremented)
+ */
+export async function subscribeToEbayNotifications(
+  accessToken: string,
+  webhookUrl: string
+): Promise<{ success: boolean; error?: string }> {
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<SetNotificationPreferencesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ApplicationDeliveryPreferences>
+    <ApplicationEnable>Enable</ApplicationEnable>
+    <ApplicationURL>${escapeXml(webhookUrl)}</ApplicationURL>
+    <DeviceType>Platform</DeviceType>
+  </ApplicationDeliveryPreferences>
+  <UserDeliveryPreferenceArray>
+    <NotificationEnable>
+      <EventType>ItemRevised</EventType>
+      <EventEnable>Enable</EventEnable>
+    </NotificationEnable>
+    <NotificationEnable>
+      <EventType>ItemClosed</EventType>
+      <EventEnable>Enable</EventEnable>
+    </NotificationEnable>
+    <NotificationEnable>
+      <EventType>ItemSold</EventType>
+      <EventEnable>Enable</EventEnable>
+    </NotificationEnable>
+    <NotificationEnable>
+      <EventType>FixedPriceTransaction</EventType>
+      <EventEnable>Enable</EventEnable>
+    </NotificationEnable>
+  </UserDeliveryPreferenceArray>
+</SetNotificationPreferencesRequest>`;
+
+  try {
+    const response = await callTrading(accessToken, "SetNotificationPreferences", xml);
+
+    // Check for success
+    const ack = tag(response, "Ack");
+    if (ack === "Success" || ack === "Warning") {
+      console.log("[ebay] subscribeToEbayNotifications: success", { webhookUrl });
+      return { success: true };
+    }
+
+    // Extract error message
+    const errorMsg = tag(response, "LongMessage") || tag(response, "ShortMessage") || "Unknown error";
+    console.error("[ebay] subscribeToEbayNotifications: failed", { ack, errorMsg });
+    return { success: false, error: errorMsg };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[ebay] subscribeToEbayNotifications: exception", { error: msg });
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * Check current notification subscription status.
+ */
+export async function getEbayNotificationPreferences(
+  accessToken: string
+): Promise<{ subscribed: boolean; webhookUrl?: string; events?: string[] }> {
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<GetNotificationPreferencesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <PreferenceLevel>Application</PreferenceLevel>
+</GetNotificationPreferencesRequest>`;
+
+  try {
+    const response = await callTrading(accessToken, "GetNotificationPreferences", xml);
+    const ack = tag(response, "Ack");
+
+    if (ack !== "Success" && ack !== "Warning") {
+      return { subscribed: false };
+    }
+
+    const appPrefs = tag(response, "ApplicationDeliveryPreferences");
+    const appEnabled = appPrefs ? tag(appPrefs, "ApplicationEnable") : null;
+    const appUrl = appPrefs ? tag(appPrefs, "ApplicationURL") : null;
+
+    // Extract enabled events
+    const enabledEvents: string[] = [];
+    const notifications = allTags(response, "NotificationEnable");
+    for (const n of notifications) {
+      const eventType = tag(n, "EventType");
+      const eventEnable = tag(n, "EventEnable");
+      if (eventType && eventEnable === "Enable") {
+        enabledEvents.push(eventType);
+      }
+    }
+
+    return {
+      subscribed: appEnabled === "Enable" && !!appUrl,
+      webhookUrl: appUrl || undefined,
+      events: enabledEvents,
+    };
+  } catch (e) {
+    console.error("[ebay] getEbayNotificationPreferences: exception", { error: e });
+    return { subscribed: false };
+  }
+}
+
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
