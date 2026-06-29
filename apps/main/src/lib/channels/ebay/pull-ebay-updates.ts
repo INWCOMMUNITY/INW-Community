@@ -17,6 +17,7 @@ type ConnectionRow = {
   refreshTokenEncrypted: string | null;
   tokenExpiresAt: Date | null;
   status: string;
+  etsyShippingProfileId: string | null;
   config?: unknown;
 };
 
