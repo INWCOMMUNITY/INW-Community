@@ -270,7 +270,7 @@ export async function GET(req: NextRequest) {
     summary,
     nextStep,
     connectionId: ctx.id,
-    externalShopId: ctx.externalShopId,
+    externalShopId: ctx.externalShopId ?? undefined,
     config,
     tokenValid,
     tokenError,
