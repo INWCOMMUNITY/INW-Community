@@ -95,13 +95,21 @@ async function loadRemoteWithLinkState(userId: string) {
     linked.map((l) => l.storeItem?.title?.trim().toLowerCase()).filter(Boolean)
   );
 
+  // Check if a legacy listing ID is already linked.
+  // After import, listings are stored with a migrated SKU like `inw${legacyId}`,
+  // so we need to check both the raw legacy ID and the inw-prefixed version.
+  const isAlreadyLinked = (legacyId: string, title: string): boolean => {
+    if (linkedSkus.has(legacyId)) return true;
+    if (linkedSkus.has(`inw${legacyId}`)) return true;
+    if (linkedTitles.has(title.trim().toLowerCase())) return true;
+    return false;
+  };
+
   return {
     ctx,
     listings: listings.map((l) => ({
       ...l,
-      alreadyLinked:
-        linkedSkus.has(l.externalListingId) ||
-        linkedTitles.has(l.title.trim().toLowerCase()),
+      alreadyLinked: isAlreadyLinked(l.externalListingId, l.title),
     })),
   };
 }
@@ -225,15 +233,26 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    const photos = listing.photos
-      .map((u) => normalizeEbayPhotoUrl(u))
-      .filter((u): u is string => Boolean(u));
     const resolvedCat = resolveInwCategoryFromRemote(listing.category ?? null, listing.subcategory ?? null);
     const importQty = Math.max(0, Math.round(Number(listing.quantity) || 0));
 
-    // Pull full item specifics + description + category for true two-way round-trip (per selected listing).
+    // Pull full item specifics + description + category + photos for true two-way round-trip.
+    // GetItem returns all photos (not just the gallery thumb from GetMyeBaySelling).
     const details = await fetchEbayItemDetails(ctx.accessToken, legacyId);
     const importedAspects = normalizeListingAspects(details.aspects);
+
+    // Debug logging for import troubleshooting
+    console.log("[ebay import] details fetched", {
+      legacyId,
+      aspectsCount: details.aspects.length,
+      photosCount: details.photos.length,
+      normalizedAspectsCount: importedAspects.length,
+    });
+
+    // Prefer photos from GetItem (full set) over the preview photos (often just 1 gallery image).
+    const photos = (details.photos.length > 0 ? details.photos : listing.photos)
+      .map((u) => normalizeEbayPhotoUrl(u))
+      .filter((u): u is string => Boolean(u));
     const remoteCategoryId = details.remoteCategoryId ?? listing.remoteCategoryId ?? null;
     const importedDescription =
       plainListingDescription(details.description) ?? plainListingDescription(listing.description);

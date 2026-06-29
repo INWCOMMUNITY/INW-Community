@@ -29,8 +29,14 @@ export function normalizeEbayPhotoUrl(raw: string): string | null {
   if (url.startsWith("//")) url = `https:${url}`;
   if (url.startsWith("http://")) url = `https://${url.slice("http://".length)}`;
   if (!url.startsWith("https://")) return null;
-  // Gallery-only thumbs are tiny; request a larger variant when eBay uses s-lNNN sizing.
-  url = url.replace(/\/s-l(\d+)\./i, "/s-l500.");
+
+  // eBay CDN uses /s-lNNN/ for resized versions.
+  // s-l2000 is the highest resolution eBay serves (original quality).
+  // Upgrade any resize suffix to s-l2000 to get the full original resolution.
+  if (/\/s-l\d+\./i.test(url)) {
+    url = url.replace(/\/s-l\d+\./i, "/s-l2000.");
+  }
+
   return url;
 }
 

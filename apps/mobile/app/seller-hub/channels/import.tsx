@@ -7,6 +7,7 @@ import {
   Pressable,
   ActivityIndicator,
   Image,
+  Modal,
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { theme } from "@/lib/theme";
@@ -19,6 +20,12 @@ type RemoteListing = {
   quantity: number;
   photos: string[];
   alreadyLinked?: boolean;
+};
+
+type ImportProgress = {
+  total: number;
+  status: "importing" | "done" | "error";
+  message?: string;
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -39,6 +46,7 @@ export default function ChannelImportScreen() {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
 
   const importPath = useMemo(() => `/api/channels/${provider}/import`, [provider]);
 
@@ -71,11 +79,73 @@ export default function ChannelImportScreen() {
     });
   };
 
+  const selectAll = useCallback(() => {
+    const importableIds = listings.filter((l) => !l.alreadyLinked).map((l) => l.externalListingId);
+    if (selected.size === importableIds.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(importableIds));
+    }
+  }, [listings, selected.size]);
+
+  const runImportAll = useCallback(async () => {
+    const importableIds = listings.filter((l) => !l.alreadyLinked).map((l) => l.externalListingId);
+    if (importableIds.length === 0) return;
+    
+    setImporting(true);
+    setError(null);
+    setDone(null);
+    setProgress({ total: importableIds.length, status: "importing" });
+    try {
+      const res = await apiPost<{
+        imported: unknown[];
+        skipped?: {
+          externalListingId: string;
+          title?: string;
+          step?: string;
+          reason: string;
+          hint?: string;
+        }[];
+        summary?: string;
+        hint?: string;
+      }>(importPath, {
+        listingIds: importableIds,
+      });
+      const importedCount = res.imported?.length ?? 0;
+      const skipped = res.skipped ?? [];
+      const summary =
+        res.summary ??
+        (importedCount > 0
+          ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
+          : "No listings were imported.");
+      setDone(summary);
+      setProgress({ total: importableIds.length, status: "done", message: summary });
+      if (importedCount === 0 && (res.hint || skipped.length > 0)) {
+        setError(res.hint ?? summary);
+        setProgress({ total: importableIds.length, status: "error", message: res.hint ?? summary });
+      }
+      setSelected(new Set());
+      await new Promise((r) => setTimeout(r, 1500));
+      setProgress(null);
+      await load();
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      const errorMsg = err?.error ?? "Import failed. Try again.";
+      setError(errorMsg);
+      setProgress({ total: importableIds.length, status: "error", message: errorMsg });
+      await new Promise((r) => setTimeout(r, 2000));
+      setProgress(null);
+    } finally {
+      setImporting(false);
+    }
+  }, [listings, importPath, load]);
+
   const runImport = async () => {
     if (selected.size === 0) return;
     setImporting(true);
     setError(null);
     setDone(null);
+    setProgress({ total: selected.size, status: "importing" });
     try {
       const res = await apiPost<{
         imported: unknown[];
@@ -99,14 +169,24 @@ export default function ChannelImportScreen() {
           ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
           : "No listings were imported.");
       setDone(summary);
+      setProgress({ total: selected.size, status: "done", message: summary });
       if (importedCount === 0 && (res.hint || skipped.length > 0)) {
         setError(res.hint ?? summary);
+        setProgress({ total: selected.size, status: "error", message: res.hint ?? summary });
       }
       setSelected(new Set());
+      // Small delay to show completion before closing modal
+      await new Promise((r) => setTimeout(r, 1500));
+      setProgress(null);
       await load();
     } catch (e: unknown) {
       const err = e as { error?: string };
-      setError(err?.error ?? "Import failed. Try again.");
+      const errorMsg = err?.error ?? "Import failed. Try again.";
+      setError(errorMsg);
+      setProgress({ total: selected.size, status: "error", message: errorMsg });
+      // Show error for a moment before closing
+      await new Promise((r) => setTimeout(r, 2000));
+      setProgress(null);
     } finally {
       setImporting(false);
     }
@@ -128,7 +208,26 @@ export default function ChannelImportScreen() {
         ) : listings.length === 0 ? (
           <Text style={styles.empty}>No {label} listings found.</Text>
         ) : (
-          listings.map((l) => {
+          <>
+            {importable.length > 0 && (
+              <View style={styles.selectAllRow}>
+                <Pressable onPress={selectAll} style={styles.selectAllButton}>
+                  <Text style={styles.selectAllText}>
+                    {selected.size === importable.length ? "Deselect All" : "Select All"}
+                  </Text>
+                </Pressable>
+                {importable.length > 1 && (
+                  <Pressable
+                    onPress={runImportAll}
+                    style={styles.importAllButton}
+                    disabled={importing}
+                  >
+                    <Text style={styles.importAllText}>Import All ({importable.length})</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+            {listings.map((l) => {
             const isSelected = selected.has(l.externalListingId);
             return (
               <Pressable
@@ -158,8 +257,48 @@ export default function ChannelImportScreen() {
                 )}
               </Pressable>
             );
-          })
+          })}
+          </>
         )}
+
+        {/* Progress Modal */}
+        <Modal
+          visible={progress !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {}}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              {progress?.status === "importing" ? (
+                <>
+                  <ActivityIndicator size="large" color={theme.colors.primary} style={styles.modalSpinner} />
+                  <Text style={styles.modalTitle}>Importing Listings</Text>
+                  <Text style={styles.modalMessage}>
+                    Importing {progress.total} listing{progress.total === 1 ? "" : "s"} to INW...
+                  </Text>
+                  <Text style={styles.modalHint}>This may take a moment</Text>
+                </>
+              ) : progress?.status === "done" ? (
+                <>
+                  <View style={styles.successIcon}>
+                    <Text style={styles.successIconText}>✓</Text>
+                  </View>
+                  <Text style={styles.modalTitle}>Import Complete</Text>
+                  <Text style={styles.modalMessage}>{progress.message}</Text>
+                </>
+              ) : progress?.status === "error" ? (
+                <>
+                  <View style={styles.errorIcon}>
+                    <Text style={styles.errorIconText}>!</Text>
+                  </View>
+                  <Text style={styles.modalTitle}>Import Issue</Text>
+                  <Text style={styles.modalMessage}>{progress.message}</Text>
+                </>
+              ) : null}
+            </View>
+          </View>
+        </Modal>
 
         {done && !error && <Text style={styles.success}>{done}</Text>}
         {error ? <Text style={styles.err}>{error}</Text> : null}
@@ -198,6 +337,35 @@ const styles = StyleSheet.create({
   hint: { fontSize: 14, color: "#666", marginBottom: 20 },
   spinner: { marginVertical: 16 },
   empty: { fontSize: 14, color: "#666", marginTop: 16 },
+  selectAllRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    marginBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e0e0e0",
+  },
+  selectAllButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  selectAllText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  importAllButton: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+  },
+  importAllText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -235,4 +403,68 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   success: { color: "#2e7d32", marginTop: 16, fontSize: 14 },
   err: { color: "#c62828", marginTop: 16, fontSize: 14 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 32,
+    width: "85%",
+    maxWidth: 340,
+    alignItems: "center",
+  },
+  modalSpinner: {
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  modalMessage: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  modalHint: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  successIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#e8f5e9",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  successIconText: {
+    fontSize: 28,
+    color: "#2e7d32",
+    fontWeight: "700",
+  },
+  errorIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#ffebee",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  errorIconText: {
+    fontSize: 28,
+    color: "#c62828",
+    fontWeight: "700",
+  },
 });

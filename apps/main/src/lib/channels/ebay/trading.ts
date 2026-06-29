@@ -26,12 +26,14 @@ export type EbayTradingListing = {
   categoryName?: string | null;
 };
 
-/** Full item specifics + description for a listing (fetched on import, not preview). */
+/** Full item specifics + description + photos for a listing (fetched on import, not preview). */
 export type EbayItemDetails = {
   aspects: ListingAspect[];
   remoteCategoryId: string | null;
   categoryName: string | null;
   description: string | null;
+  /** All photos from GetItem (gallery + PictureDetails). */
+  photos: string[];
 };
 
 const TRADING_ENDPOINT = `${EBAY_API_BASE}/ws/api.dll`;
@@ -90,8 +92,11 @@ async function fetchEbayItemPhotos(accessToken: string, listingId: string): Prom
 }
 
 /**
- * Fetch full item specifics + primary category + description for one listing via GetItem.
+ * Fetch full item specifics + primary category + description + photos for one listing via GetItem.
  * Used on import (not preview) so we round-trip the details eBay requires for two-way sync.
+ *
+ * Note: GetMyeBaySelling often returns only 1 gallery photo per listing; GetItem returns all photos,
+ * so we fetch them here to ensure full photo import.
  */
 export async function fetchEbayItemDetails(
   accessToken: string,
@@ -101,14 +106,27 @@ export async function fetchEbayItemDetails(
     const xml = await callTrading(accessToken, "GetItem", buildGetItemXml(listingId));
     const item = tag(xml, "Item") ?? xml;
     const { categoryId, categoryName } = parseEbayPrimaryCategory(item);
+    const aspects = parseEbayItemSpecifics(item);
+    const photos = extractEbayItemPhotos(item);
+
+    // Debug logging for import issues
+    if (aspects.length === 0) {
+      console.warn("[ebay] fetchEbayItemDetails: no item specifics found", { listingId });
+    }
+    if (photos.length === 0) {
+      console.warn("[ebay] fetchEbayItemDetails: no photos found", { listingId });
+    }
+
     return {
-      aspects: parseEbayItemSpecifics(item),
+      aspects,
       remoteCategoryId: categoryId,
       categoryName,
       description: parseEbayDescription(item),
+      photos,
     };
-  } catch {
-    return { aspects: [], remoteCategoryId: null, categoryName: null, description: null };
+  } catch (e) {
+    console.error("[ebay] fetchEbayItemDetails failed", { listingId, error: e instanceof Error ? e.message : String(e) });
+    return { aspects: [], remoteCategoryId: null, categoryName: null, description: null, photos: [] };
   }
 }
 
