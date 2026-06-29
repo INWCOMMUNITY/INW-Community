@@ -73,8 +73,10 @@ export async function POST(req: NextRequest) {
       storeItemId,
       provider: "ebay",
     },
-    include: {
-      connection: { select: { id: true, accessToken: true, memberId: true } },
+    select: {
+      id: true,
+      externalListingId: true,
+      connectionId: true,
     },
   });
 
