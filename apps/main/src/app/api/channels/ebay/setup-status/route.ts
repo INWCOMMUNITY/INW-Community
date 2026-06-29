@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
       const freshConfig = await fetchEbayConnectionConfig(ctx.accessToken);
       await prisma.channelConnection.update({
         where: { id: ctx.id },
-        data: { config: freshConfig as unknown as Record<string, unknown> },
+        data: { config: freshConfig as object },
       });
       config = freshConfig;
       refreshedAt = new Date().toISOString();
