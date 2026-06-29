@@ -59,15 +59,25 @@ export default function ChannelImportScreen() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiGet<{ listings: RemoteListing[]; error?: string }>(importPath);
+      // For eBay, auto-refresh linked items from eBay when loading the page
+      const autoRefreshParam = provider === "ebay" ? "?autoRefresh=1" : "";
+      const data = await apiGet<{ 
+        listings: RemoteListing[]; 
+        error?: string;
+        refreshed?: { updated: number; checked: number };
+      }>(`${importPath}${autoRefreshParam}`);
       setListings(Array.isArray(data.listings) ? data.listings : []);
+      // Show a brief notification if items were auto-updated
+      if (data.refreshed && data.refreshed.updated > 0) {
+        setDone(`Auto-synced ${data.refreshed.updated} item(s) from ${label}`);
+      }
     } catch (e: unknown) {
       const err = e as { error?: string };
       setError(err?.error ?? `Could not load your ${label} listings.`);
     } finally {
       setLoading(false);
     }
-  }, [importPath, label]);
+  }, [importPath, label, provider]);
 
   useFocusEffect(
     useCallback(() => {

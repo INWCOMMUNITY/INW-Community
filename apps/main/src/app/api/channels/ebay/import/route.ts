@@ -133,7 +133,10 @@ async function loadRemoteWithLinkState(userId: string) {
   };
 }
 
-/** GET: preview the seller's eBay listings. */
+/** GET: preview the seller's eBay listings.
+ * Query params:
+ *   - autoRefresh=1: Automatically refresh all linked listings from eBay before returning
+ */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
   const userId = session?.user?.id;
@@ -143,9 +146,30 @@ export async function GET(req: NextRequest) {
   if (!ctx) {
     return NextResponse.json({ error: "Connect your eBay account first.", code: "NOT_CONNECTED" }, { status: 400 });
   }
+
+  const searchParams = req.nextUrl.searchParams;
+  const autoRefresh = searchParams.get("autoRefresh") === "1";
+
   try {
+    // Auto-refresh linked listings from eBay if requested
+    let refreshResults: { updated: number; checked: number } | undefined;
+    if (autoRefresh) {
+      const { pullEbayUpdatesForConnection } = await import("@/lib/channels/ebay/pull-ebay-updates");
+      const connection = await prisma.channelConnection.findFirst({
+        where: { memberId: userId, provider: "ebay", status: "active" },
+      });
+      if (connection) {
+        const result = await pullEbayUpdatesForConnection(connection);
+        refreshResults = { updated: result.updated.length, checked: result.checked };
+        console.log("[ebay import] auto-refresh completed", refreshResults);
+      }
+    }
+
     const { listings } = await loadRemoteWithLinkState(userId);
-    return NextResponse.json({ listings });
+    return NextResponse.json({ 
+      listings,
+      ...(refreshResults ? { refreshed: refreshResults } : {}),
+    });
   } catch (e) {
     const msg = describeEbayThrownError(e);
     return NextResponse.json({ error: msg }, { status: 502 });
