@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiDelete } from "@/lib/api";
 
 type RemoteListing = {
   externalListingId: string;
@@ -47,6 +47,7 @@ export default function ChannelImportScreen() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const [unsyncingId, setUnsyncingId] = useState<string | null>(null);
 
   const importPath = useMemo(() => `/api/channels/${provider}/import`, [provider]);
 
@@ -140,6 +141,25 @@ export default function ChannelImportScreen() {
     }
   }, [listings, importPath, load]);
 
+  const unsyncPath = useMemo(() => `/api/channels/${provider}/unsync`, [provider]);
+
+  const handleUnsync = useCallback(async (listingId: string) => {
+    setUnsyncingId(listingId);
+    setError(null);
+    try {
+      await apiDelete<{ ok: boolean; message?: string }>(
+        `${unsyncPath}?listingId=${encodeURIComponent(listingId)}`
+      );
+      // Reload the listings to reflect the change
+      await load();
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      setError(err?.error ?? "Failed to unsync listing.");
+    } finally {
+      setUnsyncingId(null);
+    }
+  }, [unsyncPath, load]);
+
   const runImport = async () => {
     if (selected.size === 0) return;
     setImporting(true);
@@ -229,33 +249,48 @@ export default function ChannelImportScreen() {
             )}
             {listings.map((l) => {
             const isSelected = selected.has(l.externalListingId);
+            const isUnsyncing = unsyncingId === l.externalListingId;
             return (
-              <Pressable
-                key={l.externalListingId}
-                style={[styles.row, l.alreadyLinked && styles.rowDisabled]}
-                onPress={() => !l.alreadyLinked && toggle(l.externalListingId)}
-                disabled={l.alreadyLinked}
-              >
-                {l.photos[0] ? (
-                  <Image source={{ uri: l.photos[0] }} style={styles.thumb} />
-                ) : (
-                  <View style={[styles.thumb, styles.thumbEmpty]} />
-                )}
-                <View style={styles.rowBody}>
-                  <Text style={styles.rowTitle} numberOfLines={2}>
-                    {l.title}
-                  </Text>
-                  <Text style={styles.rowMeta}>
-                    ${(l.priceCents / 100).toFixed(2)} · Qty {l.quantity}
-                  </Text>
-                  {l.alreadyLinked && <Text style={styles.linkedTag}>Already imported</Text>}
-                </View>
-                {!l.alreadyLinked && (
-                  <View style={[styles.checkbox, isSelected && styles.checkboxOn]}>
-                    {isSelected && <Text style={styles.checkmark}>✓</Text>}
+              <View key={l.externalListingId} style={styles.row}>
+                <Pressable
+                  style={[styles.rowContent, l.alreadyLinked && styles.rowContentLinked]}
+                  onPress={() => !l.alreadyLinked && toggle(l.externalListingId)}
+                  disabled={l.alreadyLinked || isUnsyncing}
+                >
+                  {l.photos[0] ? (
+                    <Image source={{ uri: l.photos[0] }} style={styles.thumb} />
+                  ) : (
+                    <View style={[styles.thumb, styles.thumbEmpty]} />
+                  )}
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowTitle} numberOfLines={2}>
+                      {l.title}
+                    </Text>
+                    <Text style={styles.rowMeta}>
+                      ${(l.priceCents / 100).toFixed(2)} · Qty {l.quantity}
+                    </Text>
+                    {l.alreadyLinked && <Text style={styles.linkedTag}>Already imported</Text>}
                   </View>
+                  {!l.alreadyLinked && (
+                    <View style={[styles.checkbox, isSelected && styles.checkboxOn]}>
+                      {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                    </View>
+                  )}
+                </Pressable>
+                {l.alreadyLinked && (
+                  <Pressable
+                    style={[styles.unsyncButton, isUnsyncing && styles.unsyncButtonDisabled]}
+                    onPress={() => handleUnsync(l.externalListingId)}
+                    disabled={isUnsyncing}
+                  >
+                    {isUnsyncing ? (
+                      <ActivityIndicator size="small" color="#c62828" />
+                    ) : (
+                      <Text style={styles.unsyncButtonText}>Unsync</Text>
+                    )}
+                  </Pressable>
                 )}
-              </Pressable>
+              </View>
             );
           })}
           </>
@@ -369,12 +404,35 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#e0e0e0",
   },
-  rowDisabled: { opacity: 0.5 },
+  rowContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  rowContentLinked: {
+    opacity: 0.6,
+  },
+  unsyncButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginLeft: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#c62828",
+  },
+  unsyncButtonDisabled: {
+    opacity: 0.5,
+  },
+  unsyncButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#c62828",
+  },
   thumb: { width: 56, height: 56, borderRadius: 6, backgroundColor: "#f0f0f0" },
   thumbEmpty: { borderWidth: 1, borderColor: "#e0e0e0" },
   rowBody: { flex: 1 },
