@@ -51,9 +51,46 @@ export default function ChannelImportScreen() {
   const [unsyncingId, setUnsyncingId] = useState<string | null>(null);
   const [unsyncConfirm, setUnsyncConfirm] = useState<{ listingId: string; title: string } | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  
+  // Auto-sync state (eBay only)
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean | null>(null);
+  const [autoSyncLoading, setAutoSyncLoading] = useState(false);
 
   const importPath = useMemo(() => `/api/channels/${provider}/import`, [provider]);
   const refreshPath = useMemo(() => `/api/channels/${provider}/refresh`, [provider]);
+  const notificationsPath = useMemo(() => `/api/channels/${provider}/notifications`, [provider]);
+
+  // Check auto-sync status (eBay only)
+  const checkAutoSync = useCallback(async () => {
+    if (provider !== "ebay") return;
+    try {
+      const data = await apiGet<{ subscribed: boolean; webhookUrl?: string; events?: string[] }>(notificationsPath);
+      setAutoSyncEnabled(data.subscribed);
+    } catch {
+      setAutoSyncEnabled(false);
+    }
+  }, [provider, notificationsPath]);
+
+  // Enable auto-sync (eBay only)
+  const enableAutoSync = useCallback(async () => {
+    if (provider !== "ebay") return;
+    setAutoSyncLoading(true);
+    setError(null);
+    try {
+      const res = await apiPost<{ success: boolean; error?: string; message?: string }>(notificationsPath, {});
+      if (res.success) {
+        setAutoSyncEnabled(true);
+        setDone(res.message || "Auto-sync enabled! Your eBay listings will now sync automatically.");
+      } else {
+        setError(res.error || "Failed to enable auto-sync");
+      }
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      setError(err?.error ?? "Failed to enable auto-sync");
+    } finally {
+      setAutoSyncLoading(false);
+    }
+  }, [provider, notificationsPath]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,7 +119,8 @@ export default function ChannelImportScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
-    }, [load])
+      void checkAutoSync();
+    }, [load, checkAutoSync])
   );
 
   const toggle = (id: string) => {
@@ -269,6 +307,37 @@ export default function ChannelImportScreen() {
           Select the {label} listings to bring into your INW store. Imported items stay in sync: a
           sale on either store updates inventory on both.
         </Text>
+
+        {/* Auto-Sync Section (eBay only) */}
+        {provider === "ebay" && autoSyncEnabled !== null && (
+          <View style={styles.autoSyncSection}>
+            {autoSyncEnabled ? (
+              <View style={styles.autoSyncEnabled}>
+                <Text style={styles.autoSyncIcon}>✓</Text>
+                <Text style={styles.autoSyncText}>
+                  Auto-sync is enabled. Changes on eBay will sync automatically.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.autoSyncDisabled}>
+                <Text style={styles.autoSyncWarning}>
+                  Auto-sync is not enabled. Enable it to automatically sync changes from eBay.
+                </Text>
+                <Pressable
+                  style={[styles.autoSyncButton, autoSyncLoading && styles.autoSyncButtonDisabled]}
+                  onPress={enableAutoSync}
+                  disabled={autoSyncLoading}
+                >
+                  {autoSyncLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.autoSyncButtonText}>Enable Auto-Sync</Text>
+                  )}
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
 
         {loading ? (
           <ActivityIndicator style={styles.spinner} color={theme.colors.primary} />
@@ -508,6 +577,50 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: theme.colors.heading },
   hint: { fontSize: 14, color: "#666", marginBottom: 20 },
+  autoSyncSection: {
+    marginBottom: 20,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: "#f5f5f5",
+  },
+  autoSyncEnabled: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  autoSyncIcon: {
+    fontSize: 16,
+    color: "#2e7d32",
+    marginRight: 8,
+    fontWeight: "700",
+  },
+  autoSyncText: {
+    fontSize: 13,
+    color: "#2e7d32",
+    flex: 1,
+  },
+  autoSyncDisabled: {
+    alignItems: "center",
+  },
+  autoSyncWarning: {
+    fontSize: 13,
+    color: "#f57c00",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  autoSyncButton: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+  },
+  autoSyncButtonDisabled: {
+    opacity: 0.6,
+  },
+  autoSyncButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
   spinner: { marginVertical: 16 },
   empty: { fontSize: 14, color: "#666", marginTop: 16 },
   selectAllRow: {
