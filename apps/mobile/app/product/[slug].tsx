@@ -88,6 +88,7 @@ interface StoreItem {
   minOfferCents?: number | null;
   memberId?: string;
   condition?: "new" | "used";
+  aspects?: { name: string; value: string }[] | null;
 }
 
 /** Gallery width/height ratio (width / height). Lower = taller banner. */
@@ -863,6 +864,25 @@ export default function ProductScreen() {
             </View>
           ) : null}
 
+          {/* Item Details (aspects/specifics from eBay) */}
+          {item.aspects && item.aspects.length > 0 && (
+            <View style={[styles.section, styles.contentBox]}>
+              <Text style={styles.sectionTitle}>Item Details</Text>
+              {item.aspects.map((aspect, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    styles.detailRow,
+                    idx < item.aspects!.length - 1 && styles.detailRowBorder,
+                  ]}
+                >
+                  <Text style={styles.detailLabel}>{aspect.name}</Text>
+                  <Text style={styles.detailValue}>{aspect.value}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           {/* Store Information */}
           {item.business && (
             <View style={[styles.section, styles.sellerCard]}>
@@ -1401,6 +1421,29 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: theme.colors.heading,
     marginBottom: 8,
+  },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingVertical: 8,
+  },
+  detailRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e0e0e0",
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: "#666",
+    flex: 1,
+    marginRight: 12,
+  },
+  detailValue: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: theme.colors.heading,
+    flex: 1,
+    textAlign: "right",
   },
   variantRow: {
     marginBottom: 8,

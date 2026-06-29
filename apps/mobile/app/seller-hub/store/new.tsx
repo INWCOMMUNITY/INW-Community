@@ -190,6 +190,8 @@ export default function ListItemScreen() {
   const [editLoading, setEditLoading] = useState(false);
   const [showListingSuccessModal, setShowListingSuccessModal] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
+  const [hasEbayLink, setHasEbayLink] = useState(false);
+  const [refreshingFromEbay, setRefreshingFromEbay] = useState(false);
   const [listingEarnedBadges, setListingEarnedBadges] = useState<EarnedBadgePayload[]>([]);
   const [listingBadgePopupIndex, setListingBadgePopupIndex] = useState(-1);
   const isExitingRef = useRef(false);
@@ -330,6 +332,7 @@ export default function ListItemScreen() {
         etsyIsSupply?: boolean | null;
         ebayCategoryId?: number | null;
         aspects?: { name?: unknown; value?: unknown }[] | null;
+        hasEbayLink?: boolean;
       }>(`/api/store-items/${editId}`)
         .then((item) => {
           setTitle(item.title ?? "");
@@ -381,6 +384,7 @@ export default function ListItemScreen() {
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
+          if (item.hasEbayLink) setHasEbayLink(true);
         })
         .catch(() => setError("Failed to load item"))
         .finally(() => {
@@ -635,6 +639,59 @@ export default function ListItemScreen() {
         setLocalDeliveryTerms(policy);
       })
       .catch(() => {});
+  };
+
+  const refreshFromEbay = async () => {
+    if (!editId) return;
+    setRefreshingFromEbay(true);
+    setError(null);
+    try {
+      const res = await apiPost<{
+        ok: boolean;
+        updated: boolean;
+        changes: string[];
+        message: string;
+      }>("/api/channels/ebay/refresh", { storeItemId: editId });
+
+      if (res.updated && res.changes.length > 0) {
+        // Reload the item data to reflect changes
+        const item = await apiGet<{
+          title: string;
+          description: string | null;
+          photos: string[];
+          category: string | null;
+          subcategory: string | null;
+          priceCents: number;
+          quantity: number;
+          ebayCategoryId?: number | null;
+          aspects?: { name?: unknown; value?: unknown }[] | null;
+        }>(`/api/store-items/${editId}`);
+
+        // Update form state with fresh data
+        setTitle(item.title ?? "");
+        setDescription(item.description ?? "");
+        setPhotos(item.photos ?? []);
+        setCategory(item.category ?? "");
+        setSubcategory(item.subcategory ?? "");
+        setPriceCents(item.priceCents != null ? (item.priceCents / 100).toFixed(2) : "");
+        setQuantity(String(item.quantity ?? 1));
+        if (item.ebayCategoryId != null) setEbayCategoryId(String(item.ebayCategoryId));
+        if (Array.isArray(item.aspects)) {
+          setAspects(
+            item.aspects.map((a) => ({ name: String(a?.name ?? ""), value: String(a?.value ?? "") }))
+          );
+        }
+
+        Alert.alert("Refreshed from eBay", res.message);
+      } else {
+        Alert.alert("Up to Date", res.message);
+      }
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      setError(err?.error ?? "Failed to refresh from eBay");
+    } finally {
+      setRefreshingFromEbay(false);
+    }
   };
 
   const pickPhotos = async () => {
@@ -1738,6 +1795,19 @@ export default function ListItemScreen() {
             store updates inventory on both. eBay listings publish live only when your eBay account
             has business policies (payment, return, shipping) and a merchant location.
           </Text>
+          {editId && hasEbayLink && (
+            <Pressable
+              style={[styles.refreshEbayButton, refreshingFromEbay && styles.refreshEbayButtonDisabled]}
+              onPress={refreshFromEbay}
+              disabled={refreshingFromEbay}
+            >
+              {refreshingFromEbay ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <Text style={styles.refreshEbayButtonText}>Refresh from eBay</Text>
+              )}
+            </Pressable>
+          )}
           <Text style={styles.label}>eBay category</Text>
           {ebayCategoryId ? (
             <View style={styles.ebayCategoryChip}>
@@ -2004,6 +2074,25 @@ const styles = StyleSheet.create({
   },
   ebayCategoryChipLabel: { fontSize: 14, fontWeight: "600", color: "#000" },
   ebayCategoryChange: { color: "#dc2626", fontSize: 14, fontWeight: "600" },
+  refreshEbayButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  refreshEbayButtonDisabled: {
+    opacity: 0.5,
+  },
+  refreshEbayButtonText: {
+    color: theme.colors.primary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   ebayCategoryResult: {
     borderWidth: 1,
     borderColor: "#eee",

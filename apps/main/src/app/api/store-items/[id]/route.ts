@@ -65,12 +65,17 @@ export async function GET(
     include: {
       member: { select: { id: true, firstName: true, lastName: true } },
       business: { select: { id: true, name: true, slug: true } },
+      channelListingLinks: {
+        select: { provider: true, syncStatus: true, externalListingId: true },
+      },
     },
   });
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json(item);
+  // Add convenience flag for eBay link status
+  const hasEbayLink = item.channelListingLinks.some((l) => l.provider === "ebay");
+  return NextResponse.json({ ...item, hasEbayLink });
 }
 
 export async function PATCH(

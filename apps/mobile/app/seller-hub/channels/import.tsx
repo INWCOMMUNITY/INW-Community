@@ -20,6 +20,7 @@ type RemoteListing = {
   quantity: number;
   photos: string[];
   alreadyLinked?: boolean;
+  storeItemId?: string;
 };
 
 type ImportProgress = {
@@ -49,8 +50,10 @@ export default function ChannelImportScreen() {
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [unsyncingId, setUnsyncingId] = useState<string | null>(null);
   const [unsyncConfirm, setUnsyncConfirm] = useState<{ listingId: string; title: string } | null>(null);
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
   const importPath = useMemo(() => `/api/channels/${provider}/import`, [provider]);
+  const refreshPath = useMemo(() => `/api/channels/${provider}/refresh`, [provider]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -170,6 +173,27 @@ export default function ChannelImportScreen() {
       setUnsyncingId(null);
     }
   }, [unsyncPath, load, unsyncConfirm]);
+
+  const handleRefresh = useCallback(async (storeItemId: string, listingId: string) => {
+    setRefreshingId(listingId);
+    setError(null);
+    try {
+      const res = await apiPost<{ ok: boolean; message?: string; changes?: string[] }>(
+        refreshPath,
+        { storeItemId }
+      );
+      if (res.message) {
+        setDone(res.message);
+      }
+      // Reload the listings
+      await load();
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      setError(err?.error ?? "Failed to refresh from eBay.");
+    } finally {
+      setRefreshingId(null);
+    }
+  }, [refreshPath, load]);
 
   const runImport = async () => {
     if (selected.size === 0) return;
@@ -291,17 +315,32 @@ export default function ChannelImportScreen() {
                   )}
                 </Pressable>
                 {l.alreadyLinked && (
-                  <Pressable
-                    style={[styles.unsyncButton, isUnsyncing && styles.unsyncButtonDisabled]}
-                    onPress={() => showUnsyncConfirm(l.externalListingId, l.title)}
-                    disabled={isUnsyncing}
-                  >
-                    {isUnsyncing ? (
-                      <ActivityIndicator size="small" color="#c62828" />
-                    ) : (
-                      <Text style={styles.unsyncButtonText}>Unsync</Text>
+                  <View style={styles.linkedActionsRow}>
+                    {l.storeItemId && (
+                      <Pressable
+                        style={[styles.refreshButton, refreshingId === l.externalListingId && styles.refreshButtonDisabled]}
+                        onPress={() => handleRefresh(l.storeItemId!, l.externalListingId)}
+                        disabled={refreshingId === l.externalListingId}
+                      >
+                        {refreshingId === l.externalListingId ? (
+                          <ActivityIndicator size="small" color={theme.colors.primary} />
+                        ) : (
+                          <Text style={styles.refreshButtonText}>Refresh</Text>
+                        )}
+                      </Pressable>
                     )}
-                  </Pressable>
+                    <Pressable
+                      style={[styles.unsyncButton, isUnsyncing && styles.unsyncButtonDisabled]}
+                      onPress={() => showUnsyncConfirm(l.externalListingId, l.title)}
+                      disabled={isUnsyncing}
+                    >
+                      {isUnsyncing ? (
+                        <ActivityIndicator size="small" color="#c62828" />
+                      ) : (
+                        <Text style={styles.unsyncButtonText}>Unsync</Text>
+                      )}
+                    </Pressable>
+                  </View>
                 )}
               </View>
             );
@@ -509,7 +548,6 @@ const styles = StyleSheet.create({
   unsyncButton: {
     paddingVertical: 6,
     paddingHorizontal: 12,
-    marginLeft: 8,
     borderRadius: 4,
     borderWidth: 1,
     borderColor: "#c62828",
@@ -521,6 +559,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#c62828",
+  },
+  linkedActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: 8,
+  },
+  refreshButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    marginRight: 6,
+  },
+  refreshButtonDisabled: {
+    opacity: 0.5,
+  },
+  refreshButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
   thumb: { width: 56, height: 56, borderRadius: 6, backgroundColor: "#f0f0f0" },
   thumbEmpty: { borderWidth: 1, borderColor: "#e0e0e0" },

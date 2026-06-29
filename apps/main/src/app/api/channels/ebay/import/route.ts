@@ -88,43 +88,48 @@ async function loadRemoteWithLinkState(userId: string) {
 
   const linked = await prisma.channelListingLink.findMany({
     where: { provider: "ebay", connectionId: ctx.id },
-    select: { externalListingId: true, storeItem: { select: { title: true } } },
+    select: { externalListingId: true, storeItemId: true, storeItem: { select: { id: true, title: true } } },
   });
-  const linkedSkus = new Set(linked.map((l) => l.externalListingId));
-  const linkedTitles = new Set(
-    linked.map((l) => l.storeItem?.title?.trim().toLowerCase()).filter(Boolean)
-  );
 
-  // Check if a legacy listing ID is already linked.
+  // Build maps for quick lookup
+  const linkedByExternalId = new Map<string, string>(); // externalListingId → storeItemId
+  const linkedByTitle = new Map<string, string>(); // lowercase title → storeItemId
+  for (const l of linked) {
+    linkedByExternalId.set(l.externalListingId, l.storeItemId);
+    const title = l.storeItem?.title?.trim().toLowerCase();
+    if (title) linkedByTitle.set(title, l.storeItemId);
+  }
+
+  // Check if a legacy listing ID is already linked and return the storeItemId.
   // After import, listings are stored with a migrated SKU like `inw${legacyId}`,
   // so we need to check both the raw legacy ID and the inw-prefixed version.
-  const isAlreadyLinked = (legacyId: string, title: string): boolean => {
-    const byLegacyId = linkedSkus.has(legacyId);
-    const byMigratedSku = linkedSkus.has(`inw${legacyId}`);
-    const byTitle = linkedTitles.has(title.trim().toLowerCase());
-    const result = byLegacyId || byMigratedSku || byTitle;
-    
-    // Debug log the check
-    console.log("[ebay import] isAlreadyLinked check", {
-      legacyId,
-      title: title.slice(0, 50),
-      byLegacyId,
-      byMigratedSku,
-      byTitle,
-      result,
-      linkedSkusCount: linkedSkus.size,
-      linkedSkusSample: Array.from(linkedSkus).slice(0, 3),
-    });
-    
-    return result;
+  const findLinkedStoreItemId = (legacyId: string, title: string): string | null => {
+    // Check by legacy ID
+    if (linkedByExternalId.has(legacyId)) {
+      return linkedByExternalId.get(legacyId)!;
+    }
+    // Check by migrated SKU
+    if (linkedByExternalId.has(`inw${legacyId}`)) {
+      return linkedByExternalId.get(`inw${legacyId}`)!;
+    }
+    // Check by title
+    const normalizedTitle = title.trim().toLowerCase();
+    if (linkedByTitle.has(normalizedTitle)) {
+      return linkedByTitle.get(normalizedTitle)!;
+    }
+    return null;
   };
 
   return {
     ctx,
-    listings: listings.map((l) => ({
-      ...l,
-      alreadyLinked: isAlreadyLinked(l.externalListingId, l.title),
-    })),
+    listings: listings.map((l) => {
+      const storeItemId = findLinkedStoreItemId(l.externalListingId, l.title);
+      return {
+        ...l,
+        alreadyLinked: storeItemId !== null,
+        storeItemId: storeItemId ?? undefined,
+      };
+    }),
   };
 }
 

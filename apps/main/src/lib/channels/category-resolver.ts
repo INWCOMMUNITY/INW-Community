@@ -3,6 +3,48 @@ import { STORE_CATEGORIES } from "@/lib/store-categories";
 /** Minimum similarity score (0–1) to map a remote label to a preset INW category. */
 export const CATEGORY_MATCH_THRESHOLD = 0.72;
 
+/**
+ * Explicit mappings from common eBay category names/fragments to INW presets.
+ * Checked before fuzzy matching to ensure collectibles categories map correctly.
+ * Keys are normalized (lowercase, trimmed).
+ */
+const EBAY_CATEGORY_ALIASES: Record<string, { category: string; subcategory: string | null }> = {
+  // Coins & Currency
+  "coins & paper money": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  "coins paper money": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  "coins: us": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  "coins: world": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  "coins us": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  "coins world": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  "paper money: us": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  "paper money: world": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  "bullion": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  "exonumia": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  // Stamps
+  "stamps": { category: "Art & Collectibles", subcategory: "Stamps" },
+  "stamps: united states": { category: "Art & Collectibles", subcategory: "Stamps" },
+  "stamps: worldwide": { category: "Art & Collectibles", subcategory: "Stamps" },
+  // Trading Cards
+  "sports trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+  "non-sport trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+  "trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+  "sports mem, cards & fan shop": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+  // Comics
+  "comics": { category: "Books, Movies & Music", subcategory: "Books" },
+  "comic books": { category: "Books, Movies & Music", subcategory: "Books" },
+  "collectibles: comic books & memorabilia": { category: "Books, Movies & Music", subcategory: "Books" },
+  // Collectibles (general)
+  "collectibles": { category: "Art & Collectibles", subcategory: null },
+  "antiques": { category: "Art & Collectibles", subcategory: "Vintage & Antiques" },
+  "pottery & glass": { category: "Art & Collectibles", subcategory: null },
+  "art": { category: "Art & Collectibles", subcategory: "Paintings & Prints" },
+  // Entertainment Memorabilia
+  "entertainment memorabilia": { category: "Art & Collectibles", subcategory: "Memorabilia" },
+  "music memorabilia": { category: "Art & Collectibles", subcategory: "Memorabilia" },
+  "movie memorabilia": { category: "Art & Collectibles", subcategory: "Memorabilia" },
+  "autographs": { category: "Art & Collectibles", subcategory: "Memorabilia" },
+};
+
 export type ResolvedInwCategory = {
   category: string;
   subcategory: string | null;
@@ -100,8 +142,50 @@ function bestPresetMatch(remoteLabel: string, remoteSubLabel?: string | null): C
 }
 
 /**
+ * Check if a remote category matches any explicit eBay → INW alias.
+ * Searches for the alias key in the normalized combined label.
+ */
+function matchAlias(remoteLabel: string, remoteSubLabel?: string | null): ResolvedInwCategory | null {
+  const combined = remoteSubLabel?.trim()
+    ? `${remoteLabel} ${remoteSubLabel}`.trim()
+    : remoteLabel.trim();
+  const normalized = normalizeLabel(combined);
+  if (!normalized) return null;
+
+  // Check exact matches first, then partial matches (key contained in label)
+  for (const [key, mapping] of Object.entries(EBAY_CATEGORY_ALIASES)) {
+    const normalizedKey = normalizeLabel(key);
+    if (normalized === normalizedKey || normalized.includes(normalizedKey)) {
+      return {
+        category: mapping.category,
+        subcategory: mapping.subcategory,
+        matchedPreset: true,
+      };
+    }
+  }
+
+  // Also check if any key is found in the remote sub-label alone
+  if (remoteSubLabel?.trim()) {
+    const normalizedSub = normalizeLabel(remoteSubLabel);
+    for (const [key, mapping] of Object.entries(EBAY_CATEGORY_ALIASES)) {
+      const normalizedKey = normalizeLabel(key);
+      if (normalizedSub === normalizedKey || normalizedSub.includes(normalizedKey)) {
+        return {
+          category: mapping.category,
+          subcategory: mapping.subcategory,
+          matchedPreset: true,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Map a remote category label to an INW shop category.
- * Falls back to the remote label as a custom category string on the listing.
+ * First checks explicit eBay aliases, then falls back to fuzzy matching,
+ * and finally stores the remote label as a custom category string.
  */
 export function resolveInwCategoryFromRemote(
   remoteLabel: string | null | undefined,
@@ -110,6 +194,11 @@ export function resolveInwCategoryFromRemote(
   const label = remoteLabel?.trim();
   if (!label) return null;
 
+  // 1. Check explicit aliases first (for eBay collectibles categories)
+  const aliasMatch = matchAlias(label, remoteSubLabel);
+  if (aliasMatch) return aliasMatch;
+
+  // 2. Fuzzy match against STORE_CATEGORIES presets
   const best = bestPresetMatch(label, remoteSubLabel);
   if (best && best.score >= CATEGORY_MATCH_THRESHOLD) {
     return {
@@ -119,6 +208,7 @@ export function resolveInwCategoryFromRemote(
     };
   }
 
+  // 3. Fallback: store raw remote label as custom category
   return {
     category: label.slice(0, 200),
     subcategory: remoteSubLabel?.trim()?.slice(0, 200) ?? null,
