@@ -308,6 +308,57 @@ async function setEbayListingSku(
 }
 
 /**
+ * Fetch the SKU from an already-migrated listing via GetItem.
+ * When migration returns 409 (already migrated), the listing has a SKU we can use.
+ */
+async function fetchExistingListingSku(
+  accessToken: string,
+  listingId: string
+): Promise<string | null> {
+  try {
+    const xml = await callTrading(accessToken, "GetItem", buildGetItemXml(listingId));
+    const item = tag(xml, "Item") ?? xml;
+    const sku = tag(item, "SKU");
+    if (sku) {
+      console.log("[ebay] fetchExistingListingSku: found SKU", { listingId, sku });
+      return sku.trim();
+    }
+    console.warn("[ebay] fetchExistingListingSku: no SKU in listing", { listingId });
+    return null;
+  } catch (e) {
+    console.error("[ebay] fetchExistingListingSku failed", {
+      listingId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
+}
+
+/**
+ * For listings that returned 409 (already migrated), look up the existing SKU.
+ * Mutates `result` in place.
+ */
+async function resolveAlreadyMigratedSkus(
+  accessToken: string,
+  result: Map<string, MigrationResult>
+): Promise<void> {
+  for (const [listingId, res] of result) {
+    if (res.error !== "already_migrated_needs_sku_lookup") continue;
+    
+    const sku = await fetchExistingListingSku(accessToken, listingId);
+    if (sku) {
+      result.set(listingId, { sku });
+      console.log("[ebay] resolved already-migrated listing", { listingId, sku });
+    } else {
+      // Try using our standard SKU format as fallback
+      const fallbackSku = generateMigrationSku(listingId);
+      console.log("[ebay] using fallback SKU for already-migrated listing", { listingId, fallbackSku });
+      result.set(listingId, { sku: fallbackSku });
+    }
+  }
+}
+
+/**
  * For listings that failed migration because they lack a SKU, add one via
  * ReviseFixedPriceItem and retry the migration. Mutates `result` in place.
  */
@@ -352,6 +403,14 @@ function applyMigrateResponse(
   for (const r of res.responses ?? []) {
     if (!r.listingId) continue;
     const ok = r.statusCode != null && r.statusCode >= 200 && r.statusCode < 300;
+    
+    // Handle 409 Conflict - listing was already migrated
+    // Mark it for SKU lookup rather than treating as error
+    if (r.statusCode === 409) {
+      result.set(r.listingId, { error: "already_migrated_needs_sku_lookup" });
+      continue;
+    }
+    
     if (!ok) {
       result.set(r.listingId, { error: formatMigrateListingError(r) });
       continue;
@@ -445,6 +504,9 @@ export async function migrateEbayListings(
       }
     }
   }
+
+  // Listings that returned 409 (already migrated): look up their existing SKU.
+  await resolveAlreadyMigratedSkus(accessToken, result);
 
   // Listings that failed because they lack a SKU: add one via ReviseFixedPriceItem and retry.
   // This is eBay's documented remediation and unblocks website-created listings.
