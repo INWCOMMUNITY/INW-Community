@@ -130,12 +130,15 @@ export default function ChannelImportScreen() {
       setProgress(null);
       await load();
     } catch (e: unknown) {
-      const err = e as { error?: string };
-      const errorMsg = err?.error ?? "Import failed. Try again.";
+      const err = e as { error?: string; message?: string };
+      let errorMsg = err?.error ?? err?.message ?? "Import failed.";
+      // Handle network errors with friendlier message
+      if (errorMsg.includes("network") || errorMsg.includes("fetch") || errorMsg.includes("reach")) {
+        errorMsg = "Unable to connect. Please check your internet connection and try again.";
+      }
       setError(errorMsg);
       setProgress({ total: importableIds.length, status: "error", message: errorMsg });
-      await new Promise((r) => setTimeout(r, 2000));
-      setProgress(null);
+      // Don't auto-close on error - let user dismiss
     } finally {
       setImporting(false);
     }
@@ -200,13 +203,15 @@ export default function ChannelImportScreen() {
       setProgress(null);
       await load();
     } catch (e: unknown) {
-      const err = e as { error?: string };
-      const errorMsg = err?.error ?? "Import failed. Try again.";
+      const err = e as { error?: string; message?: string };
+      let errorMsg = err?.error ?? err?.message ?? "Import failed.";
+      // Handle network errors with friendlier message
+      if (errorMsg.includes("network") || errorMsg.includes("fetch") || errorMsg.includes("reach")) {
+        errorMsg = "Unable to connect. Please check your internet connection and try again.";
+      }
       setError(errorMsg);
       setProgress({ total: selected.size, status: "error", message: errorMsg });
-      // Show error for a moment before closing
-      await new Promise((r) => setTimeout(r, 2000));
-      setProgress(null);
+      // Don't auto-close on error - let user dismiss
     } finally {
       setImporting(false);
     }
@@ -301,7 +306,11 @@ export default function ChannelImportScreen() {
           visible={progress !== null}
           transparent
           animationType="fade"
-          onRequestClose={() => {}}
+          onRequestClose={() => {
+            if (progress?.status !== "importing") {
+              setProgress(null);
+            }
+          }}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
@@ -321,6 +330,15 @@ export default function ChannelImportScreen() {
                   </View>
                   <Text style={styles.modalTitle}>Import Complete</Text>
                   <Text style={styles.modalMessage}>{progress.message}</Text>
+                  <Pressable
+                    style={styles.modalDismissButton}
+                    onPress={async () => {
+                      setProgress(null);
+                      await load();
+                    }}
+                  >
+                    <Text style={styles.modalDismissButtonText}>Done</Text>
+                  </Pressable>
                 </>
               ) : progress?.status === "error" ? (
                 <>
@@ -329,6 +347,26 @@ export default function ChannelImportScreen() {
                   </View>
                   <Text style={styles.modalTitle}>Import Issue</Text>
                   <Text style={styles.modalMessage}>{progress.message}</Text>
+                  <View style={styles.modalButtonRow}>
+                    <Pressable
+                      style={styles.modalSecondaryButton}
+                      onPress={() => setProgress(null)}
+                    >
+                      <Text style={styles.modalSecondaryButtonText}>Dismiss</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.modalRetryButton}
+                      onPress={() => {
+                        setProgress(null);
+                        // Retry the import
+                        if (selected.size > 0) {
+                          runImport();
+                        }
+                      }}
+                    >
+                      <Text style={styles.modalRetryButtonText}>Retry</Text>
+                    </Pressable>
+                  </View>
                 </>
               ) : null}
             </View>
@@ -524,5 +562,49 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: "#c62828",
     fontWeight: "700",
+  },
+  modalDismissButton: {
+    marginTop: 20,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+  },
+  modalDismissButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  modalButtonRow: {
+    flexDirection: "row",
+    marginTop: 20,
+    gap: 12,
+  },
+  modalSecondaryButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    alignItems: "center",
+  },
+  modalSecondaryButtonText: {
+    color: "#666",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  modalRetryButton: {
+    flex: 1,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  modalRetryButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
   },
 });
