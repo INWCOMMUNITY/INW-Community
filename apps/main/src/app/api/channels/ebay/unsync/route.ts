@@ -6,11 +6,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * DELETE: Unsync an eBay listing from INW.
- * This removes the channelListingLink but keeps the StoreItem.
- * The listing can then be re-imported if desired.
  *
  * Query params:
  *   - listingId: The legacy eBay listing ID (ItemID) to unsync
+ *   - removeFromINW: If "true", also delete the StoreItem from INW. Otherwise, only remove the link.
  */
 export async function DELETE(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -21,6 +20,7 @@ export async function DELETE(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const legacyId = searchParams.get("listingId");
+  const removeFromINW = searchParams.get("removeFromINW") === "true";
 
   if (!legacyId) {
     return NextResponse.json({ error: "Listing ID is required" }, { status: 400 });
@@ -56,20 +56,43 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  // Delete the link (keeps the StoreItem intact)
+  const itemTitle = link.storeItem?.title ?? legacyId;
+  const storeItemId = link.storeItemId;
+
+  // Delete the link first
   await prisma.channelListingLink.delete({ where: { id: link.id } });
 
-  console.log("[ebay] unsync completed", {
+  // If user chose to remove from INW, also delete the StoreItem
+  if (removeFromINW && storeItemId) {
+    await prisma.storeItem.delete({ where: { id: storeItemId } });
+    console.log("[ebay] unsync + delete completed", {
+      userId,
+      legacyId,
+      linkId: link.id,
+      storeItemId,
+      storeItemTitle: itemTitle,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      message: `Removed "${itemTitle}" from INW and unsynced from eBay.`,
+      removed: true,
+      storeItemId,
+    });
+  }
+
+  console.log("[ebay] unsync completed (kept item)", {
     userId,
     legacyId,
     linkId: link.id,
-    storeItemId: link.storeItemId,
-    storeItemTitle: link.storeItem?.title,
+    storeItemId,
+    storeItemTitle: itemTitle,
   });
 
   return NextResponse.json({
     ok: true,
-    message: `Unsynced "${link.storeItem?.title ?? legacyId}" from eBay.`,
-    storeItemId: link.storeItemId,
+    message: `Unsynced "${itemTitle}" from eBay. Item kept in INW.`,
+    removed: false,
+    storeItemId,
   });
 }

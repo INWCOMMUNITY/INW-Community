@@ -48,6 +48,7 @@ export default function ChannelImportScreen() {
   const [done, setDone] = useState<string | null>(null);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [unsyncingId, setUnsyncingId] = useState<string | null>(null);
+  const [unsyncConfirm, setUnsyncConfirm] = useState<{ listingId: string; title: string } | null>(null);
 
   const importPath = useMemo(() => `/api/channels/${provider}/import`, [provider]);
 
@@ -146,12 +147,19 @@ export default function ChannelImportScreen() {
 
   const unsyncPath = useMemo(() => `/api/channels/${provider}/unsync`, [provider]);
 
-  const handleUnsync = useCallback(async (listingId: string) => {
+  const showUnsyncConfirm = useCallback((listingId: string, title: string) => {
+    setUnsyncConfirm({ listingId, title });
+  }, []);
+
+  const confirmUnsync = useCallback(async (removeFromINW: boolean) => {
+    if (!unsyncConfirm) return;
+    const { listingId } = unsyncConfirm;
+    setUnsyncConfirm(null);
     setUnsyncingId(listingId);
     setError(null);
     try {
       await apiDelete<{ ok: boolean; message?: string }>(
-        `${unsyncPath}?listingId=${encodeURIComponent(listingId)}`
+        `${unsyncPath}?listingId=${encodeURIComponent(listingId)}&removeFromINW=${removeFromINW}`
       );
       // Reload the listings to reflect the change
       await load();
@@ -161,7 +169,7 @@ export default function ChannelImportScreen() {
     } finally {
       setUnsyncingId(null);
     }
-  }, [unsyncPath, load]);
+  }, [unsyncPath, load, unsyncConfirm]);
 
   const runImport = async () => {
     if (selected.size === 0) return;
@@ -285,7 +293,7 @@ export default function ChannelImportScreen() {
                 {l.alreadyLinked && (
                   <Pressable
                     style={[styles.unsyncButton, isUnsyncing && styles.unsyncButtonDisabled]}
-                    onPress={() => handleUnsync(l.externalListingId)}
+                    onPress={() => showUnsyncConfirm(l.externalListingId, l.title)}
                     disabled={isUnsyncing}
                   >
                     {isUnsyncing ? (
@@ -369,6 +377,49 @@ export default function ChannelImportScreen() {
                   </View>
                 </>
               ) : null}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Unsync Confirmation Modal */}
+        <Modal
+          visible={unsyncConfirm !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setUnsyncConfirm(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.unsyncConfirmIcon}>
+                <Text style={styles.unsyncConfirmIconText}>?</Text>
+              </View>
+              <Text style={styles.modalTitle}>Unsync Listing</Text>
+              <Text style={styles.modalMessage}>
+                Would you like this item removed from INW Community?
+              </Text>
+              <Text style={styles.unsyncItemTitle} numberOfLines={2}>
+                {unsyncConfirm?.title}
+              </Text>
+              <View style={styles.modalButtonRow}>
+                <Pressable
+                  style={styles.unsyncNoButton}
+                  onPress={() => confirmUnsync(false)}
+                >
+                  <Text style={styles.unsyncNoButtonText}>No, Keep It</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.unsyncYesButton}
+                  onPress={() => confirmUnsync(true)}
+                >
+                  <Text style={styles.unsyncYesButtonText}>Yes, Remove</Text>
+                </Pressable>
+              </View>
+              <Pressable
+                style={styles.unsyncCancelButton}
+                onPress={() => setUnsyncConfirm(null)}
+              >
+                <Text style={styles.unsyncCancelButtonText}>Cancel</Text>
+              </Pressable>
             </View>
           </View>
         </Modal>
@@ -605,6 +656,61 @@ const styles = StyleSheet.create({
   modalRetryButtonText: {
     color: "#fff",
     fontWeight: "600",
+    fontSize: 14,
+  },
+  unsyncConfirmIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#fff3e0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  unsyncConfirmIconText: {
+    fontSize: 28,
+    color: "#ef6c00",
+    fontWeight: "700",
+  },
+  unsyncItemTitle: {
+    fontSize: 13,
+    color: "#888",
+    textAlign: "center",
+    marginTop: 8,
+    fontStyle: "italic",
+  },
+  unsyncNoButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+  },
+  unsyncNoButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  unsyncYesButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: "#c62828",
+    alignItems: "center",
+  },
+  unsyncYesButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  unsyncCancelButton: {
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  unsyncCancelButtonText: {
+    color: "#888",
     fontSize: 14,
   },
 });
