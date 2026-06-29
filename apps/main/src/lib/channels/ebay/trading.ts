@@ -104,38 +104,59 @@ export async function fetchEbayItemDetails(
 ): Promise<EbayItemDetails> {
   try {
     const xml = await callTrading(accessToken, "GetItem", buildGetItemXml(listingId));
+    
+    // Log raw response size and check for errors
+    console.log("[ebay] GetItem raw response", {
+      listingId,
+      responseLength: xml.length,
+      hasAck: xml.includes("<Ack>"),
+      ackValue: xml.match(/<Ack>(\w+)<\/Ack>/)?.[1] || "unknown",
+    });
+    
     const item = tag(xml, "Item") ?? xml;
+    
+    // Log what we found in the Item section
+    console.log("[ebay] GetItem Item section", {
+      listingId,
+      itemLength: item.length,
+      hasPictureDetails: item.includes("<PictureDetails>"),
+      hasPictureURL: item.includes("<PictureURL>"),
+      hasItemSpecifics: item.includes("<ItemSpecifics>"),
+      hasNameValueList: item.includes("<NameValueList>"),
+      hasPrimaryCategory: item.includes("<PrimaryCategory>"),
+    });
+    
     const { categoryId, categoryName } = parseEbayPrimaryCategory(item);
     const aspects = parseEbayItemSpecifics(item);
     const photos = extractEbayItemPhotos(item);
 
     // Debug logging for import issues
-    console.log("[ebay] fetchEbayItemDetails result", {
+    console.log("[ebay] fetchEbayItemDetails parsed result", {
       listingId,
       aspectsCount: aspects.length,
       photosCount: photos.length,
       categoryId,
       categoryName,
       hasDescription: !!parseEbayDescription(item),
-      // Log first 200 chars of item XML for debugging structure
-      itemXmlPreview: item.slice(0, 200),
+      firstAspect: aspects[0] || null,
+      firstPhoto: photos[0]?.slice(0, 80) || null,
     });
 
-    if (aspects.length === 0) {
-      // Log more context when aspects are missing
-      const hasItemSpecifics = item.includes("<ItemSpecifics>");
-      console.warn("[ebay] fetchEbayItemDetails: no item specifics found", {
+    if (aspects.length === 0 && item.includes("<ItemSpecifics>")) {
+      // Log the actual ItemSpecifics section for debugging
+      const specificsSection = tag(item, "ItemSpecifics");
+      console.warn("[ebay] ItemSpecifics found but no aspects parsed", {
         listingId,
-        hasItemSpecificsTag: hasItemSpecifics,
+        specificsPreview: specificsSection?.slice(0, 500) || "null",
       });
     }
-    if (photos.length === 0) {
-      const hasPictureDetails = item.includes("<PictureDetails>");
-      const hasPictureUrl = item.includes("<PictureURL>");
-      console.warn("[ebay] fetchEbayItemDetails: no photos found", {
+    
+    if (photos.length === 0 && item.includes("<PictureDetails>")) {
+      // Log the actual PictureDetails section for debugging
+      const pictureSection = tag(item, "PictureDetails");
+      console.warn("[ebay] PictureDetails found but no photos parsed", {
         listingId,
-        hasPictureDetailsTag: hasPictureDetails,
-        hasPictureUrlTag: hasPictureUrl,
+        picturePreview: pictureSection?.slice(0, 500) || "null",
       });
     }
 

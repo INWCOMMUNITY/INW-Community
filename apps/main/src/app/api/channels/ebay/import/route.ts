@@ -99,10 +99,24 @@ async function loadRemoteWithLinkState(userId: string) {
   // After import, listings are stored with a migrated SKU like `inw${legacyId}`,
   // so we need to check both the raw legacy ID and the inw-prefixed version.
   const isAlreadyLinked = (legacyId: string, title: string): boolean => {
-    if (linkedSkus.has(legacyId)) return true;
-    if (linkedSkus.has(`inw${legacyId}`)) return true;
-    if (linkedTitles.has(title.trim().toLowerCase())) return true;
-    return false;
+    const byLegacyId = linkedSkus.has(legacyId);
+    const byMigratedSku = linkedSkus.has(`inw${legacyId}`);
+    const byTitle = linkedTitles.has(title.trim().toLowerCase());
+    const result = byLegacyId || byMigratedSku || byTitle;
+    
+    // Debug log the check
+    console.log("[ebay import] isAlreadyLinked check", {
+      legacyId,
+      title: title.slice(0, 50),
+      byLegacyId,
+      byMigratedSku,
+      byTitle,
+      result,
+      linkedSkusCount: linkedSkus.size,
+      linkedSkusSample: Array.from(linkedSkus).slice(0, 3),
+    });
+    
+    return result;
   };
 
   return {
