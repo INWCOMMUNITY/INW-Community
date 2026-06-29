@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getMemberConnectionContext } from "@/lib/channels/connection";
 
 export const dynamic = "force-dynamic";
 
@@ -27,19 +26,11 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Listing ID is required" }, { status: 400 });
   }
 
-  const ctx = await getMemberConnectionContext(userId, "ebay");
-  if (!ctx) {
-    return NextResponse.json(
-      { error: "Connect your eBay account first.", code: "NOT_CONNECTED" },
-      { status: 400 }
-    );
-  }
-
-  // Find the link - could be stored as legacy ID or migrated SKU (inw{legacyId})
+  // Find the link by provider and listing ID, regardless of which connection created it.
+  // This allows unsync to work even if the user reconnected eBay (new connection ID).
   const link = await prisma.channelListingLink.findFirst({
     where: {
       provider: "ebay",
-      connectionId: ctx.id,
       OR: [
         { externalListingId: legacyId },
         { externalListingId: `inw${legacyId}` },
