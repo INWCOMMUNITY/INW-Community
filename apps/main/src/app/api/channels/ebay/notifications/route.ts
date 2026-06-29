@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionForApi } from "@/lib/session";
+import { getSessionForApi } from "@/lib/mobile-auth";
 import { prisma } from "database";
 import { getConnectionContext } from "@/lib/channels/connection";
 import {
