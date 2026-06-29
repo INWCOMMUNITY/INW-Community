@@ -110,11 +110,33 @@ export async function fetchEbayItemDetails(
     const photos = extractEbayItemPhotos(item);
 
     // Debug logging for import issues
+    console.log("[ebay] fetchEbayItemDetails result", {
+      listingId,
+      aspectsCount: aspects.length,
+      photosCount: photos.length,
+      categoryId,
+      categoryName,
+      hasDescription: !!parseEbayDescription(item),
+      // Log first 200 chars of item XML for debugging structure
+      itemXmlPreview: item.slice(0, 200),
+    });
+
     if (aspects.length === 0) {
-      console.warn("[ebay] fetchEbayItemDetails: no item specifics found", { listingId });
+      // Log more context when aspects are missing
+      const hasItemSpecifics = item.includes("<ItemSpecifics>");
+      console.warn("[ebay] fetchEbayItemDetails: no item specifics found", {
+        listingId,
+        hasItemSpecificsTag: hasItemSpecifics,
+      });
     }
     if (photos.length === 0) {
-      console.warn("[ebay] fetchEbayItemDetails: no photos found", { listingId });
+      const hasPictureDetails = item.includes("<PictureDetails>");
+      const hasPictureUrl = item.includes("<PictureURL>");
+      console.warn("[ebay] fetchEbayItemDetails: no photos found", {
+        listingId,
+        hasPictureDetailsTag: hasPictureDetails,
+        hasPictureUrlTag: hasPictureUrl,
+      });
     }
 
     return {

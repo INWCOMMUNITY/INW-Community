@@ -48,12 +48,20 @@ export function extractEbayItemPhotos(itemXml: string): string[] {
     if (normalized && !urls.includes(normalized)) urls.push(normalized);
   };
 
+  // First, look for PictureDetails section which contains the full photo list
+  const pictureDetails = tag(itemXml, "PictureDetails");
+  if (pictureDetails) {
+    for (const url of allTags(pictureDetails, "PictureURL")) push(url);
+    for (const url of allTags(pictureDetails, "ExternalPictureURL")) push(url);
+  }
+
+  // Also check for PictureURL tags at the top level (some XML structures)
   for (const url of allTags(itemXml, "PictureURL")) push(url);
   for (const url of allTags(itemXml, "ExternalPictureURL")) push(url);
 
+  // Fallback to gallery URL if no photos found
   if (urls.length === 0) {
-    const pictureDetails = tag(itemXml, "PictureDetails") ?? itemXml;
-    const gallery = tag(pictureDetails, "GalleryURL");
+    const gallery = tag(pictureDetails ?? itemXml, "GalleryURL");
     if (gallery) push(gallery);
   }
 
