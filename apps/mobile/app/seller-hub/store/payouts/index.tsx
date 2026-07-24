@@ -198,7 +198,7 @@ export default function PayoutsScreen() {
           <View style={styles.links}>
             <Pressable
               style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
-              onPress={() => (router.push as (href: string) => void)("/seller-hub/ship")}
+              onPress={() => (router.push as (href: string) => void)("/seller-hub/orders")}
             >
               <Text style={styles.linkText}>Ship items</Text>
             </Pressable>

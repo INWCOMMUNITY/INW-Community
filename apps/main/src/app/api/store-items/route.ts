@@ -390,6 +390,10 @@ export async function GET(req: NextRequest) {
 
   const localDelivery = searchParams.get("localDelivery");
   const shippingOnly = searchParams.get("shippingOnly");
+  const minPriceParam = searchParams.get("minPrice");
+  const maxPriceParam = searchParams.get("maxPrice");
+  const minPriceCents = minPriceParam ? Math.round(parseFloat(minPriceParam) * 100) : null;
+  const maxPriceCents = maxPriceParam ? Math.round(parseFloat(maxPriceParam) * 100) : null;
   const categoryTrim = categoryParam?.trim() || "";
   const subcategoryTrim = subcategoryParam?.trim() || "";
 
@@ -430,6 +434,10 @@ export async function GET(req: NextRequest) {
         ...(localDelivery === "1" ? { localDeliveryAvailable: true } : {}),
         ...(shippingOnly === "1"
           ? { shippingDisabled: false, localDeliveryAvailable: false, inStorePickupAvailable: false }
+          : {}),
+        ...(minPriceCents !== null && !isNaN(minPriceCents) ? { priceCents: { gte: minPriceCents } } : {}),
+        ...(maxPriceCents !== null && !isNaN(maxPriceCents) 
+          ? { priceCents: { ...(minPriceCents !== null ? { gte: minPriceCents } : {}), lte: maxPriceCents } } 
           : {}),
       },
       include: {
@@ -712,6 +720,13 @@ export async function POST(req: NextRequest) {
     } catch {
       /* best-effort */
     }
+    // Log activity
+    const { logSellerActivity } = await import("@/lib/seller-activity-log");
+    logSellerActivity(userId, "item_created", "store_item", item.id, {
+      title: item.title,
+      priceCents: item.priceCents,
+      quantity: item.quantity,
+    });
     // Auto-post to feed so followers of seller see new listings
     prisma.post
       .create({

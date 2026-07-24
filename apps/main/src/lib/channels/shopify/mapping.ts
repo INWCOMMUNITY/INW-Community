@@ -1,5 +1,6 @@
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
+import { listingDescriptionForHtmlChannel } from "../rich-description";
 
 /** cents -> "12.34" (Shopify expects a decimal string). */
 export function shopifyPriceFromCents(cents: number): string {
@@ -29,6 +30,7 @@ export type ShopifyProduct = {
   title?: string;
   body_html?: string | null;
   product_type?: string | null;
+  status?: string | null;
   updated_at?: string;
   options?: { name?: string; values?: string[] }[];
   variants?: ShopifyVariant[];
@@ -77,7 +79,7 @@ export function buildShopifyCreateBody(item: SyncStoreItem): Record<string, unkn
   const axes = normalizeVariantsFromProvider("shopify", item.variants) as InwVariantAxis[] | null;
   const product: Record<string, unknown> = {
     title: item.title.slice(0, 255),
-    body_html: item.description?.trim() || "",
+    body_html: listingDescriptionForHtmlChannel(item.description, ""),
     product_type: item.category?.trim() || undefined,
   };
 
@@ -116,7 +118,7 @@ export function buildShopifyUpdateBody(
   const product: Record<string, unknown> = {
     id: Number(productId),
     title: item.title.slice(0, 255),
-    body_html: item.description?.trim() || "",
+    body_html: listingDescriptionForHtmlChannel(item.description, ""),
     product_type: item.category?.trim() || undefined,
   };
 
@@ -186,6 +188,7 @@ export function shopifyProductToSummary(product: ShopifyProduct): RemoteListingS
     description: product.body_html ?? null,
     priceCents: shopifyPriceToCents(variant?.price),
     quantity: totalQty,
+    quantityKnown: true,
     photos,
     category: product.product_type?.trim() || null,
     remoteUpdatedAt: product.updated_at ? new Date(product.updated_at) : null,

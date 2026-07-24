@@ -8,13 +8,15 @@ import { getAdapter } from "@/lib/channels/registry";
 import { migrateEbayListings, fetchEbayItemDetails } from "@/lib/channels/ebay/trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
-import { plainListingDescription } from "@/lib/channels/import-listing";
+import { storeListingDescription } from "@/lib/channels/import-listing";
+import { sumVariantQuantities } from "@/lib/channels/variant-sync";
 import { resolveInwCategoryFromRemote } from "@/lib/channels/category-resolver";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
 import { variantsFingerprint } from "@/lib/channels/variant-sync";
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type ImportSkipEntry = {
   externalListingId: string;
@@ -276,13 +278,20 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    const resolvedCat = resolveInwCategoryFromRemote(listing.category ?? null, listing.subcategory ?? null);
-    const importQty = Math.max(0, Math.round(Number(listing.quantity) || 0));
-
+    const resolvedCat = resolveInwCategoryFromRemote(
+      listing.category ?? null,
+      listing.subcategory ?? null,
+      { provider: "ebay" }
+    );
     // Pull full item specifics + description + category + photos for true two-way round-trip.
     // GetItem returns all photos (not just the gallery thumb from GetMyeBaySelling).
     const details = await fetchEbayItemDetails(ctx.accessToken, legacyId);
     const importedAspects = normalizeListingAspects(details.aspects);
+    const importedVariants = details.variants;
+    const importQty =
+      importedVariants && importedVariants.length > 0
+        ? sumVariantQuantities(importedVariants)
+        : Math.max(0, Math.round(Number(details.quantity ?? listing.quantity) || 0));
 
     // Debug logging for import troubleshooting
     console.log("[ebay import] details fetched", {
@@ -290,6 +299,7 @@ export async function POST(req: NextRequest) {
       aspectsCount: details.aspects.length,
       photosCount: details.photos.length,
       normalizedAspectsCount: importedAspects.length,
+      variants: importedVariants?.length ?? 0,
     });
 
     // Prefer photos from GetItem (full set) over the preview photos (often just 1 gallery image).
@@ -298,26 +308,29 @@ export async function POST(req: NextRequest) {
       .filter((u): u is string => Boolean(u));
     const remoteCategoryId = details.remoteCategoryId ?? listing.remoteCategoryId ?? null;
     const importedDescription =
-      plainListingDescription(details.description) ?? plainListingDescription(listing.description);
+      storeListingDescription(details.description) ?? storeListingDescription(listing.description);
 
     let createdStoreItemId: string | null = null;
     try {
       const storeItem = await prisma.storeItem.create({
         data: {
           memberId: userId,
-          title: listing.title.slice(0, 200),
+          title: (details.title ?? listing.title).slice(0, 200),
           description: importedDescription,
           photos,
           priceCents: safePriceCents,
           quantity: importQty,
           status: importQty > 0 ? "active" : "sold_out",
-          condition: "used",
+          condition: details.condition ?? "used",
           listingType: "new",
           acceptOffers: false,
           slug: uniqueSlug(slugify(listing.title)),
           category: resolvedCat?.category ?? listing.category?.slice(0, 200) ?? null,
           subcategory: resolvedCat?.subcategory ?? listing.subcategory?.slice(0, 200) ?? null,
           ...(importedAspects.length > 0 ? { aspects: importedAspects as object } : {}),
+          ...(importedVariants && importedVariants.length > 0
+            ? { variants: importedVariants as object }
+            : {}),
           ...(remoteCategoryId
             ? { ebayCategoryId: Number(remoteCategoryId) || undefined }
             : {}),

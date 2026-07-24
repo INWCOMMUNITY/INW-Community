@@ -16,6 +16,7 @@ import * as Linking from "expo-linking";
 import { theme } from "@/lib/theme";
 import { apiPost, apiGet, apiDelete } from "@/lib/api";
 import { EbaySetupCard } from "@/components/channels/EbaySetupCard";
+import { SyncHealthWidget } from "@/components/channels/SyncHealthWidget";
 
 type Connection = {
   id: string;
@@ -93,6 +94,7 @@ export default function ChannelsScreen() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [shopifyShop, setShopifyShop] = useState("");
@@ -270,6 +272,33 @@ export default function ChannelsScreen() {
     }
   };
 
+  const syncNow = async (conn: Connection, name: string) => {
+    setSyncing(conn.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await apiPost<{ ok: boolean; applied?: number; error?: string }>(
+        `/api/channels/${conn.id}/reconcile`,
+        {}
+      );
+      if (res.ok) {
+        const appliedText =
+          res.applied && res.applied > 0
+            ? ` ${res.applied} sale${res.applied === 1 ? "" : "s"} applied.`
+            : "";
+        setSuccess(`${name} synced.${appliedText}`);
+        await refresh();
+      } else {
+        setError(res.error || `Could not sync ${name}. Try again.`);
+      }
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      setError(err?.error ?? `Could not sync ${name}. Try again.`);
+    } finally {
+      setSyncing(null);
+    }
+  };
+
   const disconnect = (conn: Connection, name: string) => {
     const linked =
       conn.linkedListings === 1
@@ -318,6 +347,8 @@ export default function ChannelsScreen() {
         List once on INW and keep your items and inventory in sync across marketplaces. A sale on any
         connected store reduces stock everywhere.
       </Text>
+
+      {!loading && connections.length > 0 && <SyncHealthWidget />}
 
       {loading ? (
         <ActivityIndicator style={styles.spinner} color={theme.colors.primary} />
@@ -379,12 +410,31 @@ export default function ChannelsScreen() {
                       <Text style={styles.warn}>Sync issue: {conn.lastError}</Text>
                     )}
                   </View>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      pressed && { opacity: 0.85 },
+                      syncing === conn.id && styles.primaryBtnDisabled,
+                    ]}
+                    onPress={() => void syncNow(conn, p.name)}
+                    disabled={syncing === conn.id}
+                  >
+                    {syncing === conn.id ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>Sync Now</Text>
+                    )}
+                  </Pressable>
                   {(p.provider === "etsy" ||
                     p.provider === "ebay" ||
                     p.provider === "wix" ||
                     p.provider === "shopify") && (
                     <Pressable
-                      style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.85 }]}
+                      style={({ pressed }) => [
+                        styles.secondaryBtn,
+                        styles.secondaryBtnSpaced,
+                        pressed && { opacity: 0.85 },
+                      ]}
                       onPress={() =>
                         router.push(`/seller-hub/channels/import?provider=${p.provider}`)
                       }
@@ -476,6 +526,15 @@ export default function ChannelsScreen() {
 
       {success && !error && <Text style={styles.success}>{success}</Text>}
       {error ? <Text style={styles.err}>{error}</Text> : null}
+
+      <Pressable
+        style={styles.activityLink}
+        onPress={() => router.push("/seller-hub/channels/sync-activity" as never)}
+      >
+        <Ionicons name="time-outline" size={18} color={theme.colors.primary} />
+        <Text style={styles.activityLinkText}>Sync Activity</Text>
+        <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+      </Pressable>
     </ScrollView>
   );
 }
@@ -541,4 +600,20 @@ const styles = StyleSheet.create({
   linkBtnText: { color: "#c62828", fontSize: 14 },
   success: { color: "#2e7d32", marginTop: 8, fontSize: 14 },
   err: { color: "#c62828", marginTop: 8, fontSize: 14 },
+  activityLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#e5e7eb",
+    gap: 8,
+  },
+  activityLinkText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+    color: theme.colors.primary,
+  },
 });

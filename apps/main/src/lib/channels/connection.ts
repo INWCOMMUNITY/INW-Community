@@ -2,6 +2,7 @@ import { prisma } from "database";
 import { encrypt, decrypt } from "@/lib/encrypt";
 import { getAdapter } from "./registry";
 import type { ChannelConnectionContext, ChannelProvider } from "./types";
+import { logSyncEvent } from "./sync-log";
 
 const REFRESH_SKEW_MS = 60_000;
 
@@ -56,11 +57,31 @@ export async function getConnectionContext(
           lastError: null,
         },
       });
+      logSyncEvent(connection.memberId, connection.provider, "token_refreshed");
     } catch (e) {
+      const errMsg = String(e).slice(0, 500);
       await prisma.channelConnection
         .update({
           where: { id: connection.id },
-          data: { status: "error", lastError: String(e).slice(0, 500) },
+          data: { status: "error", lastError: errMsg },
+        })
+        .catch(() => {});
+      logSyncEvent(
+        connection.memberId,
+        connection.provider,
+        "token_expired",
+        `Token refresh failed: ${errMsg}`
+      );
+      import("@/lib/send-push-notification")
+        .then(({ sendPushNotification }) => {
+          const label =
+            connection.provider.charAt(0).toUpperCase() + connection.provider.slice(1);
+          sendPushNotification(connection.memberId, {
+            title: `${label} connection needs attention`,
+            body: "Your sync connection expired. Open Sync Stores to reconnect.",
+            data: { screen: "seller-hub/channels" },
+            category: "commerce",
+          }).catch(() => {});
         })
         .catch(() => {});
       return null;
@@ -105,4 +126,40 @@ export async function getActiveConnectionsForMember(
     if (ctx) out.push(ctx);
   }
   return out;
+}
+
+/**
+ * Force a token refresh for a connection. Used by retry queue when an auth error occurs.
+ * Returns true if successful, throws if refresh fails.
+ */
+export async function refreshConnectionToken(
+  connectionId: string,
+  provider: ChannelProvider
+): Promise<void> {
+  const conn = await prisma.channelConnection.findUnique({
+    where: { id: connectionId },
+  });
+  if (!conn || !conn.refreshTokenEncrypted) {
+    throw new Error("Connection not found or no refresh token available");
+  }
+
+  const refreshToken = decrypt(conn.refreshTokenEncrypted);
+  const adapter = getAdapter(provider);
+  const tokens = await adapter.refreshAccessToken(refreshToken);
+
+  await prisma.channelConnection.update({
+    where: { id: connectionId },
+    data: {
+      accessTokenEncrypted: encrypt(tokens.accessToken),
+      ...(tokens.refreshToken
+        ? { refreshTokenEncrypted: encrypt(tokens.refreshToken) }
+        : {}),
+      tokenExpiresAt: tokens.expiresInSec
+        ? new Date(Date.now() + tokens.expiresInSec * 1000)
+        : null,
+      status: "active",
+      lastError: null,
+    },
+  });
+  logSyncEvent(conn.memberId, provider, "token_refreshed", "Refreshed after auth error in retry queue");
 }

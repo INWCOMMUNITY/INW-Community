@@ -1,5 +1,6 @@
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { hasOptionQuantities } from "../../store-item-variants";
+import { listingDescriptionForHtmlChannel } from "../rich-description";
 
 /** cents -> "12.34" (Wix expects a string decimal amount). */
 export function wixPriceFromCents(cents: number): string {
@@ -11,10 +12,10 @@ export function wixPriceToCents(amount?: string | null): number {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
-/** Plain HTML for plainDescription (Wix converts it to rich content). */
+/** Sanitized HTML for plainDescription (Wix converts it to rich content). */
 function descriptionHtml(item: SyncStoreItem): string | undefined {
-  const text = (item.description ?? "").trim();
-  return text ? text : undefined;
+  const html = listingDescriptionForHtmlChannel(item.description, "");
+  return html.trim() ? html : undefined;
 }
 
 export type WixProductMedia = { url?: string; image?: { url?: string }; mediaType?: string };
@@ -35,6 +36,10 @@ export type WixProduct = {
   media?: { main?: WixProductMedia; itemsInfo?: { items?: WixProductMedia[] } };
   variantsInfo?: { variants?: WixVariant[] };
   inventory?: { availabilityStatus?: string };
+  /** Optional collection / category labels when catalog returns them. */
+  categories?: { id?: string; name?: string }[];
+  collectionIds?: string[];
+  ribbon?: string;
   createdDate?: string;
   updatedDate?: string;
 };
@@ -142,11 +147,26 @@ export type WixV1Product = {
   manageVariants?: boolean;
   productType?: string;
   ribbon?: string;
+  /** Collection ids the product belongs to (when returned by query/GET). */
+  collectionIds?: string[];
   additionalInfoSections?: { title?: string; description?: string }[];
   shippingWeight?: number;
   lastUpdated?: string;
   numericId?: string;
 };
+
+/** True when a Wix productType/ribbon string is not a useful category label. */
+export function isWixNoiseCategoryLabel(label: string | null | undefined): boolean {
+  if (!label?.trim()) return true;
+  const n = label.trim().toLowerCase();
+  return (
+    n === "physical" ||
+    n === "digital" ||
+    n === "service" ||
+    n === "unspecified" ||
+    n === "other"
+  );
+}
 
 /** Parse a Wix ISO timestamp into a Date (null when absent/invalid). */
 function parseWixDate(value?: string | null): Date | null {
@@ -200,9 +220,21 @@ export function v1Quantity(product: WixV1Product): number {
 }
 
 /** Map a Catalog v1 product to an import preview entry (classic Wix Stores sites). */
-export function wixV1ProductToSummary(product: WixV1Product): RemoteListingSummary {
+export function wixV1ProductToSummary(
+  product: WixV1Product,
+  collectionNameById?: Map<string, string>
+): RemoteListingSummary {
   const desc = (product.description ?? "").trim();
-  const categoryLabel = product.ribbon?.trim() || product.productType?.trim() || null;
+  const ribbon = product.ribbon?.trim() || null;
+  const fromCollections =
+    product.collectionIds
+      ?.map((id) => collectionNameById?.get(id))
+      .find((n) => n && !isWixNoiseCategoryLabel(n)) ?? null;
+  const productType = product.productType?.trim() || null;
+  const categoryLabel =
+    (ribbon && !isWixNoiseCategoryLabel(ribbon) ? ribbon : null) ||
+    fromCollections ||
+    (productType && !isWixNoiseCategoryLabel(productType) ? productType : null);
   return {
     externalListingId: product.id || "",
     title: product.name || "Wix product",
@@ -213,6 +245,7 @@ export function wixV1ProductToSummary(product: WixV1Product): RemoteListingSumma
     photos: v1Photos(product),
     remoteUpdatedAt: parseWixDate(product.lastUpdated),
     category: categoryLabel,
+    remoteCategoryId: product.collectionIds?.[0] ?? null,
     variantsKnown: false,
     shippingKnown: false,
   };
@@ -314,11 +347,26 @@ export function isWixProductVisibleOnSite(product: WixProduct | WixV1Product): b
 }
 
 /** Map a Wix product (from Search/Query Products) to a provider-agnostic import preview entry. */
-export function wixProductToSummary(product: WixProduct): RemoteListingSummary {
+export function wixProductToSummary(
+  product: WixProduct,
+  collectionNameById?: Map<string, string>
+): RemoteListingSummary {
   const priceAmount =
     product.actualPriceRange?.minValue?.amount ??
     product.variantsInfo?.variants?.[0]?.price?.actualPrice?.amount;
   const desc = (product.plainDescription ?? product.description ?? "").trim();
+  const fromCategories = product.categories?.find((c) => c.name && !isWixNoiseCategoryLabel(c.name))
+    ?.name;
+  const fromCollectionIds =
+    product.collectionIds
+      ?.map((id) => collectionNameById?.get(id))
+      .find((n) => n && !isWixNoiseCategoryLabel(n)) ?? null;
+  const ribbon = product.ribbon?.trim() || null;
+  const categoryLabel =
+    (ribbon && !isWixNoiseCategoryLabel(ribbon) ? ribbon : null) ||
+    fromCategories ||
+    fromCollectionIds ||
+    null;
   // Search/Query Products doesn't return per-variant inventory; quantity is merged in separately.
   return {
     externalListingId: product.id || "",
@@ -329,5 +377,7 @@ export function wixProductToSummary(product: WixProduct): RemoteListingSummary {
     quantityKnown: false,
     photos: firstMediaUrl(product),
     remoteUpdatedAt: parseWixDate(product.updatedDate),
+    category: categoryLabel,
+    remoteCategoryId: product.categories?.[0]?.id ?? product.collectionIds?.[0] ?? null,
   };
 }

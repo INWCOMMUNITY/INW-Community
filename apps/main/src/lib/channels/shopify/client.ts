@@ -1,4 +1,12 @@
 import { shopAdminBase } from "./config";
+import { waitForRateLimit } from "../rate-limit-tracker";
+
+let currentConnectionId: string | null = null;
+
+/** Set the current connection ID for rate limiting (call before making requests). */
+export function setShopifyConnectionContext(connectionId: string): void {
+  currentConnectionId = connectionId;
+}
 
 /** Error carrying the HTTP status so callers can branch (e.g. 404 -> already deleted). */
 export class ShopifyApiError extends Error {
@@ -44,6 +52,10 @@ async function shopifyRequest<T>(
   init: RequestInit & { headers?: Record<string, string> } = {},
   attempt = 0
 ): Promise<T> {
+  if (currentConnectionId) {
+    await waitForRateLimit("shopify", currentConnectionId);
+  }
+
   const base = shopAdminBase(shop, apiVersion);
   const url = path.startsWith("http") ? path : `${base}${path.startsWith("/") ? path : `/${path}`}`;
   const res = await fetch(url, {

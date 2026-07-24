@@ -1,4 +1,12 @@
 import { ETSY_API_BASE, getEtsyConfig } from "./config";
+import { waitForRateLimit, recordRequest } from "../rate-limit-tracker";
+
+let currentConnectionId: string | null = null;
+
+/** Set the current connection ID for rate limiting (call before making requests). */
+export function setEtsyConnectionContext(connectionId: string): void {
+  currentConnectionId = connectionId;
+}
 
 /** Error carrying the HTTP status so callers can branch (e.g. 404 -> already deleted). */
 export class EtsyApiError extends Error {
@@ -40,7 +48,7 @@ function errorMessage(body: unknown, status: number): string {
 }
 
 /**
- * Core Etsy request. Retries once on 429 (rate limit; Etsy allows ~10 req/s) after a short backoff.
+ * Core Etsy request. Uses proactive rate limiting and retries on 429.
  */
 async function etsyRequest<T>(
   accessToken: string,
@@ -48,6 +56,10 @@ async function etsyRequest<T>(
   init: RequestInit & { headers?: Record<string, string> } = {},
   attempt = 0
 ): Promise<T> {
+  if (currentConnectionId) {
+    await waitForRateLimit("etsy", currentConnectionId);
+  }
+
   const res = await fetch(`${ETSY_API_BASE}${path}`, {
     ...init,
     headers: { ...baseHeaders(accessToken), ...(init.headers ?? {}) },

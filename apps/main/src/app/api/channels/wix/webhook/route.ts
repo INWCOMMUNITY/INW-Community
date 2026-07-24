@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { waitUntil } from "@vercel/functions";
 import { pullWixInventoryForConnection } from "@/lib/channels/pull-wix-inventory";
 import { reconcileConnectionFull } from "@/lib/channels/reconcile-connection";
 import { findWixConnectionByInstanceId } from "@/lib/channels/wix/site";
@@ -8,6 +7,12 @@ import {
   wixWebhookIsInventoryEvent,
   wixWebhookTriggersFullReconcile,
 } from "@/lib/channels/wix/webhook";
+import {
+  logWebhookEvent,
+  markWebhookProcessing,
+  markWebhookCompleted,
+  markWebhookFailed,
+} from "@/lib/channels/webhook-event";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -47,43 +52,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "event_type", eventType });
   }
 
+  const webhookEventId = await logWebhookEvent(
+    "wix",
+    eventType ?? "unknown",
+    { instanceId, productId },
+    instanceId
+  );
+
   try {
+    await markWebhookProcessing(webhookEventId);
+
     const conn = await findWixConnectionByInstanceId(instanceId);
     if (!conn) {
+      await markWebhookCompleted(webhookEventId);
       return NextResponse.json({ ok: true, skipped: "unknown_instance" });
     }
 
-    const run = async () => {
-      if (isInventory) {
-        await pullWixInventoryForConnection(conn, productId ? [productId] : undefined);
-        return;
-      }
+    if (isInventory) {
+      await pullWixInventoryForConnection(conn, productId ? [productId] : undefined);
+    } else {
       await reconcileConnectionFull(conn);
-    };
-
-    const work = run().catch((e) => {
-      console.error("[channels] wix webhook reconcile failed", {
-        connectionId: conn.id,
-        eventType,
-        productId,
-        error: String(e),
-      });
-    });
-
-    if (process.env.VERCEL) {
-      waitUntil(work);
-      return NextResponse.json({
-        ok: true,
-        queued: true,
-        eventType,
-        mode: isInventory ? "inventory" : "full",
-      });
     }
 
-    await work;
-    return NextResponse.json({ ok: true, eventType, mode: isInventory ? "inventory" : "full" });
+    await markWebhookCompleted(webhookEventId);
+    return NextResponse.json({
+      ok: true,
+      processed: true,
+      eventType,
+      mode: isInventory ? "inventory" : "full",
+    });
   } catch (e) {
-    console.error("[channels] wix webhook failed", { error: String(e) });
-    return NextResponse.json({ ok: true });
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.error("[channels] wix webhook failed", { error: errorMsg });
+    await markWebhookFailed(webhookEventId, errorMsg);
+    return NextResponse.json({ ok: false, error: "Webhook processing failed" }, { status: 500 });
   }
 }

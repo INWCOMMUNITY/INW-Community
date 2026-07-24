@@ -47,6 +47,7 @@ import {
   type InventoryMode,
   type OptionRow,
 } from "@/components/listing/ListingOptionsEditor";
+import { TemplateSelector, type ListingTemplate } from "@/components/listing/TemplateSelector";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -1009,6 +1010,59 @@ export default function ListItemScreen() {
     }
   };
 
+  const handleSelectTemplate = useCallback((template: ListingTemplate) => {
+    if (template.category) setCategory(template.category);
+    if (template.subcategory) setSubcategory(template.subcategory);
+    if (template.condition === "new" || template.condition === "used") {
+      setCondition(template.condition);
+    }
+    if (template.shippingDisabled !== undefined) setShippingDisabled(template.shippingDisabled);
+    if (template.localDeliveryAvailable !== undefined) setLocalDeliveryAvailable(template.localDeliveryAvailable);
+    if (template.inStorePickupAvailable !== undefined) setInStorePickupAvailable(template.inStorePickupAvailable);
+    if (template.shippingCostCents != null) {
+      setShippingCostDollars((template.shippingCostCents / 100).toFixed(2));
+      setShippingFree(template.shippingCostCents === 0);
+    }
+    if (template.localDeliveryFeeCents != null) {
+      setLocalDeliveryFeeDollars((template.localDeliveryFeeCents / 100).toFixed(2));
+    }
+    if (template.shippingPolicy) {
+      setShippingPolicy(template.shippingPolicy);
+      setUseSellerProfileShipping(false);
+    }
+    if (template.localDeliveryTerms) {
+      setLocalDeliveryTerms(template.localDeliveryTerms);
+      setUseSellerProfileLocalDelivery(false);
+    }
+    if (template.pickupTerms) {
+      setPickupTerms(template.pickupTerms);
+      setUseSellerProfilePickup(false);
+    }
+    if (template.etsyWhoMade === "i_did" || template.etsyWhoMade === "someone_else" || template.etsyWhoMade === "collective") {
+      setEtsyWhoMade(template.etsyWhoMade);
+    }
+    if (template.etsyWhenMade === "made_to_order" || template.etsyWhenMade === "2020_2025" || template.etsyWhenMade === "before_2006") {
+      setEtsyWhenMade(template.etsyWhenMade);
+    }
+    if (template.etsyIsSupply !== undefined && template.etsyIsSupply !== null) {
+      setEtsyIsSupply(template.etsyIsSupply);
+    }
+    if (template.ebayCategoryId) {
+      setEbayCategoryId(String(template.ebayCategoryId));
+      void loadCategoryAspects(String(template.ebayCategoryId));
+    }
+    if (Array.isArray(template.ebayAspects)) {
+      setAspects(template.ebayAspects.map((a) => ({ name: a.name ?? "", value: a.value ?? "" })));
+    }
+    if (template.variantsTemplate?.axes?.length) {
+      setInventoryMode("options");
+      const firstAxis = template.variantsTemplate.axes[0];
+      setOptionName(firstAxis.name || "Size");
+      setOptionRows(firstAxis.options.map((opt) => ({ value: opt, qty: "0", priceCentsOverride: "" })));
+    }
+    Alert.alert("Template Applied", `Settings from "${template.name}" have been applied.`);
+  }, [loadCategoryAspects]);
+
   return (
     <View style={styles.screenWrapper}>
     <ChannelPublishModal
@@ -1078,6 +1132,13 @@ export default function ListItemScreen() {
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
     >
+      {!editId && (
+        <TemplateSelector
+          onSelectTemplate={handleSelectTemplate}
+          disabled={submitting || editLoading}
+        />
+      )}
+
       <View style={styles.typeRow}>
         <Text style={styles.label}>Condition</Text>
         <View style={styles.typeBtns}>

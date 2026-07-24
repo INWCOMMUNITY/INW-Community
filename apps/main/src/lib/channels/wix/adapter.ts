@@ -36,6 +36,7 @@ import {
   pushWixV1OptionsUpdate,
   pushWixV1PerOptionInventory,
   wixV1ProductToVariants,
+  fetchWixCollectionCategoryMaps,
 } from "./collections";
 import {
   buildWixCreateBody,
@@ -202,6 +203,11 @@ async function queryAllProductsV1(
   path: "/stores/v1/products/query" | "/stores-reader/v1/products/query",
   opts: WixRequestOpts
 ): Promise<RemoteListingSummary[]> {
+  const { collectionNameById, categoryByProductId } = await fetchWixCollectionCategoryMaps(
+    accessToken,
+    opts,
+    true
+  );
   const summaries: RemoteListingSummary[] = [];
   let offset = 0;
   let truncated = true;
@@ -222,7 +228,12 @@ async function queryAllProductsV1(
       if (p.id) {
         await mergeV2InventoryIntoV1Product(accessToken, p.id, p, opts);
       }
-      const s = wixV1ProductToSummary(p);
+      const s = wixV1ProductToSummary(p, collectionNameById);
+      // Fallback: collection membership when product.collectionIds / ribbon empty.
+      if (!s.category && p.id) {
+        const fromMap = categoryByProductId.get(p.id);
+        if (fromMap) s.category = fromMap;
+      }
       attachWixVariantsToSummary(s, p);
       // List query sometimes omits productOptions; GET fills them in for option products.
       if (!s.variantsKnown && p.id && (p.manageVariants || (p.variants?.length ?? 0) > 1)) {
@@ -252,6 +263,11 @@ async function listRemoteListingsV3(
   opts: WixRequestOpts
 ): Promise<RemoteListingSummary[]> {
   const products = await queryAllProductsV3(accessToken, opts);
+  const { collectionNameById, categoryByProductId } = await fetchWixCollectionCategoryMaps(
+    accessToken,
+    opts,
+    false
+  );
   const byProduct = new Map<string, InventoryItem[]>();
   const items = await searchInventoryItems(
     accessToken,
@@ -266,7 +282,11 @@ async function listRemoteListingsV3(
   }
   return products
     .map((p) => {
-      const summary = wixProductToSummary(p);
+      const summary = wixProductToSummary(p, collectionNameById);
+      if (!summary.category && p.id) {
+        const fromMap = categoryByProductId.get(p.id);
+        if (fromMap) summary.category = fromMap;
+      }
       const invItems = byProduct.get(p.id as string);
       return invItems
         ? { ...summary, quantity: quantityForProduct(invItems), quantityKnown: true }

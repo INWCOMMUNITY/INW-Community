@@ -20,11 +20,16 @@ export default function StorefrontPage() {
         />
         <div className="absolute inset-0 bg-black/35" aria-hidden />
         <div className="relative z-10 max-w-[var(--max-width)] mx-auto w-full">
+          <img
+            src="/nwc-hero-logo.png"
+            alt="Northwest Community"
+            className="mx-auto mb-5 h-36 w-36 rounded-full border-4 border-white/90 object-cover shadow-lg md:h-40 md:w-40"
+          />
           <h1
             className="text-4xl md:text-5xl font-bold mb-4 text-white"
             style={{ fontFamily: "var(--font-heading)" }}
           >
-            NWC Storefront
+            Local Business Online Shopping
           </h1>
           <p className="text-lg max-w-2xl mx-auto text-white/95 leading-relaxed mb-6">
             Welcome to the Northwest Community Store! Here you will find items from local vendors located in Eastern Washington and Northern Idaho! Shop local, without losing the comfort of shopping from your home!

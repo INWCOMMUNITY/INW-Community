@@ -85,15 +85,26 @@ export default function StorefrontInfoScreen() {
         <InfoRow label="Business Website" value={biz?.website ?? "—"} />
         <InfoRow label="Storefront Address" value={biz?.address ?? "—"} />
         {biz?.slug && (
-          <View style={styles.row}>
-            <Text style={styles.label}>NWC Business Page Link</Text>
-            <Text
-              style={styles.link}
-              onPress={() => Linking.openURL(`${siteBase}/support-local/${biz.slug}`)}
-            >
-              {siteBase}/support-local/{biz.slug}
-            </Text>
-          </View>
+          <>
+            <View style={styles.row}>
+              <Text style={styles.label}>Your Seller Shop (with products)</Text>
+              <Text
+                style={styles.link}
+                onPress={() => Linking.openURL(`${siteBase}/support-local/sellers/${biz.slug}`)}
+              >
+                {siteBase}/support-local/sellers/{biz.slug}
+              </Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>NWC Business Page (directory)</Text>
+              <Text
+                style={styles.link}
+                onPress={() => Linking.openURL(`${siteBase}/support-local/${biz.slug}`)}
+              >
+                {siteBase}/support-local/{biz.slug}
+              </Text>
+            </View>
+          </>
         )}
       </View>
 

@@ -8,9 +8,13 @@ import { EbayApiError } from "./errors";
 import { describeEbayThrownError, extractBulkMigrateResponse, formatMigrateListingError } from "./errors";
 import { allTags, extractEbayItemPhotos, tag } from "./photos";
 import {
+  parseEbayCondition,
   parseEbayDescription,
   parseEbayItemSpecifics,
+  parseEbayLastModified,
   parseEbayPrimaryCategory,
+  parseEbayVariations,
+  type EbayVariationAxis,
 } from "./item-specifics";
 import type { ListingAspect } from "@/lib/listing-limits";
 
@@ -24,6 +28,8 @@ export type EbayTradingListing = {
   /** eBay leaf category id (from PrimaryCategory) when known. */
   remoteCategoryId?: string | null;
   categoryName?: string | null;
+  remoteUpdatedAt?: Date | null;
+  condition?: "new" | "used" | null;
 };
 
 /** Full item specifics + description + photos for a listing (fetched on import, not preview). */
@@ -34,6 +40,13 @@ export type EbayItemDetails = {
   description: string | null;
   /** All photos from GetItem (gallery + PictureDetails). */
   photos: string[];
+  title: string | null;
+  condition: "new" | "used" | null;
+  remoteUpdatedAt: Date | null;
+  quantity: number | null;
+  priceCents: number | null;
+  variants: EbayVariationAxis[] | null;
+  listingEnded: boolean;
 };
 
 const TRADING_ENDPOINT = `${EBAY_API_BASE}/ws/api.dll`;
@@ -160,17 +173,55 @@ export async function fetchEbayItemDetails(
       });
     }
 
+    const sellingStatus = tag(item, "SellingStatus") ?? "";
+    const listingStatus = (tag(sellingStatus, "ListingStatus") ?? tag(item, "ListingStatus") ?? "").toLowerCase();
+    const qtyStr = tag(item, "QuantityAvailable") ?? tag(item, "Quantity") ?? "";
+    const quantity = qtyStr !== "" ? Math.max(0, Number(qtyStr) || 0) : null;
+    const priceStr =
+      tag(sellingStatus, "CurrentPrice") ?? tag(item, "StartPrice") ?? tag(item, "CurrentPrice") ?? "";
+    const priceCents = priceStr !== "" ? Math.round((Number(priceStr) || 0) * 100) : null;
+    const titleRaw = tag(item, "Title");
+
     return {
       aspects,
       remoteCategoryId: categoryId,
       categoryName,
       description: parseEbayDescription(item),
       photos,
+      title: titleRaw ? decodeXmlTitle(titleRaw) : null,
+      condition: parseEbayCondition(item),
+      remoteUpdatedAt: parseEbayLastModified(item),
+      quantity,
+      priceCents,
+      variants: parseEbayVariations(item),
+      listingEnded: listingStatus === "completed" || listingStatus === "ended",
     };
   } catch (e) {
     console.error("[ebay] fetchEbayItemDetails failed", { listingId, error: e instanceof Error ? e.message : String(e) });
-    return { aspects: [], remoteCategoryId: null, categoryName: null, description: null, photos: [] };
+    return {
+      aspects: [],
+      remoteCategoryId: null,
+      categoryName: null,
+      description: null,
+      photos: [],
+      title: null,
+      condition: null,
+      remoteUpdatedAt: null,
+      quantity: null,
+      priceCents: null,
+      variants: null,
+      listingEnded: false,
+    };
   }
+}
+
+function decodeXmlTitle(raw: string): string {
+  return raw
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .trim();
 }
 
 /**
@@ -222,6 +273,8 @@ export async function enumerateEbayListings(accessToken: string): Promise<EbayTr
         photos,
         remoteCategoryId: categoryId,
         categoryName,
+        remoteUpdatedAt: parseEbayLastModified(item),
+        condition: parseEbayCondition(item),
       });
     }
     // Stop early if this page was not full (no further pages).

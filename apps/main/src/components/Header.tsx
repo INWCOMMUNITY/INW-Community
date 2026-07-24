@@ -151,22 +151,22 @@ export function Header() {
                 </Link>
               </div>
             )}
-            {cartCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setCartOpen(true)}
-                className="relative p-1.5 rounded-full hover:bg-gray-100 text-gray-600 shrink-0"
-                aria-label={`Cart (${cartCount} items)`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
-                  <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
-                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-                </svg>
+            <button
+              type="button"
+              onClick={() => setCartOpen(true)}
+              className={`relative p-1.5 rounded-full hover:bg-gray-100 shrink-0 ${cartCount > 0 ? "text-gray-600" : "text-gray-300"}`}
+              aria-label={cartCount > 0 ? `Cart (${cartCount} items)` : "Cart (empty)"}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+              </svg>
+              {cartCount > 0 && (
                 <span className="absolute top-0 right-0 bg-red-500 text-white text-[8px] font-bold rounded-full h-3 min-w-[0.75rem] px-0.5 flex items-center justify-center leading-none">
                   {cartCount > 99 ? "99+" : cartCount}
                 </span>
-              </button>
-            )}
+              )}
+            </button>
           </div>
         </div>
         {/* Desktop: original layout */}
@@ -306,23 +306,23 @@ export function Header() {
               )}
             </div>
           )}
-          {cartCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setCartOpen(true)}
-              className="relative p-2 rounded-full hover:bg-gray-100 text-gray-600 shrink-0"
-              aria-label={`Cart (${cartCount} items)`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
-                <circle cx="9" cy="21" r="1" />
-                <circle cx="20" cy="21" r="1" />
-                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-              </svg>
+          <button
+            type="button"
+            onClick={() => setCartOpen(true)}
+            className={`relative p-2 rounded-full hover:bg-gray-100 shrink-0 ${cartCount > 0 ? "text-gray-600" : "text-gray-300"}`}
+            aria-label={cartCount > 0 ? `Cart (${cartCount} items)` : "Cart (empty)"}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+            </svg>
+            {cartCount > 0 && (
               <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center leading-none">
                 {cartCount > 99 ? "99+" : cartCount}
               </span>
-            </button>
-          )}
+            )}
+          </button>
         </div>
       </div>
     </header>

@@ -10,6 +10,7 @@ import {
   type ChannelConnectionSummary,
 } from "@/lib/channels/provider-ui";
 import { EBAY_SIGN_OUT_URL } from "@/lib/channels/ebay/config";
+import { SyncActivityLog } from "./SyncActivityLog";
 
 export function ChannelsSyncContent() {
   const searchParams = useSearchParams();
@@ -356,6 +357,8 @@ export function ChannelsSyncContent() {
       {error ? (
         <p className="mt-6 text-sm font-medium text-red-700 whitespace-pre-wrap">{error}</p>
       ) : null}
+
+      <SyncActivityLog />
     </div>
   );
 }

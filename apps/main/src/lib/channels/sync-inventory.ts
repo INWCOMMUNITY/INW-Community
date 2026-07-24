@@ -8,6 +8,15 @@ import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baselin
 import { variantsFingerprint } from "./variant-sync";
 import type { ChannelProvider, ChannelSyncResult } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
+import { enqueueRetry } from "./retry-queue";
+import { logSyncEvent } from "./sync-log";
+import { captureChannelSyncError } from "./sentry";
+import {
+  isCircuitOpen,
+  recordCircuitSuccess,
+  recordCircuitFailure,
+  hydrateCircuitFromConfig,
+} from "./circuit-breaker";
 
 /**
  * Push the StoreItem's current (authoritative) quantity out to every linked channel as an
@@ -34,6 +43,24 @@ export async function syncInventoryToChannels(
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) continue;
+
+    hydrateCircuitFromConfig(link.connectionId, link.connection.config);
+    if (isCircuitOpen(link.connectionId)) {
+      logSyncEvent(
+        link.connection.memberId,
+        provider,
+        "circuit_open",
+        "Sync skipped - channel temporarily unavailable",
+        storeItemId
+      );
+      results.push({
+        provider,
+        ok: false,
+        error: "Channel sync temporarily paused due to repeated failures",
+      });
+      continue;
+    }
+
     try {
       const ctx = await getConnectionContext(link.connection);
       if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
@@ -60,6 +87,8 @@ export async function syncInventoryToChannels(
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },
       });
+      await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
+      logSyncEvent(link.connection.memberId, provider, "push_inventory", `qty=${qty}`, storeItemId);
       results.push({ provider, ok: true });
     } catch (e) {
       const msg = describeChannelSyncError(provider, e);
@@ -68,12 +97,16 @@ export async function syncInventoryToChannels(
         provider: link.provider,
         error: msg,
       });
+      captureChannelSyncError(e, { provider, storeItemId, connectionId: link.connectionId, operation: "push_inventory" });
       await prisma.channelListingLink
         .update({
           where: { id: link.id },
           data: { syncStatus: "error", syncError: msg },
         })
         .catch(() => {});
+      await recordCircuitFailure(link.connectionId, provider, link.connection.memberId, msg);
+      enqueueRetry(link.id, storeItemId, provider, "inventory", msg, e).catch(() => {});
+      logSyncEvent(link.connection.memberId, provider, "error", `Inventory push failed: ${msg}`, storeItemId);
       results.push({ provider, ok: false, error: msg });
     }
   }

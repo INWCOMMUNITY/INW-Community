@@ -1,4 +1,5 @@
 import type { ChannelConnectionContext, RemoteListingSummary, SyncStoreItem } from "../types";
+import { listingDescriptionToPlainText } from "../rich-description";
 
 /** Etsy taxonomy id used when a listing has no explicit mapping. Override with ETSY_DEFAULT_TAXONOMY_ID. */
 function defaultTaxonomyId(): number {
@@ -40,7 +41,13 @@ function etsyTitle(title: string): string {
 }
 
 function etsyDescription(item: SyncStoreItem): string {
-  return (item.description?.trim() || item.title.trim() || "").slice(0, 64000);
+  // Etsy listing description is plain text; keep line breaks from our HTML subset.
+  const plain =
+    listingDescriptionToPlainText(item.description) ||
+    item.description?.trim() ||
+    item.title.trim() ||
+    "";
+  return plain.slice(0, 64000);
 }
 
 /** Fields for createDraftListing (POST /shops/{shop_id}/listings). */
@@ -112,6 +119,7 @@ export function etsyListingToSummary(listing: EtsyListing): RemoteListingSummary
     description: listing.description?.trim() || null,
     priceCents: priceCents > 0 ? priceCents : 0,
     quantity: typeof listing.quantity === "number" ? listing.quantity : 0,
+    quantityKnown: typeof listing.quantity === "number",
     photos,
     url: listing.url,
     remoteCategoryId: listing.taxonomy_id != null ? String(listing.taxonomy_id) : null,

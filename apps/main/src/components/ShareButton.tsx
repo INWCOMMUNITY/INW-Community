@@ -15,6 +15,8 @@ interface ShareButtonBaseProps {
   iconSize?: number;
   variant?: "icon" | "full";
   label?: string;
+  /** Custom icon color class (overrides default) */
+  iconClassName?: string;
 }
 
 interface ShareButtonStoreItemProps extends ShareButtonBaseProps {
@@ -95,10 +97,11 @@ export function ShareButton(props: ShareButtonProps) {
     iconSize = 22,
     variant = "icon",
     label = "Share",
+    iconClassName,
   } = props;
   const isFull = variant === "full";
-  const fullBtnClass = `flex w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border-2 border-[var(--color-primary)] bg-white py-3 text-[15px] font-bold text-[var(--color-primary)] transition-opacity hover:opacity-90 ${className}`;
-  const iconBtnClass = `inline-flex items-center justify-center rounded border border-gray-300 bg-white p-2 hover:bg-gray-50 ${className}`;
+  const fullBtnClass = `flex w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border-2 border-[var(--color-primary)] bg-[var(--color-primary)] py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-[var(--color-button-hover)] disabled:opacity-50 ${className}`;
+  const iconBtnClass = `inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 transition ${className}`;
   const { data: session, status } = useSession();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -273,7 +276,7 @@ export function ShareButton(props: ShareButtonProps) {
       <IonIcon
         name="share-outline"
         size={iconSize}
-        className={isFull ? "text-[var(--color-primary)]" : "text-gray-600"}
+        className={iconClassName ?? (isFull ? "text-white" : "text-gray-500")}
         aria-hidden
       />
       {isFull ? <span>{label}</span> : null}

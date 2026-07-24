@@ -92,11 +92,35 @@ function isShopifySaleOrder(order: {
   return fs === "paid" || fs === "partially_paid" || fs === "authorized";
 }
 
+async function readShopifyAvailable(
+  accessToken: string,
+  shop: string,
+  apiVersion: string,
+  inventoryItemId: number,
+  locationId: string
+): Promise<number | null> {
+  try {
+    const res = await shopifyGet<{
+      inventory_levels?: { available?: number | null; location_id?: number }[];
+    }>(
+      accessToken,
+      shop,
+      apiVersion,
+      `/inventory_levels.json?inventory_item_ids=${inventoryItemId}&location_ids=${locationId}`
+    );
+    const level = res.inventory_levels?.[0];
+    if (level && typeof level.available === "number") return level.available;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function syncProductInventory(
   conn: ChannelConnectionContext,
   productId: string,
   absoluteQuantity: number,
-  opts?: { strict?: boolean }
+  opts?: { strict?: boolean; verify?: boolean }
 ): Promise<void> {
   const cfg = connCfg(conn);
   if (!cfg.shop) {
@@ -120,14 +144,30 @@ async function syncProductInventory(
     }
     return;
   }
+  const qty = Math.max(0, Math.round(absoluteQuantity));
   await setInventoryAbsolute(
     conn.accessToken,
     cfg.shop,
     cfg.apiVersion,
     cfg.locationId,
     inventoryItemId,
-    absoluteQuantity
+    qty
   );
+  if (opts?.verify) {
+    await new Promise((r) => setTimeout(r, 400));
+    const actual = await readShopifyAvailable(
+      conn.accessToken,
+      cfg.shop,
+      cfg.apiVersion,
+      inventoryItemId,
+      cfg.locationId
+    );
+    if (actual != null && actual !== qty) {
+      throw new Error(
+        `Shopify inventory verify failed for product ${productId}: expected ${qty}, got ${actual}`
+      );
+    }
+  }
 }
 
 async function syncShopifyVariantInventory(
@@ -305,14 +345,57 @@ export const shopifyAdapter: ChannelAdapter = {
       await syncShopifyVariantInventory(conn, externalListingId, item);
       return;
     }
-    await syncProductInventory(conn, externalListingId, absoluteQuantity, { strict: true });
+    await syncProductInventory(conn, externalListingId, absoluteQuantity, {
+      strict: true,
+      verify: true,
+    });
+  },
+
+  async fetchProductQuantity(
+    conn,
+    externalListingId
+  ): Promise<{ quantity: number; known: boolean }> {
+    const cfg = connCfg(conn);
+    if (!cfg.shop || !cfg.locationId) return { quantity: 0, known: false };
+    const product = await getProduct(
+      conn.accessToken,
+      cfg.shop,
+      cfg.apiVersion,
+      externalListingId
+    );
+    if (!product) return { quantity: 0, known: false };
+    const status = (product.status ?? "active").toLowerCase();
+    if (status === "draft" || status === "archived") {
+      return { quantity: 0, known: true };
+    }
+    let total = 0;
+    let known = false;
+    for (const v of product.variants ?? []) {
+      if (v.inventory_item_id == null) continue;
+      const available = await readShopifyAvailable(
+        conn.accessToken,
+        cfg.shop,
+        cfg.apiVersion,
+        v.inventory_item_id,
+        cfg.locationId
+      );
+      if (available != null) {
+        total += available;
+        known = true;
+      } else if (typeof v.inventory_quantity === "number") {
+        total += Math.max(0, v.inventory_quantity);
+        known = true;
+      }
+    }
+    return { quantity: total, known };
   },
 
   async listRemoteListings(conn): Promise<RemoteListingSummary[]> {
     const cfg = connCfg(conn);
     if (!cfg.shop) return [];
     const summaries: RemoteListingSummary[] = [];
-    let path: string | null = "/products.json?limit=250";
+    // Active only — draft/archived treated as removed by baseline reconciler.
+    let path: string | null = "/products.json?limit=250&status=active";
     for (let page = 0; page < 20 && path; page += 1) {
       const currentPath = path;
       const pageRes: ShopifyGetResult<ProductsResponse> = await shopifyGetWithPagination(

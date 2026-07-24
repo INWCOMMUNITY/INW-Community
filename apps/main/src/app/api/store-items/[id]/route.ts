@@ -315,6 +315,13 @@ export async function PATCH(
   if (item.status === "sold_out") {
     deleteFeedPostsForSoldItem(itemId).catch(() => {});
   }
+  // Log activity
+  const { logSellerActivity, createUpdateDetail } = await import("@/lib/seller-activity-log");
+  const changedFields = Object.keys(update);
+  logSellerActivity(ownerId, "item_updated", "store_item", itemId, {
+    changedFields,
+    title: item.title,
+  });
 
   // Keep linked sales channels (Etsy, etc.) in sync. Best-effort: never fail the save.
   let channelSync: { provider: string; ok: boolean; error?: string }[] = [];
@@ -392,5 +399,11 @@ export async function DELETE(
   }
 
   await prisma.storeItem.delete({ where: { id } });
+  // Log activity
+  const { logSellerActivity } = await import("@/lib/seller-activity-log");
+  logSellerActivity(existing.memberId, "item_deleted", "store_item", id, {
+    title: existing.title,
+    priceCents: existing.priceCents,
+  });
   return NextResponse.json({ ok: true, channelSync });
 }

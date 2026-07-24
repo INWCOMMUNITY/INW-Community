@@ -139,16 +139,17 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   // Website dropdown: Storefront (exclude Orders, Pickups, Deliveries - on hub)
   const storefrontItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
-    { href: "/seller-hub/store/sold", label: "Sold Items", icon: "pricetag-outline", alert: soldItemsAlert },
+    { href: "/seller-hub/store/items?tab=sold", label: "Sold Items", icon: "pricetag-outline", alert: soldItemsAlert },
     { href: "/seller-hub/store/drafts", label: "Drafts", icon: "document-text-outline" },
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
+    { href: "/seller-hub/store/returns", label: "Return Requests", icon: "arrow-undo-outline", alert: pendingReturns > 0 },
     { href: "/seller-hub/store/cancellations", label: "Cancellations", icon: "close-circle-outline" },
     { href: "/policies", label: "Policies", icon: "book-outline" },
   ];
 
   // Website dropdown: Actions (exclude List Item - on hub). Offer Reward/Coupon go to actual Business Hub (my-community) and open the modal there.
   const actionItems: NavItem[] = [
-    { href: "/seller-hub/ship", label: "Ship Item", icon: "boat-outline", alert: pendingShip > 0 },
+    { href: "/seller-hub/orders", label: "Ship Item", icon: "boat-outline", alert: pendingShip > 0 },
     { href: "/(tabs)/my-community", label: "Offer Reward", icon: "gift-outline", action: "offer-reward" },
     { href: "/(tabs)/my-community", label: "Offer Coupon", icon: "pricetag-outline", action: "offer-coupon" },
     { href: "/(tabs)/my-community", label: "Create Post", icon: "megaphone-outline", action: "create-post" },
@@ -166,6 +167,9 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   // Website dropdown: Seller Hub (exclude Seller Hub home - current screen). Business Hub redirects to existing tab.
   const sellerHubItems: NavItem[] = [
     { href: "/(tabs)/my-community", label: "Business Hub", icon: "business-outline", action: "business-hub" },
+    { href: "/seller-hub/analytics", label: "Analytics", icon: "analytics-outline" },
+    { href: "/seller-hub/activity", label: "Activity Log", icon: "time-outline" },
+    { href: "/seller-hub/data-tools", label: "Data Tools", icon: "download-outline" },
   ];
 
   const handleItemPress = async (item: NavItem) => {

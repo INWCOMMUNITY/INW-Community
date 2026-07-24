@@ -71,7 +71,7 @@ export default function ManageStoreScreen() {
 
       <Pressable
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-        onPress={() => (router.push as (href: string) => void)("/seller-hub/store/sold")}
+        onPress={() => (router.push as (href: string) => void)("/seller-hub/store/items?tab=sold")}
       >
         {soldItemsAlert && (
           <View style={styles.cardAlertBadge}>

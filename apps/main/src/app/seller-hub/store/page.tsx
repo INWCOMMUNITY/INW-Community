@@ -109,15 +109,26 @@ export default function SellerProfilePage() {
               </div>
             )}
             {biz?.slug && (
-              <div className="min-w-0">
-                <label className="block text-xs text-gray-500 mb-0.5">NWC Business Page Link</label>
-                <Link
-                  href={`/support-local/${biz.slug}`}
-                  className="text-primary-600 hover:underline text-sm break-all block"
-                >
-                  {baseUrl}/support-local/{biz.slug}
-                </Link>
-              </div>
+              <>
+                <div className="min-w-0">
+                  <label className="block text-xs text-gray-500 mb-0.5">Your Seller Shop (with products)</label>
+                  <Link
+                    href={`/support-local/sellers/${biz.slug}`}
+                    className="text-primary-600 hover:underline text-sm break-all block"
+                  >
+                    {baseUrl}/support-local/sellers/{biz.slug}
+                  </Link>
+                </div>
+                <div className="min-w-0">
+                  <label className="block text-xs text-gray-500 mb-0.5">NWC Business Page (directory)</label>
+                  <Link
+                    href={`/support-local/${biz.slug}`}
+                    className="text-primary-600 hover:underline text-sm break-all block"
+                  >
+                    {baseUrl}/support-local/{biz.slug}
+                  </Link>
+                </div>
+              </>
             )}
           </div>
         </section>

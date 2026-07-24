@@ -1,7 +1,8 @@
 import { prisma } from "database";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { clampSaneInventoryQty } from "./inventory-sanity";
-import { plainListingDescription } from "./import-listing";
+import { storeListingDescription } from "./import-listing";
+import { sanitizeListingDescription } from "./rich-description";
 import type { RemoteListingSummary } from "./types";
 
 function photosEqual(a: string[], b: string[]): boolean {
@@ -22,8 +23,8 @@ export function remoteContentDiffersFromStoreItem(
     item.title !== remote.title.slice(0, 200) ||
     item.priceCents !== remote.priceCents ||
     !photosEqual(item.photos, remote.photos) ||
-    (plainListingDescription(item.description) ?? "") !==
-      (plainListingDescription(remote.description) ?? "")
+    (sanitizeListingDescription(item.description) ?? "") !==
+      (sanitizeListingDescription(remote.description) ?? "")
   );
 }
 
@@ -46,7 +47,7 @@ export async function applyRemoteContentToStoreItem(
     where: { id: storeItemId },
     data: {
       title: safeRemote.title.slice(0, 200),
-      description: plainListingDescription(safeRemote.description),
+      description: storeListingDescription(safeRemote.description),
       photos: safeRemote.photos,
       priceCents: safeRemote.priceCents,
     },

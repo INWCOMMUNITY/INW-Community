@@ -18,6 +18,7 @@ import {
 } from "@/components/store-item/StoreItemDetailControls";
 import { useStoreItemRelatedLists } from "@/hooks/use-store-item-related-lists";
 import { allVariantAxesSelected, variantOptionLabels } from "@/lib/store-item-variants";
+import { ListingRichDescription } from "@/components/ListingRichDescription";
 
 interface VariantOption {
   name: string;
@@ -241,6 +242,20 @@ export default function ProductDetailPage() {
 
   const { sellerItems, similarItems } = useStoreItemRelatedLists(item);
 
+  // Track listing view for seller analytics
+  useEffect(() => {
+    if (!item?.id || itemUnavailable) return;
+    fetch("/api/seller-analytics/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventType: "listing_view",
+        storeItemId: item.id,
+        source: "web",
+      }),
+    }).catch(() => {});
+  }, [item?.id, itemUnavailable]);
+
   const hasVariants = item?.variants && item.variants.length > 0;
   const allVariantsSelected =
     !hasVariants || allVariantAxesSelected(item?.variants, selectedVariant);
@@ -443,16 +458,55 @@ export default function ProductDetailPage() {
 
   const mainPhoto = item.photos[selectedPhotoIndex] ?? item.photos[0];
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: item.title,
+    description: item.description?.replace(/<[^>]*>/g, "").slice(0, 500) || undefined,
+    image: item.photos.length > 0 ? item.photos : undefined,
+    sku: item.id,
+    offers: {
+      "@type": "Offer",
+      price: (item.priceCents / 100).toFixed(2),
+      priceCurrency: "USD",
+      availability:
+        itemUnavailable || item.quantity <= 0
+          ? "https://schema.org/OutOfStock"
+          : "https://schema.org/InStock",
+      itemCondition:
+        item.condition === "new"
+          ? "https://schema.org/NewCondition"
+          : "https://schema.org/UsedCondition",
+      seller: item.business
+        ? {
+            "@type": "Organization",
+            name: item.business.name,
+          }
+        : item.member
+          ? {
+              "@type": "Person",
+              name: `${item.member.firstName} ${item.member.lastName}`,
+            }
+          : undefined,
+    },
+    category: item.category || undefined,
+  };
+
   return (
-    <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-      <div className="max-w-[var(--max-width)] mx-auto">
-        <Link
-          href="/storefront"
-          className="text-sm text-gray-600 hover:underline mb-4 inline-flex items-center gap-1"
-        >
-          <IonIcon name="arrow-back-outline" size={18} className="text-gray-600" />
-          Back to storefront
-        </Link>
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+        <div className="max-w-[var(--max-width)] mx-auto">
+          <Link
+            href="/storefront"
+            className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#C9A86C] bg-white px-4 py-2 text-sm font-semibold text-[var(--color-primary)] shadow-sm transition hover:bg-[#F8F8F3]"
+          >
+            <IonIcon name="arrow-back-outline" size={18} className="text-[var(--color-primary)]" />
+            Back to Storefront
+          </Link>
         {itemUnavailable && item && (
           <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
             <p className="text-amber-800 font-semibold">
@@ -648,31 +702,47 @@ export default function ProductDetailPage() {
 
         {/* Product Details - boxed */}
         <div
-          className="rounded-lg border-2 p-6 mb-12"
+          className="rounded-2xl border-2 bg-white p-5 sm:p-6 mb-12 shadow-sm"
           style={{ borderColor: "#C9A86C" }}
         >
-          <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
-            <h1 className="text-3xl font-bold flex-1 min-w-0 pr-2">{item.title}</h1>
-            <div className="flex gap-2 shrink-0">
-              <ShareButton type="store_item" id={item.id} slug={item.slug} title={item.title} className="btn text-sm shrink-0 p-2 rounded border border-gray-300 bg-white hover:bg-gray-50" />
-              <HeartSaveButton
-                type="store_item"
-                referenceId={item.id}
-                initialSaved={savedIds.has(item.id)}
-                className="shrink-0"
-                onSavedChange={(saved) => {
-                  setSavedIds((prev) => {
-                    const next = new Set(prev);
-                    if (saved) next.add(item.id);
-                    else next.delete(item.id);
-                    return next;
-                  });
-                }}
-              />
+          <div className="mb-6 border-b border-[#E6D8B7] pb-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">
+                  LOCAL BUSINESS LISTING
+                </p>
+                <h1 className="text-3xl font-bold leading-tight text-[var(--color-heading)]">{item.title}</h1>
+              </div>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[12rem]">
+                <ShareButton
+                  type="store_item"
+                  id={item.id}
+                  slug={item.slug}
+                  title={item.title}
+                  variant="full"
+                  label="Share Item"
+                />
+                <HeartSaveButton
+                  type="store_item"
+                  referenceId={item.id}
+                  initialSaved={savedIds.has(item.id)}
+                  variant="full"
+                  saveLabel="Add to Wishlist"
+                  savedLabel="In Wishlist"
+                  onSavedChange={(saved) => {
+                    setSavedIds((prev) => {
+                      const next = new Set(prev);
+                      if (saved) next.add(item.id);
+                      else next.delete(item.id);
+                      return next;
+                    });
+                  }}
+                />
+              </div>
             </div>
           </div>
-          <div className="grid md:grid-cols-2 gap-8 min-h-[480px]">
-          <div>
+          <div className="grid min-h-[480px] gap-8 lg:grid-cols-[minmax(0,1.08fr)_minmax(22rem,0.92fr)]">
+          <div className="rounded-2xl border border-[#E6D8B7] bg-[#F8F8F3] p-3 shadow-sm">
             {mainPhoto ? (
               <button
                 type="button"
@@ -683,7 +753,7 @@ export default function ProductDetailPage() {
                     setLightboxOpen(true);
                   }
                 }}
-                className="w-full aspect-square max-h-[560px] bg-gray-100 rounded-lg overflow-hidden mb-3 block text-left focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:ring-offset-2 cursor-zoom-in"
+                className="w-full aspect-square max-h-[560px] bg-white rounded-xl overflow-hidden mb-3 block text-left focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:ring-offset-2 cursor-zoom-in border-2 border-[var(--color-primary)] shadow-sm"
               >
                 <img
                   src={mainPhoto}
@@ -694,7 +764,7 @@ export default function ProductDetailPage() {
                 />
               </button>
             ) : (
-              <div className="w-full aspect-square max-h-[560px] bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 shrink-0">
+              <div className="w-full aspect-square max-h-[560px] bg-white rounded-xl flex items-center justify-center text-gray-400 shrink-0 border-2 border-[var(--color-primary)] shadow-sm">
                 No image
               </div>
             )}
@@ -705,11 +775,12 @@ export default function ProductDetailPage() {
                     key={`${url}-${i}`}
                     type="button"
                     onClick={() => setSelectedPhotoIndex(i)}
-                    className={`shrink-0 w-16 h-16 rounded border-2 overflow-hidden ${
+                    className={`shrink-0 w-16 h-16 rounded overflow-hidden border-2 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 ${
                       selectedPhotoIndex === i
                         ? "border-[var(--color-primary)]"
-                        : "border-gray-300 hover:border-gray-400"
+                        : "border-[var(--color-primary)]/50 hover:border-[var(--color-primary)]"
                     }`}
+                    style={{ outline: "none" }}
                   >
                     <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                   </button>
@@ -717,12 +788,13 @@ export default function ProductDetailPage() {
               </div>
             )}
           </div>
-          <div>
+          <div className="rounded-2xl border border-[#E6D8B7] bg-[#FBFAF6] p-5 shadow-sm">
             {item.business && (
               <Link
                 href={`/support-local/${item.business.slug}`}
-                className="text-[var(--color-link)] hover:underline"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-link)] hover:underline"
               >
+                <IonIcon name="storefront-outline" size={18} className="text-[var(--color-primary)]" />
                 {item.business.name}
               </Link>
             )}
@@ -731,7 +803,7 @@ export default function ProductDetailPage() {
                 {item.condition === "used" ? "Used" : "New"}
               </span>
             </div>
-            <p className="text-2xl font-bold mt-4">${(item.priceCents / 100).toFixed(2)}</p>
+            <p className="text-3xl font-bold mt-4 text-[var(--color-heading)]">${(item.priceCents / 100).toFixed(2)}</p>
 
             <StoreItemFulfillmentPicker
               fulfillmentType={fulfillmentType}
@@ -802,7 +874,7 @@ export default function ProductDetailPage() {
                   onChange={setQuantity}
                 />
                 {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-6 max-w-sm">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-6">
                   {status === "loading" ? (
                     <p className="text-gray-500">Loading…</p>
                   ) : session?.user ? (
@@ -817,8 +889,9 @@ export default function ProductDetailPage() {
                         type="button"
                         onClick={handleCheckout}
                         disabled={checkingOut || item.quantity < 1 || !allVariantsSelected}
-                        className="btn border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 sm:flex-1 py-2.5"
+                        className="w-full inline-flex items-center justify-center gap-2.5 border-2 border-[var(--color-primary)] bg-white hover:bg-gray-50 disabled:opacity-50 py-2.5 px-4 rounded font-medium text-[var(--color-primary)] transition-colors"
                       >
+                        <IonIcon name="flash-outline" size={18} className="text-[var(--color-primary)] shrink-0" />
                         {checkingOut ? "Redirecting…" : "Buy It Now"}
                       </button>
                     </>
@@ -827,11 +900,12 @@ export default function ProductDetailPage() {
                       href={`/login?callbackUrl=${encodeURIComponent(`/storefront/${item.slug}`)}`}
                       className="btn inline-block text-center"
                     >
-                      Sign in to buy
+                      Sign in to Buy
                     </Link>
                   )}
                 </div>
-                <p className="text-sm text-gray-500 mt-2">
+                <p className="mt-4 flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-gray-600">
+                  <IonIcon name="sparkles-outline" size={18} className="text-[var(--color-primary)]" />
                   Earn {Math.floor((item.priceCents * quantity) / 200)} Community Points with this purchase
                 </p>
               </>
@@ -841,7 +915,7 @@ export default function ProductDetailPage() {
           {item.description && (
             <div className="mt-8 pt-8 border-t border-gray-200">
               <h2 className="text-xl font-bold mb-3">Item Description</h2>
-              <p className="text-gray-600 whitespace-pre-wrap">{item.description}</p>
+              <ListingRichDescription description={item.description} />
             </div>
           )}
         </div>
@@ -1069,9 +1143,9 @@ className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] 
                       className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
                       style={{ borderColor: "#C9A86C" }}
                     >
-                      <div className="aspect-square bg-gray-100">
+                      <div className="aspect-square bg-[#F8F8F3] p-2">
                         {other.photos[0] ? (
-                          <img src={other.photos[0]} alt={other.title} className="w-full h-full object-cover" />
+                          <img src={other.photos[0]} alt={other.title} className="w-full h-full object-contain" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
                         )}
@@ -1147,9 +1221,9 @@ className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] 
                     className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
                     style={{ borderColor: "#C9A86C" }}
                   >
-                    <div className="aspect-square bg-gray-100">
+                    <div className="aspect-square bg-[#F8F8F3] p-2">
                       {other.photos[0] ? (
-                        <img src={other.photos[0]} alt={other.title} className="w-full h-full object-cover" />
+                        <img src={other.photos[0]} alt={other.title} className="w-full h-full object-contain" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
                       )}
@@ -1177,5 +1251,6 @@ className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] 
       )}
 
     </section>
+    </>
   );
 }

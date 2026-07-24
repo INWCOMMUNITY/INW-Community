@@ -38,6 +38,7 @@ export type BusinessDetailData = {
   hoursOfOperation: Record<string, string> | null;
   galleryPhotos: string[];
   coupons: BusinessCouponItem[];
+  activeProductCount?: number;
 };
 
 function formatWebsiteHref(url: string): string {
@@ -268,7 +269,18 @@ export function BusinessDetailContent({
             </a>
           ) : null}
 
-          {business.googleMapsUrl &&
+          {business.activeProductCount && business.activeProductCount > 0 ? (
+            <Link
+              href={`/support-local/sellers/${business.slug}`}
+              className={`mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-[var(--color-primary)] py-2.5 font-semibold hover:opacity-90 md:mt-4 ${BUSINESS_TEXT_SM}`}
+              style={{ color: "var(--color-primary)", backgroundColor: "#fff" }}
+            >
+              <IonIcon name="storefront" size={18} className="text-[var(--color-primary)]" />
+              View Products ({business.activeProductCount})
+            </Link>
+          ) : null}
+
+          {(business.googleMapsUrl || (business.activeProductCount && business.activeProductCount > 0)) &&
           (business.shortDescription || business.fullDescription) ? (
             <div className="h-0.5 bg-[var(--color-primary)] my-4 md:my-5" />
           ) : null}

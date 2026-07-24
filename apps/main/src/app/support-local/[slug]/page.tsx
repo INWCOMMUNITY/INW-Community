@@ -44,9 +44,20 @@ export default async function BusinessDetailPage({
   const { slug } = await params;
   const business = await prisma.business.findFirst({
     where: isCuid(slug) ? { id: slug } : { slug },
-    include: { coupons: true },
+    include: { coupons: true, members: { select: { id: true } } },
   });
   if (!business) notFound();
+
+  const memberIds = business.members.map((m) => m.id);
+  const activeProductCount = memberIds.length > 0
+    ? await prisma.storeItem.count({
+        where: {
+          sellerId: { in: memberIds },
+          status: "active",
+          quantity: { gt: 0 },
+        },
+      })
+    : 0;
 
   const session = await getServerSession(authOptions);
   const saved = session?.user?.id
@@ -94,6 +105,7 @@ export default async function BusinessDetailPage({
       name: c.name,
       discount: c.discount,
     })),
+    activeProductCount,
   };
 
   return <BusinessDetailContent business={detail} initialSaved={!!saved} />;

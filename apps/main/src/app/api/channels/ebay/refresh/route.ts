@@ -143,10 +143,9 @@ export async function POST(req: NextRequest) {
     .map((u) => normalizeEbayPhotoUrl(u))
     .filter((u): u is string => Boolean(u));
   const description = plainListingDescription(details.description) ?? storeItem.description;
-  const resolvedCat = resolveInwCategoryFromRemote(
-    details.categoryName ?? null,
-    null
-  );
+  const resolvedCat = resolveInwCategoryFromRemote(details.categoryName ?? null, null, {
+    provider: "ebay",
+  });
 
   // Track what changed
   const changes: string[] = [];

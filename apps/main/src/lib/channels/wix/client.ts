@@ -1,4 +1,12 @@
 import { WIX_API_BASE } from "./config";
+import { waitForRateLimit } from "../rate-limit-tracker";
+
+let currentConnectionId: string | null = null;
+
+/** Set the current connection ID for rate limiting (call before making requests). */
+export function setWixConnectionContext(connectionId: string): void {
+  currentConnectionId = connectionId;
+}
 
 /** Error carrying the HTTP status so callers can branch (e.g. 404 -> already deleted). */
 export class WixApiError extends Error {
@@ -62,7 +70,8 @@ export function isWixMetasiteContextError(err: unknown): boolean {
 }
 
 /**
- * Core Wix request. App instance tokens usually go in Authorization without Bearer;
+ * Core Wix request. Uses proactive rate limiting and retries on 429.
+ * App instance tokens usually go in Authorization without Bearer;
  * some endpoints accept Bearer — retry the other style on 401.
  */
 async function wixRequest<T>(
@@ -73,6 +82,10 @@ async function wixRequest<T>(
   attempt = 0,
   authVariant: 0 | 1 = 0
 ): Promise<T> {
+  if (currentConnectionId) {
+    await waitForRateLimit("wix", currentConnectionId);
+  }
+
   const url = path.startsWith("http") ? path : `${WIX_API_BASE}${path}`;
   const siteId = opts.siteId?.trim();
   const res = await fetch(url, {

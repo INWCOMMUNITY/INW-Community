@@ -418,6 +418,7 @@ function TabLayoutInner() {
     sellerOffersPending: false,
     buyerOffersAction: false,
     sellerFulfillmentPending: false,
+    channelSyncAttention: false,
   });
 
   useFocusEffect(
@@ -429,12 +430,14 @@ function TabLayoutInner() {
         sellerOffersPending?: boolean;
         buyerOffersAction?: boolean;
         sellerFulfillmentPending?: boolean;
+        channelSyncAttention?: boolean;
       }>("/api/me/hub-alerts")
         .then((d) =>
           setHubAlerts({
             sellerOffersPending: !!d?.sellerOffersPending,
             buyerOffersAction: !!d?.buyerOffersAction,
             sellerFulfillmentPending: !!d?.sellerFulfillmentPending,
+            channelSyncAttention: !!d?.channelSyncAttention,
           })
         )
         .catch(() =>
@@ -442,13 +445,14 @@ function TabLayoutInner() {
             sellerOffersPending: false,
             buyerOffersAction: false,
             sellerFulfillmentPending: false,
+            channelSyncAttention: false,
           })
         );
     }, [])
   );
 
   const sellerWorkPending =
-    hubAlerts.sellerOffersPending || hubAlerts.sellerFulfillmentPending;
+    hubAlerts.sellerOffersPending || hubAlerts.sellerFulfillmentPending || hubAlerts.channelSyncAttention;
   const sellerHubAttention = hasSeller && sellerWorkPending;
   const businessHubAttention = false;
 

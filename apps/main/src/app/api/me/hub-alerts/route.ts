@@ -63,10 +63,24 @@ export async function GET(req: NextRequest) {
     const sellerFulfillmentPending =
       incompleteLocalDeliverySeller > 0 || pickupAttentionSeller > 0 || needsShipment > 0;
 
+    const [channelConnErrors, channelLinkErrors] = await Promise.all([
+      prisma.channelConnection.count({
+        where: { memberId: userId, status: "error" },
+      }),
+      prisma.channelListingLink.count({
+        where: {
+          syncStatus: "error",
+          connection: { memberId: userId },
+        },
+      }),
+    ]).catch(() => [0, 0] as [number, number]);
+    const channelSyncAttention = channelConnErrors > 0 || channelLinkErrors > 0;
+
     return NextResponse.json({
       sellerOffersPending,
       buyerOffersAction,
       sellerFulfillmentPending,
+      channelSyncAttention,
     });
   } catch (e) {
     console.error("[hub-alerts]", e);
@@ -74,6 +88,7 @@ export async function GET(req: NextRequest) {
       sellerOffersPending: false,
       buyerOffersAction: false,
       sellerFulfillmentPending: false,
+      channelSyncAttention: false,
     });
   }
 }

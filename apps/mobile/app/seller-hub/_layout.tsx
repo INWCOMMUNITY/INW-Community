@@ -21,6 +21,13 @@ function useHeaderTitle() {
   if (path.includes("business-hub") || String(last) === "business-hub") return "Business Hub";
   if (path.includes("channels") && String(last) === "import") return "Import Listings";
   if (path.includes("channels") || String(last) === "channels") return "Sync Stores";
+  if (path.includes("analytics") || String(last) === "analytics") return "Analytics";
+  if (path.includes("activity") || String(last) === "activity") return "Activity Log";
+  if (path.includes("data-tools") || String(last) === "data-tools") return "Data Tools";
+  if (path.includes("offers") || String(last) === "offers") return "Offers";
+  if (path.includes("time-away") || String(last) === "time-away") return "Time Away";
+  if (path.includes("shipping-setup") || String(last) === "shipping-setup") return "Shipping Setup";
+  if (path.includes("before-you-start") || String(last) === "before-you-start") return "Before You Start";
   return "Seller Hub";
 }
 

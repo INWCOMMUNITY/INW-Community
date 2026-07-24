@@ -162,9 +162,28 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  let channelIssueCount = 0;
+  try {
+    const [connErrors, linkErrors] = await Promise.all([
+      prisma.channelConnection.count({
+        where: { memberId: session.user.id, status: "error" },
+      }),
+      prisma.channelListingLink.count({
+        where: {
+          syncStatus: "error",
+          connection: { memberId: session.user.id },
+        },
+      }),
+    ]);
+    channelIssueCount = connErrors + linkErrors;
+  } catch {
+    // graceful fallback
+  }
+
   return NextResponse.json({
     unreadMessages,
     incomingFriendRequests,
     commerceAttentionCount,
+    channelIssueCount,
   });
 }

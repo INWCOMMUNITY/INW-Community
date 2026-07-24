@@ -7,6 +7,7 @@ import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");

@@ -215,8 +215,9 @@ export const StoreItemAddToCartButton = memo(function StoreItemAddToCartButton({
       type="button"
       onClick={onClick}
       disabled={disabled || loading}
-      className="btn disabled:opacity-50 w-full py-2.5"
+      className="inline-flex w-full items-center justify-center gap-2.5 rounded bg-[var(--color-button)] px-4 py-2.5 font-medium text-[var(--color-button-text)] transition-colors hover:bg-[var(--color-button-hover)] hover:text-[var(--color-button-hover-text)] disabled:opacity-50"
     >
+      <IonIcon name="cart-outline" size={18} className="text-white shrink-0" />
       {loading
         ? "Adding…"
         : needsFulfillmentForm

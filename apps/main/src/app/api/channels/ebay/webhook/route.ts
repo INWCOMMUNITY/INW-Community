@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { waitUntil } from "@vercel/functions";
 import { prisma } from "database";
 import { refreshEbayListingByItemId } from "@/lib/channels/ebay/pull-ebay-updates";
-import { tag, allTags } from "@/lib/channels/ebay/photos";
+import {
+  acknowledgeRecentSalesWithoutDecrement,
+  reconcileConnectionSales,
+} from "@/lib/channels/reconcile";
+import { tag } from "@/lib/channels/ebay/photos";
+import { verifyEbayWebhook } from "@/lib/channels/ebay/webhook";
+import {
+  logWebhookEvent,
+  markWebhookProcessing,
+  markWebhookCompleted,
+  markWebhookFailed,
+} from "@/lib/channels/webhook-event";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -12,7 +22,6 @@ export const maxDuration = 60;
  * eBay sends SOAP-style XML with the item details.
  */
 function extractItemIdFromNotification(xml: string): string | null {
-  // Try to get ItemID from various possible locations in the XML
   const itemId = tag(xml, "ItemID");
   if (itemId && /^\d+$/.test(itemId.trim())) {
     return itemId.trim();
@@ -24,7 +33,6 @@ function extractItemIdFromNotification(xml: string): string | null {
  * Extract the notification type from eBay XML.
  */
 function extractNotificationType(xml: string): string | null {
-  // Look for NotificationEventName or similar
   const eventName = tag(xml, "NotificationEventName") || tag(xml, "EventName");
   return eventName?.trim() || null;
 }
@@ -46,7 +54,6 @@ function extractEbayUserId(xml: string): string | null {
  * Find the eBay connection by the seller's eBay user ID.
  */
 async function findConnectionByEbayUserId(ebayUserId: string) {
-  // The externalShopId on the connection should be the eBay username
   return prisma.channelConnection.findFirst({
     where: {
       provider: "ebay",
@@ -56,23 +63,32 @@ async function findConnectionByEbayUserId(ebayUserId: string) {
   });
 }
 
+function isSaleEvent(eventType: string | null): boolean {
+  if (!eventType) return false;
+  return (
+    eventType.includes("ItemSold") ||
+    eventType.includes("FixedPriceTransaction") ||
+    eventType.includes("AuctionCheckoutComplete")
+  );
+}
+
+function isClosedEvent(eventType: string | null): boolean {
+  if (!eventType) return false;
+  return eventType.includes("ItemClosed") || eventType.includes("ItemUnsold");
+}
+
 /**
  * eBay Platform Notifications webhook receiver.
- * 
- * Receives SOAP-based XML notifications from eBay when:
- * - ItemRevised: A listing was edited on eBay
- * - ItemClosed: A listing ended
- * - ItemSold: A sale occurred
- * 
- * Setup required in eBay Developer Portal:
- * 1. Go to Developer Dashboard → Application Settings → User Tokens
- * 2. Set Platform Notification Delivery URL to: https://yoursite.com/api/channels/ebay/webhook
- * 3. Enable notifications using SetNotificationPreferences API call
- * 
- * Note: The user must set up notifications using SetNotificationPreferences
- * with their auth token to receive notifications for their listings.
+ *
+ * Sale events go through reconcileConnectionSales (ChannelSyncEvent dedupe) so the
+ * sales poll cannot double-decrement. Content/qty revisions use absolute refresh.
  */
 export async function POST(req: NextRequest) {
+  if (!verifyEbayWebhook(req)) {
+    console.warn("[ebay webhook] rejected: invalid or missing secret");
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
   let xml: string;
   try {
     xml = await req.text();
@@ -89,7 +105,6 @@ export async function POST(req: NextRequest) {
     preview: xml.slice(0, 200),
   });
 
-  // Extract key information from the notification
   const itemId = extractItemIdFromNotification(xml);
   const eventType = extractNotificationType(xml);
   const ebayUserId = extractEbayUserId(xml);
@@ -101,14 +116,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "no_item_id" });
   }
 
-  // Only process ItemRevised and similar events
   const relevantEvents = [
     "ItemRevised",
     "ItemRevisionAddedToSchedule",
     "ItemListed",
     "ItemClosed",
+    "ItemUnsold",
     "ItemSold",
     "FixedPriceTransaction",
+    "AuctionCheckoutComplete",
   ];
 
   if (eventType && !relevantEvents.some((e) => eventType.includes(e))) {
@@ -116,14 +132,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "irrelevant_event", eventType });
   }
 
-  // Find the connection for this seller
   let connection = null;
   if (ebayUserId) {
     connection = await findConnectionByEbayUserId(ebayUserId);
   }
 
-  // If we couldn't find by userId, try to find by the linked listing
   if (!connection) {
+    console.info("[ebay webhook] userId lookup missed, falling back to listing link", {
+      itemId,
+      ebayUserId,
+    });
     const link = await prisma.channelListingLink.findFirst({
       where: {
         provider: "ebay",
@@ -144,60 +162,94 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "unknown_seller" });
   }
 
-  // Process the update in the background
-  const run = async () => {
-    try {
-      // Decrypt the access token
-      const { getConnectionContext } = await import("@/lib/channels/connection");
-      const ctx = await getConnectionContext(connection!);
-      
-      if (!ctx) {
-        console.error("[ebay webhook] failed to get connection context", { connectionId: connection!.id });
-        return;
-      }
+  const webhookEventId = await logWebhookEvent(
+    "ebay",
+    eventType ?? "unknown",
+    { itemId, ebayUserId, xmlPreview: xml.slice(0, 500) },
+    itemId
+  );
 
-      // Refresh the listing from eBay
-      const result = await refreshEbayListingByItemId(ctx.accessToken, itemId);
+  try {
+    await markWebhookProcessing(webhookEventId);
 
-      console.log("[ebay webhook] refresh completed", {
-        itemId,
-        eventType,
-        result,
+    const { getConnectionContext } = await import("@/lib/channels/connection");
+    const ctx = await getConnectionContext(connection!);
+
+    if (!ctx) {
+      console.error("[ebay webhook] failed to get connection context", {
+        connectionId: connection!.id,
       });
-    } catch (e) {
-      console.error("[ebay webhook] refresh failed", {
+      await markWebhookFailed(webhookEventId, "Failed to get connection context");
+      return NextResponse.json({ ok: false, error: "Connection context unavailable" }, { status: 500 });
+    }
+
+    if (isSaleEvent(eventType)) {
+      const sales = await reconcileConnectionSales(connection!);
+      console.log("[ebay webhook] sale reconcile completed", {
         itemId,
         eventType,
-        error: e instanceof Error ? e.message : String(e),
+        applied: sales.applied,
+      });
+      if (sales.applied === 0) {
+        await acknowledgeRecentSalesWithoutDecrement(connection!);
+        await refreshEbayListingByItemId(ctx.accessToken, itemId).catch((e) =>
+          console.warn("[ebay webhook] post-sale absolute refresh failed", {
+            itemId,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        );
+      } else {
+        await refreshEbayListingByItemId(ctx.accessToken, itemId, {
+          skipQuantity: true,
+        }).catch((e) =>
+          console.warn("[ebay webhook] post-sale content refresh failed", {
+            itemId,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        );
+      }
+      await markWebhookCompleted(webhookEventId);
+      return NextResponse.json({ ok: true, processed: true, itemId, eventType });
+    }
+
+    const result = await refreshEbayListingByItemId(ctx.accessToken, itemId);
+    if (isClosedEvent(eventType) && result && !result.ended) {
+      await refreshEbayListingByItemId(ctx.accessToken, itemId, {
+        activeListingIds: new Set(),
       });
     }
-  };
 
-  // Run in background on Vercel, or await locally
-  if (process.env.VERCEL) {
-    waitUntil(run());
+    console.log("[ebay webhook] refresh completed", {
+      itemId,
+      eventType,
+      result,
+    });
+
+    await markWebhookCompleted(webhookEventId);
     return NextResponse.json({
       ok: true,
-      queued: true,
+      processed: true,
       itemId,
       eventType,
     });
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.error("[ebay webhook] handler failed", {
+      itemId,
+      eventType,
+      error: errorMsg,
+    });
+    const { captureChannelSyncError } = await import("@/lib/channels/sentry");
+    captureChannelSyncError(e, { provider: "ebay", operation: `webhook:${eventType ?? "unknown"}` });
+    await markWebhookFailed(webhookEventId, errorMsg);
+    return NextResponse.json({ ok: false, error: "Webhook processing failed" }, { status: 500 });
   }
-
-  await run();
-  return NextResponse.json({
-    ok: true,
-    processed: true,
-    itemId,
-    eventType,
-  });
 }
 
 /**
  * eBay may send GET requests to verify the endpoint.
  */
 export async function GET(req: NextRequest) {
-  // eBay might send a verification challenge
   const challenge = req.nextUrl.searchParams.get("challenge_code");
   if (challenge) {
     return NextResponse.json({ challengeResponse: challenge });

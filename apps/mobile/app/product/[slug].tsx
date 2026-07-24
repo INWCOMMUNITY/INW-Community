@@ -40,6 +40,7 @@ import {
   optionIsSoldOut,
   type DisplayVariantAxis,
 } from "@/lib/product-variants";
+import { ListingRichDescription } from "@/components/ListingRichDescription";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -860,7 +861,7 @@ export default function ProductScreen() {
           {item.description ? (
             <View style={[styles.section, styles.contentBox]}>
               <Text style={styles.sectionTitle}>Description</Text>
-              <Text style={styles.description}>{item.description}</Text>
+              <ListingRichDescription html={item.description} style={styles.description} />
             </View>
           ) : null}
 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { ShareButton } from "@/components/ShareButton";
@@ -142,13 +142,13 @@ function StorefrontCard({
           }
         }}
         onMouseLeave={() => setHoveredPhotoIndex(0)}
-        className="block aspect-square w-full relative"
+        className="block aspect-square w-full relative bg-[#F8F8F3] p-2 border-b-2 border-[var(--color-primary)]"
       >
         {photoUrl ? (
           <img
             src={photoUrl}
             alt={item.title}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-contain"
           />
         ) : (
           <div
@@ -234,35 +234,43 @@ export function StorefrontGallery({
   onSearchChange,
 }: StorefrontGalleryProps = {}) {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const { data: session } = useSession();
   const { setOpen: setCartOpen } = useCart();
   const [items, setItems] = useState<StoreItem[]>([]);
   const [sizes, setSizes] = useState<string[]>([]);
   const [browseByCategories, setBrowseByCategories] = useState<BrowseCategoryOption[]>([]);
-  const [category, setCategory] = useState("");
-  const [subcategory, setSubcategory] = useState("");
-  const [size, setSize] = useState("");
-  const [searchInternal, setSearchInternal] = useState("");
+  
+  // Initialize from URL params
+  const urlCategory = searchParams?.get("category") ?? "";
+  const urlSubcategory = searchParams?.get("subcategory") ?? "";
+  const urlSize = searchParams?.get("size") ?? "";
+  const urlSearch = searchParams?.get("search") ?? "";
+  const urlCondition = searchParams?.get("condition") as "" | "new" | "used" || "";
+  const urlDelivery = searchParams?.get("localDelivery") === "1" ? "local" 
+    : searchParams?.get("shippingOnly") === "1" ? "shipping" : "";
+  const urlMinPrice = searchParams?.get("minPrice") ?? "";
+  const urlMaxPrice = searchParams?.get("maxPrice") ?? "";
+  
+  const [category, setCategory] = useState(urlCategory);
+  const [subcategory, setSubcategory] = useState(urlSubcategory);
+  const [size, setSize] = useState(urlSize);
+  const [searchInternal, setSearchInternal] = useState(searchProp ?? urlSearch);
   const search = searchProp ?? searchInternal;
   const setSearch = onSearchChange ?? setSearchInternal;
-  const [deliveryFilter, setDeliveryFilter] = useState<"" | "local" | "shipping">("");
-  const [conditionFilter, setConditionFilter] = useState<"" | "new" | "used">("");
+  const [deliveryFilter, setDeliveryFilter] = useState<"" | "local" | "shipping">(urlDelivery);
+  const [conditionFilter, setConditionFilter] = useState<"" | "new" | "used">(urlCondition);
+  const [minPrice, setMinPrice] = useState(urlMinPrice);
+  const [maxPrice, setMaxPrice] = useState(urlMaxPrice);
   const [conditionOpen, setConditionOpen] = useState(true);
-  const [priceOpen, setPriceOpen] = useState(false);
+  const [priceOpen, setPriceOpen] = useState(!!urlMinPrice || !!urlMaxPrice);
   const [sizeOpen, setSizeOpen] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(true);
   const [browseOpen, setBrowseOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!searchParams) return;
-    const local = searchParams?.get("localDelivery");
-    const ship = searchParams?.get("shippingOnly");
-    if (local === "1") setDeliveryFilter("local");
-    else if (ship === "1") setDeliveryFilter("shipping");
-  }, [searchParams]);
 
   useEffect(() => {
     if (session?.user) {
@@ -304,6 +312,8 @@ export function StorefrontGallery({
     if (search) params.set("search", search);
     if (deliveryFilter === "local") params.set("localDelivery", "1");
     if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
+    if (minPrice) params.set("minPrice", minPrice);
+    if (maxPrice) params.set("maxPrice", maxPrice);
     params.set("_", String(Date.now()));
     fetch(`/api/store-items?${params}`)
       .then(async (r) => {
@@ -316,7 +326,7 @@ export function StorefrontGallery({
         setFetchError(err instanceof Error ? err.message : "Failed to load items.");
         setItems([]);
       });
-  }, [conditionFilter, category, subcategory, size, search, deliveryFilter]);
+  }, [conditionFilter, category, subcategory, size, search, deliveryFilter, minPrice, maxPrice]);
 
   useEffect(() => {
     fetchMeta();
@@ -365,16 +375,38 @@ export function StorefrontGallery({
     }
   }, [browseByCategories, category, subcategory]);
 
+  // Sync filter state to URL params (for shareable URLs) and sessionStorage (for return navigation)
   useEffect(() => {
+    // Update URL params (shallow update, no navigation)
+    const params = new URLSearchParams();
+    if (category) params.set("category", category);
+    if (subcategory) params.set("subcategory", subcategory);
+    if (size) params.set("size", size);
+    if (search && !searchProp) params.set("search", search);
+    if (conditionFilter) params.set("condition", conditionFilter);
+    if (deliveryFilter === "local") params.set("localDelivery", "1");
+    if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
+    if (minPrice) params.set("minPrice", minPrice);
+    if (maxPrice) params.set("maxPrice", maxPrice);
+    
+    const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    const currentUrl = typeof window !== "undefined" ? window.location.pathname + window.location.search : pathname;
+    
+    // Only update if the URL actually changed to avoid infinite loops
+    if (newUrl !== currentUrl) {
+      router.replace(newUrl, { scroll: false });
+    }
+
+    // Keep sessionStorage in sync for backward compatibility with product detail page
     try {
       sessionStorage.setItem(
         storageKey,
-        JSON.stringify({ category, subcategory, size, search, deliveryFilter, conditionFilter })
+        JSON.stringify({ category, subcategory, size, search, deliveryFilter, conditionFilter, minPrice, maxPrice })
       );
     } catch {
       /* ignore */
     }
-  }, [storageKey, category, subcategory, size, search, deliveryFilter, conditionFilter]);
+  }, [storageKey, pathname, router, category, subcategory, size, search, searchProp, deliveryFilter, conditionFilter, minPrice, maxPrice]);
 
   const browsePanel = (
     <div className="rounded-lg border-2 bg-white shadow-sm overflow-hidden p-4" style={{ borderColor: "var(--color-primary)" }}>
@@ -421,7 +453,48 @@ export function StorefrontGallery({
         </div>
       </FilterAccordion>
       <FilterAccordion label="Price" open={priceOpen} onToggle={() => setPriceOpen((o) => !o)}>
-        <p className="text-sm text-gray-500">Price filter coming soon.</p>
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <label className="text-xs text-gray-500 block mb-1">Min</label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0"
+                value={minPrice}
+                onChange={(e) => setMinPrice(e.target.value)}
+                className="w-full pl-5 pr-2 py-1.5 border border-gray-300 rounded text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
+              />
+            </div>
+          </div>
+          <span className="text-gray-400 pt-5">–</span>
+          <div className="flex-1">
+            <label className="text-xs text-gray-500 block mb-1">Max</label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Any"
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(e.target.value)}
+                className="w-full pl-5 pr-2 py-1.5 border border-gray-300 rounded text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
+              />
+            </div>
+          </div>
+        </div>
+        {(minPrice || maxPrice) && (
+          <button
+            type="button"
+            onClick={() => { setMinPrice(""); setMaxPrice(""); }}
+            className="mt-2 text-xs text-[var(--color-primary)] hover:underline"
+          >
+            Clear price filter
+          </button>
+        )}
       </FilterAccordion>
       <FilterAccordion label="Size" open={sizeOpen} onToggle={() => setSizeOpen((o) => !o)}>
         <div className="space-y-2">
@@ -499,7 +572,48 @@ export function StorefrontGallery({
           </div>
         </FilterAccordion>
         <FilterAccordion label="Price" open={priceOpen} onToggle={() => setPriceOpen((o) => !o)}>
-          <p className="text-sm text-gray-500">Price filter coming soon.</p>
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 block mb-1">Min</label>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0"
+                  value={minPrice}
+                  onChange={(e) => setMinPrice(e.target.value)}
+                  className="w-full pl-5 pr-2 py-1.5 border border-gray-300 rounded text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
+                />
+              </div>
+            </div>
+            <span className="text-gray-400 pt-5">–</span>
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 block mb-1">Max</label>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Any"
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(e.target.value)}
+                  className="w-full pl-5 pr-2 py-1.5 border border-gray-300 rounded text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
+                />
+              </div>
+            </div>
+          </div>
+          {(minPrice || maxPrice) && (
+            <button
+              type="button"
+              onClick={() => { setMinPrice(""); setMaxPrice(""); }}
+              className="mt-2 text-xs text-[var(--color-primary)] hover:underline"
+            >
+              Clear price filter
+            </button>
+          )}
         </FilterAccordion>
         <FilterAccordion label="Size" open={sizeOpen} onToggle={() => setSizeOpen((o) => !o)}>
           <div className="space-y-2">

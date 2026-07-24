@@ -60,7 +60,7 @@ Replace naive “compare current values” sync. Store the last **agreed** state
 
 **Legacy links:** If baseline is null on first reconcile, default hash/time to current INW state so the first pass is a no-op, not a mass pull.
 
-**Status:** ✅ Wix (`reconcile-inbound-catalog.ts`, outbound, sync-inventory, pull-wix-inventory) · 🔲 Etsy/eBay/Shopify (baseline fields exist in schema; reconciler is Wix-only today)
+**Status:** ✅ All providers with `supportsBaselineCatalogReconcile` (Wix, eBay, Etsy, Shopify via `capabilities.ts`)
 
 ---
 
@@ -253,33 +253,52 @@ Wix has extra complexity other channels may not need:
 
 ## 13. Etsy / eBay / Shopify — gap checklist
 
-Use this when we pick up the next provider:
+Status as of Jul 2026 overhaul (capability flags in `capabilities.ts`):
 
 ### Etsy
 
-- [ ] Generalize `reconcile-inbound-catalog` (or provider branch) with baseline logic
-- [ ] Dedicated inventory pull path (listing inventory API), not catalog list defaults
-- [ ] Map `remoteUpdatedAt` from Etsy listing `last_modified_timestamp`
-- [ ] Webhook → baseline update after quantity pull
-- [ ] Read-back verify on `updateInventory`
-- [ ] Define hidden/draft listing behavior (draft → don’t import? inactive → sold out?)
+- [x] Generalize `reconcile-inbound-catalog` (all providers via capabilities)
+- [x] `fetchProductQuantity` via listing inventory API
+- [x] Map `remoteUpdatedAt` from Etsy listing `last_modified_timestamp`
+- [x] Webhook → sales reconcile + catalog baseline reconcile
+- [x] Read-back verify on `updateInventory` (single-SKU)
+- [x] Active-only list → inactive/draft treated as removed by reconciler
 
 ### eBay
 
-- [ ] Same baseline reconciler + inventory read-back
-- [ ] No webhook today — cron-only; consider Trading/Notification API later
-- [ ] Map `remoteUpdatedAt` from item revision / LastModifiedTime
-- [ ] Ended/unpublished listing → sold out on INW
-- [ ] Business policies / merchant location already gated at publish
-- [x] Item specifics (aspects) two-way: live category + required-aspect pickers; `product.aspects` on push; `ItemSpecifics` parsed on import (see §18)
+- [x] Baseline reconciler + inventory read-back (throws on mismatch)
+- [x] Platform Notifications webhook (`/api/channels/ebay/webhook`) — sales via `ChannelSyncEvent` path
+- [x] Map `remoteUpdatedAt` from LastModifiedTime / GetItem
+- [x] Ended/unpublished listing → sold out on INW
+- [x] Business policies / merchant location already gated at publish
+- [x] Item specifics (aspects) two-way (see §18)
+- [x] Rich description HTML subset (bold/breaks/lists; strip font/color) — `rich-description.ts`
+- [x] Title/condition/variants pull on refresh; revision counts persisted on connection config
 
 ### Shopify
 
-- [ ] Same baseline reconciler
-- [ ] `fetchProductQuantity` via Inventory Levels API (location-aware)
-- [ ] Webhooks: `inventory_levels/update`, `products/update`, `orders/paid`
-- [ ] Draft/archived products → visibility rules
-- [ ] Multi-location: respect `SHOPIFY_DEFAULT_LOCATION_ID`
+- [x] Same baseline reconciler
+- [x] `fetchProductQuantity` via Inventory Levels API (location-aware)
+- [x] Webhooks route: `orders/paid`, `inventory_levels/update`, `products/update|delete`
+- [x] Draft/archived excluded from active list → sold out when missing
+- [x] Multi-location: respect `SHOPIFY_DEFAULT_LOCATION_ID` / connection `locationId`
+- [ ] Partner Dashboard must subscribe webhook topics to `/api/channels/shopify/webhook` (ops setup)
+
+---
+
+## 13b. Adding a new provider (Depop-ready — no Depop build yet)
+
+Do **not** hard-code `provider === "wix"` in shared reconcile paths. Use `getChannelCapabilities()` in [`capabilities.ts`](../apps/main/src/lib/channels/capabilities.ts).
+
+When Depop (or any marketplace) gets a real seller API, follow `NEW_PROVIDER_ADAPTER_CHECKLIST`:
+
+1. Extend `ChannelProvider` + `CHANNEL_PROVIDERS`
+2. Implement `ChannelAdapter` under `apps/main/src/lib/channels/{provider}/`
+3. Register in `registry.ts` + capability flags (honest `remoteUpdatedAt` + `quantityKnown`)
+4. OAuth connect/callback + env vars
+5. Import UI row (`provider-ui.ts` + mobile Sync Stores)
+6. Optional webhook with signature verify + `ChannelSyncEvent` sales path
+7. `fetchProductQuantity` + inventory read-back verify on `updateInventory`
 
 ---
 
@@ -354,8 +373,10 @@ These caused the Wix “finicky” bugs:
 
 ### Categories
 
-- Remote category labels are fuzzy-matched to preset labels in `store-categories.ts` via `category-resolver.ts`.
-- No match → stored as a **custom `StoreItem.category` string** on that listing only (no global category DB).
+- Remote labels map via `category-resolver.ts` (aliases + fuzzy):
+  - **Etsy / Wix / Shopify:** closest INW preset (floor 0.28). Etsy uses taxonomy path root + leaf. Wix prefers ribbon/collection names and ignores `productType: physical`.
+  - **eBay:** collectibles aliases + fuzzy at 0.72; else custom string.
+- INW presets include **Home & Living** and **Paper & Party Supplies** for Etsy parity.
 - Outbound: `category-map.ts` resolves INW label → provider taxonomy/collection (cached on `ChannelConnection.config.categoryMap`).
   - **Etsy:** `taxonomy_id` (seller taxonomy search)
   - **eBay:** leaf `categoryId` (Commerce Taxonomy suggest)

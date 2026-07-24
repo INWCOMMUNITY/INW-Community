@@ -24,6 +24,8 @@ Check off each box as you go. Every section has **links to the right website**, 
 
 **Already in Vercel (do not add again):** `ENCRYPTION_KEY`, `CRON_SECRET`, `NEXTAUTH_SECRET`
 
+**Error tracking (optional):** Add `SENTRY_DSN` + `NEXT_PUBLIC_SENTRY_DSN` (same value) for server/client error capture. Add `SENTRY_AUTH_TOKEN` for source maps upload during build.
+
 ---
 
 ## Part A — Shared setup (all four stores)
@@ -136,7 +138,7 @@ Do this once before connecting any marketplace.
 
 ## Part C — eBay
 
-**Production only** — no sandbox in our app. Sales sync via the **15-minute cron** (no eBay webhook in v1).
+**Production only** — no sandbox in our app. Sales sync via **Platform Notifications** (`/api/channels/ebay/webhook`) plus optional `CHANNEL_CRON_SYNC_ENABLED` sales poll as backstop.
 
 ### C — Links bookmark
 
@@ -157,7 +159,8 @@ Do this once before connecting any marketplace.
 - [ ] C1 Create **Production** keyset (not Sandbox)
 - [ ] C2 Create **RuName** with auth accepted URL = our callback
 - [ ] C3 Copy App ID, Cert ID, RuName **string** → Vercel
-- [ ] C4 Set `CHANNEL_CRON_SYNC_ENABLED=true` in Vercel (enables eBay sales poll; no webhook in v1)
+- [ ] C4 Confirm Platform Notifications delivery URL → `/api/channels/ebay/webhook?secret=YOUR_SECRET` (the `?secret=` value must match `EBAY_WEBHOOK_SECRET` in Vercel). Optional cron backstop: `CHANNEL_CRON_SYNC_ENABLED=true`
+- [ ] C4b Add `EBAY_WEBHOOK_SECRET` to Vercel (a random 32+ char string). Without this, the webhook rejects all POSTs with 401.
 - [ ] C5 Redeploy main app
 - [ ] C6 Test: Connect → Import → Publish → Sell both ways
 
@@ -210,7 +213,8 @@ eBay disables new Production keys until you validate an account-deletion endpoin
 | `EBAY_CLIENT_ID` | Yes | App ID (Client ID) — Production keyset |
 | `EBAY_CLIENT_SECRET` | Yes | Cert ID (Client Secret) |
 | `EBAY_RUNAME` | Yes | RuName **string** only |
-| `CHANNEL_CRON_SYNC_ENABLED` | Yes | Set to `true` — enables eBay sales polling (no eBay webhook in v1) |
+| `EBAY_WEBHOOK_SECRET` | Yes (for webhooks) | Random 32+ char string; must match `?secret=` in the Platform Notifications URL |
+| `CHANNEL_CRON_SYNC_ENABLED` | Optional | Manual/cron backstop for sales + catalog reconcile (webhooks are primary) |
 | `EBAY_DEFAULT_CATEGORY_ID` | No | Leaf category id |
 
 ### C — Tell sellers
@@ -369,7 +373,8 @@ Each seller connects their own `{shop}.myshopify.com`. After OAuth we store a **
 - [ ] E4 Copy Client ID + Client secret → Vercel
 - [ ] E5 Redeploy main app
 - [ ] E6 (If many merchants) Plan [app review](https://shopify.dev/docs/apps/launch/app-review)
-- [ ] E7 Test: enter shop domain → Connect → Import → Sync
+- [ ] E7 Subscribe webhooks → `https://www.inwcommunity.com/api/channels/shopify/webhook` for `orders/paid`, `inventory_levels/update`, `products/update`, `products/delete`
+- [ ] E8 Test: enter shop domain → Connect → Import → Sync
 
 ### E — Find API keys (numbered clicks)
 
@@ -496,6 +501,7 @@ ETSY_CLIENT_ID=
 ETSY_WEBHOOK_SECRET=
 ETSY_DEFAULT_TAXONOMY_ID=
 EBAY_DEFAULT_CATEGORY_ID=
+EBAY_WEBHOOK_SECRET=
 WIX_DEFAULT_LOCATION_ID=
 SHOPIFY_API_VERSION=
 SHOPIFY_DEFAULT_LOCATION_ID=

@@ -11,6 +11,7 @@ import { reconcileConnectionInboundMeta } from "./reconcile-inbound-meta";
 import type { ChannelProvider } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
 import { matchSaleToVariantOption } from "./variant-sync";
+import { logSyncEvent } from "./sync-log";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
@@ -63,7 +64,12 @@ export async function reconcileConnectionSales(
     // Dedupe: the unique (provider, externalEventId) row means this sale runs at most once.
     try {
       await prisma.channelSyncEvent.create({
-        data: { provider, externalEventId: sale.externalEventId, type: "sale" },
+        data: {
+          provider,
+          externalEventId: sale.externalEventId,
+          type: "sale",
+          payload: { quantitySold: sale.quantitySold },
+        },
       });
     } catch {
       continue;
@@ -117,6 +123,26 @@ export async function reconcileConnectionSales(
 
     // Push the new shared quantity out to the other channels (and back to origin; idempotent).
     await syncInventoryToChannels(link.storeItemId);
+    logSyncEvent(
+      connection.memberId,
+      provider,
+      "sale_applied",
+      `Sale ${sale.externalEventId}: qty -${sale.quantity}`,
+      link.storeItemId
+    );
+    
+    // Check for low stock alert
+    if (updated) {
+      const { checkLowStock } = await import("@/lib/low-stock-alerts");
+      const itemForCheck = await prisma.storeItem.findUnique({
+        where: { id: link.storeItemId },
+        select: { id: true, memberId: true, title: true, quantity: true, lowStockThreshold: true },
+      });
+      if (itemForCheck) {
+        const previousQty = storeItem.quantity;
+        checkLowStock(itemForCheck, previousQty).catch(() => {});
+      }
+    }
     applied += 1;
   }
 
@@ -126,7 +152,99 @@ export async function reconcileConnectionSales(
   return { applied };
 }
 
-/** Reconcile every active connection (used by the cron and as the webhook fallback). */
+/**
+ * Mark recent remote sales as already processed (ChannelSyncEvent) without decrementing INW.
+ * Used when quantity was set absolutely from the channel (e.g. eBay GetItem after a sale
+ * webhook) so a later sales poll cannot double-apply the same orders.
+ */
+export async function acknowledgeRecentSalesWithoutDecrement(
+  connection: ConnectionRow
+): Promise<{ acknowledged: number }> {
+  const ctx = await getConnectionContext(connection);
+  if (!ctx) return { acknowledged: 0 };
+  const provider = connection.provider as ChannelProvider;
+  const adapter = getAdapter(provider);
+
+  const since =
+    connection.lastReconciledAt &&
+    Date.now() - connection.lastReconciledAt.getTime() < DEFAULT_LOOKBACK_MS
+      ? new Date(connection.lastReconciledAt.getTime() - 1000 * 60 * 10)
+      : new Date(Date.now() - DEFAULT_LOOKBACK_MS);
+
+  let sales;
+  try {
+    sales = await adapter.fetchRecentSales(ctx, since);
+  } catch {
+    return { acknowledged: 0 };
+  }
+
+  let acknowledged = 0;
+  for (const sale of sales) {
+    try {
+      await prisma.channelSyncEvent.create({
+        data: {
+          provider,
+          externalEventId: sale.externalEventId,
+          type: "sale_ack_absolute",
+        },
+      });
+      acknowledged += 1;
+    } catch {
+      /* already recorded */
+    }
+  }
+  return { acknowledged };
+}
+
+const RECONCILE_BATCH_SIZE = 5;
+
+/**
+ * Reconcile a single connection (all operations).
+ */
+async function reconcileSingleConnection(c: ConnectionRow): Promise<{
+  applied: number;
+  imported: number;
+  catalogUpdated: number;
+  catalogRemoved: number;
+  metaUpdated: number;
+}> {
+  let applied = 0;
+  let imported = 0;
+  let catalogUpdated = 0;
+  let catalogRemoved = 0;
+  let metaUpdated = 0;
+
+  try {
+    applied += (await reconcileConnectionSales(c)).applied;
+  } catch (e) {
+    console.error("[channels] reconcile sales failed", { id: c.id, error: String(e) });
+  }
+  try {
+    const catalog = await reconcileConnectionInboundCatalog(c);
+    catalogUpdated += catalog.updated;
+    catalogRemoved += catalog.removed;
+  } catch (e) {
+    console.error("[channels] reconcile catalog failed", { id: c.id, error: String(e) });
+  }
+  try {
+    const meta = await reconcileConnectionInboundMeta(c);
+    metaUpdated += meta.updated;
+  } catch (e) {
+    console.error("[channels] reconcile meta failed", { id: c.id, error: String(e) });
+  }
+  try {
+    imported += (await reconcileConnectionInboundListings(c)).imported;
+  } catch (e) {
+    console.error("[channels] reconcile inbound failed", { id: c.id, error: String(e) });
+  }
+
+  return { applied, imported, catalogUpdated, catalogRemoved, metaUpdated };
+}
+
+/** Reconcile every active connection (used by the cron and as the webhook fallback).
+ * Uses parallel batch processing for better performance.
+ * Prioritizes connections with recent errors or recent sales.
+ */
 export async function reconcileAllConnections(): Promise<{
   connections: number;
   applied: number;
@@ -137,37 +255,50 @@ export async function reconcileAllConnections(): Promise<{
 }> {
   const conns = await prisma.channelConnection.findMany({
     where: { status: { not: "disconnected" } },
+    include: {
+      _count: {
+        select: {
+          listingLinks: {
+            where: { syncStatus: "error" },
+          },
+        },
+      },
+    },
+    orderBy: [
+      { lastReconciledAt: { sort: "asc", nulls: "first" } },
+    ],
   });
+
+  const prioritized = conns.sort((a, b) => {
+    const aErrors = a._count.listingLinks;
+    const bErrors = b._count.listingLinks;
+    if (aErrors !== bErrors) return bErrors - aErrors;
+    return 0;
+  });
+
   let applied = 0;
   let imported = 0;
   let catalogUpdated = 0;
   let catalogRemoved = 0;
   let metaUpdated = 0;
-  for (const c of conns) {
-    try {
-      applied += (await reconcileConnectionSales(c)).applied;
-    } catch (e) {
-      console.error("[channels] reconcile sales failed", { id: c.id, error: String(e) });
-    }
-    try {
-      const catalog = await reconcileConnectionInboundCatalog(c);
-      catalogUpdated += catalog.updated;
-      catalogRemoved += catalog.removed;
-    } catch (e) {
-      console.error("[channels] reconcile catalog failed", { id: c.id, error: String(e) });
-    }
-    try {
-      const meta = await reconcileConnectionInboundMeta(c);
-      metaUpdated += meta.updated;
-    } catch (e) {
-      console.error("[channels] reconcile meta failed", { id: c.id, error: String(e) });
-    }
-    try {
-      imported += (await reconcileConnectionInboundListings(c)).imported;
-    } catch (e) {
-      console.error("[channels] reconcile inbound failed", { id: c.id, error: String(e) });
+
+  for (let i = 0; i < prioritized.length; i += RECONCILE_BATCH_SIZE) {
+    const batch = prioritized.slice(i, i + RECONCILE_BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map((c) => reconcileSingleConnection(c))
+    );
+
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        applied += result.value.applied;
+        imported += result.value.imported;
+        catalogUpdated += result.value.catalogUpdated;
+        catalogRemoved += result.value.catalogRemoved;
+        metaUpdated += result.value.metaUpdated;
+      }
     }
   }
+
   return { connections: conns.length, applied, imported, catalogUpdated, catalogRemoved, metaUpdated };
 }
 

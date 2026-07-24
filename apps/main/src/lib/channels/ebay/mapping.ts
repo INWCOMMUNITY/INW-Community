@@ -8,6 +8,7 @@ import {
   aspectsToEbayProductAspects,
   parseStoredAspects,
 } from "@/lib/listing-limits";
+import { listingDescriptionForHtmlChannel } from "../rich-description";
 
 /** cents -> "12.34" (eBay expects a string decimal price). */
 export function ebayPriceFromCents(cents: number): string {
@@ -17,11 +18,6 @@ export function ebayPriceFromCents(cents: number): string {
 /** Map INW condition to an eBay inventory condition enum. */
 export function ebayCondition(condition: string | null): string {
   return condition === "used" ? "USED_EXCELLENT" : "NEW";
-}
-
-function plainText(html: string | null, fallback: string): string {
-  const text = (html ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  return text || fallback;
 }
 
 /** Build the PUT /inventory_item/{sku} body for a StoreItem. */
@@ -34,7 +30,7 @@ export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unkn
 
   const product: Record<string, unknown> = {
     title,
-    description: plainText(item.description, title),
+    description: listingDescriptionForHtmlChannel(item.description, title),
     imageUrls: item.photos.slice(0, 12),
   };
 
@@ -94,7 +90,10 @@ export function buildEbayOffer(
     marketplaceId: EBAY_MARKETPLACE_ID,
     format: "FIXED_PRICE",
     availableQuantity: Math.max(0, item.quantity),
-    listingDescription: plainText(item.description, item.title).slice(0, 4000),
+    listingDescription: listingDescriptionForHtmlChannel(item.description, item.title).slice(
+      0,
+      500000
+    ),
     pricingSummary: {
       price: { value: ebayPriceFromCents(item.priceCents), currency: EBAY_CURRENCY },
     },
@@ -121,6 +120,10 @@ type EbayInventorySummaryRow = {
   /** eBay leaf category id + name (from the Trading API PrimaryCategory). */
   categoryId?: string | null;
   categoryName?: string | null;
+  remoteUpdatedAt?: Date | null;
+  description?: string | null;
+  variants?: unknown;
+  variantsKnown?: boolean;
 };
 
 function priceStringToCents(value?: string): number {
@@ -135,19 +138,21 @@ export function ebayListingToSummary(row: EbayInventorySummaryRow): RemoteListin
   return {
     externalListingId,
     title: row.title || "eBay listing",
-    description: null,
+    description: row.description ?? null,
     priceCents: priceStringToCents(row.price?.value),
     quantity: Math.max(0, row.availableQuantity ?? 0),
+    quantityKnown: row.availableQuantity != null,
     photos: Array.isArray(row.imageUrls)
       ? row.imageUrls
           .map((u) => normalizeEbayPhotoUrl(u))
           .filter((u): u is string => Boolean(u))
       : [],
     url: listingId ? `https://www.ebay.com/itm/${listingId}` : undefined,
-    remoteUpdatedAt: null,
+    remoteUpdatedAt: row.remoteUpdatedAt ?? null,
     category: row.categoryName ?? null,
     remoteCategoryId: row.categoryId ?? null,
-    variantsKnown: false,
+    variants: row.variants,
+    variantsKnown: row.variantsKnown === true,
     shippingKnown: false,
   };
 }

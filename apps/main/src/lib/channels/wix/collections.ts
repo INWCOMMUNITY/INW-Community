@@ -179,7 +179,69 @@ export async function mergeV2InventoryIntoV1Product(
   }
 }
 
-type WixCollection = { id?: string; name?: string };
+type WixCollection = { id?: string; name?: string; productIds?: string[] };
+
+/**
+ * Build collection id → name map and (best-effort) product id → first collection name
+ * for inbound category auto-translate.
+ */
+export async function fetchWixCollectionCategoryMaps(
+  accessToken: string,
+  opts: WixRequestOpts,
+  v1: boolean
+): Promise<{
+  collectionNameById: Map<string, string>;
+  categoryByProductId: Map<string, string>;
+}> {
+  const collectionNameById = new Map<string, string>();
+  const categoryByProductId = new Map<string, string>();
+
+  try {
+    if (v1) {
+      const list = await wixGet<{ collections?: WixCollection[] }>(
+        accessToken,
+        `/stores/v1/collections/query`,
+        opts
+      ).catch(() => null);
+      for (const c of list?.collections ?? []) {
+        if (c.id && c.name?.trim()) collectionNameById.set(c.id, c.name.trim());
+      }
+      // Enrich product → collection via each collection's productIds (cap to avoid timeouts).
+      let fetched = 0;
+      for (const [id, name] of collectionNameById) {
+        if (fetched >= 40) break;
+        fetched += 1;
+        const detail = await wixGet<WixCollection>(
+          accessToken,
+          `/stores/v1/collections/${encodeURIComponent(id)}`,
+          opts
+        ).catch(() => null);
+        for (const pid of detail?.productIds ?? []) {
+          if (pid && !categoryByProductId.has(pid)) {
+            categoryByProductId.set(pid, name);
+          }
+        }
+      }
+      return { collectionNameById, categoryByProductId };
+    }
+
+    // Catalog v3 — query collections list when available.
+    const list = await wixJson<{ collections?: WixCollection[] }>(
+      accessToken,
+      `/stores/v3/collections/query`,
+      "POST",
+      { query: { cursorPaging: { limit: 100 } } },
+      opts
+    ).catch(() => null);
+    for (const c of list?.collections ?? []) {
+      if (c.id && c.name?.trim()) collectionNameById.set(c.id, c.name.trim());
+    }
+  } catch (e) {
+    console.warn("[wix] fetchWixCollectionCategoryMaps failed", { error: String(e) });
+  }
+
+  return { collectionNameById, categoryByProductId };
+}
 
 /** Find or create a Wix collection by INW category label. */
 export async function ensureWixCollection(

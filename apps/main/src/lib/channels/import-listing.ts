@@ -8,6 +8,10 @@ import {
 } from "./variant-sync";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
+import {
+  listingDescriptionToPlainText,
+  sanitizeListingDescription,
+} from "./rich-description";
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -17,16 +21,17 @@ function uniqueSlug(base: string): string {
   return `${base || "channel-item"}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Strip HTML from Wix/Etsy descriptions for the INW listing body. */
+/**
+ * @deprecated Prefer sanitizeListingDescription. Kept for call sites that still need
+ * a plain-text compare; now preserves line breaks instead of collapsing all whitespace.
+ */
 export function plainListingDescription(description: string | null | undefined): string | null {
-  if (!description?.trim()) return null;
-  const text = description
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text || null;
+  return listingDescriptionToPlainText(description);
+}
+
+/** Canonical import/storage transform: keep bold/breaks/lists; strip font/color. */
+export function storeListingDescription(description: string | null | undefined): string | null {
+  return sanitizeListingDescription(description);
 }
 
 /** Auto-post so the listing appears on the seller's storefront feed. */
@@ -145,8 +150,10 @@ export async function importRemoteListing(args: {
   });
   if (existingResult) return existingResult;
 
-  // Defensive field guards: Prisma rejects non-integer priceCents and a null photos array, which
-  // previously surfaced only as an opaque create_failed.
+  if (!listing.title?.trim()) {
+    return { ok: false, externalListingId: productId, reason: "invalid_title" };
+  }
+
   const safePriceCents = Math.max(0, Math.round(Number(listing.priceCents) || 0));
   if (safePriceCents < 1) {
     return { ok: false, externalListingId: productId, reason: "invalid_price" };
@@ -157,7 +164,9 @@ export async function importRemoteListing(args: {
 
   let createdStoreItemId: string | null = null;
   try {
-    const resolvedCat = resolveInwCategoryFromRemote(listing.category, listing.subcategory);
+    const resolvedCat = resolveInwCategoryFromRemote(listing.category, listing.subcategory, {
+      provider,
+    });
     const normalizedVariants: InwVariantAxis[] | null =
       listing.variantsKnown === true && Array.isArray(listing.variants)
         ? (listing.variants as InwVariantAxis[])
@@ -168,7 +177,7 @@ export async function importRemoteListing(args: {
       normalizedVariants && normalizedVariants.length > 0
         ? sumVariantQuantities(normalizedVariants)
         : listing.quantityKnown === false
-          ? 1
+          ? 0
           : Math.max(0, Math.round(Number(listing.quantity) || 0));
     const shippingCents =
       listing.shippingKnown !== false && listing.shippingCostCents != null
@@ -179,7 +188,7 @@ export async function importRemoteListing(args: {
       data: {
         memberId,
         title: listing.title.slice(0, 200),
-        description: plainListingDescription(listing.description),
+        description: storeListingDescription(listing.description),
         photos: safePhotos,
         priceCents: safePriceCents,
         quantity: importQty,

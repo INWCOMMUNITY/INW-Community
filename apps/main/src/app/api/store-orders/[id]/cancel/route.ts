@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 import { deductPoints } from "@/lib/award-points";
-import { syncInventoryToChannelsSafe } from "@/lib/channels/sync-inventory";
+import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 
 const CANCEL_REASONS = [
   "Changed my mind",
@@ -107,7 +107,7 @@ export async function POST(
       await deductPoints(order.buyerId, order.pointsAwarded);
     }
     // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
-    for (const oi of order.items) syncInventoryToChannelsSafe(oi.storeItemId);
+    await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
     return NextResponse.json({ ok: true, refunded: false });
   }
 
@@ -206,7 +206,7 @@ export async function POST(
     }
 
     // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
-    for (const oi of order.items) syncInventoryToChannelsSafe(oi.storeItemId);
+    await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
 
     return NextResponse.json({ ok: true, refunded: true });
   } catch (e) {

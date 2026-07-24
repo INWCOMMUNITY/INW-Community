@@ -7,7 +7,8 @@ export type PushNotificationCategory =
   | "events"
   | "group_admin"
   | "commerce"
-  | "social";
+  | "social"
+  | "seller_ops";
 
 export async function isMemberPushCategoryEnabled(
   memberId: string,
@@ -23,6 +24,7 @@ export async function isMemberPushCategoryEnabled(
       notifyGroupAdmin: true,
       notifyCommerce: true,
       notifySocial: true,
+      notifySellerOps: true,
     },
   });
   if (!row) return true;
@@ -41,6 +43,8 @@ export async function isMemberPushCategoryEnabled(
       return row.notifyCommerce;
     case "social":
       return row.notifySocial;
+    case "seller_ops":
+      return row.notifySellerOps;
     default:
       return true;
   }

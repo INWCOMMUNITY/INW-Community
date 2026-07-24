@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
+import { QualityScoreBadge } from "@/components/listing/QualityScoreBadge";
 import {
   CHANNEL_PROVIDER_LABEL,
   fetchChannelConnections,
@@ -67,8 +68,9 @@ function statusLabel(item: StoreItem): string {
 
 export default function MyItemsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ listingType?: string }>();
+  const params = useLocalSearchParams<{ listingType?: string; tab?: string }>();
   const listingType = params.listingType === "resale" ? "resale" : undefined;
+  const initialTab = params.tab === "sold" ? "sold" : params.tab === "ended" ? "ended" : "active";
   const [items, setItems] = useState<StoreItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -79,7 +81,7 @@ export default function MyItemsScreen() {
   const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
 
   type ItemsTab = "active" | "ended" | "sold";
-  const [itemsTab, setItemsTab] = useState<ItemsTab>("active");
+  const [itemsTab, setItemsTab] = useState<ItemsTab>(initialTab);
 
   const itemsUrl =
     (listingType ? "/api/store-items?mine=1&listingType=resale" : "/api/store-items?mine=1") +
@@ -202,7 +204,7 @@ export default function MyItemsScreen() {
           { text: "OK" },
           {
             text: "View Sold Items",
-            onPress: () => (router.push as (href: string) => void)("/seller-hub/store/sold"),
+            onPress: () => (router.push as (href: string) => void)("/seller-hub/store/items?tab=sold"),
           },
         ]
       );
@@ -263,6 +265,50 @@ export default function MyItemsScreen() {
             } catch (e) {
               const err = e as { error?: string };
               Alert.alert("Error", err.error ?? "Failed to delete");
+            } finally {
+              setActingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const relistItem = (id: string) => {
+    setMenuItemId(null);
+    Alert.alert(
+      "Relist item",
+      "This will put the item back on sale with a quantity of 1. You can edit the quantity after relisting.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Relist",
+          onPress: async () => {
+            setActingId(id);
+            try {
+              const res = await apiPost<{
+                ok: boolean;
+                relisted: number;
+                channelSync?: { provider: string; ok: boolean; error?: string }[];
+              }>("/api/store-items/bulk-relist", {
+                storeItemIds: [id],
+                quantity: 1,
+                republishChannels: false,
+              });
+              if (res.ok) {
+                alertChannelSyncFailures(res.channelSync, "relisted");
+                Alert.alert("Relisted", "Item is now active again.", [
+                  { text: "OK" },
+                  {
+                    text: "View Active Items",
+                    onPress: () => setItemsTab("active"),
+                  },
+                ]);
+                load();
+              }
+            } catch (e) {
+              const err = e as { error?: string };
+              Alert.alert("Error", err.error ?? "Failed to relist");
             } finally {
               setActingId(null);
             }
@@ -474,6 +520,11 @@ export default function MyItemsScreen() {
                       ? ` · Sold on ${new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
                       : ` · ${item.quantity} in stock · ${statusLabel(item)}`}
                   </Text>
+                  {itemsTab !== "sold" && (
+                    <View style={styles.qualityBadgeRow}>
+                      <QualityScoreBadge storeItemId={item.id} compact />
+                    </View>
+                  )}
                   {itemsTab === "sold" && item.soldOrderId && (
                     <Text style={styles.viewOrderLink}>View order</Text>
                   )}
@@ -536,6 +587,14 @@ export default function MyItemsScreen() {
                 }}
               >
                 <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View order</Text>
+              </Pressable>
+            )}
+            {itemsTab === "sold" && menuItemId && (
+              <Pressable
+                style={styles.menuOption}
+                onPress={() => relistItem(menuItemId)}
+              >
+                <Text style={styles.menuOptionTextGreen}>Relist item</Text>
               </Pressable>
             )}
             {menuItemId &&
@@ -713,6 +772,7 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, marginLeft: 12, justifyContent: "center" },
   cardTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
   cardPrice: { fontSize: 12, color: "#666", marginTop: 4 },
+  qualityBadgeRow: { marginTop: 6 },
   viewOrderLink: { fontSize: 12, color: theme.colors.primary, marginTop: 2, fontWeight: "600" },
   syncBadge: { fontSize: 11, color: "#2e7d32", marginTop: 4, fontWeight: "600" },
   syncBadgeError: { color: "#c62828" },

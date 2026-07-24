@@ -125,6 +125,11 @@ model Member {
   groupMemberBansIssued    GroupMemberBan[]       @relation("GroupMemberBanIssuer")
   groupDeletionRequests    GroupDeletionRequest[] @relation("GroupDeletionRequester")
   channelConnections       ChannelConnection[]
+  listingTemplates         ListingTemplate[]
+  sellerAnalyticsEvents    SellerAnalyticsEvent[]
+  sellerActivityLogs       SellerActivityLog[]
+  bulkEditSnapshots        BulkEditSnapshot[]
+  batchImportJobs          BatchImportJob[]
 }
 
 model WebviewBridgeToken {
@@ -165,6 +170,7 @@ model MemberNotificationPreferences {
   notifyGroupAdmin   Boolean  @default(true) @map("notify_group_admin")
   notifyCommerce     Boolean  @default(true) @map("notify_commerce")
   notifySocial       Boolean  @default(true) @map("notify_social")
+  notifySellerOps    Boolean  @default(true) @map("notify_seller_ops") // Low stock alerts, sync issues, etc.
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
@@ -936,6 +942,7 @@ model StoreItem {
   etsyIsSupply         Boolean? @map("etsy_is_supply")
   etsyTaxonomyId       Int?     @map("etsy_taxonomy_id")
   ebayCategoryId       Int?     @map("ebay_category_id")
+  lowStockThreshold    Int?     @map("low_stock_threshold") // Alert when quantity falls to or below this value
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -946,6 +953,7 @@ model StoreItem {
   resaleOffers ResaleOffer[]
   resaleConversations ResaleConversation[]
   channelLinks ChannelListingLink[]
+  sellerAnalyticsEvents SellerAnalyticsEvent[]
 }
 
 // Per-seller connection to an external sales channel (Etsy now; eBay/Shopify/Wix later).
@@ -999,8 +1007,9 @@ model ChannelListingLink {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  storeItem  StoreItem         @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
-  connection ChannelConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  storeItem  StoreItem           @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  connection ChannelConnection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  retries    ChannelSyncRetry[]
 
   @@unique([storeItemId, provider])
   @@unique([provider, externalListingId])
@@ -1019,6 +1028,101 @@ model ChannelSyncEvent {
 
   @@unique([provider, externalEventId])
   @@map("channel_sync_event")
+}
+
+// Retry queue for failed channel sync pushes (inventory, content, publish).
+// Exponential backoff: 30s, 2m, 10m, 1h, 6h. Deleted on success.
+model ChannelSyncRetry {
+  id          String   @id @default(cuid())
+  linkId      String   @map("link_id")
+  storeItemId String   @map("store_item_id")
+  provider    String
+  retryType   String   @map("retry_type")
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(5) @map("max_attempts")
+  nextRetryAt DateTime @map("next_retry_at")
+  lastError   String?  @map("last_error") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  link ChannelListingLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@index([nextRetryAt])
+  @@map("channel_sync_retry")
+}
+
+// Seller-visible sync activity log: successful pushes, sales, conflicts, errors, token events.
+model ChannelSyncLog {
+  id          String   @id @default(cuid())
+  memberId    String   @map("member_id")
+  provider    String
+  storeItemId String?  @map("store_item_id")
+  action      String
+  detail      String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([memberId, createdAt])
+  @@index([storeItemId])
+  @@map("channel_sync_log")
+}
+
+// Webhook event log: ensures no webhook events are lost by logging before processing.
+// Status transitions: pending -> processing -> completed|failed
+// Stale pending events (older than 5min) are reprocessed by cron.
+model ChannelWebhookEvent {
+  id              String    @id @default(cuid())
+  provider        String
+  eventType       String    @map("event_type")
+  externalEventId String?   @map("external_event_id")
+  payload         Json?
+  status          String    @default("pending") // pending | processing | completed | failed
+  error           String?   @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+  processedAt     DateTime? @map("processed_at")
+
+  @@index([provider, status])
+  @@index([status, createdAt])
+  @@map("channel_webhook_event")
+}
+
+// Listing templates: reusable presets for common listing settings.
+// Sellers can save templates from existing listings and apply them when creating new items.
+model ListingTemplate {
+  id                     String   @id @default(cuid())
+  memberId               String   @map("member_id")
+  name                   String
+
+  // Common listing fields
+  category               String?
+  subcategory            String?
+  condition              String?  @default("new")
+  shippingPolicy         String?  @db.Text
+  localDeliveryTerms     String?  @map("local_delivery_terms") @db.Text
+  pickupTerms            String?  @map("pickup_terms") @db.Text
+  shippingDisabled       Boolean  @default(false) @map("shipping_disabled")
+  localDeliveryAvailable Boolean  @default(false) @map("local_delivery_available")
+  inStorePickupAvailable Boolean  @default(false) @map("in_store_pickup_available")
+  shippingCostCents      Int?     @map("shipping_cost_cents")
+  localDeliveryFeeCents  Int?     @map("local_delivery_fee_cents")
+
+  // Channel-specific defaults (Etsy)
+  etsyWhoMade            String?  @map("etsy_who_made")
+  etsyWhenMade           String?  @map("etsy_when_made")
+  etsyIsSupply           Boolean? @map("etsy_is_supply")
+
+  // Channel-specific defaults (eBay)
+  ebayCategoryId         Int?     @map("ebay_category_id")
+  ebayAspects            Json?    @map("ebay_aspects")
+
+  // Variants template: e.g. { name: "Size", options: ["S", "M", "L", "XL"] }
+  variantsTemplate       Json?    @map("variants_template")
+
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@map("listing_template")
 }
 
 // Storefront orders
@@ -1548,4 +1652,84 @@ model MemberBlock {
   @@index([blockerId])
   @@index([blockedId])
   @@map("member_block")
+}
+
+// Seller analytics: listing views, cart adds, purchases, offer events
+model SellerAnalyticsEvent {
+  id          String   @id @default(cuid())
+  memberId    String   @map("member_id") // The seller whose listing was viewed/interacted with
+  storeItemId String?  @map("store_item_id")
+  eventType   String   @map("event_type") // listing_view, storefront_view, cart_add, purchase, offer_received
+  provider    String?  // ebay, etsy, shopify, wix, inwc (source channel)
+  source      String?  // web, mobile, external
+  metadata    Json?    // Additional event data (visitor info, etc.)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  member    Member     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeItem StoreItem? @relation(fields: [storeItemId], references: [id], onDelete: SetNull)
+
+  @@index([memberId, createdAt])
+  @@index([storeItemId, eventType])
+  @@map("seller_analytics_event")
+}
+
+// Seller activity log: comprehensive audit trail for seller actions
+model SellerActivityLog {
+  id         String   @id @default(cuid())
+  memberId   String   @map("member_id")
+  action     String   // item_created, item_updated, item_deleted, bulk_edit, bulk_publish,
+                      // channel_linked, channel_unlinked, order_received, offer_received,
+                      // payout_requested, low_stock_alert, sync_error
+  entityType String   @map("entity_type") // store_item, channel_link, order, payout
+  entityId   String?  @map("entity_id")
+  detail     Json?    // Structured details (before/after for edits, affected item IDs, etc.)
+  metadata   Json?    // Additional context (source, user agent, etc.)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, createdAt])
+  @@index([entityType, entityId])
+  @@map("seller_activity_log")
+}
+
+// Bulk edit snapshots for undo capability (24-hour window)
+model BulkEditSnapshot {
+  id        String    @id @default(cuid())
+  memberId  String    @map("member_id")
+  operation String    // bulk_edit, bulk_publish, bulk_unpublish, bulk_delete
+  itemCount Int       @map("item_count")
+  changes   Json      // { itemId: { before: {...}, after: {...} } }
+  canUndo   Boolean   @default(true) @map("can_undo")
+  undoneAt  DateTime? @map("undone_at")
+  expiresAt DateTime  @map("expires_at") // 24 hours from creation
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, createdAt])
+  @@index([expiresAt])
+  @@map("bulk_edit_snapshot")
+}
+
+// Batch import jobs for tracking channel listing imports (replaces in-memory storage)
+model BatchImportJob {
+  id          String    @id @default(cuid())
+  memberId    String    @map("member_id")
+  provider    String    // etsy, ebay, shopify, wix
+  status      String    @default("pending") // pending, processing, completed, failed
+  total       Int       @default(0)
+  completed   Int       @default(0)
+  failed      Int       @default(0)
+  errors      Json?     // [{ listingId, error }, ...]
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, createdAt])
+  @@index([status])
+  @@map("batch_import_job")
 }

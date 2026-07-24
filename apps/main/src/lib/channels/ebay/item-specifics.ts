@@ -56,10 +56,74 @@ export function parseEbayPrimaryCategory(itemXml: string): EbayPrimaryCategory {
   };
 }
 
-/** Read the listing description (HTML allowed; callers strip it for the StoreItem). */
+/** Read the listing description (HTML allowed; callers sanitize for the StoreItem). */
 export function parseEbayDescription(itemXml: string): string | null {
   const desc = tag(itemXml, "Description");
   if (!desc) return null;
   const decoded = decodeXmlEntities(desc).trim();
   return decoded || null;
+}
+
+/** Map eBay ConditionID / ConditionDisplayName → INW `new` | `used`. */
+export function parseEbayCondition(itemXml: string): "new" | "used" | null {
+  const id = (tag(itemXml, "ConditionID") ?? "").trim();
+  // eBay: 1000–1750 ≈ new family; 2000+ ≈ used/refurbished
+  if (id && /^\d+$/.test(id)) return Number(id) < 2000 ? "new" : "used";
+  const label = (tag(itemXml, "ConditionDisplayName") ?? "").toLowerCase();
+  if (!label) return null;
+  if (/\bnew\b/.test(label) && !/used|pre-?owned|refurbished/.test(label)) return "new";
+  if (/used|pre-?owned|refurbished|good|excellent|fair/.test(label)) return "used";
+  return null;
+}
+
+/** Parse LastModifiedTime / RevisionTime from Trading XML. */
+export function parseEbayLastModified(itemXml: string): Date | null {
+  const raw =
+    tag(itemXml, "LastModifiedTime") ||
+    tag(itemXml, "ModTime") ||
+    tag(itemXml, "RevisionTime");
+  if (!raw?.trim()) return null;
+  const d = new Date(raw.trim());
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export type EbayVariationAxis = {
+  name: string;
+  options: { value: string; quantity: number }[];
+};
+
+/**
+ * Parse single-axis Variations from GetItem XML into INW-shaped variant axes.
+ * Multi-axis listings collapse onto the first VariationSpecifics name.
+ */
+export function parseEbayVariations(itemXml: string): EbayVariationAxis[] | null {
+  const variationsBlock = tag(itemXml, "Variations");
+  if (!variationsBlock) return null;
+  const variationNodes = allTags(variationsBlock, "Variation");
+  if (variationNodes.length === 0) return null;
+
+  const byAxis = new Map<string, Map<string, number>>();
+  for (const v of variationNodes) {
+    const qtyStr = tag(v, "Quantity") ?? tag(v, "QuantityAvailable") ?? "0";
+    const qty = Math.max(0, Number(qtyStr) || 0);
+    const specifics = tag(v, "VariationSpecifics") ?? "";
+    const nvls = allTags(specifics, "NameValueList");
+    const primary = nvls[0];
+    if (!primary) continue;
+    const name = decodeXmlEntities(tag(primary, "Name") ?? "Option").trim() || "Option";
+    const value = decodeXmlEntities(tag(primary, "Value") ?? "").trim();
+    if (!value) continue;
+    if (!byAxis.has(name)) byAxis.set(name, new Map());
+    const opts = byAxis.get(name)!;
+    opts.set(value, (opts.get(value) ?? 0) + qty);
+  }
+
+  const axes: EbayVariationAxis[] = [];
+  for (const [name, opts] of byAxis) {
+    axes.push({
+      name: name.slice(0, 80),
+      options: [...opts.entries()].map(([value, quantity]) => ({ value, quantity })),
+    });
+  }
+  return axes.length > 0 ? axes : null;
 }

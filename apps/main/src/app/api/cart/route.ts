@@ -248,6 +248,20 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Track cart_add event for seller analytics (fire-and-forget)
+  prisma.sellerAnalyticsEvent
+    .create({
+      data: {
+        memberId: storeItem.memberId,
+        storeItemId: body.storeItemId,
+        eventType: "cart_add",
+        provider: "inwc",
+        source: "web",
+        metadata: { quantity: body.quantity },
+      },
+    })
+    .catch(() => {});
+
   return NextResponse.json({ ok: true });
 }
 

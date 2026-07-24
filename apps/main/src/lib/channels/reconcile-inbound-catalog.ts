@@ -17,6 +17,8 @@ import {
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { variantsFingerprint } from "./variant-sync";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
+import { getChannelCapabilities } from "./capabilities";
+import { logSyncEvent } from "./sync-log";
 
 type ConnectionRow = {
   id: string;
@@ -73,8 +75,6 @@ async function writeBaseline(
   if (!item) return;
   const hash = syncContentHash(item);
   const metaHash = syncMetaHash(item);
-  // After a push, Wix's updatedDate jumps to ~now; skew the baseline forward so the next pass treats
-  // that as our own echo. After a pull/no-op, anchor to the remote edit time we just reconciled to.
   const baselineAt = pushed
     ? new Date(Date.now() + SYNC_ECHO_SKEW_MS)
     : remote?.remoteUpdatedAt ?? new Date();
@@ -95,14 +95,18 @@ async function writeBaseline(
 }
 
 /**
- * Two-way catalog reconcile for Wix linked products (manual / CHANNEL_CRON_SYNC_ENABLED only).
- * Production inventory uses event-driven sync: listing save, storefront sale, Wix webhooks, connect import.
+ * Two-way catalog reconcile for linked products (manual / CHANNEL_CRON_SYNC_ENABLED).
+ * Uses most-recent-wins baselines. Providers without honest remoteUpdatedAt still get
+ * quantity push-on-divergence; content pull only when remote timestamp is known.
  */
 export async function reconcileConnectionInboundCatalog(
   connection: ConnectionRow
 ): Promise<{ updated: number; removed: number }> {
   const provider = connection.provider as ChannelProvider;
-  if (provider !== "wix") return { updated: 0, removed: 0 };
+  const caps = getChannelCapabilities(provider);
+  if (!caps.supportsBaselineCatalogReconcile) {
+    return { updated: 0, removed: 0 };
+  }
 
   const ctx = await getConnectionContext(connection);
   if (!ctx) return { updated: 0, removed: 0 };
@@ -119,6 +123,7 @@ export async function reconcileConnectionInboundCatalog(
   if (remoteList.length === 0) {
     console.warn("[channels] inbound catalog empty — skipping removal detection", {
       connectionId: connection.id,
+      provider,
     });
     return { updated: 0, removed: 0 };
   }
@@ -153,10 +158,10 @@ export async function reconcileConnectionInboundCatalog(
   for (const link of links) {
     const remote = remoteById.get(link.externalListingId);
 
-    // Product no longer visible on Wix (deleted or hidden) -> sell out on INW + push 0 to others.
+    // Product no longer visible on the channel -> sell out on INW + push 0 to others.
     if (!remote) {
       await applyRemoteListingRemoved(link.storeItemId);
-      await syncInventoryToChannels(link.storeItemId, { skipProviders: ["wix"] });
+      await syncInventoryToChannels(link.storeItemId, { skipProviders: [provider] });
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: { lastInboundAt: new Date() },
@@ -169,63 +174,65 @@ export async function reconcileConnectionInboundCatalog(
     const item = link.storeItem;
     const remoteQtyKnown = remote.quantityKnown !== false;
 
-    // CONTENT (title/price/photos/description): value equality is unreliable because Wix re-hosts
-    // photo URLs, so use the stored baseline (INW hash) + Wix `updatedDate` to detect which side
-    // changed. Default to the current INW state so legacy/imported links (no baseline yet) don't
-    // trigger a content pull on first encounter.
     const inwHash = syncContentHash(item);
     const baseHash = link.syncBaselineHash ?? inwHash;
     const baseAt = link.syncBaselineAt ?? remote.remoteUpdatedAt ?? new Date();
     const inwContentChanged = inwHash !== baseHash;
-    const wixContentChanged =
+    const remoteContentChanged =
       remote.remoteUpdatedAt != null && remote.remoteUpdatedAt.getTime() > baseAt.getTime();
     const contentDecision: SyncDirection = resolveSyncDirection({
       inwChanged: inwContentChanged,
-      remoteChanged: wixContentChanged,
+      remoteChanged: remoteContentChanged,
       inwUpdatedAt: item.updatedAt,
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     });
 
-    // QUANTITY: push INW -> Wix when the live numbers differ OR when INW changed since our last
-    // agreed baseline. The baseline check is essential for classic (v1) Wix stores whose product
-    // list API doesn't report reliable stock (`remoteQtyKnown === false`): without it, an INW-origin
-    // sale would never reach Wix if the checkout webhook's push was missed or killed mid-write. The
-    // cron stays PUSH-ONLY (Wix -> INW quantity still arrives via the live inventory webhook), and
-    // the baseline only advances on a verified push, so a failed/no-op write never reverts INW.
     const inwQtyChangedSinceBaseline =
       link.syncBaselineQty != null && item.quantity !== link.syncBaselineQty;
     const qtyDiffers =
       (remoteQtyKnown && remote.quantity !== item.quantity) || inwQtyChangedSinceBaseline;
 
     if (contentDecision === "noop" && !qtyDiffers) {
-      // Anchor a baseline for links that have never been reconciled with this scheme.
       if (link.syncBaselineHash == null || link.syncBaselineAt == null) {
         await writeBaseline(link.id, link.storeItemId, remote, false);
       }
       continue;
     }
 
-    // 1) Pull Wix -> INW content when Wix is the winner.
+    if (inwContentChanged && remoteContentChanged) {
+      const winner = contentDecision === "pull" ? "remote" : "INW";
+      logSyncEvent(
+        connection.memberId,
+        provider,
+        "conflict_resolved",
+        `Kept ${winner} version. Remote updated ${remote.remoteUpdatedAt?.toISOString() ?? "unknown"}, INW updated ${item.updatedAt.toISOString()}.`,
+        link.storeItemId
+      );
+    }
+
     let pulledContent = false;
     if (contentDecision === "pull") {
       pulledContent = await applyRemoteContentToStoreItem(link.storeItemId, remote);
     }
 
-    // 2) Push INW -> Wix (and all channels). updateListing carries content + inventory; a qty-only
-    // difference uses the inventory push. Track whether Wix actually accepted the write.
     let attemptedPush = false;
-    let wixPushOk = false;
+    let pushOk = false;
     if (contentDecision === "push") {
       attemptedPush = true;
-      wixPushOk = channelSyncSucceeded(await updateStoreItemOnChannels(link.storeItemId), "wix");
+      pushOk = channelSyncSucceeded(
+        await updateStoreItemOnChannels(link.storeItemId),
+        provider
+      );
     } else if (qtyDiffers) {
       attemptedPush = true;
-      wixPushOk = channelSyncSucceeded(await syncInventoryToChannels(link.storeItemId), "wix");
+      pushOk = channelSyncSucceeded(
+        await syncInventoryToChannels(link.storeItemId),
+        provider
+      );
     }
 
-    // 3) Propagate pulled content to the OTHER channels (Wix already has it).
     if (pulledContent && contentDecision !== "push") {
-      await updateStoreItemOnChannels(link.storeItemId, { skipProviders: ["wix"] });
+      await updateStoreItemOnChannels(link.storeItemId, { skipProviders: [provider] });
     }
 
     if (pulledContent) {
@@ -234,17 +241,15 @@ export async function reconcileConnectionInboundCatalog(
         data: { lastInboundAt: new Date() },
       });
     }
-    if (attemptedPush && wixPushOk) {
+    if (attemptedPush && pushOk) {
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: { lastPushedAt: new Date() },
       });
     }
 
-    // Advance the baseline only when the winning side actually applied. A failed Wix push leaves the
-    // baseline untouched so the next pass retries the push (never reverts INW).
-    if (pulledContent || (attemptedPush && wixPushOk)) {
-      await writeBaseline(link.id, link.storeItemId, remote, attemptedPush && wixPushOk);
+    if (pulledContent || (attemptedPush && pushOk)) {
+      await writeBaseline(link.id, link.storeItemId, remote, attemptedPush && pushOk);
     } else if (link.syncBaselineHash == null || link.syncBaselineAt == null) {
       await writeBaseline(link.id, link.storeItemId, remote, false);
     }

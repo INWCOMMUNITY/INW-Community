@@ -201,15 +201,6 @@ export function SideCart() {
           )}
         </div>
         <div className="border-t p-4 space-y-3">
-          <p className="text-xs text-gray-500">
-            <Link href="/cart" className="hover:underline" onClick={() => setOpen(false)}>
-              Enter a promo code
-            </Link>
-            {" · "}
-            <Link href="/cart" className="hover:underline" onClick={() => setOpen(false)}>
-              Add a note
-            </Link>
-          </p>
           <p className="font-bold">
             Estimated total: ${(subtotalCents / 100).toFixed(2)}
           </p>

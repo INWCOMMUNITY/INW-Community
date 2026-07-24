@@ -239,12 +239,59 @@ export const etsyAdapter: ChannelAdapter = {
     await etsyJson(conn.accessToken, `/listings/${externalListingId}/inventory`, "PUT", {
       products: rebuilt,
     });
+
+    // Read-back verify for single-SKU listings
+    if (singleProduct) {
+      const after = await etsyGet<EtsyInventory>(
+        conn.accessToken,
+        `/listings/${externalListingId}/inventory`
+      ).catch(() => null);
+      const actual = after?.products?.[0]?.offerings?.[0]?.quantity;
+      if (typeof actual === "number" && actual !== Math.max(0, absoluteQuantity)) {
+        throw new Error(
+          `Etsy inventory verify failed for listing ${externalListingId}: expected ${absoluteQuantity}, got ${actual}`
+        );
+      }
+    }
+  },
+
+  async fetchProductQuantity(
+    conn,
+    externalListingId
+  ): Promise<{ quantity: number; known: boolean }> {
+    try {
+      const inv = await etsyGet<EtsyInventory>(
+        conn.accessToken,
+        `/listings/${externalListingId}/inventory`
+      );
+      const products = inv.products ?? [];
+      if (products.length === 0) {
+        const listing = await etsyGet<{ quantity?: number }>(
+          conn.accessToken,
+          `/listings/${externalListingId}`
+        );
+        if (typeof listing.quantity === "number") {
+          return { quantity: Math.max(0, listing.quantity), known: true };
+        }
+        return { quantity: 0, known: false };
+      }
+      let total = 0;
+      for (const p of products) {
+        for (const o of p.offerings ?? []) {
+          total += Math.max(0, o.quantity ?? 0);
+        }
+      }
+      return { quantity: total, known: true };
+    } catch {
+      return { quantity: 0, known: false };
+    }
   },
 
   async listRemoteListings(conn): Promise<RemoteListingSummary[]> {
     const shopId = requireShop(conn);
     const out: RemoteListingSummary[] = [];
-    const states = ["active", "draft", "inactive"];
+    // Active only — draft/inactive treated as removed by baseline reconciler.
+    const states = ["active"];
     for (const state of states) {
       let offset = 0;
       // Cap the import preview at a few pages to stay within rate limits.
@@ -262,10 +309,13 @@ export const etsyAdapter: ChannelAdapter = {
                 conn.accessToken,
                 `/application/seller-taxonomy/nodes/${l.taxonomy_id}`
               ).catch(() => null);
+              // Etsy path is root → … → leaf. Use root as category + leaf as subcategory
+              // so auto-translate hits top-level aliases (Accessories, Home & Living, …).
               const path = tax?.path ?? (tax?.name ? [tax.name] : []);
               if (path.length > 0) {
-                summary.category = path[path.length - 1] ?? null;
-                summary.subcategory = path.length > 1 ? path[path.length - 2] ?? null : null;
+                summary.category = path[0] ?? null;
+                summary.subcategory =
+                  path.length > 1 ? path[path.length - 1] ?? null : null;
               }
             } catch {
               /* optional enrichment */

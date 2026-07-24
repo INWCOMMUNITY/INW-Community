@@ -16,11 +16,20 @@ import {
   refreshEbayToken,
 } from "./oauth";
 import { fetchEbayConnectionConfig, readEbayConfig } from "./account";
-import { checkRevisionLimit, getRevisionLimitWarning, recordRevision } from "./rate-limits";
+import {
+  checkRevisionLimit,
+  getRevisionLimitWarning,
+  hydrateRevisionCountsFromConfig,
+  persistRevisionCount,
+} from "./rate-limits";
 import { resolveProviderCategoryId } from "../category-map";
 import { buildEbayInventoryItem, buildEbayOffer, ebayListingToSummary } from "./mapping";
 import { hasOptionQuantities } from "../../store-item-variants";
-import { enumerateEbayListings, subscribeToEbayNotifications } from "./trading";
+import {
+  enumerateEbayListings,
+  fetchEbayItemDetails,
+  subscribeToEbayNotifications,
+} from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
 import { getBaseUrl } from "@/lib/get-base-url";
 
@@ -61,6 +70,7 @@ async function upsertListing(
 ): Promise<UpsertResult> {
   const sku = linkedSku || item.id;
   const cfg = readEbayConfig(conn.config);
+  hydrateRevisionCountsFromConfig(conn.config);
 
   // Check rate limit before making any changes
   const limitCheck = checkRevisionLimit(sku);
@@ -81,14 +91,14 @@ async function upsertListing(
     "PUT",
     buildEbayInventoryItem(item)
   );
-  recordRevision(sku); // Count this as a revision
+  await persistRevisionCount(conn.id, sku, conn.config);
 
   const offerBody = buildEbayOffer(item, cfg, cat.ebayCategoryId ?? null, sku);
   const existing = await findOffer(conn.accessToken, sku);
   let offerId = existing?.offerId ?? null;
   if (offerId) {
     await ebayJson(conn.accessToken, `/sell/inventory/v1/offer/${offerId}`, "PUT", offerBody);
-    recordRevision(sku); // Count offer update as a revision too
+    await persistRevisionCount(conn.id, sku, conn.config);
   } else {
     const created = await ebayJson<{ offerId?: string }>(
       conn.accessToken,
@@ -97,14 +107,13 @@ async function upsertListing(
       offerBody
     );
     offerId = created.offerId ?? null;
-    // Creating a new offer doesn't count against revision limit
   }
 
   const shouldPublish = cfg.canPublish && item.status === "active" && item.quantity > 0 && !!offerId;
   if (shouldPublish && offerId) {
     try {
       await publishOffer(conn.accessToken, offerId);
-      recordRevision(sku); // Publishing also counts as a revision
+      await persistRevisionCount(conn.id, sku, conn.config);
     } catch (e) {
       const msg = describeEbayThrownError(e);
       console.error("[ebay] publish failed; left as draft", { offerId, error: msg });
@@ -139,16 +148,15 @@ async function verifyInventoryWrite(
 
   const actualQuantity = item.availability?.shipToLocationAvailability?.quantity;
   if (actualQuantity !== undefined && actualQuantity !== expectedQuantity) {
-    console.warn("[ebay] verifyInventoryWrite: quantity mismatch after write", {
-      sku,
-      expected: expectedQuantity,
-      actual: actualQuantity,
-    });
-    // For now, log the mismatch but don't throw. This could be due to:
-    // - Concurrent sales reducing stock
-    // - eBay propagation delay
-    // - API quirks
-    // A future enhancement could retry or throw to trigger error state.
+    // One retry after a longer delay for eBay propagation.
+    await new Promise((r) => setTimeout(r, 800));
+    const retry = await ebayGetInventoryItem(accessToken, sku);
+    const retryQty = retry?.availability?.shipToLocationAvailability?.quantity;
+    if (retryQty !== undefined && retryQty !== expectedQuantity) {
+      throw new Error(
+        `eBay inventory verify failed for SKU ${sku}: expected ${expectedQuantity}, got ${retryQty}`
+      );
+    }
   }
 }
 
@@ -226,6 +234,7 @@ export const ebayAdapter: ChannelAdapter = {
 
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
     const sku = externalListingId;
+    hydrateRevisionCountsFromConfig(conn.config);
 
     // Check rate limit before making any changes
     const limitCheck = checkRevisionLimit(sku);
@@ -244,7 +253,7 @@ export const ebayAdapter: ChannelAdapter = {
         "PUT",
         buildEbayInventoryItem(item)
       );
-      recordRevision(sku);
+      await persistRevisionCount(conn.id, sku, conn.config);
       // Read-back verification for variant listings
       await verifyInventoryWrite(conn.accessToken, sku, null);
       return;
@@ -261,7 +270,7 @@ export const ebayAdapter: ChannelAdapter = {
     await ebayJson(conn.accessToken, `/sell/inventory/v1/bulk_update_price_quantity`, "POST", {
       requests: [request],
     });
-    recordRevision(sku);
+    await persistRevisionCount(conn.id, sku, conn.config);
 
     // Read-back verification: confirm the quantity was actually updated
     await verifyInventoryWrite(conn.accessToken, sku, quantity);
@@ -278,8 +287,33 @@ export const ebayAdapter: ChannelAdapter = {
         imageUrls: l.photos,
         categoryId: l.remoteCategoryId ?? null,
         categoryName: l.categoryName ?? null,
+        remoteUpdatedAt: l.remoteUpdatedAt ?? null,
       })
     );
+  },
+
+  async fetchProductQuantity(
+    conn,
+    externalListingId
+  ): Promise<{ quantity: number; known: boolean }> {
+    let legacyId = externalListingId;
+    const inwMatch = legacyId.match(/^inw(\d+)$/);
+    if (inwMatch) legacyId = inwMatch[1];
+
+    // Prefer Inventory API for INW-created SKUs; fall back to Trading GetItem for classic IDs.
+    const inv = await ebayGetInventoryItem(conn.accessToken, externalListingId).catch(() => null);
+    const invQty = inv?.availability?.shipToLocationAvailability?.quantity;
+    if (typeof invQty === "number") {
+      return { quantity: Math.max(0, invQty), known: true };
+    }
+
+    if (/^\d+$/.test(legacyId)) {
+      const details = await fetchEbayItemDetails(conn.accessToken, legacyId);
+      if (details.quantity != null) {
+        return { quantity: details.quantity, known: true };
+      }
+    }
+    return { quantity: 0, known: false };
   },
 
   async fetchRecentSales(conn, since): Promise<RemoteSale[]> {

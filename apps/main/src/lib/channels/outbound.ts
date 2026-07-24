@@ -12,6 +12,15 @@ import type {
   SyncStoreItem,
 } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
+import { enqueueRetry } from "./retry-queue";
+import { captureChannelSyncError } from "./sentry";
+import {
+  isCircuitOpen,
+  recordCircuitSuccess,
+  recordCircuitFailure,
+  hydrateCircuitFromConfig,
+} from "./circuit-breaker";
+import { logSyncEvent } from "./sync-log";
 
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
@@ -109,6 +118,16 @@ export async function publishStoreItemToChannels(
       continue;
     }
 
+    const photosRequired = provider === "ebay" || provider === "etsy";
+    if (photosRequired && (!item.photos || item.photos.length === 0)) {
+      results.push({
+        provider,
+        ok: false,
+        error: `${provider} requires at least one photo. Add a photo before publishing.`,
+      });
+      continue;
+    }
+
     try {
       const adapter = getAdapter(provider);
       const result = await adapter.createListing(conn, item);
@@ -189,7 +208,25 @@ export async function updateStoreItemOnChannels(
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) continue;
-    if (link.lastPushedHash === hash) continue; // no content change
+    if (link.lastPushedHash === hash) continue;
+
+    hydrateCircuitFromConfig(link.connectionId, link.connection.config);
+    if (isCircuitOpen(link.connectionId)) {
+      logSyncEvent(
+        link.connection.memberId,
+        provider,
+        "circuit_open",
+        "Content push skipped - channel temporarily unavailable",
+        storeItemId
+      );
+      results.push({
+        provider,
+        ok: false,
+        error: "Channel sync temporarily paused due to repeated failures",
+      });
+      continue;
+    }
+
     try {
       const ctx = await getConnectionContext(link.connection);
       if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
@@ -209,6 +246,7 @@ export async function updateStoreItemOnChannels(
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },
       });
+      await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
       results.push({ provider, ok: true });
     } catch (e) {
       const msg = describeChannelSyncError(provider, e);
@@ -217,12 +255,15 @@ export async function updateStoreItemOnChannels(
         provider: link.provider,
         error: msg,
       });
+      captureChannelSyncError(e, { provider, storeItemId, connectionId: link.connectionId, operation: "push_content" });
       await prisma.channelListingLink
         .update({
           where: { id: link.id },
           data: { syncStatus: "error", syncError: msg },
         })
         .catch(() => {});
+      await recordCircuitFailure(link.connectionId, provider, link.connection.memberId, msg);
+      enqueueRetry(link.id, storeItemId, provider, "content", msg, e).catch(() => {});
       results.push({ provider, ok: false, error: msg });
     }
   }

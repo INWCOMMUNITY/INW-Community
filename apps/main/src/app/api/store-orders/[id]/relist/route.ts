@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
-import { syncInventoryToChannelsSafe } from "@/lib/channels/sync-inventory";
+import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +80,7 @@ export async function POST(
   });
 
   // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
-  for (const oi of order.items) syncInventoryToChannelsSafe(oi.storeItemId);
+  await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
 
   return NextResponse.json({ ok: true });
 }

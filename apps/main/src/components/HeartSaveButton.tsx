@@ -80,7 +80,7 @@ export function HeartSaveButton({
   }
 
   const isFull = variant === "full";
-  const iconClass = saved ? "text-red-500" : isFull ? "text-[var(--color-primary)]" : "text-gray-500";
+  const iconClass = saved ? (isFull ? "text-white" : "text-red-500") : isFull ? "text-white" : "text-gray-500";
   const icon = (
     <IonIcon
       name={saved ? "heart" : "heart-outline"}
@@ -89,7 +89,7 @@ export function HeartSaveButton({
     />
   );
   const label = saved ? savedLabel : saveLabel;
-  const fullBtnClass = `flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border-2 border-[var(--color-primary)] bg-white py-3 text-[15px] font-bold text-[var(--color-primary)] transition-opacity hover:opacity-90 disabled:opacity-50 ${className}`;
+  const fullBtnClass = `flex w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border-2 border-[var(--color-primary)] bg-[var(--color-primary)] py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-[var(--color-button-hover)] disabled:opacity-50 ${className}`;
   const iconBtnClass = `inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 transition disabled:opacity-50 ${className}`;
 
   if (status !== "authenticated") {
@@ -101,7 +101,7 @@ export function HeartSaveButton({
           className={fullBtnClass}
           title="Log in to save"
         >
-          <IonIcon name="heart-outline" size={iconSize} className="text-[var(--color-primary)]" />
+          <IonIcon name="heart-outline" size={iconSize} className="text-white" />
           <span>{saveLabel}</span>
         </Link>
       );

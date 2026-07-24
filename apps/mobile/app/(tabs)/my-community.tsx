@@ -235,6 +235,9 @@ function SellerHubContent() {
       { label: "Pick Up", href: "/seller-hub/pickups", icon: "hand-left-outline" },
       { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
       { label: "Sync Stores", href: "/seller-hub/channels", icon: "sync-outline" },
+      { label: "Analytics", href: "/seller-hub/analytics", icon: "analytics-outline" },
+      { label: "Activity Log", href: "/seller-hub/activity", icon: "time-outline" },
+      { label: "Data Tools", href: "/seller-hub/data-tools", icon: "download-outline" },
       {
         label: sellerSetupComplete ? "Seller Variables" : "Before You Start",
         href: "/seller-hub/before-you-start",

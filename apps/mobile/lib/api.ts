@@ -348,8 +348,11 @@ export async function apiPut<T = unknown>(
   return data as T;
 }
 
-export async function apiDelete<T = unknown>(path: string): Promise<T> {
-  const res = await fetchWithAuth(path, { method: "DELETE" });
+export async function apiDelete<T = unknown>(path: string, body?: unknown): Promise<T> {
+  const res = await fetchWithAuth(path, {
+    method: "DELETE",
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
   ensureJsonResponse(res);
   const data = await parseJsonResponse<T>(res);
   if (!res.ok) {

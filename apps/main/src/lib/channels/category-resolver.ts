@@ -1,15 +1,22 @@
 import { STORE_CATEGORIES } from "@/lib/store-categories";
+import type { ChannelProvider } from "./types";
 
-/** Minimum similarity score (0–1) to map a remote label to a preset INW category. */
+/** Minimum similarity score (0–1) to map a remote label to a preset INW category (strict mode). */
 export const CATEGORY_MATCH_THRESHOLD = 0.72;
 
 /**
- * Explicit mappings from common eBay category names/fragments to INW presets.
- * Checked before fuzzy matching to ensure collectibles categories map correctly.
- * Keys are normalized (lowercase, trimmed).
+ * Floor for "closest preset" mode used by Etsy/Wix sync — always pick the best INW
+ * preset above this score instead of storing a raw marketplace label.
  */
-const EBAY_CATEGORY_ALIASES: Record<string, { category: string; subcategory: string | null }> = {
-  // Coins & Currency
+export const CLOSEST_PRESET_FLOOR = 0.28;
+
+type AliasHit = { category: string; subcategory: string | null };
+
+/**
+ * Explicit mappings from common eBay category names/fragments to INW presets.
+ * Keys are normalized (lowercase, trimmed). Longer keys win over short ones.
+ */
+const EBAY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   "coins & paper money": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
   "coins paper money": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
   "coins: us": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
@@ -18,38 +25,207 @@ const EBAY_CATEGORY_ALIASES: Record<string, { category: string; subcategory: str
   "coins world": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
   "paper money: us": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
   "paper money: world": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  "bullion": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  "exonumia": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  // Stamps
-  "stamps": { category: "Art & Collectibles", subcategory: "Stamps" },
+  bullion: { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  exonumia: { category: "Art & Collectibles", subcategory: "Coins & Currency" },
+  stamps: { category: "Art & Collectibles", subcategory: "Stamps" },
   "stamps: united states": { category: "Art & Collectibles", subcategory: "Stamps" },
   "stamps: worldwide": { category: "Art & Collectibles", subcategory: "Stamps" },
-  // Trading Cards
   "sports trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
   "non-sport trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
   "trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
   "sports mem, cards & fan shop": { category: "Art & Collectibles", subcategory: "Trading Cards" },
-  // Comics
-  "comics": { category: "Books, Movies & Music", subcategory: "Books" },
-  "comic books": { category: "Books, Movies & Music", subcategory: "Books" },
-  "collectibles: comic books & memorabilia": { category: "Books, Movies & Music", subcategory: "Books" },
-  // Collectibles (general)
-  "collectibles": { category: "Art & Collectibles", subcategory: null },
-  "antiques": { category: "Art & Collectibles", subcategory: "Vintage & Antiques" },
+  comics: { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "comic books": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles: comic books & memorabilia": {
+    category: "Books, Movies & Music",
+    subcategory: "Comics & Graphic Novels",
+  },
+  collectibles: { category: "Art & Collectibles", subcategory: null },
+  antiques: { category: "Art & Collectibles", subcategory: "Vintage & Antiques" },
   "pottery & glass": { category: "Art & Collectibles", subcategory: null },
-  "art": { category: "Art & Collectibles", subcategory: "Paintings & Prints" },
-  // Entertainment Memorabilia
   "entertainment memorabilia": { category: "Art & Collectibles", subcategory: "Memorabilia" },
   "music memorabilia": { category: "Art & Collectibles", subcategory: "Memorabilia" },
   "movie memorabilia": { category: "Art & Collectibles", subcategory: "Memorabilia" },
-  "autographs": { category: "Art & Collectibles", subcategory: "Memorabilia" },
+  autographs: { category: "Art & Collectibles", subcategory: "Memorabilia" },
 };
+
+/**
+ * Etsy seller-taxonomy top-levels + common mid/leaf labels → closest INW preset.
+ * Covers all 15 Etsy top-level categories from seller help.
+ */
+const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
+  // Top-level
+  accessories: { category: "Accessories", subcategory: null },
+  "art & collectibles": { category: "Art & Collectibles", subcategory: null },
+  "art and collectibles": { category: "Art & Collectibles", subcategory: null },
+  "bags & purses": { category: "Bags & Purses", subcategory: null },
+  "bags and purses": { category: "Bags & Purses", subcategory: null },
+  "bath & beauty": { category: "Bath & Beauty", subcategory: null },
+  "bath and beauty": { category: "Bath & Beauty", subcategory: null },
+  "books, movies & music": { category: "Books, Movies & Music", subcategory: null },
+  "books movies & music": { category: "Books, Movies & Music", subcategory: null },
+  "books, films & music": { category: "Books, Movies & Music", subcategory: null },
+  "books films & music": { category: "Books, Movies & Music", subcategory: null },
+  clothing: { category: "Clothing", subcategory: null },
+  "craft supplies & tools": { category: "Craft Supplies & Tools", subcategory: null },
+  "craft supplies and tools": { category: "Craft Supplies & Tools", subcategory: null },
+  "electronics & accessories": { category: "Electronics & Accessories", subcategory: null },
+  "electronics and accessories": { category: "Electronics & Accessories", subcategory: null },
+  "home & living": { category: "Home & Living", subcategory: null },
+  "home and living": { category: "Home & Living", subcategory: null },
+  jewelry: { category: "Jewelry & Watches", subcategory: null },
+  jewellery: { category: "Jewelry & Watches", subcategory: null },
+  "paper & party supplies": { category: "Paper & Party Supplies", subcategory: null },
+  "paper and party supplies": { category: "Paper & Party Supplies", subcategory: null },
+  "pet supplies": { category: "Pet Supplies", subcategory: null },
+  shoes: { category: "Shoes", subcategory: null },
+  "toys & games": { category: "Toys & Games", subcategory: null },
+  "toys and games": { category: "Toys & Games", subcategory: null },
+  weddings: { category: "Wedding", subcategory: null },
+  wedding: { category: "Wedding", subcategory: null },
+
+  // Accessories mid-level
+  "hats & head coverings": { category: "Accessories", subcategory: "Hats & Caps" },
+  "hats & caps": { category: "Accessories", subcategory: "Hats & Caps" },
+  "scarves & wraps": { category: "Accessories", subcategory: "Scarves & Wraps" },
+  "belts & suspenders": { category: "Accessories", subcategory: "Belts" },
+  "sunglasses & eyewear": { category: "Accessories", subcategory: "Sunglasses & Eyewear" },
+  "gloves & sleeves": { category: "Accessories", subcategory: "Gloves & Mittens" },
+  "hair accessories": { category: "Accessories", subcategory: "Hair Accessories" },
+  "keychains & lanyards": { category: "Accessories", subcategory: "Keychains & Lanyards" },
+  "pins & clips": { category: "Accessories", subcategory: "Pins & Badges" },
+  "suit & tie accessories": { category: "Accessories", subcategory: "Ties & Pocket Squares" },
+  "costume accessories": { category: "Accessories", subcategory: "Costume Accessories" },
+
+  // Art & Collectibles mid-level
+  "drawing & illustration": { category: "Art & Collectibles", subcategory: "Drawing & Illustration" },
+  "fiber arts": { category: "Art & Collectibles", subcategory: "Fiber Arts" },
+  "glass art": { category: "Art & Collectibles", subcategory: "Glass Art" },
+  "dolls & miniatures": { category: "Art & Collectibles", subcategory: "Dolls & Miniatures" },
+  photography: { category: "Art & Collectibles", subcategory: "Photography" },
+  painting: { category: "Art & Collectibles", subcategory: "Paintings & Prints" },
+  "prints": { category: "Art & Collectibles", subcategory: "Paintings & Prints" },
+  sculpture: { category: "Art & Collectibles", subcategory: "Sculpture & Statues" },
+  memorabilia: { category: "Art & Collectibles", subcategory: "Memorabilia" },
+  collectibles: { category: "Art & Collectibles", subcategory: null },
+
+  // Bags
+  handbags: { category: "Bags & Purses", subcategory: "Handbags" },
+  backpacks: { category: "Bags & Purses", subcategory: "Backpacks" },
+  "wallets & money clips": { category: "Bags & Purses", subcategory: "Wallets & Card Holders" },
+  totes: { category: "Bags & Purses", subcategory: "Totes & Shopping Bags" },
+
+  // Bath & Beauty
+  "skin care": { category: "Bath & Beauty", subcategory: "Skin Care" },
+  "hair care": { category: "Bath & Beauty", subcategory: "Hair Care" },
+  makeup: { category: "Bath & Beauty", subcategory: "Makeup & Cosmetics" },
+  fragrance: { category: "Bath & Beauty", subcategory: "Fragrances" },
+  "soaps & bath bombs": { category: "Bath & Beauty", subcategory: "Soaps & Bath" },
+  soap: { category: "Bath & Beauty", subcategory: "Soaps & Bath" },
+
+  // Home & Living mid-level
+  "home decor": { category: "Home & Living", subcategory: "Home Decor" },
+  "wall decor": { category: "Home & Living", subcategory: "Wall Decor" },
+  bedding: { category: "Home & Living", subcategory: "Bedding" },
+  bathroom: { category: "Home & Living", subcategory: "Bathroom" },
+  lighting: { category: "Home & Living", subcategory: "Lighting" },
+  "storage & organization": { category: "Home & Living", subcategory: "Home Storage" },
+  kitchen: { category: "Home & Kitchen", subcategory: null },
+  "dining & serving": { category: "Home & Kitchen", subcategory: "Dining & Serving" },
+  furniture: { category: "Furniture", subcategory: null },
+  gardening: { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+
+  // Jewelry
+  necklaces: { category: "Jewelry & Watches", subcategory: "Necklaces & Pendants" },
+  bracelets: { category: "Jewelry & Watches", subcategory: "Bracelets" },
+  earrings: { category: "Jewelry & Watches", subcategory: "Earrings" },
+  rings: { category: "Jewelry & Watches", subcategory: "Rings" },
+  "body jewelry": { category: "Jewelry & Watches", subcategory: "Body Jewelry" },
+  watches: { category: "Jewelry & Watches", subcategory: "Watches" },
+
+  // Paper & Party
+  "greeting cards": { category: "Paper & Party Supplies", subcategory: "Greeting Cards" },
+  invitations: { category: "Paper & Party Supplies", subcategory: "Invitations" },
+  "party decorations": { category: "Paper & Party Supplies", subcategory: "Party Decorations" },
+  "gift wrapping": { category: "Paper & Party Supplies", subcategory: "Gift Wrap & Packaging" },
+  stickers: { category: "Paper & Party Supplies", subcategory: "Stickers & Labels" },
+
+  // Pets / Shoes / Toys / Wedding
+  "dog supplies": { category: "Pet Supplies", subcategory: "Dog" },
+  "cat supplies": { category: "Pet Supplies", subcategory: "Cat" },
+  "women's shoes": { category: "Shoes", subcategory: "Women's Shoes" },
+  "mens shoes": { category: "Shoes", subcategory: "Men's Shoes" },
+  "men's shoes": { category: "Shoes", subcategory: "Men's Shoes" },
+  "board games": { category: "Toys & Games", subcategory: "Board Games & Puzzles" },
+  "stuffed animals": { category: "Toys & Games", subcategory: "Dolls & Stuffed Animals" },
+  "bridal accessories": { category: "Wedding", subcategory: "Accessories" },
+  "wedding decorations": { category: "Wedding", subcategory: "Decor & Centerpieces" },
+};
+
+/**
+ * Common Wix store collection / ribbon names → INW presets.
+ * Sellers often name collections after Etsy-like or retail categories.
+ */
+const WIX_CATEGORY_ALIASES: Record<string, AliasHit> = {
+  ...ETSY_CATEGORY_ALIASES,
+  apparel: { category: "Clothing", subcategory: null },
+  fashion: { category: "Clothing", subcategory: null },
+  "home goods": { category: "Home & Living", subcategory: "Home Decor" },
+  decor: { category: "Home & Living", subcategory: "Home Decor" },
+  gifts: { category: "Paper & Party Supplies", subcategory: "Gift Wrap & Packaging" },
+  "gift ideas": { category: "Paper & Party Supplies", subcategory: "Gift Wrap & Packaging" },
+  beauty: { category: "Bath & Beauty", subcategory: null },
+  skincare: { category: "Bath & Beauty", subcategory: "Skin Care" },
+  jewellery: { category: "Jewelry & Watches", subcategory: null },
+  kids: { category: "Baby & Kids", subcategory: null },
+  baby: { category: "Baby & Kids", subcategory: null },
+  outdoors: { category: "Sports & Outdoors", subcategory: "Outdoor Gear" },
+  sports: { category: "Sports & Outdoors", subcategory: null },
+  electronics: { category: "Electronics & Accessories", subcategory: null },
+  tech: { category: "Electronics & Accessories", subcategory: null },
+  stationery: { category: "Office & School Supplies", subcategory: "Stationery" },
+  party: { category: "Paper & Party Supplies", subcategory: "Party Decorations" },
+  pets: { category: "Pet Supplies", subcategory: null },
+};
+
+/** Labels that are never useful as Wix/Etsy category sources. */
+const NOISE_CATEGORY_LABELS = new Set([
+  "physical",
+  "digital",
+  "service",
+  "unspecified",
+  "other",
+  "n a",
+  "na",
+  "none",
+  "general",
+  // Wix marketing collections — not real product categories
+  "all products",
+  "new arrivals",
+  "best sellers",
+  "bestsellers",
+  "sale",
+  "on sale",
+  "featured",
+  "shop all",
+]);
 
 export type ResolvedInwCategory = {
   category: string;
   subcategory: string | null;
   /** True when mapped to a preset from STORE_CATEGORIES; false when stored as custom text. */
   matchedPreset: boolean;
+  /** Similarity score when fuzzy-matched (1 for exact alias). */
+  score?: number;
+};
+
+export type ResolveCategoryOptions = {
+  provider?: ChannelProvider;
+  /**
+   * When true (default for etsy/wix), always pick the closest INW preset above
+   * CLOSEST_PRESET_FLOOR instead of storing the raw remote label.
+   */
+  closestPreset?: boolean;
 };
 
 function normalizeLabel(s: string): string {
@@ -68,7 +244,7 @@ function tokenSet(s: string): Set<string> {
 }
 
 /** Token overlap / Jaccard-style score between two labels. */
-function similarityScore(a: string, b: string): number {
+export function similarityScore(a: string, b: string): number {
   const na = normalizeLabel(a);
   const nb = normalizeLabel(b);
   if (!na || !nb) return 0;
@@ -115,23 +291,22 @@ function bestPresetMatch(remoteLabel: string, remoteSubLabel?: string | null): C
   if (remoteSubLabel?.trim()) {
     for (const preset of STORE_CATEGORIES) {
       const parentScore = similarityScore(remoteLabel, preset.label);
-      const subScore = similarityScore(remoteSubLabel, preset.subcategories.join(" "));
-      if (parentScore >= 0.85) {
-        for (const sub of preset.subcategories) {
-          const s = similarityScore(remoteSubLabel, sub);
-          if (s > (best?.score ?? 0)) {
-            best = { category: preset.label, subcategory: sub, score: Math.max(s, parentScore * 0.95) };
-          }
+      for (const sub of preset.subcategories) {
+        const s = similarityScore(remoteSubLabel, sub);
+        if (parentScore >= 0.85 && s > (best?.score ?? 0)) {
+          best = {
+            category: preset.label,
+            subcategory: sub,
+            score: Math.max(s, parentScore * 0.95),
+          };
         }
-      }
-      if (parentScore >= CATEGORY_MATCH_THRESHOLD && subScore >= CATEGORY_MATCH_THRESHOLD) {
-        const subMatch = preset.subcategories.find(
-          (s) => similarityScore(remoteSubLabel, s) >= CATEGORY_MATCH_THRESHOLD
-        );
-        if (subMatch) {
-          const score = (parentScore + similarityScore(remoteSubLabel, subMatch)) / 2;
+        if (
+          parentScore >= CATEGORY_MATCH_THRESHOLD &&
+          s >= CATEGORY_MATCH_THRESHOLD
+        ) {
+          const score = (parentScore + s) / 2;
           if (score > (best?.score ?? 0)) {
-            best = { category: preset.label, subcategory: subMatch, score };
+            best = { category: preset.label, subcategory: sub, score };
           }
         }
       }
@@ -141,78 +316,176 @@ function bestPresetMatch(remoteLabel: string, remoteSubLabel?: string | null): C
   return best;
 }
 
+function aliasesForProvider(provider?: ChannelProvider): Record<string, AliasHit> {
+  if (provider === "etsy") return ETSY_CATEGORY_ALIASES;
+  if (provider === "wix") return WIX_CATEGORY_ALIASES;
+  if (provider === "ebay") return EBAY_CATEGORY_ALIASES;
+  // Shopify / unknown: combine Etsy + eBay retail-ish aliases
+  return { ...ETSY_CATEGORY_ALIASES, ...EBAY_CATEGORY_ALIASES };
+}
+
 /**
- * Check if a remote category matches any explicit eBay → INW alias.
- * Searches for the alias key in the normalized combined label.
+ * Prefer the longest matching alias key (avoids short keys like "art" winning over
+ * "art & collectibles"). Exact match beats substring.
  */
-function matchAlias(remoteLabel: string, remoteSubLabel?: string | null): ResolvedInwCategory | null {
+function matchAlias(
+  remoteLabel: string,
+  remoteSubLabel: string | null | undefined,
+  aliases: Record<string, AliasHit>
+): ResolvedInwCategory | null {
   const combined = remoteSubLabel?.trim()
     ? `${remoteLabel} ${remoteSubLabel}`.trim()
     : remoteLabel.trim();
-  const normalized = normalizeLabel(combined);
-  if (!normalized) return null;
+  const candidates = [
+    { text: normalizeLabel(combined), weight: 1 },
+    { text: normalizeLabel(remoteLabel), weight: 0.98 },
+    ...(remoteSubLabel?.trim()
+      ? [{ text: normalizeLabel(remoteSubLabel), weight: 0.96 }]
+      : []),
+  ].filter((c) => c.text);
 
-  // Check exact matches first, then partial matches (key contained in label)
-  for (const [key, mapping] of Object.entries(EBAY_CATEGORY_ALIASES)) {
-    const normalizedKey = normalizeLabel(key);
-    if (normalized === normalizedKey || normalized.includes(normalizedKey)) {
-      return {
-        category: mapping.category,
-        subcategory: mapping.subcategory,
-        matchedPreset: true,
-      };
-    }
-  }
+  let best: { hit: AliasHit; keyLen: number; exact: boolean } | null = null;
 
-  // Also check if any key is found in the remote sub-label alone
-  if (remoteSubLabel?.trim()) {
-    const normalizedSub = normalizeLabel(remoteSubLabel);
-    for (const [key, mapping] of Object.entries(EBAY_CATEGORY_ALIASES)) {
+  for (const { text } of candidates) {
+    for (const [key, mapping] of Object.entries(aliases)) {
       const normalizedKey = normalizeLabel(key);
-      if (normalizedSub === normalizedKey || normalizedSub.includes(normalizedKey)) {
-        return {
-          category: mapping.category,
-          subcategory: mapping.subcategory,
-          matchedPreset: true,
-        };
+      if (!normalizedKey || normalizedKey.length < 3) continue;
+      const exact = text === normalizedKey;
+      const partial = !exact && text.includes(normalizedKey);
+      if (!exact && !partial) continue;
+      // Require key to be a meaningful chunk (avoid matching "art" inside "party")
+      if (!exact && normalizedKey.length < 5 && !text.split(" ").includes(normalizedKey)) {
+        continue;
+      }
+      const keyLen = normalizedKey.length;
+      if (
+        !best ||
+        (exact && !best.exact) ||
+        (exact === best.exact && keyLen > best.keyLen)
+      ) {
+        best = { hit: mapping, keyLen, exact };
       }
     }
   }
 
-  return null;
+  if (!best) return null;
+  return {
+    category: best.hit.category,
+    subcategory: best.hit.subcategory,
+    matchedPreset: true,
+    score: 1,
+  };
+}
+
+function isNoiseLabel(label: string): boolean {
+  return NOISE_CATEGORY_LABELS.has(normalizeLabel(label));
+}
+
+/** Best subcategory under a known INW top-level for a remote leaf label. */
+function refineSubcategory(category: string, remoteSub: string): string | null {
+  const preset = STORE_CATEGORIES.find((c) => c.label === category);
+  if (!preset) return null;
+  let best: { sub: string; score: number } | null = null;
+  for (const sub of preset.subcategories) {
+    const score = similarityScore(remoteSub, sub);
+    if (score >= 0.55 && score > (best?.score ?? 0)) {
+      best = { sub, score };
+    }
+  }
+  // Exact alias mid-level keys under this category (e.g. Greeting Cards).
+  const n = normalizeLabel(remoteSub);
+  for (const [key, hit] of Object.entries({ ...ETSY_CATEGORY_ALIASES, ...WIX_CATEGORY_ALIASES })) {
+    if (hit.category !== category || !hit.subcategory) continue;
+    if (n === normalizeLabel(key) || n.includes(normalizeLabel(key))) {
+      return hit.subcategory;
+    }
+  }
+  return best?.sub ?? null;
+}
+
+function shouldUseClosestPreset(
+  provider: ChannelProvider | undefined,
+  opts?: ResolveCategoryOptions
+): boolean {
+  if (opts?.closestPreset != null) return opts.closestPreset;
+  return provider === "etsy" || provider === "wix" || provider === "shopify";
 }
 
 /**
  * Map a remote category label to an INW shop category.
- * First checks explicit eBay aliases, then falls back to fuzzy matching,
- * and finally stores the remote label as a custom category string.
+ * Provider-specific aliases run first, then fuzzy matching.
+ * Etsy/Wix default to closest-preset mode so sync never invents orphan custom labels
+ * when a reasonable INW match exists.
  */
 export function resolveInwCategoryFromRemote(
   remoteLabel: string | null | undefined,
-  remoteSubLabel?: string | null
+  remoteSubLabel?: string | null,
+  opts?: ResolveCategoryOptions
 ): ResolvedInwCategory | null {
-  const label = remoteLabel?.trim();
+  let label = remoteLabel?.trim() ?? "";
+  let sub = remoteSubLabel?.trim() || null;
+
+  // Wix often puts "physical" in productType — treat as missing.
+  if (label && isNoiseLabel(label)) {
+    if (sub && !isNoiseLabel(sub)) {
+      label = sub;
+      sub = null;
+    } else {
+      return null;
+    }
+  }
+  if (sub && isNoiseLabel(sub)) sub = null;
   if (!label) return null;
 
-  // 1. Check explicit aliases first (for eBay collectibles categories)
-  const aliasMatch = matchAlias(label, remoteSubLabel);
-  if (aliasMatch) return aliasMatch;
+  const aliases = aliasesForProvider(opts?.provider);
+  let aliasMatch = matchAlias(label, sub, aliases);
 
-  // 2. Fuzzy match against STORE_CATEGORIES presets
-  const best = bestPresetMatch(label, remoteSubLabel);
+  // Also try eBay aliases as a shared collectibles backstop for all providers.
+  if (!aliasMatch && opts?.provider !== "ebay") {
+    aliasMatch = matchAlias(label, sub, EBAY_CATEGORY_ALIASES);
+  }
+
+  if (aliasMatch) {
+    // Refine subcategory when alias only hit the top-level (e.g. Home & Living + Wall Decor).
+    if (!aliasMatch.subcategory && sub) {
+      const refined = refineSubcategory(aliasMatch.category, sub);
+      if (refined) {
+        return {
+          ...aliasMatch,
+          subcategory: refined,
+        };
+      }
+    }
+    return aliasMatch;
+  }
+
+  const best = bestPresetMatch(label, sub);
+  const closest = shouldUseClosestPreset(opts?.provider, opts);
+
   if (best && best.score >= CATEGORY_MATCH_THRESHOLD) {
     return {
       category: best.category,
       subcategory: best.subcategory,
       matchedPreset: true,
+      score: best.score,
     };
   }
 
-  // 3. Fallback: store raw remote label as custom category
+  if (closest && best && best.score >= CLOSEST_PRESET_FLOOR) {
+    return {
+      category: best.category,
+      subcategory: best.subcategory,
+      matchedPreset: true,
+      score: best.score,
+    };
+  }
+
+  // Strict fallback: keep remote label as custom (eBay default).
   return {
     category: label.slice(0, 200),
-    subcategory: remoteSubLabel?.trim()?.slice(0, 200) ?? null,
+    subcategory: sub?.slice(0, 200) ?? null,
     matchedPreset: false,
+    score: best?.score,
   };
 }
 

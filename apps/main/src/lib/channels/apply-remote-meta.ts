@@ -19,7 +19,7 @@ export async function applyRemoteCategoryToStoreItem(
   const remoteLabel = remote.category?.trim();
   if (!remoteLabel) return false;
 
-  const resolved = resolveInwCategoryFromRemote(remoteLabel, remote.subcategory);
+  const resolved = resolveInwCategoryFromRemote(remoteLabel, remote.subcategory, { provider });
   if (!resolved) return false;
 
   const item = await prisma.storeItem.findUnique({
@@ -32,20 +32,26 @@ export async function applyRemoteCategoryToStoreItem(
   const nextSub = resolved.subcategory;
   const categorySame = (item.category ?? "") === nextCategory;
   const subSame = (item.subcategory ?? "") === (nextSub ?? "");
-  if (categorySame && subSame) return false;
 
-  const data: Record<string, unknown> = {
-    category: nextCategory,
-    subcategory: nextSub,
-  };
+  const data: Record<string, unknown> = {};
+  if (!categorySame || !subSame) {
+    data.category = nextCategory;
+    data.subcategory = nextSub;
+  }
   if (provider === "etsy" && remote.remoteCategoryId) {
     const tid = Number(remote.remoteCategoryId);
-    if (Number.isInteger(tid) && tid > 0) data.etsyTaxonomyId = tid;
+    if (Number.isInteger(tid) && tid > 0 && item.etsyTaxonomyId !== tid) {
+      data.etsyTaxonomyId = tid;
+    }
   }
   if (provider === "ebay" && remote.remoteCategoryId) {
     const cid = Number(remote.remoteCategoryId);
-    if (Number.isInteger(cid) && cid > 0) data.ebayCategoryId = cid;
+    if (Number.isInteger(cid) && cid > 0 && item.ebayCategoryId !== cid) {
+      data.ebayCategoryId = cid;
+    }
   }
+
+  if (Object.keys(data).length === 0) return false;
 
   await prisma.storeItem.update({ where: { id: storeItemId }, data });
   return true;
