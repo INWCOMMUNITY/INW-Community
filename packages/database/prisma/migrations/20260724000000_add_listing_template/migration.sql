@@ -1,5 +1,5 @@
--- CreateTable
-CREATE TABLE "listing_template" (
+-- CreateTable (idempotent — prior deploy may have partially applied before failing)
+CREATE TABLE IF NOT EXISTS "listing_template" (
     "id" TEXT NOT NULL,
     "member_id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -21,13 +21,17 @@ CREATE TABLE "listing_template" (
     "ebay_aspects" JSONB,
     "variants_template" JSONB,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "listing_template_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
-CREATE INDEX "listing_template_member_id_idx" ON "listing_template"("member_id");
+CREATE INDEX IF NOT EXISTS "listing_template_member_id_idx" ON "listing_template"("member_id");
 
--- AddForeignKey
-ALTER TABLE "listing_template" ADD CONSTRAINT "listing_template_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "Member"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (skip if already present)
+DO $$ BEGIN
+    ALTER TABLE "listing_template" ADD CONSTRAINT "listing_template_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "Member"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;

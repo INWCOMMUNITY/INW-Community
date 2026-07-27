@@ -40,8 +40,6 @@ if (skipMigrate) {
     );
     process.exit(1);
   }
-  // Resolve any failed migrations before deploying new ones
-  run("resolve-failed", "node scripts/migrate-resolve-failed.mjs");
   run("migrate", "pnpm db:migrate:deploy");
 }
 

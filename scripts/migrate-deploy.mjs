@@ -21,14 +21,19 @@
  * compute, serverless). On `VERCEL=1` with a `.neon.tech` migrate host, this script sets
  * `PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=true` for the migrate subprocess only. Use
  * `PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=0` in Vercel env to keep locking (and run one deploy at a time).
+ *
+ * **Failed migrations (P3009):** If a prior deploy left a migration in failed state, this script marks
+ * it rolled back via `prisma migrate resolve --rolled-back` and retries deploy (up to 3 attempts).
  */
-import { spawn } from "child_process";
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
+const dbDir = path.join(rootDir, "packages", "database");
+const MAX_DEPLOY_ATTEMPTS = 3;
 
 function readDatabaseUrlFromFile(p) {
   if (!fs.existsSync(p)) return null;
@@ -118,6 +123,67 @@ function shouldDisableAdvisoryLock(migrateHost) {
   return /\.neon\.tech$/i.test(migrateHost) || migrateHost.includes(".neon.tech");
 }
 
+/**
+ * @param {string} output
+ * @returns {string[]}
+ */
+function extractFailedMigrationNames(output) {
+  const names = new Set();
+  const re = /The `([^`]+)` migration[\s\S]*?failed/gi;
+  let match;
+  while ((match = re.exec(output)) !== null) {
+    names.add(match[1]);
+  }
+  return [...names];
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} childEnv
+ * @returns {{ ok: boolean; output: string; status: number }}
+ */
+function runPrismaMigrateDeploy(childEnv) {
+  try {
+    const out = execSync("pnpm exec prisma migrate deploy", {
+      cwd: dbDir,
+      env: childEnv,
+      encoding: "utf-8",
+      shell: true,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    if (out) process.stdout.write(out);
+    return { ok: true, output: String(out || ""), status: 0 };
+  } catch (e) {
+    const ex = /** @type {Error & { stdout?: string; stderr?: string; status?: number }} */ (e);
+    const output = [ex.stdout, ex.stderr, ex.message].filter(Boolean).join("\n");
+    if (output) process.stderr.write(output + (output.endsWith("\n") ? "" : "\n"));
+    return { ok: false, output, status: typeof ex.status === "number" ? ex.status : 1 };
+  }
+}
+
+/**
+ * @param {string} migrationName
+ * @param {NodeJS.ProcessEnv} childEnv
+ */
+function resolveFailedMigration(migrationName, childEnv) {
+  console.log(`migrate-deploy: marking failed migration as rolled back: ${migrationName}`);
+  try {
+    const out = execSync(`pnpm exec prisma migrate resolve --rolled-back ${migrationName}`, {
+      cwd: dbDir,
+      env: childEnv,
+      encoding: "utf-8",
+      shell: true,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    if (out) process.stdout.write(out);
+    return true;
+  } catch (e) {
+    const ex = /** @type {Error & { stdout?: string; stderr?: string }} */ (e);
+    const output = [ex.stdout, ex.stderr, ex.message].filter(Boolean).join("\n");
+    console.warn(`migrate-deploy: resolve --rolled-back ${migrationName} warning:\n${output}`);
+    return false;
+  }
+}
+
 let url = process.env.DATABASE_URL?.trim();
 if (url) {
   console.log("migrate-deploy: DATABASE_URL from environment");
@@ -153,10 +219,7 @@ console.log("migrate-deploy: App DATABASE_URL host:", hostMatch ? hostMatch[1] :
 const migrateUrl = withLibpqMigrateOptions(resolveMigrateDatabaseUrl(url));
 const migrateHostMatch = migrateUrl.match(/@([^/?]+)/);
 const migrateHostOnly = migrateHostMatch ? migrateHostMatch[1].split(":")[0] : "";
-console.log(
-  "migrate-deploy: Migrate host:",
-  migrateHostOnly || "(verify URL)"
-);
+console.log("migrate-deploy: Migrate host:", migrateHostOnly || "(verify URL)");
 
 const childEnv = { ...process.env, DATABASE_URL: migrateUrl };
 if (shouldDisableAdvisoryLock(migrateHostOnly)) {
@@ -166,12 +229,31 @@ if (shouldDisableAdvisoryLock(migrateHostOnly)) {
   );
 }
 
-const dbDir = path.join(rootDir, "packages", "database");
-const child = spawn("pnpm exec prisma migrate deploy", [], {
-  cwd: dbDir,
-  env: childEnv,
-  stdio: "inherit",
-  shell: true,
-});
+for (let attempt = 1; attempt <= MAX_DEPLOY_ATTEMPTS; attempt++) {
+  if (attempt > 1) {
+    console.log(`migrate-deploy: retry attempt ${attempt}/${MAX_DEPLOY_ATTEMPTS}`);
+  }
 
-child.on("close", (code) => process.exit(code ?? 0));
+  const result = runPrismaMigrateDeploy(childEnv);
+  if (result.ok) {
+    process.exit(0);
+  }
+
+  const isFailedMigrationBlock =
+    result.output.includes("P3009") || /migration[\s\S]*failed/i.test(result.output);
+  const failedNames = extractFailedMigrationNames(result.output);
+
+  if (!isFailedMigrationBlock || failedNames.length === 0) {
+    process.exit(result.status ?? 1);
+  }
+
+  console.log(
+    `migrate-deploy: detected failed migration(s): ${failedNames.join(", ")}`
+  );
+  for (const name of failedNames) {
+    resolveFailedMigration(name, childEnv);
+  }
+}
+
+console.error("migrate-deploy: migrate deploy failed after clearing failed migration state.");
+process.exit(1);
