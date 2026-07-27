@@ -13,6 +13,7 @@ export type SellerActivityAction =
   | "bulk_publish"
   | "bulk_unpublish"
   | "bulk_delete"
+  | "bulk_relist"
   | "channel_linked"
   | "channel_unlinked"
   | "order_received"
