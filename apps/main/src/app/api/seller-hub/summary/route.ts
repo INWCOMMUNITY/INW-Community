@@ -50,7 +50,6 @@ export async function GET(req: NextRequest) {
       balance,
       member,
       soldCount,
-      syncHealthData,
     ] = await Promise.all([
       prisma.storeOrder.findMany({
         where: {

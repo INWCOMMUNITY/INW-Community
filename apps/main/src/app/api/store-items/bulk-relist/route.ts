@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { logSellerActivity } from "@/lib/seller-activity";
+import { logSellerActivity } from "@/lib/seller-activity-log";
 
 export const dynamic = "force-dynamic";
 

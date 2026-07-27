@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { isUserAdmin } from "@/lib/admin-check";
+import { requireAdmin } from "@/lib/admin-auth";
 
 /**
  * GET /api/admin/analytics/friends
  * Returns friend request analytics for the admin dashboard.
  */
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email || !(await isUserAdmin(session.user.email))) {
+  if (!(await requireAdmin(req))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
