@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateForProviders, summarizeValidation } from "@/lib/channels/validate-publish";
-import { publishToChannel } from "@/lib/channels/outbound";
-import { getActiveConnectionContext } from "@/lib/channels/connection";
-import { logSyncEvent } from "@/lib/channels/sync-log";
+import { publishStoreItemToChannels } from "@/lib/channels/outbound";
 import { isChannelProvider, type ChannelProvider, type SyncStoreItem } from "@/lib/channels/types";
 
 export const dynamic = "force-dynamic";
@@ -98,7 +96,7 @@ export async function POST(req: NextRequest) {
         memberId: userId,
       },
       include: {
-        channelListingLinks: {
+        channelLinks: {
           where: { provider: { in: providers } },
         },
       },
@@ -147,7 +145,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Check if already linked to all requested providers
-      const existingLinks = new Set(item.channelListingLinks.map((l) => l.provider));
+      const existingLinks = new Set(item.channelLinks.map((l) => l.provider));
       const providersToPublish = providers.filter((p) => !existingLinks.has(p));
 
       if (providersToPublish.length === 0) {
@@ -186,7 +184,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Publish to each provider
+      // Publish to selected providers
       const providerResults: Record<string, { ok: boolean; error?: string }> = {};
       let anySuccess = false;
 
@@ -194,39 +192,26 @@ export async function POST(req: NextRequest) {
         const connection = connectionByProvider.get(provider);
         if (!connection) {
           providerResults[provider] = { ok: false, error: "Not connected" };
-          continue;
         }
+      }
 
+      const connectedProviders = providersToPublish.filter((p) => connectionByProvider.has(p));
+      if (connectedProviders.length > 0) {
         try {
-          const ctx = await getActiveConnectionContext(connection.id);
-          if (!ctx) {
-            providerResults[provider] = { ok: false, error: "Connection expired" };
-            continue;
-          }
-
-          await publishToChannel(ctx, item as unknown as SyncStoreItem, userId);
-          providerResults[provider] = { ok: true };
-          anySuccess = true;
-
-          await logSyncEvent({
-            memberId: userId,
-            storeItemId: item.id,
-            provider,
-            action: "bulk_publish",
-            success: true,
+          const syncResults = await publishStoreItemToChannels(item.id, userId, {
+            providers: connectedProviders,
           });
+          for (const sr of syncResults) {
+            providerResults[sr.provider] = { ok: sr.ok, error: sr.error };
+            if (sr.ok) anySuccess = true;
+          }
         } catch (e) {
           const errorMsg = e instanceof Error ? e.message : "Publish failed";
-          providerResults[provider] = { ok: false, error: errorMsg };
-
-          await logSyncEvent({
-            memberId: userId,
-            storeItemId: item.id,
-            provider,
-            action: "bulk_publish",
-            success: false,
-            error: errorMsg,
-          });
+          for (const provider of connectedProviders) {
+            if (!providerResults[provider]?.ok) {
+              providerResults[provider] = { ok: false, error: errorMsg };
+            }
+          }
         }
       }
 
@@ -261,7 +246,7 @@ export async function POST(req: NextRequest) {
               .filter(([, v]) => v.ok)
               .map(([p]) => p);
             const item = itemsById.get(r.itemId);
-            const existingChannels = item?.channelListingLinks.map((l) => l.provider) ?? [];
+            const existingChannels = item?.channelLinks.map((l) => l.provider) ?? [];
             changes[r.itemId] = {
               before: { channels: existingChannels },
               after: { channels: [...existingChannels, ...publishedTo] },
@@ -274,7 +259,7 @@ export async function POST(req: NextRequest) {
             memberId: userId,
             operation: "bulk_publish",
             itemCount: result.published,
-            changes,
+            changes: changes as Prisma.InputJsonValue,
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
           },
         });

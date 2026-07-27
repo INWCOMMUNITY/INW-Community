@@ -1,5 +1,3 @@
-import DOMPurify from "isomorphic-dompurify";
-
 /**
  * Listing-body HTML subset: keep structure (bold, italics, breaks, lists, headings)
  * and strip font/size/color/style and unsafe tags. Used for StoreItem.description
@@ -21,6 +19,17 @@ const LISTING_ALLOWED_TAGS = [
   "blockquote",
 ];
 
+function sanitizeHtml(normalized: string): string {
+  const DOMPurify = require("isomorphic-dompurify").default as {
+    sanitize: (dirty: string, config?: object) => string;
+  };
+  return DOMPurify.sanitize(normalized, {
+    ALLOWED_TAGS: LISTING_ALLOWED_TAGS,
+    ALLOWED_ATTR: [],
+    KEEP_CONTENT: true,
+  });
+}
+
 /** Sanitize remote or local listing HTML for storage and display. */
 export function sanitizeListingDescription(
   description: string | null | undefined
@@ -36,11 +45,7 @@ export function sanitizeListingDescription(
     .replace(/\s*face\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/\s*size\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 
-  const clean = DOMPurify.sanitize(normalized, {
-    ALLOWED_TAGS: LISTING_ALLOWED_TAGS,
-    ALLOWED_ATTR: [],
-    KEEP_CONTENT: true,
-  }).trim();
+  const clean = sanitizeHtml(normalized).trim();
 
   return clean || null;
 }

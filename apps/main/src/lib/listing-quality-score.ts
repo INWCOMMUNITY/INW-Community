@@ -414,6 +414,12 @@ export async function calculateQualityScore(
 
   if (options?.checkChannelReadiness) {
     const providers: ChannelProvider[] = ["ebay", "etsy", "shopify", "wix"];
+    const connections = (options?.memberConnections ?? []).map((c) => ({
+      provider: c.provider,
+      status: c.status,
+      etsyShippingProfileId: c.etsyShippingProfileId ?? null,
+      config: c.config ?? null,
+    }));
     const validationResults = await validateForProviders(
       {
         title: listing.title ?? "",
@@ -430,7 +436,7 @@ export async function calculateQualityScore(
         aspects: listing.aspects as Record<string, string> | undefined,
       },
       providers,
-      options?.memberConnections
+      connections
     );
 
     for (const provider of providers) {

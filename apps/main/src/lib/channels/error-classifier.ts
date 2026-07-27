@@ -132,10 +132,11 @@ function extractStatusCode(error: unknown): number | null {
 function errorToString(error: unknown): string {
   if (typeof error === "string") return error;
   if (error instanceof Error) {
+    const errObj = error as unknown as Record<string, unknown>;
     const parts = [error.message];
     if (error.name) parts.unshift(error.name);
-    if ((error as Record<string, unknown>).code) {
-      parts.push(String((error as Record<string, unknown>).code));
+    if (errObj.code) {
+      parts.push(String(errObj.code));
     }
     return parts.join(" ");
   }

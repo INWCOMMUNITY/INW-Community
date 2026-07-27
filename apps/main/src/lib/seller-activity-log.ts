@@ -3,7 +3,7 @@
  * Logs seller activities for audit trail and timeline display.
  */
 
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 
 export type SellerActivityAction =
   | "item_created"
@@ -78,8 +78,8 @@ export function logSellerActivity(
         action,
         entityType,
         entityId: entityId ?? null,
-        detail: detail ?? undefined,
-        metadata: metadata ?? undefined,
+        detail: detail != null ? (detail as Prisma.InputJsonValue) : undefined,
+        metadata: metadata != null ? (metadata as Prisma.InputJsonValue) : undefined,
       },
     })
     .catch((e) => {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { logSellerActivity } from "@/lib/seller-activity-log";
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       memberId: userId,
       operation: "bulk_relist",
       itemCount: items.length,
-      changes,
+      changes: changes as Prisma.InputJsonValue,
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     },
   });
@@ -84,44 +84,54 @@ export async function POST(req: NextRequest) {
     data: {
       status: "active",
       quantity: newQuantity,
-      soldAt: null,
     },
   });
 
   // Republish to channels if requested
   const channelResults: { itemId: string; provider: string; ok: boolean; error?: string }[] = [];
   if (republishChannels) {
-    const { publishToChannel } = await import("@/lib/channels/outbound");
-    
-    // Get channel links for these items
+    const { publishStoreItemToChannels } = await import("@/lib/channels/outbound");
+
     const links = await prisma.channelListingLink.findMany({
       where: {
         storeItemId: { in: itemIds },
         syncEnabled: true,
       },
       select: {
-        id: true,
         storeItemId: true,
         provider: true,
       },
     });
 
+    const providersByItem = new Map<string, ("ebay" | "etsy" | "shopify" | "wix")[]>();
     for (const link of links) {
+      const list = providersByItem.get(link.storeItemId) ?? [];
+      list.push(link.provider as "ebay" | "etsy" | "shopify" | "wix");
+      providersByItem.set(link.storeItemId, list);
+    }
+
+    for (const [itemId, itemProviders] of providersByItem) {
       try {
-        const result = await publishToChannel(link.storeItemId, link.provider as "ebay" | "etsy" | "shopify" | "wix");
-        channelResults.push({
-          itemId: link.storeItemId,
-          provider: link.provider,
-          ok: result.ok,
-          error: result.error,
+        const syncResults = await publishStoreItemToChannels(itemId, userId, {
+          providers: itemProviders,
         });
+        for (const sr of syncResults) {
+          channelResults.push({
+            itemId,
+            provider: sr.provider,
+            ok: sr.ok,
+            error: sr.error,
+          });
+        }
       } catch (e) {
-        channelResults.push({
-          itemId: link.storeItemId,
-          provider: link.provider,
-          ok: false,
-          error: e instanceof Error ? e.message : String(e),
-        });
+        for (const provider of itemProviders) {
+          channelResults.push({
+            itemId,
+            provider,
+            ok: false,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
       }
     }
   }

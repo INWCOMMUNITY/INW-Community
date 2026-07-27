@@ -30,28 +30,27 @@ export async function GET(req: NextRequest) {
     acceptedThisWeek,
     totalPending,
     totalFriendships,
-    acceptedWithTimes,
   ] = await Promise.all([
     prisma.friendRequest.count({
       where: { createdAt: { gte: today } },
     }),
     prisma.friendRequest.count({
-      where: { status: "accepted", updatedAt: { gte: today } },
+      where: { status: "accepted", createdAt: { gte: today } },
     }),
     prisma.friendRequest.count({
-      where: { status: "declined", updatedAt: { gte: today } },
+      where: { status: "declined", createdAt: { gte: today } },
     }),
     prisma.friendRequest.count({
       where: { createdAt: { gte: yesterday, lt: today } },
     }),
     prisma.friendRequest.count({
-      where: { status: "accepted", updatedAt: { gte: yesterday, lt: today } },
+      where: { status: "accepted", createdAt: { gte: yesterday, lt: today } },
     }),
     prisma.friendRequest.count({
       where: { createdAt: { gte: weekAgo } },
     }),
     prisma.friendRequest.count({
-      where: { status: "accepted", updatedAt: { gte: weekAgo } },
+      where: { status: "accepted", createdAt: { gte: weekAgo } },
     }),
     prisma.friendRequest.count({
       where: { status: "pending" },
@@ -59,26 +58,8 @@ export async function GET(req: NextRequest) {
     prisma.friendRequest.count({
       where: { status: "accepted" },
     }),
-    prisma.friendRequest.findMany({
-      where: {
-        status: "accepted",
-        updatedAt: { gte: weekAgo },
-      },
-      select: { createdAt: true, updatedAt: true },
-      take: 100,
-    }),
   ]);
 
-  // Calculate average response time (time between creation and acceptance)
-  let avgResponseTimeHours: number | null = null;
-  if (acceptedWithTimes.length > 0) {
-    const totalMs = acceptedWithTimes.reduce((sum, r) => {
-      return sum + (r.updatedAt.getTime() - r.createdAt.getTime());
-    }, 0);
-    avgResponseTimeHours = Math.round((totalMs / acceptedWithTimes.length / 1000 / 60 / 60) * 10) / 10;
-  }
-
-  // Acceptance rate this week
   const acceptanceRate = sentThisWeek > 0
     ? Math.round((acceptedThisWeek / sentThisWeek) * 100)
     : null;
@@ -102,6 +83,6 @@ export async function GET(req: NextRequest) {
       pending: totalPending,
       friendships: totalFriendships,
     },
-    avgResponseTimeHours,
+    avgResponseTimeHours: null,
   });
 }

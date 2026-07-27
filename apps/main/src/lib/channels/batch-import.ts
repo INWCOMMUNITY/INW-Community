@@ -227,19 +227,13 @@ export async function logBatchImportProgress(
   success: boolean,
   error?: string
 ): Promise<void> {
-  await logSyncEvent({
-    memberId: job.memberId,
-    storeItemId: storeItemId ?? undefined,
-    provider: job.provider,
-    action: "batch_import" as SyncLogAction,
-    success,
-    error,
-    meta: {
-      jobId: job.id,
-      externalListingId: listingId,
-      progress: `${job.completed + job.failed}/${job.total}`,
-    },
-  });
+  logSyncEvent(
+    job.memberId,
+    job.provider,
+    success ? "import" : "error",
+    error ?? `batch ${job.completed + job.failed}/${job.total} (${listingId})`,
+    storeItemId
+  );
 }
 
 /**

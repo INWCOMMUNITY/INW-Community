@@ -139,7 +139,7 @@ export async function hydrateFeedPostRows(
       }),
       prisma.postLike.groupBy({
         by: ["postId", "reaction"],
-        where: { postId: { in: postIds }, reaction: { not: null } },
+        where: { postId: { in: postIds } },
         _count: { postId: true },
       }),
       prisma.postComment.groupBy({
@@ -299,7 +299,7 @@ export async function hydrateFeedPostRows(
   for (const rc of reactionCounts) {
     if (!rc.reaction) continue;
     const existing = reactionBreakdownMap.get(rc.postId) ?? {};
-    existing[rc.reaction] = rc._count.postId;
+    existing[rc.reaction] = rc._count?.postId ?? 0;
     reactionBreakdownMap.set(rc.postId, existing);
   }
 

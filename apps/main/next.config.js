@@ -26,6 +26,7 @@ if (fs.existsSync(rootEnv)) {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ["database", "design-tokens", "types"],
+  serverExternalPackages: ["isomorphic-dompurify", "jsdom"],
   experimental: {
     outputFileTracingRoot: path.join(__dirname, "../../"),
   },
@@ -99,6 +100,7 @@ const nextConfig = {
     if (dev) config.cache = { type: "memory" };
     if (isServer) {
       config.plugins = [...(config.plugins || []), new PrismaPlugin()];
+      config.externals = [...(config.externals || []), "jsdom", "isomorphic-dompurify"];
     }
     return config;
   },

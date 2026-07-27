@@ -3,8 +3,9 @@ import { prisma } from "database";
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://www.inwcommunity.com";
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const now = new Date();
+export const dynamic = "force-dynamic";
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {  const now = new Date();
 
   // Static pages
   const staticPages: MetadataRoute.Sitemap = [
@@ -46,9 +47,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ];
 
-  // Active store items
-  const storeItems = await prisma.storeItem.findMany({
-    where: {
+  try {
+    // Active store items
+    const storeItems = await prisma.storeItem.findMany({    where: {
       status: "active",
       quantity: { gt: 0 },
     },
@@ -70,7 +71,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Business pages (seller shops)
   const businesses = await prisma.business.findMany({
     where: {
-      status: { in: ["verified", "active", "pending"] },
+      nameApprovalStatus: "approved",
     },
     select: {
       slug: true,
@@ -100,13 +101,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Events
   const events = await prisma.event.findMany({
     where: {
-      endDate: { gte: now },
+      status: "approved",
+      date: { gte: now },
     },
     select: {
       slug: true,
       updatedAt: true,
     },
-    orderBy: { startDate: "asc" },
+    orderBy: { date: "asc" },
     take: 500,
   });
 
@@ -119,5 +121,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.5,
     }));
 
-  return [...staticPages, ...itemPages, ...businessPages, ...eventPages];
+    return [...staticPages, ...itemPages, ...businessPages, ...eventPages];
+  } catch (e) {
+    console.warn("[sitemap] dynamic entries unavailable:", e);
+    return staticPages;
+  }
 }

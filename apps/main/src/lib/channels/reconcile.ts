@@ -127,7 +127,7 @@ export async function reconcileConnectionSales(
       connection.memberId,
       provider,
       "sale_applied",
-      `Sale ${sale.externalEventId}: qty -${sale.quantity}`,
+      `Sale ${sale.externalEventId}: qty -${sale.quantitySold}`,
       link.storeItemId
     );
     

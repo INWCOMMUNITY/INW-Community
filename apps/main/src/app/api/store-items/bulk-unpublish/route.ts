@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { unpublishFromChannel } from "@/lib/channels/outbound";
-import { getActiveConnectionContext } from "@/lib/channels/connection";
-import { logSyncEvent } from "@/lib/channels/sync-log";
+import { unpublishStoreItemFromChannels } from "@/lib/channels/outbound";
 import { isChannelProvider, type ChannelProvider } from "@/lib/channels/types";
 
 export const dynamic = "force-dynamic";
@@ -91,9 +89,9 @@ export async function POST(req: NextRequest) {
         memberId: userId,
       },
       include: {
-        channelListingLinks: {
+        channelLinks: {
           where: {
-            status: { not: "unlinked" },
+            syncEnabled: true,
             ...(providers && { provider: { in: providers } }),
           },
         },
@@ -101,16 +99,6 @@ export async function POST(req: NextRequest) {
     });
 
     const itemsById = new Map(storeItems.map((item) => [item.id, item]));
-
-    // Fetch connections for channel deletion
-    const connections = await prisma.channelConnection.findMany({
-      where: {
-        memberId: userId,
-        status: "active",
-      },
-    });
-
-    const connectionByProvider = new Map(connections.map((c) => [c.provider, c]));
 
     const result: UnpublishResult = {
       unpublished: 0,
@@ -133,7 +121,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      if (item.channelListingLinks.length === 0) {
+      if (item.channelLinks.length === 0) {
         result.skipped++;
         result.results.push({
           itemId,
@@ -143,52 +131,32 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      const providersForItem = item.channelLinks.map(
+        (link) => link.provider as ChannelProvider
+      );
       const providerResults: Record<string, { ok: boolean; error?: string }> = {};
       let anySuccess = false;
 
-      for (const link of item.channelListingLinks) {
-        const provider = link.provider as ChannelProvider;
-
-        try {
-          // Delete from channel if requested
-          if (deleteFromChannel) {
-            const connection = connectionByProvider.get(provider);
-            if (connection) {
-              const ctx = await getActiveConnectionContext(connection.id);
-              if (ctx) {
-                await unpublishFromChannel(ctx, link.externalListingId);
-              }
-            }
+      try {
+        if (deleteFromChannel) {
+          const syncResults = await unpublishStoreItemFromChannels(itemId, providersForItem);
+          for (const sr of syncResults) {
+            providerResults[sr.provider] = { ok: sr.ok, error: sr.error };
+            if (sr.ok) anySuccess = true;
           }
-
-          // Mark as unlinked in our database
-          await prisma.channelListingLink.update({
-            where: { id: link.id },
-            data: { status: "unlinked" },
+        } else {
+          await prisma.channelListingLink.deleteMany({
+            where: { storeItemId: itemId, provider: { in: providersForItem } },
           });
-
-          providerResults[provider] = { ok: true };
-          anySuccess = true;
-
-          await logSyncEvent({
-            memberId: userId,
-            storeItemId: item.id,
-            provider,
-            action: "bulk_unpublish",
-            success: true,
-          });
-        } catch (e) {
-          const errorMsg = e instanceof Error ? e.message : "Unpublish failed";
+          for (const provider of providersForItem) {
+            providerResults[provider] = { ok: true };
+            anySuccess = true;
+          }
+        }
+      } catch (e) {
+        const errorMsg = e instanceof Error ? e.message : "Unpublish failed";
+        for (const provider of providersForItem) {
           providerResults[provider] = { ok: false, error: errorMsg };
-
-          await logSyncEvent({
-            memberId: userId,
-            storeItemId: item.id,
-            provider,
-            action: "bulk_unpublish",
-            success: false,
-            error: errorMsg,
-          });
         }
       }
 
@@ -223,7 +191,7 @@ export async function POST(req: NextRequest) {
               .filter(([, v]) => v.ok)
               .map(([p]) => p);
             const item = itemsById.get(r.itemId);
-            const existingChannels = item?.channelListingLinks.map((l) => l.provider) ?? [];
+            const existingChannels = item?.channelLinks.map((l) => l.provider) ?? [];
             changes[r.itemId] = {
               before: { channels: existingChannels },
               after: { channels: existingChannels.filter((c) => !unpublishedFrom.includes(c)) },
@@ -236,7 +204,7 @@ export async function POST(req: NextRequest) {
             memberId: userId,
             operation: "bulk_unpublish",
             itemCount: result.unpublished,
-            changes,
+            changes: changes as Prisma.InputJsonValue,
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
           },
         });

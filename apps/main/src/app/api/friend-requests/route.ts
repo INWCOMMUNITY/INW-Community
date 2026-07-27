@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
         requesterId: session.user.id,
         addresseeId,
         status: "declined",
-        updatedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
       },
     });
     if (recentDeclined) {

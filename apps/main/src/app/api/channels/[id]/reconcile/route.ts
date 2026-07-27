@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { reconcileMemberProvider, type ChannelProvider } from "@/lib/channels/reconcile";
+import { reconcileMemberProvider } from "@/lib/channels/reconcile";
+import type { ChannelProvider } from "@/lib/channels/types";
 
 export const dynamic = "force-dynamic";
 

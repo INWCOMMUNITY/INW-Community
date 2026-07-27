@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { pushInventoryForItem } from "@/lib/channels/sync-inventory";
+import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -254,7 +254,7 @@ export async function PATCH(req: NextRequest) {
             memberId: userId,
             operation: "bulk_edit",
             itemCount: result.updated,
-            changes,
+            changes: changes as Prisma.InputJsonValue,
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
           },
         });
@@ -297,16 +297,16 @@ export async function PATCH(req: NextRequest) {
         const updatedItems = await prisma.storeItem.findMany({
           where: { id: { in: Array.from(ownedIds) } },
           include: {
-            channelListingLinks: {
-              where: { status: { not: "unlinked" } },
+            channelLinks: {
+              where: { syncEnabled: true },
             },
           },
         });
 
         for (const item of updatedItems) {
-          if (item.channelListingLinks.length > 0) {
+          if (item.channelLinks.length > 0) {
             try {
-              const syncResults = await pushInventoryForItem(item);
+              const syncResults = await syncInventoryToChannels(item.id);
               for (const sr of syncResults) {
                 if (sr.ok) {
                   result.synced[sr.provider] = (result.synced[sr.provider] || 0) + 1;
@@ -391,7 +391,7 @@ export async function DELETE(req: NextRequest) {
           memberId: userId,
           operation: "bulk_delete",
           itemCount: ownedItems.length,
-          changes,
+          changes: changes as Prisma.InputJsonValue,
           canUndo: false, // Deletes can't be undone
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },

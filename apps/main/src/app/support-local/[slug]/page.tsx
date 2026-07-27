@@ -44,20 +44,17 @@ export default async function BusinessDetailPage({
   const { slug } = await params;
   const business = await prisma.business.findFirst({
     where: isCuid(slug) ? { id: slug } : { slug },
-    include: { coupons: true, members: { select: { id: true } } },
+    include: { coupons: true },
   });
   if (!business) notFound();
 
-  const memberIds = business.members.map((m) => m.id);
-  const activeProductCount = memberIds.length > 0
-    ? await prisma.storeItem.count({
-        where: {
-          sellerId: { in: memberIds },
-          status: "active",
-          quantity: { gt: 0 },
-        },
-      })
-    : 0;
+  const activeProductCount = await prisma.storeItem.count({
+    where: {
+      OR: [{ memberId: business.memberId }, { businessId: business.id }],
+      status: "active",
+      quantity: { gt: 0 },
+    },
+  });
 
   const session = await getServerSession(authOptions);
   const saved = session?.user?.id

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
@@ -27,6 +27,11 @@ const updateTemplateSchema = z.object({
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+function jsonField(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+  if (value === null || value === undefined) return Prisma.JsonNull;
+  return value as Prisma.InputJsonValue;
+}
 
 /**
  * GET /api/listing-templates/[id]
@@ -118,8 +123,8 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         ...(data.etsyWhenMade !== undefined && { etsyWhenMade: data.etsyWhenMade }),
         ...(data.etsyIsSupply !== undefined && { etsyIsSupply: data.etsyIsSupply }),
         ...(data.ebayCategoryId !== undefined && { ebayCategoryId: data.ebayCategoryId }),
-        ...(data.ebayAspects !== undefined && { ebayAspects: data.ebayAspects as object | null }),
-        ...(data.variantsTemplate !== undefined && { variantsTemplate: data.variantsTemplate as object | null }),
+        ...(data.ebayAspects !== undefined && { ebayAspects: jsonField(data.ebayAspects) }),
+        ...(data.variantsTemplate !== undefined && { variantsTemplate: jsonField(data.variantsTemplate) }),
       },
     });
 

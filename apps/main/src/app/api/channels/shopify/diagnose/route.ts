@@ -3,7 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { shopifyGet, setShopifyConnectionContext } from "@/lib/channels/shopify/client";
-import { SHOPIFY_API_VERSION } from "@/lib/channels/shopify/config";
+import { SHOPIFY_DEFAULT_API_VERSION } from "@/lib/channels/shopify/config";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { resetCorruptBaselinesForConnection } from "@/lib/channels/reset-corrupt-baselines";
 import { getCircuitStatus } from "@/lib/channels/circuit-breaker";
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
     const shop = await shopifyGet<{ shop: { name: string; domain: string } }>(
       ctx.accessToken,
       ctx.externalShopId,
-      SHOPIFY_API_VERSION,
+      SHOPIFY_DEFAULT_API_VERSION,
       "/shop.json"
     );
     shopName = shop.shop.name;

@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       slug: true,
       shortDescription: true,
       logoUrl: true,
-      members: { select: { id: true } },
+      memberId: true,
     },
   });
 
@@ -31,16 +31,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return { title: "Business Not Found" };
   }
 
-  const memberIds = business.members.map((m) => m.id);
-  const activeProductCount = memberIds.length > 0
-    ? await prisma.storeItem.count({
-        where: {
-          sellerId: { in: memberIds },
-          status: "active",
-          quantity: { gt: 0 },
-        },
-      })
-    : 0;
+  const activeProductCount = await prisma.storeItem.count({
+    where: {
+      OR: [{ memberId: business.memberId }, { businessId: business.id }],
+      status: "active",
+      quantity: { gt: 0 },
+    },
+  });
 
   const hasProducts = activeProductCount > 0;
   const canonicalSlug = business.slug || business.id;

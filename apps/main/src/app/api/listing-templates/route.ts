@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 
@@ -129,8 +129,8 @@ export async function POST(req: NextRequest) {
         etsyWhenMade: data.etsyWhenMade ?? null,
         etsyIsSupply: data.etsyIsSupply ?? null,
         ebayCategoryId: data.ebayCategoryId ?? null,
-        ebayAspects: data.ebayAspects ? (data.ebayAspects as object) : null,
-        variantsTemplate: data.variantsTemplate ? (data.variantsTemplate as object) : null,
+        ebayAspects: data.ebayAspects ? (data.ebayAspects as object) : Prisma.JsonNull,
+        variantsTemplate: data.variantsTemplate ? (data.variantsTemplate as object) : Prisma.JsonNull,
       },
     });
 

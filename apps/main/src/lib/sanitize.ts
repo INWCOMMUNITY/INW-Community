@@ -1,10 +1,11 @@
-import DOMPurify from "isomorphic-dompurify";
-
 /**
  * Sanitize HTML to prevent XSS. Use before dangerouslySetInnerHTML.
  * Allows common formatting tags for blog/content (p, strong, em, a, br, ul, ol, li, etc.)
  */
 export function sanitizeHtml(html: string): string {
+  const DOMPurify = require("isomorphic-dompurify").default as {
+    sanitize: (dirty: string, config?: object) => string;
+  };
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "p", "br", "strong", "b", "em", "i", "u", "s", "a", "ul", "ol", "li",

@@ -222,7 +222,7 @@ export function SaveTemplateButton({ storeItemId, onSaved }: SaveTemplateButtonP
           <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-xl">
             <h2 className="text-lg font-semibold mb-2">Save as Template</h2>
             <p className="text-sm text-gray-600 mb-4">
-              Save this listing's settings to quickly create similar items.
+              Save this listing&apos;s settings to quickly create similar items.
             </p>
 
             <input

@@ -1,4 +1,4 @@
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import type { ChannelProvider } from "./types";
 
 export type WebhookEventStatus = "pending" | "processing" | "completed" | "failed";
@@ -18,7 +18,7 @@ export async function logWebhookEvent(
       provider,
       eventType,
       externalEventId: externalEventId ?? null,
-      payload: payload ? (payload as object) : null,
+      payload: payload ? (payload as object) : Prisma.JsonNull,
       status: "pending",
     },
   });

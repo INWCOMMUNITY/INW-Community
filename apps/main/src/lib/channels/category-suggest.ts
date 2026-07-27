@@ -525,12 +525,14 @@ export function getOutboundCategoryMapping(
 
   if (provider === "ebay") {
     const cats = INW_TO_EBAY_CATEGORIES[fullKey] || INW_TO_EBAY_CATEGORIES[inwCategory];
-    return cats?.[0] || null;
+    const cat = cats?.[0];
+    return cat ? { categoryId: cat.id, categoryPath: cat.path } : null;
   }
 
   if (provider === "etsy") {
     const taxes = INW_TO_ETSY_TAXONOMY[fullKey] || INW_TO_ETSY_TAXONOMY[inwCategory];
-    return taxes?.[0] || null;
+    const tax = taxes?.[0];
+    return tax ? { categoryId: tax.id, categoryPath: tax.path } : null;
   }
 
   if (provider === "shopify" || provider === "wix") {
