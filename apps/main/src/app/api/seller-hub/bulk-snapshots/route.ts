@@ -22,6 +22,7 @@ interface SnapshotSummary {
  * Get recent bulk operation snapshots for the current seller (last 24 hours).
  */
 export async function GET(req: NextRequest) {
+  try {
   const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -70,4 +71,8 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ snapshots: summaries });
+  } catch (e) {
+    console.error("[bulk-snapshots] GET error:", e);
+    return NextResponse.json({ snapshots: [] });
+  }
 }

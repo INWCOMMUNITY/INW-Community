@@ -1,3 +1,5 @@
+"use client";
+
 import { sanitizeListingDescription } from "@/lib/channels/rich-description";
 
 type Props = {

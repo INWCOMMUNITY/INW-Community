@@ -34,6 +34,7 @@ function formatDateTime(date: Date): string {
  * - format: "csv" (default and only supported format for now)
  */
 export async function GET(req: NextRequest) {
+  try {
   const session = await getSessionForApi(req);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -258,4 +259,8 @@ export async function GET(req: NextRequest) {
       "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
+  } catch (e) {
+    console.error("[seller-hub/export] GET error:", e);
+    return NextResponse.json({ error: "Export failed" }, { status: 500 });
+  }
 }

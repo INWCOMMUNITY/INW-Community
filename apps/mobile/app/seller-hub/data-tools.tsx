@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import { isAvailableAsync, shareAsync } from "expo-sharing";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiGet, apiPost, getToken } from "@/lib/api";
+import { API_BASE, apiGet, apiPost, getToken } from "@/lib/api";
 import { theme } from "@/lib/theme";
 
 type ExportType = "listings" | "orders" | "activity" | "sync-log";
@@ -75,9 +75,12 @@ export default function DataToolsScreen() {
     try {
       const token = await getToken();
       const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL || ""}/api/seller-hub/export?type=${type}&format=csv`,
+        `${API_BASE}/api/seller-hub/export?type=${type}&format=csv`,
         {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          headers: {
+            Accept: "text/csv, application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
         }
       );
 

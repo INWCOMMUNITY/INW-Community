@@ -26,9 +26,9 @@ if (fs.existsSync(rootEnv)) {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ["database", "design-tokens", "types"],
-  serverExternalPackages: ["isomorphic-dompurify", "jsdom"],
   experimental: {
     outputFileTracingRoot: path.join(__dirname, "../../"),
+    serverComponentsExternalPackages: ["isomorphic-dompurify", "jsdom"],
   },
   async redirects() {
     return [
