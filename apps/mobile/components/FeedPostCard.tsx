@@ -4,10 +4,12 @@ import {
   useMemo,
   useRef,
   useCallback,
+  memo,
   Fragment,
 } from "react";
 import {
   Alert,
+  Animated as RNAnimated,
   Modal,
   ScrollView,
   NativeSyntheticEvent,
@@ -43,8 +45,13 @@ import {
   type FeedGalleryPhotoEntry,
 } from "@/components/FeedPinchZoomPhoto";
 import { AppImage, prefetchImages } from "@/components/AppImage";
+import { LinearGradient } from "expo-linear-gradient";
 import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
+import { PollCard } from "@/components/PollCard";
+import { LinkPreviewCard } from "@/components/LinkPreviewCard";
+import { extractFirstUrl } from "@/lib/extract-urls";
 import { formatTime12h } from "@/lib/format-time";
+import { formatRelativeTime } from "@/lib/format-relative-time";
 import { Video, ResizeMode, type VideoReadyForDisplayEvent } from "expo-av";
 
 /** "Sat, Jun 6 · 9:00 AM – 5:00 PM" for a shared event embed. */
@@ -108,9 +115,17 @@ function businessInitials(name: string): string {
   return (t.length >= 2 ? t.slice(0, 2) : t.slice(0, 1) || "?").toUpperCase();
 }
 
+const REACTION_OPTIONS = [
+  { key: "leaf", icon: "leaf" as const, label: "Leaf" },
+  { key: "love", icon: "heart" as const, label: "Love" },
+  { key: "laugh", icon: "happy-outline" as const, label: "Laugh" },
+  { key: "support", icon: "hand-left-outline" as const, label: "Support" },
+  { key: "insightful", icon: "bulb-outline" as const, label: "Insightful" },
+];
+
 interface FeedPostCardProps {
   post: FeedPost;
-  onLike: (postId: string) => void;
+  onLike: (postId: string, reaction?: string) => void;
   onComment?: (postId: string) => void;
   onShare?: (postId: string) => void;
   onReport?: (postId: string) => void;
@@ -124,6 +139,12 @@ interface FeedPostCardProps {
   viewerManagedBusinessIds?: string[];
   onDeleteComment?: (commentId: string) => void;
   onOpenCoupon?: (couponId: string) => void;
+  /** Called when the viewer taps Follow/Unfollow on a post author. */
+  onFollowAuthor?: (memberId: string) => void;
+  /** Set of member IDs the viewer is following (to show Follow/Following state). */
+  viewerFollowingIds?: Set<string>;
+  /** Set of member IDs the viewer is friends with (hides Follow for friends). */
+  viewerFriendIds?: Set<string>;
   /**
    * When false, main-feed videos do not autoplay (card scrolled off-screen).
    * Videos also pause when the navigation screen loses focus or the app is backgrounded.
@@ -132,7 +153,7 @@ interface FeedPostCardProps {
   isFeedCardVisible?: boolean;
 }
 
-export function FeedPostCard({
+function FeedPostCardInner({
   post,
   onLike,
   onComment,
@@ -144,6 +165,9 @@ export function FeedPostCard({
   onDeletePost,
   viewerManagedBusinessIds,
   onOpenCoupon,
+  onFollowAuthor,
+  viewerFollowingIds,
+  viewerFriendIds,
   isFeedCardVisible = true,
 }: FeedPostCardProps) {
   const router = useRouter();
@@ -159,6 +183,24 @@ export function FeedPostCard({
   /** Feed list viewability + route focused + app foreground; modals (e.g. create post) sit above but leave the tab “focused”. */
   const allowFeedVideoAutoplay =
     isFeedCardVisible && isScreenFocused && appIsActive && !createPostOverlayOpen;
+  const likeScaleAnim = useRef(new RNAnimated.Value(1)).current;
+  const triggerLikeBounce = useCallback(() => {
+    RNAnimated.sequence([
+      RNAnimated.spring(likeScaleAnim, {
+        toValue: 1.4,
+        useNativeDriver: true,
+        speed: 50,
+        bounciness: 12,
+      }),
+      RNAnimated.spring(likeScaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 30,
+        bounciness: 8,
+      }),
+    ]).start();
+  }, [likeScaleAnim]);
+
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   /** Measured width of the carousel row inside the card (not screen width — using window width clips the right side). */
   const [carouselViewportW, setCarouselViewportW] = useState<number | null>(null);
@@ -211,6 +253,25 @@ export function FeedPostCard({
   const [blogSaving, setBlogSaving] = useState(false);
   const [blogShareOpen, setBlogShareOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuSlideAnim = useRef(new RNAnimated.Value(0)).current;
+  const openMenu = useCallback(() => {
+    setMenuOpen(true);
+    RNAnimated.spring(menuSlideAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 4,
+    }).start();
+  }, [menuSlideAnim]);
+  const closeMenu = useCallback(() => {
+    RNAnimated.timing(menuSlideAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => setMenuOpen(false));
+  }, [menuSlideAnim]);
+  const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
+
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [photoCarouselIndex, setPhotoCarouselIndex] = useState(0);
   const [nestedPhotoCarouselIndex, setNestedPhotoCarouselIndex] = useState(0);
@@ -323,6 +384,14 @@ export function FeedPostCard({
 
   const businessAsAuthor =
     post.type === "shared_business" && post.sourceBusiness ? post.sourceBusiness : null;
+
+  const showFollowButton =
+    !!member &&
+    !!onFollowAuthor &&
+    !businessAsAuthor &&
+    post.author.id !== member.id &&
+    !viewerFriendIds?.has(post.author.id);
+  const isFollowing = viewerFollowingIds?.has(post.author.id) ?? post.isFollowingAuthor ?? false;
 
   const canEditThisPost =
     !!member &&
@@ -474,14 +543,59 @@ export function FeedPostCard({
               </Text>
             </Pressable>
           )}
-          <Text style={styles.date}>
-            {new Date(post.createdAt).toLocaleDateString()}
-          </Text>
+          <View style={styles.dateLine}>
+            <Text style={styles.date}>
+              {formatRelativeTime(post.createdAt)}
+              {post.updatedAt &&
+                new Date(post.updatedAt).getTime() - new Date(post.createdAt).getTime() > 60_000 &&
+                " (edited)"}
+            </Text>
+            {post.type === "shared_blog" && (
+              <View style={styles.typeChip}>
+                <Ionicons name="book-outline" size={10} color={theme.colors.primary} />
+                <Text style={styles.typeChipText}>Blog</Text>
+              </View>
+            )}
+            {post.type === "shared_event" && (
+              <View style={styles.typeChip}>
+                <Ionicons name="calendar-outline" size={10} color={theme.colors.primary} />
+                <Text style={styles.typeChipText}>Event</Text>
+              </View>
+            )}
+            {post.type === "shared_coupon" && (
+              <View style={styles.typeChip}>
+                <Ionicons name="pricetag-outline" size={10} color={theme.colors.primary} />
+                <Text style={styles.typeChipText}>Coupon</Text>
+              </View>
+            )}
+            {post.type === "shared_business" && (
+              <View style={styles.typeChip}>
+                <Ionicons name="storefront-outline" size={10} color={theme.colors.primary} />
+                <Text style={styles.typeChipText}>Business</Text>
+              </View>
+            )}
+            {post.type === "shared_post" && (
+              <View style={styles.typeChip}>
+                <Ionicons name="share-outline" size={10} color={theme.colors.primary} />
+                <Text style={styles.typeChipText}>Shared</Text>
+              </View>
+            )}
+          </View>
         </View>
+        {showFollowButton && (
+          <Pressable
+            style={[styles.followBtn, isFollowing && styles.followBtnActive]}
+            onPress={() => onFollowAuthor!(post.author.id)}
+          >
+            <Text style={[styles.followBtnText, isFollowing && styles.followBtnTextActive]}>
+              {isFollowing ? "Following" : "Follow"}
+            </Text>
+          </Pressable>
+        )}
         {member && !post.id.startsWith("example-") && (
           <Pressable
             style={styles.menuBtn}
-            onPress={() => setMenuOpen(true)}
+            onPress={openMenu}
           >
             <Ionicons name="ellipsis-vertical" size={20} color="#666" />
           </Pressable>
@@ -499,15 +613,30 @@ export function FeedPostCard({
       )}
 
       {menuOpen && (
-        <Modal visible transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
-          <Pressable style={styles.menuOverlay} onPress={() => setMenuOpen(false)}>
-            <View style={styles.menuSheet}>
+        <Modal visible transparent animationType="none" onRequestClose={closeMenu}>
+          <Pressable style={styles.menuOverlay} onPress={closeMenu}>
+            <RNAnimated.View
+              style={[
+                styles.menuSheet,
+                {
+                  transform: [
+                    {
+                      translateY: menuSlideAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [300, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.menuHandle} />
               {canEditThisPost && (
                   <Pressable
                     style={styles.menuItem}
                     onPress={() => {
-                      setMenuOpen(false);
-                      onEditPost!(post);
+                      closeMenu();
+                      setTimeout(() => onEditPost!(post), 250);
                     }}
                   >
                     <Ionicons name="create-outline" size={20} color={theme.colors.heading} />
@@ -518,8 +647,8 @@ export function FeedPostCard({
                   <Pressable
                     style={styles.menuItem}
                     onPress={() => {
-                      setMenuOpen(false);
-                      onDeletePost!(post.id);
+                      closeMenu();
+                      setTimeout(() => onDeletePost!(post.id), 250);
                     }}
                   >
                     <Ionicons name="trash-outline" size={20} color="#c00" />
@@ -529,7 +658,7 @@ export function FeedPostCard({
               {onSave && (
                 <Pressable
                   style={styles.menuItem}
-                  onPress={() => { setMenuOpen(false); onSave(post.id); }}
+                  onPress={() => { closeMenu(); setTimeout(() => onSave(post.id), 250); }}
                 >
                   <Ionicons name="bookmark-outline" size={20} color={theme.colors.heading} />
                   <Text style={styles.menuItemText}>Save Post</Text>
@@ -538,7 +667,7 @@ export function FeedPostCard({
               {onReport && (
                 <Pressable
                   style={styles.menuItem}
-                  onPress={() => { setMenuOpen(false); onReport(post.id); }}
+                  onPress={() => { closeMenu(); setTimeout(() => onReport(post.id), 250); }}
                 >
                   <Ionicons name="flag-outline" size={20} color="#c00" />
                   <Text style={[styles.menuItemText, { color: "#c00" }]}>Report Post</Text>
@@ -547,39 +676,47 @@ export function FeedPostCard({
               {onBlockUser && !post.id.startsWith("example-") && !businessAsAuthor && (
                 <Pressable
                   style={styles.menuItem}
-                  onPress={() => { setMenuOpen(false); onBlockUser(post.author.id, post.id); }}
+                  onPress={() => { closeMenu(); setTimeout(() => onBlockUser(post.author.id, post.id), 250); }}
                 >
                   <Ionicons name="ban-outline" size={20} color="#c00" />
                   <Text style={[styles.menuItemText, { color: "#c00" }]}>Block user</Text>
                 </Pressable>
               )}
-              <Pressable style={styles.menuItem} onPress={() => setMenuOpen(false)}>
+              <Pressable style={styles.menuItem} onPress={closeMenu}>
                 <Ionicons name="close" size={20} color="#666" />
                 <Text style={styles.menuItemText}>Cancel</Text>
               </Pressable>
-            </View>
+            </RNAnimated.View>
           </Pressable>
         </Modal>
       )}
 
       {post.content && post.type?.startsWith("shared_") ? (
-        <View style={styles.contentBlock}>
-          <Text style={styles.content}>
-            {wordCount(post.content) <= DESCRIPTION_WORD_LIMIT || descriptionExpanded
-              ? post.content
-              : firstNWords(post.content, DESCRIPTION_WORD_LIMIT)}
-          </Text>
+        <Pressable
+          style={styles.contentBlock}
+          onPress={wordCount(post.content) > DESCRIPTION_WORD_LIMIT ? () => setDescriptionExpanded((e) => !e) : undefined}
+          disabled={wordCount(post.content) <= DESCRIPTION_WORD_LIMIT}
+        >
+          <View>
+            <Text style={styles.content}>
+              {wordCount(post.content) <= DESCRIPTION_WORD_LIMIT || descriptionExpanded
+                ? post.content
+                : firstNWords(post.content, DESCRIPTION_WORD_LIMIT)}
+            </Text>
+            {wordCount(post.content) > DESCRIPTION_WORD_LIMIT && !descriptionExpanded && (
+              <LinearGradient
+                colors={["transparent", "#fff"]}
+                style={styles.gradientOverlay}
+                pointerEvents="none"
+              />
+            )}
+          </View>
           {wordCount(post.content) > DESCRIPTION_WORD_LIMIT && (
-            <Pressable
-              onPress={() => setDescriptionExpanded((e) => !e)}
-              style={({ pressed }) => [styles.seeMoreBtn, pressed && { opacity: 0.7 }]}
-            >
-              <Text style={styles.seeMoreText}>
-                {descriptionExpanded ? "See less" : "See full description"}
-              </Text>
-            </Pressable>
+            <Text style={styles.seeMoreText}>
+              {descriptionExpanded ? "See less" : "more"}
+            </Text>
           )}
-        </View>
+        </Pressable>
       ) : null}
 
       {post.type === "shared_blog" && post.sourceBlog && (
@@ -860,7 +997,7 @@ export function FeedPostCard({
                       )}
                       {sourcePost?.createdAt ? (
                         <Text style={styles.sourceMeta}>
-                          {new Date(sourcePost.createdAt).toLocaleDateString()}
+                          {formatRelativeTime(sourcePost.createdAt)}
                         </Text>
                       ) : null}
                     </View>
@@ -1065,27 +1202,35 @@ export function FeedPostCard({
       ) : null}
 
       {post.content && !post.type?.startsWith("shared_") ? (
-        <View style={styles.contentBlock}>
-          <Text style={styles.content}>
-            {(() => {
-              const words = wordCount(post.content!);
-              if (words <= DESCRIPTION_WORD_LIMIT || descriptionExpanded) {
-                return post.content;
-              }
-              return firstNWords(post.content!, DESCRIPTION_WORD_LIMIT);
-            })()}
-          </Text>
+        <Pressable
+          style={styles.contentBlock}
+          onPress={wordCount(post.content) > DESCRIPTION_WORD_LIMIT ? () => setDescriptionExpanded((e) => !e) : undefined}
+          disabled={wordCount(post.content) <= DESCRIPTION_WORD_LIMIT}
+        >
+          <View>
+            <Text style={styles.content}>
+              {(() => {
+                const words = wordCount(post.content!);
+                if (words <= DESCRIPTION_WORD_LIMIT || descriptionExpanded) {
+                  return post.content;
+                }
+                return firstNWords(post.content!, DESCRIPTION_WORD_LIMIT);
+              })()}
+            </Text>
+            {wordCount(post.content) > DESCRIPTION_WORD_LIMIT && !descriptionExpanded && (
+              <LinearGradient
+                colors={["transparent", "#fff"]}
+                style={styles.gradientOverlay}
+                pointerEvents="none"
+              />
+            )}
+          </View>
           {post.content && wordCount(post.content) > DESCRIPTION_WORD_LIMIT && (
-            <Pressable
-              onPress={() => setDescriptionExpanded((e) => !e)}
-              style={({ pressed }) => [styles.seeMoreBtn, pressed && { opacity: 0.7 }]}
-            >
-              <Text style={styles.seeMoreText}>
-                {descriptionExpanded ? "See less" : "See full description"}
-              </Text>
-            </Pressable>
+            <Text style={styles.seeMoreText}>
+              {descriptionExpanded ? "See less" : "more"}
+            </Text>
           )}
-        </View>
+        </Pressable>
       ) : null}
 
       {post.tags && post.tags.length > 0 ? (
@@ -1220,10 +1365,69 @@ export function FeedPostCard({
         </View>
       ) : null}
 
+      {post.poll ? <PollCard postId={post.id} poll={post.poll} /> : null}
+
+      {/* Link preview for URLs in content (only if no embedded content) */}
+      {!post.poll &&
+        !post.sourceBlog &&
+        !post.sourceBusiness &&
+        !post.sourceCoupon &&
+        !post.sourceReward &&
+        !post.sourceStoreItem &&
+        !post.sourceEvent &&
+        post.content &&
+        extractFirstUrl(post.content) && (
+          <View style={styles.linkPreviewWrap}>
+            <LinkPreviewCard url={extractFirstUrl(post.content)!} />
+          </View>
+        )}
+
+      {reactionPickerVisible && (
+        <View style={styles.reactionPickerBackdrop}>
+          <View style={styles.reactionPicker}>
+            {REACTION_OPTIONS.map((r) => (
+              <Pressable
+                key={r.key}
+                style={styles.reactionOption}
+                onPress={() => {
+                  setReactionPickerVisible(false);
+                  triggerLikeBounce();
+                  onLike(post.id, r.key);
+                }}
+              >
+                <Ionicons name={r.icon} size={26} color={theme.colors.primary} />
+                <Text style={styles.reactionOptionLabel}>{r.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Reaction breakdown row */}
+      {post.reactionBreakdown && Object.keys(post.reactionBreakdown).length > 0 && (
+        <View style={styles.reactionBreakdown}>
+          {Object.entries(post.reactionBreakdown).map(([reaction, count]) => {
+            const opt = REACTION_OPTIONS.find((r) => r.key === reaction);
+            if (!opt || count === 0) return null;
+            return (
+              <View key={reaction} style={styles.reactionBreakdownItem}>
+                <Ionicons name={opt.icon} size={14} color={theme.colors.primary} />
+                <Text style={styles.reactionBreakdownCount}>{count}</Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
       <View style={styles.actions}>
         <Pressable
           style={[styles.actionBtn, post.liked && styles.actionBtnActive]}
-          onPress={() => onLike(post.id)}
+          onPress={() => {
+            triggerLikeBounce();
+            onLike(post.id);
+          }}
+          onLongPress={() => setReactionPickerVisible((v) => !v)}
+          delayLongPress={400}
           accessibilityRole="button"
           accessibilityLabel={
             post.liked
@@ -1232,12 +1436,12 @@ export function FeedPostCard({
           }
         >
           <View style={styles.actionRow}>
-            <Ionicons name="leaf" size={20} color={post.liked ? ACTION_ACCENT : "#666"} />
-            {post.likeCount > 0 ? (
-              <Text style={[styles.actionCount, post.liked && styles.actionTextActive]}>
-                {post.likeCount}
-              </Text>
-            ) : null}
+            <RNAnimated.View style={{ transform: [{ scale: likeScaleAnim }] }}>
+              <Ionicons name="leaf" size={22} color={post.liked ? ACTION_ACCENT : "#666"} />
+            </RNAnimated.View>
+            <Text style={[styles.actionLabel, post.liked && styles.actionTextActive]}>
+              {post.likeCount > 0 ? `Support ${post.likeCount}` : "Support"}
+            </Text>
           </View>
         </Pressable>
         <Pressable
@@ -1251,14 +1455,12 @@ export function FeedPostCard({
           <View style={styles.actionRow}>
             <Ionicons
               name="chatbubble-outline"
-              size={20}
+              size={22}
               color={hasComments ? ACTION_ACCENT : "#666"}
             />
-            {hasComments ? (
-              <Text style={[styles.actionCount, styles.actionTextActive]}>
-                {post.commentCount}
-              </Text>
-            ) : null}
+            <Text style={[styles.actionLabel, hasComments && styles.actionTextActive]}>
+              {hasComments ? `Comment ${post.commentCount}` : "Comment"}
+            </Text>
           </View>
         </Pressable>
         {onShare ? (
@@ -1273,12 +1475,12 @@ export function FeedPostCard({
             <View style={styles.actionRow}>
               <Ionicons
                 name="share-outline"
-                size={20}
+                size={22}
                 color={hasShares ? ACTION_ACCENT : "#666"}
               />
-              {hasShares ? (
-                <Text style={[styles.actionCount, styles.actionTextActive]}>{shareCount}</Text>
-              ) : null}
+              <Text style={[styles.actionLabel, hasShares && styles.actionTextActive]}>
+                {hasShares ? `Share ${shareCount}` : "Share"}
+              </Text>
             </View>
           </Pressable>
         ) : null}
@@ -1288,16 +1490,54 @@ export function FeedPostCard({
   );
 }
 
+export const FeedPostCard = memo(FeedPostCardInner, (prev, next) => {
+  return (
+    prev.post.id === next.post.id &&
+    prev.post.liked === next.post.liked &&
+    prev.post.likeCount === next.post.likeCount &&
+    prev.post.commentCount === next.post.commentCount &&
+    prev.post.shareCount === next.post.shareCount &&
+    prev.post.updatedAt === next.post.updatedAt &&
+    prev.post.poll?.myVote === next.post.poll?.myVote &&
+    prev.post.poll?.totalVotes === next.post.poll?.totalVotes &&
+    prev.isFeedCardVisible === next.isFeedCardVisible &&
+    prev.onLike === next.onLike &&
+    prev.onComment === next.onComment &&
+    prev.onShare === next.onShare &&
+    prev.onReport === next.onReport &&
+    prev.onBlockUser === next.onBlockUser &&
+    prev.onSave === next.onSave &&
+    prev.onEditPost === next.onEditPost &&
+    prev.onDeletePost === next.onDeletePost &&
+    prev.onOpenCoupon === next.onOpenCoupon &&
+    prev.viewerManagedBusinessIds === next.viewerManagedBusinessIds &&
+    prev.onFollowAuthor === next.onFollowAuthor &&
+    prev.viewerFollowingIds === next.viewerFollowingIds &&
+    prev.viewerFriendIds === next.viewerFriendIds
+  );
+});
+
 const ACTION_ACCENT = "#c99d5f";
 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: "#fff",
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    borderLeftWidth: 3,
+    borderLeftColor: theme.colors.primary,
     overflow: "hidden",
     marginBottom: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+      },
+      android: { elevation: 2 },
+    }),
   },
   cardFeedZoomLift: {
     overflow: "visible",
@@ -1347,10 +1587,29 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontFamily: theme.fonts.heading,
   },
+  dateLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+  },
   date: {
     fontSize: 12,
     color: "#666",
-    marginTop: 2,
+  },
+  typeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: `${theme.colors.primary}15`,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  typeChipText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
   groupRibbon: {
     flexDirection: "row",
@@ -1465,6 +1724,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: theme.colors.primary,
+    marginTop: 2,
+  },
+  gradientOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 32,
   },
   tags: {
     flexDirection: "row",
@@ -1504,6 +1771,27 @@ const styles = StyleSheet.create({
     height: 9,
     borderRadius: 4.5,
   },
+  linkPreviewWrap: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+  },
+  reactionBreakdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    gap: 12,
+  },
+  reactionBreakdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  reactionBreakdownCount: {
+    fontSize: 13,
+    color: "#666",
+    fontWeight: "500",
+  },
   actions: {
     flexDirection: "row",
     borderTopWidth: 1,
@@ -1533,6 +1821,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#666",
   },
+  actionLabel: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#666",
+  },
   actionText: {
     fontSize: 14,
     color: "#666",
@@ -1553,16 +1846,24 @@ const styles = StyleSheet.create({
   menuOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
+    justifyContent: "flex-end",
   },
   menuSheet: {
     backgroundColor: "#fff",
-    borderRadius: 12,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     width: "100%",
-    maxWidth: 300,
     overflow: "hidden",
+    paddingBottom: Platform.OS === "ios" ? 24 : 12,
+  },
+  menuHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#ccc",
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 6,
   },
   menuItem: {
     flexDirection: "row",
@@ -1589,5 +1890,59 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 12,
     fontWeight: "700",
+  },
+  reactionPickerBackdrop: {
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+  },
+  reactionPicker: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    borderRadius: 28,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    gap: 4,
+    justifyContent: "space-around",
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  reactionOption: {
+    alignItems: "center",
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  reactionOptionLabel: {
+    fontSize: 9,
+    fontWeight: "600",
+    color: "#666",
+    marginTop: 2,
+  },
+  followBtn: {
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  followBtnActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  followBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  followBtnTextActive: {
+    color: "#fff",
   },
 });

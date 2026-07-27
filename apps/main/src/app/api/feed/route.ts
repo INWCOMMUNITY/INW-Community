@@ -14,8 +14,10 @@ import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
-  const limit = Math.min(parseInt(new URL(req.url).searchParams.get("limit") ?? "30", 10) || 30, 100);
-  const cursor = new URL(req.url).searchParams.get("cursor") ?? undefined;
+  const url = new URL(req.url);
+  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "30", 10) || 30, 100);
+  const cursor = url.searchParams.get("cursor") ?? undefined;
+  const filter = url.searchParams.get("filter") ?? "all";
 
   // Unauthenticated: return a public discover feed (recent posts, no groups)
   if (!session || !session.user.id) {
@@ -33,8 +35,9 @@ export async function GET(req: NextRequest) {
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
     const hasMore = posts.length > limit;
-    const items = (hasMore ? posts.slice(0, limit) : posts).filter((p) => p.author?.privacyLevel === "public");
-    const nextCursor = hasMore ? items[items.length - 1]?.id : null;
+    const page = hasMore ? posts.slice(0, limit) : posts;
+    const nextCursor = hasMore ? page[page.length - 1]?.id ?? null : null;
+    const items = page.filter((p) => p.author?.privacyLevel === "public");
     const postIds = items.map((p) => p.id);
     const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
     const sourceBusinessIds = items.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
@@ -159,7 +162,11 @@ export async function GET(req: NextRequest) {
       }))
       .filter(isFeedPostRenderable)
       .filter((p) => p.type !== "shared_post" || p.sourcePost?.author?.privacyLevel === "public");
-    return NextResponse.json({ posts: feedItems, nextCursor });
+    return NextResponse.json({ posts: feedItems, nextCursor }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
+      },
+    });
   }
 
   const viewerId = session.user.id;
@@ -303,16 +310,54 @@ export async function GET(req: NextRequest) {
     return 1e15 + t;
   }
 
-  mergedList.sort((a, b) => rankScore(b) - rankScore(a));
+  // Apply filter-specific sorting/filtering
+  let filteredList = mergedList;
+  if (filter === "friends") {
+    filteredList = mergedList.filter((p) => viewerFriendIdSet.has(p.authorId));
+  } else if (filter === "groups") {
+    filteredList = mergedList.filter((p) => !!p.groupId);
+  } else if (filter === "businesses") {
+    filteredList = mergedList.filter((p) => p.type === "shared_business");
+  }
+
+  if (filter === "trending") {
+    // For trending, we need engagement data to sort by
+    const allPostIds = mergedList.map((p) => p.id);
+    const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const [trendLikes, trendComments, trendShares] = await Promise.all([
+      prisma.postLike.groupBy({
+        by: ["postId"],
+        where: { postId: { in: allPostIds }, createdAt: { gte: cutoff48h } },
+        _count: { postId: true },
+      }),
+      prisma.postComment.groupBy({
+        by: ["postId"],
+        where: { postId: { in: allPostIds }, createdAt: { gte: cutoff48h } },
+        _count: { postId: true },
+      }),
+      getShareCountBySourcePostId(allPostIds),
+    ]);
+    const trendLikeMap = Object.fromEntries(trendLikes.map((l) => [l.postId, l._count.postId]));
+    const trendCommentMap = Object.fromEntries(trendComments.map((c) => [c.postId, c._count.postId]));
+    filteredList = [...mergedList].sort((a, b) => {
+      const scoreA = (trendLikeMap[a.id] ?? 0) + (trendCommentMap[a.id] ?? 0) + (trendShares[a.id] ?? 0);
+      const scoreB = (trendLikeMap[b.id] ?? 0) + (trendCommentMap[b.id] ?? 0) + (trendShares[b.id] ?? 0);
+      return scoreB - scoreA;
+    });
+  } else if (filter === "all") {
+    filteredList.sort((a, b) => rankScore(b) - rankScore(a));
+  } else {
+    filteredList.sort((a, b) => rankScore(b) - rankScore(a));
+  }
 
   let startIdx = 0;
   if (cursor) {
-    const ci = mergedList.findIndex((p) => p.id === cursor);
+    const ci = filteredList.findIndex((p) => p.id === cursor);
     startIdx = ci >= 0 ? ci + 1 : 0;
   }
 
   const OVERSHOOT = 28;
-  const items = mergedList.slice(startIdx, startIdx + limit + OVERSHOOT);
+  const items = filteredList.slice(startIdx, startIdx + limit + OVERSHOOT);
 
   const postIds = items.map((p) => p.id);
   const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);

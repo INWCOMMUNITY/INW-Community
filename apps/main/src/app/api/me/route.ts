@@ -30,6 +30,11 @@ const patchSchema = z.object({
     .nullable()
     .optional()
     .or(z.literal("")),
+  coverPhotoUrl: z
+    .union([z.string().url(), z.string().regex(/^\/.+/)])
+    .nullable()
+    .optional()
+    .or(z.literal("")),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   bio: z.string().nullable().optional(),
@@ -60,6 +65,7 @@ export async function GET(req: NextRequest) {
       firstName: true,
       lastName: true,
       profilePhotoUrl: true,
+      coverPhotoUrl: true,
       bio: true,
       city: true,
       points: true,
@@ -200,6 +206,9 @@ export async function PATCH(req: NextRequest) {
       data: {
         ...(data.profilePhotoUrl !== undefined && {
           profilePhotoUrl: data.profilePhotoUrl || null,
+        }),
+        ...(data.coverPhotoUrl !== undefined && {
+          coverPhotoUrl: data.coverPhotoUrl || null,
         }),
         ...(data.firstName !== undefined && { firstName: data.firstName }),
         ...(data.lastName !== undefined && { lastName: data.lastName }),

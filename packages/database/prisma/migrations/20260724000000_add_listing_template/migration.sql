@@ -30,4 +30,4 @@ CREATE TABLE "listing_template" (
 CREATE INDEX "listing_template_member_id_idx" ON "listing_template"("member_id");
 
 -- AddForeignKey
-ALTER TABLE "listing_template" ADD CONSTRAINT "listing_template_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "member"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "listing_template" ADD CONSTRAINT "listing_template_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "Member"("id") ON DELETE CASCADE ON UPDATE CASCADE;

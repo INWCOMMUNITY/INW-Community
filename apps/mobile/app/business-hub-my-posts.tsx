@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -7,19 +7,15 @@ import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
-  Alert,
   type ViewToken,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
-import {
-  fetchBusinessHubBusinessPosts,
-  toggleLike,
-  deletePost,
-  type FeedPost,
-} from "@/lib/feed-api";
+import { fetchBusinessHubBusinessPosts, type FeedPost } from "@/lib/feed-api";
+import { useFeedQuery, flattenFeedPages } from "@/hooks/use-feed";
+import { useFeedInteractions } from "@/hooks/use-feed-interactions";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
@@ -32,11 +28,22 @@ export default function BusinessHubMyPostsScreen() {
   const createPostMenu = useCreatePost();
   const openEditPost = createPostMenu?.openEditPost;
   const signedIn = !!member;
-  const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+
+  const queryKey = useMemo(() => ["business-posts"] as const, []);
+
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage: loadingMore,
+    isRefetching,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useFeedQuery(queryKey, fetchBusinessHubBusinessPosts);
+
+  const posts = useMemo(() => flattenFeedPages(data), [data]);
+  const refreshing = isRefetching && !loadingMore;
+
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState<FeedPost | null>(null);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
@@ -61,6 +68,24 @@ export default function BusinessHubMyPostsScreen() {
     []
   );
 
+  const {
+    handleLike,
+    handleComment,
+    handleShare,
+    handleDeletePost,
+    handleCommentAdded,
+    handleSourcePostShared,
+  } = useFeedInteractions({
+    queryKey,
+    signedIn,
+    authMemberId: member?.id,
+    onCommentOpen: setCommentPostId,
+    onShareOpen: (postId) => {
+      const post = posts.find((p) => p.id === postId);
+      if (post) setShareOpen(post);
+    },
+  });
+
   useEffect(() => {
     if (!member) {
       setViewerManagedBusinessIds([]);
@@ -72,95 +97,6 @@ export default function BusinessHubMyPostsScreen() {
       )
       .catch(() => setViewerManagedBusinessIds([]));
   }, [member?.id]);
-
-  const load = useCallback(async (cursor?: string) => {
-    const { posts: p, nextCursor: c } = await fetchBusinessHubBusinessPosts(cursor);
-    return { posts: p ?? [], nextCursor: c };
-  }, []);
-
-  const loadInitial = useCallback(() => {
-    setLoading(true);
-    load()
-      .then(({ posts: p, nextCursor: c }) => {
-        setPosts(p);
-        setNextCursor(c);
-      })
-      .catch(() => {
-        setPosts([]);
-        setNextCursor(null);
-      })
-      .finally(() => setLoading(false));
-  }, [load]);
-
-  useEffect(() => {
-    loadInitial();
-  }, [loadInitial]);
-
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    load()
-      .then(({ posts: p, nextCursor: c }) => {
-        setPosts(p);
-        setNextCursor(c);
-      })
-      .finally(() => setRefreshing(false));
-  }, [load]);
-
-  const loadMore = useCallback(() => {
-    if (!nextCursor || loadingMore) return;
-    setLoadingMore(true);
-    load(nextCursor)
-      .then(({ posts: more, nextCursor: c }) => {
-        setPosts((prev) => [...prev, ...more]);
-        setNextCursor(c);
-      })
-      .finally(() => setLoadingMore(false));
-  }, [nextCursor, loadingMore, load]);
-
-  const handleLike = useCallback(
-    async (postId: string) => {
-      if (!signedIn) {
-        Alert.alert("Sign in", "Sign in to like posts.", [
-          { text: "OK" },
-          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-        ]);
-        return;
-      }
-      try {
-        const { liked } = await toggleLike(postId);
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === postId
-              ? { ...p, liked, likeCount: p.likeCount + (liked ? 1 : -1) }
-              : p
-          )
-        );
-      } catch {
-        /* ignore */
-      }
-    },
-    [signedIn, router]
-  );
-
-  const handleDeletePost = useCallback((postId: string) => {
-    Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          void deletePost(postId)
-            .then(() => {
-              setPosts((prev) => prev.filter((p) => p.id !== postId));
-              setCommentPostId((id) => (id === postId ? null : id));
-            })
-            .catch((e) =>
-              Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
-            );
-        },
-      },
-    ]);
-  }, []);
 
   const commentPost = posts.find((p) => p.id === commentPostId) ?? null;
 
@@ -175,7 +111,7 @@ export default function BusinessHubMyPostsScreen() {
         Posts you published as your business. Open the menu on a post to edit or delete.
       </Text>
 
-      {loading ? (
+      {isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
@@ -186,9 +122,11 @@ export default function BusinessHubMyPostsScreen() {
           viewabilityConfig={hubFeedViewabilityConfig}
           onViewableItemsChanged={onHubFeedViewableItemsChanged}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
+            <RefreshControl refreshing={refreshing} onRefresh={() => refetch()} colors={[theme.colors.primary]} />
           }
-          onEndReached={loadMore}
+          onEndReached={() => {
+            if (hasNextPage && !loadingMore) fetchNextPage();
+          }}
           onEndReachedThreshold={0.35}
           ListEmptyComponent={
             <Text style={styles.empty}>
@@ -208,17 +146,8 @@ export default function BusinessHubMyPostsScreen() {
                 !hubFeedViewabilityReady ? false : hubFeedVisibleIds.has(item.id)
               }
               onLike={handleLike}
-              onComment={(pid) => {
-                if (!signedIn) {
-                  Alert.alert("Sign in", "Sign in to comment.", [
-                    { text: "OK" },
-                    { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-                  ]);
-                  return;
-                }
-                setCommentPostId(pid);
-              }}
-              onShare={() => setShareOpen(item)}
+              onComment={handleComment}
+              onShare={handleShare}
               onEditPost={openEditPost}
               onDeletePost={handleDeletePost}
               viewerManagedBusinessIds={
@@ -236,13 +165,7 @@ export default function BusinessHubMyPostsScreen() {
           post={commentPost}
           initialCommentCount={commentPost.commentCount}
           onClose={() => setCommentPostId(null)}
-          onCommentAdded={() =>
-            setPosts((prev) =>
-              prev.map((p) =>
-                p.id === commentPostId ? { ...p, commentCount: p.commentCount + 1 } : p
-              )
-            )
-          }
+          onCommentAdded={() => handleCommentAdded(commentPostId)}
         />
       )}
 
@@ -252,6 +175,7 @@ export default function BusinessHubMyPostsScreen() {
           onClose={() => setShareOpen(null)}
           sharedContent={{ type: "post", id: shareOpen.id }}
           defaultFeedGroupId={shareOpen.sourceGroup?.id ?? shareOpen.groupId ?? null}
+          onSourcePostShared={handleSourcePostShared}
         />
       )}
     </View>

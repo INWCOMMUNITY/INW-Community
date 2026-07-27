@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useNavigation } from "@react-navigation/native";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import {
@@ -35,13 +36,25 @@ export default function SinglePostScreen() {
     typeof rawCommentId === "string" ? rawCommentId : rawCommentId?.[0];
   const router = useRouter();
   const navigation = useNavigation();
+  const queryClient = useQueryClient();
   const { member } = useAuth();
   const createPostMenu = useCreatePost();
   const openEditPost = createPostMenu?.openEditPost;
   const signedIn = !!member;
-  const [post, setPost] = useState<FeedPost | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+
+  const queryKey = ["post", id] as const;
+
+  const {
+    data: post,
+    isLoading,
+    isRefetching,
+    refetch,
+  } = useQuery({
+    queryKey,
+    queryFn: () => fetchPostById(id!),
+    enabled: !!id,
+  });
+
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
@@ -58,26 +71,12 @@ export default function SinglePostScreen() {
       .catch(() => setViewerManagedBusinessIds([]));
   }, [member?.id]);
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    try {
-      const p = await fetchPostById(id);
-      setPost(p);
-      if (p?.author) {
-        const name = `${p.author.firstName ?? ""} ${p.author.lastName ?? ""}`.trim();
-        navigation.setOptions({ title: name || "Post" });
-      }
-    } catch {
-      setPost(null);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [id, navigation]);
-
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (post?.author) {
+      const name = `${post.author.firstName ?? ""} ${post.author.lastName ?? ""}`.trim();
+      navigation.setOptions({ title: name || "Post" });
+    }
+  }, [post?.author, navigation]);
 
   useEffect(() => {
     if (post?.id && id && post.id === id && commentIdFromUrl) {
@@ -85,8 +84,32 @@ export default function SinglePostScreen() {
     }
   }, [post?.id, id, commentIdFromUrl]);
 
+  const likeMutation = useMutation({
+    mutationFn: (postId: string) => toggleLike(postId),
+    onMutate: async (postId: string) => {
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData<FeedPost>(queryKey);
+      if (prev && prev.id === postId) {
+        queryClient.setQueryData<FeedPost>(queryKey, {
+          ...prev,
+          liked: !prev.liked,
+          likeCount: prev.likeCount + (prev.liked ? -1 : 1),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _postId, context) => {
+      if (context?.prev) {
+        queryClient.setQueryData(queryKey, context.prev);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
   const handleLike = useCallback(
-    async (postId: string) => {
+    (postId: string) => {
       if (!signedIn) {
         Alert.alert("Sign in", "Sign in to like posts.", [
           { text: "OK" },
@@ -94,17 +117,17 @@ export default function SinglePostScreen() {
         ]);
         return;
       }
-      try {
-        const { liked } = await toggleLike(postId);
-        setPost((prev) =>
-          prev && prev.id === postId
-            ? { ...prev, liked, likeCount: prev.likeCount + (liked ? 1 : -1) }
-            : prev
-        );
-      } catch (_) {}
+      likeMutation.mutate(postId);
     },
-    [signedIn, router]
+    [signedIn, router, likeMutation]
   );
+
+  const deleteMutation = useMutation({
+    mutationFn: (postId: string) => deletePost(postId),
+    onSuccess: () => router.back(),
+    onError: (e) =>
+      Alert.alert("Error", (e as unknown as { error?: string }).error ?? "Could not delete post."),
+  });
 
   const handleDeletePost = useCallback((postId: string) => {
     Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
@@ -112,30 +135,36 @@ export default function SinglePostScreen() {
       {
         text: "Delete",
         style: "destructive",
-        onPress: () => {
-          void deletePost(postId)
-            .then(() => router.back())
-            .catch((e) =>
-              Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
-            );
-        },
+        onPress: () => deleteMutation.mutate(postId),
       },
     ]);
-  }, [router]);
+  }, [deleteMutation]);
 
   const handleSourcePostShared = useCallback(
     (sourcePostId: string, opts?: { recorded?: boolean; shareCount?: number }) => {
-      setPost((prev) => {
-        if (!prev || prev.id !== sourcePostId) return prev;
-        const next = nextShareCountAfterShare(prev.shareCount, opts);
-        if (next == null) return prev;
-        return { ...prev, shareCount: next };
-      });
+      const prev = queryClient.getQueryData<FeedPost>(queryKey);
+      if (!prev || prev.id !== sourcePostId) return;
+      const next = nextShareCountAfterShare(prev.shareCount, opts);
+      if (next == null) return;
+      queryClient.setQueryData<FeedPost>(queryKey, { ...prev, shareCount: next });
     },
-    []
+    [queryClient, queryKey]
   );
 
-  if (loading || !id) {
+  const handleCommentAdded = useCallback(
+    (postId: string) => {
+      const prev = queryClient.getQueryData<FeedPost>(queryKey);
+      if (prev && prev.id === postId) {
+        queryClient.setQueryData<FeedPost>(queryKey, {
+          ...prev,
+          commentCount: prev.commentCount + 1,
+        });
+      }
+    },
+    [queryClient, queryKey]
+  );
+
+  if (isLoading || !id) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -158,11 +187,8 @@ export default function SinglePostScreen() {
         contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              void load();
-            }}
+            refreshing={isRefetching}
+            onRefresh={() => refetch()}
             colors={[theme.colors.primary]}
           />
         }
@@ -205,13 +231,7 @@ export default function SinglePostScreen() {
               router.setParams({ commentId: undefined } as never);
             }
           }}
-          onCommentAdded={() =>
-            setPost((p) =>
-              p && p.id === commentPostId
-                ? { ...p, commentCount: p.commentCount + 1 }
-                : p
-            )
-          }
+          onCommentAdded={() => handleCommentAdded(post.id)}
         />
       )}
 

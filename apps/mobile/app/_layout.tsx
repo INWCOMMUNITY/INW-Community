@@ -39,10 +39,22 @@ import { EventInvitePopupHost } from '@/components/EventInvitePopupHost';
 import { WelcomeGalleryProvider } from '@/contexts/WelcomeGalleryContext';
 import { WelcomeGalleryHost } from '@/components/WelcomeGalleryHost';
 import { theme } from '@/lib/theme';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CreatePostProvider } from '@/contexts/CreatePostContext';
 import { CreatePostModalHost } from '@/components/CreatePostModalHost';
 import { GuestRouteGuard } from '@/components/GuestRouteGuard';
 import { EventInvitePopupSuppressionProvider } from '@/contexts/EventInvitePopupSuppressionContext';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 /** True if the string looks like HTML (never render raw in UI). */
 function looksLikeHtml(s: string): boolean {
@@ -353,6 +365,7 @@ function RootLayoutNav() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+    <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <AuthProvider>
       <GuestRouteGuard>
@@ -388,6 +401,7 @@ function RootLayoutNav() {
     </GuestRouteGuard>
     </AuthProvider>
     </ThemeProvider>
+    </QueryClientProvider>
     </GestureHandlerRootView>
   );
 }

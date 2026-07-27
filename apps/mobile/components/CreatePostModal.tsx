@@ -125,6 +125,11 @@ export function CreatePostModal({
   const [uploadingKind, setUploadingKind] = useState<null | "photo" | "video">(null);
   const [error, setError] = useState("");
 
+  // Poll
+  const [pollEnabled, setPollEnabled] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
+
   // Tags
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
@@ -466,9 +471,22 @@ export function CreatePostModal({
 
   const handleSubmit = async () => {
     setError("");
-    if (!content.trim() && photos.length === 0 && videos.length === 0) {
-      setError("Add some text, photos, or a video to post.");
+    const hasContent = content.trim() || photos.length > 0 || videos.length > 0;
+    const hasPoll = pollEnabled && pollQuestion.trim() && pollOptions.filter((o) => o.trim()).length >= 2;
+    if (!hasContent && !hasPoll) {
+      setError("Add some text, photos, video, or a poll to post.");
       return;
+    }
+    if (pollEnabled) {
+      if (!pollQuestion.trim()) {
+        setError("Add a question for your poll.");
+        return;
+      }
+      const validOptions = pollOptions.filter((o) => o.trim());
+      if (validOptions.length < 2) {
+        setError("Add at least 2 options for your poll.");
+        return;
+      }
     }
     setSubmitting(true);
     try {
@@ -482,6 +500,7 @@ export function CreatePostModal({
           taggedBusinessIds: taggedBusiness ? [taggedBusiness.id] : [],
         });
       } else {
+        const validPollOptions = pollOptions.filter((o) => o.trim());
         await createPost({
           content: content.trim() || null,
           photos: photos.length ? photos : undefined,
@@ -493,6 +512,9 @@ export function CreatePostModal({
             ? { sharedItemType: "business" as const, sharedItemId: postAsBusiness.id }
             : {}),
           ...(initialGroupId ? { groupId: initialGroupId } : {}),
+          ...(pollEnabled && pollQuestion.trim() && validPollOptions.length >= 2
+            ? { poll: { question: pollQuestion.trim(), options: validPollOptions.map((o) => o.trim()) } }
+            : {}),
         });
       }
       resetForm();
@@ -518,6 +540,9 @@ export function CreatePostModal({
     setSelectedFriends([]);
     setPostAsBusiness(null);
     setTaggedBusiness(null);
+    setPollEnabled(false);
+    setPollQuestion("");
+    setPollOptions(["", ""]);
     setError("");
   };
 
@@ -742,6 +767,66 @@ export function CreatePostModal({
             </ScrollView>
           )}
 
+          {/* Poll builder */}
+          {pollEnabled && (
+            <View style={styles.pollBuilder}>
+              <View style={styles.pollHeader}>
+                <Ionicons name="bar-chart-outline" size={20} color={theme.colors.primary} />
+                <Text style={styles.pollHeaderText}>Create a Poll</Text>
+              </View>
+              <TextInput
+                style={styles.pollQuestionInput}
+                placeholder="Ask a question..."
+                placeholderTextColor="#999"
+                value={pollQuestion}
+                onChangeText={setPollQuestion}
+                maxLength={300}
+                editable={!submitting}
+              />
+              <View style={styles.pollOptionsContainer}>
+                {pollOptions.map((option, index) => (
+                  <View key={index} style={styles.pollOptionRow}>
+                    <TextInput
+                      style={styles.pollOptionInput}
+                      placeholder={`Option ${index + 1}`}
+                      placeholderTextColor="#999"
+                      value={option}
+                      onChangeText={(text) => {
+                        const newOptions = [...pollOptions];
+                        newOptions[index] = text;
+                        setPollOptions(newOptions);
+                      }}
+                      maxLength={100}
+                      editable={!submitting}
+                    />
+                    {pollOptions.length > 2 && (
+                      <Pressable
+                        onPress={() => {
+                          setPollOptions((prev) => prev.filter((_, i) => i !== index));
+                        }}
+                        hitSlop={8}
+                      >
+                        <Ionicons name="close-circle" size={22} color="#999" />
+                      </Pressable>
+                    )}
+                  </View>
+                ))}
+              </View>
+              {pollOptions.length < 6 && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.addPollOptionBtn,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => setPollOptions((prev) => [...prev, ""])}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color={theme.colors.primary} />
+                  <Text style={styles.addPollOptionText}>Add option</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+
           {/* Action buttons row */}
           <View style={styles.actionRow}>
             <Pressable
@@ -808,6 +893,26 @@ export function CreatePostModal({
               >
                 <Ionicons name="storefront" size={18} color={theme.colors.primary} />
                 <Text style={styles.actionBtnText}>Tag Business</Text>
+              </Pressable>
+            ) : null}
+
+            {!isEditing ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  pollEnabled && styles.actionBtnActive,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => setPollEnabled((v) => !v)}
+              >
+                <Ionicons
+                  name="bar-chart-outline"
+                  size={18}
+                  color={pollEnabled ? "#fff" : theme.colors.primary}
+                />
+                <Text style={[styles.actionBtnText, pollEnabled && styles.actionBtnTextActive]}>
+                  {pollEnabled ? "Remove Poll" : "Add Poll"}
+                </Text>
               </Pressable>
             ) : null}
           </View>
@@ -1156,6 +1261,9 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: theme.colors.primary,
   },
+  actionBtnActive: {
+    backgroundColor: theme.colors.primary,
+  },
   actionBtnDisabled: {
     opacity: 0.6,
   },
@@ -1163,6 +1271,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: theme.colors.primary,
+  },
+  actionBtnTextActive: {
+    color: "#fff",
   },
   error: {
     marginTop: 12,
@@ -1249,6 +1360,69 @@ const styles = StyleSheet.create({
   friendInitials: {
     fontSize: 14,
     fontWeight: "600",
+    color: theme.colors.primary,
+  },
+
+  // Poll builder
+  pollBuilder: {
+    marginTop: 16,
+    padding: 14,
+    backgroundColor: "#f9f9f9",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+  },
+  pollHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  pollHeaderText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.heading,
+  },
+  pollQuestionInput: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: theme.colors.heading,
+    marginBottom: 12,
+  },
+  pollOptionsContainer: {
+    gap: 8,
+  },
+  pollOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  pollOptionInput: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: theme.colors.heading,
+  },
+  addPollOptionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 8,
+  },
+  addPollOptionText: {
+    fontSize: 14,
+    fontWeight: "500",
     color: theme.colors.primary,
   },
 });

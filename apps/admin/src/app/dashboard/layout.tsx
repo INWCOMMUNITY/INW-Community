@@ -53,6 +53,7 @@ const SIDEBAR_SECTIONS: { divider: string; items: SidebarItem[] }[] = [
       { href: "/dashboard/events", label: "Events", icon: "calendar-outline" },
       { href: "/dashboard/blogs", label: "Blogs", icon: "newspaper-outline" },
       { href: "/dashboard/posts", label: "Posts", icon: "document-text-outline" },
+      { href: "/dashboard/comments", label: "Comments", icon: "chatbubble-outline" },
       { href: "/dashboard/tags", label: "Tags", icon: "pricetags-outline" },
       { href: "/dashboard/flagged", label: "Flagged", icon: "flag-outline" },
       { href: "/dashboard/reports", label: "Reports", icon: "bar-chart-outline" },

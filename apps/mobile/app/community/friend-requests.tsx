@@ -12,7 +12,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPatch } from "@/lib/api";
+import { apiGet, apiPatch, apiDelete } from "@/lib/api";
 
 interface Friend {
   id: string;
@@ -68,6 +68,16 @@ export default function FriendRequestsScreen() {
     setActingId(requestId);
     try {
       await apiPatch(`/api/friend-requests/${requestId}`, { status: "declined" });
+      load();
+    } finally {
+      setActingId(null);
+    }
+  }, [load]);
+
+  const cancel = useCallback(async (requestId: string) => {
+    setActingId(requestId);
+    try {
+      await apiDelete(`/api/friend-requests/${requestId}`);
       load();
     } finally {
       setActingId(null);
@@ -158,7 +168,16 @@ export default function FriendRequestsScreen() {
                 <Text style={styles.name}>
                   {r.addressee?.firstName} {r.addressee?.lastName}
                 </Text>
-                <Text style={styles.pendingLabel}>Pending</Text>
+                <View style={styles.actions}>
+                  <Text style={styles.pendingLabel}>Pending</Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.cancelBtn, pressed && styles.buttonPressed, actingId === r.id && styles.btnDisabled]}
+                    onPress={() => cancel(r.id)}
+                    disabled={actingId !== null}
+                  >
+                    <Text style={styles.cancelBtnText}>{actingId === r.id ? "…" : "Cancel"}</Text>
+                  </Pressable>
+                </View>
               </View>
             </View>
           ))
@@ -206,5 +225,13 @@ const styles = StyleSheet.create({
   declineBtnText: { color: "#666", fontSize: 13 },
   buttonPressed: { opacity: 0.8 },
   btnDisabled: { opacity: 0.6 },
+  cancelBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#c00",
+  },
+  cancelBtnText: { color: "#c00", fontSize: 13, fontWeight: "500" },
   empty: { fontSize: 14, color: "#888" },
 });

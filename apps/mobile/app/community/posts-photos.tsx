@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -7,21 +7,15 @@ import {
   Pressable,
   ActivityIndicator,
   RefreshControl,
-  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
 import { getToken, apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
-import {
-  fetchMyPosts,
-  toggleLike,
-  deletePost,
-  nextShareCountAfterShare,
-  type FeedPost,
-} from "@/lib/feed-api";
+import { fetchMyPosts, type FeedPost } from "@/lib/feed-api";
+import { useFeedQuery, flattenFeedPages } from "@/hooks/use-feed";
+import { useFeedInteractions } from "@/hooks/use-feed-interactions";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { CouponPopup } from "@/components/CouponPopup";
@@ -34,20 +28,42 @@ export default function PostsAndPhotosScreen() {
   const openCreatePost = createPostMenu?.openCreatePost ?? (() => {});
   const openEditPost = createPostMenu?.openEditPost;
 
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
-  const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const signedIn = !!authMember;
+  const queryKey = useMemo(() => ["my-posts"] as const, []);
+
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage: loadingMore,
+    isRefetching,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useFeedQuery(queryKey, fetchMyPosts, { enabled: signedIn });
+
+  const posts = useMemo(() => flattenFeedPages(data), [data]);
+  const refreshing = isRefetching && !loadingMore;
+
   const [couponPopupId, setCouponPopupId] = useState<string | null>(null);
   const [shareToChatPost, setShareToChatPost] = useState<{ id: string; slug?: string } | null>(null);
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
 
-  useEffect(() => {
-    getToken().then((t) => setSignedIn(!!t));
-  }, []);
+  const {
+    handleLike,
+    handleComment,
+    handleShare,
+    handleSave,
+    handleDeletePost,
+    handleCommentAdded,
+    handleSourcePostShared,
+  } = useFeedInteractions({
+    queryKey,
+    signedIn,
+    authMemberId: authMember?.id,
+    onCommentOpen: setCommentPostId,
+    onShareOpen: (postId) => setShareToChatPost({ id: postId }),
+  });
 
   useEffect(() => {
     if (!authMember) {
@@ -60,151 +76,6 @@ export default function PostsAndPhotosScreen() {
       )
       .catch(() => setViewerManagedBusinessIds([]));
   }, [authMember?.id]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (signedIn !== true) {
-        if (signedIn === false) {
-          setLoading(false);
-          setPosts([]);
-          setNextCursor(null);
-        }
-        return;
-      }
-      setLoading(true);
-      fetchMyPosts()
-        .then(({ posts: p, nextCursor: c }) => {
-          setPosts(p ?? []);
-          setNextCursor(c ?? null);
-        })
-        .catch(() => {
-          setPosts([]);
-          setNextCursor(null);
-        })
-        .finally(() => setLoading(false));
-    }, [signedIn])
-  );
-
-  const onRefresh = useCallback(() => {
-    if (!signedIn) return;
-    setRefreshing(true);
-    fetchMyPosts()
-      .then(({ posts: p, nextCursor: c }) => {
-        setPosts(p ?? []);
-        setNextCursor(c ?? null);
-      })
-      .catch(() => {
-        setPosts([]);
-        setNextCursor(null);
-      })
-      .finally(() => setRefreshing(false));
-  }, [signedIn]);
-
-  const loadMore = useCallback(() => {
-    if (!signedIn || !nextCursor || loadingMore) return;
-    setLoadingMore(true);
-    fetchMyPosts(nextCursor)
-      .then(({ posts: more, nextCursor: c }) => {
-        setPosts((prev) => [...prev, ...more]);
-        setNextCursor(c);
-      })
-      .finally(() => setLoadingMore(false));
-  }, [signedIn, nextCursor, loadingMore]);
-
-  const handleLike = useCallback(
-    async (postId: string) => {
-      try {
-        const { liked } = await toggleLike(postId);
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === postId
-              ? {
-                  ...p,
-                  liked,
-                  likeCount: p.likeCount + (liked ? 1 : -1),
-                }
-              : p
-          )
-        );
-      } catch {
-        Alert.alert("Error", "Could not update like.");
-      }
-    },
-    []
-  );
-
-  const handleShare = useCallback((postId: string) => {
-    setShareToChatPost({ id: postId });
-  }, []);
-
-  const handleComment = useCallback((postId: string) => {
-    setCommentPostId(postId);
-  }, []);
-
-  const handleSave = useCallback(async (postId: string) => {
-    try {
-      const { apiPost } = await import("@/lib/api");
-      await apiPost("/api/saved", { type: "post", referenceId: postId });
-      Alert.alert("Saved", "Post saved! View it in your Saved Posts.");
-    } catch {
-      Alert.alert("Error", "Could not save post. Try again.");
-    }
-  }, []);
-
-  const handleCommentAdded = useCallback(() => {
-    if (!commentPostId) return;
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === commentPostId ? { ...p, commentCount: p.commentCount + 1 } : p
-      )
-    );
-  }, [commentPostId]);
-
-  const handleSourcePostShared = useCallback(
-    (sourcePostId: string, opts?: { recorded?: boolean; shareCount?: number }) => {
-      setPosts((prev) =>
-        prev.map((p) => {
-          if (p.id !== sourcePostId) return p;
-          const next = nextShareCountAfterShare(p.shareCount, opts);
-          if (next == null) return p;
-          return { ...p, shareCount: next };
-        })
-      );
-    },
-    []
-  );
-
-  const handleDeletePost = useCallback((postId: string) => {
-    Alert.alert(
-      "Delete post",
-      "Delete this post? This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => {
-            void deletePost(postId)
-              .then(() => {
-                setPosts((prev) => prev.filter((p) => p.id !== postId));
-                setCommentPostId((id) => (id === postId ? null : id));
-              })
-              .catch((e) =>
-                Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
-              );
-          },
-        },
-      ]
-    );
-  }, []);
-
-  if (signedIn === null) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
-  }
 
   if (!signedIn) {
     return (
@@ -229,7 +100,7 @@ export default function PostsAndPhotosScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={onRefresh}
+            onRefresh={() => refetch()}
             colors={[theme.colors.primary]}
           />
         }
@@ -247,7 +118,7 @@ export default function PostsAndPhotosScreen() {
           </Pressable>
         </View>
 
-        {loading && posts.length === 0 ? (
+        {isLoading && posts.length === 0 ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
             <Text style={styles.loadingText}>Loading your posts…</Text>
@@ -280,13 +151,13 @@ export default function PostsAndPhotosScreen() {
                 onOpenCoupon={(id) => setCouponPopupId(id)}
               />
             ))}
-            {nextCursor ? (
+            {hasNextPage ? (
               <Pressable
                 style={({ pressed }) => [
                   styles.loadMoreBtn,
                   (loadingMore || pressed) && styles.loadMoreBtnPressed,
                 ]}
-                onPress={loadMore}
+                onPress={() => fetchNextPage()}
                 disabled={loadingMore}
               >
                 {loadingMore ? (
@@ -326,7 +197,7 @@ export default function PostsAndPhotosScreen() {
             posts.find((p) => p.id === commentPostId)?.commentCount ?? 0
           }
           onClose={() => setCommentPostId(null)}
-          onCommentAdded={handleCommentAdded}
+          onCommentAdded={() => handleCommentAdded(commentPostId)}
         />
       )}
     </>

@@ -28,10 +28,12 @@ export async function GET(
       firstName: true,
       lastName: true,
       profilePhotoUrl: true,
+      coverPhotoUrl: true,
       bio: true,
       city: true,
       allTimePointsEarned: true,
       privacyLevel: true,
+      createdAt: true,
       memberBadges: {
         select: { badge: { select: { id: true, name: true, slug: true, description: true } } },
       },
@@ -65,6 +67,7 @@ export async function GET(
       firstName: member.firstName,
       lastName: member.lastName,
       profilePhotoUrl: member.profilePhotoUrl,
+      coverPhotoUrl: member.coverPhotoUrl,
       city: member.city,
       allTimePointsEarned: member.allTimePointsEarned ?? 0,
       badges: [],
@@ -73,7 +76,17 @@ export async function GET(
     });
   }
 
-  const businessIds = member.savedItems.map((s) => s.referenceId);
+  const [businessIds, postCount, friendCount] = await Promise.all([
+    Promise.resolve(member.savedItems.map((s) => s.referenceId)),
+    prisma.post.count({ where: { authorId: id } }),
+    prisma.friendRequest.count({
+      where: {
+        status: "accepted",
+        OR: [{ requesterId: id }, { addresseeId: id }],
+      },
+    }),
+  ]);
+
   const favoriteBusinesses =
     businessIds.length > 0
       ? await prisma.business.findMany({
@@ -87,9 +100,14 @@ export async function GET(
     firstName: member.firstName,
     lastName: member.lastName,
     profilePhotoUrl: member.profilePhotoUrl,
+    coverPhotoUrl: member.coverPhotoUrl,
     bio: member.bio,
     city: member.city,
     allTimePointsEarned: member.allTimePointsEarned ?? 0,
+    memberSince: member.createdAt,
+    postCount,
+    friendCount,
+    badgeCount: member.memberBadges.length,
     badges: member.memberBadges.map((mb) => ({
       id: mb.badge.id,
       name: mb.badge.name,

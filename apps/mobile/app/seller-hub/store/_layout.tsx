@@ -49,7 +49,6 @@ export default function SellerStoreLayout() {
       <Stack.Screen name="payouts/index" options={{ title: "Payouts" }} />
       <Stack.Screen name="cancellations/index" options={{ title: "Cancellations" }} />
       <Stack.Screen name="returns/index" options={{ title: "Refund Requests" }} />
-      <Stack.Screen name="actions/index" options={{ title: "Actions" }} />
     </Stack>
   );
 }

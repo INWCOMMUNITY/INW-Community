@@ -15,9 +15,9 @@ import {
   Animated,
   Dimensions,
   Alert,
-  Linking,
   useWindowDimensions,
 } from "react-native";
+import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
@@ -146,6 +146,7 @@ interface CommentRowProps {
   onReply: (comment: FeedComment) => void;
   onReportComment?: (commentId: string) => void;
   onDeleteComment?: (commentId: string) => void;
+  onOpenProfile?: (memberId: string) => void;
 }
 
 function CommentRow({
@@ -157,6 +158,7 @@ function CommentRow({
   onReply,
   onReportComment,
   onDeleteComment,
+  onOpenProfile,
 }: CommentRowProps) {
   const name = `${comment.member.firstName ?? ""} ${comment.member.lastName ?? ""}`.trim() || "Member";
   const initials = [comment.member.firstName?.[0], comment.member.lastName?.[0]]
@@ -189,10 +191,9 @@ function CommentRow({
         <View style={styles.commentMain}>
           <Pressable
             onPress={() => {
-              // The modal doesn't have a router; open profile in web fallback.
-              // (Native profile navigation is handled in the feed card; this keeps comments lightweight.)
-              // eslint-disable-next-line @typescript-eslint/no-floating-promises
-              Linking.openURL(`${siteBase}/members/${comment.member.id}`).catch(() => {});
+              if (onOpenProfile) {
+                onOpenProfile(comment.member.id);
+              }
             }}
             style={({ pressed }) => pressed && { opacity: 0.7 }}
           >
@@ -279,6 +280,8 @@ export function FeedCommentsModal({
 }: FeedCommentsModalProps) {
   const [comments, setComments] = useState<FeedComment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -286,8 +289,16 @@ export function FeedCommentsModal({
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ id: string; authorName: string } | null>(null);
   const { member } = useAuth();
+  const router = useRouter();
   const isPostOwner = !!(member && post?.author?.id === member.id);
   const slideAnim = useRef(new Animated.Value(SHEET_HEIGHT)).current;
+
+  const handleOpenProfile = (memberId: string) => {
+    onClose();
+    setTimeout(() => {
+      (router.push as (href: string) => void)(`/members/${memberId}`);
+    }, 300);
+  };
   const listRef = useRef<FlatList<{ comment: FeedComment; isReply: boolean }>>(null);
   const highlightScrollDoneRef = useRef(false);
 
@@ -308,6 +319,7 @@ export function FeedCommentsModal({
     if (!visible || !postId) return;
     highlightScrollDoneRef.current = false;
     setComments([]);
+    setNextCursor(null);
     setInput("");
     setPhotos([]);
     setReplyingTo(null);
@@ -320,7 +332,10 @@ export function FeedCommentsModal({
       friction: 11,
     }).start();
     fetchComments(postId)
-      .then(({ comments: c }) => setComments(c ?? []))
+      .then(({ comments: c, nextCursor: nc }) => {
+        setComments(c ?? []);
+        setNextCursor(nc ?? null);
+      })
       .catch(() => setComments([]))
       .finally(() => setLoading(false));
   }, [visible, postId]);
@@ -347,6 +362,24 @@ export function FeedCommentsModal({
       duration: 200,
       useNativeDriver: true,
     }).start(() => onClose());
+  };
+
+  const loadMoreComments = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const { comments: more, nextCursor: nc } = await fetchComments(postId, { cursor: nextCursor });
+      setComments((prev) => {
+        const existingIds = new Set(prev.map((c) => c.id));
+        const fresh = (more ?? []).filter((c) => !existingIds.has(c.id));
+        return [...prev, ...fresh];
+      });
+      setNextCursor(nc ?? null);
+    } catch {
+      // Failed to load more — leave UI as-is
+    } finally {
+      setLoadingMore(false);
+    }
   };
 
   const pickImage = async () => {
@@ -595,9 +628,30 @@ export function FeedCommentsModal({
                     onReply={handleReply}
                     onReportComment={handleReportComment}
                     onDeleteComment={isPostOwner ? handleDeleteComment : undefined}
+                    onOpenProfile={handleOpenProfile}
                   />
                 </View>
               )}
+              ListFooterComponent={
+                nextCursor ? (
+                  <View style={styles.loadMoreWrap}>
+                    <Pressable
+                      onPress={loadMoreComments}
+                      disabled={loadingMore}
+                      style={({ pressed }) => [
+                        styles.loadMoreBtn,
+                        (loadingMore || pressed) && { opacity: 0.6 },
+                      ]}
+                    >
+                      {loadingMore ? (
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                      ) : (
+                        <Text style={styles.loadMoreText}>Load more comments</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                ) : null
+              }
               onScrollToIndexFailed={(info) => {
                 const approx = Math.max(0, info.averageItemLength * info.index);
                 listRef.current?.scrollToOffset({ offset: approx, animated: true });
@@ -1018,5 +1072,21 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     opacity: 0.5,
+  },
+  loadMoreWrap: {
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  loadMoreBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  loadMoreText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
 });

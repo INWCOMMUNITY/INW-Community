@@ -5,6 +5,7 @@ export const ADMIN_TODO_QUEUE_KEYS = [
   "group_deletion_requests",
   "flagged_pending",
   "nwc_requests",
+  "pending_reports",
 ] as const;
 
 export type AdminTodoQueueKey = (typeof ADMIN_TODO_QUEUE_KEYS)[number];
@@ -43,6 +44,7 @@ export async function getAdminTodoQueueItems(): Promise<AdminTodoQueueItemDto[]>
   const gdDismiss = byKey.group_deletion_requests;
   const flDismiss = byKey.flagged_pending;
   const nwcDismiss = byKey.nwc_requests;
+  const rpDismiss = byKey.pending_reports;
 
   const [
     groupCreCount,
@@ -55,6 +57,8 @@ export async function getAdminTodoQueueItems(): Promise<AdminTodoQueueItemDto[]>
     nwcAllMax,
     nwcSinceCount,
     nwcSinceMax,
+    reportsCount,
+    reportsMax,
   ] = await Promise.all([
     prisma.groupCreationRequest.count({ where: { status: "pending" } }),
     prisma.groupCreationRequest.aggregate({
@@ -82,6 +86,11 @@ export async function getAdminTodoQueueItems(): Promise<AdminTodoQueueItemDto[]>
           _max: { createdAt: true },
         })
       : Promise.resolve({ _max: { createdAt: null as Date | null } }),
+    prisma.report.count({ where: { status: "pending" } }),
+    prisma.report.aggregate({
+      where: { status: "pending" },
+      _max: { createdAt: true },
+    }),
   ]);
 
   const items: AdminTodoQueueItemDto[] = [];
@@ -121,6 +130,15 @@ export async function getAdminTodoQueueItems(): Promise<AdminTodoQueueItemDto[]>
       label: "Review support & contact requests",
       count: nwcCount,
       hrefSuffix: "/nwc-requests",
+    });
+  }
+
+  if (visibleAfterDismiss(reportsCount, reportsMax._max.createdAt, rpDismiss)) {
+    items.push({
+      key: "pending_reports",
+      label: "Review pending user reports",
+      count: reportsCount,
+      hrefSuffix: "/reports",
     });
   }
 

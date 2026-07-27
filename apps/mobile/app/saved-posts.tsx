@@ -3,11 +3,12 @@ import {
   StyleSheet,
   View,
   Text,
-  ScrollView,
+  FlatList,
   ActivityIndicator,
   RefreshControl,
   Pressable,
   Alert,
+  type ListRenderItemInfo,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,7 +16,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiDelete, apiPost } from "@/lib/api";
 import { FeedPostCard } from "@/components/FeedPostCard";
-import { deletePost, type FeedPost } from "@/lib/feed-api";
+import { FeedCommentsModal } from "@/components/FeedCommentsModal";
+import { ShareToChatModal } from "@/components/ShareToChatModal";
+import { toggleLike, deletePost, type FeedPost } from "@/lib/feed-api";
 import { useCreatePost } from "@/contexts/CreatePostContext";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -35,6 +38,8 @@ export default function SavedPostsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [viewerManagedBusinessIds, setViewerManagedBusinessIds] = useState<string[]>([]);
+  const [commentPostId, setCommentPostId] = useState<string | null>(null);
+  const [shareToChatPost, setShareToChatPost] = useState<{ id: string; slug?: string } | null>(null);
 
   useEffect(() => {
     if (!member) {
@@ -58,8 +63,8 @@ export default function SavedPostsScreen() {
         return;
       }
       const ids = saved.map((s) => s.referenceId);
-      const feed = await apiGet<FeedPost[]>(`/api/feed?ids=${ids.join(",")}`);
-      setPosts(Array.isArray(feed) ? feed : []);
+      const result = await apiGet<{ posts: FeedPost[] }>(`/api/posts/batch?ids=${ids.join(",")}`);
+      setPosts(Array.isArray(result?.posts) ? result.posts : []);
     } catch {
       setPosts([]);
     } finally {
@@ -71,6 +76,29 @@ export default function SavedPostsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleLike = useCallback(async (postId: string) => {
+    try {
+      const { liked } = await toggleLike(postId);
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId
+            ? { ...p, liked, likeCount: p.likeCount + (liked ? 1 : -1) }
+            : p
+        )
+      );
+    } catch {
+      Alert.alert("Error", "Could not like post.");
+    }
+  }, []);
+
+  const handleComment = useCallback((postId: string) => {
+    setCommentPostId(postId);
+  }, []);
+
+  const handleShare = useCallback((postId: string) => {
+    setShareToChatPost({ id: postId });
+  }, []);
 
   const handleUnsave = async (postId: string) => {
     await apiDelete(`/api/saved?type=post&referenceId=${encodeURIComponent(postId)}`);
@@ -143,13 +171,44 @@ export default function SavedPostsScreen() {
     );
   };
 
+  const handleCommentAdded = useCallback((postId: string) => {
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p
+      )
+    );
+  }, []);
+
+  const renderPost = useCallback(
+    ({ item }: ListRenderItemInfo<FeedPost>) => (
+      <FeedPostCard
+        post={item}
+        onLike={handleLike}
+        onComment={handleComment}
+        onShare={handleShare}
+        onReport={handleReport}
+        onBlockUser={handleBlockUser}
+        onSave={() => handleUnsave(item.id)}
+        onEditPost={openEditPost}
+        onDeletePost={handleDeletePost}
+        viewerManagedBusinessIds={
+          viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
+        }
+      />
+    ),
+    [handleLike, handleComment, handleShare, handleDeletePost, openEditPost, viewerManagedBusinessIds]
+  );
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
-        <Text style={styles.headerTitle}>Saved Posts</Text>
+        <View style={styles.headerTitleRow}>
+          <Ionicons name="bookmark" size={18} color="#fff" />
+          <Text style={styles.headerTitle}>Saved Posts</Text>
+        </View>
         <View style={{ width: 32 }} />
       </View>
       {loading ? (
@@ -157,7 +216,10 @@ export default function SavedPostsScreen() {
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : (
-        <ScrollView
+        <FlatList
+          data={posts}
+          keyExtractor={(item) => item.id}
+          renderItem={renderPost}
           contentContainerStyle={styles.scrollContent}
           refreshControl={
             <RefreshControl
@@ -166,27 +228,34 @@ export default function SavedPostsScreen() {
               colors={[theme.colors.primary]}
             />
           }
-        >
-          {posts.length === 0 ? (
+          ListEmptyComponent={
             <Text style={styles.empty}>No saved posts yet. Use the 3-dot menu on posts to save them.</Text>
-          ) : (
-            posts.map((p) => (
-              <FeedPostCard
-                key={p.id}
-                post={p}
-                onLike={() => {}}
-                onReport={handleReport}
-                onBlockUser={handleBlockUser}
-                onSave={() => handleUnsave(p.id)}
-                onEditPost={openEditPost}
-                onDeletePost={handleDeletePost}
-                viewerManagedBusinessIds={
-                  viewerManagedBusinessIds.length ? viewerManagedBusinessIds : undefined
-                }
-              />
-            ))
-          )}
-        </ScrollView>
+          }
+          windowSize={7}
+          maxToRenderPerBatch={5}
+          initialNumToRender={4}
+        />
+      )}
+
+      {commentPostId && (
+        <FeedCommentsModal
+          visible={!!commentPostId}
+          postId={commentPostId}
+          post={posts.find((p) => p.id === commentPostId) ?? undefined}
+          initialCommentCount={
+            posts.find((p) => p.id === commentPostId)?.commentCount ?? 0
+          }
+          onClose={() => setCommentPostId(null)}
+          onCommentAdded={() => handleCommentAdded(commentPostId)}
+        />
+      )}
+
+      {shareToChatPost && (
+        <ShareToChatModal
+          visible={!!shareToChatPost}
+          onClose={() => setShareToChatPost(null)}
+          sharedContent={{ type: "post", id: shareToChatPost.id, slug: shareToChatPost.slug }}
+        />
       )}
     </View>
   );
@@ -205,6 +274,11 @@ const styles = StyleSheet.create({
     borderBottomColor: "#000",
   },
   backBtn: { padding: 4 },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",

@@ -13,6 +13,7 @@ export interface FeedPost {
   videos?: string[];
   tags?: { id: string; name: string; slug: string }[];
   createdAt: string;
+  updatedAt?: string;
   author: {
     id: string;
     firstName: string;
@@ -80,9 +81,18 @@ export interface FeedPost {
   /** Present on API payloads for group posts; used when editing. */
   groupId?: string | null;
   liked: boolean;
+  myReaction?: string | null;
   likeCount: number;
+  reactionBreakdown?: Record<string, number> | null;
   commentCount: number;
   shareCount: number;
+  isFollowingAuthor?: boolean;
+  poll?: {
+    question: string;
+    options: { id: string; label: string; voteCount: number }[];
+    totalVotes: number;
+    myVote?: string;
+  } | null;
 }
 
 /** Returns the share count to show after a share action, or null if the UI should not change. */
@@ -117,14 +127,21 @@ export function postTouchesViewerManagedBusinesses(post: FeedPost, businessIds: 
   return walk(post);
 }
 
-export async function fetchFeed(cursor?: string): Promise<FeedResponse> {
+export async function fetchFeed(cursor?: string, filter?: string): Promise<FeedResponse> {
   const params = new URLSearchParams();
   if (cursor) params.set("cursor", cursor);
+  if (filter && filter !== "all") params.set("filter", filter);
   const data = await apiGet<FeedResponse>(`/api/feed?${params}`);
   return {
     posts: data.posts ?? [],
     nextCursor: data.nextCursor ?? null,
   };
+}
+
+/** Lightweight poll: returns how many new posts exist since the given timestamp. */
+export async function fetchNewPostCount(since: string): Promise<number> {
+  const data = await apiGet<{ count: number }>(`/api/feed/count-since?since=${encodeURIComponent(since)}`);
+  return data?.count ?? 0;
 }
 
 /** Posts authored by the current member (profile posts). Requires auth. */
@@ -188,8 +205,14 @@ export async function fetchBusinessFeed(businessId: string, cursor?: string): Pr
   };
 }
 
-export async function toggleLike(postId: string): Promise<{ liked: boolean }> {
-  return apiPost<{ liked: boolean }>(`/api/posts/${postId}/like`, {});
+export async function toggleLike(
+  postId: string,
+  reaction?: string
+): Promise<{ liked: boolean; reaction?: string }> {
+  return apiPost<{ liked: boolean; reaction?: string }>(
+    `/api/posts/${postId}/like`,
+    reaction ? { reaction } : {}
+  );
 }
 
 export interface FeedComment {
@@ -209,8 +232,17 @@ export interface FeedComment {
   };
 }
 
-export async function fetchComments(postId: string): Promise<{ comments: FeedComment[] }> {
-  return apiGet<{ comments: FeedComment[] }>(`/api/posts/${postId}/comments`);
+export async function fetchComments(
+  postId: string,
+  opts?: { cursor?: string; limit?: number }
+): Promise<{ comments: FeedComment[]; nextCursor: string | null }> {
+  const params = new URLSearchParams();
+  if (opts?.cursor) params.set("cursor", opts.cursor);
+  if (opts?.limit) params.set("limit", String(Math.min(opts.limit, 100)));
+  const qs = params.toString();
+  return apiGet<{ comments: FeedComment[]; nextCursor: string | null }>(
+    `/api/posts/${postId}/comments${qs ? `?${qs}` : ""}`
+  );
 }
 
 export async function createComment(
@@ -255,6 +287,7 @@ export interface CreatePostBody {
   groupId?: string | null;
   sharedItemType?: "business" | "coupon" | "reward" | "store_item";
   sharedItemId?: string;
+  poll?: { question: string; options: string[] };
 }
 
 export async function createPost(body: CreatePostBody): Promise<{ post?: FeedPost }> {

@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import { hasBlockBetween } from "@/lib/member-block";
 import { z } from "zod";
+
+const DAILY_FRIEND_REQUEST_LIMIT = 50;
 
 const bodySchema = z.object({
   addresseeId: z.string().min(1),
@@ -31,6 +34,43 @@ export async function POST(req: NextRequest) {
     if (!addressee) return NextResponse.json({ error: "Member not found" }, { status: 404 });
     if (addressee.privacyLevel === "completely_private") {
       return NextResponse.json({ error: "Cannot send request to this member" }, { status: 403 });
+    }
+
+    // Block check: prevent friend requests between blocked users
+    if (await hasBlockBetween(session.user.id, addresseeId)) {
+      return NextResponse.json({ error: "Cannot send request to this member" }, { status: 403 });
+    }
+
+    // Rate limit: max 50 friend requests per day
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dailyCount = await prisma.friendRequest.count({
+      where: {
+        requesterId: session.user.id,
+        createdAt: { gte: today },
+      },
+    });
+    if (dailyCount >= DAILY_FRIEND_REQUEST_LIMIT) {
+      return NextResponse.json(
+        { error: "You've sent too many friend requests today. Try again tomorrow." },
+        { status: 429 }
+      );
+    }
+
+    // Check for declined request cooldown (7 days)
+    const recentDeclined = await prisma.friendRequest.findFirst({
+      where: {
+        requesterId: session.user.id,
+        addresseeId,
+        status: "declined",
+        updatedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+      },
+    });
+    if (recentDeclined) {
+      return NextResponse.json(
+        { error: "This request was recently declined. Please wait before trying again." },
+        { status: 400 }
+      );
     }
 
     const existing = await prisma.friendRequest.findFirst({

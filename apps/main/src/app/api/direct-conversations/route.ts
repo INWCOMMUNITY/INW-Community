@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getBlockedMemberIds } from "@/lib/member-block";
+import { getBlockedMemberIds, hasBlockBetween, getFeedExcludedAuthorIds } from "@/lib/member-block";
 import { sortConversationsByLastMessageDesc } from "@/lib/conversation-inbox-sort";
 import { validateText } from "@/lib/content-moderation";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   if (!verified.ok) return verified.response;
 
   try {
-    const [conversations, blockedIds] = await Promise.all([
+    const [conversations, excludedIds] = await Promise.all([
       prisma.directConversation.findMany({
         where: {
           OR: [
@@ -52,12 +52,13 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
-      getBlockedMemberIds(session.user.id),
+      getFeedExcludedAuthorIds(session.user.id),
     ]);
+    const excludedSet = new Set(excludedIds);
     const filtered = sortConversationsByLastMessageDesc(
       conversations.filter((c) => {
         const otherId = c.memberAId === session.user.id ? c.memberBId : c.memberAId;
-        return !blockedIds.has(otherId);
+        return !excludedSet.has(otherId);
       })
     );
 
@@ -146,6 +147,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
   if (addressee.privacyLevel === "completely_private") {
+    return NextResponse.json({ error: "Cannot message this member" }, { status: 403 });
+  }
+
+  // Block check: prevent DMs between blocked users
+  if (await hasBlockBetween(session.user.id, data.addresseeId)) {
     return NextResponse.json({ error: "Cannot message this member" }, { status: 403 });
   }
 

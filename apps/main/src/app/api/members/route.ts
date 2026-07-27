@@ -19,14 +19,20 @@ export async function GET(req: NextRequest) {
   const page = Math.max(0, parseInt(searchParams.get("page") ?? "0", 10));
   const skip = page * limit;
 
-  // Exclude self and blocked relationships. If member_block table is missing (P2021), fall back to exclude self only.
+  // Exclude self, blocked relationships, and completely private profiles.
+  // If member_block table is missing (P2021), fall back to exclude self only.
   const baseWhereWithBlocks = {
     ...verifiedMemberWhere,
     id: { not: session.user.id },
+    privacyLevel: { not: "completely_private" },
     blocksReceived: { none: { blockerId: session.user.id } },
     blocksGiven: { none: { blockedId: session.user.id } },
   };
-  const baseWhereNoBlocks = { ...verifiedMemberWhere, id: { not: session.user.id } };
+  const baseWhereNoBlocks = {
+    ...verifiedMemberWhere,
+    id: { not: session.user.id },
+    privacyLevel: { not: "completely_private" },
+  };
 
   const memberSelect = {
     id: true,

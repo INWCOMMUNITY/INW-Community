@@ -6,6 +6,7 @@ import {
   taggedBusinessesFromIds,
 } from "@/lib/feed-tagged-businesses";
 import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
+import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
 
 /** Matches feed / group-feed includes for hydration + API responses. */
 export const feedPostListInclude = {
@@ -52,7 +53,7 @@ export async function hydrateFeedPostRows(
   const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
   const postGroupIds = items.filter((p) => p.groupId).map((p) => p.groupId!);
 
-  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, groups, likes, likeCounts, commentCounts, shareCountMap] =
+  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, groups, likes, likeCounts, reactionCounts, commentCounts, shareCountMap, polls, viewerVotes, viewerFollows] =
     await Promise.all([
       sourceBlogIds.length > 0
         ? prisma.blog.findMany({
@@ -85,7 +86,7 @@ export async function hydrateFeedPostRows(
       sourceStoreItemIds.length > 0
         ? prisma.storeItem.findMany({
             where: { id: { in: sourceStoreItemIds } },
-            select: { id: true, title: true, slug: true, photos: true, priceCents: true },
+            select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
           })
         : [],
       sourceEventIds.length > 0
@@ -129,11 +130,16 @@ export async function hydrateFeedPostRows(
         : [],
       prisma.postLike.findMany({
         where: { postId: { in: postIds }, memberId: viewerId },
-        select: { postId: true },
+        select: { postId: true, reaction: true },
       }),
       prisma.postLike.groupBy({
         by: ["postId"],
         where: { postId: { in: postIds } },
+        _count: { postId: true },
+      }),
+      prisma.postLike.groupBy({
+        by: ["postId", "reaction"],
+        where: { postId: { in: postIds }, reaction: { not: null } },
         _count: { postId: true },
       }),
       prisma.postComment.groupBy({
@@ -142,6 +148,36 @@ export async function hydrateFeedPostRows(
         _count: { postId: true },
       }),
       getShareCountBySourcePostId(postIds),
+      prisma.postPoll.findMany({
+        where: { postId: { in: postIds } },
+        include: {
+          options: {
+            include: {
+              _count: { select: { votes: true } },
+            },
+          },
+        },
+      }),
+      prisma.postPollVote.findMany({
+        where: { memberId: viewerId, option: { poll: { postId: { in: postIds } } } },
+        select: { optionId: true, option: { select: { pollId: true } } },
+      }),
+      // Get follow status for all post authors
+      (async () => {
+        const authorIds = [...new Set(items.map((p) => p.authorId).filter((id) => id !== viewerId))];
+        if (authorIds.length === 0) return [];
+        try {
+          return await prisma.follow.findMany({
+            where: {
+              followerId: viewerId,
+              followingId: { in: authorIds },
+            },
+            select: { followingId: true },
+          });
+        } catch {
+          return [];
+        }
+      })(),
     ]);
 
   const blogMap = Object.fromEntries(blogs.map((b) => [b.id, b]));
@@ -149,7 +185,6 @@ export async function hydrateFeedPostRows(
   const businessMap = Object.fromEntries(businesses.map((b) => [b.id, b]));
   const couponMap = Object.fromEntries(coupons.map((c) => [c.id, c]));
   const rewardMap = Object.fromEntries(rewards.map((r) => [r.id, r]));
-  const storeItemMap = Object.fromEntries(storeItems.map((s) => [s.id, s]));
   const eventMap = Object.fromEntries(events.map((e) => [e.id, e]));
 
   const sourcePostBlogIds = sourcePosts.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
@@ -192,7 +227,7 @@ export async function hydrateFeedPostRows(
       sourcePostStoreItemIds.length > 0
         ? prisma.storeItem.findMany({
             where: { id: { in: sourcePostStoreItemIds } },
-            select: { id: true, title: true, slug: true, photos: true, priceCents: true },
+            select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
           })
         : [],
       sourcePostEventIds.length > 0
@@ -213,11 +248,15 @@ export async function hydrateFeedPostRows(
         : [],
     ]);
 
+  const storeItemMerge = new Map<string, (typeof storeItems)[0]>();
+  for (const s of storeItems) storeItemMerge.set(s.id, s);
+  for (const s of sourcePostStoreItems) storeItemMerge.set(s.id, s);
+  const feedStoreItemMap = storeItemRowsToFeedEmbedMap([...storeItemMerge.values()]);
+
   const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, b]));
   const sourcePostBusinessMap = Object.fromEntries(sourcePostBusinesses.map((b) => [b.id, b]));
   const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
   const sourcePostRewardMap = Object.fromEntries(sourcePostRewards.map((r) => [r.id, r]));
-  const sourcePostStoreItemMap = Object.fromEntries(sourcePostStoreItems.map((s) => [s.id, s]));
   const sourcePostEventMap = Object.fromEntries(sourcePostEvents.map((e) => [e.id, e]));
 
   const sourcePostMap = Object.fromEntries(
@@ -239,7 +278,7 @@ export async function hydrateFeedPostRows(
           ? (sourcePostRewardMap[p.sourceRewardId] ?? rewardMap[p.sourceRewardId] ?? null)
           : null,
         sourceStoreItem: p.sourceStoreItemId
-          ? (sourcePostStoreItemMap[p.sourceStoreItemId] ?? storeItemMap[p.sourceStoreItemId] ?? null)
+          ? (feedStoreItemMap[p.sourceStoreItemId] ?? null)
           : null,
         sourceEvent: p.sourceEventId
           ? (sourcePostEventMap[p.sourceEventId] ?? eventMap[p.sourceEventId] ?? null)
@@ -249,8 +288,50 @@ export async function hydrateFeedPostRows(
   );
 
   const likedSet = new Set(likes.map((l) => l.postId));
+  const viewerReactionMap = new Map(
+    likes.filter((l) => l.reaction).map((l) => [l.postId, l.reaction])
+  );
   const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.postId, l._count.postId]));
   const commentCountMap = Object.fromEntries(commentCounts.map((c) => [c.postId, c._count.postId]));
+
+  // Reaction breakdown by type (e.g., { postId: { leaf: 5, love: 3 } })
+  const reactionBreakdownMap = new Map<string, Record<string, number>>();
+  for (const rc of reactionCounts) {
+    if (!rc.reaction) continue;
+    const existing = reactionBreakdownMap.get(rc.postId) ?? {};
+    existing[rc.reaction] = rc._count.postId;
+    reactionBreakdownMap.set(rc.postId, existing);
+  }
+
+  // Set of member IDs the viewer follows
+  const followingSet = new Set(viewerFollows.map((f) => f.followingId));
+
+  // Build poll map with vote counts and viewer's vote
+  const viewerVoteByPollId = new Map<string, string>();
+  for (const v of viewerVotes) {
+    viewerVoteByPollId.set(v.option.pollId, v.optionId);
+  }
+
+  const pollMap = new Map<string, {
+    question: string;
+    options: { id: string; label: string; voteCount: number }[];
+    totalVotes: number;
+    myVote?: string;
+  }>();
+  for (const poll of polls) {
+    const options = poll.options.map((o) => ({
+      id: o.id,
+      label: o.label,
+      voteCount: o._count.votes,
+    }));
+    const totalVotes = options.reduce((sum, o) => sum + o.voteCount, 0);
+    pollMap.set(poll.postId, {
+      question: poll.question,
+      options,
+      totalVotes,
+      myVote: viewerVoteByPollId.get(poll.id),
+    });
+  }
 
   return items.map((p) => ({
     ...p,
@@ -260,14 +341,18 @@ export async function hydrateFeedPostRows(
     taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
     sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
     sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
-    sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
+    sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,
     sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
     sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
     sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
     liked: likedSet.has(p.id),
+    myReaction: viewerReactionMap.get(p.id) ?? null,
     likeCount: likeCountMap[p.id] ?? 0,
+    reactionBreakdown: reactionBreakdownMap.get(p.id) ?? null,
     commentCount: commentCountMap[p.id] ?? 0,
     shareCount: shareCountMap[p.id] ?? 0,
+    poll: pollMap.get(p.id) ?? null,
+    isFollowingAuthor: followingSet.has(p.authorId),
   })) as Array<
     Record<string, unknown> & {
       id: string;

@@ -218,6 +218,8 @@ function IncomingRequestCard({
   );
 }
 
+type FriendSortOption = "alphabetical" | "recent";
+
 export default function MyFriendsScreen() {
   const router = useRouter();
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -231,6 +233,8 @@ export default function MyFriendsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searching, setSearching] = useState(false);
   const [browseLoading, setBrowseLoading] = useState(false);
+  const [friendSearchQuery, setFriendSearchQuery] = useState("");
+  const [friendSort, setFriendSort] = useState<FriendSortOption>("alphabetical");
 
   const load = useCallback(async () => {
     setBrowseLoading(true);
@@ -357,6 +361,25 @@ export default function MyFriendsScreen() {
     () => suggested.filter((s) => !incomingRequesterIds.has(s.id)),
     [suggested, incomingRequesterIds]
   );
+
+  const friendsFiltered = useMemo(() => {
+    let list = [...friends];
+    const q = friendSearchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((f) => {
+        const name = `${f.firstName} ${f.lastName}`.toLowerCase();
+        return name.includes(q);
+      });
+    }
+    if (friendSort === "alphabetical") {
+      list.sort((a, b) => {
+        const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
+        const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+    }
+    return list;
+  }, [friends, friendSearchQuery, friendSort]);
 
   return (
     <ScrollView
@@ -488,35 +511,73 @@ export default function MyFriendsScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>My Friends ({friends.length})</Text>
             {friends.length === 0 ? (
-              <Text style={styles.emptyText}>
-                No friends yet. Search or browse members above to add friends.
-              </Text>
+              <View style={styles.emptyState}>
+                <Ionicons name="people-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyStateTitle}>No friends yet</Text>
+                <Text style={styles.emptyStateText}>
+                  Search or browse members above to add friends and connect with your community.
+                </Text>
+              </View>
             ) : (
-              friends.map((f) => (
-                <Pressable
-                  key={f.id}
-                  style={({ pressed }) => [styles.friendCard, pressed && styles.buttonPressed]}
-                  onPress={() => (router.push as (href: string) => void)(`/members/${f.id}`)}
-                >
-                  {f.profilePhotoUrl ? (
-                    <Image source={{ uri: f.profilePhotoUrl }} style={styles.avatar} />
-                  ) : (
-                    <View style={styles.avatarPlaceholder}>
-                      <Text style={styles.avatarText}>
-                        {f.firstName?.[0]}
-                        {f.lastName?.[0]}
+              <>
+                {/* Search and sort controls */}
+                <View style={styles.friendsControls}>
+                  <TextInput
+                    style={styles.friendSearchInput}
+                    placeholder="Search friends..."
+                    placeholderTextColor="#999"
+                    value={friendSearchQuery}
+                    onChangeText={setFriendSearchQuery}
+                  />
+                  <View style={styles.sortRow}>
+                    <Pressable
+                      style={[styles.sortBtn, friendSort === "alphabetical" && styles.sortBtnActive]}
+                      onPress={() => setFriendSort("alphabetical")}
+                    >
+                      <Text style={[styles.sortBtnText, friendSort === "alphabetical" && styles.sortBtnTextActive]}>
+                        A-Z
                       </Text>
-                    </View>
-                  )}
-                  <View style={styles.friendInfo}>
-                    <Text style={styles.friendName}>
-                      {f.firstName} {f.lastName}
-                    </Text>
-                    {f.city && <Text style={styles.friendCity}>{f.city}</Text>}
+                    </Pressable>
+                    <Pressable
+                      style={[styles.sortBtn, friendSort === "recent" && styles.sortBtnActive]}
+                      onPress={() => setFriendSort("recent")}
+                    >
+                      <Text style={[styles.sortBtnText, friendSort === "recent" && styles.sortBtnTextActive]}>
+                        Recent
+                      </Text>
+                    </Pressable>
                   </View>
-                  <Ionicons name="chevron-forward" size={20} color="#999" />
-                </Pressable>
-              ))
+                </View>
+                {friendsFiltered.length === 0 ? (
+                  <Text style={styles.emptyText}>No friends match "{friendSearchQuery}"</Text>
+                ) : (
+                  friendsFiltered.map((f) => (
+                    <Pressable
+                      key={f.id}
+                      style={({ pressed }) => [styles.friendCard, pressed && styles.buttonPressed]}
+                      onPress={() => (router.push as (href: string) => void)(`/members/${f.id}`)}
+                    >
+                      {f.profilePhotoUrl ? (
+                        <Image source={{ uri: f.profilePhotoUrl }} style={styles.avatar} />
+                      ) : (
+                        <View style={styles.avatarPlaceholder}>
+                          <Text style={styles.avatarText}>
+                            {f.firstName?.[0]}
+                            {f.lastName?.[0]}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.friendInfo}>
+                        <Text style={styles.friendName}>
+                          {f.firstName} {f.lastName}
+                        </Text>
+                        {f.city && <Text style={styles.friendCity}>{f.city}</Text>}
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#999" />
+                    </Pressable>
+                  ))
+                )}
+              </>
             )}
           </View>
         </>
@@ -641,4 +702,56 @@ const styles = StyleSheet.create({
   addFriendBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
   mutualHint: { fontSize: 11, color: "#888", marginTop: 4 },
   emptyText: { fontSize: 14, color: "#888", marginTop: 8 },
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 32,
+    gap: 8,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    marginTop: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    paddingHorizontal: 16,
+    lineHeight: 20,
+  },
+  friendsControls: {
+    marginBottom: 12,
+    gap: 10,
+  },
+  friendSearchInput: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    backgroundColor: "#f9f9f9",
+  },
+  sortRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  sortBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "#f0f0f0",
+  },
+  sortBtnActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  sortBtnText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#666",
+  },
+  sortBtnTextActive: {
+    color: "#fff",
+  },
 });

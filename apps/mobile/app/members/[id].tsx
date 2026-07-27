@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Dimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiPatch } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { AppImage } from "@/components/AppImage";
@@ -205,6 +205,33 @@ export default function MemberProfileScreen() {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const handleUnfriend = async () => {
+    if (!profile || actionLoading || friendStatus !== "friends") return;
+    Alert.alert(
+      "Unfriend",
+      `Are you sure you want to unfriend ${profile.firstName}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Unfriend",
+          style: "destructive",
+          onPress: async () => {
+            setMenuOpen(false);
+            setActionLoading("unfriend");
+            try {
+              await apiPost(`/api/members/${profile.id}/unfriend`, {});
+              setFriendStatus("none");
+            } catch {
+              Alert.alert("Error", "Could not unfriend this member.");
+            } finally {
+              setActionLoading(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const loadMemberPosts = useCallback(
@@ -637,6 +664,11 @@ export default function MemberProfileScreen() {
       <Modal visible={menuOpen} transparent animationType="fade">
         <Pressable style={styles.menuOverlay} onPress={() => setMenuOpen(false)}>
           <View style={styles.menuPanel}>
+            {friendStatus === "friends" && (
+              <Pressable style={styles.menuItem} onPress={handleUnfriend}>
+                <Text style={styles.menuItemDanger}>Unfriend</Text>
+              </Pressable>
+            )}
             <Pressable style={styles.menuItem} onPress={handleBlock}>
               <Text style={styles.menuItemDanger}>Block member</Text>
             </Pressable>

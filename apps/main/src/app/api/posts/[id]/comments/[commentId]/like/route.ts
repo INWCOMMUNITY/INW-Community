@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import { canViewerSeeFeedItem } from "@/lib/feed-post-viewer-access";
 
 export async function POST(
   _req: NextRequest,
@@ -15,6 +16,51 @@ export async function POST(
   if (!verified.ok) return verified.response;
 
   const { id: postId, commentId } = await params;
+
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+    include: {
+      author: { select: { id: true, privacyLevel: true } },
+    },
+  });
+  if (!post) {
+    return NextResponse.json({ error: "Post not found" }, { status: 404 });
+  }
+
+  let sourcePost: { author: { id: string; privacyLevel: string | null } | null; groupId: string | null } | null = null;
+  if (post.sourcePostId) {
+    sourcePost = await prisma.post.findUnique({
+      where: { id: post.sourcePostId },
+      select: {
+        author: { select: { id: true, privacyLevel: true } },
+        groupId: true,
+      },
+    });
+  }
+
+  const viewerId = session.user.id;
+  const [friendships, myGroups] = await Promise.all([
+    prisma.friendRequest.findMany({
+      where: {
+        OR: [
+          { requesterId: viewerId, status: "accepted" },
+          { addresseeId: viewerId, status: "accepted" },
+        ],
+      },
+      select: { requesterId: true, addresseeId: true },
+    }),
+    prisma.groupMember.findMany({
+      where: { memberId: viewerId },
+      select: { groupId: true },
+    }),
+  ]);
+  const friendIds = friendships.map((f) =>
+    f.requesterId === viewerId ? f.addresseeId : f.requesterId
+  );
+  const feedItem = { ...post, sourcePost };
+  if (!canViewerSeeFeedItem(feedItem, viewerId, new Set(friendIds), new Set(myGroups.map((g) => g.groupId)))) {
+    return NextResponse.json({ error: "Post not found" }, { status: 404 });
+  }
 
   const comment = await prisma.postComment.findFirst({
     where: { id: commentId, postId },

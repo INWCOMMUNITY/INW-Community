@@ -30,6 +30,7 @@ export default async function DashboardPage() {
     stripeStats,
     analytics,
     pendingGroupRequestsCount,
+    feedStats,
   ] = await Promise.all([
     prisma.member.count(),
     prisma.subscription.count(),
@@ -67,6 +68,12 @@ export default async function DashboardPage() {
       .then((r) => r.json())
       .catch(() => ({ appOpensWeek: 0 })),
     prisma.groupCreationRequest.count({ where: { status: "pending" } }),
+    fetch(`${MAIN_URL}/api/admin/analytics/feed`, {
+      headers: { "x-admin-code": ADMIN_CODE },
+      next: { revalidate: 60 },
+    })
+      .then((r) => r.json())
+      .catch(() => ({ postsToday: 0, likesToday: 0, commentsToday: 0, activePostersThisWeek: 0 })),
   ]);
 
   const totalSalesCents = storeOrdersThisMonth.reduce(
@@ -145,6 +152,29 @@ export default async function DashboardPage() {
       {/* Quote of the Week */}
       <div className="bg-white rounded-lg shadow p-4">
         <DashboardQuote />
+      </div>
+
+      {/* Community Feed */}
+      <div>
+        <h2 className="text-lg font-bold mb-4">Community Feed</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Posts Today</p>
+            <p className="text-2xl font-bold">{feedStats?.postsToday ?? 0}</p>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Likes Today</p>
+            <p className="text-2xl font-bold">{feedStats?.likesToday ?? 0}</p>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Comments Today</p>
+            <p className="text-2xl font-bold">{feedStats?.commentsToday ?? 0}</p>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-600 text-sm">Active Posters (Week)</p>
+            <p className="text-2xl font-bold">{feedStats?.activePostersThisWeek ?? 0}</p>
+          </div>
+        </div>
       </div>
 
       {/* Store Front */}

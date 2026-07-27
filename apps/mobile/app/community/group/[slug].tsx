@@ -17,9 +17,12 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch } from "@/lib/api";
-import { fetchGroupFeed, toggleLike, deletePost, nextShareCountAfterShare, type FeedPost } from "@/lib/feed-api";
+import { fetchGroupFeed, type FeedPost } from "@/lib/feed-api";
+import { useFeedQuery, flattenFeedPages } from "@/hooks/use-feed";
+import { useFeedInteractions } from "@/hooks/use-feed-interactions";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,6 +55,7 @@ export default function GroupDetailScreen() {
   const { slug, adminInvite } = useLocalSearchParams<{ slug: string; adminInvite?: string }>();
   const router = useRouter();
   const navigation = useNavigation();
+  const queryClient = useQueryClient();
   const { member } = useAuth();
   const createPostMenu = useCreatePost();
   const openEditPost = createPostMenu?.openEditPost;
@@ -63,11 +67,25 @@ export default function GroupDetailScreen() {
   const [joining, setJoining] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
 
-  const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [feedLoading, setFeedLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const queryKey = useMemo(() => ["group-feed", slug] as const, [slug]);
+
+  const {
+    data,
+    isLoading: feedLoading,
+    isFetchingNextPage: loadingMore,
+    isRefetching,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useFeedQuery(
+    queryKey,
+    (cursor) => fetchGroupFeed(slug!, cursor),
+    { enabled: !!slug && !!group?.isMember }
+  );
+
+  const posts = useMemo(() => flattenFeedPages(data), [data]);
+  const refreshing = isRefetching && !loadingMore;
+
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [coverGalleryOpen, setCoverGalleryOpen] = useState(false);
   const [coverGalleryIndex, setCoverGalleryIndex] = useState(0);
@@ -93,6 +111,24 @@ export default function GroupDetailScreen() {
     },
     []
   );
+
+  const {
+    handleLike,
+    handleComment,
+    handleShare,
+    handleSave,
+    handleReport,
+    handleBlockUser,
+    handleDeletePost,
+    handleCommentAdded,
+    handleSourcePostShared,
+  } = useFeedInteractions({
+    queryKey,
+    signedIn,
+    authMemberId: member?.id,
+    onCommentOpen: setCommentPostId,
+    onShareOpen: (postId) => setShareToChatPost({ id: postId }),
+  });
 
   useEffect(() => {
     if (!member) {
@@ -135,27 +171,6 @@ export default function GroupDetailScreen() {
       setLoading(false);
     }
   }, [slug]);
-
-  const loadFeed = useCallback(
-    async (cursor?: string, refresh = false) => {
-      if (!slug || !group?.isMember) return;
-      try {
-        if (refresh) setRefreshing(true);
-        else if (!cursor) setFeedLoading(true);
-        else setLoadingMore(true);
-        const { posts: nextPosts, nextCursor: nc } = await fetchGroupFeed(slug, cursor);
-        setPosts((prev) => (refresh ? nextPosts : cursor ? [...prev, ...nextPosts] : nextPosts));
-        setNextCursor(nc);
-      } catch {
-        if (refresh) setPosts([]);
-      } finally {
-        setFeedLoading(false);
-        setRefreshing(false);
-        setLoadingMore(false);
-      }
-    },
-    [slug, group?.isMember]
-  );
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useLayoutEffect(() => {
@@ -208,18 +223,13 @@ export default function GroupDetailScreen() {
     };
   }, [adminInvite, slug, member?.id, load]);
 
-  useEffect(() => {
-    if (group?.isMember && slug) loadFeed(undefined, true);
-  }, [group?.id, group?.isMember, slug, loadFeed]);
-
   const wasCreatePostOpenRef = useRef(false);
   useEffect(() => {
-    // Refresh the group feed after the create-post modal closes.
     if (wasCreatePostOpenRef.current && !createPostVisible && group?.isMember && slug) {
-      void loadFeed(undefined, true);
+      void refetch();
     }
     wasCreatePostOpenRef.current = !!createPostVisible;
-  }, [createPostVisible, group?.isMember, loadFeed, slug]);
+  }, [createPostVisible, group?.isMember, refetch, slug]);
 
   useLayoutEffect(() => {
     if (!group?.isMember || !openCreatePostInGroup || !group) {
@@ -285,7 +295,6 @@ export default function GroupDetailScreen() {
       await apiPost(`/api/groups/${group.slug}/join`, { agreedToRules: true });
       setGroup((g) => (g ? { ...g, isMember: true, memberRole: "member" } : g));
       setRulesModalOpen(false);
-      if (slug) loadFeed(undefined, true);
     } catch (e) {
       const err = e as { error?: string };
       Alert.alert("Error", err?.error ?? "Failed to join group");
@@ -294,171 +303,9 @@ export default function GroupDetailScreen() {
     }
   };
 
-  const handleLike = useCallback(
-    async (postId: string) => {
-      if (!signedIn) {
-        Alert.alert("Sign in", "Sign in to like posts.", [
-          { text: "OK" },
-          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-        ]);
-        return;
-      }
-      try {
-        const { liked } = await toggleLike(postId);
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === postId ? { ...p, liked, likeCount: p.likeCount + (liked ? 1 : -1) } : p
-          )
-        );
-      } catch (_) {}
-    },
-    [signedIn]
-  );
-
-  const handleComment = useCallback(
-    (postId: string) => {
-      if (!signedIn) {
-        Alert.alert("Sign in", "Sign in to comment on posts.", [
-          { text: "OK" },
-          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-        ]);
-        return;
-      }
-      setCommentPostId(postId);
-    },
-    [signedIn]
-  );
-
-  const handleCommentAdded = useCallback(() => {
-    if (!commentPostId) return;
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === commentPostId ? { ...p, commentCount: p.commentCount + 1 } : p
-      )
-    );
-  }, [commentPostId]);
-
-  const handleSourcePostShared = useCallback(
-    (sourcePostId: string, opts?: { recorded?: boolean; shareCount?: number }) => {
-      setPosts((prev) =>
-        prev.map((p) => {
-          if (p.id !== sourcePostId) return p;
-          const next = nextShareCountAfterShare(p.shareCount, opts);
-          if (next == null) return p;
-          return { ...p, shareCount: next };
-        })
-      );
-    },
-    []
-  );
-
-  const handleDeletePost = useCallback((postId: string) => {
-    Alert.alert("Delete post", "Delete this post? This cannot be undone.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          void deletePost(postId)
-            .then(() => {
-              setPosts((prev) => prev.filter((p) => p.id !== postId));
-              setCommentPostId((id) => (id === postId ? null : id));
-            })
-            .catch((e) =>
-              Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
-            );
-        },
-      },
-    ]);
-  }, []);
-
-  const handleShare = useCallback((postId: string) => {
-    setShareToChatPost({ id: postId });
-  }, []);
-
   const refreshGroupFeed = useCallback(() => {
-    if (group?.isMember && slug) void loadFeed(undefined, true);
-  }, [group?.isMember, slug, loadFeed]);
-
-  const handleSave = useCallback(
-    async (postId: string) => {
-      if (!signedIn) {
-        Alert.alert("Sign in", "Sign in to save posts.", [
-          { text: "OK" },
-          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-        ]);
-        return;
-      }
-      try {
-        const { apiPost: postApi } = await import("@/lib/api");
-        await postApi("/api/saved", { type: "post", referenceId: postId });
-        Alert.alert("Saved", "Post saved! View it in your Saved Posts.");
-      } catch {
-        Alert.alert("Error", "Could not save post. Try again.");
-      }
-    },
-    [signedIn]
-  );
-
-  const reportPost = async (postId: string, reason: "political" | "hate" | "nudity" | "spam" | "other") => {
-    try {
-      const { apiPost: postApi } = await import("@/lib/api");
-      await postApi("/api/reports", { contentType: "post", contentId: postId, reason });
-      Alert.alert("Report submitted", "Thank you. We will review this post.");
-    } catch (e) {
-      Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.");
-    }
-  };
-
-  const handleReport = useCallback((postId: string) => {
-    Alert.alert("Report post", "Why are you reporting this post?", [
-      { text: "Political content", onPress: () => reportPost(postId, "political") },
-      { text: "Nudity / explicit", onPress: () => reportPost(postId, "nudity") },
-      { text: "Spam", onPress: () => reportPost(postId, "spam") },
-      { text: "Other", onPress: () => reportPost(postId, "other") },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  }, []);
-
-  const handleBlockUser = useCallback(
-    (memberId: string, postId: string) => {
-      if (member?.id === memberId) {
-        Alert.alert(
-          "Cannot block yourself",
-          "Blocking is for other members. It removes their posts from your feed and stops them from messaging you."
-        );
-        return;
-      }
-      Alert.alert(
-        "Block user",
-        "This user will be blocked. Their posts will be removed from your feed and they will not be able to message you.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Block",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                const { apiPost: postApi } = await import("@/lib/api");
-                await postApi("/api/members/block", { memberId });
-                await postApi("/api/reports", {
-                  contentType: "post",
-                  contentId: postId,
-                  reason: "other",
-                  details: "User blocked by viewer",
-                }).catch(() => {});
-                setPosts((prev) => prev.filter((p) => p.author?.id !== memberId));
-                Alert.alert("User blocked", "They have been blocked and their posts removed from this list.");
-              } catch (e) {
-                Alert.alert("Error", (e as { error?: string }).error ?? "Could not block user.");
-              }
-            },
-          },
-        ]
-      );
-    },
-    [member?.id]
-  );
+    if (group?.isMember && slug) void refetch();
+  }, [group?.isMember, slug, refetch]);
 
   if (loading || !group) {
     return (
@@ -540,14 +387,14 @@ export default function GroupDetailScreen() {
   );
 
   const listFooter =
-    group.isMember && nextCursor ? (
+    group.isMember && hasNextPage ? (
       <View style={styles.feedPostWrap}>
         <Pressable
           style={({ pressed }) => [
             styles.loadMoreBtn,
             (loadingMore || pressed) && styles.buttonPressed,
           ]}
-          onPress={() => loadFeed(nextCursor)}
+          onPress={() => fetchNextPage()}
           disabled={loadingMore}
         >
           {loadingMore ? (
@@ -605,7 +452,7 @@ export default function GroupDetailScreen() {
         group.isMember && slug ? (
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => loadFeed(undefined, true)}
+            onRefresh={() => refetch()}
             colors={[theme.colors.primary]}
           />
         ) : undefined
@@ -621,7 +468,7 @@ export default function GroupDetailScreen() {
             posts.find((p) => p.id === commentPostId)?.commentCount ?? 0
           }
           onClose={() => setCommentPostId(null)}
-          onCommentAdded={handleCommentAdded}
+          onCommentAdded={() => handleCommentAdded(commentPostId)}
         />
       )}
 

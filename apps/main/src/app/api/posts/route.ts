@@ -8,6 +8,11 @@ import { checkMemberRateLimit } from "@/lib/member-rate-limit";
 import { z } from "zod";
 import { filterToPublicDirectoryBusinessIds } from "@/lib/public-business-directory";
 
+const pollSchema = z.object({
+  question: z.string().min(1).max(300),
+  options: z.array(z.string().min(1).max(100)).min(2).max(6),
+});
+
 const postSchema = z.object({
   content: z.string().max(5000).optional().nullable(),
   photos: z.array(z.string()).optional().default([]),
@@ -23,6 +28,7 @@ const postSchema = z.object({
   taggedBusinessIds: z.array(z.string()).max(10).optional().default([]),
   sharedItemType: z.enum(["business", "coupon", "reward", "store_item"]).optional(),
   sharedItemId: z.string().optional(),
+  poll: pollSchema.optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -217,21 +223,46 @@ export async function POST(req: NextRequest) {
     }
 
     if (data.tags?.length) {
-      const tagIds: string[] = [];
-      for (const t of data.tags) {
-        const slug = t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-        if (!slug) continue;
-        let tag = await prisma.tag.findUnique({ where: { slug } });
-        if (!tag) {
-          tag = await prisma.tag.create({
-            data: { name: t.trim(), slug },
-          });
-        }
-        tagIds.push(tag.id);
+      const slugify = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const tagEntries = data.tags
+        .map((t) => ({ name: t.trim(), slug: slugify(t) }))
+        .filter((e) => e.slug.length > 0);
+      const tagSlugs = tagEntries.map((e) => e.slug);
+
+      const existingTags = await prisma.tag.findMany({
+        where: { slug: { in: tagSlugs } },
+      });
+      const existingSlugs = new Set(existingTags.map((t) => t.slug));
+      const newEntries = tagEntries.filter((e) => !existingSlugs.has(e.slug));
+      if (newEntries.length > 0) {
+        await prisma.tag.createMany({
+          data: newEntries.map((e) => ({ name: e.name, slug: e.slug })),
+          skipDuplicates: true,
+        });
       }
+      const allTags = await prisma.tag.findMany({
+        where: { slug: { in: tagSlugs } },
+      });
+
       await prisma.postTag.createMany({
-        data: tagIds.map((tagId) => ({ postId: post.id, tagId })),
+        data: allTags.map((tag) => ({ postId: post.id, tagId: tag.id })),
         skipDuplicates: true,
+      });
+    }
+
+    // Create poll if provided
+    if (data.poll) {
+      const poll = await prisma.postPoll.create({
+        data: {
+          postId: post.id,
+          question: data.poll.question,
+        },
+      });
+      await prisma.postPollOption.createMany({
+        data: data.poll.options.map((label) => ({
+          pollId: poll.id,
+          label,
+        })),
       });
     }
 

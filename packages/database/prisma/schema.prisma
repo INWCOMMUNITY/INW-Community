@@ -16,6 +16,7 @@ model Member {
   firstName         String   @map("first_name")
   lastName          String   @map("last_name")
   profilePhotoUrl   String?  @map("profile_photo_url")
+  coverPhotoUrl     String?  @map("cover_photo_url")
   bio               String?
   city              String?
   points                Int      @default(0) // Community Points (spendable balance)
@@ -130,6 +131,7 @@ model Member {
   sellerActivityLogs       SellerActivityLog[]
   bulkEditSnapshots        BulkEditSnapshot[]
   batchImportJobs          BatchImportJob[]
+  pollVotes                PostPollVote[]
 }
 
 model WebviewBridgeToken {
@@ -736,15 +738,24 @@ model Post {
   /// Saved-directory businesses the author tagged (distinct from shared_business / posting-as).
   taggedBusinessIds   String[] @default([]) @map("tagged_business_ids")
   createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   author       Member        @relation(fields: [authorId], references: [id], onDelete: Cascade)
   comments     PostComment[]
   likes        PostLike[]
   postTags     PostTag[]
+  poll         PostPoll?
 
   @@index([authorId])
   @@index([groupId])
   @@index([createdAt])
+  @@index([sourcePostId])
+  @@index([sourceBlogId])
+  @@index([sourceBusinessId])
+  @@index([sourceCouponId])
+  @@index([sourceRewardId])
+  @@index([sourceStoreItemId])
+  @@index([sourceEventId])
 }
 
 model PostComment {
@@ -783,6 +794,7 @@ model PostLike {
   id        String   @id @default(cuid())
   postId    String   @map("post_id")
   memberId  String   @map("member_id")
+  reaction  String   @default("leaf") // leaf | love | laugh | support | insightful
   createdAt DateTime @default(now()) @map("created_at")
 
   post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
@@ -1732,4 +1744,40 @@ model BatchImportJob {
   @@index([memberId, createdAt])
   @@index([status])
   @@map("batch_import_job")
+}
+
+// Post polls - attach a single poll to a post
+model PostPoll {
+  id        String   @id @default(cuid())
+  postId    String   @unique @map("post_id")
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  question  String
+  options   PostPollOption[]
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("post_poll")
+}
+
+model PostPollOption {
+  id     String @id @default(cuid())
+  pollId String @map("poll_id")
+  poll   PostPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  label  String
+  votes  PostPollVote[]
+
+  @@index([pollId])
+  @@map("post_poll_option")
+}
+
+model PostPollVote {
+  id       String   @id @default(cuid())
+  optionId String   @map("option_id")
+  option   PostPollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  memberId String   @map("member_id")
+  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([optionId, memberId])
+  @@index([memberId])
+  @@map("post_poll_vote")
 }

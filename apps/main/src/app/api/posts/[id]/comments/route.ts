@@ -4,6 +4,10 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getBlockedMemberIds } from "@/lib/member-block";
 import { validateText } from "@/lib/content-moderation";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import {
+  canViewerSeeFeedItem,
+  canUnauthenticatedViewerSeeFeedItem,
+} from "@/lib/feed-post-viewer-access";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -20,14 +24,78 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const post = await prisma.post.findUnique({ where: { id } });
+  const url = new URL(req.url);
+  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "30", 10) || 30, 100);
+  const cursor = url.searchParams.get("cursor") ?? undefined;
+
+  const post = await prisma.post.findUnique({
+    where: { id },
+    include: {
+      author: { select: { id: true, privacyLevel: true } },
+    },
+  });
   if (!post) {
     return NextResponse.json({ error: "Post not found" }, { status: 404 });
   }
 
+  let sourcePost: { author: { id: string; privacyLevel: string | null } | null; groupId: string | null } | null = null;
+  if (post.sourcePostId) {
+    sourcePost = await prisma.post.findUnique({
+      where: { id: post.sourcePostId },
+      select: {
+        author: { select: { id: true, privacyLevel: true } },
+        groupId: true,
+      },
+    });
+  }
+  const feedItem = { ...post, sourcePost };
+
   const session = await getSessionForApi(req as NextRequest);
-  let comments = await prisma.postComment.findMany({
-    where: { postId: id },
+
+  if (session?.user?.id) {
+    const viewerId = session.user.id;
+    const [friendships, myGroups] = await Promise.all([
+      prisma.friendRequest.findMany({
+        where: {
+          OR: [
+            { requesterId: viewerId, status: "accepted" },
+            { addresseeId: viewerId, status: "accepted" },
+          ],
+        },
+        select: { requesterId: true, addresseeId: true },
+      }),
+      prisma.groupMember.findMany({
+        where: { memberId: viewerId },
+        select: { groupId: true },
+      }),
+    ]);
+    const friendIds = friendships.map((f) =>
+      f.requesterId === viewerId ? f.addresseeId : f.requesterId
+    );
+    const viewerFriendIdSet = new Set(friendIds);
+    const viewerGroupIdSet = new Set(myGroups.map((g) => g.groupId));
+    if (!canViewerSeeFeedItem(feedItem, viewerId, viewerFriendIdSet, viewerGroupIdSet)) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
+  } else {
+    if (!canUnauthenticatedViewerSeeFeedItem(feedItem)) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
+  }
+
+  let blockedIds: Set<string> | null = null;
+  if (session?.user?.id) {
+    blockedIds = await getBlockedMemberIds(session.user.id);
+  }
+
+  const topLevelWhere = {
+    postId: id,
+    parentId: null,
+    ...(blockedIds && blockedIds.size > 0 ? { memberId: { notIn: [...blockedIds] } } : {}),
+  };
+
+  const topLevelComments = await prisma.postComment.findMany({
+    where: topLevelWhere,
     include: {
       member: {
         select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
@@ -37,21 +105,46 @@ export async function GET(
       },
     },
     orderBy: { createdAt: "asc" },
+    take: limit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
 
-  if (session?.user?.id) {
-    const blockedIds = await getBlockedMemberIds(session.user.id);
-    comments = comments.filter((c) => !blockedIds.has(c.memberId));
-  }
+  const hasMore = topLevelComments.length > limit;
+  const topPage = hasMore ? topLevelComments.slice(0, limit) : topLevelComments;
+  const nextCursor = hasMore ? topPage[topPage.length - 1]?.id ?? null : null;
 
-  const commentIds = comments.map((c) => c.id);
+  const topIds = topPage.map((c) => c.id);
+
+  const replies = topIds.length > 0
+    ? await prisma.postComment.findMany({
+        where: {
+          postId: id,
+          parentId: { in: topIds },
+          ...(blockedIds && blockedIds.size > 0 ? { memberId: { notIn: [...blockedIds] } } : {}),
+        },
+        include: {
+          member: {
+            select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
+          },
+          parent: {
+            select: { id: true, memberId: true, member: { select: { firstName: true, lastName: true } } },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+
+  const allComments = [...topPage, ...replies];
+  const commentIds = allComments.map((c) => c.id);
   const [likeCounts, likedByMe] = await Promise.all([
-    prisma.postCommentLike.groupBy({
-      by: ["commentId"],
-      where: { commentId: { in: commentIds } },
-      _count: { commentId: true },
-    }),
-    session?.user?.id
+    commentIds.length > 0
+      ? prisma.postCommentLike.groupBy({
+          by: ["commentId"],
+          where: { commentId: { in: commentIds } },
+          _count: { commentId: true },
+        })
+      : [],
+    session?.user?.id && commentIds.length > 0
       ? prisma.postCommentLike.findMany({
           where: { commentId: { in: commentIds }, memberId: session.user.id },
           select: { commentId: true },
@@ -61,7 +154,7 @@ export async function GET(
   const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.commentId, l._count.commentId]));
   const likedSet = new Set(likedByMe.map((l) => l.commentId));
 
-  const result = comments.map((c) => ({
+  const result = allComments.map((c) => ({
     ...c,
     likeCount: likeCountMap[c.id] ?? 0,
     liked: likedSet.has(c.id),
@@ -70,7 +163,7 @@ export async function GET(
       : null,
   }));
 
-  return NextResponse.json({ comments: result });
+  return NextResponse.json({ comments: result, nextCursor });
 }
 
 export async function POST(
@@ -87,9 +180,51 @@ export async function POST(
   const { id } = await params;
   const post = await prisma.post.findUnique({
     where: { id },
-    select: { id: true, authorId: true, sourceBusinessId: true },
+    select: {
+      id: true,
+      type: true,
+      authorId: true,
+      sourceBusinessId: true,
+      sourcePostId: true,
+      groupId: true,
+      author: { select: { id: true, privacyLevel: true } },
+    },
   });
   if (!post) {
+    return NextResponse.json({ error: "Post not found" }, { status: 404 });
+  }
+
+  let sourcePostForAccess: { author: { id: string; privacyLevel: string | null } | null; groupId: string | null } | null = null;
+  if (post.sourcePostId) {
+    sourcePostForAccess = await prisma.post.findUnique({
+      where: { id: post.sourcePostId },
+      select: {
+        author: { select: { id: true, privacyLevel: true } },
+        groupId: true,
+      },
+    });
+  }
+
+  const [friendships, myGroups] = await Promise.all([
+    prisma.friendRequest.findMany({
+      where: {
+        OR: [
+          { requesterId: session.user.id, status: "accepted" },
+          { addresseeId: session.user.id, status: "accepted" },
+        ],
+      },
+      select: { requesterId: true, addresseeId: true },
+    }),
+    prisma.groupMember.findMany({
+      where: { memberId: session.user.id },
+      select: { groupId: true },
+    }),
+  ]);
+  const friendIds = friendships.map((f) =>
+    f.requesterId === session.user.id ? f.addresseeId : f.requesterId
+  );
+  const feedItemForAccess = { ...post, sourcePost: sourcePostForAccess };
+  if (!canViewerSeeFeedItem(feedItemForAccess, session.user.id, new Set(friendIds), new Set(myGroups.map((g) => g.groupId)))) {
     return NextResponse.json({ error: "Post not found" }, { status: 404 });
   }
 

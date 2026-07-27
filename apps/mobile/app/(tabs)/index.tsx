@@ -9,6 +9,8 @@ import {
   Alert,
   Platform,
   FlatList,
+  ScrollView,
+  Animated,
   Dimensions,
   type ListRenderItemInfo,
   type ViewToken,
@@ -21,14 +23,11 @@ import { theme } from "@/lib/theme";
 import { getToken, apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { CommunityUgcTermsModal } from "@/components/CommunityUgcTermsModal";
-import {
-  fetchFeed,
-  nextShareCountAfterShare,
-  toggleLike,
-  deletePost,
-  type FeedPost,
-} from "@/lib/feed-api";
+import { fetchFeed, fetchNewPostCount, type FeedPost } from "@/lib/feed-api";
+import { useFeedQuery, flattenFeedPages } from "@/hooks/use-feed";
+import { useFeedInteractions } from "@/hooks/use-feed-interactions";
 import { FeedPostCard } from "@/components/FeedPostCard";
+import { FeedPostSkeleton } from "@/components/FeedPostSkeleton";
 import { prefetchImages } from "@/components/AppImage";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
 import { CouponPopup } from "@/components/CouponPopup";
@@ -39,6 +38,16 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.co
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 const UGC_TERMS_STORAGE_KEY = "nwc_community_ugc_terms_v2";
 
+const FEED_FILTERS = [
+  { key: "all", label: "All" },
+  { key: "friends", label: "Friends" },
+  { key: "groups", label: "Groups" },
+  { key: "businesses", label: "Businesses" },
+  { key: "trending", label: "Trending" },
+] as const;
+
+const NEW_POSTS_POLL_INTERVAL = 60_000;
+
 export default function CommunityScreen() {
   const feedListRef = useRef<FlatList<FeedPost>>(null);
   /** Re-tap Community tab while on this screen → scroll feed to top (see React Navigation tabPress). */
@@ -47,15 +56,13 @@ export default function CommunityScreen() {
   const createPostMenu = useCreatePost();
   const openCreatePost = createPostMenu?.openCreatePost ?? (() => {});
   const openEditPost = createPostMenu?.openEditPost;
+  const createPostVisible = createPostMenu?.createPostVisible ?? false;
+  const prevCreatePostVisibleRef = useRef(false);
   const router = useRouter();
   const { member: authMember } = useAuth();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [ugcGate, setUgcGate] = useState<"loading" | "needs" | "ok">("loading");
-  const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [feedFilter, setFeedFilter] = useState<string>("all");
   const [couponPopupId, setCouponPopupId] = useState<string | null>(null);
   const [shareToChatPost, setShareToChatPost] = useState<{ id: string; slug?: string } | null>(null);
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
@@ -65,6 +72,54 @@ export default function CommunityScreen() {
   const [feedViewabilityReady, setFeedViewabilityReady] = useState(false);
   const [pendingIncomingFriendRequests, setPendingIncomingFriendRequests] = useState(0);
 
+  // ─── New posts polling (4B) ───────────────────────────────────────────
+  const [newPostCount, setNewPostCount] = useState(0);
+  const newestPostTimestamp = useRef<string | null>(null);
+  const newPostsBannerAnim = useRef(new Animated.Value(0)).current;
+
+  // ─── React Query feed ───────────────────────────────────────────────
+  const feedQueryKey = useMemo(() => ["feed", feedFilter] as const, [feedFilter]);
+  const feedFetchFn = useCallback(
+    (cursor?: string) => fetchFeed(cursor, feedFilter),
+    [feedFilter]
+  );
+
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    isRefetching,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useFeedQuery(feedQueryKey, feedFetchFn, {
+    enabled: signedIn !== null && ugcGate === "ok",
+  });
+
+  const posts = useMemo(() => flattenFeedPages(data), [data]);
+  const loading = isLoading;
+  const loadingMore = isFetchingNextPage;
+  const refreshing = isRefetching && !isFetchingNextPage;
+
+  // ─── Feed interactions (like, comment, share, save, report, block, delete) ──
+  const {
+    handleLike,
+    handleComment,
+    handleShare,
+    handleSave,
+    handleReport,
+    handleBlockUser,
+    handleDeletePost,
+    handleCommentAdded,
+    handleSourcePostShared,
+  } = useFeedInteractions({
+    queryKey: feedQueryKey,
+    signedIn,
+    authMemberId: authMember?.id,
+    onCommentOpen: setCommentPostId,
+    onShareOpen: (postId) => setShareToChatPost({ id: postId }),
+  });
+
   // Warm the image cache for the first photo of each loaded post so they
   // appear instantly as the user scrolls.
   useEffect(() => {
@@ -72,6 +127,7 @@ export default function CommunityScreen() {
     const firstPhotos = posts.map((p) => p.photos?.[0]).filter(Boolean) as string[];
     prefetchImages(firstPhotos, { targetWidth: Dimensions.get("window").width });
   }, [posts]);
+
   const loadPendingFriendRequests = useCallback(() => {
     if (signedIn === false) {
       setPendingIncomingFriendRequests(0);
@@ -85,11 +141,45 @@ export default function CommunityScreen() {
       .catch(() => setPendingIncomingFriendRequests(0));
   }, [signedIn]);
 
+  // Track the newest post timestamp for polling
+  useEffect(() => {
+    if (posts.length > 0 && posts[0].createdAt) {
+      newestPostTimestamp.current = posts[0].createdAt;
+    }
+  }, [posts]);
+
+  // Animate the new posts banner in/out
+  useEffect(() => {
+    Animated.timing(newPostsBannerAnim, {
+      toValue: newPostCount > 0 ? 1 : 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [newPostCount, newPostsBannerAnim]);
+
+  // Poll for new posts every 60 seconds when the tab is focused
   useFocusEffect(
     useCallback(() => {
       loadPendingFriendRequests();
-    }, [loadPendingFriendRequests])
+
+      if (!signedIn) return;
+      const poll = setInterval(() => {
+        const since = newestPostTimestamp.current;
+        if (!since) return;
+        fetchNewPostCount(since)
+          .then((count) => setNewPostCount(count))
+          .catch(() => {});
+      }, NEW_POSTS_POLL_INTERVAL);
+      return () => clearInterval(poll);
+    }, [loadPendingFriendRequests, signedIn])
   );
+
+  useEffect(() => {
+    if (prevCreatePostVisibleRef.current && !createPostVisible) {
+      refetch();
+    }
+    prevCreatePostVisibleRef.current = createPostVisible;
+  }, [createPostVisible, refetch]);
 
   useEffect(() => {
     if (!authMember) {
@@ -108,29 +198,6 @@ export default function CommunityScreen() {
       setSignedIn(!!token);
     });
   }, []);
-
-  const loadFeed = useCallback(
-    async (cursor?: string) => {
-      const opts = cursor ? { cursor } : {};
-      const { posts: p, nextCursor: c } = await fetchFeed(cursor);
-      return { posts: p, nextCursor: c };
-    },
-    []
-  );
-
-  const loadInitial = useCallback(() => {
-    setLoading(true);
-    loadFeed()
-      .then(({ posts: p, nextCursor: c }) => {
-        setPosts(p ?? []);
-        setNextCursor(c ?? null);
-      })
-      .catch(() => {
-        setPosts([]);
-        setNextCursor(null);
-      })
-      .finally(() => setLoading(false));
-  }, [loadFeed]);
 
   useEffect(() => {
     checkAuth();
@@ -155,12 +222,6 @@ export default function CommunityScreen() {
     };
   }, [signedIn]);
 
-  useEffect(() => {
-    if (signedIn !== null && ugcGate === "ok") {
-      loadInitial();
-    }
-  }, [signedIn, ugcGate, loadInitial]);
-
   const acceptUgcTerms = useCallback(() => {
     AsyncStorage.setItem(UGC_TERMS_STORAGE_KEY, "1").catch(() => {});
     setUgcGate("ok");
@@ -173,216 +234,23 @@ export default function CommunityScreen() {
   }, [router]);
 
   const onRefresh = useCallback(() => {
-    setRefreshing(true);
     loadPendingFriendRequests();
-    loadFeed()
-      .then(({ posts: p, nextCursor: c }) => {
-        setPosts(p ?? []);
-        setNextCursor(c ?? null);
-      })
-      .catch(() => {
-        setPosts([]);
-        setNextCursor(null);
-      })
-      .finally(() => setRefreshing(false));
-  }, [loadFeed, loadPendingFriendRequests]);
+    setNewPostCount(0);
+    refetch();
+  }, [loadPendingFriendRequests, refetch]);
 
-  const loadMore = useCallback(() => {
-    if (!nextCursor || loadingMore) return;
-    setLoadingMore(true);
-    loadFeed(nextCursor)
-      .then(({ posts: more, nextCursor: c }) => {
-        setPosts((prev) => [...prev, ...more]);
-        setNextCursor(c);
-      })
-      .finally(() => setLoadingMore(false));
-  }, [nextCursor, loadingMore, loadFeed]);
+  const handleNewPostsBannerPress = useCallback(() => {
+    setNewPostCount(0);
+    refetch();
+    feedListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [refetch]);
 
-  const handleLike = useCallback(
-    async (postId: string) => {
-      if (!signedIn) {
-        Alert.alert("Sign in", "Sign in to like posts.", [
-          { text: "OK" },
-          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-        ]);
-        return;
-      }
-      try {
-        const { liked } = await toggleLike(postId);
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === postId
-              ? {
-                  ...p,
-                  liked,
-                  likeCount: p.likeCount + (liked ? 1 : -1),
-                }
-              : p
-          )
-        );
-      } catch (_) {}
-    },
-    [signedIn, router]
-  );
-
-  const handleShare = useCallback(
-    (postId: string) => {
-      if (!signedIn) {
-        Alert.alert("Sign in", "Sign in to share posts.", [
-          { text: "OK" },
-          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-        ]);
-        return;
-      }
-      setShareToChatPost({ id: postId });
-    },
-    [signedIn, router]
-  );
-
-  const handleComment = useCallback(
-    (postId: string) => {
-      if (!signedIn) {
-        Alert.alert("Sign in", "Sign in to comment on posts.", [
-          { text: "OK" },
-          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-        ]);
-        return;
-      }
-      setCommentPostId(postId);
-    },
-    [signedIn]
-  );
-
-  const handleSave = useCallback(
-    async (postId: string) => {
-      if (!signedIn) {
-        Alert.alert("Sign in", "Sign in to save posts.", [
-          { text: "OK" },
-          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
-        ]);
-        return;
-      }
-      try {
-        const { apiPost } = await import("@/lib/api");
-        await apiPost("/api/saved", { type: "post", referenceId: postId });
-        Alert.alert("Saved", "Post saved! View it in your Saved Posts.");
-      } catch {
-        Alert.alert("Error", "Could not save post. Try again.");
-      }
-    },
-    [signedIn]
-  );
-
-  const handleReport = useCallback((postId: string) => {
-    Alert.alert(
-      "Report post",
-      "Why are you reporting this post?",
-      [
-        { text: "Political content", onPress: () => reportPost(postId, "political") },
-        { text: "Nudity / explicit", onPress: () => reportPost(postId, "nudity") },
-        { text: "Spam", onPress: () => reportPost(postId, "spam") },
-        { text: "Other", onPress: () => reportPost(postId, "other") },
-        { text: "Cancel", style: "cancel" },
-      ]
-    );
-  }, []);
-
-  const reportPost = async (postId: string, reason: "political" | "hate" | "nudity" | "spam" | "other") => {
-    try {
-      const { apiPost } = await import("@/lib/api");
-      await apiPost("/api/reports", { contentType: "post", contentId: postId, reason });
-      Alert.alert("Report submitted", "Thank you. We will review this post.");
-    } catch (e) {
-      Alert.alert("Couldn't submit", (e as { error?: string }).error ?? "Try again.");
+  // Auto-close comments modal if the post was removed (e.g. deleted)
+  useEffect(() => {
+    if (commentPostId && posts.length > 0 && !posts.some((p) => p.id === commentPostId)) {
+      setCommentPostId(null);
     }
-  };
-
-  const handleBlockUser = useCallback(async (memberId: string, postId: string) => {
-    if (authMember?.id === memberId) {
-      Alert.alert(
-        "Cannot block yourself",
-        "Blocking is for other members. It removes their posts from your feed and stops them from messaging you."
-      );
-      return;
-    }
-    Alert.alert(
-      "Block user",
-      "This user will be blocked. Their posts will be removed from your feed and they will not be able to message you.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Block",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const { apiPost } = await import("@/lib/api");
-              await apiPost("/api/members/block", { memberId });
-              await apiPost("/api/reports", {
-                contentType: "post",
-                contentId: postId,
-                reason: "other",
-                details: "User blocked by viewer",
-              }).catch(() => {});
-              setPosts((prev) => prev.filter((p) => p.author.id !== memberId));
-              Alert.alert("User blocked", "They have been blocked and their posts removed from your feed.");
-            } catch (e) {
-              Alert.alert("Error", (e as { error?: string }).error ?? "Could not block user.");
-            }
-          },
-        },
-      ]
-    );
-  }, [authMember?.id]);
-
-  const handleCommentAdded = useCallback(() => {
-    if (!commentPostId) return;
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === commentPostId ? { ...p, commentCount: p.commentCount + 1 } : p
-      )
-    );
-  }, [commentPostId]);
-
-  const handleSourcePostShared = useCallback(
-    (sourcePostId: string, opts?: { recorded?: boolean; shareCount?: number }) => {
-      setPosts((prev) =>
-        prev.map((p) => {
-          if (p.id !== sourcePostId) return p;
-          const next = nextShareCountAfterShare(p.shareCount, opts);
-          if (next == null) return p;
-          return { ...p, shareCount: next };
-        })
-      );
-    },
-    []
-  );
-
-  const handleDeletePost = useCallback(
-    (postId: string) => {
-      Alert.alert(
-        "Delete post",
-        "Delete this post? This cannot be undone.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: () => {
-              void deletePost(postId)
-                .then(() => {
-                  setPosts((prev) => prev.filter((p) => p.id !== postId));
-                  setCommentPostId((id) => (id === postId ? null : id));
-                })
-                .catch((e) =>
-                  Alert.alert("Error", (e as { error?: string }).error ?? "Could not delete post.")
-                );
-            },
-          },
-        ]
-      );
-    },
-    []
-  );
+  }, [commentPostId, posts]);
 
   const listHeader = useMemo(
     () => (
@@ -465,28 +333,89 @@ export default function CommunityScreen() {
             <Text style={styles.headerSideBtnLabel}>Groups</Text>
           </Pressable>
         </View>
+
+        {/* Filter chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterChipsRow}
+          style={styles.filterChipsScroll}
+        >
+          {FEED_FILTERS.map((f) => (
+            <Pressable
+              key={f.key}
+              style={[
+                styles.filterChip,
+                feedFilter === f.key ? styles.filterChipActive : styles.filterChipInactive,
+              ]}
+              onPress={() => setFeedFilter(f.key)}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  feedFilter === f.key ? styles.filterChipTextActive : styles.filterChipTextInactive,
+                ]}
+              >
+                {f.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
     ),
-    [signedIn, pendingIncomingFriendRequests, openCreatePost, router]
+    [signedIn, pendingIncomingFriendRequests, openCreatePost, router, feedFilter]
   );
 
   const listEmpty = useMemo(() => {
     if (loading) {
-      return (
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={styles.loadingText}>Loading feed…</Text>
-        </View>
-      );
+      return <FeedPostSkeleton count={3} />;
     }
     return (
-      <Text style={styles.emptyText}>
-        {signedIn
-          ? "No posts yet. Follow blog authors, join groups, or share to get started!"
-          : "No public posts to show yet."}
-      </Text>
+      <View style={styles.emptyContainer}>
+        <Ionicons name="chatbubbles-outline" size={64} color={theme.colors.primary} style={{ opacity: 0.6, marginBottom: 12 }} />
+        <Text style={styles.emptyTitle}>
+          {signedIn ? "Your feed is empty" : "No public posts yet"}
+        </Text>
+        <Text style={styles.emptyDescription}>
+          {signedIn
+            ? "Follow businesses, join groups, or create a post to start building your personalized feed."
+            : "Sign in to see posts from friends, groups, and businesses in your community."}
+        </Text>
+        {signedIn ? (
+          <View style={styles.emptyCTAs}>
+            <Pressable
+              style={({ pressed }) => [styles.emptyCTABtn, pressed && styles.buttonPressed]}
+              onPress={() => (router.push as (href: string) => void)("/(tabs)/support-local")}
+            >
+              <Ionicons name="storefront-outline" size={16} color={theme.colors.buttonText} />
+              <Text style={styles.emptyCTAText}>Find businesses</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.emptyCTABtn, pressed && styles.buttonPressed]}
+              onPress={() => (router.push as (href: string) => void)("/community/groups")}
+            >
+              <Ionicons name="people-outline" size={16} color={theme.colors.buttonText} />
+              <Text style={styles.emptyCTAText}>Join a group</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.emptyCTABtnOutline, pressed && styles.buttonPressed]}
+              onPress={() => openCreatePost()}
+            >
+              <Ionicons name="create-outline" size={16} color={theme.colors.primary} />
+              <Text style={styles.emptyCTATextOutline}>Create your first post</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.emptyCTABtn, pressed && styles.buttonPressed]}
+            onPress={() => router.push("/(auth)/login")}
+          >
+            <Text style={styles.emptyCTAText}>Sign in to get started</Text>
+          </Pressable>
+        )}
+      </View>
     );
-  }, [loading, signedIn]);
+  }, [loading, signedIn, openCreatePost, router]);
 
   const listFooter = useMemo(() => {
     if (!loadingMore) return null;
@@ -498,9 +427,10 @@ export default function CommunityScreen() {
   }, [loadingMore]);
 
   const onEndReachedFeed = useCallback(() => {
-    if (!nextCursor || loadingMore || loading) return;
-    loadMore();
-  }, [nextCursor, loadingMore, loading, loadMore]);
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const onFeedViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -571,6 +501,24 @@ export default function CommunityScreen() {
         onAccept={acceptUgcTerms}
         onOpenTerms={openTermsWeb}
       />
+
+      {/* New posts polling banner */}
+      {newPostCount > 0 && (
+        <Animated.View
+          style={[
+            styles.newPostsBanner,
+            { opacity: newPostsBannerAnim, transform: [{ translateY: newPostsBannerAnim.interpolate({ inputRange: [0, 1], outputRange: [-40, 0] }) }] },
+          ]}
+        >
+          <Pressable style={styles.newPostsBannerPressable} onPress={handleNewPostsBannerPress}>
+            <Ionicons name="arrow-up" size={16} color="#fff" />
+            <Text style={styles.newPostsBannerText}>
+              {newPostCount} new post{newPostCount === 1 ? "" : "s"} — Tap to refresh
+            </Text>
+          </Pressable>
+        </Animated.View>
+      )}
+
       <FlatList
         ref={feedListRef}
         data={posts}
@@ -628,7 +576,7 @@ export default function CommunityScreen() {
             posts.find((p) => p.id === commentPostId)?.commentCount ?? 0
           }
           onClose={() => setCommentPostId(null)}
-          onCommentAdded={handleCommentAdded}
+          onCommentAdded={() => handleCommentAdded(commentPostId)}
         />
       )}
     </>
@@ -812,10 +760,127 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
   },
+  emptyContainer: {
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  emptyDescription: {
+    fontSize: 15,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  emptyCTAs: {
+    gap: 10,
+    width: "100%",
+    maxWidth: 260,
+  },
+  emptyCTABtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  emptyCTAText: {
+    color: theme.colors.buttonText,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  emptyCTABtnOutline: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  emptyCTATextOutline: {
+    color: theme.colors.primary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   emptyText: {
     fontSize: 16,
     color: "#666",
     textAlign: "center",
     lineHeight: 24,
+  },
+  // Filter chips
+  filterChipsScroll: {
+    marginTop: 14,
+  },
+  filterChipsRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1.5,
+  },
+  filterChipActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  filterChipInactive: {
+    backgroundColor: "transparent",
+    borderColor: theme.colors.primary,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  filterChipTextActive: {
+    color: theme.colors.buttonText,
+  },
+  filterChipTextInactive: {
+    color: theme.colors.primary,
+  },
+  // New posts banner
+  newPostsBanner: {
+    position: "absolute",
+    top: 0,
+    left: 16,
+    right: 16,
+    zIndex: 100,
+    borderRadius: 8,
+    overflow: "hidden",
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 },
+      android: { elevation: 6 },
+      default: {},
+    }),
+  },
+  newPostsBannerPressable: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  newPostsBannerText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

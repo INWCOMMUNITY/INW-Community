@@ -2140,7 +2140,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: theme.colors.primary,
+    borderColor: defaultTheme.colors.primary,
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 16,
@@ -2150,7 +2150,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   refreshEbayButtonText: {
-    color: theme.colors.primary,
+    color: defaultTheme.colors.primary,
     fontSize: 14,
     fontWeight: "600",
   },
