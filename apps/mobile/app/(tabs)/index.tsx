@@ -8,13 +8,13 @@ import {
   RefreshControl,
   Alert,
   Platform,
-  FlatList,
   ScrollView,
   Animated,
   Dimensions,
   type ListRenderItemInfo,
   type ViewToken,
 } from "react-native";
+import { FlatList } from "react-native-gesture-handler";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { useRouter } from "expo-router";

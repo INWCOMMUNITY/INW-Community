@@ -87,8 +87,11 @@ export function useLikeMutation(queryKey: QueryKey) {
         queryClient.setQueryData(queryKey, context.prev);
       }
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey });
+    onSuccess: (data, { postId }) => {
+      if (typeof data?.liked !== "boolean") return;
+      updatePostInCache(queryClient, queryKey, postId, (p) =>
+        p.liked === data.liked ? p : { ...p, liked: data.liked }
+      );
     },
   });
 }

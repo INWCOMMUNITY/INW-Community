@@ -45,7 +45,6 @@ import {
   type FeedGalleryPhotoEntry,
 } from "@/components/FeedPinchZoomPhoto";
 import { AppImage, prefetchImages } from "@/components/AppImage";
-import { LinearGradient } from "expo-linear-gradient";
 import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
 import { PollCard } from "@/components/PollCard";
 import { LinkPreviewCard } from "@/components/LinkPreviewCard";
@@ -115,13 +114,7 @@ function businessInitials(name: string): string {
   return (t.length >= 2 ? t.slice(0, 2) : t.slice(0, 1) || "?").toUpperCase();
 }
 
-const REACTION_OPTIONS = [
-  { key: "leaf", icon: "leaf" as const, label: "Leaf" },
-  { key: "love", icon: "heart" as const, label: "Love" },
-  { key: "laugh", icon: "happy-outline" as const, label: "Laugh" },
-  { key: "support", icon: "hand-left-outline" as const, label: "Support" },
-  { key: "insightful", icon: "bulb-outline" as const, label: "Insightful" },
-];
+const ACTION_ACCENT = "#c99d5f";
 
 interface FeedPostCardProps {
   post: FeedPost;
@@ -187,16 +180,16 @@ function FeedPostCardInner({
   const triggerLikeBounce = useCallback(() => {
     RNAnimated.sequence([
       RNAnimated.spring(likeScaleAnim, {
-        toValue: 1.4,
+        toValue: 1.15,
         useNativeDriver: true,
         speed: 50,
-        bounciness: 12,
+        bounciness: 8,
       }),
       RNAnimated.spring(likeScaleAnim, {
         toValue: 1,
         useNativeDriver: true,
         speed: 30,
-        bounciness: 8,
+        bounciness: 6,
       }),
     ]).start();
   }, [likeScaleAnim]);
@@ -270,8 +263,6 @@ function FeedPostCardInner({
       useNativeDriver: true,
     }).start(() => setMenuOpen(false));
   }, [menuSlideAnim]);
-  const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
-
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [photoCarouselIndex, setPhotoCarouselIndex] = useState(0);
   const [nestedPhotoCarouselIndex, setNestedPhotoCarouselIndex] = useState(0);
@@ -703,13 +694,6 @@ function FeedPostCardInner({
                 ? post.content
                 : firstNWords(post.content, DESCRIPTION_WORD_LIMIT)}
             </Text>
-            {wordCount(post.content) > DESCRIPTION_WORD_LIMIT && !descriptionExpanded && (
-              <LinearGradient
-                colors={["transparent", "#fff"]}
-                style={styles.gradientOverlay}
-                pointerEvents="none"
-              />
-            )}
           </View>
           {wordCount(post.content) > DESCRIPTION_WORD_LIMIT && (
             <Text style={styles.seeMoreText}>
@@ -1217,13 +1201,6 @@ function FeedPostCardInner({
                 return firstNWords(post.content!, DESCRIPTION_WORD_LIMIT);
               })()}
             </Text>
-            {wordCount(post.content) > DESCRIPTION_WORD_LIMIT && !descriptionExpanded && (
-              <LinearGradient
-                colors={["transparent", "#fff"]}
-                style={styles.gradientOverlay}
-                pointerEvents="none"
-              />
-            )}
           </View>
           {post.content && wordCount(post.content) > DESCRIPTION_WORD_LIMIT && (
             <Text style={styles.seeMoreText}>
@@ -1382,52 +1359,17 @@ function FeedPostCardInner({
           </View>
         )}
 
-      {reactionPickerVisible && (
-        <View style={styles.reactionPickerBackdrop}>
-          <View style={styles.reactionPicker}>
-            {REACTION_OPTIONS.map((r) => (
-              <Pressable
-                key={r.key}
-                style={styles.reactionOption}
-                onPress={() => {
-                  setReactionPickerVisible(false);
-                  triggerLikeBounce();
-                  onLike(post.id, r.key);
-                }}
-              >
-                <Ionicons name={r.icon} size={26} color={theme.colors.primary} />
-                <Text style={styles.reactionOptionLabel}>{r.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {/* Reaction breakdown row */}
-      {post.reactionBreakdown && Object.keys(post.reactionBreakdown).length > 0 && (
-        <View style={styles.reactionBreakdown}>
-          {Object.entries(post.reactionBreakdown).map(([reaction, count]) => {
-            const opt = REACTION_OPTIONS.find((r) => r.key === reaction);
-            if (!opt || count === 0) return null;
-            return (
-              <View key={reaction} style={styles.reactionBreakdownItem}>
-                <Ionicons name={opt.icon} size={14} color={theme.colors.primary} />
-                <Text style={styles.reactionBreakdownCount}>{count}</Text>
-              </View>
-            );
-          })}
-        </View>
-      )}
-
       <View style={styles.actions}>
-        <Pressable
-          style={[styles.actionBtn, post.liked && styles.actionBtnActive]}
+        <GHPressable
+          style={({ pressed }) => [
+            styles.actionBtn,
+            post.liked && styles.actionBtnActive,
+            pressed && styles.actionBtnPressed,
+          ]}
           onPress={() => {
             triggerLikeBounce();
             onLike(post.id);
           }}
-          onLongPress={() => setReactionPickerVisible((v) => !v)}
-          delayLongPress={400}
           accessibilityRole="button"
           accessibilityLabel={
             post.liked
@@ -1440,12 +1382,21 @@ function FeedPostCardInner({
               <Ionicons name="leaf" size={22} color={post.liked ? ACTION_ACCENT : "#666"} />
             </RNAnimated.View>
             <Text style={[styles.actionLabel, post.liked && styles.actionTextActive]}>
-              {post.likeCount > 0 ? `Support ${post.likeCount}` : "Support"}
+              Support
             </Text>
+            {post.likeCount > 0 ? (
+              <Text style={[styles.actionMetric, post.liked && styles.actionTextActive]}>
+                {post.likeCount}
+              </Text>
+            ) : null}
           </View>
-        </Pressable>
-        <Pressable
-          style={[styles.actionBtn, hasComments && styles.actionBtnActive]}
+        </GHPressable>
+        <GHPressable
+          style={({ pressed }) => [
+            styles.actionBtn,
+            hasComments && styles.actionBtnActive,
+            pressed && styles.actionBtnPressed,
+          ]}
           onPress={() => onComment?.(post.id)}
           accessibilityRole="button"
           accessibilityLabel={
@@ -1459,13 +1410,22 @@ function FeedPostCardInner({
               color={hasComments ? ACTION_ACCENT : "#666"}
             />
             <Text style={[styles.actionLabel, hasComments && styles.actionTextActive]}>
-              {hasComments ? `Comment ${post.commentCount}` : "Comment"}
+              Comment
             </Text>
+            {hasComments ? (
+              <Text style={[styles.actionMetric, hasComments && styles.actionTextActive]}>
+                {post.commentCount}
+              </Text>
+            ) : null}
           </View>
-        </Pressable>
+        </GHPressable>
         {onShare ? (
-          <Pressable
-            style={[styles.actionBtn, hasShares && styles.actionBtnActive]}
+          <GHPressable
+            style={({ pressed }) => [
+              styles.actionBtn,
+              hasShares && styles.actionBtnActive,
+              pressed && styles.actionBtnPressed,
+            ]}
             onPress={() => onShare(post.id)}
             accessibilityRole="button"
             accessibilityLabel={
@@ -1479,10 +1439,15 @@ function FeedPostCardInner({
                 color={hasShares ? ACTION_ACCENT : "#666"}
               />
               <Text style={[styles.actionLabel, hasShares && styles.actionTextActive]}>
-                {hasShares ? `Share ${shareCount}` : "Share"}
+                Share
               </Text>
+              {hasShares ? (
+                <Text style={[styles.actionMetric, hasShares && styles.actionTextActive]}>
+                  {shareCount}
+                </Text>
+              ) : null}
             </View>
-          </Pressable>
+          </GHPressable>
         ) : null}
       </View>
 
@@ -1517,16 +1482,12 @@ export const FeedPostCard = memo(FeedPostCardInner, (prev, next) => {
   );
 });
 
-const ACTION_ACCENT = "#c99d5f";
-
 const styles = StyleSheet.create({
   card: {
     backgroundColor: "#fff",
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#e5e5e5",
-    borderLeftWidth: 3,
-    borderLeftColor: theme.colors.primary,
     overflow: "hidden",
     marginBottom: 16,
     ...Platform.select({
@@ -1726,13 +1687,6 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     marginTop: 2,
   },
-  gradientOverlay: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 32,
-  },
   tags: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1775,40 +1729,27 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginBottom: 8,
   },
-  reactionBreakdown: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingBottom: 8,
-    gap: 12,
-  },
-  reactionBreakdownItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  reactionBreakdownCount: {
-    fontSize: 13,
-    color: "#666",
-    fontWeight: "500",
-  },
   actions: {
     flexDirection: "row",
     borderTopWidth: 1,
     borderTopColor: "#e5e5e5",
     paddingVertical: 8,
-    paddingHorizontal: 12,
-    justifyContent: "space-around",
+    paddingHorizontal: 4,
   },
   actionBtn: {
+    flex: 1,
+    alignItems: "center",
     paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: "transparent",
   },
   actionBtnActive: {
     borderColor: ACTION_ACCENT,
+  },
+  actionBtnPressed: {
+    opacity: 0.72,
   },
   actionRow: {
     flexDirection: "row",
@@ -1825,6 +1766,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
     color: "#666",
+  },
+  actionMetric: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#666",
+    fontVariant: ["tabular-nums"],
+    minWidth: 14,
   },
   actionText: {
     fontSize: 14,
@@ -1890,42 +1838,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 12,
     fontWeight: "700",
-  },
-  reactionPickerBackdrop: {
-    paddingHorizontal: 12,
-    paddingBottom: 4,
-  },
-  reactionPicker: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 28,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    gap: 4,
-    justifyContent: "space-around",
-    borderWidth: 1,
-    borderColor: "#e5e5e5",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
-      },
-      android: { elevation: 6 },
-    }),
-  },
-  reactionOption: {
-    alignItems: "center",
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-  },
-  reactionOptionLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    color: "#666",
-    marginTop: 2,
   },
   followBtn: {
     borderWidth: 1,

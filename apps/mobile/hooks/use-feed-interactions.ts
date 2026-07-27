@@ -49,7 +49,17 @@ export function useFeedInteractions({
   const handleLike = useCallback(
     (postId: string, reaction?: string) => {
       if (!requireAuth("like posts")) return;
-      likeMutation.mutate({ postId, reaction });
+      likeMutation.mutate(
+        { postId, reaction },
+        {
+          onError: (err) => {
+            Alert.alert(
+              "Couldn't support post",
+              (err as { error?: string })?.error ?? "Try again."
+            );
+          },
+        }
+      );
     },
     [requireAuth, likeMutation]
   );
