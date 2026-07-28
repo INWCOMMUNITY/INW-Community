@@ -13,7 +13,6 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiUploadFile } from "@/lib/api";
@@ -54,7 +53,6 @@ function resolveUrl(path: string | null | undefined): string | undefined {
 
 export default function SellerPageSettingsScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -131,12 +129,12 @@ export default function SellerPageSettingsScreen() {
         type: asset.mimeType ?? "image/jpeg",
         name: "cover.jpg",
       } as unknown as Blob);
-      const { url } = await apiUploadFile("/api/upload/business", formData);
+      const { url } = await apiUploadFile("/api/upload", formData);
       const fullUrl = url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
       setCoverPhotoUrl(fullUrl);
     } catch (e) {
       const err = e as { error?: string };
-      Alert.alert("Upload failed", err?.error ?? "Failed to upload cover photo.");
+      Alert.alert("Upload failed", err?.error ?? "Failed to upload cover photo. Please try again.");
     } finally {
       setUploadingCover(false);
     }
@@ -170,14 +168,14 @@ export default function SellerPageSettingsScreen() {
           type: asset.mimeType ?? "image/jpeg",
           name: "gallery.jpg",
         } as unknown as Blob);
-        const { url } = await apiUploadFile("/api/upload/business", formData);
+        const { url } = await apiUploadFile("/api/upload", formData);
         const fullUrl = url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
         newUrls.push(fullUrl);
       }
       setPhotos((prev) => [...prev, ...newUrls].slice(0, 12));
     } catch (e) {
       const err = e as { error?: string };
-      Alert.alert("Upload failed", err?.error ?? "Failed to upload gallery photos.");
+      Alert.alert("Upload failed", err?.error ?? "Failed to upload gallery photos. Please try again.");
     } finally {
       setUploadingGallery(false);
     }
@@ -240,7 +238,7 @@ export default function SellerPageSettingsScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+      <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
@@ -439,8 +437,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 8,
-    paddingBottom: 12,
+    paddingVertical: 12,
+    paddingTop: 48,
     backgroundColor: theme.colors.primary,
+    borderBottomWidth: 2,
+    borderBottomColor: "#000",
   },
   headerBtn: { padding: 8 },
   headerTitle: {
