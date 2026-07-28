@@ -32,6 +32,7 @@ type EtsyInventoryProduct = {
   sku?: string;
   property_values?: {
     property_id?: number;
+    property_name?: string;
     scale_id?: number | null;
     value_ids?: number[];
     values?: string[];
@@ -222,6 +223,7 @@ export const etsyAdapter: ChannelAdapter = {
         sku: p.sku || item.id,
         property_values: propValues.map((pv) => ({
           property_id: pv.property_id,
+          property_name: pv.property_name || "Option",
           value_ids: pv.value_ids ?? [],
           values: pv.values ?? [],
           ...(pv.scale_id != null ? { scale_id: pv.scale_id } : {}),

@@ -65,7 +65,7 @@ export async function buildEtsyInventoryProducts(
       property_values: [
         {
           property_id: prop.property_id,
-          property_name: prop.name,
+          property_name: prop.name || primaryAxis.name || "Option",
           scale_id: prop.scales?.[0]?.scale_id ?? null,
           value_ids: possible?.value_id ? [possible.value_id] : [],
           values: [valueName],
