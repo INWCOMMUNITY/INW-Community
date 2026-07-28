@@ -57,6 +57,8 @@ export type TokenResponse = {
   /** Seconds until the access token expires. */
   expiresInSec?: number | null;
   scopes?: string | null;
+  /** Etsy includes the user_id in the token response. */
+  userId?: string | null;
 };
 
 export type RemoteListingSummary = {
@@ -144,7 +146,7 @@ export interface ChannelAdapter {
   refreshAccessToken(refreshToken: string): Promise<TokenResponse>;
   fetchShopInfo(
     accessToken: string,
-    options?: { shop?: string }
+    options?: { shop?: string; userId?: string }
   ): Promise<{ shopId: string; shopName: string | null }>;
   /**
    * Optional one-time setup fetched right after the token exchange and persisted to

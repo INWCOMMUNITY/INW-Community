@@ -232,7 +232,10 @@ export async function channelCallbackGET(
       redirectUri,
       shop: state.shop,
     });
-    const shop = await adapter.fetchShopInfo(tokens.accessToken, { shop: state.shop });
+    const shop = await adapter.fetchShopInfo(tokens.accessToken, {
+      shop: state.shop,
+      userId: tokens.userId ?? undefined,
+    });
     const initial = adapter.getInitialConfig
       ? await adapter.getInitialConfig(tokens.accessToken, shop.shopId)
       : {};

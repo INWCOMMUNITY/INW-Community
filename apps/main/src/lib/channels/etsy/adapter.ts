@@ -83,8 +83,8 @@ export const etsyAdapter: ChannelAdapter = {
     return refreshEtsyToken(refreshToken);
   },
 
-  fetchShopInfo(accessToken) {
-    return fetchEtsyShopInfo(accessToken);
+  fetchShopInfo(accessToken, options) {
+    return fetchEtsyShopInfo(accessToken, options);
   },
 
   async getInitialConfig(accessToken, shopId): Promise<Record<string, unknown>> {

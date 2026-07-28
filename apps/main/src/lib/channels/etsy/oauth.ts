@@ -39,6 +39,8 @@ type EtsyTokenPayload = {
   token_type?: string;
   error?: string;
   error_description?: string;
+  /** Etsy includes the user_id in the token response. */
+  user_id?: number;
 };
 
 async function postToken(body: URLSearchParams): Promise<TokenResponse> {
@@ -56,6 +58,7 @@ async function postToken(body: URLSearchParams): Promise<TokenResponse> {
     accessToken: data.access_token,
     refreshToken: data.refresh_token ?? null,
     expiresInSec: data.expires_in ?? null,
+    userId: data.user_id != null ? String(data.user_id) : null,
   };
 }
 
@@ -88,29 +91,53 @@ export async function refreshEtsyToken(refreshToken: string): Promise<TokenRespo
 }
 
 /**
- * Resolve the seller's shop id + name. Etsy's /users/me returns the user id (and shop_id
- * on newer responses); fall back to the user's shops collection if shop_id is absent.
+ * Resolve the seller's shop id + name. If userId is provided (from the token response),
+ * we skip /users/me (which may 403 on some apps) and go straight to /users/{id}/shops.
+ * Otherwise falls back to /users/me to get the user_id first.
  */
 export async function fetchEtsyShopInfo(
-  accessToken: string
+  accessToken: string,
+  options?: { userId?: string }
 ): Promise<{ shopId: string; shopName: string | null }> {
-  const me = await etsyGet<{ user_id?: number; shop_id?: number }>(accessToken, "/users/me");
-  if (me.shop_id) {
+  let userId = options?.userId;
+  let shopId: string | null = null;
+
+  // If we don't have userId from token response, try /users/me (may 403 on limited apps)
+  if (!userId) {
+    try {
+      const me = await etsyGet<{ user_id?: number; shop_id?: number }>(accessToken, "/users/me");
+      if (me.shop_id) {
+        shopId = String(me.shop_id);
+      }
+      if (me.user_id) {
+        userId = String(me.user_id);
+      }
+    } catch (e) {
+      // /users/me returned 403 or failed - we'll try other methods below
+      console.warn("[etsy] /users/me failed, will try alternative methods", String(e));
+    }
+  }
+
+  // If we got a shop_id directly, fetch shop details
+  if (shopId) {
     const shop = await etsyGet<{ shop_id: number; shop_name?: string }>(
       accessToken,
-      `/shops/${me.shop_id}`
+      `/shops/${shopId}`
     ).catch(() => null);
-    return { shopId: String(me.shop_id), shopName: shop?.shop_name ?? null };
+    return { shopId, shopName: shop?.shop_name ?? null };
   }
-  if (me.user_id) {
+
+  // If we have a user_id, fetch their shops
+  if (userId) {
     const shops = await etsyGet<{ results?: { shop_id: number; shop_name?: string }[] }>(
       accessToken,
-      `/users/${me.user_id}/shops`
+      `/users/${userId}/shops`
     ).catch(() => null);
     const first = shops?.results?.[0];
     if (first?.shop_id) {
       return { shopId: String(first.shop_id), shopName: first.shop_name ?? null };
     }
   }
+
   throw new Error("Could not resolve an Etsy shop for this account. Open a shop on Etsy first.");
 }
