@@ -82,9 +82,9 @@ export function SellerSpotlightCarousel() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {sellers.map((seller) => (
+        {sellers.map((seller, index) => (
           <Pressable
-            key={seller.memberId}
+            key={`${seller.memberId}-${index}`}
             style={({ pressed }) => [
               styles.card,
               pressed && styles.cardPressed,
