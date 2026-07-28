@@ -21,11 +21,12 @@ export class EtsyApiError extends Error {
 }
 
 function baseHeaders(accessToken: string, overrideApiKey?: string): Record<string, string> {
-  const { apiKey } = getEtsyConfig();
-  const finalApiKey = overrideApiKey || apiKey;
-  console.log("[etsy] request headers - using apiKey:", finalApiKey?.slice(0, 8) + "...", "override:", !!overrideApiKey);
+  const { apiKey, clientSecret } = getEtsyConfig();
+  // Etsy requires x-api-key to be: <keystring>:<shared_secret>
+  const combinedKey = overrideApiKey || `${apiKey}:${clientSecret}`;
+  console.log("[etsy] request headers - using combined key format, apiKey length:", apiKey?.length, "secret length:", clientSecret?.length);
   return {
-    "x-api-key": finalApiKey,
+    "x-api-key": combinedKey,
     Authorization: `Bearer ${accessToken}`,
   };
 }
