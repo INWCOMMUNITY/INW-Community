@@ -50,6 +50,9 @@ async function postToken(body: URLSearchParams): Promise<TokenResponse> {
     body: body.toString(),
   });
   const data = (await res.json().catch(() => null)) as EtsyTokenPayload | null;
+  // Log the full token response for debugging
+  console.log("[etsy] token response keys:", data ? Object.keys(data) : "null");
+  console.log("[etsy] token response user_id:", data?.user_id);
   if (!res.ok || !data || data.error || !data.access_token) {
     const msg = data?.error_description || data?.error || `Etsy token request failed (${res.status})`;
     throw new Error(msg);
@@ -97,12 +100,16 @@ export async function refreshEtsyToken(refreshToken: string): Promise<TokenRespo
 function extractUserIdFromToken(accessToken: string): string | null {
   try {
     const parts = accessToken.split(".");
+    console.log("[etsy] token parts count:", parts.length);
     if (parts.length !== 3) return null;
     const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
+    console.log("[etsy] JWT payload keys:", Object.keys(payload));
+    console.log("[etsy] JWT user_id:", payload.user_id, "sub:", payload.sub);
     if (payload.user_id) return String(payload.user_id);
     if (payload.sub) return String(payload.sub);
     return null;
-  } catch {
+  } catch (e) {
+    console.log("[etsy] JWT parse error:", String(e));
     return null;
   }
 }
