@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { theme } from "@/lib/theme";
 import { CouponFormModal } from "@/components/CouponFormModal";
 import { RewardFormModal } from "@/components/RewardFormModal";
+import { BusinessProfileCompletionCard } from "@/components/BusinessProfileCompletionCard";
+import { apiGet } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -13,10 +15,24 @@ export default function BusinessHubScreen() {
   const params = useLocalSearchParams<{ open?: string }>();
   const [couponModalVisible, setCouponModalVisible] = useState(false);
   const [rewardModalVisible, setRewardModalVisible] = useState(false);
+  const [businessIds, setBusinessIds] = useState<string[]>([]);
 
   const openBusinessSetup = () => {
     (router.push as (href: string) => void)("/sponsor-business");
   };
+
+  const fetchBusinessIds = useCallback(async () => {
+    try {
+      const businesses = await apiGet<{ id: string }[]>("/api/businesses?mine=1");
+      setBusinessIds(Array.isArray(businesses) ? businesses.map((b) => b.id) : []);
+    } catch {
+      setBusinessIds([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBusinessIds();
+  }, [fetchBusinessIds]);
 
   useEffect(() => {
     const open = params.open;
@@ -52,6 +68,12 @@ export default function BusinessHubScreen() {
         <Text style={styles.hint}>
           Business directory, coupons, events, and rewards.
         </Text>
+        {businessIds.length > 0 && (
+          <BusinessProfileCompletionCard
+            businessIds={businessIds}
+            onOpenBusinessForm={openBusinessSetup}
+          />
+        )}
         {OPTIONS.map((opt) => (
           <Pressable
             key={opt.label}

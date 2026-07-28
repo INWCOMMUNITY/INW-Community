@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   }
   const member = await prisma.member.findUnique({
     where: { id: userId },
-    select: { firstName: true, lastName: true, email: true, acceptOffersOnResale: true },
+    select: { firstName: true, lastName: true, email: true, acceptOffersOnResale: true, acceptMessagesForListings: true },
   });
   // Use raw query for new columns (works even if Prisma client wasn't regenerated)
   let sellerLocalDeliveryPolicy: string | null = null;
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    member: member ?? { firstName: "", lastName: "", email: "", acceptOffersOnResale: true },
+    member: member ?? { firstName: "", lastName: "", email: "", acceptOffersOnResale: true, acceptMessagesForListings: true },
     sellerLocalDeliveryPolicy,
     sellerPickupPolicy,
     sellerShippingPolicy,
@@ -135,6 +135,12 @@ export async function PATCH(req: NextRequest) {
     await prisma.member.update({
       where: { id: userId },
       data: { acceptOffersOnResale: body.acceptOffersOnResale },
+    });
+  }
+  if (typeof body.acceptMessagesForListings === "boolean") {
+    await prisma.member.update({
+      where: { id: userId },
+      data: { acceptMessagesForListings: body.acceptMessagesForListings },
     });
   }
   // Update policy fields via raw query (works even if Prisma client wasn't regenerated)

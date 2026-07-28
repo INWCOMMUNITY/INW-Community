@@ -341,7 +341,7 @@ export function ImageGalleryViewer({
             </Pressable>
             {images.length > 1 && (
               <Text style={styles.counter}>
-                {currentIndex + 1} / {images.length}
+                {currentIndex + 1} of {images.length}
               </Text>
             )}
           </View>

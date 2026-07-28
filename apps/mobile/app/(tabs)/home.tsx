@@ -83,7 +83,7 @@ export default function HomeScreen() {
     const top10PrizePreviewSize = Math.min(220, width - 64);
 
     const s = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: "#ffffff" },
+  scroll: { flex: 1, backgroundColor: theme.colors.feedBackground },
   container: {
     padding: 24,
     paddingBottom: 40,
@@ -549,24 +549,23 @@ export default function HomeScreen() {
     fontWeight: "600",
   },
   nwcRequestsSection: {
-    width: "100%",
+    width,
+    marginHorizontal: -containerPadding,
+    alignSelf: "center",
     marginTop: 32,
     marginBottom: 32,
-    marginHorizontal: -containerPadding,
     alignItems: "center",
   },
   nwcRequestsOverlay: {
     backgroundColor: "rgba(255, 255, 255, 0.8)",
-    marginHorizontal: 12,
     padding: 14,
     paddingHorizontal: 16,
-    borderRadius: 12,
     alignItems: "center",
-    alignSelf: "center",
-    width: width - 24,
+    alignSelf: "stretch",
+    width: "100%",
   },
   nwcRequestsPhoto: {
-    width,
+    width: "100%",
     height: 240,
     marginTop: 0,
   },
@@ -781,7 +780,7 @@ export default function HomeScreen() {
         />
       </View>
 
-      <ThemedView style={styles.buttons} lightColor="#fff" darkColor="#fff">
+      <ThemedView style={styles.buttons} lightColor={theme.colors.feedBackground} darkColor={theme.colors.feedBackground}>
         <View style={styles.buttonGrid}>
           <Pressable
             style={({ pressed }) => [

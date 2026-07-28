@@ -15,6 +15,11 @@ import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const SUMMARY_GRID_GAP = 8;
+const SUMMARY_GRID_INSET = 8;
+const SUMMARY_CARD_WIDTH =
+  (SCREEN_WIDTH - SUMMARY_GRID_INSET * 2 - SUMMARY_GRID_GAP) / 2;
+const SUMMARY_CARD_HEIGHT = 120;
 
 type Period = "7d" | "30d" | "90d";
 
@@ -189,33 +194,37 @@ export default function AnalyticsScreen() {
 
       {/* Summary Cards */}
       <View style={styles.summaryGrid}>
-        <View style={styles.summaryCard}>
-          <Ionicons name="eye-outline" size={24} color={theme.colors.primary} />
-          <Text style={styles.summaryValue}>
-            {formatNumber(data?.summary.totalViews ?? 0)}
-          </Text>
-          <Text style={styles.summaryLabel}>Total Views</Text>
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryCard}>
+            <Ionicons name="eye-outline" size={24} color={theme.colors.primary} />
+            <Text style={styles.summaryValue}>
+              {formatNumber(data?.summary.totalViews ?? 0)}
+            </Text>
+            <Text style={styles.summaryLabel}>Total Views</Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Ionicons name="cart-outline" size={24} color={theme.colors.primary} />
+            <Text style={styles.summaryValue}>
+              {formatNumber(data?.summary.totalCartAdds ?? 0)}
+            </Text>
+            <Text style={styles.summaryLabel}>Cart Adds</Text>
+          </View>
         </View>
-        <View style={styles.summaryCard}>
-          <Ionicons name="cart-outline" size={24} color={theme.colors.primary} />
-          <Text style={styles.summaryValue}>
-            {formatNumber(data?.summary.totalCartAdds ?? 0)}
-          </Text>
-          <Text style={styles.summaryLabel}>Cart Adds</Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Ionicons name="bag-check-outline" size={24} color={theme.colors.primary} />
-          <Text style={styles.summaryValue}>
-            {formatNumber(data?.summary.totalPurchases ?? 0)}
-          </Text>
-          <Text style={styles.summaryLabel}>Purchases</Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Ionicons name="cash-outline" size={24} color={theme.colors.primary} />
-          <Text style={styles.summaryValue}>
-            {formatPrice(data?.summary.totalRevenueCents ?? 0)}
-          </Text>
-          <Text style={styles.summaryLabel}>Revenue</Text>
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryCard}>
+            <Ionicons name="bag-check-outline" size={24} color={theme.colors.primary} />
+            <Text style={styles.summaryValue}>
+              {formatNumber(data?.summary.totalPurchases ?? 0)}
+            </Text>
+            <Text style={styles.summaryLabel}>Purchases</Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Ionicons name="cash-outline" size={24} color={theme.colors.primary} />
+            <Text style={styles.summaryValue}>
+              {formatPrice(data?.summary.totalRevenueCents ?? 0)}
+            </Text>
+            <Text style={styles.summaryLabel}>Revenue</Text>
+          </View>
         </View>
       </View>
 
@@ -383,32 +392,39 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   summaryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginHorizontal: -6,
+    marginHorizontal: -16,
     marginBottom: 16,
+    gap: SUMMARY_GRID_GAP,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    gap: SUMMARY_GRID_GAP,
+    paddingHorizontal: SUMMARY_GRID_INSET,
   },
   summaryCard: {
-    width: "50%",
-    paddingHorizontal: 6,
-    marginBottom: 12,
-  },
-  summaryCardInner: {
+    width: SUMMARY_CARD_WIDTH,
+    height: SUMMARY_CARD_HEIGHT,
     backgroundColor: "#fff",
     borderRadius: 12,
-    padding: 16,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     alignItems: "center",
+    justifyContent: "center",
   },
   summaryValue: {
     fontSize: 24,
     fontWeight: "700",
     color: "#222",
     marginTop: 8,
+    textAlign: "center",
   },
   summaryLabel: {
     fontSize: 12,
     color: "#666",
     marginTop: 4,
+    textAlign: "center",
   },
   section: {
     backgroundColor: "#fff",

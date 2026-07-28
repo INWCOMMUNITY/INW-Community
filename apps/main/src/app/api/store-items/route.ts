@@ -9,6 +9,7 @@ import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits
 import { REWARD_PLACEHOLDER_TITLE } from "@/lib/reward-fulfillment-store-item";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import { recordSellerListingView } from "@/lib/record-seller-listing-view";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -189,6 +190,8 @@ export async function GET(req: NextRequest) {
             id: true,
             firstName: true,
             lastName: true,
+            createdAt: true,
+            acceptMessagesForListings: true,
             sellerShippingPolicy: true,
             sellerLocalDeliveryPolicy: true,
             sellerPickupPolicy: true,
@@ -222,6 +225,8 @@ export async function GET(req: NextRequest) {
               id: true,
               firstName: true,
               lastName: true,
+              createdAt: true,
+              acceptMessagesForListings: true,
               sellerShippingPolicy: true,
               sellerLocalDeliveryPolicy: true,
               sellerPickupPolicy: true,
@@ -280,10 +285,15 @@ export async function GET(req: NextRequest) {
       });
       business = memberBusiness;
     }
+    const saveCountResult = await prisma.savedItem.count({
+      where: { type: "store_item", referenceId: resolvedItem.id },
+    });
+    recordSellerListingView(req, resolvedItem.id, resolvedItem.memberId);
     return NextResponse.json({
       ...resolvedItem,
       business,
       memberId: resolvedItem.memberId,
+      saveCount: saveCountResult,
       ...(isUnavailable ? { unavailable: true } : {}),
       ...(soldAt ? { soldAt } : {}),
     });
@@ -307,6 +317,110 @@ export async function GET(req: NextRequest) {
       });
       return NextResponse.json(items);
     }
+  }
+
+  const featured = searchParams.get("featured");
+  const recent = searchParams.get("recent");
+  const sellerSpotlight = searchParams.get("sellerSpotlight");
+  const limitParam = searchParams.get("limit");
+  const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10), 1), 50) : 10;
+
+  if (featured === "1") {
+    const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
+    let items = await prisma.storeItem.findMany({
+      where: {
+        featured: true,
+        status: "active",
+        quantity: { gt: 0 },
+        ...sellerCanReceivePayment,
+        AND: [publicBrowseCategoryWhere],
+      },
+      include: {
+        member: { include: { sellerTimeAway: true } },
+        business: { select: { id: true, name: true, slug: true, logoUrl: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    items = items.filter(
+      (item) => passesPublicStorefrontSlugFilter(item) && passesSellerTimeAwayForPurchases(item)
+    );
+    return NextResponse.json(items);
+  }
+
+  if (recent === "1") {
+    const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
+    let items = await prisma.storeItem.findMany({
+      where: {
+        status: "active",
+        quantity: { gt: 0 },
+        ...sellerCanReceivePayment,
+        AND: [publicBrowseCategoryWhere],
+      },
+      include: {
+        member: { include: { sellerTimeAway: true } },
+        business: { select: { id: true, name: true, slug: true, logoUrl: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    items = items.filter(
+      (item) => passesPublicStorefrontSlugFilter(item) && passesSellerTimeAwayForPurchases(item)
+    );
+    return NextResponse.json(items);
+  }
+
+  if (sellerSpotlight === "1") {
+    const sellerCanReceivePayment = { stripeConnectAccountId: { not: null } };
+    const sellers = await prisma.member.findMany({
+      where: {
+        ...sellerCanReceivePayment,
+        storeItems: {
+          some: {
+            status: "active",
+            quantity: { gt: 0 },
+            AND: [publicBrowseCategoryWhere],
+          },
+        },
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        createdAt: true,
+        sellerTimeAway: true,
+        businesses: {
+          take: 1,
+          select: { id: true, name: true, slug: true, logoUrl: true },
+        },
+        _count: {
+          select: {
+            storeItems: {
+              where: { status: "active", quantity: { gt: 0 } },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    const now = new Date();
+    const activeSellers = sellers.filter((s) => {
+      const ta = s.sellerTimeAway;
+      if (!ta) return true;
+      const start = new Date(ta.startAt);
+      const end = new Date(ta.endAt);
+      return now < start || now > end;
+    });
+    const spotlight = activeSellers.map((s) => ({
+      memberId: s.id,
+      name: s.businesses[0]?.name || `${s.firstName} ${s.lastName}`,
+      logoUrl: s.businesses[0]?.logoUrl || null,
+      businessSlug: s.businesses[0]?.slug || null,
+      itemCount: s._count.storeItems,
+      memberSince: s.createdAt.getFullYear(),
+    }));
+    return NextResponse.json(spotlight);
   }
 
   if (mine === "1") {
@@ -392,10 +506,18 @@ export async function GET(req: NextRequest) {
   const shippingOnly = searchParams.get("shippingOnly");
   const minPriceParam = searchParams.get("minPrice");
   const maxPriceParam = searchParams.get("maxPrice");
+  const sortParam = searchParams.get("sort");
   const minPriceCents = minPriceParam ? Math.round(parseFloat(minPriceParam) * 100) : null;
   const maxPriceCents = maxPriceParam ? Math.round(parseFloat(maxPriceParam) * 100) : null;
   const categoryTrim = categoryParam?.trim() || "";
   const subcategoryTrim = subcategoryParam?.trim() || "";
+
+  const orderBy: Prisma.StoreItemOrderByWithRelationInput =
+    sortParam === "price_asc"
+      ? { priceCents: "asc" }
+      : sortParam === "price_desc"
+        ? { priceCents: "desc" }
+        : { createdAt: "desc" };
 
   try {
     // Only list items from sellers who have Stripe Connect set up (payment/redirect can function).
@@ -442,9 +564,9 @@ export async function GET(req: NextRequest) {
       },
       include: {
         member: { include: { sellerTimeAway: true } },
-        business: { select: { id: true, name: true, slug: true } },
+        business: { select: { id: true, name: true, slug: true, logoUrl: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy,
     });
     items = items.filter(
       (item) => passesPublicStorefrontSlugFilter(item) && passesSellerTimeAwayForPurchases(item)

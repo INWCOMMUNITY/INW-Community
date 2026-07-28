@@ -39,6 +39,9 @@ export type BusinessDetailData = {
   galleryPhotos: string[];
   coupons: BusinessCouponItem[];
   activeProductCount?: number;
+  facebookUrl?: string | null;
+  instagramUrl?: string | null;
+  tiktokUrl?: string | null;
 };
 
 function formatWebsiteHref(url: string): string {
@@ -208,7 +211,7 @@ export function BusinessDetailContent({
             </div>
           ) : null}
 
-          {(business.phone || business.email || business.website) ? (
+          {(business.phone || business.email || business.website || business.facebookUrl || business.instagramUrl || business.tiktokUrl) ? (
             <div>
               <p className={BUSINESS_SECTION_TITLE} style={{ color: "var(--color-heading)" }}>
                 Contact
@@ -253,6 +256,46 @@ export function BusinessDetailContent({
                   </li>
                 ) : null}
               </ul>
+              {(business.facebookUrl || business.instagramUrl || business.tiktokUrl) ? (
+                <div className="flex items-center gap-4 mt-4">
+                  {business.facebookUrl ? (
+                    <a
+                      href={business.facebookUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center w-10 h-10 rounded-full hover:opacity-80 transition-opacity"
+                      style={{ backgroundColor: "var(--color-primary)" }}
+                      aria-label="Facebook"
+                    >
+                      <IonIcon name="logo-facebook" size={22} className="text-white" />
+                    </a>
+                  ) : null}
+                  {business.instagramUrl ? (
+                    <a
+                      href={business.instagramUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center w-10 h-10 rounded-full hover:opacity-80 transition-opacity"
+                      style={{ backgroundColor: "var(--color-primary)" }}
+                      aria-label="Instagram"
+                    >
+                      <IonIcon name="logo-instagram" size={22} className="text-white" />
+                    </a>
+                  ) : null}
+                  {business.tiktokUrl ? (
+                    <a
+                      href={business.tiktokUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center w-10 h-10 rounded-full hover:opacity-80 transition-opacity"
+                      style={{ backgroundColor: "var(--color-primary)" }}
+                      aria-label="TikTok"
+                    >
+                      <IonIcon name="logo-tiktok" size={22} className="text-white" />
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -312,9 +355,19 @@ export function BusinessDetailContent({
           {business.galleryPhotos.length > 0 ? (
             <div>
               <div className="h-0.5 bg-[var(--color-primary)] mt-4 mb-3 md:mt-5 md:mb-4" />
-              <p className={BUSINESS_SECTION_TITLE} style={{ color: "var(--color-heading)" }}>
-                Gallery
-              </p>
+              <div className="flex items-center justify-between mb-3">
+                <p className={`${BUSINESS_SECTION_TITLE} !mb-0`} style={{ color: "var(--color-heading)" }}>
+                  Gallery
+                </p>
+                {business.galleryPhotos.length > 1 && (
+                  <span
+                    className="text-xs font-semibold px-2.5 py-1 rounded-full"
+                    style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
+                  >
+                    {business.galleryPhotos.length} photos
+                  </span>
+                )}
+              </div>
               <BusinessHorizontalGallery photos={business.galleryPhotos} alt={business.name} />
               <div className="h-0.5 bg-[var(--color-primary)] mt-4 mb-1 md:mt-5" />
             </div>

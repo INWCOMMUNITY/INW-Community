@@ -41,6 +41,9 @@ import {
   type DisplayVariantAxis,
 } from "@/lib/product-variants";
 import { ListingRichDescription } from "@/components/ListingRichDescription";
+import { RelatedItemsSection, CustomersAlsoViewedSection } from "@/components/store";
+import { AddToCollectionModal } from "@/components/AddToCollectionModal";
+import { PriceAlertModal } from "@/components/PriceAlertModal";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -68,6 +71,8 @@ interface StoreItem {
     id: string;
     firstName: string;
     lastName: string;
+    createdAt?: string;
+    acceptMessagesForListings?: boolean;
     sellerShippingPolicy?: string | null;
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
@@ -90,6 +95,7 @@ interface StoreItem {
   memberId?: string;
   condition?: "new" | "used";
   aspects?: { name: string; value: string }[] | null;
+  saveCount?: number;
 }
 
 /** Gallery width/height ratio (width / height). Lower = taller banner. */
@@ -156,8 +162,11 @@ export default function ProductScreen() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveCount, setSaveCount] = useState<number | null>(null);
   const [showSavedNote, setShowSavedNote] = useState(false);
   const [showMessageSentToast, setShowMessageSentToast] = useState(false);
+  const [collectionModalOpen, setCollectionModalOpen] = useState(false);
+  const [priceAlertModalOpen, setPriceAlertModalOpen] = useState(false);
 
   const { member } = useAuth();
 
@@ -542,8 +551,10 @@ export default function ProductScreen() {
     (item.memberId === member.id || item.member?.id === member.id)
   );
   const sellerAcceptsOffers = item.acceptOffers !== false;
+  const sellerAcceptsMessages = item.member?.acceptMessagesForListings !== false;
   const showResaleBuyerActions = isResaleListing && !itemUnavailable && !isOwnListing;
   const showSendOfferButton = showResaleBuyerActions && sellerAcceptsOffers;
+  const showMessageSellerButton = showResaleBuyerActions && sellerAcceptsMessages;
 
   const openSendOfferModal = () => {
     setMessageSellerModalOpen(false);
@@ -574,6 +585,12 @@ export default function ProductScreen() {
                 size={26}
                 color="#fff"
               />
+            </Pressable>
+            <Pressable
+              onPress={() => setCollectionModalOpen(true)}
+              style={({ pressed }) => [styles.headerActionBtn, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="bookmark-outline" size={24} color="#fff" />
             </Pressable>
             <Pressable
               onPress={() => setShareModalOpen(true)}
@@ -652,16 +669,49 @@ export default function ProductScreen() {
             </View>
           )}
           {photos.length > 1 && (
-            <View style={styles.dots}>
-              {photos.map((_, i) => (
-                <View
-                  key={i}
-                  style={[styles.dot, i === photoIndex && styles.dotActive]}
-                />
-              ))}
+            <View style={styles.photoCountBadge}>
+              <Text style={styles.photoCountText}>
+                {photoIndex + 1}/{photos.length}
+              </Text>
             </View>
           )}
         </View>
+
+        {photos.length > 1 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.thumbnailStrip}
+          >
+            {photos.map((p, i) => {
+              const thumbUrl = resolvePhotoUrl(p);
+              return (
+                <Pressable
+                  key={i}
+                  style={[
+                    styles.thumbnailWrap,
+                    i === photoIndex && styles.thumbnailWrapActive,
+                  ]}
+                  onPress={() => setPhotoIndex(i)}
+                >
+                  {thumbUrl ? (
+                    <AppImage
+                      uri={thumbUrl}
+                      targetWidth={60}
+                      quality={40}
+                      style={styles.thumbnail}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={[styles.thumbnail, styles.thumbnailPlaceholder]}>
+                      <Ionicons name="image-outline" size={16} color="#999" />
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
 
         {photos.length > 0 && (
           <ImageGalleryViewer
@@ -679,7 +729,75 @@ export default function ProductScreen() {
               {item.condition === "used" ? "Used" : "New"}
             </Text>
           </View>
-          <Text style={styles.price}>{formatPrice(item.priceCents)}</Text>
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>{formatPrice(item.priceCents)}</Text>
+            {item.acceptOffers && !itemUnavailable && (
+              <Pressable
+                style={({ pressed }) => [styles.orBestOfferBtn, pressed && { opacity: 0.8 }]}
+                onPress={openSendOfferModal}
+              >
+                <Text style={styles.orBestOfferText}>or Best Offer</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <View style={styles.shippingPreviewRow}>
+            {!item.shippingDisabled && item.shippingCostCents != null && item.shippingCostCents === 0 && (
+              <View style={styles.shippingPreviewItem}>
+                <Ionicons name="cube-outline" size={16} color={theme.colors.primary} />
+                <Text style={styles.shippingPreviewText}>Free Shipping</Text>
+              </View>
+            )}
+            {!item.shippingDisabled && item.shippingCostCents != null && item.shippingCostCents > 0 && (
+              <View style={styles.shippingPreviewItem}>
+                <Ionicons name="cube-outline" size={16} color={theme.colors.text} />
+                <Text style={styles.shippingPreviewText}>
+                  Shipping: ~{formatPrice(item.shippingCostCents)}
+                </Text>
+              </View>
+            )}
+            {!item.shippingDisabled && item.shippingCostCents == null && (
+              <View style={styles.shippingPreviewItem}>
+                <Ionicons name="cube-outline" size={16} color={theme.colors.text} />
+                <Text style={styles.shippingPreviewText}>Shipping calculated at checkout</Text>
+              </View>
+            )}
+            {item.localDeliveryAvailable && (
+              <View style={styles.shippingPreviewItem}>
+                <Ionicons name="car-outline" size={16} color={theme.colors.text} />
+                <Text style={styles.shippingPreviewText}>
+                  Local Delivery{item.localDeliveryFeeCents != null && item.localDeliveryFeeCents > 0 ? `: ${formatPrice(item.localDeliveryFeeCents)}` : item.localDeliveryFeeCents === 0 ? ": Free" : ""}
+                </Text>
+              </View>
+            )}
+            {item.inStorePickupAvailable && (
+              <View style={styles.shippingPreviewItem}>
+                <Ionicons name="storefront-outline" size={16} color={theme.colors.text} />
+                <Text style={styles.shippingPreviewText}>Local Pickup Available</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.socialProofRow}>
+            {item.saveCount != null && item.saveCount > 0 && (
+              <View style={styles.saveCountRow}>
+                <Ionicons name="heart" size={14} color={theme.colors.primary} />
+                <Text style={styles.saveCountText}>
+                  {item.saveCount} {item.saveCount === 1 ? "person" : "people"} saved this
+                </Text>
+              </View>
+            )}
+            {!itemUnavailable && (
+              <Pressable
+                style={({ pressed }) => [styles.priceAlertBtn, pressed && { opacity: 0.8 }]}
+                onPress={() => setPriceAlertModalOpen(true)}
+              >
+                <Ionicons name="notifications-outline" size={16} color={theme.colors.primary} />
+                <Text style={styles.priceAlertBtnText}>Price Alert</Text>
+              </Pressable>
+            )}
+          </View>
+
           {(item.category || item.secondaryCategory) ? (
             <View style={styles.categoryChipsRow}>
               {item.category ? (
@@ -900,6 +1018,11 @@ export default function ProductScreen() {
                   />
                 ) : null}
                 <Text style={styles.storeName}>{item.business.name || "—"}</Text>
+                {item.member?.createdAt && (
+                  <Text style={styles.memberSince}>
+                    Member since {new Date(item.member.createdAt).getFullYear()}
+                  </Text>
+                )}
                 {item.business.fullDescription ? (
                   <Text style={styles.storeDescription}>
                     {item.business.fullDescription}
@@ -985,24 +1108,49 @@ export default function ProductScreen() {
               </View>
             </View>
           )}
+
+          {item.memberId && (
+            <RelatedItemsSection
+              title="More from this Seller"
+              memberId={item.memberId}
+              excludeId={item.id}
+              limit={10}
+            />
+          )}
+
+          {item.category && (
+            <RelatedItemsSection
+              title="Similar Items"
+              category={item.category}
+              excludeId={item.id}
+              limit={10}
+            />
+          )}
+
+          <CustomersAlsoViewedSection
+            storeItemId={item.id}
+            limit={10}
+          />
         </View>
       </ScrollView>
 
       {!itemUnavailable && (
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) + 10 }]}>
-          {showResaleBuyerActions ? (
+          {(showMessageSellerButton || showSendOfferButton) ? (
             <View style={styles.footerResaleRow}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.footerSecondaryBtn,
-                  pressed && { opacity: 0.85 },
-                ]}
-                onPress={() => setMessageSellerModalOpen(true)}
-              >
-                <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} />
-                <Text style={styles.footerSecondaryBtnText}>Message Seller</Text>
-              </Pressable>
-              {showSendOfferButton ? (
+              {showMessageSellerButton && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.footerSecondaryBtn,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  onPress={() => setMessageSellerModalOpen(true)}
+                >
+                  <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} />
+                  <Text style={styles.footerSecondaryBtnText}>Message Seller</Text>
+                </Pressable>
+              )}
+              {showSendOfferButton && (
                 <Pressable
                   style={({ pressed }) => [
                     styles.footerSecondaryBtn,
@@ -1014,7 +1162,7 @@ export default function ProductScreen() {
                   <Ionicons name="pricetag-outline" size={18} color={theme.colors.primary} />
                   <Text style={styles.footerSecondaryBtnText}>Send Offer</Text>
                 </Pressable>
-              ) : null}
+              )}
             </View>
           ) : null}
           <Pressable
@@ -1224,6 +1372,19 @@ export default function ProductScreen() {
               previewPhotoUrl: (item.photos ?? []).find((p) => p && String(p).trim() !== "") ?? undefined,
             }}
           />
+          <AddToCollectionModal
+            visible={collectionModalOpen}
+            onClose={() => setCollectionModalOpen(false)}
+            storeItemId={item.id}
+            storeItemTitle={item.title}
+          />
+          <PriceAlertModal
+            visible={priceAlertModalOpen}
+            onClose={() => setPriceAlertModalOpen(false)}
+            storeItemId={item.id}
+            storeItemTitle={item.title}
+            currentPrice={item.priceCents}
+          />
           <Modal visible={showSavedNote} transparent animationType="fade">
             <Pressable style={styles.savedNoteBackdrop} onPress={() => setShowSavedNote(false)}>
               <Pressable style={styles.savedNoteBox} onPress={() => {}}>
@@ -1344,23 +1505,45 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dots: {
+  photoCountBadge: {
     position: "absolute",
     bottom: 12,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
+    right: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  photoCountText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  thumbnailStrip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+    backgroundColor: "#f9f9f9",
+  },
+  thumbnailWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 6,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  thumbnailWrapActive: {
+    borderColor: theme.colors.primary,
+  },
+  thumbnail: {
+    width: "100%",
+    height: "100%",
+  },
+  thumbnailPlaceholder: {
+    alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "rgba(0,0,0,0.3)",
-  },
-  dotActive: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: "#e8e8e8",
   },
   body: {
     padding: 16,
@@ -1384,11 +1567,72 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: theme.colors.heading,
   },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 8,
+  },
   price: {
     fontSize: 22,
     fontWeight: "700",
     color: "#000",
+  },
+  orBestOfferBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: theme.colors.creamAlt,
+  },
+  orBestOfferText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  shippingPreviewRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
     marginBottom: 12,
+  },
+  shippingPreviewItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  shippingPreviewText: {
+    fontSize: 13,
+    color: theme.colors.text,
+  },
+  socialProofRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  saveCountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  saveCountText: {
+    fontSize: 13,
+    color: theme.colors.text,
+  },
+  priceAlertBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  priceAlertBtnText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: theme.colors.primary,
   },
   categoryChipsRow: {
     flexDirection: "row",
@@ -1673,6 +1917,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: theme.colors.heading,
+    marginBottom: 4,
+  },
+  memberSince: {
+    fontSize: 13,
+    color: theme.colors.text,
     marginBottom: 8,
   },
   storeDescription: {

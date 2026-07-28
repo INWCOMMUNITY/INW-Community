@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
-import { StyleSheet, View, Text, Pressable, Linking } from "react-native";
+import {
+  StyleSheet,
+  View,
+  Text,
+  Pressable,
+  Linking,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppImage } from "@/components/AppImage";
 import { theme } from "@/lib/theme";
@@ -20,7 +28,13 @@ function extractDomain(url: string): string {
   }
 }
 
-export function LinkPreviewCard({ url }: { url: string }) {
+export function LinkPreviewCard({
+  url,
+  embedded = false,
+}: {
+  url: string;
+  embedded?: boolean;
+}) {
   const [og, setOg] = useState<OGData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -53,7 +67,7 @@ export function LinkPreviewCard({ url }: { url: string }) {
 
   if (loading) {
     return (
-      <View style={styles.card}>
+      <View style={[styles.card, embedded && styles.cardEmbedded]}>
         <View style={styles.loadingRow}>
           <Ionicons name="link-outline" size={16} color="#999" />
           <Text style={styles.domainText} numberOfLines={1}>
@@ -66,7 +80,7 @@ export function LinkPreviewCard({ url }: { url: string }) {
 
   if (!og) {
     return (
-      <Pressable style={styles.card} onPress={handlePress}>
+      <Pressable style={[styles.card, embedded && styles.cardEmbedded]} onPress={handlePress}>
         <View style={styles.simpleRow}>
           <Ionicons name="link-outline" size={16} color={theme.colors.primary} />
           <Text style={styles.simpleLinkText} numberOfLines={1}>
@@ -78,7 +92,7 @@ export function LinkPreviewCard({ url }: { url: string }) {
   }
 
   return (
-    <Pressable style={styles.card} onPress={handlePress}>
+    <Pressable style={[styles.card, embedded && styles.cardEmbedded]} onPress={handlePress}>
       {og.image && (
         <AppImage
           uri={og.image}
@@ -106,6 +120,36 @@ export function LinkPreviewCard({ url }: { url: string }) {
   );
 }
 
+export function CollapsibleLinkPreview({
+  url,
+  style,
+}: {
+  url: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const domain = extractDomain(url);
+
+  return (
+    <View style={style}>
+      <Pressable
+        style={styles.collapsibleHeader}
+        onPress={() => setExpanded((open) => !open)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={expanded ? `Hide link preview for ${domain}` : `Show link preview for ${domain}`}
+      >
+        <Ionicons name="link-outline" size={16} color={theme.colors.primary} />
+        <Text style={styles.collapsibleLabel} numberOfLines={1}>
+          {domain}
+        </Text>
+        <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={18} color="#666" />
+      </Pressable>
+      {expanded ? <LinkPreviewCard url={url} embedded /> : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
@@ -114,6 +158,27 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#fafafa",
     marginVertical: 6,
+  },
+  cardEmbedded: {
+    marginVertical: 0,
+    marginTop: 8,
+  },
+  collapsibleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 8,
+    backgroundColor: "#fafafa",
+  },
+  collapsibleLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: theme.colors.primary,
+    fontWeight: "500",
   },
   image: {
     width: "100%",

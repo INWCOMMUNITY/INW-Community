@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getSellerAnalyticsSource } from "@/lib/seller-analytics-source";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { expireStaleResaleOffers } from "@/lib/expire-stale-resale-offers";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
@@ -249,6 +250,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Track cart_add event for seller analytics (fire-and-forget)
+  const analyticsSource = getSellerAnalyticsSource(req);
   prisma.sellerAnalyticsEvent
     .create({
       data: {
@@ -256,7 +258,7 @@ export async function POST(req: NextRequest) {
         storeItemId: body.storeItemId,
         eventType: "cart_add",
         provider: "inwc",
-        source: "web",
+        source: analyticsSource,
         metadata: { quantity: body.quantity },
       },
     })

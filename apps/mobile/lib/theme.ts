@@ -12,6 +12,8 @@ export const theme = {
     heading: "#3E432F",
     cream: "#FDEDCC",
     creamAlt: "#FFF8E1",
+    /** Warm tan-gray behind feed post cards (slightly darker than neutral #fafafa). */
+    feedBackground: "#f6f1eb",
     buttonText: "#ffffff",
     tabIconInactive: "#999",
     placeholder: "#888888",

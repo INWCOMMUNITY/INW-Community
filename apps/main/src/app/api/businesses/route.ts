@@ -98,6 +98,9 @@ export async function GET(req: NextRequest) {
       hoursOfOperation: business.hoursOfOperation,
       photos: photosExcludingLogo(business.photos, business.logoUrl),
       coupons: business.coupons.filter((c) => isCouponActiveByExpiresAt(c.expiresAt)),
+      facebookUrl: business.facebookUrl,
+      instagramUrl: business.instagramUrl,
+      tiktokUrl: business.tiktokUrl,
     });
   }
 
@@ -240,6 +243,9 @@ const bodySchema = z.object({
   subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
   photos: z.array(z.string()).max(12, "Maximum 12 gallery photos").optional(),
   hoursOfOperation: hoursSchema,
+  facebookUrl: z.string().url().nullable().optional().or(z.literal("")),
+  instagramUrl: z.string().url().nullable().optional().or(z.literal("")),
+  tiktokUrl: z.string().url().nullable().optional().or(z.literal("")),
 });
 
 function slugify(s: string): string {
@@ -317,6 +323,9 @@ export async function POST(req: NextRequest) {
         photos: data.photos ?? [],
         hoursOfOperation: data.hoursOfOperation ?? undefined,
         nameApprovalStatus: "approved",
+        facebookUrl: (body.facebookUrl as string | null | undefined)?.trim() || null,
+        instagramUrl: (body.instagramUrl as string | null | undefined)?.trim() || null,
+        tiktokUrl: (body.tiktokUrl as string | null | undefined)?.trim() || null,
       },
     });
 

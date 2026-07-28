@@ -27,7 +27,7 @@ function toFullUrl(url: string): string {
 }
 
 interface SellerProfile {
-  member: { firstName: string; lastName: string; email: string; acceptOffersOnResale?: boolean } | null;
+  member: { firstName: string; lastName: string; email: string; acceptOffersOnResale?: boolean; acceptMessagesForListings?: boolean } | null;
   business: {
     id: string;
     name: string;
@@ -61,6 +61,7 @@ export default function EditSellerProfileScreen() {
   const [logoUrl, setLogoUrl] = useState("");
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
   const [acceptOffersOnResale, setAcceptOffersOnResale] = useState(true);
+  const [acceptMessagesForListings, setAcceptMessagesForListings] = useState(true);
 
   useEffect(() => {
     apiGet<SellerProfile | { error: string }>("/api/seller-profile")
@@ -76,8 +77,13 @@ export default function EditSellerProfileScreen() {
           setLogoUrl(biz.logoUrl ?? "");
           setCoverPhotoUrl((biz as { coverPhotoUrl?: string | null }).coverPhotoUrl ?? "");
         }
-        if (data && "member" in data && data.member && typeof data.member.acceptOffersOnResale === "boolean") {
-          setAcceptOffersOnResale(data.member.acceptOffersOnResale);
+        if (data && "member" in data && data.member) {
+          if (typeof data.member.acceptOffersOnResale === "boolean") {
+            setAcceptOffersOnResale(data.member.acceptOffersOnResale);
+          }
+          if (typeof data.member.acceptMessagesForListings === "boolean") {
+            setAcceptMessagesForListings(data.member.acceptMessagesForListings);
+          }
         }
       })
       .catch(() => setError("Failed to load profile"))
@@ -151,6 +157,7 @@ export default function EditSellerProfileScreen() {
     try {
       await apiPatch("/api/seller-profile", {
         acceptOffersOnResale,
+        acceptMessagesForListings,
         business: {
           name: name.trim() || "My Store",
           phone: phone.trim() || null,
@@ -171,6 +178,7 @@ export default function EditSellerProfileScreen() {
   }, [
     router,
     acceptOffersOnResale,
+    acceptMessagesForListings,
     name,
     phone,
     email,
@@ -342,6 +350,22 @@ export default function EditSellerProfileScreen() {
               onValueChange={setAcceptOffersOnResale}
               trackColor={switchTrackColor()}
               thumbColor={switchThumbColor(acceptOffersOnResale)}
+              ios_backgroundColor={switchIosBackgroundColor}
+            />
+          </View>
+
+          <View style={styles.switchRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={labelStyle}>Allow buyers to message you</Text>
+              <Text style={styles.switchHint}>
+                When enabled, buyers can send you questions about your listings.
+              </Text>
+            </View>
+            <Switch
+              value={acceptMessagesForListings}
+              onValueChange={setAcceptMessagesForListings}
+              trackColor={switchTrackColor()}
+              thumbColor={switchThumbColor(acceptMessagesForListings)}
               ios_backgroundColor={switchIosBackgroundColor}
             />
           </View>

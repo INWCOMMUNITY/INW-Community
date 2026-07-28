@@ -103,6 +103,9 @@ export default async function BusinessDetailPage({
       discount: c.discount,
     })),
     activeProductCount,
+    facebookUrl: business.facebookUrl,
+    instagramUrl: business.instagramUrl,
+    tiktokUrl: business.tiktokUrl,
   };
 
   return <BusinessDetailContent business={detail} initialSaved={!!saved} />;

@@ -55,6 +55,9 @@ interface Business {
   hoursOfOperation: Record<string, string> | null;
   photos: string[];
   coupons: Coupon[];
+  facebookUrl?: string | null;
+  instagramUrl?: string | null;
+  tiktokUrl?: string | null;
 }
 
 function resolveUrl(path: string | null | undefined): string | undefined {
@@ -88,6 +91,8 @@ type BusinessListingHeaderProps = {
   feedPostsEmpty: boolean;
   /** Android-only notice when the listing has more photos than we load in-app. */
   androidGalleryTruncationHint: string | null;
+  /** Total number of gallery photos for indicator */
+  galleryTotalCount: number;
 };
 
 const BusinessListingHeader = memo(function BusinessListingHeader({
@@ -110,6 +115,7 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
   feedLoading,
   feedPostsEmpty,
   androidGalleryTruncationHint,
+  galleryTotalCount,
 }: BusinessListingHeaderProps) {
   const [aboutExpanded, setAboutExpanded] = useState(true);
   return (
@@ -194,6 +200,34 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
             <Text style={styles.contactText}>{business.website}</Text>
           </Pressable>
         ) : null}
+        {(business.facebookUrl || business.instagramUrl || business.tiktokUrl) ? (
+          <View style={styles.socialRow}>
+            {business.facebookUrl ? (
+              <Pressable
+                style={({ pressed }) => [styles.socialButton, pressed && { opacity: 0.7 }]}
+                onPress={() => Linking.openURL(business.facebookUrl!)}
+              >
+                <Ionicons name="logo-facebook" size={22} color="#fff" />
+              </Pressable>
+            ) : null}
+            {business.instagramUrl ? (
+              <Pressable
+                style={({ pressed }) => [styles.socialButton, pressed && { opacity: 0.7 }]}
+                onPress={() => Linking.openURL(business.instagramUrl!)}
+              >
+                <Ionicons name="logo-instagram" size={22} color="#fff" />
+              </Pressable>
+            ) : null}
+            {business.tiktokUrl ? (
+              <Pressable
+                style={({ pressed }) => [styles.socialButton, pressed && { opacity: 0.7 }]}
+                onPress={() => Linking.openURL(business.tiktokUrl!)}
+              >
+                <Ionicons name="logo-tiktok" size={22} color="#fff" />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </View>
       <View style={styles.sectionDivider} />
 
@@ -254,7 +288,12 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
             style={styles.section}
             {...(Platform.OS === "android" ? { collapsable: false } : {})}
           >
-            <Text style={styles.sectionTitle}>Gallery</Text>
+            <View style={styles.gallerySectionHeader}>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Gallery</Text>
+              {galleryTotalCount > 1 && (
+                <Text style={styles.galleryCountBadge}>{galleryTotalCount} photos</Text>
+              )}
+            </View>
           {androidGalleryTruncationHint ? (
             <Text style={styles.galleryAndroidHint}>{androidGalleryTruncationHint}</Text>
           ) : null}
@@ -764,6 +803,7 @@ export default function BusinessScreen() {
             feedLoading={feedLoading}
             feedPostsEmpty={feedPosts.length === 0}
             androidGalleryTruncationHint={androidGalleryTruncationHint}
+            galleryTotalCount={galleryTotalPhotoCount}
           />
         }
         ListFooterComponent={feedListFooter}
@@ -993,6 +1033,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: theme.colors.primary,
   },
+  socialRow: {
+    flexDirection: "row",
+    gap: 16,
+    marginTop: 12,
+  },
+  socialButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   mapBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1023,6 +1076,21 @@ const styles = StyleSheet.create({
   galleryListContent: {
     paddingHorizontal: 8,
     alignItems: "center",
+  },
+  gallerySectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  galleryCountBadge: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    backgroundColor: theme.colors.creamAlt,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   galleryAndroidHint: {
     fontSize: 12,

@@ -12,6 +12,8 @@ import {
   Animated,
   Platform,
   Easing,
+  ScrollView,
+  Modal,
 } from "react-native";
 
 const ANIM_DURATION = 480;
@@ -19,34 +21,29 @@ import { useRouter, useNavigation } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import {
   StoreFilterDrawer,
   type DeliveryFilter,
   type BrowseCategoryRow,
 } from "@/components/StoreFilterDrawer";
 import { AppImage, prefetchImages } from "@/components/AppImage";
+import {
+  FeaturedItemsCarousel,
+  RecentlyAddedCarousel,
+  SellerSpotlightCarousel,
+  StoreItemCard,
+  StoreSkeletonGrid,
+  type StoreItemData,
+} from "@/components/store";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const HEADER_LIST_GAP = 16;
 const accentBorder = "#c99d5f";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
-interface StoreItem {
-  id: string;
-  title: string;
-  slug: string;
-  photos: string[];
-  category: string | null;
-  secondaryCategory?: string | null;
-  priceCents: number;
-  quantity: number;
+interface StoreItem extends StoreItemData {
   variants?: { name: string; options: string[] }[];
-  business?: { name: string; slug: string };
-}
-
-function formatPrice(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
 }
 
 export default function StoreScreen() {
@@ -64,9 +61,11 @@ export default function StoreScreen() {
   const [subcategory, setSubcategory] = useState("");
   const [size, setSize] = useState("");
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>("");
+  const [sortOption, setSortOption] = useState<"newest" | "price_asc" | "price_desc">("newest");
   const [browseByCategories, setBrowseByCategories] = useState<BrowseCategoryRow[]>([]);
   const [sizes, setSizes] = useState<string[]>([]);
   const [storeMenuOpen, setStoreMenuOpen] = useState(false);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [items, setItems] = useState<StoreItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -136,6 +135,7 @@ export default function StoreScreen() {
         if (size) params.set("size", size);
         if (deliveryFilter === "local") params.set("localDelivery", "1");
         if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
+        if (sortOption !== "newest") params.set("sort", sortOption);
         const data = await apiGet<StoreItem[] | { error?: string }>(`/api/store-items?${params}`);
         if (Array.isArray(data)) {
           setItems(data);
@@ -159,7 +159,7 @@ export default function StoreScreen() {
         setRefreshing(false);
       }
     },
-    [condition, search, category, subcategory, size, deliveryFilter]
+    [condition, search, category, subcategory, size, deliveryFilter, sortOption]
   );
 
   // Warm the image cache for every grid item's first photo so thumbnails
@@ -235,74 +235,50 @@ export default function StoreScreen() {
     router.push(`/product/${item.slug}`);
   };
 
+  const handleQuickAdd = useCallback(async (item: StoreItemData) => {
+    try {
+      await apiPost("/api/cart", { storeItemId: item.id, quantity: 1 });
+    } catch {
+      // Silent fail - user can still tap the item to add with options
+    }
+  }, []);
+
   const resolvePhotoUrl = (path: string | undefined): string | undefined => {
     if (!path) return undefined;
     return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
   };
 
-  const renderItem = ({ item }: { item: StoreItem }) => {
-    const photoUrl = resolvePhotoUrl(item.photos?.[0]);
+  const [showCarousels, setShowCarousels] = useState(true);
+  const hasActiveFilters = Boolean(
+    search.trim() || category || subcategory || size || deliveryFilter || condition
+  );
+
+  useEffect(() => {
+    setShowCarousels(!hasActiveFilters);
+  }, [hasActiveFilters]);
+
+  const renderListHeader = useCallback(() => {
+    if (!showCarousels) return null;
     return (
-      <Pressable
-        style={({ pressed }) => [
-          styles.card,
-          { width: cardWidth },
-          pressed && styles.cardPressed,
-        ]}
-        onPress={() => openItem(item)}
-      >
-        <View style={styles.cardImageWrap}>
-          {photoUrl ? (
-            <AppImage uri={photoUrl} targetWidth={cardWidth} quality={55} style={styles.cardImage} resizeMode="cover" />
-          ) : (
-            <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
-              <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
-            </View>
-          )}
-        </View>
-        <Text style={styles.cardTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <Text style={styles.cardPrice}>{formatPrice(item.priceCents)}</Text>
-        {item.category || item.secondaryCategory ? (
-          <View style={styles.categoryChipsRow}>
-            {item.category ? (
-              <View
-                style={[
-                  styles.categoryChip,
-                  item.secondaryCategory ? styles.categoryChipWhenPaired : null,
-                ]}
-              >
-                <Text
-                  style={styles.categoryText}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
-                  {item.category}
-                </Text>
-              </View>
-            ) : null}
-            {item.secondaryCategory ? (
-              <View
-                style={[
-                  styles.categoryChip,
-                  item.category ? styles.categoryChipWhenPaired : null,
-                ]}
-              >
-                <Text
-                  style={styles.categoryText}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
-                  {item.secondaryCategory}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-      </Pressable>
+      <View style={styles.carouselsContainer}>
+        <FeaturedItemsCarousel onQuickAdd={handleQuickAdd} />
+        <RecentlyAddedCarousel onQuickAdd={handleQuickAdd} />
+        <SellerSpotlightCarousel />
+      </View>
     );
-  };
+  }, [showCarousels, handleQuickAdd]);
+
+  const renderItem = useCallback(({ item }: { item: StoreItem }) => {
+    return (
+      <StoreItemCard
+        item={item}
+        width={cardWidth}
+        variant="grid"
+        showBadges
+        onQuickAdd={handleQuickAdd}
+      />
+    );
+  }, [cardWidth, handleQuickAdd]);
 
   const checkScrollPosition = useCallback((y: number) => {
     if (y > 40) {
@@ -330,6 +306,14 @@ export default function StoreScreen() {
     [checkScrollPosition]
   );
 
+  const activeFilterCount = [
+    condition,
+    category,
+    subcategory,
+    size,
+    deliveryFilter,
+  ].filter(Boolean).length;
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerLeft: () => (
@@ -346,14 +330,19 @@ export default function StoreScreen() {
       ),
       headerRight: () => (
         <Pressable
-          style={({ pressed }) => ({ marginRight: 16, opacity: pressed ? 0.8 : 1 })}
+          style={({ pressed }) => [styles.menuBtn, { opacity: pressed ? 0.8 : 1 }]}
           onPress={() => setStoreMenuOpen(true)}
         >
           <Ionicons name="menu" size={24} color="#ffffff" />
+          {activeFilterCount > 0 && (
+            <View style={styles.filterBadge}>
+              <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+            </View>
+          )}
         </Pressable>
       ),
     });
-  }, [navigation, headerExpanded]);
+  }, [navigation, headerExpanded, activeFilterCount]);
 
   return (
     <View style={styles.container}>
@@ -395,8 +384,159 @@ export default function StoreScreen() {
               onChangeText={setSearch}
               autoCorrect={true}
             />
+            <View style={styles.quickFilters}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.quickFiltersContent}
+              >
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.filterChip,
+                    deliveryFilter === "local" && styles.filterChipActive,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  onPress={() =>
+                    setDeliveryFilter(deliveryFilter === "local" ? "" : "local")
+                  }
+                >
+                  <Ionicons
+                    name="location-outline"
+                    size={14}
+                    color={deliveryFilter === "local" ? "#fff" : theme.colors.primary}
+                  />
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      deliveryFilter === "local" && styles.filterChipTextActive,
+                    ]}
+                  >
+                    Local Pickup
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.filterChip,
+                    deliveryFilter === "shipping" && styles.filterChipActive,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  onPress={() =>
+                    setDeliveryFilter(deliveryFilter === "shipping" ? "" : "shipping")
+                  }
+                >
+                  <Ionicons
+                    name="cube-outline"
+                    size={14}
+                    color={deliveryFilter === "shipping" ? "#fff" : theme.colors.primary}
+                  />
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      deliveryFilter === "shipping" && styles.filterChipTextActive,
+                    ]}
+                  >
+                    Ships to You
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.filterChip,
+                    styles.sortChip,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  onPress={() => setSortMenuOpen(true)}
+                >
+                  <Ionicons
+                    name="swap-vertical-outline"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                  <Text style={styles.filterChipText}>
+                    {sortOption === "newest"
+                      ? "Newest"
+                      : sortOption === "price_asc"
+                        ? "Price: Low"
+                        : "Price: High"}
+                  </Text>
+                </Pressable>
+                {browseByCategories.slice(0, 5).map((cat) => (
+                  <Pressable
+                    key={cat.label}
+                    style={({ pressed }) => [
+                      styles.filterChip,
+                      category === cat.label && styles.filterChipActive,
+                      pressed && { opacity: 0.8 },
+                    ]}
+                    onPress={() => {
+                      if (category === cat.label) {
+                        setCategory("");
+                        setSubcategory("");
+                      } else {
+                        setCategory(cat.label);
+                        setSubcategory("");
+                      }
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.filterChipText,
+                        category === cat.label && styles.filterChipTextActive,
+                      ]}
+                    >
+                      {cat.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
         </View>
       </Animated.View>
+
+      <Modal
+        visible={sortMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSortMenuOpen(false)}
+      >
+        <Pressable
+          style={styles.sortModalOverlay}
+          onPress={() => setSortMenuOpen(false)}
+        >
+          <View style={styles.sortModalContent}>
+            <Text style={styles.sortModalTitle}>Sort By</Text>
+            {([
+              { key: "newest", label: "Newest First" },
+              { key: "price_asc", label: "Price: Low to High" },
+              { key: "price_desc", label: "Price: High to Low" },
+            ] as const).map((opt) => (
+              <Pressable
+                key={opt.key}
+                style={({ pressed }) => [
+                  styles.sortOption,
+                  sortOption === opt.key && styles.sortOptionActive,
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={() => {
+                  setSortOption(opt.key);
+                  setSortMenuOpen(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.sortOptionText,
+                    sortOption === opt.key && styles.sortOptionTextActive,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+                {sortOption === opt.key && (
+                  <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
+                )}
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
 
       <StoreFilterDrawer
         visible={storeMenuOpen}
@@ -420,11 +560,15 @@ export default function StoreScreen() {
         }}
         onSizeChange={setSize}
         onDeliveryFilterChange={setDeliveryFilter}
+        onNavigateToCategory={(categoryName) => {
+          const slug = categoryName.toLowerCase().replace(/\s+/g, "-").replace(/[^\w-]/g, "");
+          router.push(`/store/category/${slug}` as never);
+        }}
       />
 
       {loading && !refreshing ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={theme.colors.cream} />
+        <View style={styles.list}>
+          <StoreSkeletonGrid cardWidth={cardWidth} count={6} />
         </View>
       ) : connectionError ? (
         <View style={styles.empty}>
@@ -458,6 +602,7 @@ export default function StoreScreen() {
           onScrollEndDrag={handleScrollEnd}
           onMomentumScrollEnd={handleScrollEnd}
           scrollEventThrottle={16}
+          ListHeaderComponent={renderListHeader}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -467,10 +612,34 @@ export default function StoreScreen() {
             />
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>
-                No items found. {search ? "Try a different search." : ""}
+            <View style={styles.emptyEnhanced}>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="storefront-outline" size={48} color={theme.colors.primary} />
+              </View>
+              <Text style={styles.emptyTitle}>
+                {search ? "No items match your search" : "No items yet"}
               </Text>
+              <Text style={styles.emptySubtitle}>
+                {search
+                  ? "Try different keywords or clear filters"
+                  : "Check back soon for new listings from local sellers!"}
+              </Text>
+              {hasActiveFilters && (
+                <Pressable
+                  style={({ pressed }) => [styles.clearFiltersBtn, pressed && { opacity: 0.8 }]}
+                  onPress={() => {
+                    setCondition("");
+                    setCategory("");
+                    setSubcategory("");
+                    setSize("");
+                    setDeliveryFilter("");
+                    setSearch("");
+                  }}
+                >
+                  <Ionicons name="close-circle-outline" size={18} color="#fff" />
+                  <Text style={styles.clearFiltersBtnText}>Clear All Filters</Text>
+                </Pressable>
+              )}
             </View>
           }
         />
@@ -573,6 +742,108 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#000",
   },
+  menuBtn: {
+    marginRight: 16,
+    position: "relative",
+  },
+  filterBadge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  filterBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: theme.colors.primary,
+  },
+  quickFilters: {
+    marginTop: 12,
+    marginHorizontal: -16,
+  },
+  quickFiltersContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.5)",
+  },
+  filterChipActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: "#fff",
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  filterChipTextActive: {
+    color: "#fff",
+  },
+  sortChip: {
+    borderColor: theme.colors.primary,
+    borderWidth: 1,
+  },
+  sortModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  sortModalContent: {
+    width: "100%",
+    maxWidth: 320,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  sortModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  sortOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  sortOptionActive: {
+    backgroundColor: theme.colors.creamAlt,
+  },
+  sortOptionText: {
+    fontSize: 16,
+    color: theme.colors.text,
+  },
+  sortOptionTextActive: {
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
   listItemBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -626,76 +897,14 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     backgroundColor: "#fff",
   },
+  carouselsContainer: {
+    marginHorizontal: -16,
+    marginBottom: 16,
+    backgroundColor: "#f9f9f9",
+  },
   row: {
     gap: 12,
     marginBottom: 12,
-  },
-  card: {
-    backgroundColor: "#fff",
-    borderWidth: 2,
-    borderColor: "#000",
-    borderRadius: 8,
-    overflow: "hidden",
-    maxWidth: "100%",
-  },
-  cardPressed: {
-    opacity: 0.8,
-  },
-  cardImageWrap: {
-    width: "100%",
-    alignSelf: "stretch",
-    aspectRatio: 1,
-    backgroundColor: "#f5f5f5",
-    overflow: "hidden",
-  },
-  cardImage: {
-    width: "100%",
-    height: "100%",
-  },
-  cardImagePlaceholder: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-    padding: 8,
-    paddingBottom: 4,
-  },
-  cardPrice: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#000",
-    paddingHorizontal: 8,
-    paddingBottom: 4,
-  },
-  categoryChipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    width: "100%",
-    paddingHorizontal: 8,
-    marginBottom: 8,
-    alignItems: "center",
-    alignSelf: "stretch",
-  },
-  categoryChip: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: theme.colors.creamAlt,
-    maxWidth: "100%",
-  },
-  categoryChipWhenPaired: {
-    flex: 1,
-    minWidth: 0,
-  },
-  categoryText: {
-    fontSize: 13,
-    color: theme.colors.heading,
-    flexShrink: 1,
   },
   empty: {
     padding: 24,
@@ -706,6 +915,48 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     textAlign: "center",
     marginBottom: 16,
+  },
+  emptyEnhanced: {
+    padding: 32,
+    alignItems: "center",
+  },
+  emptyIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: theme.colors.creamAlt,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: theme.colors.text,
+    textAlign: "center",
+    lineHeight: 20,
+    maxWidth: 280,
+    marginBottom: 20,
+  },
+  clearFiltersBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+  },
+  clearFiltersBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
   },
   retryButton: {
     paddingHorizontal: 24,

@@ -242,20 +242,6 @@ export default function ProductDetailPage() {
 
   const { sellerItems, similarItems } = useStoreItemRelatedLists(item);
 
-  // Track listing view for seller analytics
-  useEffect(() => {
-    if (!item?.id || itemUnavailable) return;
-    fetch("/api/seller-analytics/track", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        eventType: "listing_view",
-        storeItemId: item.id,
-        source: "web",
-      }),
-    }).catch(() => {});
-  }, [item?.id, itemUnavailable]);
-
   const hasVariants = item?.variants && item.variants.length > 0;
   const allVariantsSelected =
     !hasVariants || allVariantAxesSelected(item?.variants, selectedVariant);

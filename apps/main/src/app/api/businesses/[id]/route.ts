@@ -24,6 +24,9 @@ const bodySchema = z.object({
   subcategoriesByPrimary: z.record(z.array(z.string())).optional(),
   photos: z.array(z.string()).max(12, "Maximum 12 gallery photos").optional(),
   hoursOfOperation: hoursSchema,
+  facebookUrl: z.string().nullable().optional().transform((v) => v || null),
+  instagramUrl: z.string().nullable().optional().transform((v) => v || null),
+  tiktokUrl: z.string().nullable().optional().transform((v) => v || null),
 });
 
 export async function GET(
@@ -58,6 +61,9 @@ export async function GET(
     subcategoriesByPrimary: parseSubcategoriesByPrimary(business.subcategoriesByPrimary),
     photos: photosExcludingLogo(business.photos, business.logoUrl),
     hoursOfOperation: business.hoursOfOperation,
+    facebookUrl: business.facebookUrl,
+    instagramUrl: business.instagramUrl,
+    tiktokUrl: business.tiktokUrl,
   });
 }
 
@@ -127,6 +133,9 @@ export async function PATCH(
         ...(parsed.hoursOfOperation !== undefined && {
           hoursOfOperation: parsed.hoursOfOperation === null ? Prisma.JsonNull : parsed.hoursOfOperation,
         }),
+        ...(parsed.facebookUrl !== undefined && { facebookUrl: parsed.facebookUrl }),
+        ...(parsed.instagramUrl !== undefined && { instagramUrl: parsed.instagramUrl }),
+        ...(parsed.tiktokUrl !== undefined && { tiktokUrl: parsed.tiktokUrl }),
       },
     });
     return NextResponse.json({ ok: true });

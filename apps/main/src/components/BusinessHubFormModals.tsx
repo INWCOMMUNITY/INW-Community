@@ -11,6 +11,7 @@ import { BusinessForm } from "@/components/BusinessForm";
 import { DeleteBusinessButton } from "@/components/DeleteBusinessButton";
 import { CreatePostModal } from "@/components/CreatePostModal";
 import { IonIcon } from "@/components/IonIcon";
+import { BusinessProfileCompletionCard } from "@/components/BusinessProfileCompletionCard";
 import type { Business } from "database";
 
 interface BusinessOption {
@@ -369,6 +370,12 @@ export function BusinessHubFormModals({
         className="lg:hidden px-4 pt-4 pb-10"
         style={{ paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))" }}
       >
+        {businesses.length > 0 && (
+          <BusinessProfileCompletionCard
+            businessIds={businesses.map((b) => b.id)}
+            onOpenBusinessForm={openBusinessModal}
+          />
+        )}
         <div
           className="flex flex-row items-center gap-4 mb-6 py-4 px-4 rounded-xl border-2"
           style={{
@@ -691,6 +698,12 @@ export function BusinessHubFormModals({
 
       <div className="hidden lg:block">
         {sellerHubReturnButton}
+        {businesses.length > 0 && (
+          <BusinessProfileCompletionCard
+            businessIds={businesses.map((b) => b.id)}
+            onOpenBusinessForm={openBusinessModal}
+          />
+        )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <button
           type="button"

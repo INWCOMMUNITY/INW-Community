@@ -39,6 +39,8 @@ model Member {
   offerLocalPickup           Boolean @default(true) @map("offer_local_pickup")
   // Default for new resale listings; per-listing StoreItem.acceptOffers can override.
   acceptOffersOnResale       Boolean  @default(true) @map("accept_offers_on_resale")
+  // Whether buyers can message seller about listings; must be set before first listing.
+  acceptMessagesForListings  Boolean  @default(true) @map("accept_messages_for_listings")
   status            String   @default("active") // active | suspended
   privacyLevel      String   @default("public") @map("privacy_level") // public | friends_only | completely_private
   signupIntent      String?  @map("signup_intent") // resident | business | seller
@@ -116,6 +118,9 @@ model Member {
   referralSignupsAsNewMember ReferralSignup[] @relation("ReferralSignupNewMember")
   appShares MemberAppShare[]
   contentShareEvents ContentShareEvent[]
+  memberListingViews MemberListingView[]
+  collections Collection[]
+  priceDropAlerts PriceDropAlert[]
   reports                  Report[]
   pushTokens               MemberPushToken[]
   notificationPreferences MemberNotificationPreferences?
@@ -293,6 +298,9 @@ model Business {
   slug             String   @unique
   photos           String[] // JSON array of URLs
   coverPhotoUrl    String?  @map("cover_photo_url") // Seller storefront backdrop (Facebook-style cover)
+  facebookUrl      String?  @map("facebook_url")
+  instagramUrl     String?  @map("instagram_url")
+  tiktokUrl        String?  @map("tiktok_url")
   nameApprovalStatus String @default("approved") @map("name_approval_status") // approved | pending | rejected (profanity in name)
   adminGrantedAt     DateTime? @map("admin_granted_at") // When set, this business was assigned by admin; owner gets free Business Hub access without a subscription
   createdAt        DateTime @default(now()) @map("created_at")
@@ -409,6 +417,63 @@ enum SavedItemType {
   blog
   post
   reward
+}
+
+model Collection {
+  id          String   @id @default(cuid())
+  memberId    String   @map("member_id")
+  name        String
+  description String?
+  isPublic    Boolean  @default(false) @map("is_public")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  items  CollectionItem[]
+  
+  @@index([memberId])
+}
+
+model CollectionItem {
+  id           String   @id @default(cuid())
+  collectionId String   @map("collection_id")
+  storeItemId  String   @map("store_item_id")
+  addedAt      DateTime @default(now()) @map("added_at")
+  
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  storeItem  StoreItem  @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  
+  @@unique([collectionId, storeItemId])
+  @@index([storeItemId])
+}
+
+model PriceDropAlert {
+  id            String    @id @default(cuid())
+  memberId      String    @map("member_id")
+  storeItemId   String    @map("store_item_id")
+  targetPrice   Int?      @map("target_price_cents")
+  originalPrice Int       @map("original_price_cents")
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  triggeredAt   DateTime? @map("triggered_at")
+  
+  member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  
+  @@unique([memberId, storeItemId])
+  @@index([storeItemId, active])
+  @@map("price_drop_alert")
+}
+
+model StoreCategory {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  slug        String  @unique
+  description String?
+  bannerUrl   String? @map("banner_url")
+  sortOrder   Int     @default(0) @map("sort_order")
+  
+  @@map("store_category")
 }
 
 // Blog system - admin-approved posts
@@ -955,6 +1020,7 @@ model StoreItem {
   etsyTaxonomyId       Int?     @map("etsy_taxonomy_id")
   ebayCategoryId       Int?     @map("ebay_category_id")
   lowStockThreshold    Int?     @map("low_stock_threshold") // Alert when quantity falls to or below this value
+  featured             Boolean  @default(false) @map("featured") // Admin-curated featured listings
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -966,6 +1032,25 @@ model StoreItem {
   resaleConversations ResaleConversation[]
   channelLinks ChannelListingLink[]
   sellerAnalyticsEvents SellerAnalyticsEvent[]
+  memberViews MemberListingView[]
+  collectionItems CollectionItem[]
+  priceDropAlerts PriceDropAlert[]
+}
+
+model MemberListingView {
+  id          String   @id @default(cuid())
+  viewerId    String?  @map("viewer_id")
+  sessionId   String?  @map("session_id")
+  storeItemId String   @map("store_item_id")
+  source      String   // mobile | web
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  viewer    Member?    @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+  storeItem StoreItem  @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  
+  @@index([storeItemId, createdAt])
+  @@index([viewerId, createdAt])
+  @@map("member_listing_view")
 }
 
 // Per-seller connection to an external sales channel (Etsy now; eBay/Shopify/Wix later).

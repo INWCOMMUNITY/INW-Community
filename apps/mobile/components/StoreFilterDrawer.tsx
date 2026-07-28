@@ -39,6 +39,7 @@ interface StoreFilterDrawerProps {
   onSubcategoryChange: (subcategory: string) => void;
   onSizeChange: (size: string) => void;
   onDeliveryFilterChange: (filter: DeliveryFilter) => void;
+  onNavigateToCategory?: (categoryName: string) => void;
 }
 
 export function StoreFilterDrawer({
@@ -56,6 +57,7 @@ export function StoreFilterDrawer({
   onSubcategoryChange,
   onSizeChange,
   onDeliveryFilterChange,
+  onNavigateToCategory,
 }: StoreFilterDrawerProps) {
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
@@ -118,24 +120,41 @@ export function StoreFilterDrawer({
               </Text>
             </Pressable>
             {browseByCategories.map((row) => (
-              <Pressable
-                key={row.label}
-                onPress={() => onCategoryChange(row.label)}
-                style={({ pressed }) => [
-                  styles.optionRow,
-                  category === row.label && styles.optionRowActive,
-                  pressed && { opacity: 0.8 },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.optionText,
-                    category === row.label && styles.optionTextActive,
+              <View key={row.label} style={styles.categoryRow}>
+                <Pressable
+                  onPress={() => onCategoryChange(row.label)}
+                  style={({ pressed }) => [
+                    styles.optionRow,
+                    styles.categoryOptionRow,
+                    category === row.label && styles.optionRowActive,
+                    pressed && { opacity: 0.8 },
                   ]}
                 >
-                  {row.label}
-                </Text>
-              </Pressable>
+                  <Text
+                    style={[
+                      styles.optionText,
+                      category === row.label && styles.optionTextActive,
+                    ]}
+                  >
+                    {row.label}
+                  </Text>
+                </Pressable>
+                {onNavigateToCategory && (
+                  <Pressable
+                    onPress={() => {
+                      onClose();
+                      onNavigateToCategory(row.label);
+                    }}
+                    style={({ pressed }) => [
+                      styles.categoryArrow,
+                      pressed && { opacity: 0.6 },
+                    ]}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="arrow-forward" size={18} color={theme.colors.primary} />
+                  </Pressable>
+                )}
+              </View>
             ))}
             {category &&
               (browseByCategories.find((r) => r.label === category)?.subcategories.length ?? 0) >
@@ -356,13 +375,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#e0e0e0",
     marginBottom: 12,
   },
+  categoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   optionRow: {
     paddingVertical: 10,
+  },
+  categoryOptionRow: {
+    flex: 1,
   },
   subOptionRow: {
     paddingLeft: 10,
   },
   optionRowActive: {},
+  categoryArrow: {
+    padding: 8,
+  },
   optionText: {
     fontSize: 15,
     color: "#444",

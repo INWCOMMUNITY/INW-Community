@@ -38,12 +38,15 @@ export type BusinessFormData = {
   subcategoriesByPrimary?: Record<string, string[]>;
   photos: string[];
   hoursOfOperation?: Record<string, string> | null;
+  facebookUrl?: string | null;
+  instagramUrl?: string | null;
+  tiktokUrl?: string | null;
 };
 
 interface BusinessFormProps {
   existing?: Pick<
     Business,
-    "id" | "name" | "shortDescription" | "fullDescription" | "website" | "phone" | "email" | "logoUrl" | "coverPhotoUrl" | "address" | "city" | "categories" | "subcategoriesByPrimary" | "photos" | "hoursOfOperation"
+    "id" | "name" | "shortDescription" | "fullDescription" | "website" | "phone" | "email" | "logoUrl" | "coverPhotoUrl" | "address" | "city" | "categories" | "subcategoriesByPrimary" | "photos" | "hoursOfOperation" | "facebookUrl" | "instagramUrl" | "tiktokUrl"
   >;
   /** When "signup", form calls onDataReady instead of POSTing; used in signup flow */
   mode?: "edit" | "signup";
@@ -99,6 +102,9 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
   const [website, setWebsite] = useState(existing?.website ?? "");
   const [phone, setPhone] = useState(existing?.phone ?? "");
   const [email, setEmail] = useState(existing?.email ?? "");
+  const [facebookUrl, setFacebookUrl] = useState(existing?.facebookUrl ?? "");
+  const [instagramUrl, setInstagramUrl] = useState(existing?.instagramUrl ?? "");
+  const [tiktokUrl, setTiktokUrl] = useState(existing?.tiktokUrl ?? "");
   const [logoUrl, setLogoUrl] = useState(existing?.logoUrl ?? "");
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("coverPhotoUrl" in (existing ?? {}) ? (existing as { coverPhotoUrl?: string }).coverPhotoUrl ?? "" : "");
   const [uploadingCover, setUploadingCover] = useState(false);
@@ -313,6 +319,9 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
       subcategoriesByPrimary: normalizeSubcategoriesByPrimary(cats, map),
       photos: photos.slice(0, MAX_BUSINESS_GALLERY_PHOTOS),
       hoursOfOperation: Object.keys(hoursFiltered).length ? hoursFiltered : null,
+      facebookUrl: facebookUrl?.trim() || null,
+      instagramUrl: instagramUrl?.trim() || null,
+      tiktokUrl: tiktokUrl?.trim() || null,
     };
   }
 
@@ -427,6 +436,41 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
           onChange={(e) => setEmail(e.target.value)}
           className="w-full border rounded px-3 py-2"
         />
+      </div>
+      <div className="border-t pt-4 mt-4">
+        <p className="text-sm font-medium mb-3">Social Media (optional)</p>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Facebook URL</label>
+            <input
+              type="url"
+              value={facebookUrl}
+              onChange={(e) => setFacebookUrl(e.target.value)}
+              placeholder="https://facebook.com/yourbusiness"
+              className="w-full border rounded px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Instagram URL</label>
+            <input
+              type="url"
+              value={instagramUrl}
+              onChange={(e) => setInstagramUrl(e.target.value)}
+              placeholder="https://instagram.com/yourbusiness"
+              className="w-full border rounded px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">TikTok URL</label>
+            <input
+              type="url"
+              value={tiktokUrl}
+              onChange={(e) => setTiktokUrl(e.target.value)}
+              placeholder="https://tiktok.com/@yourbusiness"
+              className="w-full border rounded px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
       </div>
       <div>
         <label className="block text-sm font-medium mb-1">Logo *</label>

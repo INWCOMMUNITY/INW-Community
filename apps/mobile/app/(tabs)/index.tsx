@@ -598,13 +598,12 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
-    backgroundColor: "#fafafa",
+    backgroundColor: theme.colors.feedBackground,
   },
   scrollOverflowVisible: {
     overflow: "visible",
   },
   scrollContent: {
-    padding: 16,
     paddingBottom: 40,
   },
   scrollContentEmpty: {
@@ -616,6 +615,8 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 20,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   title: {
     fontSize: 22,
@@ -841,7 +842,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   filterChipInactive: {
-    backgroundColor: "transparent",
+    backgroundColor: theme.colors.background,
     borderColor: theme.colors.primary,
   },
   filterChipText: {

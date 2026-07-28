@@ -47,7 +47,7 @@ import {
 import { AppImage, prefetchImages } from "@/components/AppImage";
 import { postTouchesViewerManagedBusinesses, type FeedPost } from "@/lib/feed-api";
 import { PollCard } from "@/components/PollCard";
-import { LinkPreviewCard } from "@/components/LinkPreviewCard";
+import { CollapsibleLinkPreview } from "@/components/LinkPreviewCard";
 import { extractFirstUrl } from "@/lib/extract-urls";
 import { formatTime12h } from "@/lib/format-time";
 import { formatRelativeTime } from "@/lib/format-relative-time";
@@ -112,6 +112,41 @@ function businessInitials(name: string): string {
   }
   const t = name.trim();
   return (t.length >= 2 ? t.slice(0, 2) : t.slice(0, 1) || "?").toUpperCase();
+}
+
+function postBlocksLinkPreview(post: FeedPost): boolean {
+  return !!(
+    post.poll ||
+    post.sourceBlog ||
+    post.sourceBusiness ||
+    post.sourceCoupon ||
+    post.sourceReward ||
+    post.sourceStoreItem ||
+    post.sourceEvent
+  );
+}
+
+function sourcePostBlocksLinkPreview(sourcePost: {
+  type?: string;
+  sourceBlog?: unknown;
+  sourceCoupon?: unknown;
+  sourceReward?: unknown;
+  sourceStoreItem?: unknown;
+  sourceEvent?: unknown;
+}): boolean {
+  return !!(
+    sourcePost.sourceBlog ||
+    sourcePost.sourceCoupon ||
+    sourcePost.sourceReward ||
+    sourcePost.sourceStoreItem ||
+    sourcePost.sourceEvent ||
+    sourcePost.type === "shared_blog" ||
+    sourcePost.type === "shared_coupon" ||
+    sourcePost.type === "shared_reward" ||
+    sourcePost.type === "shared_store_item" ||
+    sourcePost.type === "shared_event" ||
+    sourcePost.type === "shared_business"
+  );
 }
 
 const ACTION_ACCENT = "#c99d5f";
@@ -460,6 +495,26 @@ function FeedPostCardInner({
   const shareCount = post.shareCount ?? 0;
   const hasShares = shareCount > 0;
 
+  const sharerLinkUrl =
+    post.content && post.type?.startsWith("shared_")
+      ? extractFirstUrl(post.content)
+      : null;
+  const mainLinkUrl =
+    post.content && !post.type?.startsWith("shared_")
+      ? extractFirstUrl(post.content)
+      : null;
+  const nestedLinkUrl =
+    post.type === "shared_post" && post.sourcePost?.content
+      ? extractFirstUrl(post.sourcePost.content)
+      : null;
+  const showSharerLinkPreview = !postBlocksLinkPreview(post) && !!sharerLinkUrl;
+  const showMainLinkPreview = !postBlocksLinkPreview(post) && !!mainLinkUrl;
+  const showNestedLinkPreview =
+    post.type === "shared_post" &&
+    !!post.sourcePost &&
+    !sourcePostBlocksLinkPreview(post.sourcePost) &&
+    !!nestedLinkUrl;
+
   return (
     <View style={[styles.card, feedPhotoZoomActive && styles.cardFeedZoomLift]}>
       <View style={styles.header}>
@@ -701,6 +756,12 @@ function FeedPostCardInner({
             </Text>
           )}
         </Pressable>
+      ) : null}
+
+      {showSharerLinkPreview && sharerLinkUrl ? (
+        <View style={styles.linkPreviewWrap}>
+          <CollapsibleLinkPreview url={sharerLinkUrl} />
+        </View>
       ) : null}
 
       {post.type === "shared_blog" && post.sourceBlog && (
@@ -1094,6 +1155,10 @@ function FeedPostCardInner({
                 ) : null}
               </Pressable>
 
+              {showNestedLinkPreview && nestedLinkUrl ? (
+                <CollapsibleLinkPreview url={nestedLinkUrl} style={styles.sharedPostLink} />
+              ) : null}
+
               {nestedMedia.length > 0 ? (
                 <View
                   style={{ width: "100%" }}
@@ -1345,19 +1410,11 @@ function FeedPostCardInner({
       {post.poll ? <PollCard postId={post.id} poll={post.poll} /> : null}
 
       {/* Link preview for URLs in content (only if no embedded content) */}
-      {!post.poll &&
-        !post.sourceBlog &&
-        !post.sourceBusiness &&
-        !post.sourceCoupon &&
-        !post.sourceReward &&
-        !post.sourceStoreItem &&
-        !post.sourceEvent &&
-        post.content &&
-        extractFirstUrl(post.content) && (
-          <View style={styles.linkPreviewWrap}>
-            <LinkPreviewCard url={extractFirstUrl(post.content)!} />
-          </View>
-        )}
+      {showMainLinkPreview && mainLinkUrl ? (
+        <View style={styles.linkPreviewWrap}>
+          <CollapsibleLinkPreview url={mainLinkUrl} />
+        </View>
+      ) : null}
 
       <View style={styles.actions}>
         <GHPressable
@@ -1485,19 +1542,21 @@ export const FeedPostCard = memo(FeedPostCardInner, (prev, next) => {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: "#fff",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#e5e5e5",
+    borderRadius: 0,
     overflow: "hidden",
-    marginBottom: 16,
+    marginBottom: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#000",
+    borderBottomColor: "#000",
     ...Platform.select({
       ios: {
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4,
+        shadowOpacity: 0.06,
+        shadowRadius: 2,
       },
-      android: { elevation: 2 },
+      android: { elevation: 1 },
     }),
   },
   cardFeedZoomLift: {
@@ -1734,7 +1793,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#e5e5e5",
     paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
+    gap: 8,
   },
   actionBtn: {
     flex: 1,
