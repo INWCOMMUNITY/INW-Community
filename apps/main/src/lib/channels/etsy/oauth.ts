@@ -148,11 +148,14 @@ export async function fetchEtsyShopInfo(
   if (!userId) {
     try {
       const me = await etsyGet<{ user_id?: number; shop_id?: number }>(accessToken, "/users/me", apiKey);
+      console.log("[etsy] /users/me response:", JSON.stringify(me));
       if (me.shop_id) {
         shopId = String(me.shop_id);
+        console.log("[etsy] got shop_id from /users/me:", shopId);
       }
       if (me.user_id) {
         userId = String(me.user_id);
+        console.log("[etsy] got user_id from /users/me:", userId);
       }
     } catch (e) {
       // /users/me returned 403 or failed - we'll try other methods below
@@ -189,6 +192,23 @@ export async function fetchEtsyShopInfo(
     if (first?.shop_id) {
       return { shopId: String(first.shop_id), shopName: first.shop_name ?? null };
     }
+  }
+
+  // Last resort: try to get the user's own shop via /shops/me (undocumented but sometimes works)
+  try {
+    console.log("[etsy] trying /shops endpoint as fallback");
+    const myShops = await etsyGet<{ results?: { shop_id: number; shop_name?: string; user_id?: number }[] }>(
+      accessToken,
+      "/users/me/shops",
+      apiKey
+    ).catch(() => null);
+    const first = myShops?.results?.[0];
+    if (first?.shop_id) {
+      console.log("[etsy] found shop via /users/me/shops:", first.shop_id, first.shop_name);
+      return { shopId: String(first.shop_id), shopName: first.shop_name ?? null };
+    }
+  } catch (e) {
+    console.warn("[etsy] /users/me/shops fallback failed:", String(e));
   }
 
   throw new Error("Could not resolve an Etsy shop for this account. Open a shop on Etsy first.");
