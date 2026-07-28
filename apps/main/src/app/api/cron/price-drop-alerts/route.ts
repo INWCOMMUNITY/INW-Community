@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
         title: "Price Drop Alert!",
         body: `"${item.title}" dropped ${percentDrop}% to ${formatPrice(currentPrice)} — tap to view.`,
         data: { screen: "product", productSlug: item.slug },
-        category: "store",
+        category: "seller_ops",
       });
 
       await prisma.priceDropAlert.update({
