@@ -375,7 +375,7 @@ export async function GET(req: NextRequest) {
     const sellers = await prisma.member.findMany({
       where: {
         ...sellerCanReceivePayment,
-        storeItems: {
+        storeItemsSold: {
           some: {
             status: "active",
             quantity: { gt: 0 },
@@ -395,7 +395,7 @@ export async function GET(req: NextRequest) {
         },
         _count: {
           select: {
-            storeItems: {
+            storeItemsSold: {
               where: { status: "active", quantity: { gt: 0 } },
             },
           },
@@ -417,7 +417,7 @@ export async function GET(req: NextRequest) {
       name: s.businesses[0]?.name || `${s.firstName} ${s.lastName}`,
       logoUrl: s.businesses[0]?.logoUrl || null,
       businessSlug: s.businesses[0]?.slug || null,
-      itemCount: s._count.storeItems,
+      itemCount: s._count.storeItemsSold,
       memberSince: s.createdAt.getFullYear(),
     }));
     return NextResponse.json(spotlight);
