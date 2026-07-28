@@ -91,9 +91,26 @@ export async function refreshEtsyToken(refreshToken: string): Promise<TokenRespo
 }
 
 /**
+ * Try to extract user_id from the Etsy access token (JWT).
+ * Etsy tokens are JWTs with the user_id in the payload.
+ */
+function extractUserIdFromToken(accessToken: string): string | null {
+  try {
+    const parts = accessToken.split(".");
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
+    if (payload.user_id) return String(payload.user_id);
+    if (payload.sub) return String(payload.sub);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve the seller's shop id + name. If userId is provided (from the token response),
  * we skip /users/me (which may 403 on some apps) and go straight to /users/{id}/shops.
- * Otherwise falls back to /users/me to get the user_id first.
+ * Otherwise tries to extract user_id from the JWT token, then falls back to /users/me.
  */
 export async function fetchEtsyShopInfo(
   accessToken: string,
@@ -102,7 +119,15 @@ export async function fetchEtsyShopInfo(
   let userId = options?.userId;
   let shopId: string | null = null;
 
-  // If we don't have userId from token response, try /users/me (may 403 on limited apps)
+  // Try to extract user_id from the JWT if not provided
+  if (!userId) {
+    userId = extractUserIdFromToken(accessToken) ?? undefined;
+    if (userId) {
+      console.log("[etsy] extracted user_id from JWT:", userId);
+    }
+  }
+
+  // If we still don't have userId, try /users/me (may 403 on limited apps)
   if (!userId) {
     try {
       const me = await etsyGet<{ user_id?: number; shop_id?: number }>(accessToken, "/users/me");
