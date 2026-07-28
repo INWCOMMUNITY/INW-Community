@@ -194,10 +194,16 @@ export async function fetchEtsyShopInfo(
         `/users/${userId}/shops`,
         apiKey
       );
-      console.log("[etsy] /users/{id}/shops response - count:", shops?.count, "results:", JSON.stringify(shops?.results));
+      console.log("[etsy] /users/{id}/shops FULL response:", JSON.stringify(shops));
       const first = shops?.results?.[0];
       if (first?.shop_id) {
         return { shopId: String(first.shop_id), shopName: first.shop_name ?? null };
+      }
+      // If no results array, check if the response itself is a shop object
+      if ((shops as any)?.shop_id) {
+        const shopData = shops as any;
+        console.log("[etsy] found shop directly in response:", shopData.shop_id);
+        return { shopId: String(shopData.shop_id), shopName: shopData.shop_name ?? null };
       }
     } catch (e) {
       console.error("[etsy] /users/{id}/shops failed:", String(e));
