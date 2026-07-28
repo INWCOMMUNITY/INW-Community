@@ -74,6 +74,7 @@ const TYPE_LABELS: Record<string, string> = {
   blog: "Blog Post",
   store_item: "Store Item",
   business: "Business",
+  storefront: "Storefront",
   coupon: "Coupon",
   reward: "Reward",
   event: "Event",
@@ -388,6 +389,7 @@ export function ShareToChatModal({
                         name={
                           sharedContent.type === "coupon" ? "pricetag" :
                           sharedContent.type === "business" ? "business" :
+                          sharedContent.type === "storefront" ? "storefront" :
                           sharedContent.type === "blog" ? "newspaper" :
                           sharedContent.type === "store_item" ? "bag" :
                           sharedContent.type === "reward" ? "star" :

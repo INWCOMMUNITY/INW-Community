@@ -10,6 +10,11 @@ import {
   Linking,
   Share,
   RefreshControl,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
 } from "react-native";
 import { ScrollView as GHScrollView } from "react-native-gesture-handler";
 import { LinearGradient } from "expo-linear-gradient";
@@ -99,6 +104,9 @@ export default function SellerStorefrontScreen() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const [aboutExpanded, setAboutExpanded] = useState(true);
+  const [messageModalOpen, setMessageModalOpen] = useState(false);
+  const [messageText, setMessageText] = useState("");
+  const [sendingMessage, setSendingMessage] = useState(false);
   const { member } = useAuth();
 
   const load = useCallback(
@@ -157,7 +165,7 @@ export default function SellerStorefrontScreen() {
     if (!seller) return;
     try {
       await Share.share({
-        message: `Check out ${seller.name} on NWC Community!\n${siteBase}/seller/${seller.slug}`,
+        message: `Check out ${seller.name}'s Storefront on NWC Community!\n${siteBase}/seller/${seller.slug}`,
         url: `${siteBase}/seller/${seller.slug}`,
       });
     } catch {}
@@ -168,8 +176,39 @@ export default function SellerStorefrontScreen() {
       router.push("/(auth)/login");
       return;
     }
-    if (seller) {
-      router.push(`/messages/new?recipientId=${seller.member.id}`);
+    setMessageModalOpen(true);
+  };
+
+  const sendMessageToSeller = async () => {
+    if (!seller || !messageText.trim()) return;
+    const token = await getToken();
+    if (!token) {
+      Alert.alert(
+        "Sign in required",
+        "Please sign in to message the seller.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sign in", onPress: () => router.push("/(auth)/login") },
+        ]
+      );
+      return;
+    }
+    setSendingMessage(true);
+    try {
+      const conv = await apiPost<{ id: string }>("/api/direct-conversations", {
+        addresseeId: seller.member.id,
+        content: messageText.trim(),
+      });
+      setMessageModalOpen(false);
+      setMessageText("");
+      if (conv?.id) {
+        router.push(`/messages/${conv.id}`);
+      }
+    } catch (e) {
+      const err = e as { error?: string };
+      Alert.alert("Error", err.error ?? "Could not send message. Please try again.");
+    } finally {
+      setSendingMessage(false);
     }
   };
 
@@ -625,7 +664,7 @@ export default function SellerStorefrontScreen() {
               <Ionicons name="share-social-outline" size={18} color={theme.colors.primary} />
               <Text style={styles.actionBtnText}>Share</Text>
             </Pressable>
-            {seller.acceptMessagesForListings && member && (
+            {seller.acceptMessagesForListings && (
               <Pressable style={styles.actionBtn} onPress={handleMessage}>
                 <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} />
                 <Text style={styles.actionBtnText}>Message</Text>
@@ -684,8 +723,71 @@ export default function SellerStorefrontScreen() {
       <ShareToChatModal
         visible={shareModalOpen}
         onClose={() => setShareModalOpen(false)}
-        sharedContent={{ type: "business", id: seller.id, slug: seller.slug }}
+        sharedContent={{ type: "storefront", id: seller.id, slug: seller.slug }}
       />
+
+      {/* Message Seller Modal */}
+      <Modal
+        visible={messageModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !sendingMessage && setMessageModalOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => !sendingMessage && setMessageModalOpen(false)}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalContentWrap}
+          >
+            <Pressable style={styles.messageModal} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.messageModalTitle}>Message {seller.name}</Text>
+              <Text style={styles.messageModalHint}>
+                Send a message to this seller
+              </Text>
+              <TextInput
+                style={styles.messageInput}
+                placeholder="Type your message..."
+                placeholderTextColor={theme.colors.placeholder}
+                value={messageText}
+                onChangeText={setMessageText}
+                editable={!sendingMessage}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+                autoCorrect
+              />
+              <View style={styles.messageModalActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.messageCancelBtn,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  onPress={() => setMessageModalOpen(false)}
+                  disabled={sendingMessage}
+                >
+                  <Text style={styles.messageCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.messageSendBtn,
+                    (!messageText.trim() || sendingMessage) && styles.messageSendBtnDisabled,
+                  ]}
+                  onPress={sendMessageToSeller}
+                  disabled={!messageText.trim() || sendingMessage}
+                >
+                  {sendingMessage ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.messageSendText}>Send</Text>
+                  )}
+                </Pressable>
+              </View>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -742,7 +844,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
-    elevation: 4,
+    elevation: 8,
+    zIndex: 10,
   },
   logo: { width: "100%", height: "100%" },
   logoPlaceholder: { alignItems: "center", justifyContent: "center", backgroundColor: "#f5f5f5" },
@@ -751,8 +854,9 @@ const styles = StyleSheet.create({
   nameBlock: {
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 52,
+    paddingTop: 48,
     paddingBottom: 16,
+    marginTop: 40,
     backgroundColor: "#fff",
   },
   name: {
@@ -1063,5 +1167,84 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.text,
     lineHeight: 22,
+  },
+
+  // Message Modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContentWrap: {
+    width: "100%",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  messageModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    width: "100%",
+    maxWidth: 400,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  messageModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 4,
+  },
+  messageModalHint: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 16,
+  },
+  messageInput: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    color: theme.colors.text,
+    minHeight: 100,
+    maxHeight: 200,
+  },
+  messageModalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 12,
+    marginTop: 16,
+  },
+  messageCancelBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: "#f0f0f0",
+  },
+  messageCancelText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#666",
+  },
+  messageSendBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  messageSendBtnDisabled: {
+    opacity: 0.5,
+  },
+  messageSendText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#fff",
   },
 });

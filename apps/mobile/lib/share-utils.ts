@@ -13,6 +13,7 @@ export type SharedContentType =
   | "blog"
   | "store_item"
   | "business"
+  | "storefront"
   | "coupon"
   | "reward"
   | "event"
@@ -44,6 +45,8 @@ export function buildShareUrl(content: ShareContent): string {
       return content.slug ? `${siteBase}/storefront/${content.slug}` : siteBase;
     case "business":
       return content.slug ? `${siteBase}/support-local/${content.slug}` : siteBase;
+    case "storefront":
+      return content.slug ? `${siteBase}/seller/${content.slug}` : siteBase;
     case "coupon":
       return `${siteBase}/coupons/${content.id}`;
     case "event":
