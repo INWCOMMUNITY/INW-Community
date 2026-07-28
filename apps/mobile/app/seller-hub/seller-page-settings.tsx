@@ -38,6 +38,7 @@ interface BusinessData {
   slug: string;
   shortDescription: string | null;
   fullDescription: string | null;
+  logoUrl: string | null;
   coverPhotoUrl: string | null;
   photos: string[];
   hoursOfOperation: Record<string, string> | null;
@@ -60,6 +61,7 @@ export default function SellerPageSettingsScreen() {
   const [error, setError] = useState("");
   const [businessId, setBusinessId] = useState<string | null>(null);
 
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [coverPhotoUrl, setCoverPhotoUrl] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   const [shortDescription, setShortDescription] = useState("");
@@ -69,6 +71,7 @@ export default function SellerPageSettingsScreen() {
   const [tiktokUrl, setTiktokUrl] = useState("");
   const [hours, setHours] = useState<Record<string, string>>({});
 
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
 
@@ -86,6 +89,7 @@ export default function SellerPageSettingsScreen() {
       setBusinessId(id);
 
       const data = await apiGet<BusinessData>(`/api/businesses/${id}`);
+      setLogoUrl(data.logoUrl ?? null);
       setCoverPhotoUrl(data.coverPhotoUrl ?? null);
       setPhotos(data.photos ?? []);
       setShortDescription(data.shortDescription ?? "");
@@ -105,6 +109,41 @@ export default function SellerPageSettingsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const pickLogo = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow access to photos to upload a logo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+
+    setUploadingLogo(true);
+    try {
+      const asset = result.assets[0];
+      const formData = new FormData();
+      formData.append("file", {
+        uri: asset.uri,
+        type: asset.mimeType ?? "image/jpeg",
+        name: "logo.jpg",
+      } as unknown as Blob);
+      formData.append("purpose", "business-logo");
+      const { url } = await apiUploadFile("/api/upload", formData);
+      const fullUrl = url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
+      setLogoUrl(fullUrl);
+    } catch (e) {
+      const err = e as { error?: string };
+      Alert.alert("Upload failed", err?.error ?? "Failed to upload logo. Please try again.");
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   const pickCoverPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -194,6 +233,7 @@ export default function SellerPageSettingsScreen() {
     try {
       const hoursToSave = Object.keys(hours).length > 0 ? hours : null;
       await apiPatch(`/api/businesses/${businessId}`, {
+        logoUrl: logoUrl || null,
         coverPhotoUrl: coverPhotoUrl || null,
         photos,
         shortDescription: shortDescription.trim() || null,
@@ -244,8 +284,37 @@ export default function SellerPageSettingsScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.intro}>
-          Customize your seller page to attract more buyers. Add a cover photo, gallery, hours, and social links.
+          Customize your seller page to attract more buyers. Add a logo, cover photo, gallery, hours, and social links.
         </Text>
+
+        {/* Logo */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Business Logo</Text>
+          <Text style={styles.sectionHint}>Square image recommended (e.g., 500×500)</Text>
+          <View style={styles.logoRow}>
+            <Pressable style={styles.logoPicker} onPress={pickLogo} disabled={uploadingLogo}>
+              {uploadingLogo ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : logoUrl ? (
+                <AppImage uri={resolveUrl(logoUrl) ?? ""} targetWidth={80} style={styles.logoPreview} resizeMode="cover" />
+              ) : (
+                <View style={styles.logoPlaceholder}>
+                  <Ionicons name="business-outline" size={32} color="#999" />
+                </View>
+              )}
+            </Pressable>
+            <View style={styles.logoActions}>
+              <Pressable style={styles.logoChangeBtn} onPress={pickLogo} disabled={uploadingLogo}>
+                <Text style={styles.logoChangeBtnText}>{logoUrl ? "Change Logo" : "Add Logo"}</Text>
+              </Pressable>
+              {logoUrl && (
+                <Pressable style={styles.logoRemoveBtn} onPress={() => setLogoUrl(null)}>
+                  <Text style={styles.logoRemoveBtnText}>Remove</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        </View>
 
         {/* Cover Photo */}
         <View style={styles.section}>
@@ -446,6 +515,56 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#888",
     marginBottom: 12,
+  },
+  logoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  logoPicker: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderStyle: "dashed",
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f9f9f9",
+  },
+  logoPreview: {
+    width: "100%",
+    height: "100%",
+  },
+  logoPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoActions: {
+    flex: 1,
+    gap: 8,
+  },
+  logoChangeBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  logoChangeBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  logoRemoveBtn: {
+    paddingVertical: 6,
+    alignItems: "center",
+  },
+  logoRemoveBtnText: {
+    color: "#c00",
+    fontWeight: "500",
+    fontSize: 14,
   },
   coverPicker: {
     width: "100%",

@@ -49,20 +49,6 @@ export async function GET(
             acceptMessagesForListings: true,
           },
         },
-        storeItems: {
-          where: { status: "active", quantity: { gt: 0 } },
-          select: {
-            id: true,
-            title: true,
-            slug: true,
-            description: true,
-            photos: true,
-            category: true,
-            priceCents: true,
-            quantity: true,
-          },
-          orderBy: { createdAt: "desc" },
-        },
       },
     });
 
@@ -76,6 +62,26 @@ export async function GET(
     if (!sellerSub) {
       return NextResponse.json({ error: "Seller not found" }, { status: 404, ...noStoreJson });
     }
+
+    // Fetch store items by memberId (seller) - items may or may not have businessId set
+    const storeItems = await prisma.storeItem.findMany({
+      where: {
+        memberId: business.memberId,
+        status: "active",
+        quantity: { gt: 0 },
+      },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        description: true,
+        photos: true,
+        category: true,
+        priceCents: true,
+        quantity: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
     return NextResponse.json({
       id: business.id,
@@ -103,7 +109,7 @@ export async function GET(
         lastName: business.member.lastName,
       },
       memberSince: business.member.createdAt.getFullYear(),
-      storeItems: business.storeItems,
+      storeItems,
       sellerLocalDeliveryPolicy: business.member.sellerLocalDeliveryPolicy ?? null,
       sellerPickupPolicy: business.member.sellerPickupPolicy ?? null,
       sellerShippingPolicy: business.member.sellerShippingPolicy ?? null,
