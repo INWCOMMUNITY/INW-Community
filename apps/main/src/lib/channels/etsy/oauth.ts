@@ -140,6 +140,13 @@ export async function fetchEtsyShopInfo(
     } catch (e) {
       // /users/me returned 403 or failed - we'll try other methods below
       console.warn("[etsy] /users/me failed, will try alternative methods", String(e));
+      // Log config state for debugging
+      try {
+        const { apiKey, clientId } = getEtsyConfig();
+        console.warn("[etsy] config check - apiKey length:", apiKey?.length, "clientId length:", clientId?.length);
+      } catch (configErr) {
+        console.warn("[etsy] config error:", String(configErr));
+      }
     }
   }
 
