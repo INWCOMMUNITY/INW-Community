@@ -63,8 +63,9 @@ export async function GET(
       id: true,
       firstName: true,
       lastName: true,
-      business: {
+      businesses: {
         select: { id: true, name: true, slug: true, logoUrl: true },
+        take: 1,
       },
     },
   });
@@ -74,11 +75,12 @@ export async function GET(
     .map((fs) => {
       const seller = sellerMap.get(fs.memberId);
       if (!seller) return null;
+      const biz = seller.businesses[0];
       return {
         id: seller.id,
-        name: seller.business?.name || `${seller.firstName} ${seller.lastName}`.trim() || "Seller",
-        slug: seller.business?.slug ?? null,
-        logoUrl: seller.business?.logoUrl ?? null,
+        name: biz?.name || `${seller.firstName} ${seller.lastName}`.trim() || "Seller",
+        slug: biz?.slug ?? null,
+        logoUrl: biz?.logoUrl ?? null,
         itemCount: fs._count.id,
       };
     })
