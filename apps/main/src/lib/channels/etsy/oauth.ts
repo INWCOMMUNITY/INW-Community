@@ -187,14 +187,20 @@ export async function fetchEtsyShopInfo(
 
   // If we have a user_id, fetch their shops
   if (userId) {
-    const shops = await etsyGet<{ results?: { shop_id: number; shop_name?: string }[] }>(
-      accessToken,
-      `/users/${userId}/shops`,
-      apiKey
-    ).catch(() => null);
-    const first = shops?.results?.[0];
-    if (first?.shop_id) {
-      return { shopId: String(first.shop_id), shopName: first.shop_name ?? null };
+    try {
+      console.log("[etsy] calling /users/" + userId + "/shops");
+      const shops = await etsyGet<{ count?: number; results?: { shop_id: number; shop_name?: string }[] }>(
+        accessToken,
+        `/users/${userId}/shops`,
+        apiKey
+      );
+      console.log("[etsy] /users/{id}/shops response - count:", shops?.count, "results:", JSON.stringify(shops?.results));
+      const first = shops?.results?.[0];
+      if (first?.shop_id) {
+        return { shopId: String(first.shop_id), shopName: first.shop_name ?? null };
+      }
+    } catch (e) {
+      console.error("[etsy] /users/{id}/shops failed:", String(e));
     }
   }
 
