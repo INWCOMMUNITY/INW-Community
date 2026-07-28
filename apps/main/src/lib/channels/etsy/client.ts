@@ -22,8 +22,10 @@ export class EtsyApiError extends Error {
 
 function baseHeaders(accessToken: string, overrideApiKey?: string): Record<string, string> {
   const { apiKey } = getEtsyConfig();
+  const finalApiKey = overrideApiKey || apiKey;
+  console.log("[etsy] request headers - using apiKey:", finalApiKey?.slice(0, 8) + "...", "override:", !!overrideApiKey);
   return {
-    "x-api-key": overrideApiKey || apiKey,
+    "x-api-key": finalApiKey,
     Authorization: `Bearer ${accessToken}`,
   };
 }
