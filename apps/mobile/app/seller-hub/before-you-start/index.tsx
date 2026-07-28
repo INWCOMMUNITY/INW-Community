@@ -33,6 +33,7 @@ export default function BeforeYouStartScreen() {
   const [hasStripeConnect, setHasStripeConnect] = useState(false);
   const [hasShippo, setHasShippo] = useState(false);
   const [hasPolicies, setHasPolicies] = useState(false);
+  const [hasSellerPage, setHasSellerPage] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
 
   const load = useCallback(async () => {
@@ -46,6 +47,10 @@ export default function BeforeYouStartScreen() {
           sellerLocalDeliveryPolicy?: string | null;
           sellerPickupPolicy?: string | null;
           sellerReturnPolicy?: string | null;
+          hasSellerPageCover?: boolean;
+          hasSellerPageGallery?: boolean;
+          hasSellerPageHours?: boolean;
+          hasSellerPageSocial?: boolean;
         }>("/api/me"),
       ]);
       setHasStripeConnect(Boolean((funds as { hasStripeConnect?: boolean }).hasStripeConnect));
@@ -55,14 +60,23 @@ export default function BeforeYouStartScreen() {
         sellerLocalDeliveryPolicy?: string | null;
         sellerPickupPolicy?: string | null;
         sellerReturnPolicy?: string | null;
+        hasSellerPageCover?: boolean;
+        hasSellerPageGallery?: boolean;
+        hasSellerPageHours?: boolean;
+        hasSellerPageSocial?: boolean;
       };
       const anyPolicy = [p?.sellerShippingPolicy, p?.sellerLocalDeliveryPolicy, p?.sellerPickupPolicy, p?.sellerReturnPolicy]
         .some((v) => typeof v === "string" && v.trim().length > 0);
       setHasPolicies(anyPolicy);
+      
+      const hasCustomization = p?.hasSellerPageCover || p?.hasSellerPageGallery || 
+                               p?.hasSellerPageHours || p?.hasSellerPageSocial;
+      setHasSellerPage(Boolean(hasCustomization));
     } catch {
       setHasStripeConnect(false);
       setHasShippo(false);
       setHasPolicies(false);
+      setHasSellerPage(false);
     } finally {
       setLoading(false);
     }
@@ -125,9 +139,16 @@ export default function BeforeYouStartScreen() {
       completed: hasPolicies,
       href: "/policies",
     },
+    {
+      id: "sellerPage",
+      label: "Customize your seller page",
+      description: "Add a cover photo, gallery, hours, and social links to attract buyers",
+      completed: hasSellerPage,
+      href: "/seller-hub/seller-page-settings",
+    },
   ];
 
-  const allComplete = hasStripeConnect && hasShippo && hasPolicies;
+  const allComplete = hasStripeConnect && hasShippo && hasPolicies && hasSellerPage;
   const title = allComplete ? "Seller Variables" : "Before You Start";
   const subtitle = allComplete
     ? "You're all set. You can still open the links below to update or view."
@@ -162,7 +183,7 @@ export default function BeforeYouStartScreen() {
             onPress={() => {
               if (item.completed && (item.id === "stripe" || item.id === "shippo")) return;
               if (item.onPress) item.onPress();
-              else if (item.href) router.push(item.href as any);
+              else if (item.href) router.push(item.href as never);
             }}
             disabled={item.id === "stripe" && stripeLoading}
           >

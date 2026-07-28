@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
       seasonPointsEarned = msp?.pointsEarned ?? 0;
     }
   }
-  const [subTier, subscriptions, subscriptionPlan, hasHubAccess, sellerPlanRow] =
+  const [subTier, subscriptions, subscriptionPlan, hasHubAccess, sellerPlanRow, primaryBusiness] =
     await Promise.all([
     prisma.subscription.findFirst({
       where: prismaWhereMemberSubscribeTierPerksAccess(session.user.id),
@@ -125,6 +125,18 @@ export async function GET(req: NextRequest) {
       where: prismaWhereMemberSellerPlanAccess(session.user.id),
       select: { id: true },
     }),
+    prisma.business.findFirst({
+      where: { memberId: session.user.id },
+      select: {
+        coverPhotoUrl: true,
+        photos: true,
+        hoursOfOperation: true,
+        facebookUrl: true,
+        instagramUrl: true,
+        tiktokUrl: true,
+      },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
   const adminEmail = process.env.ADMIN_EMAIL?.trim();
   const isPlatformAdmin =
@@ -139,6 +151,13 @@ export async function GET(req: NextRequest) {
     !!emailVerifiedAt ||
     signupIntent === "business" ||
     signupIntent === "seller";
+  const hasSellerPageCover = !!primaryBusiness?.coverPhotoUrl;
+  const hasSellerPageGallery = !!primaryBusiness?.photos && primaryBusiness.photos.length > 0;
+  const hasSellerPageHours = !!primaryBusiness?.hoursOfOperation && 
+    typeof primaryBusiness.hoursOfOperation === "object" &&
+    Object.keys(primaryBusiness.hoursOfOperation).length > 0;
+  const hasSellerPageSocial = !!(primaryBusiness?.facebookUrl || primaryBusiness?.instagramUrl || primaryBusiness?.tiktokUrl);
+
   return NextResponse.json({
     ...memberRest,
     emailVerified,
@@ -152,6 +171,10 @@ export async function GET(req: NextRequest) {
     hasPaidSubscription,
     subscriptionPlan,
     subscriptions: subscriptions.map((s) => ({ plan: s.plan, status: s.status })),
+    hasSellerPageCover,
+    hasSellerPageGallery,
+    hasSellerPageHours,
+    hasSellerPageSocial,
   });
   } catch (e) {
     const err = e as Error;

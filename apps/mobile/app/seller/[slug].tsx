@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -8,19 +8,26 @@ import {
   ActivityIndicator,
   useWindowDimensions,
   Linking,
-  FlatList,
+  Share,
   RefreshControl,
 } from "react-native";
+import { ScrollView as GHScrollView } from "react-native-gesture-handler";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
+import { openAddressInMaps } from "@/lib/open-maps";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { AppImage } from "@/components/AppImage";
+import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { useAuth } from "@/contexts/AuthContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+type TabType = "products" | "about" | "policies";
 
 interface StoreItem {
   id: string;
@@ -49,18 +56,28 @@ interface SellerStorefront {
   categories: string[];
   hoursOfOperation: Record<string, string> | null;
   photos: string[];
+  facebookUrl: string | null;
+  instagramUrl: string | null;
+  tiktokUrl: string | null;
   member: { id: string; firstName: string; lastName: string };
+  memberSince: number;
   storeItems: StoreItem[];
-  sellerLocalDeliveryPolicy?: string | null;
-  sellerPickupPolicy?: string | null;
-  sellerShippingPolicy?: string | null;
-  sellerReturnPolicy?: string | null;
+  sellerLocalDeliveryPolicy: string | null;
+  sellerPickupPolicy: string | null;
+  sellerShippingPolicy: string | null;
+  sellerReturnPolicy: string | null;
+  offerShipping: boolean;
+  offerLocalDelivery: boolean;
+  offerLocalPickup: boolean;
+  acceptMessagesForListings: boolean;
 }
 
 function resolveUrl(path: string | null | undefined): string | undefined {
   if (!path) return undefined;
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
+
+const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 export default function SellerStorefrontScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -75,6 +92,13 @@ export default function SellerStorefrontScreen() {
   const [error, setError] = useState("");
   const [followed, setFollowed] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>("products");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [hoursExpanded, setHoursExpanded] = useState(false);
+  const [aboutExpanded, setAboutExpanded] = useState(true);
   const { member } = useAuth();
 
   const load = useCallback(
@@ -129,24 +153,49 @@ export default function SellerStorefrontScreen() {
     }
   };
 
+  const handleShare = async () => {
+    if (!seller) return;
+    try {
+      await Share.share({
+        message: `Check out ${seller.name} on NWC Community!\n${siteBase}/seller/${seller.slug}`,
+        url: `${siteBase}/seller/${seller.slug}`,
+      });
+    } catch {}
+  };
+
+  const handleMessage = () => {
+    if (!member) {
+      router.push("/(auth)/login");
+      return;
+    }
+    if (seller) {
+      router.push(`/messages/new?recipientId=${seller.member.id}`);
+    }
+  };
+
   const openProduct = (item: StoreItem) => {
     router.push(`/product/${item.slug}`);
   };
 
-  const openPhone = () => {
-    if (seller?.phone) Linking.openURL(`tel:${seller.phone}`);
-  };
+  const categories = useMemo(() => {
+    if (!seller) return [];
+    const cats = new Set<string>();
+    seller.storeItems.forEach((item) => {
+      if (item.category) cats.add(item.category);
+    });
+    return Array.from(cats).sort();
+  }, [seller?.storeItems]);
 
-  const openEmail = () => {
-    if (seller?.email) Linking.openURL(`mailto:${seller.email}`);
-  };
+  const filteredItems = useMemo(() => {
+    if (!seller) return [];
+    if (!selectedCategory) return seller.storeItems;
+    return seller.storeItems.filter((item) => item.category === selectedCategory);
+  }, [seller?.storeItems, selectedCategory]);
 
-  const openWebsite = () => {
-    if (seller?.website) {
-      const url = seller.website.startsWith("http") ? seller.website : `https://${seller.website}`;
-      Linking.openURL(url);
-    }
-  };
+  const galleryUrls = useMemo(() => {
+    if (!seller?.photos?.length) return [];
+    return seller.photos.map((p) => resolveUrl(p)).filter(Boolean) as string[];
+  }, [seller?.photos]);
 
   if (loading && !refreshing) {
     return (
@@ -170,191 +219,513 @@ export default function SellerStorefrontScreen() {
   const coverUrl = resolveUrl(seller.coverPhotoUrl);
   const logoUrl = resolveUrl(seller.logoUrl);
   const addressDisplay = [seller.address, seller.city].filter(Boolean).join(", ");
+  const hasHours = seller.hoursOfOperation && Object.keys(seller.hoursOfOperation).length > 0;
+  const hasPolicies = seller.sellerShippingPolicy || seller.sellerLocalDeliveryPolicy || 
+                      seller.sellerPickupPolicy || seller.sellerReturnPolicy;
+  const hasSocial = seller.facebookUrl || seller.instagramUrl || seller.tiktokUrl;
+
+  const renderProductsTab = () => (
+    <View style={styles.tabContent}>
+      {categories.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoryScroll}
+          contentContainerStyle={styles.categoryScrollContent}
+        >
+          <Pressable
+            style={[styles.categoryChip, !selectedCategory && styles.categoryChipActive]}
+            onPress={() => setSelectedCategory(null)}
+          >
+            <Text style={[styles.categoryChipText, !selectedCategory && styles.categoryChipTextActive]}>
+              All ({seller.storeItems.length})
+            </Text>
+          </Pressable>
+          {categories.map((cat) => {
+            const count = seller.storeItems.filter((i) => i.category === cat).length;
+            const isActive = selectedCategory === cat;
+            return (
+              <Pressable
+                key={cat}
+                style={[styles.categoryChip, isActive && styles.categoryChipActive]}
+                onPress={() => setSelectedCategory(cat)}
+              >
+                <Text style={[styles.categoryChipText, isActive && styles.categoryChipTextActive]}>
+                  {cat} ({count})
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+      {filteredItems.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="cube-outline" size={48} color="#ccc" />
+          <Text style={styles.emptyStateText}>
+            {selectedCategory ? `No products in "${selectedCategory}"` : "No products listed yet"}
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.productGrid}>
+          {filteredItems.map((item) => {
+            const photoUrl = item.photos?.[0];
+            return (
+              <Pressable
+                key={item.id}
+                style={[styles.productCard, { width: cardWidth }]}
+                onPress={() => openProduct(item)}
+              >
+                <View style={styles.productImageWrap}>
+                  {photoUrl ? (
+                    <AppImage
+                      uri={photoUrl}
+                      targetWidth={cardWidth}
+                      style={styles.productImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={[styles.productImage, styles.productImagePlaceholder]}>
+                      <Ionicons name="image-outline" size={32} color="#999" />
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.productTitle} numberOfLines={2}>
+                  {item.title}
+                </Text>
+                <Text style={styles.productPrice}>${(item.priceCents / 100).toFixed(2)}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+    </View>
+  );
+
+  const renderAboutTab = () => (
+    <View style={styles.tabContent}>
+      {/* Stats Row */}
+      <View style={styles.statsRow}>
+        <View style={styles.statItem}>
+          <Ionicons name="calendar-outline" size={20} color={theme.colors.primary} />
+          <Text style={styles.statText}>Member since {seller.memberSince}</Text>
+        </View>
+        <View style={styles.statItem}>
+          <Ionicons name="cube-outline" size={20} color={theme.colors.primary} />
+          <Text style={styles.statText}>{seller.storeItems.length} items</Text>
+        </View>
+      </View>
+
+      {/* Delivery Options Badges */}
+      <View style={styles.deliveryBadges}>
+        {seller.offerShipping && (
+          <View style={styles.deliveryBadge}>
+            <Ionicons name="airplane-outline" size={16} color={theme.colors.primary} />
+            <Text style={styles.deliveryBadgeText}>Ships items</Text>
+          </View>
+        )}
+        {seller.offerLocalPickup && (
+          <View style={styles.deliveryBadge}>
+            <Ionicons name="storefront-outline" size={16} color={theme.colors.primary} />
+            <Text style={styles.deliveryBadgeText}>Local pickup</Text>
+          </View>
+        )}
+        {seller.offerLocalDelivery && (
+          <View style={styles.deliveryBadge}>
+            <Ionicons name="car-outline" size={16} color={theme.colors.primary} />
+            <Text style={styles.deliveryBadgeText}>Local delivery</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Contact Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Contact</Text>
+        {seller.phone && (
+          <Pressable style={styles.contactRow} onPress={() => Linking.openURL(`tel:${seller.phone}`)}>
+            <Ionicons name="call-outline" size={18} color={theme.colors.primary} />
+            <Text style={styles.contactLink}>{seller.phone}</Text>
+          </Pressable>
+        )}
+        {seller.email && (
+          <Pressable style={styles.contactRow} onPress={() => Linking.openURL(`mailto:${seller.email}`)}>
+            <Ionicons name="mail-outline" size={18} color={theme.colors.primary} />
+            <Text style={styles.contactLink}>{seller.email}</Text>
+          </Pressable>
+        )}
+        {seller.website && (
+          <Pressable
+            style={styles.contactRow}
+            onPress={() => {
+              const url = seller.website!.startsWith("http") ? seller.website! : `https://${seller.website}`;
+              Linking.openURL(url);
+            }}
+          >
+            <Ionicons name="globe-outline" size={18} color={theme.colors.primary} />
+            <Text style={styles.contactLink}>{seller.website}</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Social Media */}
+      {hasSocial && (
+        <View style={styles.socialRow}>
+          {seller.facebookUrl && (
+            <Pressable
+              style={styles.socialButton}
+              onPress={() => Linking.openURL(seller.facebookUrl!)}
+            >
+              <Ionicons name="logo-facebook" size={22} color="#fff" />
+            </Pressable>
+          )}
+          {seller.instagramUrl && (
+            <Pressable
+              style={styles.socialButton}
+              onPress={() => Linking.openURL(seller.instagramUrl!)}
+            >
+              <Ionicons name="logo-instagram" size={22} color="#fff" />
+            </Pressable>
+          )}
+          {seller.tiktokUrl && (
+            <Pressable
+              style={styles.socialButton}
+              onPress={() => Linking.openURL(seller.tiktokUrl!)}
+            >
+              <Ionicons name="logo-tiktok" size={22} color="#fff" />
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      {/* Location */}
+      {addressDisplay && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Location</Text>
+          <View style={styles.contactRow}>
+            <Ionicons name="location-outline" size={18} color={theme.colors.primary} />
+            <Text style={styles.contactText}>{addressDisplay}</Text>
+          </View>
+          <Pressable
+            style={styles.mapBtn}
+            onPress={() => openAddressInMaps(addressDisplay)}
+          >
+            <Ionicons name="map-outline" size={18} color="#fff" />
+            <Text style={styles.mapBtnText}>Open in Maps</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Hours of Operation */}
+      {hasHours && (
+        <View style={styles.section}>
+          <Pressable style={styles.collapsibleHeader} onPress={() => setHoursExpanded(!hoursExpanded)}>
+            <Text style={styles.sectionTitle}>Hours of Operation</Text>
+            <Ionicons
+              name={hoursExpanded ? "chevron-up" : "chevron-down"}
+              size={20}
+              color={theme.colors.primary}
+            />
+          </Pressable>
+          {hoursExpanded && (
+            <View style={styles.hoursContent}>
+              {DAY_ORDER.map((day) => {
+                const val = seller.hoursOfOperation?.[day];
+                if (!val) return null;
+                return (
+                  <View key={day} style={styles.hoursRow}>
+                    <Text style={styles.hoursDay}>{day.charAt(0).toUpperCase() + day.slice(1)}</Text>
+                    <Text style={styles.hoursVal}>{val}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Gallery */}
+      {galleryUrls.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.gallerySectionHeader}>
+            <Text style={styles.sectionTitle}>Gallery</Text>
+            <Text style={styles.galleryCountBadge}>{galleryUrls.length} photos</Text>
+          </View>
+          <GHScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.gallery}
+            contentContainerStyle={styles.galleryContent}
+          >
+            {galleryUrls.map((uri, index) => (
+              <Pressable
+                key={`${index}-${uri}`}
+                onPress={() => {
+                  setGalleryIndex(index);
+                  setGalleryOpen(true);
+                }}
+              >
+                <AppImage
+                  uri={uri}
+                  targetWidth={200}
+                  style={styles.galleryImage}
+                  resizeMode="cover"
+                />
+              </Pressable>
+            ))}
+          </GHScrollView>
+        </View>
+      )}
+
+      {/* About/Description */}
+      {(seller.shortDescription || seller.fullDescription) && (
+        <View style={styles.section}>
+          <Pressable style={styles.collapsibleHeader} onPress={() => setAboutExpanded(!aboutExpanded)}>
+            <Text style={styles.sectionTitle}>About</Text>
+            <Ionicons
+              name={aboutExpanded ? "chevron-up" : "chevron-down"}
+              size={20}
+              color={theme.colors.primary}
+            />
+          </Pressable>
+          {aboutExpanded && (
+            <View>
+              {seller.shortDescription && (
+                <Text style={styles.description}>{seller.shortDescription}</Text>
+              )}
+              {seller.fullDescription && (
+                <Text style={[styles.description, seller.shortDescription && { marginTop: 12 }]}>
+                  {seller.fullDescription}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+
+  const renderPoliciesTab = () => (
+    <View style={styles.tabContent}>
+      {!hasPolicies ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="document-text-outline" size={48} color="#ccc" />
+          <Text style={styles.emptyStateText}>This seller hasn't set up policies yet.</Text>
+        </View>
+      ) : (
+        <View style={styles.policiesContainer}>
+          {seller.sellerShippingPolicy && (
+            <View style={styles.policyCard}>
+              <View style={styles.policyHeader}>
+                <Ionicons name="airplane-outline" size={20} color={theme.colors.primary} />
+                <Text style={styles.policyTitle}>Shipping Policy</Text>
+              </View>
+              <Text style={styles.policyText}>{seller.sellerShippingPolicy}</Text>
+            </View>
+          )}
+          {seller.sellerLocalDeliveryPolicy && (
+            <View style={styles.policyCard}>
+              <View style={styles.policyHeader}>
+                <Ionicons name="car-outline" size={20} color={theme.colors.primary} />
+                <Text style={styles.policyTitle}>Local Delivery Policy</Text>
+              </View>
+              <Text style={styles.policyText}>{seller.sellerLocalDeliveryPolicy}</Text>
+            </View>
+          )}
+          {seller.sellerPickupPolicy && (
+            <View style={styles.policyCard}>
+              <View style={styles.policyHeader}>
+                <Ionicons name="storefront-outline" size={20} color={theme.colors.primary} />
+                <Text style={styles.policyTitle}>Pickup Policy</Text>
+              </View>
+              <Text style={styles.policyText}>{seller.sellerPickupPolicy}</Text>
+            </View>
+          )}
+          {seller.sellerReturnPolicy && (
+            <View style={styles.policyCard}>
+              <View style={styles.policyHeader}>
+                <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
+                <Text style={styles.policyTitle}>Return Policy</Text>
+              </View>
+              <Text style={styles.policyText}>{seller.sellerReturnPolicy}</Text>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <View style={styles.container}>
-      <View style={[styles.topHeader, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => router.back()} style={styles.headerBackBtn}>
+      {/* Header */}
+      <View style={[styles.topHeader, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.headerBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {seller.name}
         </Text>
+        <Pressable onPress={() => setShareModalOpen(true)} style={styles.headerBtn}>
+          <Ionicons name="share-outline" size={24} color="#fff" />
+        </Pressable>
       </View>
+
       <ScrollView
         style={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
+        stickyHeaderIndices={[2]}
       >
-      {/* Cover + Logo */}
-      <View style={styles.coverWrap}>
-        {coverUrl ? (
-          <AppImage uri={coverUrl} targetWidth={width} style={styles.cover} resizeMode="cover" />
-        ) : (
-          <View style={[styles.cover, styles.coverPlaceholder]}>
-            <Ionicons name="storefront" size={64} color="rgba(0,0,0,0.2)" />
-          </View>
-        )}
-        <View style={styles.logoOverlay}>
-          {logoUrl ? (
-            <AppImage uri={logoUrl} targetWidth={96} style={styles.logo} resizeMode="cover" />
+        {/* Cover + Logo with Gradient */}
+        <View style={styles.coverWrap}>
+          {coverUrl ? (
+            <AppImage uri={coverUrl} targetWidth={width} style={styles.cover} resizeMode="cover" />
           ) : (
-            <View style={[styles.logo, styles.logoPlaceholder]}>
-              <Ionicons name="business" size={48} color={theme.colors.primary} />
+            <View style={[styles.cover, styles.coverPlaceholder]}>
+              <Ionicons name="storefront" size={64} color="rgba(0,0,0,0.15)" />
             </View>
           )}
-        </View>
-      </View>
-
-      {/* Name + description (centered); follow under description */}
-      <View style={styles.nameBlock}>
-        <Text style={styles.name}>{seller.name}</Text>
-        {(seller.fullDescription || seller.shortDescription) ? (
-          <Text style={styles.desc}>{seller.fullDescription || seller.shortDescription}</Text>
-        ) : null}
-        {member ? (
-          <Pressable
-            style={[styles.followBtn, followed && styles.followedBtn, followLoading && styles.disabled]}
-            onPress={handleFollowToggle}
-            disabled={followLoading}
-          >
-            {followLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
+          <LinearGradient
+            colors={["transparent", "rgba(0,0,0,0.6)"]}
+            style={styles.coverGradient}
+          />
+          <View style={styles.logoOverlay}>
+            {logoUrl ? (
+              <AppImage uri={logoUrl} targetWidth={96} style={styles.logo} resizeMode="cover" />
             ) : (
-              <Text style={styles.followBtnText}>{followed ? "Following" : "Follow"}</Text>
+              <View style={[styles.logo, styles.logoPlaceholder]}>
+                <Ionicons name="business" size={40} color={theme.colors.primary} />
+              </View>
             )}
-          </Pressable>
-        ) : null}
-      </View>
-
-      {/* Contact */}
-      <View style={styles.contactSection}>
-        <Text style={styles.sectionTitle}>Contact</Text>
-        {addressDisplay ? (
-          <Text style={styles.contactText}>{addressDisplay}</Text>
-        ) : null}
-        {seller.phone ? (
-          <Pressable onPress={openPhone} style={styles.contactRow}>
-            <Ionicons name="call-outline" size={18} color={theme.colors.primary} />
-            <Text style={styles.contactLink}>{seller.phone}</Text>
-          </Pressable>
-        ) : null}
-        {seller.email ? (
-          <Pressable onPress={openEmail} style={styles.contactRow}>
-            <Ionicons name="mail-outline" size={18} color={theme.colors.primary} />
-            <Text style={styles.contactLink}>{seller.email}</Text>
-          </Pressable>
-        ) : null}
-        {seller.website ? (
-          <Pressable onPress={openWebsite} style={styles.contactRow}>
-            <Ionicons name="globe-outline" size={18} color={theme.colors.primary} />
-            <Text style={styles.contactLink}>{seller.website}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-
-      {/* Policies - shown when seller has set any */}
-      {(seller.sellerLocalDeliveryPolicy || seller.sellerPickupPolicy || seller.sellerShippingPolicy || seller.sellerReturnPolicy) ? (
-        <View style={styles.policiesSection}>
-          <Text style={styles.sectionTitle}>Policies</Text>
-          {seller.sellerShippingPolicy ? (
-            <View style={styles.policyBlock}>
-              <Text style={styles.policyLabel}>Shipping</Text>
-              <Text style={styles.policyText}>{seller.sellerShippingPolicy}</Text>
-            </View>
-          ) : null}
-          {seller.sellerLocalDeliveryPolicy ? (
-            <View style={styles.policyBlock}>
-              <Text style={styles.policyLabel}>Local Delivery</Text>
-              <Text style={styles.policyText}>{seller.sellerLocalDeliveryPolicy}</Text>
-            </View>
-          ) : null}
-          {seller.sellerPickupPolicy ? (
-            <View style={styles.policyBlock}>
-              <Text style={styles.policyLabel}>Pickup</Text>
-              <Text style={styles.policyText}>{seller.sellerPickupPolicy}</Text>
-            </View>
-          ) : null}
-          {seller.sellerReturnPolicy ? (
-            <View style={styles.policyBlock}>
-              <Text style={styles.policyLabel}>Returns</Text>
-              <Text style={styles.policyText}>{seller.sellerReturnPolicy}</Text>
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-
-      {/* Store Items */}
-      <View style={styles.productsSection}>
-        <Text style={styles.sectionTitle}>Products ({seller.storeItems.length})</Text>
-        {seller.storeItems.length === 0 ? (
-          <Text style={styles.emptyProducts}>No products listed yet.</Text>
-        ) : (
-          <View style={styles.productGrid}>
-            {seller.storeItems.map((item) => {
-              const photoUrl = item.photos?.[0];
-              return (
-                <Pressable
-                  key={item.id}
-                  style={[styles.productCard, { width: cardWidth }]}
-                  onPress={() => openProduct(item)}
-                >
-                  <View style={styles.productImageWrap}>
-                    {photoUrl ? (
-                      <AppImage
-                        uri={photoUrl}
-                        targetWidth={cardWidth}
-                        style={styles.productImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={[styles.productImage, styles.productImagePlaceholder]}>
-                        <Ionicons name="image-outline" size={32} color="#999" />
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.productTitle} numberOfLines={2}>
-                    {item.title}
-                  </Text>
-                  <Text style={styles.productPrice}>${(item.priceCents / 100).toFixed(2)}</Text>
-                </Pressable>
-              );
-            })}
           </View>
-        )}
-      </View>
+        </View>
 
-      <View style={{ height: 32 }} />
+        {/* Name + Actions */}
+        <View style={styles.nameBlock}>
+          <Text style={styles.name}>{seller.name}</Text>
+          <View style={styles.actionRow}>
+            <Pressable
+              style={[styles.actionBtn, followed && styles.actionBtnActive]}
+              onPress={handleFollowToggle}
+              disabled={followLoading}
+            >
+              {followLoading ? (
+                <ActivityIndicator size="small" color={followed ? "#fff" : theme.colors.primary} />
+              ) : (
+                <>
+                  <Ionicons
+                    name={followed ? "heart" : "heart-outline"}
+                    size={18}
+                    color={followed ? "#fff" : theme.colors.primary}
+                  />
+                  <Text style={[styles.actionBtnText, followed && styles.actionBtnTextActive]}>
+                    {followed ? "Following" : "Follow"}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+            <Pressable style={styles.actionBtn} onPress={handleShare}>
+              <Ionicons name="share-social-outline" size={18} color={theme.colors.primary} />
+              <Text style={styles.actionBtnText}>Share</Text>
+            </Pressable>
+            {seller.acceptMessagesForListings && member && (
+              <Pressable style={styles.actionBtn} onPress={handleMessage}>
+                <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} />
+                <Text style={styles.actionBtnText}>Message</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        {/* Tab Bar */}
+        <View style={styles.tabBarContainer}>
+          <View style={styles.tabBar}>
+            <Pressable
+              style={[styles.tab, activeTab === "products" && styles.tabActive]}
+              onPress={() => setActiveTab("products")}
+            >
+              <Text style={[styles.tabText, activeTab === "products" && styles.tabTextActive]}>
+                Products
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.tab, activeTab === "about" && styles.tabActive]}
+              onPress={() => setActiveTab("about")}
+            >
+              <Text style={[styles.tabText, activeTab === "about" && styles.tabTextActive]}>
+                About
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.tab, activeTab === "policies" && styles.tabActive]}
+              onPress={() => setActiveTab("policies")}
+            >
+              <Text style={[styles.tabText, activeTab === "policies" && styles.tabTextActive]}>
+                Policies
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Tab Content */}
+        {activeTab === "products" && renderProductsTab()}
+        {activeTab === "about" && renderAboutTab()}
+        {activeTab === "policies" && renderPoliciesTab()}
+
+        <View style={{ height: 32 }} />
       </ScrollView>
+
+      {/* Gallery Viewer */}
+      <ImageGalleryViewer
+        visible={galleryOpen}
+        images={galleryUrls}
+        initialIndex={galleryIndex}
+        onClose={() => setGalleryOpen(false)}
+      />
+
+      {/* Share Modal */}
+      <ShareToChatModal
+        visible={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        sharedContent={{ type: "business", id: seller.id, slug: seller.slug }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  scroll: { flex: 1 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
+  errorText: { fontSize: 16, color: "#666", marginBottom: 16 },
+  backBtn: { padding: 12, backgroundColor: theme.colors.primary, borderRadius: 8 },
+  backBtnText: { color: "#fff", fontWeight: "600" },
+
+  // Header
   topHeader: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 8,
-    paddingVertical: 12,
+    paddingBottom: 12,
     backgroundColor: theme.colors.primary,
-    borderBottomWidth: 2,
-    borderBottomColor: "#000",
   },
-  headerBackBtn: { padding: 8 },
+  headerBtn: { padding: 8 },
   headerTitle: {
     flex: 1,
     fontSize: 17,
     fontWeight: "600",
     color: "#fff",
+    textAlign: "center",
   },
-  scroll: { flex: 1 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  errorText: { fontSize: 16, color: "#666", marginBottom: 16 },
-  backBtn: { padding: 12, backgroundColor: theme.colors.primary },
-  backBtnText: { color: "#fff", fontWeight: "600" },
-  coverWrap: { height: 270, backgroundColor: "#f0f0f0", position: "relative" },
+
+  // Cover
+  coverWrap: { height: 200, backgroundColor: "#f0f0f0", position: "relative" },
   cover: { width: "100%", height: "100%" },
   coverPlaceholder: { alignItems: "center", justifyContent: "center" },
+  coverGradient: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 80,
+  },
   logoOverlay: {
     position: "absolute",
     left: "50%",
@@ -362,69 +733,335 @@ const styles = StyleSheet.create({
     marginLeft: -40,
     width: 80,
     height: 80,
-    borderRadius: 8,
+    borderRadius: 12,
     overflow: "hidden",
     backgroundColor: "#fff",
-    borderWidth: 2,
-    borderColor: "#000",
+    borderWidth: 3,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   logo: { width: "100%", height: "100%" },
-  logoPlaceholder: { alignItems: "center", justifyContent: "center" },
+  logoPlaceholder: { alignItems: "center", justifyContent: "center", backgroundColor: "#f5f5f5" },
+
+  // Name Block
   nameBlock: {
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 56,
+    paddingTop: 52,
     paddingBottom: 16,
+    backgroundColor: "#fff",
   },
   name: {
     fontSize: 22,
-    fontWeight: "bold",
+    fontWeight: "700",
     color: theme.colors.heading,
     fontFamily: theme.fonts.heading,
     textAlign: "center",
+    marginBottom: 12,
   },
-  followBtn: {
-    marginTop: 16,
-    paddingHorizontal: 20,
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+  },
+  actionBtnActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  actionBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  actionBtnTextActive: {
+    color: "#fff",
+  },
+
+  // Tab Bar
+  tabBarContainer: {
+    backgroundColor: "#fff",
+    borderBottomWidth: 2,
+    borderBottomColor: theme.colors.primary,
+  },
+  tabBar: {
+    flexDirection: "row",
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  tabActive: {
+    borderBottomWidth: 3,
+    borderBottomColor: theme.colors.primary,
+    marginBottom: -2,
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#666",
+  },
+  tabTextActive: {
+    color: theme.colors.primary,
+  },
+
+  // Tab Content
+  tabContent: {
+    padding: 16,
+  },
+
+  // Products Tab
+  categoryScroll: {
+    marginBottom: 16,
+    marginHorizontal: -16,
+  },
+  categoryScrollContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#f0f0f0",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  categoryChipActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#666",
+  },
+  categoryChipTextActive: {
+    color: "#fff",
+  },
+  productGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  productCard: {
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  productImageWrap: { aspectRatio: 4 / 5 },
+  productImage: { width: "100%", height: "100%" },
+  productImagePlaceholder: { backgroundColor: "#f5f5f5", alignItems: "center", justifyContent: "center" },
+  productTitle: { fontSize: 13, fontWeight: "600", color: "#000", padding: 10, paddingBottom: 4 },
+  productPrice: { fontSize: 15, fontWeight: "700", color: theme.colors.primary, paddingHorizontal: 10, paddingBottom: 10 },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 48,
+  },
+  emptyStateText: {
+    fontSize: 15,
+    color: "#888",
+    marginTop: 12,
+  },
+
+  // About Tab
+  statsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 24,
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  statItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  statText: {
+    fontSize: 14,
+    color: theme.colors.text,
+  },
+  deliveryBadges: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 20,
+  },
+  deliveryBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: theme.colors.creamAlt ?? "#f5f5f5",
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  deliveryBadgeText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: theme.colors.primary,
+  },
+  section: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    marginBottom: 10,
+  },
+  contactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
+  contactText: {
+    fontSize: 14,
+    color: theme.colors.text,
+  },
+  contactLink: {
+    fontSize: 14,
+    color: theme.colors.primary,
+  },
+  socialRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 20,
+  },
+  socialButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 10,
     paddingVertical: 10,
     borderRadius: 8,
     backgroundColor: theme.colors.primary,
-    alignSelf: "center",
   },
-  followedBtn: { backgroundColor: "#666" },
-  disabled: { opacity: 0.6 },
-  followBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  desc: {
+  mapBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  collapsibleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  hoursContent: {
+    gap: 4,
+  },
+  hoursRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  hoursDay: {
     fontSize: 14,
     color: theme.colors.text,
-    marginTop: 10,
-    marginBottom: 0,
-    lineHeight: 20,
-    textAlign: "center",
-    alignSelf: "stretch",
+    width: 100,
   },
-  contactSection: { paddingHorizontal: 16, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "#eee" },
-  policiesSection: { paddingHorizontal: 16, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "#eee" },
-  sectionTitle: { fontSize: 16, fontWeight: "600", color: theme.colors.heading, marginBottom: 8 },
-  policyBlock: { marginBottom: 12 },
-  policyLabel: { fontSize: 13, fontWeight: "600", color: theme.colors.heading, marginBottom: 4 },
-  policyText: { fontSize: 14, color: theme.colors.text, lineHeight: 20 },
-  contactText: { fontSize: 14, color: theme.colors.text, marginBottom: 4 },
-  contactRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
-  contactLink: { fontSize: 14, color: theme.colors.primary, textDecorationLine: "underline" },
-  productsSection: { paddingHorizontal: 16, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "#eee" },
-  productGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  productCard: {
+  hoursVal: {
+    fontSize: 14,
+    color: theme.colors.text,
+    flex: 1,
+    textAlign: "right",
+  },
+  gallerySectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  galleryCountBadge: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.primary,
+    backgroundColor: theme.colors.creamAlt ?? "#f5f5f5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  gallery: {
+    marginHorizontal: -16,
+  },
+  galleryContent: {
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+  galleryImage: {
+    width: 200,
+    height: 150,
     borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#000",
-    overflow: "hidden",
-    backgroundColor: "#fff",
   },
-  productImageWrap: { aspectRatio: 1 },
-  productImage: { width: "100%", height: "100%" },
-  productImagePlaceholder: { backgroundColor: "#f5f5f5", alignItems: "center", justifyContent: "center" },
-  productTitle: { fontSize: 13, fontWeight: "600", color: "#000", padding: 8 },
-  productPrice: { fontSize: 14, fontWeight: "bold", color: "#000", paddingHorizontal: 8, paddingBottom: 8 },
-  emptyProducts: { fontSize: 14, color: "#666" },
+  description: {
+    fontSize: 14,
+    color: theme.colors.text,
+    lineHeight: 22,
+  },
+
+  // Policies Tab
+  policiesContainer: {
+    gap: 16,
+  },
+  policyCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  policyHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  policyTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+  },
+  policyText: {
+    fontSize: 14,
+    color: theme.colors.text,
+    lineHeight: 22,
+  },
 });

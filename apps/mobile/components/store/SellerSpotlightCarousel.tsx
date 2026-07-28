@@ -58,7 +58,7 @@ export function SellerSpotlightCarousel() {
 
   const openSeller = (seller: SellerSpotlight) => {
     if (seller.businessSlug) {
-      router.push(`/business/${seller.businessSlug}`);
+      router.push(`/seller/${seller.businessSlug}`);
     }
   };
 
