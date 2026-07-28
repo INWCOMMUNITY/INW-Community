@@ -235,6 +235,7 @@ export async function channelCallbackGET(
     const shop = await adapter.fetchShopInfo(tokens.accessToken, {
       shop: state.shop,
       userId: tokens.userId ?? undefined,
+      apiKey: tokens.apiKey ?? undefined,
     });
     const initial = adapter.getInitialConfig
       ? await adapter.getInitialConfig(tokens.accessToken, shop.shopId)

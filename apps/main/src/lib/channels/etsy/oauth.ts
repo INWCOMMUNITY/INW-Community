@@ -41,6 +41,9 @@ type EtsyTokenPayload = {
   error_description?: string;
   /** Etsy includes the user_id in the token response. */
   user_id?: number;
+  /** Etsy may include a session-specific API key. */
+  api_key?: string;
+  scope?: string;
 };
 
 async function postToken(body: URLSearchParams): Promise<TokenResponse> {
@@ -53,6 +56,8 @@ async function postToken(body: URLSearchParams): Promise<TokenResponse> {
   // Log the full token response for debugging
   console.log("[etsy] token response keys:", data ? Object.keys(data) : "null");
   console.log("[etsy] token response user_id:", data?.user_id);
+  console.log("[etsy] token response api_key:", data?.api_key);
+  console.log("[etsy] token response scope:", data?.scope);
   if (!res.ok || !data || data.error || !data.access_token) {
     const msg = data?.error_description || data?.error || `Etsy token request failed (${res.status})`;
     throw new Error(msg);
@@ -62,6 +67,7 @@ async function postToken(body: URLSearchParams): Promise<TokenResponse> {
     refreshToken: data.refresh_token ?? null,
     expiresInSec: data.expires_in ?? null,
     userId: data.user_id != null ? String(data.user_id) : null,
+    apiKey: data.api_key ?? null,
   };
 }
 
@@ -118,13 +124,17 @@ function extractUserIdFromToken(accessToken: string): string | null {
  * Resolve the seller's shop id + name. If userId is provided (from the token response),
  * we skip /users/me (which may 403 on some apps) and go straight to /users/{id}/shops.
  * Otherwise tries to extract user_id from the JWT token, then falls back to /users/me.
+ * If apiKey is provided (from token response), use it instead of the env var.
  */
 export async function fetchEtsyShopInfo(
   accessToken: string,
-  options?: { userId?: string }
+  options?: { userId?: string; apiKey?: string }
 ): Promise<{ shopId: string; shopName: string | null }> {
   let userId = options?.userId;
   let shopId: string | null = null;
+  const apiKey = options?.apiKey;
+
+  console.log("[etsy] fetchEtsyShopInfo - userId:", userId, "apiKey provided:", !!apiKey);
 
   // Try to extract user_id from the JWT if not provided
   if (!userId) {
@@ -137,7 +147,7 @@ export async function fetchEtsyShopInfo(
   // If we still don't have userId, try /users/me (may 403 on limited apps)
   if (!userId) {
     try {
-      const me = await etsyGet<{ user_id?: number; shop_id?: number }>(accessToken, "/users/me");
+      const me = await etsyGet<{ user_id?: number; shop_id?: number }>(accessToken, "/users/me", apiKey);
       if (me.shop_id) {
         shopId = String(me.shop_id);
       }
@@ -149,8 +159,9 @@ export async function fetchEtsyShopInfo(
       console.warn("[etsy] /users/me failed, will try alternative methods", String(e));
       // Log config state for debugging
       try {
-        const { apiKey, clientId } = getEtsyConfig();
-        console.warn("[etsy] config check - apiKey length:", apiKey?.length, "clientId length:", clientId?.length);
+        const { apiKey: configApiKey, clientId } = getEtsyConfig();
+        console.warn("[etsy] config check - apiKey length:", configApiKey?.length, "clientId length:", clientId?.length);
+        console.warn("[etsy] using override apiKey:", apiKey ? "yes" : "no");
       } catch (configErr) {
         console.warn("[etsy] config error:", String(configErr));
       }
@@ -161,7 +172,8 @@ export async function fetchEtsyShopInfo(
   if (shopId) {
     const shop = await etsyGet<{ shop_id: number; shop_name?: string }>(
       accessToken,
-      `/shops/${shopId}`
+      `/shops/${shopId}`,
+      apiKey
     ).catch(() => null);
     return { shopId, shopName: shop?.shop_name ?? null };
   }
@@ -170,7 +182,8 @@ export async function fetchEtsyShopInfo(
   if (userId) {
     const shops = await etsyGet<{ results?: { shop_id: number; shop_name?: string }[] }>(
       accessToken,
-      `/users/${userId}/shops`
+      `/users/${userId}/shops`,
+      apiKey
     ).catch(() => null);
     const first = shops?.results?.[0];
     if (first?.shop_id) {

@@ -59,6 +59,8 @@ export type TokenResponse = {
   scopes?: string | null;
   /** Etsy includes the user_id in the token response. */
   userId?: string | null;
+  /** Etsy may include a session-specific API key in the token response. */
+  apiKey?: string | null;
 };
 
 export type RemoteListingSummary = {
@@ -146,7 +148,7 @@ export interface ChannelAdapter {
   refreshAccessToken(refreshToken: string): Promise<TokenResponse>;
   fetchShopInfo(
     accessToken: string,
-    options?: { shop?: string; userId?: string }
+    options?: { shop?: string; userId?: string; apiKey?: string }
   ): Promise<{ shopId: string; shopName: string | null }>;
   /**
    * Optional one-time setup fetched right after the token exchange and persisted to

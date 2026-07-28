@@ -20,10 +20,10 @@ export class EtsyApiError extends Error {
   }
 }
 
-function baseHeaders(accessToken: string): Record<string, string> {
+function baseHeaders(accessToken: string, overrideApiKey?: string): Record<string, string> {
   const { apiKey } = getEtsyConfig();
   return {
-    "x-api-key": apiKey,
+    "x-api-key": overrideApiKey || apiKey,
     Authorization: `Bearer ${accessToken}`,
   };
 }
@@ -54,7 +54,8 @@ async function etsyRequest<T>(
   accessToken: string,
   path: string,
   init: RequestInit & { headers?: Record<string, string> } = {},
-  attempt = 0
+  attempt = 0,
+  overrideApiKey?: string
 ): Promise<T> {
   if (currentConnectionId) {
     await waitForRateLimit("etsy", currentConnectionId);
@@ -62,11 +63,11 @@ async function etsyRequest<T>(
 
   const res = await fetch(`${ETSY_API_BASE}${path}`, {
     ...init,
-    headers: { ...baseHeaders(accessToken), ...(init.headers ?? {}) },
+    headers: { ...baseHeaders(accessToken, overrideApiKey), ...(init.headers ?? {}) },
   });
   if (res.status === 429 && attempt < 2) {
     await new Promise((r) => setTimeout(r, 1100 * (attempt + 1)));
-    return etsyRequest<T>(accessToken, path, init, attempt + 1);
+    return etsyRequest<T>(accessToken, path, init, attempt + 1, overrideApiKey);
   }
   const body = await parseBody(res);
   if (!res.ok) {
@@ -75,8 +76,8 @@ async function etsyRequest<T>(
   return body as T;
 }
 
-export function etsyGet<T>(accessToken: string, path: string): Promise<T> {
-  return etsyRequest<T>(accessToken, path, { method: "GET" });
+export function etsyGet<T>(accessToken: string, path: string, overrideApiKey?: string): Promise<T> {
+  return etsyRequest<T>(accessToken, path, { method: "GET" }, 0, overrideApiKey);
 }
 
 /** POST/PATCH with application/x-www-form-urlencoded (Etsy listing create/update format). */
