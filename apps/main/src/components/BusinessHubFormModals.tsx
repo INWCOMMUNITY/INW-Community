@@ -69,6 +69,9 @@ interface BusinessForForm {
   categories: string[];
   photos: string[];
   hoursOfOperation?: Record<string, string> | null;
+  facebookUrl?: string | null;
+  instagramUrl?: string | null;
+  tiktokUrl?: string | null;
 }
 
 const modalBackdropClass =
@@ -1125,6 +1128,9 @@ export function BusinessHubFormModals({
                         subcategoriesByPrimary: (editingBusiness as Business).subcategoriesByPrimary ?? {},
                         photos: editingBusiness.photos ?? [],
                         hoursOfOperation: editingBusiness.hoursOfOperation ?? null,
+                        facebookUrl: editingBusiness.facebookUrl ?? null,
+                        instagramUrl: editingBusiness.instagramUrl ?? null,
+                        tiktokUrl: editingBusiness.tiktokUrl ?? null,
                       } as Pick<
                         Business,
                         | "id"
@@ -1142,6 +1148,9 @@ export function BusinessHubFormModals({
                         | "subcategoriesByPrimary"
                         | "photos"
                         | "hoursOfOperation"
+                        | "facebookUrl"
+                        | "instagramUrl"
+                        | "tiktokUrl"
                       >
                     }
                     onSuccess={handleBusinessSuccess}
