@@ -100,22 +100,26 @@ export async function refreshEtsyToken(refreshToken: string): Promise<TokenRespo
 }
 
 /**
- * Try to extract user_id from the Etsy access token (JWT).
- * Etsy tokens are JWTs with the user_id in the payload.
+ * Extract user_id from the Etsy access token.
+ * Etsy access tokens have the format: user_id.token_string
+ * (e.g., "12345678.VJTv9qyjwJbYlARxdFmEEQ")
  */
 function extractUserIdFromToken(accessToken: string): string | null {
   try {
     const parts = accessToken.split(".");
     console.log("[etsy] token parts count:", parts.length);
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
-    console.log("[etsy] JWT payload keys:", Object.keys(payload));
-    console.log("[etsy] JWT user_id:", payload.user_id, "sub:", payload.sub);
-    if (payload.user_id) return String(payload.user_id);
-    if (payload.sub) return String(payload.sub);
+    // Etsy tokens have format: user_id.token_string
+    if (parts.length >= 2) {
+      const userId = parts[0];
+      // Verify it looks like a numeric user ID
+      if (/^\d+$/.test(userId)) {
+        console.log("[etsy] extracted user_id from token prefix:", userId);
+        return userId;
+      }
+    }
     return null;
   } catch (e) {
-    console.log("[etsy] JWT parse error:", String(e));
+    console.log("[etsy] token parse error:", String(e));
     return null;
   }
 }
