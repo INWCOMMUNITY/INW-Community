@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { EventForm } from "@/components/EventForm";
 import { CouponForm } from "@/components/CouponForm";
-import { RewardForm } from "@/components/RewardForm";
 
 interface BusinessOption {
   id: string;
@@ -16,7 +15,7 @@ interface SponsorHubCardsWithModalsProps {
   businesses: BusinessOption[];
 }
 
-type ModalType = "event" | "coupon" | "reward" | null;
+type ModalType = "event" | "coupon" | null;
 
 export function SponsorHubCardsWithModals({ businesses }: SponsorHubCardsWithModalsProps) {
   const [openModal, setOpenModal] = useState<ModalType>(null);
@@ -51,16 +50,6 @@ export function SponsorHubCardsWithModals({ businesses }: SponsorHubCardsWithMod
           <h2 className="text-xl font-bold mb-2">Offer a Coupon</h2>
           <p className="text-sm text-gray-600">
             Add a coupon to the coupon book. Include business name, discount, code, and optional QR/barcode.
-          </p>
-        </button>
-        <button
-          type="button"
-          onClick={() => setOpenModal("reward")}
-          className={cardClass}
-        >
-          <h2 className="text-xl font-bold mb-2">Offer a Reward</h2>
-          <p className="text-sm text-gray-600">
-            Offer items, services, or major discounts to community members who collect the most points.
           </p>
         </button>
         <button
@@ -133,34 +122,6 @@ export function SponsorHubCardsWithModals({ businesses }: SponsorHubCardsWithMod
         </div>
       )}
 
-      {openModal === "reward" && (
-        <div
-          className={modalOverlayClass}
-          aria-modal="true"
-          role="dialog"
-          aria-labelledby="modal-reward-title"
-          onClick={() => setOpenModal(null)}
-        >
-          <div className={modalPanelClass} onClick={(e) => e.stopPropagation()}>
-            <div className={modalHeaderClass}>
-              <h2 id="modal-reward-title" className="text-xl font-bold">
-                Offer a Reward
-              </h2>
-              <button
-                type="button"
-                onClick={() => setOpenModal(null)}
-                className="p-2 rounded-full hover:bg-gray-100 text-gray-600"
-                aria-label="Close"
-              >
-                <span className="text-xl leading-none">×</span>
-              </button>
-            </div>
-            <div className={modalBodyClass}>
-              <RewardForm onSuccess={handleSuccess} />
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
