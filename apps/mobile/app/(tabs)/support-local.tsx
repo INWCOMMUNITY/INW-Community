@@ -321,10 +321,6 @@ export default function SupportLocalScreen() {
     [router]
   );
 
-  const openCoupons = () => {
-    router.push("/coupons");
-  };
-
   const cardWidth = (width - CARD_PADDING * 2 - CARD_GAP) / 2;
 
   const styles = useMemo(
@@ -689,24 +685,7 @@ export default function SupportLocalScreen() {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <View style={styles.header} onLayout={handleHeaderLayout}>
         <View style={styles.logoRow}>
-          <View style={styles.logoRowSideLeft}>
-            <Pressable
-              style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
-              onPress={openCoupons}
-            >
-              <View style={styles.headerButtonInner}>
-                <Ionicons name="pricetag-outline" size={22} color="#000" />
-                <Text
-                  style={styles.headerButtonText}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.38}
-                >
-                  Coupons
-                </Text>
-              </View>
-            </Pressable>
-          </View>
+          <View style={styles.logoRowSideLeft} />
           <View style={styles.logoContainer}>
             <View style={styles.logoCircle}>
               <Image
