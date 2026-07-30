@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   });
 
   try {
-    const { group, earnedBadges } = await createGroupForMember(row.requesterMemberId, payload);
+    const { group } = await createGroupForMember(row.requesterMemberId, payload);
 
     await prisma.groupCreationRequest.update({
       where: { id },
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }).catch((err) => console.error("[admin approve group request] push", id, err));
 
     const full = await prisma.group.findUnique({ where: { id: group.id } });
-    return NextResponse.json({ group: full, earnedBadges });
+    return NextResponse.json({ group: full });
   } catch (e) {
     console.error("[admin approve group request]", id, e);
     return NextResponse.json({ error: "Failed to create group" }, { status: 500 });
