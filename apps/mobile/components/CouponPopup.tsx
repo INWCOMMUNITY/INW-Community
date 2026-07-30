@@ -18,8 +18,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
-import { PointsEarnedPopup } from "@/components/PointsEarnedPopup";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import { useAuth } from "@/contexts/AuthContext";
 
 const TAN_BG = "#f8e7c9";
@@ -80,16 +78,6 @@ export function CouponPopup({
   const [redeeming, setRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
   const [redeemSuccess, setRedeemSuccess] = useState<string | null>(null);
-  const [pointsPopup, setPointsPopup] = useState<{
-    businessName: string;
-    pointsAwarded: number;
-    previousTotal: number;
-    newTotal: number;
-  } | null>(null);
-  const [earnedBadges, setEarnedBadges] = useState<
-    { slug: string; name: string; description?: string }[]
-  >([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   useEffect(() => {
@@ -163,14 +151,10 @@ export function CouponPopup({
         totalPoints?: number;
         usedThisMonth: number;
         maxMonthlyUses: number;
-        earnedBadges?: { slug: string; name: string; description?: string }[];
       }>(
         `/api/coupons/${couponId}/redeem`,
         { secretKey: secretKeyInput.trim() }
       );
-      if (res.earnedBadges?.length) {
-        setEarnedBadges(res.earnedBadges);
-      }
       const newTotal =
         typeof res.totalPoints === "number" && Number.isFinite(res.totalPoints)
           ? res.totalPoints
@@ -433,44 +417,6 @@ export function CouponPopup({
           </ScrollView>
         </View>
       </View>
-
-      {pointsPopup && (
-        <PointsEarnedPopup
-          visible={!!pointsPopup}
-          onClose={() => {
-            setPointsPopup(null);
-            if (earnedBadges.length > 0) {
-              setBadgePopupIndex(0);
-            }
-          }}
-          businessName={pointsPopup.businessName}
-          pointsAwarded={pointsPopup.pointsAwarded}
-          previousTotal={pointsPopup.previousTotal}
-          newTotal={pointsPopup.newTotal}
-          category="coupon"
-          message={`You're basically snipping them from the book! Thanks for using ${pointsPopup.businessName}'s coupon! Redeem more coupons for more savings and more points!`}
-          buttonText="Super!"
-          applyDoubleMultiplierAnimation={false}
-        />
-      )}
-
-      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
-        <BadgeEarnedPopup
-          visible
-          onClose={() => {
-            const next = badgePopupIndex + 1;
-            if (next < earnedBadges.length) {
-              setBadgePopupIndex(next);
-            } else {
-              setBadgePopupIndex(-1);
-              setEarnedBadges([]);
-            }
-          }}
-          badgeName={earnedBadges[badgePopupIndex].name}
-          badgeSlug={earnedBadges[badgePopupIndex].slug}
-          badgeDescription={earnedBadges[badgePopupIndex].description}
-        />
-      )}
     </Modal>
   );
 }

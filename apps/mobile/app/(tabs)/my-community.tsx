@@ -676,16 +676,6 @@ export default function MyCommunityScreen() {
         icon: "pricetag",
         onPress: () => setCouponModalVisible(true),
       },
-      {
-        label: "Offer a Reward",
-        icon: "gift",
-        onPress: () => setRewardModalVisible(true),
-      },
-      {
-        label: "Redeemed Rewards",
-        icon: "receipt-outline",
-        onPress: () => (router.push as (href: string) => void)("/redeemed-rewards"),
-      },
     ];
 
     return (

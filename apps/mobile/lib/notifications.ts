@@ -151,9 +151,8 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
     case "group_feed":
       return data.groupSlug ? `/community/group/${data.groupSlug}` : "/community/groups";
     case "business_redeemed_rewards":
-      return data.businessId
-        ? `/redeemed-rewards?businessId=${encodeURIComponent(String(data.businessId))}`
-        : "/redeemed-rewards";
+      // Gamification removed - redirect to business profile instead
+      return data.businessSlug ? `/business/${data.businessSlug}` : "/(tabs)/index";
     case "business_profile":
       return data.businessSlug ? `/business/${data.businessSlug}` : "/(tabs)/index";
     case "web_link":

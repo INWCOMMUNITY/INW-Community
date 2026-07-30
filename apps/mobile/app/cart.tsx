@@ -35,24 +35,9 @@ import {
   StorefrontNativeCheckoutButton,
   type StorefrontCheckoutPayload,
 } from "@/components/StorefrontNativeCheckoutButton";
-import { PointsEarnedPopup } from "@/components/PointsEarnedPopup";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import { useAuth } from "@/contexts/AuthContext";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-
-type CartEarnedBadge = { slug: string; name: string; description?: string };
-
-function mergeEarnedBadges(prev: CartEarnedBadge[], next: CartEarnedBadge[] | undefined): CartEarnedBadge[] {
-  const map = new Map<string, CartEarnedBadge>();
-  for (const b of prev) {
-    if (b?.slug) map.set(b.slug, b);
-  }
-  for (const b of next ?? []) {
-    if (b?.slug) map.set(b.slug, b);
-  }
-  return [...map.values()];
-}
 
 const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
 const hasStripeKey = !!stripePublishableKey && !stripePublishableKey.includes("placeholder");
@@ -227,15 +212,6 @@ export default function CartScreen() {
     zip: "",
   });
   const [shippingAddressFromPlaces, setShippingAddressFromPlaces] = useState(false);
-  const [pointsPopup, setPointsPopup] = useState<{
-    pointsAwarded: number;
-    previousTotal: number;
-    newTotal: number;
-    pointsPendingFulfillment?: number;
-  } | null>(null);
-  const pendingCashOrderIdsForPointsRef = useRef<string[] | null>(null);
-  const [cashEarnedBadgeQueue, setCashEarnedBadgeQueue] = useState<CartEarnedBadge[]>([]);
-  const [cashEarnedBadgeIndex, setCashEarnedBadgeIndex] = useState(-1);
   const scrollViewRef = useRef<ScrollView>(null);
   const initialCartFocusLoadDoneRef = useRef(false);
 
@@ -542,130 +518,12 @@ export default function CartScreen() {
   /** All items are charged through Stripe at checkout. */
   const cardItems = items;
 
-  type StoreSuccessSummary = {
-    orderIds?: string[];
-    pointsAwarded?: number;
-    pointsPendingFulfillment?: number;
-    earnedBadges?: CartEarnedBadge[];
-  };
-
-  const runPointsAfterCashOrders = useCallback(
-    async (orderIds: string[]) => {
-      if (!orderIds.length) {
-        router.back();
-        return;
-      }
-      const orderIdsQuery = orderIds.join(",");
-      try {
-        const [summaryRes, meRes] = await Promise.all([
-          apiGet<StoreSuccessSummary>(
-            `/api/store-orders/success-summary?order_ids=${encodeURIComponent(orderIdsQuery)}`
-          ),
-          apiGet<{ points?: number }>("/api/me"),
-        ]);
-        const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
-        const pointsPending = summaryRes?.pointsPendingFulfillment ?? 0;
-        const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
-        if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
-          setPointsPopup({
-            pointsAwarded,
-            previousTotal: newTotal - pointsAwarded,
-            newTotal,
-            pointsPendingFulfillment: pointsPending > 0 ? pointsPending : undefined,
-          });
-          return;
-        }
-        if (pointsPending > 0) {
-          Alert.alert(
-            "Points after pickup or delivery",
-            `You'll earn ${pointsPending} points once pickup or delivery is fully confirmed by you and the seller.`,
-            [{ text: "OK", onPress: () => router.back() }]
-          );
-          return;
-        }
-      } catch {
-        /* ignore; fall through */
-      }
-      router.back();
-    },
-    [router]
-  );
-
-  const applyPointsFromSummary = useCallback(
-    async (summaryRes: StoreSuccessSummary, orderIdsForFlow: string[]) => {
-      if (!orderIdsForFlow.length) {
-        router.back();
-        return;
-      }
-      try {
-        const meRes = await apiGet<{ points?: number }>("/api/me");
-        const pointsAwarded = summaryRes?.pointsAwarded ?? 0;
-        const pointsPending = summaryRes?.pointsPendingFulfillment ?? 0;
-        const newTotal = typeof meRes?.points === "number" ? meRes.points : 0;
-        if (pointsAwarded > 0 && newTotal >= pointsAwarded) {
-          setPointsPopup({
-            pointsAwarded,
-            previousTotal: newTotal - pointsAwarded,
-            newTotal,
-            pointsPendingFulfillment: pointsPending > 0 ? pointsPending : undefined,
-          });
-          return;
-        }
-        if (pointsPending > 0) {
-          Alert.alert(
-            "Points after pickup or delivery",
-            `You'll earn ${pointsPending} points once pickup or delivery is fully confirmed by you and the seller.`,
-            [{ text: "OK", onPress: () => router.back() }]
-          );
-          return;
-        }
-      } catch {
-        /* ignore */
-      }
-      router.back();
-    },
-    [router]
-  );
-
-  /**
-   * Card / WebView / mixed checkout: fetch success-summary with celebrate_badges so Local Business Pro
-   * (and future checkout badges) can show even when Stripe webhook awarded before the response.
-   */
+  /** After checkout completes, just navigate back to show the order confirmed screen. */
   const completeCheckoutAfterPayment = useCallback(
-    async (orderIds: string[], extraBadges?: CartEarnedBadge[], sessionId?: string | null) => {
-      const sid = sessionId?.trim() || null;
-      if (orderIds.length === 0 && !sid) {
-        await runPointsAfterCashOrders(orderIds);
-        return;
-      }
-      const q = new URLSearchParams();
-      if (orderIds.length > 0) q.set("order_ids", orderIds.join(","));
-      else if (sid) q.set("session_id", sid);
-      q.set("celebrate_badges", "1");
-      let summaryRes: StoreSuccessSummary;
-      try {
-        summaryRes = await apiGet<StoreSuccessSummary>(
-          `/api/store-orders/success-summary?${q.toString()}`
-        );
-      } catch {
-        if (orderIds.length > 0) await runPointsAfterCashOrders(orderIds);
-        else router.back();
-        return;
-      }
-      const resolvedIds =
-        Array.isArray(summaryRes.orderIds) && summaryRes.orderIds.length > 0
-          ? summaryRes.orderIds
-          : orderIds;
-      const badges = mergeEarnedBadges(extraBadges ?? [], summaryRes.earnedBadges);
-      if (badges.length > 0) {
-        pendingCashOrderIdsForPointsRef.current = resolvedIds;
-        setCashEarnedBadgeQueue(badges);
-        setCashEarnedBadgeIndex(0);
-        return;
-      }
-      await applyPointsFromSummary(summaryRes, resolvedIds);
+    async () => {
+      router.back();
     },
-    [applyPointsFromSummary, runPointsAfterCashOrders, router]
+    [router]
   );
 
   const updateLocalDeliveryDetails = async (
@@ -940,7 +798,7 @@ export default function CartScreen() {
         }
         await load(true);
         setOrderJustConfirmed(true);
-        await completeCheckoutAfterPayment(successOrderIds, undefined, successSessionId);
+        await completeCheckoutAfterPayment();
       })();
     }
     if (nav.url.includes("canceled=1")) {
@@ -1378,44 +1236,6 @@ export default function CartScreen() {
               : undefined
           }
           onSave={updatePickupDetails}
-        />
-      )}
-      {cashEarnedBadgeIndex >= 0 && cashEarnedBadgeQueue[cashEarnedBadgeIndex] ? (
-        <BadgeEarnedPopup
-          visible
-          badgeName={cashEarnedBadgeQueue[cashEarnedBadgeIndex].name}
-          badgeSlug={cashEarnedBadgeQueue[cashEarnedBadgeIndex].slug}
-          badgeDescription={cashEarnedBadgeQueue[cashEarnedBadgeIndex].description}
-          onClose={() => {
-            const next = cashEarnedBadgeIndex + 1;
-            if (next < cashEarnedBadgeQueue.length) {
-              setCashEarnedBadgeIndex(next);
-            } else {
-              const orderIds = pendingCashOrderIdsForPointsRef.current;
-              pendingCashOrderIdsForPointsRef.current = null;
-              setCashEarnedBadgeQueue([]);
-              setCashEarnedBadgeIndex(-1);
-              void runPointsAfterCashOrders(orderIds ?? []);
-            }
-          }}
-        />
-      ) : null}
-      {pointsPopup && (
-        <PointsEarnedPopup
-          visible={true}
-          onClose={() => {
-            setPointsPopup(null);
-            router.back();
-          }}
-          businessName="Your purchase"
-          pointsAwarded={pointsPopup.pointsAwarded}
-          previousTotal={pointsPopup.previousTotal}
-          newTotal={pointsPopup.newTotal}
-          category="store"
-          message="Thanks for supporting local! You earned points on this purchase."
-          buttonText="Awesome!"
-          applyDoubleMultiplierAnimation={member?.hasPaidSubscription === true}
-          pointsPendingFulfillment={pointsPopup.pointsPendingFulfillment}
         />
       )}
     </View>

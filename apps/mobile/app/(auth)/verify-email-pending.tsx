@@ -15,16 +15,9 @@ import { theme } from "@/lib/theme";
 import { API_BASE, setToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfileView } from "@/contexts/ProfileViewContext";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 /** Profile tab (member profile / hubs switcher). */
 const DEFAULT_POST_VERIFY_ROUTE = "/(tabs)/my-community";
-
-interface EarnedBadge {
-  slug: string;
-  name: string;
-  description?: string;
-}
 
 function fetchHeadersJson(): Record<string, string> {
   return {
@@ -59,9 +52,6 @@ export default function VerifyEmailPendingScreen() {
   const [error, setError] = useState<string | null>(null);
   const [resendBusy, setResendBusy] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
-  const [earnedBadges, setEarnedBadges] = useState<EarnedBadge[]>([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
-  const pendingNavRef = useRef<string | null>(null);
 
   async function verify() {
     setError(null);
@@ -95,7 +85,6 @@ export default function VerifyEmailPendingScreen() {
         alreadyVerified?: boolean;
         message?: string;
         code?: string;
-        earnedBadges?: EarnedBadge[];
       };
       if (!res.ok) {
         setError(typeof data.error === "string" ? data.error : "Could not verify. Try again.");
@@ -132,17 +121,7 @@ export default function VerifyEmailPendingScreen() {
         await setToken(data.token);
         await refreshMember().catch(() => {});
         setProfileView("profile");
-        const badges =
-          Array.isArray(data.earnedBadges) && data.earnedBadges.length > 0
-            ? data.earnedBadges.filter((b) => b?.slug && b?.name)
-            : [];
-        if (badges.length > 0) {
-          pendingNavRef.current = returnTo;
-          setEarnedBadges(badges);
-          setBadgePopupIndex(0);
-        } else {
-          router.replace(returnTo as never);
-        }
+        router.replace(returnTo as never);
         return;
       }
       if (data.signInRequired) {
@@ -284,27 +263,6 @@ export default function VerifyEmailPendingScreen() {
 
       {resendMessage ? <Text style={styles.message}>{resendMessage}</Text> : null}
     </ScrollView>
-
-    {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? (
-      <BadgeEarnedPopup
-        visible
-        onClose={() => {
-          const next = badgePopupIndex + 1;
-          if (next < earnedBadges.length) {
-            setBadgePopupIndex(next);
-          } else {
-            setBadgePopupIndex(-1);
-            setEarnedBadges([]);
-            const dest = pendingNavRef.current ?? DEFAULT_POST_VERIFY_ROUTE;
-            pendingNavRef.current = null;
-            router.replace(dest as never);
-          }
-        }}
-        badgeName={earnedBadges[badgePopupIndex].name}
-        badgeSlug={earnedBadges[badgePopupIndex].slug}
-        badgeDescription={earnedBadges[badgePopupIndex].description}
-      />
-    ) : null}
     </Fragment>
   );
 }

@@ -26,8 +26,6 @@ import {
   MAX_UPLOAD_FILE_BYTES,
   formatMaxUploadSizeLabel,
 } from "@/lib/upload-limits";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
-import type { EarnedBadgePayload } from "@/lib/share-utils";
 
 /** Payload from GET /api/events/[id] (owner) for edit mode */
 export interface PostEventInitialData {
@@ -140,8 +138,6 @@ export function PostEventForm({
       ]
     );
   };
-  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgePayload[]>([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
   const [title, setTitle] = useState(() => initialEvent?.title ?? "");
   const [dateValue, setDateValue] = useState<Date>(() => {
     if (initialEvent?.date) {
@@ -317,20 +313,8 @@ export function PostEventForm({
         await apiPatch(`/api/events/${editEventId}`, payload);
         finishSuccess();
       } else {
-        const res = await apiPost<{
-          ok?: boolean;
-          earnedBadges?: EarnedBadgePayload[];
-        }>("/api/events", payload);
-        const badges = (res?.earnedBadges ?? []).filter(
-          (b): b is EarnedBadgePayload =>
-            !!b && typeof b.slug === "string" && typeof b.name === "string"
-        );
-        if (badges.length > 0) {
-          setEarnedBadges(badges);
-          setBadgePopupIndex(0);
-        } else {
-          finishSuccess();
-        }
+        await apiPost<{ ok?: boolean }>("/api/events", payload);
+        finishSuccess();
       }
     } catch (e) {
       setError(
@@ -339,17 +323,6 @@ export function PostEventForm({
       );
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleCloseBadgePopup = () => {
-    const next = badgePopupIndex + 1;
-    if (next < earnedBadges.length) {
-      setBadgePopupIndex(next);
-    } else {
-      setBadgePopupIndex(-1);
-      setEarnedBadges([]);
-      finishSuccess();
     }
   };
 
@@ -696,15 +669,6 @@ export function PostEventForm({
         />
       </KeyboardAvoidingView>
     </Modal>
-    {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
-      <BadgeEarnedPopup
-        visible
-        onClose={handleCloseBadgePopup}
-        badgeName={earnedBadges[badgePopupIndex].name}
-        badgeSlug={earnedBadges[badgePopupIndex].slug}
-        badgeDescription={earnedBadges[badgePopupIndex].description}
-      />
-    )}
     </KeyboardAvoidingView>
   );
 }

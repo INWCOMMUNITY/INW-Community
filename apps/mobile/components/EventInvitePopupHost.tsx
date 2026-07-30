@@ -28,10 +28,6 @@ function routeSuppressesEventInvitePopup(pathname: string | null | undefined): b
     p.includes("/seller-hub/store/edit") ||
     p.startsWith("/coupons/") ||
     p.startsWith("coupons/") ||
-    p.startsWith("/rewards/") ||
-    p.startsWith("rewards/") ||
-    p.startsWith("/redeemed-rewards") ||
-    p.startsWith("redeemed-rewards") ||
     p.startsWith("/policies") ||
     p.startsWith("policies") ||
     p.startsWith("/messages") ||

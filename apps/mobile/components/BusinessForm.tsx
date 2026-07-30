@@ -33,7 +33,6 @@ import {
 } from "@/lib/business-category-presets";
 import type { CategoryPreset } from "@/lib/business-category-suggest";
 import { BusinessCategoryPrimaryPicker } from "@/components/BusinessCategoryPrimaryPicker";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 
 /** Visible tan accent for gallery upload progress on light backgrounds (cream token is too low-contrast). */
 const GALLERY_UPLOAD_SPINNER = "#C4956A";
@@ -147,11 +146,6 @@ interface BusinessFormProps {
 }
 
 export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, draftButtonLabel, headerContent }: BusinessFormProps) {
-  const [badgeEarnedQueue, setBadgeEarnedQueue] = useState<
-    { slug: string; name: string; description?: string }[]
-  >([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
-
   const [name, setName] = useState(existing?.name ?? "");
   const [shortDescription, setShortDescription] = useState(
     existing?.shortDescription ?? ""
@@ -438,17 +432,8 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         await apiPatch(`/api/businesses/${existing.id}`, payload);
         onSuccess();
       } else {
-        const res = await apiPost<{
-          ok?: boolean;
-          earnedBadges?: { slug: string; name: string; description?: string }[];
-        }>("/api/businesses", payload);
-        const badges = (res?.earnedBadges ?? []).filter((b) => b?.slug);
-        if (badges.length > 0) {
-          setBadgeEarnedQueue(badges);
-          setBadgePopupIndex(0);
-        } else {
-          onSuccess();
-        }
+        await apiPost<{ ok?: boolean }>("/api/businesses", payload);
+        onSuccess();
       }
     } catch (e) {
       setError(
@@ -456,17 +441,6 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       );
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const finishBadgePopups = () => {
-    const next = badgePopupIndex + 1;
-    if (next < badgeEarnedQueue.length) {
-      setBadgePopupIndex(next);
-    } else {
-      setBadgePopupIndex(-1);
-      setBadgeEarnedQueue([]);
-      onSuccess();
     }
   };
 
@@ -828,15 +802,6 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
-    {badgePopupIndex >= 0 && badgePopupIndex < badgeEarnedQueue.length && (
-      <BadgeEarnedPopup
-        visible
-        onClose={finishBadgePopups}
-        badgeName={badgeEarnedQueue[badgePopupIndex].name}
-        badgeSlug={badgeEarnedQueue[badgePopupIndex].slug}
-        badgeDescription={badgeEarnedQueue[badgePopupIndex].description}
-      />
-    )}
     </>
   );
 }

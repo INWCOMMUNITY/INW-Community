@@ -33,7 +33,6 @@ import {
   type ShareContent,
   type PostShareChannel,
 } from "@/lib/share-utils";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import { fetchStoreItemPreviewPayload } from "@/lib/fetch-store-item-preview";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -119,8 +118,6 @@ export function ShareToChatModal({
   const [composing, setComposing] = useState(false);
   const [shareToGroupPicker, setShareToGroupPicker] = useState(false);
   const [shareToGroupLoading, setShareToGroupLoading] = useState<string | null>(null);
-  const [feedEarnedBadges, setFeedEarnedBadges] = useState<EarnedBadgePayload[]>([]);
-  const [feedBadgePopupIndex, setFeedBadgePopupIndex] = useState(-1);
   /** Resolved from API so title + photo always match the listing (parent props can be incomplete). */
   const [storePreview, setStorePreview] = useState<{ title: string; photo?: string } | null>(null);
 
@@ -268,37 +265,17 @@ export function ShareToChatModal({
       const res = await shareToFeed(content, shareToFeedText, {
         groupId: defaultFeedGroupId ?? undefined,
       });
-      const earned = (res?.earnedBadges ?? []).filter(
-        (b): b is EarnedBadgePayload =>
-          !!b && typeof b.slug === "string" && typeof b.name === "string"
-      );
       setShareToFeedText("");
       setComposing(false);
       if (sharedContent.type === "post") {
         notifyPostShared(res.shareRecorded, res.shareCount);
       }
       onShareToFeedComplete?.();
-      if (earned.length > 0) {
-        setFeedEarnedBadges(earned);
-        setFeedBadgePopupIndex(0);
-      } else {
-        onClose();
-      }
+      onClose();
     } catch {
       Alert.alert("Error", "Could not share to feed. Try again.");
     } finally {
       setShareToFeedLoading(false);
-    }
-  };
-
-  const handleCloseFeedBadgePopup = () => {
-    const next = feedBadgePopupIndex + 1;
-    if (next < feedEarnedBadges.length) {
-      setFeedBadgePopupIndex(next);
-    } else {
-      setFeedBadgePopupIndex(-1);
-      setFeedEarnedBadges([]);
-      onClose();
     }
   };
 
@@ -345,17 +322,6 @@ export function ShareToChatModal({
     await trackExternalPostShare("email");
     onClose();
   };
-
-  const feedBadgePopup =
-    feedBadgePopupIndex >= 0 && feedBadgePopupIndex < feedEarnedBadges.length ? (
-      <BadgeEarnedPopup
-        visible
-        onClose={handleCloseFeedBadgePopup}
-        badgeName={feedEarnedBadges[feedBadgePopupIndex].name}
-        badgeSlug={feedEarnedBadges[feedBadgePopupIndex].slug}
-        badgeDescription={feedEarnedBadges[feedBadgePopupIndex].description}
-      />
-    ) : null;
 
   if (composing) {
     return (
@@ -438,7 +404,6 @@ export function ShareToChatModal({
           </Pressable>
         </KeyboardAvoidingView>
       </Modal>
-      {feedBadgePopup}
       </>
     );
   }
@@ -601,7 +566,6 @@ export function ShareToChatModal({
         </Pressable>
       </Pressable>
     </Modal>
-    {feedBadgePopup}
     </>
   );
 }

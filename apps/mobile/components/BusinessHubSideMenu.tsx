@@ -107,7 +107,6 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
   }, [businesses]);
 
   const rows: MenuRow[] = [
-    { type: "route", href: "/my-badges", label: "My Badges" },
     { type: "route", href: "/sponsor-business", label: "Set up / Edit Local Business Page" },
     {
       type: "web",
@@ -115,8 +114,6 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
       label: "Post Event",
     },
     { type: "coupon", label: "Create Coupon" },
-    { type: "reward", label: "Offer a Reward" },
-    { type: "route", href: "/redeemed-rewards", label: "Redeemed Rewards" },
     {
       type: "route",
       href: "/business-hub-manage",

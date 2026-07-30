@@ -37,8 +37,6 @@ import {
 } from "@/lib/channel-connections";
 import { ChannelPublishModal } from "@/components/channels/ChannelPublishModal";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
-import type { EarnedBadgePayload } from "@/lib/share-utils";
 import {
   ListingOptionsEditor,
   buildVariantsPayload,
@@ -193,8 +191,6 @@ export default function ListItemScreen() {
   const [editSuccess, setEditSuccess] = useState(false);
   const [hasEbayLink, setHasEbayLink] = useState(false);
   const [refreshingFromEbay, setRefreshingFromEbay] = useState(false);
-  const [listingEarnedBadges, setListingEarnedBadges] = useState<EarnedBadgePayload[]>([]);
-  const [listingBadgePopupIndex, setListingBadgePopupIndex] = useState(-1);
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
 
@@ -953,20 +949,10 @@ export default function ListItemScreen() {
         setShowListingSuccessModal(true);
       } else {
         const res = await apiPost<{
-          earnedBadges?: EarnedBadgePayload[];
           channelSync?: { provider: string; ok: boolean; error?: string }[];
         }>("/api/store-items", payload);
         alertChannelSyncFailures(res.channelSync, "saved");
-        const badges = (res?.earnedBadges ?? []).filter(
-          (b): b is EarnedBadgePayload =>
-            !!b && typeof b.slug === "string" && typeof b.name === "string"
-        );
-        if (badges.length > 0) {
-          setListingEarnedBadges(badges);
-          setListingBadgePopupIndex(0);
-        } else {
-          setShowListingSuccessModal(true);
-        }
+        setShowListingSuccessModal(true);
       }
     } catch (e) {
       setError(
@@ -997,17 +983,6 @@ export default function ListItemScreen() {
         : {}),
     };
     void performListingSubmit(payload, false);
-  };
-
-  const handleCloseListingBadgePopup = () => {
-    const next = listingBadgePopupIndex + 1;
-    if (next < listingEarnedBadges.length) {
-      setListingBadgePopupIndex(next);
-    } else {
-      setListingBadgePopupIndex(-1);
-      setListingEarnedBadges([]);
-      setShowListingSuccessModal(true);
-    }
   };
 
   const handleSelectTemplate = useCallback((template: ListingTemplate) => {
@@ -1073,15 +1048,6 @@ export default function ListItemScreen() {
       }}
       onConfirm={handleChannelPublishConfirm}
     />
-    {listingBadgePopupIndex >= 0 && listingBadgePopupIndex < listingEarnedBadges.length && (
-      <BadgeEarnedPopup
-        visible
-        onClose={handleCloseListingBadgePopup}
-        badgeName={listingEarnedBadges[listingBadgePopupIndex].name}
-        badgeSlug={listingEarnedBadges[listingBadgePopupIndex].slug}
-        badgeDescription={listingEarnedBadges[listingBadgePopupIndex].description}
-      />
-    )}
     <Modal visible={showListingSuccessModal} transparent animationType="fade">
       <View style={styles.successModalOverlay}>
         <View style={styles.successModalCard}>

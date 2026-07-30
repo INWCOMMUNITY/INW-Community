@@ -15,9 +15,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
-
-type EarnedBadgeItem = { slug: string; name: string; description: string };
 
 interface NWCRequestsModalProps {
   visible: boolean;
@@ -34,22 +31,11 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
-  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeItem[]>([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
-  const badgeRevealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!visible) {
-      if (badgeRevealTimeoutRef.current) {
-        clearTimeout(badgeRevealTimeoutRef.current);
-        badgeRevealTimeoutRef.current = null;
-      }
-      return;
-    }
+    if (!visible) return;
     setError(null);
     setSent(false);
-    setEarnedBadges([]);
-    setBadgePopupIndex(-1);
     let cancelled = false;
     (async () => {
       const token = await getToken();
@@ -83,12 +69,6 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     };
   }, [visible, member?.email, member?.firstName, member?.lastName]);
 
-  useEffect(() => () => {
-    if (badgeRevealTimeoutRef.current) {
-      clearTimeout(badgeRevealTimeoutRef.current);
-    }
-  }, []);
-
   async function handleSubmit() {
     setError(null);
     const submitName = name.trim();
@@ -101,7 +81,7 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     }
     setLoading(true);
     try {
-      const data = await apiPost<{ ok?: boolean; earnedBadges?: EarnedBadgeItem[] }>(
+      await apiPost<{ ok?: boolean }>(
         "/api/nwc-requests",
         {
           name: submitName,
@@ -110,32 +90,12 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
           message: submitMessage,
         }
       );
-      const badges = (data?.earnedBadges ?? []).filter(
-        (b): b is EarnedBadgeItem =>
-          !!b &&
-          typeof b === "object" &&
-          typeof (b as EarnedBadgeItem).slug === "string" &&
-          typeof (b as EarnedBadgeItem).name === "string"
-      );
       setMessage("");
-      if (badges.length > 0) {
-        setEarnedBadges(badges);
-        if (badgeRevealTimeoutRef.current) {
-          clearTimeout(badgeRevealTimeoutRef.current);
-        }
-        /** Let the request sheet dismiss before the badge popup (RN stacks modals poorly if both animate at once). */
-        const revealMs = Platform.OS === "ios" ? 380 : 320;
-        badgeRevealTimeoutRef.current = setTimeout(() => {
-          badgeRevealTimeoutRef.current = null;
-          setBadgePopupIndex(0);
-        }, revealMs);
-      } else {
-        setSent(true);
-        setTimeout(() => {
-          setSent(false);
-          onClose();
-        }, 1800);
-      }
+      setSent(true);
+      setTimeout(() => {
+        setSent(false);
+        onClose();
+      }, 1800);
     } catch (e) {
       setError((e as { error?: string }).error ?? "Failed to send. Please try again.");
     } finally {
@@ -143,30 +103,11 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
     }
   }
 
-  const finishAfterBadges = () => {
-    setEarnedBadges([]);
-    setBadgePopupIndex(-1);
-    onClose();
-  };
-
-  const handleCloseBadgePopup = () => {
-    if (badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length - 1) {
-      setBadgePopupIndex((i) => i + 1);
-    } else {
-      finishAfterBadges();
-    }
-  };
-
   if (!visible) return null;
 
-  /** Hide the sheet as soon as we have badge results (before the celebration popup opens). */
-  const showRequestFormModal =
-    visible && badgePopupIndex < 0 && earnedBadges.length === 0;
-
   return (
-    <>
     <Modal
-      visible={showRequestFormModal}
+      visible={visible}
       animationType="slide"
       onRequestClose={onClose}
     >
@@ -261,17 +202,6 @@ export function NWCRequestsModal({ visible, onClose }: NWCRequestsModalProps) {
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
-
-      {visible && badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? (
-        <BadgeEarnedPopup
-          visible
-          onClose={handleCloseBadgePopup}
-          badgeName={earnedBadges[badgePopupIndex].name}
-          badgeSlug={earnedBadges[badgePopupIndex].slug}
-          badgeDescription={earnedBadges[badgePopupIndex].description}
-        />
-      ) : null}
-    </>
   );
 }
 

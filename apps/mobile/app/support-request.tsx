@@ -17,8 +17,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiPost } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
-import type { EarnedBadgePayload } from "@/lib/share-utils";
 
 export default function SupportRequestScreen() {
   const router = useRouter();
@@ -30,8 +28,6 @@ export default function SupportRequestScreen() {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgePayload[]>([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
   useEffect(() => {
     if (!member) return;
@@ -64,7 +60,7 @@ export default function SupportRequestScreen() {
     }
     setSubmitting(true);
     try {
-      const res = await apiPost<{ ok?: boolean; earnedBadges?: EarnedBadgePayload[] }>(
+      await apiPost<{ ok?: boolean }>(
         "/api/nwc-requests",
         {
           name: n,
@@ -74,20 +70,11 @@ export default function SupportRequestScreen() {
           message: msg,
         }
       );
-      const badges = (res?.earnedBadges ?? []).filter(
-        (b): b is EarnedBadgePayload =>
-          !!b && typeof b.slug === "string" && typeof b.name === "string"
+      Alert.alert(
+        "Request sent",
+        "Thanks — your message was saved. Our team can read it in the admin dashboard and reply to you at the email you provided.",
+        [{ text: "OK", onPress: () => router.back() }]
       );
-      if (badges.length > 0) {
-        setEarnedBadges(badges);
-        setBadgePopupIndex(0);
-      } else {
-        Alert.alert(
-          "Request sent",
-          "Thanks — your message was saved. Our team can read it in the admin dashboard and reply to you at the email you provided.",
-          [{ text: "OK", onPress: () => router.back() }]
-        );
-      }
     } catch (e) {
       const err = e as { error?: string; status?: number };
       const msg =
@@ -99,25 +86,6 @@ export default function SupportRequestScreen() {
       setSubmitting(false);
     }
   }, [name, email, phone, subject, message, router]);
-
-  const finishAfterBadges = useCallback(() => {
-    setBadgePopupIndex(-1);
-    setEarnedBadges([]);
-    Alert.alert(
-      "Request sent",
-      "Thanks — your message was saved. Our team can read it in the admin dashboard and reply to you at the email you provided.",
-      [{ text: "OK", onPress: () => router.back() }]
-    );
-  }, [router]);
-
-  const closeBadgePopup = useCallback(() => {
-    const next = badgePopupIndex + 1;
-    if (next < earnedBadges.length) {
-      setBadgePopupIndex(next);
-    } else {
-      finishAfterBadges();
-    }
-  }, [badgePopupIndex, earnedBadges.length, finishAfterBadges]);
 
   return (
     <KeyboardAvoidingView
@@ -217,15 +185,6 @@ export default function SupportRequestScreen() {
           )}
         </Pressable>
       </ScrollView>
-      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
-        <BadgeEarnedPopup
-          visible
-          onClose={closeBadgePopup}
-          badgeName={earnedBadges[badgePopupIndex].name}
-          badgeSlug={earnedBadges[badgePopupIndex].slug}
-          badgeDescription={earnedBadges[badgePopupIndex].description}
-        />
-      )}
     </KeyboardAvoidingView>
   );
 }

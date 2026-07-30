@@ -14,9 +14,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, getToken } from "@/lib/api";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
-
-type EarnedBadgeItem = { slug: string; name: string; description?: string };
 
 const SHARE_TARGET = 5;
 const DEFAULT_IOS_URL = "https://apps.apple.com/us/app/inw-community/id6759624513";
@@ -36,8 +33,6 @@ export default function ShareInwCommunityScreen() {
   const [shareLoading, setShareLoading] = useState(false);
   const [count, setCount] = useState(0);
   const [shareMessage, setShareMessage] = useState(buildShareMessage(DEFAULT_IOS_URL));
-  const [earnedBadges, setEarnedBadges] = useState<EarnedBadgeItem[]>([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -98,18 +93,12 @@ export default function ShareInwCommunityScreen() {
         try {
           const data = await apiPost<{
             count?: number;
-            earnedBadges?: EarnedBadgeItem[];
           }>("/api/me/app-share", {});
           setCount(Math.max(0, Number(data?.count) ?? 0));
-          const badges = (data?.earnedBadges ?? []).filter((b) => b?.slug && b?.name);
-          if (badges.length) {
-            setEarnedBadges(badges);
-            setBadgePopupIndex(0);
-          }
         } catch {
           Alert.alert(
             "Share counted locally?",
-            "We could not confirm with the server. Your share may not count toward your badge until you're online."
+            "We could not confirm with the server. Your share may not count until you're online."
           );
         }
       }
@@ -189,23 +178,6 @@ export default function ShareInwCommunityScreen() {
           the points for your badge to register!
         </Text>
       </ScrollView>
-
-      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
-        <BadgeEarnedPopup
-          visible
-          onClose={() => {
-            const next = badgePopupIndex + 1;
-            if (next < earnedBadges.length) setBadgePopupIndex(next);
-            else {
-              setBadgePopupIndex(-1);
-              setEarnedBadges([]);
-            }
-          }}
-          badgeName={earnedBadges[badgePopupIndex].name}
-          badgeSlug={earnedBadges[badgePopupIndex].slug}
-          badgeDescription={earnedBadges[badgePopupIndex].description ?? ""}
-        />
-      )}
     </View>
   );
 }

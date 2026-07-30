@@ -20,11 +20,6 @@ const ACTIONS: {
     icon: "calendar-outline",
   },
   {
-    label: "My Business Rewards",
-    href: "/business-hub-offered-rewards",
-    icon: "ribbon-outline",
-  },
-  {
     label: "My Business Coupons",
     href: "/business-hub-offered-coupons",
     icon: "pricetags-outline",
@@ -42,7 +37,7 @@ export default function BusinessHubManageScreen() {
       </Pressable>
       <Text style={styles.title}>Manage NWC Business</Text>
       <Text style={styles.subtitle}>
-        Review and manage posts, rewards, coupons, and business calendar events.
+        Review and manage posts, coupons, and business calendar events.
       </Text>
       <View style={styles.buttonStack}>
         {ACTIONS.map((action) => (

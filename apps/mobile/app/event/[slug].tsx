@@ -26,9 +26,7 @@ import { EventInviteStatsBlocks } from "@/components/EventInviteStatsBlocks";
 import { formatTime12h } from "@/lib/format-time";
 import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
-import type { EarnedBadgePayload } from "@/lib/share-utils";
 import { openAddressInMaps } from "@/lib/open-maps";
 import {
   addEventToDeviceCalendar,
@@ -77,8 +75,6 @@ export default function EventDetailScreen() {
   const [inviteCustomMessage, setInviteCustomMessage] = useState("");
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [inviting, setInviting] = useState(false);
-  const [inviteEarnedBadges, setInviteEarnedBadges] = useState<EarnedBadgePayload[]>([]);
-  const [inviteBadgePopupIndex, setInviteBadgePopupIndex] = useState(-1);
   const [pendingInviteAlertBody, setPendingInviteAlertBody] = useState<string | null>(null);
   const [rsvpModalOpen, setRsvpModalOpen] = useState(false);
   const [rsvpSubmitting, setRsvpSubmitting] = useState(false);
@@ -310,44 +306,18 @@ export default function EventDetailScreen() {
 
       const res = await apiPost<{
         invited?: number;
-        earnedBadges?: EarnedBadgePayload[];
       }>(`/api/events/${event.id}/invite`, payload);
       const invited = res?.invited ?? selectedFriendIds.size;
       const body = `Invited ${invited} friend(s) to this event.`;
-      const badges = (res?.earnedBadges ?? []).filter(
-        (b): b is EarnedBadgePayload =>
-          !!b && typeof b.slug === "string" && typeof b.name === "string"
-      );
       setInviteModalOpen(false);
       setInviteCustomMessage("");
       setSelectedFriendIds(new Set());
-      if (badges.length > 0) {
-        setPendingInviteAlertBody(body);
-        setInviteEarnedBadges(badges);
-        setInviteBadgePopupIndex(0);
-      } else {
-        Alert.alert("Invited", body);
-      }
+      Alert.alert("Invited", body);
     } catch (e: unknown) {
       const err = e as { error?: string };
       Alert.alert("Error", err?.error ?? "Could not send invites.");
     } finally {
       setInviting(false);
-    }
-  };
-
-  const handleCloseInviteBadgePopup = () => {
-    const next = inviteBadgePopupIndex + 1;
-    if (next < inviteEarnedBadges.length) {
-      setInviteBadgePopupIndex(next);
-    } else {
-      setInviteBadgePopupIndex(-1);
-      setInviteEarnedBadges([]);
-      const msg = pendingInviteAlertBody;
-      setPendingInviteAlertBody(null);
-      if (msg) {
-        Alert.alert("Invited", msg);
-      }
     }
   };
 
@@ -914,15 +884,6 @@ export default function EventDetailScreen() {
           previewPhotoUrl: photos[0],
         }}
       />
-      {inviteBadgePopupIndex >= 0 && inviteBadgePopupIndex < inviteEarnedBadges.length && (
-        <BadgeEarnedPopup
-          visible
-          onClose={handleCloseInviteBadgePopup}
-          badgeName={inviteEarnedBadges[inviteBadgePopupIndex].name}
-          badgeSlug={inviteEarnedBadges[inviteBadgePopupIndex].slug}
-          badgeDescription={inviteEarnedBadges[inviteBadgePopupIndex].description}
-        />
-      )}
     </View>
   );
 }

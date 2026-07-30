@@ -21,7 +21,6 @@ const ROOT_DENY = new Set([
   "saved-posts",
   "profile-edit",
   "blocked-members",
-  "redeemed-rewards",
   "manage-subscription",
   "share-inw-community",
   "sponsor-business",

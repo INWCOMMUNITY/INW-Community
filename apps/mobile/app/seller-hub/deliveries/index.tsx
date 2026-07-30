@@ -14,7 +14,6 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { BadgeEarnedPopup } from "@/components/BadgeEarnedPopup";
 import { Ionicons } from "@expo/vector-icons";
 interface LocalDeliveryDetails {
   firstName?: string;
@@ -76,10 +75,6 @@ export default function DeliveriesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
-  const [earnedBadges, setEarnedBadges] = useState<
-    { slug: string; name: string; description?: string }[]
-  >([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
   const [deliveryMenuOrderId, setDeliveryMenuOrderId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
 
@@ -104,9 +99,7 @@ export default function DeliveriesScreen() {
     setConfirmingId(orderId);
     try {
       const path = `/api/store-orders/${encodeURIComponent(orderId)}`;
-      const res = await apiPatch<{
-        earnedBadges?: { slug: string; name: string; description?: string }[];
-      }>(path, { deliveryConfirmed: true });
+      await apiPatch(path, { deliveryConfirmed: true });
       setOrders((prev) =>
         prev.map((o) =>
           o.id === orderId
@@ -114,10 +107,6 @@ export default function DeliveriesScreen() {
             : o
         )
       );
-      if (res?.earnedBadges?.length) {
-        setEarnedBadges(res.earnedBadges);
-        setBadgePopupIndex(0);
-      }
     } catch (e) {
       const msg =
         typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
@@ -324,23 +313,6 @@ export default function DeliveriesScreen() {
             </>
           )}
         </>
-      )}
-      {badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length && (
-        <BadgeEarnedPopup
-          visible
-          onClose={() => {
-            const next = badgePopupIndex + 1;
-            if (next < earnedBadges.length) {
-              setBadgePopupIndex(next);
-            } else {
-              setBadgePopupIndex(-1);
-              setEarnedBadges([]);
-            }
-          }}
-          badgeName={earnedBadges[badgePopupIndex].name}
-          badgeSlug={earnedBadges[badgePopupIndex].slug}
-          badgeDescription={earnedBadges[badgePopupIndex].description}
-        />
       )}
       <Modal
         visible={deliveryMenuOrderId != null}
