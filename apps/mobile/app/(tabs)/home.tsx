@@ -101,28 +101,6 @@ export default function HomeScreen() {
     gap: 10,
   },
   buttonPressed: { opacity: 0.8 },
-  pointsCard: {
-    width: "100%",
-    maxWidth: 320,
-    marginBottom: 20,
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    backgroundColor: "#fff",
-    alignItems: "center",
-  },
-  pointsLabel: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
-  },
-  pointsValue: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: theme.colors.primary,
-    fontFamily: theme.fonts.heading,
-  },
   buttonText: {
     color: theme.colors.buttonText,
     fontSize: 18,
@@ -396,36 +374,10 @@ export default function HomeScreen() {
   const [postEventModalVisible, setPostEventModalVisible] = useState(false);
   const [nwcRequestModalVisible, setNwcRequestModalVisible] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
-  const [points, setPoints] = useState<number | null>(null);
-
-  const loadPoints = useCallback(async () => {
-    const token = await getToken();
-    if (!token) {
-      setPoints(null);
-      return;
-    }
-    try {
-      const me = await apiGet<{ points?: number }>("/api/me");
-      setPoints(me?.points ?? 0);
-    } catch {
-      setPoints(null);
-    }
-  }, []);
 
   useEffect(() => {
     getToken().then((t) => setIsSignedIn(!!t));
   }, []);
-  useEffect(() => {
-    if (isSignedIn) loadPoints();
-    else setPoints(null);
-  }, [isSignedIn, loadPoints]);
-
-  // Refetch points when home tab is focused (e.g. after QR scan or reward redemption)
-  useFocusEffect(
-    useCallback(() => {
-      if (isSignedIn) loadPoints();
-    }, [isSignedIn, loadPoints])
-  );
 
   useEffect(() => {
     if (postEventModalVisible) {
@@ -490,13 +442,6 @@ export default function HomeScreen() {
           </Pressable>
         </View>
       </ThemedView>
-
-      {isSignedIn && points !== null && (
-        <View style={styles.pointsCard}>
-          <Text style={styles.pointsLabel}>My Community Points</Text>
-          <Text style={styles.pointsValue}>{points} points</Text>
-        </View>
-      )}
 
       <View style={styles.calendarsBoxWrapper}>
         <View style={styles.calendarsBox}>
