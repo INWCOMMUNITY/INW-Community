@@ -103,11 +103,11 @@ export async function POST(req: NextRequest) {
     const parsed = adminCreateSchema.parse(body);
     const { createdByMemberId, ...data } = parsed;
 
-    const { group, earnedBadges } = await createGroupForMember(createdByMemberId, data);
+    const { group } = await createGroupForMember(createdByMemberId, data);
     const full = await prisma.group.findUnique({
       where: { id: group.id },
     });
-    return NextResponse.json({ group: full, earnedBadges });
+    return NextResponse.json({ group: full });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
