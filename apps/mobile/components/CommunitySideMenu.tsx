@@ -57,8 +57,6 @@ export function CommunitySideMenu({
     { label: "Posted Photos / Posts", href: "/community/posts-photos", icon: "images" },
     { label: "Blogs", href: "/community/blogs", icon: "newspaper", guest: true },
     { label: "Invites", href: "/community/invites", icon: "calendar" },
-    /** Full catalog + scan progress lives on `/badges`. `/my-badges` is profile display toggles only. */
-    { label: "Badges", href: "/badges", icon: "ribbon", guest: true },
   ];
   const items = member ? allItems : allItems.filter((i) => i.guest);
 

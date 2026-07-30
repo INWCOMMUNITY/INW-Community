@@ -3,7 +3,6 @@ import { Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { theme } from "@/lib/theme";
 import { CouponFormModal } from "@/components/CouponFormModal";
-import { RewardFormModal } from "@/components/RewardFormModal";
 import { BusinessProfileCompletionCard } from "@/components/BusinessProfileCompletionCard";
 import { apiGet } from "@/lib/api";
 
@@ -14,7 +13,6 @@ export default function BusinessHubScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ open?: string }>();
   const [couponModalVisible, setCouponModalVisible] = useState(false);
-  const [rewardModalVisible, setRewardModalVisible] = useState(false);
   const [businessIds, setBusinessIds] = useState<string[]>([]);
 
   const openBusinessSetup = () => {
@@ -37,7 +35,6 @@ export default function BusinessHubScreen() {
   useEffect(() => {
     const open = params.open;
     if (open === "coupon") setCouponModalVisible(true);
-    else if (open === "reward") setRewardModalVisible(true);
   }, [params.open]);
 
   const closeCouponModal = () => {
@@ -47,18 +44,10 @@ export default function BusinessHubScreen() {
     }
   };
 
-  const closeRewardModal = () => {
-    setRewardModalVisible(false);
-    if (params.open === "reward") {
-      router.replace("/seller-hub/business-hub");
-    }
-  };
-
   const OPTIONS = [
     { label: "Business profile", href: "/sponsor-business" },
     { label: "Offer a coupon", action: "coupon" as const },
     { label: "Post event", web: `${siteBase}/business-hub/event` },
-    { label: "Offer a reward", action: "reward" as const },
   ];
 
   return (
@@ -66,7 +55,7 @@ export default function BusinessHubScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <Text style={styles.title}>Business Hub</Text>
         <Text style={styles.hint}>
-          Business directory, coupons, events, and rewards.
+          Business directory, coupons, and events.
         </Text>
         {businessIds.length > 0 && (
           <BusinessProfileCompletionCard
@@ -83,7 +72,6 @@ export default function BusinessHubScreen() {
                 (router.push as (href: string) => void)(opt.href);
               } else if ("action" in opt && opt.action) {
                 if (opt.action === "coupon") setCouponModalVisible(true);
-                else if (opt.action === "reward") setRewardModalVisible(true);
               } else if ("web" in opt && opt.web) {
                 (router.push as (href: string) => void)(
                   `/web?url=${encodeURIComponent(opt.web)}&title=${encodeURIComponent(opt.label)}`
@@ -100,12 +88,6 @@ export default function BusinessHubScreen() {
         visible={couponModalVisible}
         onClose={closeCouponModal}
         onSuccess={closeCouponModal}
-        onOpenBusinessSetup={openBusinessSetup}
-      />
-      <RewardFormModal
-        visible={rewardModalVisible}
-        onClose={closeRewardModal}
-        onSuccess={closeRewardModal}
         onOpenBusinessSetup={openBusinessSetup}
       />
     </>

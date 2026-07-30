@@ -164,7 +164,6 @@ export function ProfileSideMenu({ visible, onClose }: ProfileSideMenuProps) {
     { href: "/my-sellers", label: "My Sellers", icon: "storefront-outline" },
     { href: "/profile-wishlist", label: "My Wishlist", icon: "heart-outline" },
     { href: "/community/my-orders", label: "My Orders", icon: "receipt-outline" },
-    { href: "/rewards/my-rewards", label: "My Rewards", icon: "gift-outline" },
   ];
 
   const profileItems: NavItem[] = [

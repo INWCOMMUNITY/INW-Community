@@ -19,20 +19,12 @@ import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { AppImage } from "@/components/AppImage";
-import { getBadgeIcon } from "@/lib/badge-icons";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const GRID_GAP = 4;
 const COLS = 3;
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CELL_SIZE = Math.floor((SCREEN_WIDTH - 32 - GRID_GAP * (COLS - 1)) / COLS);
-
-interface Badge {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-}
 
 interface FavoriteBusiness {
   id: string;
@@ -48,8 +40,6 @@ interface MemberProfile {
   profilePhotoUrl: string | null;
   bio: string | null;
   city: string | null;
-  allTimePointsEarned: number;
-  badges: Badge[];
   favoriteBusinesses: FavoriteBusiness[];
   /** When false, profile is private and viewer is not a friend; photos/posts are hidden. */
   canSeeFullProfile?: boolean;
@@ -88,7 +78,6 @@ export default function MemberProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [badgePopup, setBadgePopup] = useState<Badge | null>(null);
   const [friendStatus, setFriendStatus] = useState<"none" | "friends" | "pending_outgoing" | "pending_incoming">("none");
   const [incomingRequestId, setIncomingRequestId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -643,22 +632,6 @@ export default function MemberProfileScreen() {
           </View>
         )}
 
-        {profile.badges.length > 0 && (
-          <View style={[styles.section, styles.sectionWithLine]}>
-            <Text style={styles.sectionTitle}>Badges</Text>
-            <View style={styles.badgesRow}>
-              {profile.badges.map((b) => (
-                <Pressable
-                  key={b.id}
-                  style={({ pressed }) => [styles.badgeCircle, pressed && styles.pressed]}
-                  onPress={() => setBadgePopup(b)}
-                >
-                  <Ionicons name={getBadgeIcon(b.slug)} size={26} color={theme.colors.primary} />
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        )}
       </ScrollView>
 
       <Modal visible={menuOpen} transparent animationType="fade">
@@ -679,23 +652,6 @@ export default function MemberProfileScreen() {
               <Text style={styles.menuItemText}>Cancel</Text>
             </Pressable>
           </View>
-        </Pressable>
-      </Modal>
-
-      <Modal visible={!!badgePopup} transparent animationType="fade">
-        <Pressable style={styles.badgeOverlay} onPress={() => setBadgePopup(null)}>
-          <Pressable style={styles.badgePopupCard} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.badgePopupIconWrap}>
-              <Ionicons name={getBadgeIcon(badgePopup?.slug ?? "")} size={48} color={theme.colors.primary} />
-            </View>
-            <Text style={styles.badgePopupTitle}>{badgePopup?.name}</Text>
-            {badgePopup?.description ? (
-              <Text style={styles.badgePopupDescription}>{badgePopup.description}</Text>
-            ) : null}
-            <Pressable style={styles.badgePopupCloseBtn} onPress={() => setBadgePopup(null)}>
-              <Text style={styles.badgePopupCloseText}>Close</Text>
-            </Pressable>
-          </Pressable>
         </Pressable>
       </Modal>
 
@@ -834,17 +790,6 @@ const styles = StyleSheet.create({
   loadMorePhotosText: { fontSize: 15, fontWeight: "600", color: theme.colors.primary },
   sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   primaryBtnDisabled: { opacity: 0.7 },
-  badgesRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  badgeChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: "#f0f0f0" },
-  badgeText: { fontSize: 12, color: "#555" },
-  badgeCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#f0f0f0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   actionsRow: { flexDirection: "row", gap: 12, marginBottom: 20, alignItems: "stretch" },
   actionsRowSpacer: { marginBottom: 20, minHeight: 44 },
   actionBtnEqual: { flex: 1, minWidth: 0 },
@@ -888,18 +833,4 @@ const styles = StyleSheet.create({
   businessPreviewCard: { width: 96, marginRight: 16, alignItems: "center" },
   businessPreviewImage: { width: 96, height: 96, borderRadius: 8 },
   businessPreviewName: { fontSize: 13, color: "#333", marginTop: 6, textAlign: "center" },
-  badgeOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center", padding: 24 },
-  badgePopupCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 24,
-    maxWidth: 320,
-    width: "100%",
-    alignItems: "center",
-  },
-  badgePopupIconWrap: { marginBottom: 12 },
-  badgePopupTitle: { fontSize: 18, fontWeight: "700", color: theme.colors.heading, textAlign: "center" },
-  badgePopupDescription: { fontSize: 15, color: "#333", lineHeight: 22, marginTop: 8, textAlign: "center" },
-  badgePopupCloseBtn: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 20 },
-  badgePopupCloseText: { fontSize: 16, fontWeight: "600", color: theme.colors.primary },
 });

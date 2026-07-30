@@ -27,11 +27,8 @@ import { useProfileView } from "@/contexts/ProfileViewContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
 import { useOpenSellerMenu, openBusinessQRRef } from "./_layout";
 import { CouponFormModal } from "@/components/CouponFormModal";
-import { RewardFormModal } from "@/components/RewardFormModal";
 import { PostEventForm } from "@/components/PostEventForm";
-import { QRCodeDisplayModal } from "@/components/QRCodeDisplayModal";
 import { apiGet, getToken } from "@/lib/api";
-import { getBadgeIcon } from "@/lib/badge-icons";
 import {
   businessImageRequestHeaders,
   hubBusinessHeroImageUri,
@@ -333,17 +330,12 @@ export default function MyCommunityScreen() {
   const showSellerHub = profileView === "seller_hub";
 
   const [couponModalVisible, setCouponModalVisible] = useState(false);
-  const [rewardModalVisible, setRewardModalVisible] = useState(false);
   const [eventModalVisible, setEventModalVisible] = useState(false);
   const [businesses, setBusinesses] = useState<MyBusiness[]>([]);
   const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
   const [hubBusinessSwitcherOpen, setHubBusinessSwitcherOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [showQRBusiness, setShowQRBusiness] = useState<{ id: string; name: string } | null>(null);
   const [hubLogoLoadFailed, setHubLogoLoadFailed] = useState(false);
-  const [profileBadges, setProfileBadges] = useState<
-    { id: string; badge: { slug: string; name: string }; displayOnProfile: boolean }[]
-  >([]);
   const [pendingIncomingFriendRequests, setPendingIncomingFriendRequests] = useState(0);
   const [notificationsBellAttention, setNotificationsBellAttention] = useState(0);
 
@@ -366,19 +358,6 @@ export default function MyCommunityScreen() {
         })
         .catch(() => setNotificationsBellAttention(0));
     }, [member?.id])
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      apiGet<{
-        memberBadges: { id: string; badge: { slug: string; name: string }; displayOnProfile: boolean }[];
-      }>("/api/me/badges")
-        .then((data) => {
-          const visible = (data?.memberBadges ?? []).filter((b) => b.displayOnProfile);
-          setProfileBadges(visible);
-        })
-        .catch(() => setProfileBadges([]));
-    }, [])
   );
 
   useFocusEffect(
@@ -924,13 +903,6 @@ export default function MyCommunityScreen() {
           onOpenBusinessSetup={openBusinessSetup}
           initialBusinessId={activeBusiness?.id ?? null}
         />
-        <RewardFormModal
-          visible={rewardModalVisible}
-          onClose={() => setRewardModalVisible(false)}
-          onSuccess={() => setRewardModalVisible(false)}
-          onOpenBusinessSetup={openBusinessSetup}
-          initialBusinessId={activeBusiness?.id ?? null}
-        />
         <Modal
           visible={eventModalVisible}
           animationType="slide"
@@ -964,13 +936,6 @@ export default function MyCommunityScreen() {
             />
           </View>
         </Modal>
-
-        <QRCodeDisplayModal
-          visible={!!showQRBusiness}
-          onClose={() => setShowQRBusiness(null)}
-          businessId={showQRBusiness?.id ?? null}
-          businessName={showQRBusiness?.name ?? ""}
-        />
       </View>
     );
   }
@@ -1051,34 +1016,6 @@ export default function MyCommunityScreen() {
           </View>
         </View>
 
-        {profileBadges.length > 0 && (
-          <Pressable
-            style={({ pressed }) => [styles.badgesProfileRow, pressed && { opacity: 0.9 }]}
-            onPress={() => router.push("/my-badges")}
-          >
-            <RNView style={styles.badgesProfileIcons}>
-              {profileBadges.slice(0, 6).map((mb) => (
-                <RNView key={mb.id} style={styles.badgesProfileIconWrap}>
-                  <Ionicons
-                    name={getBadgeIcon(mb.badge.slug)}
-                    size={20}
-                    color={theme.colors.primary}
-                  />
-                </RNView>
-              ))}
-              {profileBadges.length > 6 && (
-                <Text style={styles.badgesProfileMore}>+{profileBadges.length - 6}</Text>
-              )}
-            </RNView>
-            <RNView style={styles.badgesProfileLabelRow}>
-              <Text style={styles.badgesProfileLabel}>
-                {profileBadges.length} badge{profileBadges.length !== 1 ? "s" : ""}
-              </Text>
-              <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-            </RNView>
-          </Pressable>
-        )}
-
         <Pressable
           style={({ pressed }) => [styles.postsBox, pressed && { opacity: 0.9 }]}
           onPress={() => (router.push as (href: string) => void)("/community/posts-photos")}
@@ -1143,22 +1080,6 @@ export default function MyCommunityScreen() {
           >
             <Ionicons name="pricetag" size={22} color="#fff" style={styles.tanButtonIcon} />
             <ThemedText style={styles.tanButtonText}>My Coupons</ThemedText>
-          </Pressable>
-        </RNView>
-        <RNView style={styles.buttonRow}>
-          <Pressable
-            style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
-            onPress={() => (router.push as (href: string) => void)("/rewards/my-rewards")}
-          >
-            <Ionicons name="gift-outline" size={22} color="#fff" style={styles.tanButtonIcon} />
-            <ThemedText style={styles.tanButtonText}>My Rewards</ThemedText>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.tanButton, pressed && styles.buttonPressed]}
-            onPress={() => router.push("/my-badges")}
-          >
-            <Ionicons name="ribbon-outline" size={22} color="#fff" style={styles.tanButtonIcon} />
-            <ThemedText style={styles.tanButtonText}>My Badges</ThemedText>
           </Pressable>
         </RNView>
         <RNView style={styles.buttonRow}>

@@ -32,28 +32,6 @@ const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 const INSTAGRAM_URL = "https://www.instagram.com/northwest.community/?hl=en";
 const FACEBOOK_URL = "https://www.facebook.com/people/Northwest-Community/61581601094411/";
 
-interface Top10Prize {
-  rank: number;
-  label: string;
-  imageUrl?: string | null;
-  prizeValue?: string | null;
-  description?: string | null;
-  business?: { id: string; name: string; slug: string; logoUrl: string | null } | null;
-}
-interface Top10Config {
-  enabled: boolean;
-  startDate?: string;
-  endDate?: string;
-  prizes?: Top10Prize[];
-}
-interface LeaderboardMember {
-  id: string;
-  firstName: string;
-  lastName: string;
-  profilePhotoUrl: string | null;
-  points: number;
-}
-
 const gap = 12;
 const containerPadding = 24;
 const boxEdgeGap = 16; // white space between green box and screen edges
@@ -80,7 +58,6 @@ export default function HomeScreen() {
     const homeShortcutCellWidthCalc = (width - containerPadding * 2 - homeShortcutGap) / 2;
     const logoHeightCalc =
       logoAsset?.width && logoAsset?.height ? (width * logoAsset.height) / logoAsset.width : width;
-    const top10PrizePreviewSize = Math.min(220, width - 64);
 
     const s = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: theme.colors.feedBackground },
@@ -103,27 +80,6 @@ export default function HomeScreen() {
   buttons: {
     width: "100%",
     marginBottom: 32,
-  },
-  homeScanQrSection: {
-    width: "100%",
-    marginBottom: 20,
-  },
-  /** Matches `scanBtn` / `scanBtnText` on `app/rewards/index.tsx`. */
-  homeScanQrButton: {
-    width: "100%",
-    paddingVertical: 18,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: homeShortcutWrapColor,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 10,
-  },
-  homeScanQrBtnText: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#fff",
   },
   buttonGrid: {
     flexDirection: "row",
@@ -166,240 +122,6 @@ export default function HomeScreen() {
     fontWeight: "bold",
     color: theme.colors.primary,
     fontFamily: theme.fonts.heading,
-  },
-  seasonPointsLine: {
-    fontSize: 14,
-    color: "#666",
-    marginTop: 4,
-  },
-  top10Section: {
-    width: width - boxEdgeGap * 2,
-    marginHorizontal: -(containerPadding - boxEdgeGap),
-    alignSelf: "center",
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    borderRadius: 8,
-    overflow: "hidden",
-    backgroundColor: "#fff",
-  },
-  toggleRow: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e5e5",
-  },
-  toggleBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  toggleBtnActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  toggleText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#666",
-  },
-  toggleTextActive: {
-    color: theme.colors.buttonText ?? "#fff",
-  },
-  prizesList: {
-    padding: 12,
-    maxHeight: 400,
-  },
-  prizeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    gap: 10,
-  },
-  prizeRowTextBlock: {
-    flex: 1,
-    minWidth: 0,
-    justifyContent: "center",
-  },
-  prizeRowPressed: { opacity: 0.8 },
-  top10PrizeModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  top10PrizeModalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  top10PrizeModalContent: {
-    width: "100%",
-    maxWidth: 400,
-    maxHeight: "85%",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  top10PrizeModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  top10PrizeModalTitle: {
-    flex: 1,
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#222",
-    paddingRight: 8,
-  },
-  top10PrizeModalCloseBtn: { padding: 4 },
-  top10PrizeModalScroll: { maxHeight: 500 },
-  top10PrizeModalImageWrap: {
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    backgroundColor: "#f5f5f5",
-  },
-  top10PrizePreviewListSingle: {
-    alignSelf: "center",
-    paddingHorizontal: 16,
-  },
-  top10PrizePreviewThumbPress: {
-    borderRadius: 10,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "#ddd",
-  },
-  top10PrizePreviewThumb: {
-    width: top10PrizePreviewSize,
-    height: top10PrizePreviewSize,
-    backgroundColor: "#e8e8e8",
-  },
-  top10PrizeModalImagePlaceholder: {
-    width: "100%",
-    minHeight: 200,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  top10PrizeModalPlaceholderText: { fontSize: 17, color: "#666", marginTop: 8 },
-  top10PrizeModalBusiness: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  top10PrizeModalBusinessText: { fontSize: 17, fontWeight: "600" },
-  top10PrizeModalValue: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: theme.colors.primary,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  top10PrizeModalDescription: {
-    fontSize: 17,
-    color: "#444",
-    lineHeight: 24,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  top10PrizeModalSeasonEnd: {
-    fontSize: 14,
-    color: "#666",
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-  },
-  prizeRank: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: theme.colors.primary,
-    width: 28,
-    textAlign: "center",
-  },
-  prizeThumb: {
-    width: 36,
-    height: 36,
-    borderRadius: 4,
-  },
-  prizeThumbPlaceholder: {
-    backgroundColor: "#e5e5e5",
-  },
-  prizeLabel: {
-    fontSize: 14,
-    lineHeight: 19,
-    color: theme.colors.heading,
-  },
-  prizeBusiness: {
-    fontSize: 12,
-    lineHeight: 16,
-    color: "#666",
-    marginTop: 2,
-  },
-  prizeEmpty: {
-    fontSize: 14,
-    color: "#999",
-    flex: 1,
-  },
-  prizeEmptyAll: {
-    fontSize: 14,
-    color: "#999",
-    textAlign: "center",
-    padding: 24,
-  },
-  leaderboardList: {
-    padding: 12,
-    maxHeight: 400,
-  },
-  leaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    gap: 10,
-  },
-  leaderRank: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: theme.colors.primary,
-    width: 24,
-  },
-  leaderAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  leaderAvatarPlaceholder: {
-    backgroundColor: "#e5e5e5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  leaderInitials: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#666",
-  },
-  leaderName: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 14,
-    color: theme.colors.heading,
-  },
-  leaderEmpty: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 14,
-    color: "#999",
-  },
-  leaderPoints: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: theme.colors.primary,
   },
   buttonText: {
     color: theme.colors.buttonText,
@@ -675,45 +397,18 @@ export default function HomeScreen() {
   const [nwcRequestModalVisible, setNwcRequestModalVisible] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
   const [points, setPoints] = useState<number | null>(null);
-  const [seasonPointsEarned, setSeasonPointsEarned] = useState<number | null>(null);
-  const [currentSeason, setCurrentSeason] = useState<{ id: string; name: string } | null>(null);
-  const [top10, setTop10] = useState<Top10Config | null>(null);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardMember[]>([]);
-  const [showPrizes, setShowPrizes] = useState(true);
-  const [selectedPrizeForModal, setSelectedPrizeForModal] = useState<Top10Prize | null>(null);
-  const [top10PrizeGalleryOpen, setTop10PrizeGalleryOpen] = useState(false);
-  const [top10PrizeGalleryImages, setTop10PrizeGalleryImages] = useState<string[]>([]);
-  const [top10PrizeGalleryIndex, setTop10PrizeGalleryIndex] = useState(0);
-
-  const openTop10PrizeGallery = useCallback((urls: (string | undefined)[], initialIndex = 0) => {
-    const clean = urls.filter((u): u is string => !!u);
-    if (clean.length === 0) return;
-    setTop10PrizeGalleryImages(clean);
-    setTop10PrizeGalleryIndex(Math.min(Math.max(0, initialIndex), clean.length - 1));
-    setTop10PrizeGalleryOpen(true);
-  }, []);
 
   const loadPoints = useCallback(async () => {
     const token = await getToken();
     if (!token) {
       setPoints(null);
-      setSeasonPointsEarned(null);
-      setCurrentSeason(null);
       return;
     }
     try {
-      const me = await apiGet<{
-        points?: number;
-        seasonPointsEarned?: number;
-        currentSeason?: { id: string; name: string };
-      }>("/api/me");
+      const me = await apiGet<{ points?: number }>("/api/me");
       setPoints(me?.points ?? 0);
-      setSeasonPointsEarned(me?.seasonPointsEarned ?? 0);
-      setCurrentSeason(me?.currentSeason ?? null);
     } catch {
       setPoints(null);
-      setSeasonPointsEarned(null);
-      setCurrentSeason(null);
     }
   }, []);
 
@@ -731,13 +426,6 @@ export default function HomeScreen() {
       if (isSignedIn) loadPoints();
     }, [isSignedIn, loadPoints])
   );
-
-  useEffect(() => {
-    apiGet<Top10Config>("/api/rewards/top5").then(setTop10).catch(() => setTop10({ enabled: false }));
-    apiGet<LeaderboardMember[]>("/api/rewards/leaderboard?limit=10")
-      .then((d) => setLeaderboard(Array.isArray(d) ? d : []))
-      .catch(() => setLeaderboard([]));
-  }, []);
 
   useEffect(() => {
     if (postEventModalVisible) {
@@ -758,10 +446,6 @@ export default function HomeScreen() {
 
   const openCoupons = () => {
     (router.push as (href: string) => void)("/coupons");
-  };
-
-  const openRewards = () => {
-    (router.push as (href: string) => void)("/rewards");
   };
 
   const openCalendar = (type: CalendarType) => {
@@ -799,32 +483,10 @@ export default function HomeScreen() {
               { width: homeShortcutCellWidth },
               pressed && styles.buttonPressed,
             ]}
-            onPress={() => (router.push as (href: string) => void)("/badges")}
-          >
-            <Ionicons name="ribbon-outline" size={22} color={theme.colors.buttonText} />
-            <Text style={styles.buttonText}>Badges</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.buttonCell,
-              { width: homeShortcutCellWidth },
-              pressed && styles.buttonPressed,
-            ]}
             onPress={openCoupons}
           >
             <Ionicons name="pricetag-outline" size={22} color={theme.colors.buttonText} />
             <Text style={styles.buttonText}>Coupons</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.buttonCell,
-              { width: homeShortcutCellWidth },
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={openRewards}
-          >
-            <Ionicons name="gift-outline" size={22} color={theme.colors.buttonText} />
-            <Text style={styles.buttonText}>Rewards</Text>
           </Pressable>
         </View>
       </ThemedView>
@@ -833,140 +495,8 @@ export default function HomeScreen() {
         <View style={styles.pointsCard}>
           <Text style={styles.pointsLabel}>My Community Points</Text>
           <Text style={styles.pointsValue}>{points} points</Text>
-          {currentSeason != null && seasonPointsEarned != null && (
-            <Text style={styles.seasonPointsLine}>
-              {currentSeason.name} Total: {seasonPointsEarned} Points
-            </Text>
-          )}
         </View>
       )}
-
-      <View style={styles.homeScanQrSection}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.homeScanQrButton,
-            { backgroundColor: theme.colors.primary },
-            pressed && styles.buttonPressed,
-          ]}
-          onPress={() => (router.push as (href: string) => void)("/scanner")}
-          accessibilityRole="button"
-          accessibilityLabel="Scan QR code"
-        >
-          <Ionicons name="camera" size={32} color="#fff" />
-          <Text style={styles.homeScanQrBtnText}>Scan QR Code</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.top10Section}>
-        <View style={styles.toggleRow}>
-          <Pressable
-            style={[styles.toggleBtn, showPrizes && styles.toggleBtnActive]}
-            onPress={() => setShowPrizes(true)}
-          >
-            <Text style={[styles.toggleText, showPrizes && styles.toggleTextActive]}>
-              Top 10 Prizes
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.toggleBtn, !showPrizes && styles.toggleBtnActive]}
-            onPress={() => setShowPrizes(false)}
-          >
-            <Text style={[styles.toggleText, !showPrizes && styles.toggleTextActive]}>
-              Leaderboard
-            </Text>
-          </Pressable>
-        </View>
-        {showPrizes ? (
-          <ScrollView style={styles.prizesList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
-              const p = top10?.prizes?.find((x) => x.rank === rank);
-              const hasContent = p && (p.label?.trim() || p.imageUrl);
-              return (
-                <Pressable
-                  key={rank}
-                  style={({ pressed }) => [styles.prizeRow, hasContent && pressed && styles.prizeRowPressed]}
-                  onPress={hasContent ? () => setSelectedPrizeForModal(p!) : undefined}
-                  disabled={!hasContent}
-                >
-                  <Text style={styles.prizeRank}>#{rank}</Text>
-                  {hasContent ? (
-                    <>
-                      {p!.imageUrl ? (
-                        <Image
-                          source={{ uri: resolveUrl(p!.imageUrl) ?? p!.imageUrl }}
-                          style={styles.prizeThumb}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={[styles.prizeThumb, styles.prizeThumbPlaceholder]} />
-                      )}
-                      <View style={styles.prizeRowTextBlock}>
-                        <Text style={styles.prizeLabel} numberOfLines={2}>
-                          {p!.label?.trim() || "—"}
-                        </Text>
-                        {p!.business ? (
-                          <Text style={styles.prizeBusiness} numberOfLines={2}>
-                            {p!.business.name}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </>
-                  ) : (
-                    <Text style={styles.prizeEmpty}>—</Text>
-                  )}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        ) : (
-          <ScrollView style={styles.leaderboardList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rank) => {
-              const m = leaderboard[rank - 1];
-              const row = (
-                <>
-                  <Text style={styles.leaderRank}>{rank}</Text>
-                  {m ? (
-                    <>
-                      {m.profilePhotoUrl ? (
-                        <Image
-                          source={{ uri: resolveUrl(m.profilePhotoUrl) ?? m.profilePhotoUrl }}
-                          style={styles.leaderAvatar}
-                        />
-                      ) : (
-                        <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]}>
-                          <Text style={styles.leaderInitials}>
-                            {(m.firstName?.[0] ?? "") + (m.lastName?.[0] ?? "")}
-                          </Text>
-                        </View>
-                      )}
-                      <Text style={styles.leaderName} numberOfLines={1}>
-                        {m.firstName} {m.lastName}
-                      </Text>
-                      <Text style={styles.leaderPoints}>{m.points}</Text>
-                    </>
-                  ) : (
-                    <>
-                      <View style={[styles.leaderAvatar, styles.leaderAvatarPlaceholder]} />
-                      <Text style={styles.leaderEmpty} numberOfLines={1}>—</Text>
-                      <Text style={styles.leaderPoints}>—</Text>
-                    </>
-                  )}
-                </>
-              );
-              return (
-                <Pressable
-                  key={m?.id ?? `empty-${rank}`}
-                  style={({ pressed }) => [styles.leaderRow, pressed && styles.buttonPressed]}
-                  onPress={m ? () => (router.push as (href: string) => void)(`/members/${m.id}`) : undefined}
-                  disabled={!m}
-                >
-                  {row}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
-      </View>
 
       <View style={styles.calendarsBoxWrapper}>
         <View style={styles.calendarsBox}>
@@ -1128,140 +658,6 @@ export default function HomeScreen() {
       <NWCRequestsModal
         visible={nwcRequestModalVisible}
         onClose={() => setNwcRequestModalVisible(false)}
-      />
-
-      <Modal
-        visible={!!selectedPrizeForModal && !top10PrizeGalleryOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setSelectedPrizeForModal(null)}
-      >
-        <View style={styles.top10PrizeModalOverlay}>
-          <Pressable
-            style={styles.top10PrizeModalBackdrop}
-            onPress={() => setSelectedPrizeForModal(null)}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss"
-          />
-          <View style={styles.top10PrizeModalContent}>
-            {selectedPrizeForModal && (
-              <>
-                <View style={styles.top10PrizeModalHeader}>
-                  <Text style={styles.top10PrizeModalTitle} numberOfLines={2}>
-                    {selectedPrizeForModal.rank === 1
-                      ? "1st"
-                      : selectedPrizeForModal.rank === 2
-                        ? "2nd"
-                        : selectedPrizeForModal.rank === 3
-                          ? "3rd"
-                          : `${selectedPrizeForModal.rank}th`}{" "}
-                    Place Prize for {currentSeason?.name ?? "Season"}
-                  </Text>
-                  <Pressable
-                    onPress={() => setSelectedPrizeForModal(null)}
-                    style={styles.top10PrizeModalCloseBtn}
-                    hitSlop={12}
-                  >
-                    <Ionicons name="close" size={28} color={theme.colors.text} />
-                  </Pressable>
-                </View>
-                <ScrollView
-                  style={styles.top10PrizeModalScroll}
-                  showsVerticalScrollIndicator={false}
-                  nestedScrollEnabled
-                >
-                  <View style={styles.top10PrizeModalImageWrap}>
-                    {(() => {
-                      const urls = selectedPrizeForModal.imageUrl
-                        ? [resolveUrl(selectedPrizeForModal.imageUrl)!].filter(Boolean)
-                        : [];
-                      if (urls.length === 0) {
-                        return (
-                          <View style={styles.top10PrizeModalImagePlaceholder}>
-                            <Ionicons name="gift-outline" size={64} color={theme.colors.primary} />
-                            <Text style={styles.top10PrizeModalPlaceholderText}>No image</Text>
-                          </View>
-                        );
-                      }
-                      return (
-                        <FlatList
-                          horizontal
-                          data={urls}
-                          keyExtractor={(u, i) => `${i}-${u}`}
-                          showsHorizontalScrollIndicator={urls.length > 1}
-                          contentContainerStyle={styles.top10PrizePreviewListSingle}
-                          ItemSeparatorComponent={() => <View style={{ width: 10 }} />}
-                          renderItem={({ item, index }) => (
-                            <Pressable
-                              onPress={() => openTop10PrizeGallery([item], index)}
-                              style={styles.top10PrizePreviewThumbPress}
-                            >
-                              <Image
-                                source={{ uri: item }}
-                                style={styles.top10PrizePreviewThumb}
-                                resizeMode="cover"
-                              />
-                            </Pressable>
-                          )}
-                        />
-                      );
-                    })()}
-                  </View>
-                  {selectedPrizeForModal.business && (
-                    <Pressable
-                      onPress={() => {
-                        setSelectedPrizeForModal(null);
-                        (router.push as (href: string) => void)(
-                          `/business/${selectedPrizeForModal.business!.slug}`
-                        );
-                      }}
-                      style={({ pressed }) => [
-                        styles.top10PrizeModalBusiness,
-                        pressed && { opacity: 0.8 },
-                      ]}
-                    >
-                      <Text style={[styles.top10PrizeModalBusinessText, { color: theme.colors.primary }]}>
-                        {selectedPrizeForModal.business.name}
-                      </Text>
-                      <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
-                    </Pressable>
-                  )}
-                  {selectedPrizeForModal.prizeValue ? (
-                    <Text style={styles.top10PrizeModalValue}>
-                      Value: {selectedPrizeForModal.prizeValue}
-                    </Text>
-                  ) : null}
-                  {selectedPrizeForModal.description ? (
-                    <Text style={styles.top10PrizeModalDescription}>
-                      {selectedPrizeForModal.description}
-                    </Text>
-                  ) : null}
-                  {top10?.endDate ? (
-                    <Text style={styles.top10PrizeModalSeasonEnd}>
-                      {currentSeason?.name ?? "Season"} Ends:{" "}
-                      {(() => {
-                        const d = new Date(top10.endDate);
-                        return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-                      })()}
-                    </Text>
-                  ) : null}
-                </ScrollView>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
-
-      <ImageGalleryViewer
-        key={
-          top10PrizeGalleryOpen && top10PrizeGalleryImages.length
-            ? `top10-prize-${top10PrizeGalleryIndex}-${top10PrizeGalleryImages.join("|")}`
-            : "top10-prize-gallery-closed"
-        }
-        visible={top10PrizeGalleryOpen && top10PrizeGalleryImages.length > 0}
-        images={top10PrizeGalleryImages}
-        initialIndex={top10PrizeGalleryIndex}
-        onClose={() => setTop10PrizeGalleryOpen(false)}
       />
     </>
   );

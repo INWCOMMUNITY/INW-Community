@@ -17,7 +17,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
-import { QRCodeDisplayModal } from "@/components/QRCodeDisplayModal";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -30,7 +29,6 @@ const NAV_HEADER_HEIGHT = 44;
 type MenuRow =
   | { type: "route"; href: string; label: string }
   | { type: "coupon"; label: string }
-  | { type: "reward"; label: string }
   | { type: "web"; url: string; label: string };
 
 interface BusinessHubSideMenuProps {
@@ -75,7 +73,6 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const [businesses, setBusinesses] = useState<{ id: string; name: string; slug: string }[]>([]);
-  const [showQRBusiness, setShowQRBusiness] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -132,11 +129,6 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
       router.push("/(tabs)/my-community?open=coupon" as never);
       return;
     }
-    if (row.type === "reward") {
-      setProfileView("business_hub");
-      router.push("/(tabs)/my-community?open=reward" as never);
-      return;
-    }
     router.push(
       `/web?url=${encodeURIComponent(row.url)}&title=${encodeURIComponent(row.label)}` as never
     );
@@ -177,13 +169,6 @@ export function BusinessHubSideMenu({ visible, onClose }: BusinessHubSideMenuPro
         </ScrollView>
         </View>
       </View>
-
-      <QRCodeDisplayModal
-        visible={!!showQRBusiness}
-        onClose={() => setShowQRBusiness(null)}
-        businessId={showQRBusiness?.id ?? null}
-        businessName={showQRBusiness?.name ?? ""}
-      />
     </Modal>
   );
 }
