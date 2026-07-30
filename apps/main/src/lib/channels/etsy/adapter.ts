@@ -159,10 +159,10 @@ export const etsyAdapter: ChannelAdapter = {
         shippingProfileId,
       })
     );
-    const tid = item.etsyTaxonomyId ?? cat.etsyTaxonomyId ?? 1;
-    await pushEtsyVariants(conn.accessToken, externalListingId, tid, item).catch((e) =>
-      console.error("[etsy] variant update failed", { externalListingId, error: String(e) })
-    );
+    // Note: We do NOT call pushEtsyVariants here because it tries to REPLACE the entire
+    // inventory structure. Etsy listings may already have variants with different property_ids.
+    // Instead, updateInventory properly reads existing inventory and updates quantities/prices
+    // while preserving the existing variant structure.
     await this.updateInventory(conn, externalListingId, item.quantity, item);
   },
 
