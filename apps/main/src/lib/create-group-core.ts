@@ -31,7 +31,6 @@ export async function createGroupForMember(
   data: GroupCreationPayload
 ): Promise<{
   group: { id: string; slug: string; name: string };
-  earnedBadges: { slug: string; name: string; description: string }[];
 }> {
   let slug = slugifyGroupName(data.name);
   let suffix = 0;
