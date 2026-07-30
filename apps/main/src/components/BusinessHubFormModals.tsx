@@ -6,7 +6,6 @@ import { useLockBodyScroll } from "@/lib/scroll-lock";
 import Link from "next/link";
 import { CouponForm } from "@/components/CouponForm";
 import { EventForm } from "@/components/EventForm";
-import { RewardForm } from "@/components/RewardForm";
 import { BusinessForm } from "@/components/BusinessForm";
 import { DeleteBusinessButton } from "@/components/DeleteBusinessButton";
 import { CreatePostModal } from "@/components/CreatePostModal";
@@ -31,7 +30,7 @@ interface BusinessHubFormModalsProps {
    */
   sellerHubReturnInForm?: boolean;
   /** Open a hub modal on mount (e.g. ?open=coupon from deep link). */
-  initialOpenModal?: "coupon" | "reward" | "event" | null;
+  initialOpenModal?: "coupon" | "event" | null;
 }
 
 function possessiveBusinessLine1(name: string): string {
@@ -51,7 +50,7 @@ function businessLogoInitials(name: string): string {
 }
 
 const MAX_BUSINESSES = 2;
-type OpenModal = null | "coupon" | "event" | "reward" | "business" | "qr-picker" | "create-post-picker";
+type OpenModal = null | "coupon" | "event" | "business" | "qr-picker" | "create-post-picker";
 type BusinessView = "list" | "add" | "edit";
 
 interface BusinessForForm {
@@ -242,7 +241,6 @@ export function BusinessHubFormModals({
 }: BusinessHubFormModalsProps) {
   const router = useRouter();
   const [openModal, setOpenModal] = useState<OpenModal>(null);
-  const [rewardShowingExplanation, setRewardShowingExplanation] = useState(false);
   const [flyerDownloading, setFlyerDownloading] = useState(false);
   const [businessView, setBusinessView] = useState<BusinessView>("list");
   const [editingBusinessId, setEditingBusinessId] = useState<string | null>(null);
@@ -301,7 +299,6 @@ export function BusinessHubFormModals({
   }
 
   const closeModal = () => {
-    if (openModal === "reward") setRewardShowingExplanation(false);
     if (openModal === "business") {
       setBusinessView("list");
       setEditingBusinessId(null);
@@ -544,34 +541,6 @@ export function BusinessHubFormModals({
               Create Coupon
             </span>
           </button>
-          <button
-            type="button"
-            onClick={() => setOpenModal("reward")}
-            className={mobileGridTile}
-            style={mobileGridTileStyle}
-          >
-            <IonIcon name="gift" size={28} className="text-[var(--color-primary)]" />
-            <span
-              className="text-sm font-semibold text-center leading-tight"
-              style={{ color: "var(--color-heading)" }}
-            >
-              Offer a Reward
-            </span>
-          </button>
-          <Link
-            href="/business-hub/reward-redemptions"
-            prefetch={false}
-            className={mobileGridTile + " no-underline"}
-            style={mobileGridTileStyle}
-          >
-            <IonIcon name="receipt-outline" size={28} className="text-[var(--color-primary)]" />
-            <span
-              className="text-sm font-semibold text-center leading-tight"
-              style={{ color: "var(--color-heading)" }}
-            >
-              Redeemed Rewards
-            </span>
-          </Link>
         </div>
 
         <div className="mt-6 flex flex-col items-stretch text-center">
@@ -731,27 +700,6 @@ export function BusinessHubFormModals({
             Add a coupon to the coupon book. Include business name, discount, code, and optional QR/barcode.
           </p>
         </button>
-        <button
-          type="button"
-          onClick={() => setOpenModal("reward")}
-          className={hubCardClass + " cursor-pointer text-left max-md:text-center"}
-        >
-          <IonIcon name="gift" size={28} className="text-[var(--color-primary)] mb-2" />
-          <h2 className="text-xl font-bold mb-2">Offer a Reward</h2>
-          <p className="text-sm text-gray-600">
-            Offer items, services, or major discounts to community members who collect the most points.
-          </p>
-        </button>
-        <Link
-          href="/business-hub/reward-redemptions"
-          className={hubCardClass + " text-left max-md:text-center"}
-        >
-          <IonIcon name="cube-outline" size={28} className="text-[var(--color-primary)] mb-2" />
-          <h2 className="text-xl font-bold mb-2">Redeemed Rewards</h2>
-          <p className="text-sm text-gray-600">
-            See who redeemed your rewards, contact info for shipped items, and links to fulfillment orders. Shipping is never charged to members for rewards.
-          </p>
-        </Link>
         <button
           type="button"
           onClick={() => setOpenModal("event")}
@@ -932,54 +880,6 @@ export function BusinessHubFormModals({
           <EventForm onSuccess={closeModal} businesses={businesses} />
         </Modal>
       )}
-      {openModal === "reward" && (
-        <Modal title="Offer a Reward" onClose={closeModal}>
-          {rewardShowingExplanation ? (
-            <div className="space-y-6">
-              <p className="text-gray-600">
-                Offer incentives for local residents in the area to choose local businesses. Reward the community members who are most actively supporting local.
-              </p>
-              <h3 className="text-lg font-semibold">How it works</h3>
-              <p className="text-gray-600">
-                Local businesses can offer prizes to community members who collect the most <strong>Community Points</strong> (tracked in the My Community page). Points are earned by supporting local—saving businesses, attending events, using coupons, and engaging with the community.
-              </p>
-              <h3 className="text-lg font-semibold">What you can offer</h3>
-              <ul className="list-disc pl-6 space-y-2 text-gray-600">
-                <li><strong>An item</strong> — A product or gift from your business</li>
-                <li><strong>A service</strong> — A complimentary service or experience</li>
-                <li><strong>A major discount</strong> — A significant discount for top point-earners</li>
-              </ul>
-              <p className="text-gray-600">
-                Your reward goes to residents who are most actively supporting local businesses in the area. It&apos;s a great way to give back to your most engaged customers and encourage others to support local too.
-              </p>
-              <button
-                type="button"
-                onClick={() => setRewardShowingExplanation(false)}
-                className="btn"
-              >
-                Back to form
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div>
-                <p className="text-gray-600 mb-1">
-                  Create a reward that community members can redeem with their Community Points. Set the points required and how many times it can be redeemed before it&apos;s removed from the rewards page.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setRewardShowingExplanation(true)}
-                  className="btn text-white hover:text-[var(--color-primary)] py-0.5"
-                >
-                  Offer a Reward? — How it works
-                </button>
-              </div>
-              <RewardForm onSuccess={closeModal} />
-            </div>
-          )}
-        </Modal>
-      )}
-
       {openModal === "qr-picker" && (
         <Modal title="Show QR Code for" onClose={closeModal}>
           <div className="flex flex-col gap-3">

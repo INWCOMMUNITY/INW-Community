@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { BadgeIcon } from "@/lib/badge-icons";
 
 export interface NwcRequestFormBodyProps {
   /** Show subject line (e.g. full contact page, app support). */
@@ -29,8 +28,6 @@ export function NwcRequestFormBody({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
-  const [earnedBadges, setEarnedBadges] = useState<{ slug: string; name: string; description: string }[]>([]);
-  const [badgePopupIndex, setBadgePopupIndex] = useState(-1);
 
   useEffect(() => {
     if (session?.user) {
@@ -79,48 +76,21 @@ export function NwcRequestFormBody({
         return;
       }
       setLoading(false);
-      const badges = Array.isArray(data.earnedBadges)
-        ? (data.earnedBadges as { slug: string; name: string; description: string }[]).filter((b) => b?.slug)
-        : [];
       setMessage("");
       if (showSubject) setSubject("");
-      if (badges.length > 0) {
-        setEarnedBadges(badges);
-        setBadgePopupIndex(0);
-      } else {
-        setSent(true);
-        runAfterThankYou();
-      }
+      setSent(true);
+      runAfterThankYou();
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
     }
   }
 
-  const finishAfterBadges = () => {
-    setEarnedBadges([]);
-    setBadgePopupIndex(-1);
-    setSent(true);
-    runAfterThankYou();
-  };
-
-  const handleCloseBadgePopup = () => {
-    if (badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length - 1) {
-      setBadgePopupIndex((i) => i + 1);
-    } else {
-      finishAfterBadges();
-    }
-  };
-
-  const activeBadge =
-    badgePopupIndex >= 0 && badgePopupIndex < earnedBadges.length ? earnedBadges[badgePopupIndex] : null;
-
   const inputClass =
     "w-full border border-gray-300 rounded px-3 py-2 mb-3 focus:ring focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]";
   const labelClass = "block text-sm font-medium text-gray-700 mb-1";
 
   return (
-    <>
       <form onSubmit={handleSubmit} className={formClassName}>
         <p className="text-gray-600 text-sm mb-4">
           Send a request or message to the Northwest Community team.
@@ -205,45 +175,5 @@ export function NwcRequestFormBody({
           </>
         )}
       </form>
-
-      {activeBadge ? (
-        <div
-          className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="badge-earned-title"
-        >
-          <div className="relative w-full max-w-sm rounded-2xl border-[3px] border-[var(--color-primary)] bg-white p-7 shadow-xl text-center">
-            <button
-              type="button"
-              onClick={handleCloseBadgePopup}
-              className="absolute top-3 right-3 p-1 rounded text-gray-500 hover:bg-gray-100"
-              aria-label="Close"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-                <path
-                  fillRule="evenodd"
-                  d="M5.47 5.47a.75.75 0 011.06 0L12 10.94l5.47-5.47a.75.75 0 111.06 1.06L13.06 12l5.47 5.47a.75.75 0 11-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 01-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 010-1.06z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
-            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
-              <BadgeIcon slug={activeBadge.slug} size={48} />
-            </div>
-            <p className="text-xl font-bold text-[var(--color-heading,#333)]">Congrats!</p>
-            <h3 id="badge-earned-title" className="mt-1 text-lg font-semibold text-[var(--color-primary)]">
-              You earned &quot;{activeBadge.name}&quot;!
-            </h3>
-            {activeBadge.description ? (
-              <p className="mt-3 text-sm text-gray-600 leading-relaxed">{activeBadge.description}</p>
-            ) : null}
-            <button type="button" onClick={handleCloseBadgePopup} className="btn mt-6 w-full">
-              Awesome!
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </>
   );
 }

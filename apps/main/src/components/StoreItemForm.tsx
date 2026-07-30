@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useMemo, type CSSProperties } from "r
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
-import { BadgeEarnedStackOverlay, type EarnedBadgeForOverlay } from "@/components/BadgeEarnedStackOverlay";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
 import {
   STORE_CATEGORIES,
@@ -170,8 +169,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [submitting, setSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
-  const [listingEarnedBadges, setListingEarnedBadges] = useState<EarnedBadgeForOverlay[]>([]);
-  const [listingBadgePopupIndex, setListingBadgePopupIndex] = useState(-1);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -205,7 +202,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       .catch(() => setOfferFlagsLoaded(true));
   }, [existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms]);
 
-  useLockBodyScroll(showSuccessModal || listingBadgePopupIndex >= 0);
+  useLockBodyScroll(showSuccessModal);
 
   const minOfferSliderMax = useMemo(() => {
     const raw = priceDollars.replace(/,/g, "").trim();
@@ -217,21 +214,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   useEffect(() => {
     setMinOfferSliderDollars((v) => Math.min(v, minOfferSliderMax));
   }, [minOfferSliderMax]);
-
-  const activeListingBadge =
-    listingBadgePopupIndex >= 0 && listingBadgePopupIndex < listingEarnedBadges.length
-      ? listingEarnedBadges[listingBadgePopupIndex]
-      : null;
-
-  function handleCloseListingBadgePopup() {
-    if (listingBadgePopupIndex >= 0 && listingBadgePopupIndex < listingEarnedBadges.length - 1) {
-      setListingBadgePopupIndex((i) => i + 1);
-      return;
-    }
-    setListingEarnedBadges([]);
-    setListingBadgePopupIndex(-1);
-    setShowSuccessModal(true);
-  }
 
   useEffect(() => {
     Promise.all([
@@ -535,20 +517,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         return;
       }
       setEditSuccess(!!existing);
-      if (!existing) {
-        const earnedRaw = data.earnedBadges;
-        const badges = Array.isArray(earnedRaw)
-          ? (earnedRaw as EarnedBadgeForOverlay[]).filter((b) => b?.slug && b?.name)
-          : [];
-        if (badges.length > 0) {
-          setListingEarnedBadges(badges);
-          setListingBadgePopupIndex(0);
-        } else {
-          setShowSuccessModal(true);
-        }
-      } else {
-        setShowSuccessModal(true);
-      }
+      setShowSuccessModal(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -617,7 +586,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
 
   return (
     <>
-    <BadgeEarnedStackOverlay badge={activeListingBadge} onDismiss={handleCloseListingBadgePopup} />
     <form onSubmit={handleSubmit} className="space-y-6 max-w-xl mx-auto text-center">
       {businesses.length > 1 && (
         <div>
