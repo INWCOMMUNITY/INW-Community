@@ -325,10 +325,6 @@ export default function SupportLocalScreen() {
     router.push("/coupons");
   };
 
-  const openRewards = () => {
-    router.push("/rewards");
-  };
-
   const cardWidth = (width - CARD_PADDING * 2 - CARD_GAP) / 2;
 
   const styles = useMemo(
@@ -721,24 +717,7 @@ export default function SupportLocalScreen() {
               />
             </View>
           </View>
-          <View style={styles.logoRowSideRight}>
-            <Pressable
-              style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
-              onPress={openRewards}
-            >
-              <View style={styles.headerButtonInner}>
-                <Ionicons name="gift-outline" size={22} color="#000" />
-                <Text
-                  style={styles.headerButtonText}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.38}
-                >
-                  Rewards
-                </Text>
-              </View>
-            </Pressable>
-          </View>
+          <View style={styles.logoRowSideRight} />
         </View>
         <Text style={styles.headerRegion}>Eastern Washington & North Idaho</Text>
         <Pressable
