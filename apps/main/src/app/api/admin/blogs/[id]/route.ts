@@ -27,19 +27,7 @@ export async function PATCH(
       where: { id },
       data: { status },
     });
-    let earnedBadges: { slug: string; name: string; description: string }[] = [];
-    if (status === "approved" && existing.status === "pending") {
-      try {
-        const { awardCommunityWriterBadge } = await import("@/lib/badge-award");
-        earnedBadges = await awardCommunityWriterBadge(existing.memberId);
-      } catch {
-        /* best-effort */
-      }
-    }
-    return NextResponse.json({
-      ok: true,
-      ...(earnedBadges.length > 0 ? { earnedBadges } : {}),
-    });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });

@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { awardCouponRedeemBadges, type EarnedBadge } from "@/lib/badge-award";
-import { refreshMemberBadgeProgress } from "@/lib/member-badge-progress";
-import { awardPoints } from "@/lib/award-points";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { isCouponActiveByExpiresAt } from "@/lib/coupon-expiration";
-
-const POINTS_PER_REDEEM = 10;
 
 export async function POST(
   req: NextRequest,
@@ -85,7 +80,6 @@ export async function POST(
       data: {
         couponId: id,
         memberId: userId,
-        pointsAwarded: POINTS_PER_REDEEM,
       },
     }),
     prisma.member.update({
@@ -93,28 +87,10 @@ export async function POST(
       data: { couponsRedeemed: { increment: 1 } },
     }),
   ]);
-  await awardPoints(userId, POINTS_PER_REDEEM);
-
-  let earnedBadges: EarnedBadge[] = [];
-  try {
-    await refreshMemberBadgeProgress(userId);
-    earnedBadges = await awardCouponRedeemBadges(userId);
-  } catch {
-    // badge errors shouldn't block coupon redemption
-  }
-
-  const member = await prisma.member.findUnique({
-    where: { id: userId },
-    select: { points: true },
-  });
-  const totalPoints = member?.points ?? POINTS_PER_REDEEM;
 
   return NextResponse.json({
     ok: true,
-    pointsAwarded: POINTS_PER_REDEEM,
-    totalPoints,
     usedThisMonth: usedThisMonth + 1,
     maxMonthlyUses: coupon.maxMonthlyUses,
-    earnedBadges,
   });
 }

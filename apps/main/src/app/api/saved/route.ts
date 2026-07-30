@@ -5,7 +5,7 @@ import { prisma, type SavedItemType } from "database";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  type: z.enum(["event", "business", "coupon", "store_item", "blog", "post", "reward"]),
+  type: z.enum(["event", "business", "coupon", "store_item", "blog", "post"]),
   referenceId: z.string().min(1).max(100),
 });
 
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
   }
   const { searchParams } = new URL(req.url);
   const type = searchParams.get("type");
-  const validTypes: SavedItemType[] = ["event", "business", "coupon", "store_item", "blog", "post", "reward"];
+  const validTypes: SavedItemType[] = ["event", "business", "coupon", "store_item", "blog", "post"];
   const where: { memberId: string; type?: SavedItemType } = { memberId: session.user.id };
   if (type && validTypes.includes(type as SavedItemType)) where.type = type as SavedItemType;
   const items = await prisma.savedItem.findMany({

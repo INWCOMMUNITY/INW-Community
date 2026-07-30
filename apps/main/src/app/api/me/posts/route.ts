@@ -50,13 +50,12 @@ export async function GET(req: NextRequest) {
     collectTaggedBusinessIdsFromPosts(items)
   );
   const sourceCouponIds = items.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
-  const sourceRewardIds = items.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
   const sourceEventIds = items.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
   const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
   const postGroupIds = items.filter((p) => p.groupId).map((p) => p.groupId!);
 
-  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, groups, likes, likeCounts, commentCounts, shareCountMap] = await Promise.all([
+  const [blogs, businesses, coupons, storeItems, events, sourcePosts, groups, likes, likeCounts, commentCounts, shareCountMap] = await Promise.all([
     sourceBlogIds.length > 0
       ? prisma.blog.findMany({
           where: { id: { in: sourceBlogIds } },
@@ -76,12 +75,6 @@ export async function GET(req: NextRequest) {
     sourceCouponIds.length > 0
       ? prisma.coupon.findMany({
           where: { id: { in: sourceCouponIds } },
-          include: { business: { select: { id: true, name: true, slug: true } } },
-        })
-      : [],
-    sourceRewardIds.length > 0
-      ? prisma.reward.findMany({
-          where: { id: { in: sourceRewardIds } },
           include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
@@ -135,7 +128,6 @@ export async function GET(req: NextRequest) {
   const blogMap = Object.fromEntries(blogs.map((b) => [b.id, b]));
   const businessMap = Object.fromEntries(businesses.map((b) => [b.id, b]));
   const couponMap = Object.fromEntries(coupons.map((c) => [c.id, c]));
-  const rewardMap = Object.fromEntries(rewards.map((r) => [r.id, r]));
   const groupMap = Object.fromEntries((groups as { id: string; name: string; slug: string }[]).map((g) => [g.id, g]));
   const likedSet = new Set(likes.map((l) => l.postId));
   const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.postId, l._count.postId]));
@@ -145,10 +137,9 @@ export async function GET(req: NextRequest) {
   const sourcePostBlogIds = sourcePosts.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
   const sourcePostBusinessIds = sourcePosts.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
   const sourcePostCouponIds = sourcePosts.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
-  const sourcePostRewardIds = sourcePosts.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourcePostStoreItemIds = sourcePosts.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
   const sourcePostEventIds = sourcePosts.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
-  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostRewards, sourcePostStoreItems, sourcePostEvents] = await Promise.all([
+  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostStoreItems, sourcePostEvents] = await Promise.all([
     sourcePostBlogIds.length > 0
       ? prisma.blog.findMany({
           where: { id: { in: sourcePostBlogIds } },
@@ -168,12 +159,6 @@ export async function GET(req: NextRequest) {
     sourcePostCouponIds.length > 0
       ? prisma.coupon.findMany({
           where: { id: { in: sourcePostCouponIds } },
-          include: { business: { select: { id: true, name: true, slug: true } } },
-        })
-      : [],
-    sourcePostRewardIds.length > 0
-      ? prisma.reward.findMany({
-          where: { id: { in: sourcePostRewardIds } },
           include: { business: { select: { id: true, name: true, slug: true } } },
         })
       : [],
@@ -207,7 +192,6 @@ export async function GET(req: NextRequest) {
   const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, b]));
   const sourcePostBusinessMap = Object.fromEntries(sourcePostBusinesses.map((b) => [b.id, b]));
   const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
-  const sourcePostRewardMap = Object.fromEntries(sourcePostRewards.map((r) => [r.id, r]));
   const sourcePostMap = Object.fromEntries(
     sourcePosts.map((p) => [
       p.id,
@@ -217,7 +201,6 @@ export async function GET(req: NextRequest) {
         sourceBlog: p.sourceBlogId ? (sourcePostBlogMap[p.sourceBlogId] ?? blogMap[p.sourceBlogId] ?? null) : null,
         sourceBusiness: p.sourceBusinessId ? (sourcePostBusinessMap[p.sourceBusinessId] ?? businessMap[p.sourceBusinessId] ?? null) : null,
         sourceCoupon: p.sourceCouponId ? (sourcePostCouponMap[p.sourceCouponId] ?? couponMap[p.sourceCouponId] ?? null) : null,
-        sourceReward: p.sourceRewardId ? (sourcePostRewardMap[p.sourceRewardId] ?? rewardMap[p.sourceRewardId] ?? null) : null,
         sourceStoreItem: p.sourceStoreItemId ? (feedStoreItemMap[p.sourceStoreItemId] ?? null) : null,
         sourceEvent: p.sourceEventId ? (eventMap[p.sourceEventId] ?? null) : null,
       },
@@ -232,7 +215,6 @@ export async function GET(req: NextRequest) {
       sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
       taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
       sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
-      sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
       sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,
       sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
       sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,

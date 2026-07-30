@@ -120,14 +120,7 @@ export async function POST(req: NextRequest) {
         authorId: session.user.id,
       });
     }
-    const { awardCommunityPlannerBadge } = await import("@/lib/badge-award");
-    let earnedBadges: { slug: string; name: string; description: string }[] = [];
-    try {
-      earnedBadges = await awardCommunityPlannerBadge(session.user.id);
-    } catch {
-      /* best-effort */
-    }
-    return NextResponse.json({ ok: true, earnedBadges });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });

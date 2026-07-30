@@ -3,7 +3,6 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "database";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
-import { awardMemberSignupBadges } from "@/lib/badge-award";
 import { normalizeResidentCity } from "@/lib/city-utils";
 import { validateMemberDisplayNameFields } from "@/lib/member-display-name-policy";
 import { issueEmailVerification } from "@/lib/email-verification";
@@ -123,15 +122,10 @@ export async function POST(req: NextRequest) {
       if (needsEmailVerification) {
         verificationEmailSent = await issueEmailVerification(member.id, member.email);
       }
-      let earnedBadges: Awaited<ReturnType<typeof awardMemberSignupBadges>> = [];
-      if (!needsEmailVerification) {
-        earnedBadges = await awardMemberSignupBadges(member.id, intent).catch(() => []);
-      }
       return NextResponse.json({
         ok: true,
         requiresEmailVerification: needsEmailVerification,
         ...(needsEmailVerification ? { verificationEmailSent } : {}),
-        earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [],
       });
     }
 
@@ -173,15 +167,10 @@ export async function POST(req: NextRequest) {
     if (needsEmailVerification) {
       verificationEmailSent = await issueEmailVerification(member.id, member.email);
     }
-    let earnedBadges: Awaited<ReturnType<typeof awardMemberSignupBadges>> = [];
-    if (!needsEmailVerification) {
-      earnedBadges = await awardMemberSignupBadges(member.id, intent).catch(() => []);
-    }
     return NextResponse.json({
       ok: true,
       requiresEmailVerification: needsEmailVerification,
       ...(needsEmailVerification ? { verificationEmailSent } : {}),
-      earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [],
     });
   } catch (e) {
     if (e instanceof z.ZodError) {

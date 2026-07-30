@@ -29,21 +29,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const limit = Math.min(parseInt(new URL(req.url).searchParams.get("limit") ?? "30", 10) || 30, 100);
   const cursor = new URL(req.url).searchParams.get("cursor") ?? undefined;
 
-  const [couponRows, rewardRows, excludedAuthors] = await Promise.all([
+  const [couponRows, excludedAuthors] = await Promise.all([
     prisma.coupon.findMany({
       where: { AND: [{ businessId: business.id }, couponPublicActiveWhere()] },
       select: { id: true },
     }),
-    prisma.reward.findMany({ where: { businessId: business.id }, select: { id: true } }),
     viewerId ? getFeedExcludedAuthorIds(viewerId) : Promise.resolve([] as string[]),
   ]);
   const couponIds = couponRows.map((c) => c.id);
-  const rewardIds = rewardRows.map((r) => r.id);
 
-  const orClause: { sourceBusinessId?: string; sourceCouponId?: { in: string[] }; sourceRewardId?: { in: string[] } }[] =
+  const orClause: { sourceBusinessId?: string; sourceCouponId?: { in: string[] } }[] =
     [{ sourceBusinessId: business.id }];
   if (couponIds.length) orClause.push({ sourceCouponId: { in: couponIds } });
-  if (rewardIds.length) orClause.push({ sourceRewardId: { in: rewardIds } });
 
   const where = {
     OR: orClause,

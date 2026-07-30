@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { BadgeIcon } from "@/lib/badge-icons";
 import { IonIcon } from "@/components/IonIcon";
 
 interface MemberProfile {
@@ -13,13 +12,6 @@ interface MemberProfile {
   profilePhotoUrl: string | null;
   city: string | null;
   bio: string | null;
-  points: number | null;
-}
-
-interface MemberBadge {
-  id: string;
-  badge: { slug: string; name: string };
-  displayOnProfile: boolean;
 }
 
 const PROFILE_BUTTONS = [
@@ -29,21 +21,16 @@ const PROFILE_BUTTONS = [
   { href: "/my-community/coupons", label: "My Coupons", icon: "pricetag-outline" },
   { href: "/my-community/wantlist", label: "My Wishlist", icon: "heart-outline" },
   { href: "/my-community/orders", label: "My Orders", icon: "receipt-outline" },
-  { href: "/my-community/my-rewards", label: "My Rewards", icon: "gift-outline" },
-  { href: "/my-community/my-badges", label: "My Badges", icon: "ribbon-outline" },
 ] as const;
 
 export default function MyCommunityProfilePage() {
   const [member, setMember] = useState<MemberProfile | null>(null);
-  const [badges, setBadges] = useState<MemberBadge[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/me", { credentials: "include" }).then((r) => r.json()),
-      fetch("/api/me/badges", { credentials: "include" }).then((r) => r.json()),
-    ])
-      .then(([meData, badgesData]) => {
+    fetch("/api/me", { credentials: "include" })
+      .then((r) => r.json())
+      .then((meData) => {
         if (meData?.id) {
           setMember({
             id: meData.id,
@@ -52,13 +39,8 @@ export default function MyCommunityProfilePage() {
             profilePhotoUrl: meData.profilePhotoUrl ?? null,
             city: meData.city ?? null,
             bio: meData.bio ?? null,
-            points: meData.points ?? 0,
           });
         }
-        const list = (badgesData?.memberBadges ?? []).filter(
-          (mb: MemberBadge) => mb.displayOnProfile
-        );
-        setBadges(list);
       })
       .catch(() => setMember(null))
       .finally(() => setLoading(false));
@@ -111,42 +93,6 @@ export default function MyCommunityProfilePage() {
           </p>
           <div className="w-full h-0.5 bg-[var(--color-primary)] my-4 max-w-lg mx-auto" />
         </div>
-
-        <div className="mb-4">
-          <div className="border-2 border-[var(--color-primary)] rounded-lg px-4 py-3 bg-white">
-            <span className="text-sm font-medium text-gray-900">
-              {member.points ?? 0} points
-            </span>
-          </div>
-        </div>
-
-        {badges.length > 0 && (
-          <Link
-            href="/my-community/my-badges"
-            className="flex items-center justify-between border-2 border-[var(--color-primary)] rounded-lg px-4 py-3 mb-4 bg-white hover:opacity-90 transition"
-          >
-            <div className="flex items-center gap-2 flex-wrap">
-              {badges.slice(0, 6).map((mb) => (
-                <span
-                  key={mb.id}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-[var(--color-primary)]"
-                  style={{ backgroundColor: "color-mix(in srgb, var(--color-primary) 12%, white)" }}
-                >
-                  <BadgeIcon slug={mb.badge.slug} size={20} />
-                </span>
-              ))}
-              {badges.length > 6 && (
-                <span className="text-sm font-semibold text-[var(--color-primary)]">
-                  +{badges.length - 6}
-                </span>
-              )}
-            </div>
-            <span className="text-sm font-semibold text-[var(--color-primary)] flex items-center gap-1">
-              {badges.length} badge{badges.length !== 1 ? "s" : ""}
-              <IonIcon name="chevron-forward" size={16} />
-            </span>
-          </Link>
-        )}
 
         <Link
           href="/my-community/posts"

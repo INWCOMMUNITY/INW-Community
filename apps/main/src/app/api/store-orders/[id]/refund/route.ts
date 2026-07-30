@@ -4,7 +4,6 @@ import { prisma } from "database";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
-import { deductPoints } from "@/lib/award-points";
 import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
@@ -105,9 +104,6 @@ export async function POST(
       } catch {
         // fee is optional; omit or leave null
       }
-      if (order.pointsAwarded > 0) {
-        await deductPoints(order.buyerId, order.pointsAwarded);
-      }
       return NextResponse.json({ ok: true, stripeFeeCents });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Refund failed";
@@ -195,10 +191,6 @@ export async function POST(
         }
       }
     });
-
-    if (order.pointsAwarded > 0) {
-      await deductPoints(order.buyerId, order.pointsAwarded);
-    }
 
     // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
     await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));

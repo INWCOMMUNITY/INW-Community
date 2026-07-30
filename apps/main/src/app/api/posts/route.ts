@@ -68,7 +68,6 @@ export async function POST(req: NextRequest) {
     let groupId: string | null = null;
     let sourceBusinessId: string | null = null;
     let sourceCouponId: string | null = null;
-    let sourceRewardId: string | null = null;
     let sourceStoreItemId: string | null = null;
 
     if (data.groupId) {
@@ -85,7 +84,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (data.sharedItemType && data.sharedItemId) {
-      type = `shared_${data.sharedItemType}` as "shared_business" | "shared_coupon" | "shared_reward" | "shared_store_item";
+      type = `shared_${data.sharedItemType}` as "shared_business" | "shared_coupon" | "shared_store_item";
       if (data.sharedItemType === "business") {
         const biz = await prisma.business.findUnique({
           where: { id: data.sharedItemId },
@@ -96,7 +95,6 @@ export async function POST(req: NextRequest) {
         }
         sourceBusinessId = data.sharedItemId;
       } else if (data.sharedItemType === "coupon") sourceCouponId = data.sharedItemId;
-      else if (data.sharedItemType === "reward") sourceRewardId = data.sharedItemId;
       else if (data.sharedItemType === "store_item") sourceStoreItemId = data.sharedItemId;
     }
 
@@ -183,7 +181,6 @@ export async function POST(req: NextRequest) {
         taggedBusinessIds,
         sourceBusinessId,
         sourceCouponId,
-        sourceRewardId,
         sourceStoreItemId,
       },
     });

@@ -346,14 +346,7 @@ export async function POST(req: NextRequest) {
         await linkAllUnscopedStoreItemsToBusiness(session.user.id, business.id);
       }
     }
-    const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-    let earnedBadges: { slug: string; name: string; description: string }[] = [];
-    try {
-      earnedBadges = await awardBusinessSignupBadges(business.id);
-    } catch {
-      /* badge errors shouldn't block business create */
-    }
-    return NextResponse.json({ ok: true, earnedBadges });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
       const msg = e.errors.map((err) => err.message).join(". ") || "Validation failed";

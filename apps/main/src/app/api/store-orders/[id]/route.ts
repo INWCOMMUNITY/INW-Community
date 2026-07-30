@@ -2,13 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import {
-  isLocalDeliveryFullyConfirmed,
-  isPickupFullyConfirmed,
   nextStatusAfterFulfillmentConfirmations,
   orderHasShippedLine,
   orderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
-import { tryReleaseBuyerPointsForOrder } from "@/lib/store-order-buyer-points";
 import {
   normalizeLooseAddressSnapshot,
   resolveOrderShipToAddress,
@@ -247,35 +244,5 @@ export async function PATCH(
     data,
   });
 
-  await tryReleaseBuyerPointsForOrder(id);
-
-  const deliveryJustCompleted =
-    isLocalDeliveryFullyConfirmed(order) &&
-    !(existing.deliveryConfirmedAt && existing.deliveryBuyerConfirmedAt);
-  const pickupJustCompleted =
-    isPickupFullyConfirmed(order) &&
-    !(existing.pickupSellerConfirmedAt && existing.pickupBuyerConfirmedAt);
-
-  const statusBecameDelivered =
-    order.status === "delivered" && (prevStatus === "paid" || prevStatus === "shipped");
-  const shouldAwardBadges =
-    order.sellerId && (statusBecameDelivered || deliveryJustCompleted || pickupJustCompleted);
-
-  let earnedBadges: { slug: string; name: string; description: string }[] = [];
-  if (shouldAwardBadges) {
-    const { awardSellerTierBadges, awardSellerDeliveryBadge, awardSellerPickupBadge } = await import("@/lib/badge-award");
-    try {
-      const [tierBadges, deliveryBadges, pickupBadges] = await Promise.all([
-        awardSellerTierBadges(order.sellerId!),
-        awardSellerDeliveryBadge(order.sellerId!),
-        awardSellerPickupBadge(order.sellerId!),
-      ]);
-      earnedBadges = [...tierBadges, ...deliveryBadges, ...pickupBadges];
-    } catch {
-      // badge errors shouldn't block order update
-    }
-  }
-  const earnedBadgesForViewer =
-    order.sellerId && userId === order.sellerId ? earnedBadges : [];
-  return NextResponse.json({ ...order, earnedBadges: earnedBadgesForViewer });
+  return NextResponse.json({ ...order });
 }

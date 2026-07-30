@@ -5,7 +5,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
-import { deductPoints } from "@/lib/award-points";
 import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 
 const CANCEL_REASONS = [
@@ -103,9 +102,6 @@ export async function POST(
         }
       }
     });
-    if (order.pointsAwarded > 0) {
-      await deductPoints(order.buyerId, order.pointsAwarded);
-    }
     // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
     await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
     return NextResponse.json({ ok: true, refunded: false });
@@ -200,10 +196,6 @@ export async function POST(
         }
       }
     });
-
-    if (order.pointsAwarded > 0) {
-      await deductPoints(order.buyerId, order.pointsAwarded);
-    }
 
     // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
     await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));

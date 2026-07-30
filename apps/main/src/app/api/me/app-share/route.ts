@@ -3,8 +3,6 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { awardSpreadingTheWordBadge } from "@/lib/badge-award";
-import { refreshMemberBadgeProgress } from "@/lib/member-badge-progress";
 
 const SPREAD_TARGET = 5;
 
@@ -38,16 +36,10 @@ export async function POST(req: NextRequest) {
     data: { memberId: userId },
   });
 
-  const [earnedBadges] = await Promise.all([
-    awardSpreadingTheWordBadge(userId),
-    refreshMemberBadgeProgress(userId),
-  ]);
-
   const count = await prisma.memberAppShare.count({ where: { memberId: userId } });
 
   return NextResponse.json({
     count,
     target: SPREAD_TARGET,
-    earnedBadges,
   });
 }

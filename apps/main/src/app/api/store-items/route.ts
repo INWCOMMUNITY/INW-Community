@@ -6,7 +6,6 @@ import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
-import { REWARD_PLACEHOLDER_TITLE } from "@/lib/reward-fulfillment-store-item";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { recordSellerListingView } from "@/lib/record-seller-listing-view";
@@ -440,8 +439,7 @@ export async function GET(req: NextRequest) {
       condition?: string;
       status?: string;
       quantity?: { gt: number };
-      NOT?: { title: string };
-    } = { memberId: userId, NOT: { title: REWARD_PLACEHOLDER_TITLE } };
+    } = { memberId: userId };
     if (condition) where.condition = condition;
     // My Items tabs: active (live), ended (inactive), sold (sold_out). No filter = all.
     const soldOnly = searchParams.get("sold") === "1";
@@ -835,13 +833,6 @@ export async function POST(req: NextRequest) {
         slug,
       },
     });
-    const { awardNwcSellerBadge } = await import("@/lib/badge-award");
-    let earnedBadges: { slug: string; name: string; description: string }[] = [];
-    try {
-      earnedBadges = await awardNwcSellerBadge(item.memberId);
-    } catch {
-      /* best-effort */
-    }
     // Log activity
     const { logSellerActivity } = await import("@/lib/seller-activity-log");
     logSellerActivity(userId, "item_created", "store_item", item.id, {
@@ -880,7 +871,7 @@ export async function POST(req: NextRequest) {
       console.error("[store-items] Channel publish failed:", err);
     }
 
-    return NextResponse.json({ ...item, earnedBadges, channelSync });
+    return NextResponse.json({ ...item, channelSync });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const isConn = /P1001|ECONNREFUSED|connect/i.test(msg);

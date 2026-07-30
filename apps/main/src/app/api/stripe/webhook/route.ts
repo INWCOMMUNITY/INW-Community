@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, Prisma } from "database";
-import { awardPoints } from "@/lib/award-points";
-import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-points";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
@@ -13,7 +11,6 @@ import {
 } from "@/lib/post-sale-inventory-cleanup";
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
-import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { stripeSubscriptionStatusToDb } from "@/lib/stripe-subscription-db-status";
 import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
 import { removeNwcMemberPerksAfterSubscriptionEnd } from "@/lib/nwc-subscription-perk-cleanup";
@@ -141,7 +138,7 @@ async function createBusinessFromMetadata(
     slug = `${slugify(name)}-${++suffix}`;
   }
 
-  const business = await prisma.business.create({
+  await prisma.business.create({
     data: {
       memberId,
       name,
@@ -161,8 +158,6 @@ async function createBusinessFromMetadata(
       hoursOfOperation,
     },
   });
-  const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-  awardBusinessSignupBadges(business.id).catch(() => {});
 }
 
 export async function POST(req: NextRequest) {
@@ -374,12 +369,6 @@ export async function POST(req: NextRequest) {
         }
       } else if ((planId === "sponsor" || planId === "seller") && businessIdFromMeta) {
         if (process.env.NODE_ENV === "development") console.log("[webhook] Business already created as draft:", businessIdFromMeta);
-        try {
-          const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-          await awardBusinessSignupBadges(businessIdFromMeta);
-        } catch (badgeErr) {
-          console.error("[webhook] checkout.session.completed: business signup badges", badgeErr);
-        }
       }
       if (planId === "seller") {
         migrateResaleItemsForSellerMember(memberId).catch((err) =>
@@ -424,11 +413,6 @@ export async function POST(req: NextRequest) {
           totalCents,
           subtotalCents
         );
-        let pointsAwarded = Math.round(totalCents / 200);
-        const paidBuyer = await prisma.subscription.findFirst({
-          where: prismaWhereActivePaidNwcPlan(buyerId),
-        });
-        if (paidBuyer) pointsAwarded *= 2;
         const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : null;
         let shippingAddress: unknown = null;
         try {
@@ -473,7 +457,6 @@ export async function POST(req: NextRequest) {
             localDeliveryDetails: localDeliveryDetails === null ? Prisma.JsonNull : (localDeliveryDetails as object),
             stripeCheckoutSessionId: session.id,
             stripePaymentIntentId: paymentIntentId,
-            pointsAwarded,
           },
         });
         assertPreTaxSplitMatchesOrderTotal(
@@ -522,13 +505,6 @@ export async function POST(req: NextRequest) {
           await syncStoreItemsAfterSale(legacySyncItemIds, "[webhook:checkout.session.completed]");
         }
 
-        if (!orderQualifiesForDeferredBuyerPoints(orderItems)) {
-          await awardPoints(buyerId, pointsAwarded);
-        }
-
-        const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
-        awardLocalBusinessProBadge(buyerId).catch(() => {});
-
         const sellerCreditsCents = sellerTransferCents;
         await prisma.sellerBalance.upsert({
           where: { memberId: sellerId },
@@ -559,19 +535,6 @@ export async function POST(req: NextRequest) {
           data: { screen: "seller-hub/orders", orderId: order.id },
           category: "commerce",
         }).catch(() => {});
-
-        const storeItemIds = orderItems.map((oi) => oi.storeItemId);
-        const storeItems = await prisma.storeItem.findMany({
-          where: { id: { in: storeItemIds } },
-          select: { condition: true },
-        });
-        const allResale =
-          storeItems.length === storeItemIds.length &&
-          storeItems.every((s) => s.condition === "used");
-        if (allResale) {
-          const sellerPoints = Math.round(totalCents / 100);
-          await awardPoints(sellerId, sellerPoints);
-        }
 
         if (shippingCostCents > 0) {
           try {
@@ -626,9 +589,7 @@ export async function POST(req: NextRequest) {
       // Idempotency: do not process the same payment twice (Stripe may redeliver payment_intent.succeeded)
       if (order.status === "paid" && order.stripePaymentIntentId === paymentIntent.id) {
         // Redelivery after a timeout could mean the first pass's channel sync didn't finish — re-push.
-        if (order.orderKind !== "reward_redemption") {
-          for (const oi of order.items) piSyncStoreItemIds.add(oi.storeItemId);
-        }
+        for (const oi of order.items) piSyncStoreItemIds.add(oi.storeItemId);
         continue;
       }
 
@@ -703,19 +664,11 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const totalCents = order.totalCents;
-      let pointsAwarded = Math.round(totalCents / 200);
-      const paidBuyer = await prisma.subscription.findFirst({
-        where: prismaWhereActivePaidNwcPlan(order.buyerId),
-      });
-      if (paidBuyer) pointsAwarded *= 2;
-
       await prisma.storeOrder.update({
         where: { id: order.id },
         data: {
           status: "paid",
           stripePaymentIntentId: paymentIntent.id,
-          pointsAwarded,
         },
       });
 
@@ -780,10 +733,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (!orderQualifiesForDeferredBuyerPoints(order.items)) {
-        await awardPoints(order.buyerId, pointsAwarded);
-      }
-
       if (!isConnectEvent) {
         const { platformFeeCents, salesTaxReserveCents, sellerTransferCents } = computeSellerTransferCents(
           order.totalCents,
@@ -838,18 +787,6 @@ export async function POST(req: NextRequest) {
         category: "commerce",
       }).catch(() => {});
 
-      const storeItemIds = order.items.map((oi) => oi.storeItemId);
-      const storeItems = await prisma.storeItem.findMany({
-        where: { id: { in: storeItemIds } },
-        select: { condition: true },
-      });
-      const allResale =
-        storeItems.length === storeItemIds.length &&
-        storeItems.every((s) => s.condition === "used");
-      if (allResale) {
-        const sellerPoints = Math.round(totalCents / 100);
-        await awardPoints(order.sellerId, sellerPoints);
-      }
     }
 
     if (piSyncStoreItemIds.size > 0) {
@@ -909,12 +846,6 @@ export async function POST(req: NextRequest) {
               }
             } else if ((planId === "sponsor" || planId === "seller") && businessIdFromSub) {
               if (process.env.NODE_ENV === "development") console.log("[webhook] Business already created as draft:", businessIdFromSub);
-              try {
-                const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-                await awardBusinessSignupBadges(businessIdFromSub);
-              } catch (badgeErr) {
-                console.error("[webhook] invoice.payment_succeeded: business signup badges", badgeErr);
-              }
             }
           } else {
             console.warn("[stripe/webhook] invoice.payment_succeeded: subscription row not created (missing memberId or planId)", {
@@ -925,28 +856,6 @@ export async function POST(req: NextRequest) {
           }
         } catch (err) {
           console.error("[webhook] invoice.payment_succeeded subscription handle:", err);
-        }
-      } else if (invoice.billing_reason === "subscription_create") {
-        /** Row may exist from client sync (`/api/stripe/sync-subscriptions`) before this webhook — still award draft signup badges once (idempotent). */
-        try {
-          const sub = await stripe.subscriptions.retrieve(subIdStr);
-          let planId = sub.metadata?.planId?.trim() as "subscribe" | "sponsor" | "seller" | undefined;
-          if (planId && !["subscribe", "sponsor", "seller"].includes(planId)) {
-            planId = undefined;
-          }
-          if (!planId) {
-            const raw = sub.items.data[0]?.price;
-            const priceId = typeof raw === "string" ? raw : raw?.id ?? null;
-            const p = planFromStripePriceId(priceId);
-            if (p) planId = p;
-          }
-          const businessIdFromSub = sub.metadata?.businessId?.trim();
-          if ((planId === "sponsor" || planId === "seller") && businessIdFromSub) {
-            const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-            await awardBusinessSignupBadges(businessIdFromSub);
-          }
-        } catch (badgeFollowUpErr) {
-          console.error("[webhook] invoice.payment_succeeded: draft business badges (existing sub row)", badgeFollowUpErr);
         }
       }
     }

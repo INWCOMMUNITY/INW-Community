@@ -83,7 +83,6 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    let earnedBadges: { slug: string; name: string; description: string }[] = [];
     // Create business if provided (sellers can have businesses)
     if (data.business) {
       const b = data.business;
@@ -93,7 +92,7 @@ export async function POST(req: NextRequest) {
         slug = `${slugify(b.name)}-${++suffix}`;
       }
       const subAligned = normalizeSubcategoriesByPrimary(b.categories ?? [], b.subcategoriesByPrimary);
-      const business = await prisma.business.create({
+      await prisma.business.create({
         data: {
           memberId,
           name: b.name,
@@ -112,12 +111,6 @@ export async function POST(req: NextRequest) {
           hoursOfOperation: b.hoursOfOperation ?? undefined,
         },
       });
-      const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-      try {
-        earnedBadges = await awardBusinessSignupBadges(business.id);
-      } catch {
-        /* best-effort */
-      }
     }
 
     // Update member profile if provided
@@ -138,7 +131,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ ok: true, earnedBadges });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
       const msg = e.errors.map((err) => err.message).join(". ") || "Validation failed";

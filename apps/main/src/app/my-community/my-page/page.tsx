@@ -21,22 +21,10 @@ export default async function MyPage() {
       bio: true,
       city: true,
       privacyLevel: true,
-      allTimePointsEarned: true,
-      memberBadges: {
-        include: { badge: { select: { id: true, name: true, slug: true, description: true } } },
-      },
     },
   });
 
   if (!member) redirect("/my-community");
-
-  const badges =
-    member.memberBadges?.map((mb) => ({
-      id: mb.badge.id,
-      name: mb.badge.name,
-      slug: mb.badge.slug,
-      description: mb.badge.description,
-    })) ?? [];
 
   const blogs = await prisma.blog.findMany({
     where: { memberId: member.id, status: "approved" },
@@ -70,10 +58,8 @@ export default async function MyPage() {
           profilePhotoUrl: resolveMemberMediaUrl(member.profilePhotoUrl),
           bio: member.bio,
           city: member.city,
-          allTimePointsEarned: member.allTimePointsEarned ?? 0,
         }}
         canSeeFullProfile
-        badges={badges}
         blogs={blogs}
         favoriteBusinesses={favoriteBusinesses}
         sessionUserId={session.user.id}

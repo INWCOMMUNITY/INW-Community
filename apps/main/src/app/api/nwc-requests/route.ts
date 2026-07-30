@@ -3,7 +3,6 @@ import { prisma } from "database";
 import { z } from "zod";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { awardNwcFeedbackBadge, type EarnedBadge } from "@/lib/badge-award";
 
 const bodySchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -46,12 +45,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    let earnedBadges: EarnedBadge[] = [];
-    if (memberId) {
-      earnedBadges = await awardNwcFeedbackBadge(memberId).catch(() => []);
-    }
-
-    return NextResponse.json({ ok: true, earnedBadges });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json(

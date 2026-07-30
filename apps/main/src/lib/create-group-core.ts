@@ -60,16 +60,7 @@ export async function createGroupForMember(
     },
   });
 
-  const { awardAdminBadge } = await import("@/lib/badge-award");
-  let earnedBadges: { slug: string; name: string; description: string }[] = [];
-  try {
-    earnedBadges = await awardAdminBadge(requesterMemberId);
-  } catch {
-    /* best-effort */
-  }
-
   return {
     group: { id: group.id, slug: group.slug, name: group.name },
-    earnedBadges: Array.isArray(earnedBadges) ? earnedBadges : [],
   };
 }

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { hashEmailVerificationToken } from "@/lib/email-verification";
 import { getPublicSiteOrigin } from "@/lib/public-site-url";
-import { awardMemberSignupBadges } from "@/lib/badge-award";
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token")?.trim();
@@ -17,7 +16,7 @@ export async function GET(req: NextRequest) {
   const hash = hashEmailVerificationToken(token);
   const member = await prisma.member.findFirst({
     where: { emailVerificationTokenHash: hash },
-    select: { id: true, emailVerificationExpiresAt: true, signupIntent: true },
+    select: { id: true, emailVerificationExpiresAt: true },
   });
 
   if (!member?.emailVerificationExpiresAt || member.emailVerificationExpiresAt < new Date()) {
@@ -33,8 +32,6 @@ export async function GET(req: NextRequest) {
       emailVerificationExpiresAt: null,
     },
   });
-
-  await awardMemberSignupBadges(member.id, member.signupIntent ?? "resident").catch(() => []);
 
   return redirect("/login?emailVerified=1");
 }

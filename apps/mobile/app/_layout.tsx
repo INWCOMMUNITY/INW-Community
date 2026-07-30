@@ -328,10 +328,7 @@ function RootLayoutNav() {
         <Stack.Screen name="business/[slug]" />
         <Stack.Screen name="seller/[slug]" />
         <Stack.Screen name="coupons/index" />
-        <Stack.Screen name="rewards/index" />
-        <Stack.Screen name="redeemed-rewards" options={{ headerShown: false }} />
         <Stack.Screen name="business-hub-offered-coupons" options={{ headerShown: false }} />
-        <Stack.Screen name="business-hub-offered-rewards" options={{ headerShown: false }} />
         <Stack.Screen name="business-hub-manage" options={{ headerShown: false }} />
         <Stack.Screen name="business-hub-my-posts" options={{ headerShown: false }} />
         <Stack.Screen name="business-hub-my-events" options={{ headerShown: false }} />
@@ -349,10 +346,7 @@ function RootLayoutNav() {
         <Stack.Screen name="sponsor-business" options={{ headerShown: false }} />
         <Stack.Screen name="seller-hub" options={{ headerShown: false }} />
         <Stack.Screen name="messages" options={{ headerShown: false }} />
-        <Stack.Screen name="badges" />
-        <Stack.Screen name="my-badges" />
         <Stack.Screen name="my-sellers" />
-        <Stack.Screen name="scanner" options={{ presentation: 'fullScreenModal' }} />
         <Stack.Screen name="saved-posts" />
         <Stack.Screen name="blocked-members" options={{ headerShown: false }} />
         <Stack.Screen name="subscribe" />

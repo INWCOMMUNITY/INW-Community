@@ -46,12 +46,5 @@ export async function POST(
       author: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
     },
   });
-  const { awardCommunityWriterBadge } = await import("@/lib/badge-award");
-  let earnedBadges: { slug: string; name: string; description: string }[] = [];
-  try {
-    earnedBadges = await awardCommunityWriterBadge(session.user.id);
-  } catch {
-    /* best-effort */
-  }
-  return NextResponse.json({ ...post, earnedBadges });
+  return NextResponse.json(post);
 }

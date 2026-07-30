@@ -1,9 +1,7 @@
 import Stripe from "stripe";
 import { prisma } from "database";
-import { awardPoints } from "@/lib/award-points";
 import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 import type { ChannelSyncResult } from "@/lib/channels/types";
-import { orderQualifiesForDeferredBuyerPoints } from "@/lib/store-order-buyer-points";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
 import {
@@ -11,7 +9,6 @@ import {
   cleanupOtherBuyersCartsForStoreItems,
   validateBatchStoreOrdersInventory,
 } from "@/lib/post-sale-inventory-cleanup";
-import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { orderIdsFromCheckoutSessionMetadata } from "@/lib/stripe-checkout-order-ids";
 import {
   shippingAddressFromCheckoutSession,
@@ -115,7 +112,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
     // (etc.) stays stale until a manual push. Always retry the inventory push for paid orders.
     if (session.payment_status === "paid" && toProcess.length > 0) {
       const paidOrders = await prisma.storeOrder.findMany({
-        where: { id: { in: toProcess }, status: "paid", orderKind: { not: "reward_redemption" } },
+        where: { id: { in: toProcess }, status: "paid" },
         include: { items: true },
       });
       await syncStoreItemsAfterSale(
@@ -309,12 +306,6 @@ export async function fulfillStoreOrdersFromCheckoutSession(
     const shipFromStripe = shippingAddressFromCheckoutSession(session);
     for (const order of ordersToFulfill) {
       const payout = payoutByOrderId.get(order.id)!;
-      const totalCents = order.totalCents;
-      let pointsAwarded = Math.round(totalCents / 200);
-      const paidBuyer = await prisma.subscription.findFirst({
-        where: prismaWhereActivePaidNwcPlan(order.buyerId),
-      });
-      if (paidBuyer) pointsAwarded *= 2;
 
       const backfillShipping =
         shipFromStripe && storeOrderNeedsShippingBackfill(order)
@@ -327,7 +318,6 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           status: "paid",
           stripeCheckoutSessionId: session.id,
           stripePaymentIntentId: paymentIntentId,
-          pointsAwarded,
           taxCents: payout.orderTaxCents,
           salesTaxReserveCents: payout.salesTaxReserveCents,
           platformFeeCents: payout.platformFeeCents,
@@ -338,48 +328,33 @@ export async function fulfillStoreOrdersFromCheckoutSession(
         },
       });
 
-      const isRewardRedemption = order.orderKind === "reward_redemption";
-      if (!isRewardRedemption) {
-        for (const oi of order.items) {
-          allPurchasedIds.add(oi.storeItemId);
-          const storeItem = await prisma.storeItem.findUnique({
-            where: { id: oi.storeItemId },
-          });
-          if (storeItem) titleByItemId.set(oi.storeItemId, storeItem.title);
-          if (storeItem) {
-            await applyStoreItemDecrementAfterSale(prisma, storeItem, {
-              quantity: oi.quantity,
-              variant: oi.variant,
-            });
-          }
-          const updated = await prisma.storeItem.findUnique({
-            where: { id: oi.storeItemId },
-            select: { quantity: true, variants: true },
-          });
-          if (updated && shouldMarkStoreItemSoldOut(updated)) {
-            allSoldOutIds.add(oi.storeItemId);
-            await prisma.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { status: "sold_out" },
-            });
-            const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
-            deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
-          }
-          storeItemIdsToSyncChannels.add(oi.storeItemId);
-        }
-      } else {
-        await prisma.rewardRedemption.updateMany({
-          where: { storeOrderId: order.id },
-          data: { fulfillmentStatus: "paid" },
+      for (const oi of order.items) {
+        allPurchasedIds.add(oi.storeItemId);
+        const storeItem = await prisma.storeItem.findUnique({
+          where: { id: oi.storeItemId },
         });
+        if (storeItem) titleByItemId.set(oi.storeItemId, storeItem.title);
+        if (storeItem) {
+          await applyStoreItemDecrementAfterSale(prisma, storeItem, {
+            quantity: oi.quantity,
+            variant: oi.variant,
+          });
+        }
+        const updated = await prisma.storeItem.findUnique({
+          where: { id: oi.storeItemId },
+          select: { quantity: true, variants: true },
+        });
+        if (updated && shouldMarkStoreItemSoldOut(updated)) {
+          allSoldOutIds.add(oi.storeItemId);
+          await prisma.storeItem.update({
+            where: { id: oi.storeItemId },
+            data: { status: "sold_out" },
+          });
+          const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
+          deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
+        }
+        storeItemIdsToSyncChannels.add(oi.storeItemId);
       }
-
-      if (!orderQualifiesForDeferredBuyerPoints(order.items)) {
-        await awardPoints(order.buyerId, pointsAwarded);
-      }
-
-      const { awardLocalBusinessProBadge } = await import("@/lib/badge-award");
-      awardLocalBusinessProBadge(order.buyerId).catch(() => {});
 
       await prisma.sellerBalance.upsert({
         where: { memberId: order.sellerId },
@@ -402,18 +377,6 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           description: `Sale: Order #${order.id.slice(-6)}`,
         },
       });
-
-      const storeItemIds = order.items.map((oi) => oi.storeItemId);
-      const storeItems = await prisma.storeItem.findMany({
-        where: { id: { in: storeItemIds } },
-        select: { condition: true },
-      });
-      const allResale =
-        storeItems.length === storeItemIds.length && storeItems.every((s) => s.condition === "used");
-      if (allResale) {
-        const sellerPoints = Math.round(totalCents / 100);
-        await awardPoints(order.sellerId, sellerPoints);
-      }
     }
 
     const buyerId = ordersToFulfill[0].buyerId;

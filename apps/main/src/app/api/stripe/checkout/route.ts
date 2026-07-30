@@ -8,7 +8,6 @@ import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
-import type { EarnedBadge } from "@/lib/badge-award";
 import {
   describeStripeSubscriptionConfigError,
   getStripeSubscriptionPlanPriceIds,
@@ -74,7 +73,7 @@ async function createBusinessDraftInDb(
   memberId: string,
   data: Record<string, unknown>,
   planId: "subscribe" | "sponsor" | "seller"
-): Promise<{ businessId: string; earnedBadges: EarnedBadge[] } | undefined> {
+): Promise<{ businessId: string } | undefined> {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const city = typeof data.city === "string" ? data.city.trim() : "";
   const categories = Array.isArray(data.categories)
@@ -96,7 +95,7 @@ async function createBusinessDraftInDb(
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
-    if (existingBusiness) return { businessId: existingBusiness.id, earnedBadges: [] };
+    if (existingBusiness) return { businessId: existingBusiness.id };
   }
 
   const existingCount = await prisma.business.count({ where: { memberId } });
@@ -129,8 +128,7 @@ async function createBusinessDraftInDb(
       hoursOfOperation: data.hoursOfOperation && typeof data.hoursOfOperation === "object" ? (data.hoursOfOperation as Record<string, string>) : undefined,
     },
   });
-  /** Badges are awarded after payment succeeds (see Stripe webhook), not while checkout is in progress. */
-  return { businessId: business.id, earnedBadges: [] };
+  return { businessId: business.id };
 }
 
 export async function POST(req: NextRequest) {
@@ -264,7 +262,6 @@ export async function POST(req: NextRequest) {
       stripePriceId: priceId,
       billingInterval: interval,
     };
-    let checkoutEarnedBadges: EarnedBadge[] = [];
     if (
       (planId === "sponsor" || planId === "seller") &&
       businessData &&
@@ -275,7 +272,6 @@ export async function POST(req: NextRequest) {
         const draft = await createBusinessDraftInDb(session.user.id, businessData, planKey);
         if (draft) {
           metadata.businessId = draft.businessId;
-          checkoutEarnedBadges = draft.earnedBadges;
         }
       } catch (bErr) {
         console.error("[stripe/checkout] business draft create:", bErr);
@@ -308,7 +304,7 @@ export async function POST(req: NextRequest) {
       console.error("[stripe/checkout] No URL in checkout session:", checkout.id);
       return NextResponse.json({ error: "Checkout could not be created" }, { status: 500 });
     }
-    return NextResponse.json({ url: checkout.url, earnedBadges: checkoutEarnedBadges });
+    return NextResponse.json({ url: checkout.url });
   } catch (e) {
     console.error("[stripe/checkout]", e);
     const msg =

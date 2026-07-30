@@ -41,7 +41,6 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.northwestcommunity.app",
       "permissions": [
-        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
       "intentFilters": [
@@ -115,12 +114,6 @@
         {
           "enableGooglePay": true,
           "includeOnramp": false
-        }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow INW Community to use the camera to scan QR codes at local businesses."
         }
       ],
       [

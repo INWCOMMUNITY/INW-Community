@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { IonIcon } from "@/components/IonIcon";
-import { badgeSlugToIonIconName } from "@/lib/badge-ion-icon-name";
 
 interface MemberProfileProps {
   member: {
@@ -14,12 +13,10 @@ interface MemberProfileProps {
     profilePhotoUrl: string | null;
     bio: string | null;
     city: string | null;
-    allTimePointsEarned: number;
   };
   canSeeFullProfile: boolean;
-  badges: Array<{ id: string; name: string; slug: string; description: string | null }>;
-  favoriteBusinesses: Array<{ id: string; name: string; slug: string; logoUrl: string | null }>;
-  blogs: Array<{ id: string; slug: string; title: string; createdAt: Date | string }>;
+  favoriteBusinesses?: Array<{ id: string; name: string; slug: string; logoUrl: string | null }>;
+  blogs?: Array<{ id: string; slug: string; title: string; createdAt: Date | string }>;
   sessionUserId: string | null;
   isOwnProfile: boolean;
   isFriend?: boolean;
@@ -42,9 +39,8 @@ function resolveClientMediaUrl(path: string | null | undefined): string {
 export function MemberProfile({
   member,
   canSeeFullProfile,
-  badges,
-  favoriteBusinesses,
-  blogs,
+  favoriteBusinesses = [],
+  blogs = [],
   sessionUserId,
   isOwnProfile,
   isFriend = false,
@@ -61,7 +57,6 @@ export function MemberProfile({
   const [menuOpen, setMenuOpen] = useState(false);
   const [blockReportLoading, setBlockReportLoading] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const [badgeModal, setBadgeModal] = useState<(typeof badges)[0] | null>(null);
   const [memberPosts, setMemberPosts] = useState<MemberPostRow[]>([]);
   const [postsNextCursor, setPostsNextCursor] = useState<string | null>(null);
   const [postsLoading, setPostsLoading] = useState(false);
@@ -353,9 +348,6 @@ export function MemberProfile({
             {canSeeFullProfile && member.bio ? (
               <p className="text-[15px] text-gray-800 mt-2 whitespace-pre-wrap leading-relaxed">{member.bio}</p>
             ) : null}
-            <p className="text-sm text-gray-600 mt-2">
-              <span className="font-semibold">All time reward points:</span> {member.allTimePointsEarned ?? 0}
-            </p>
           </div>
         </div>
 
@@ -522,28 +514,6 @@ export function MemberProfile({
           </section>
         ) : null}
 
-        {canSeeFullProfile && badges.length > 0 ? (
-          <section className="pt-5 border-t border-gray-200 mb-6">
-            <h2 className="text-base font-bold mb-3" style={{ color: "var(--color-heading)" }}>
-              Badges
-            </h2>
-            <div className="flex flex-wrap gap-3">
-              {badges.map((b) => (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => setBadgeModal(b)}
-                  className="w-12 h-12 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors"
-                  style={{ color: "var(--color-primary)" }}
-                  aria-label={b.name}
-                >
-                  <IonIcon name={badgeSlugToIonIconName(b.slug)} size={26} />
-                </button>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         {canSeeFullProfile && blogs.length > 0 ? (
           <section className="pt-5 border-t border-gray-200">
             <h2 className="text-base font-bold mb-3" style={{ color: "var(--color-heading)" }}>
@@ -602,38 +572,6 @@ export function MemberProfile({
               className="mt-4 w-full py-2 text-sm font-medium text-gray-600"
             >
               Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {badgeModal && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/40"
-          onClick={() => setBadgeModal(null)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 text-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-center mb-3" style={{ color: "var(--color-primary)" }}>
-              <IonIcon name={badgeSlugToIonIconName(badgeModal.slug)} size={48} />
-            </div>
-            <p className="text-lg font-bold" style={{ color: "var(--color-heading)" }}>
-              {badgeModal.name}
-            </p>
-            {badgeModal.description ? (
-              <p className="text-sm text-gray-700 mt-2 leading-relaxed">{badgeModal.description}</p>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setBadgeModal(null)}
-              className="mt-5 text-sm font-semibold"
-              style={{ color: "var(--color-primary)" }}
-            >
-              Close
             </button>
           </div>
         </div>

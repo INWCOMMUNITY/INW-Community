@@ -3,7 +3,6 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
-import { deductPoints } from "@/lib/award-points";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 
@@ -99,9 +98,6 @@ export async function POST(
         }
       }
     });
-    if (order.pointsAwarded > 0) {
-      await deductPoints(order.buyerId, order.pointsAwarded);
-    }
   } else {
     const totalCents = order.totalCents;
     const platformFeeCents = Math.max(
@@ -193,10 +189,6 @@ export async function POST(
           }
         }
       });
-
-      if (order.pointsAwarded > 0) {
-        await deductPoints(order.buyerId, order.pointsAwarded);
-      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Cancel/refund failed";
       return NextResponse.json({ error: msg }, { status: 500 });

@@ -31,17 +31,8 @@ export async function GET(
       coverPhotoUrl: true,
       bio: true,
       city: true,
-      allTimePointsEarned: true,
       privacyLevel: true,
       createdAt: true,
-      memberBadges: {
-        select: { badge: { select: { id: true, name: true, slug: true, description: true } } },
-      },
-      savedItems: {
-        where: { type: "business" },
-        take: 20,
-        select: { referenceId: true },
-      },
     },
   });
 
@@ -69,15 +60,11 @@ export async function GET(
       profilePhotoUrl: member.profilePhotoUrl,
       coverPhotoUrl: member.coverPhotoUrl,
       city: member.city,
-      allTimePointsEarned: member.allTimePointsEarned ?? 0,
-      badges: [],
-      favoriteBusinesses: [],
       canSeeFullProfile: false,
     });
   }
 
-  const [businessIds, postCount, friendCount] = await Promise.all([
-    Promise.resolve(member.savedItems.map((s) => s.referenceId)),
+  const [postCount, friendCount] = await Promise.all([
     prisma.post.count({ where: { authorId: id } }),
     prisma.friendRequest.count({
       where: {
@@ -87,14 +74,6 @@ export async function GET(
     }),
   ]);
 
-  const favoriteBusinesses =
-    businessIds.length > 0
-      ? await prisma.business.findMany({
-          where: { id: { in: businessIds } },
-          select: { id: true, name: true, slug: true, logoUrl: true },
-        })
-      : [];
-
   return NextResponse.json({
     id: member.id,
     firstName: member.firstName,
@@ -103,18 +82,9 @@ export async function GET(
     coverPhotoUrl: member.coverPhotoUrl,
     bio: member.bio,
     city: member.city,
-    allTimePointsEarned: member.allTimePointsEarned ?? 0,
     memberSince: member.createdAt,
     postCount,
     friendCount,
-    badgeCount: member.memberBadges.length,
-    badges: member.memberBadges.map((mb) => ({
-      id: mb.badge.id,
-      name: mb.badge.name,
-      slug: mb.badge.slug,
-      description: mb.badge.description,
-    })),
-    favoriteBusinesses,
     canSeeFullProfile: true,
   });
 }

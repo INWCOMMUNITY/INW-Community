@@ -14,14 +14,12 @@ export type FeedPostLike = {
   sourcePostId: string | null;
   sourceBusinessId: string | null;
   sourceCouponId: string | null;
-  sourceRewardId: string | null;
   sourceStoreItemId: string | null;
   sourceEventId: string | null;
   sourceBlog?: unknown;
   sourcePost?: unknown;
   sourceBusiness?: unknown;
   sourceCoupon?: unknown;
-  sourceReward?: unknown;
   sourceStoreItem?: unknown;
   sourceEvent?: unknown;
 };
@@ -53,9 +51,6 @@ export function isFeedPostRenderable(p: FeedPostLike): boolean {
     const exp = raw instanceof Date ? raw : new Date(raw as string);
     if (Number.isNaN(exp.getTime())) return false;
     return isCouponActiveByExpiresAt(exp);
-  }
-  if (p.type === "shared_reward" || p.sourceRewardId) {
-    return Boolean(p.sourceReward);
   }
   if (p.type === "shared_store_item" || p.sourceStoreItemId) {
     return Boolean(p.sourceStoreItem);

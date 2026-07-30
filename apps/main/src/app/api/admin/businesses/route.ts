@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
     while (await prisma.business.findUnique({ where: { slug } })) {
       slug = `${slugify(data.name)}-${++suffix}`;
     }
-    const business = await prisma.business.create({
+    await prisma.business.create({
       data: {
         memberId: data.memberId,
         name: data.name,
@@ -93,14 +93,7 @@ export async function POST(req: NextRequest) {
         ...(grantFreeAccess && { adminGrantedAt: new Date() }),
       },
     });
-    const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-    let earnedBadges: { slug: string; name: string; description: string }[] = [];
-    try {
-      earnedBadges = await awardBusinessSignupBadges(business.id);
-    } catch {
-      /* best-effort */
-    }
-    return NextResponse.json({ ok: true, earnedBadges });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
       const msg = e.errors.map((err) => err.message).join(". ") || "Validation failed";

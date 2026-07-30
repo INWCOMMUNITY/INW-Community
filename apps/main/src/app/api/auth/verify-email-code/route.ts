@@ -7,7 +7,6 @@ import {
   issueMobileSessionForMemberRow,
   memberRowSelectForMobileSession,
 } from "@/lib/issue-mobile-session";
-import { awardMemberSignupBadges, type EarnedBadge } from "@/lib/badge-award";
 
 function coerceIssueMobileSession(v: unknown): boolean {
   if (v === true || v === 1) return true;
@@ -171,27 +170,10 @@ export async function POST(req: NextRequest) {
           { status: 200 }
         );
       }
-      const intentRow = await prisma.member.findUnique({
-        where: { id: member.id },
-        select: { signupIntent: true },
-      });
-      const earnedBadges = await awardMemberSignupBadges(
-        member.id,
-        intentRow?.signupIntent ?? "resident"
-      ).catch((): EarnedBadge[] => []);
-      return NextResponse.json({ ok: true, earnedBadges, ...session });
+      return NextResponse.json({ ok: true, ...session });
     }
 
-    const intentRow = await prisma.member.findUnique({
-      where: { id: member.id },
-      select: { signupIntent: true },
-    });
-    const earnedBadges = await awardMemberSignupBadges(
-      member.id,
-      intentRow?.signupIntent ?? "resident"
-    ).catch((): EarnedBadge[] => []);
-
-    return NextResponse.json({ ok: true, earnedBadges });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.errors[0]?.message ?? "Invalid input." }, { status: 400 });

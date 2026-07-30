@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "June 1, 2026";
+export const TERMS_LAST_UPDATED = "July 30, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -215,7 +215,6 @@ NWC expects platform profit primarily from subscriptions and marketplace fees de
 8.0 Paid plan benefits (Subscribe, Business, Seller)
 Members with any active paid NWC plan (Resident Subscribe, Business, or Seller) receive:
 ● Access to the member coupon book
-● 2× Community Points on qualifying storefront purchases and business QR code scans (see program rules in the app or site).
 
 8.1 Resident (Subscriber) Plan
 The Resident plan ($10/month or yearly equivalent) also provides:
@@ -256,7 +255,7 @@ NWC remains impartial in promotions, except for two acknowledged personal affili
 ● Plan switch limits: To reduce abuse, NWC may limit how often you can change paid plans (for example, at most two plan switches per rolling 30-day period). If you hit that limit, you may need to wait or contact NWC for an exception. Moving to a lower-priced plan may keep your current plan’s perks until the end of your current billing period, with the new rate applying from the next cycle, as implemented in Stripe.
 ● Cancellation: You may cancel at any time through the same subscription management paths or by contacting NWC.
 ● Up to 1 month may be refunded for dissatisfaction.
-● Effect when paid membership ends: If you cancel or your paid membership ends and you have no remaining active paid NWC plan in good standing, subscription-based perks generally end. NWC may automatically deactivate your active marketplace listings (including new and used item listings tied to that membership), remove coupons and rewards offered through your subscription-tied business profiles, and remove business directory profiles and related subscription-tied business content from public display, except where NWC has separately maintained a business profile for you independent of a paid membership (for example, certain admin-assigned or specially approved directory entries), which may be handled differently. This does not override NWC's separate rights to remove content for policy violations. Historical orders, accounting, fraud-prevention, and legal-hold records may be retained as described in our Privacy Policy.
+● Effect when paid membership ends: If you cancel or your paid membership ends and you have no remaining active paid NWC plan in good standing, subscription-based perks generally end. NWC may automatically deactivate your active marketplace listings (including new and used item listings tied to that membership), remove coupons offered through your subscription-tied business profiles, and remove business directory profiles and related subscription-tied business content from public display, except where NWC has separately maintained a business profile for you independent of a paid membership (for example, certain admin-assigned or specially approved directory entries), which may be handled differently. This does not override NWC's separate rights to remove content for policy violations. Historical orders, accounting, fraud-prevention, and legal-hold records may be retained as described in our Privacy Policy.
 ● Subscribers are responsible for maintaining up-to-date payment information to avoid unintended service interruptions.
 In compliance with Idaho and federal automatic-renewal rules, NWC provides:
 ● A clear disclosure of recurring billing before checkout
@@ -285,16 +284,6 @@ Advertising visibility is not guaranteed, and performance levels may vary. NWC m
 8.9 Coupon policy for business subscribers
 Business subscribers offering coupons must honor them.
 Failure to do so may result in contact from NWC, removal of the coupon, or termination of the Business subscription.
-
-8.10 Rewards Policy
-For Businesses and Sellers:
-● Businesses and sellers offering rewards are responsible for delivering the items or goods and for fulfilling the services offered as rewards.
-● Failure to deliver rewards or fulfill offered services will result in immediate termination.
-● An offered reward must be honored.
-
-For Subscribers:
-● Reward points are earned by supporting local businesses (e.g., scanning QR codes at participating locations).
-● If you experience any problem—including QR codes not awarding points, businesses not honoring a reward, or items not being delivered—contact NWC for resolution and return of spent reward points where appropriate.
 
 9. RIGHT TO REFUSE SERVICE
 NWC reserves the right to refuse service to anyone.

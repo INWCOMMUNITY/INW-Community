@@ -47,13 +47,12 @@ export async function hydrateFeedPostRows(
   const taggedBizFlat = collectTaggedBusinessIdsFromPosts(items);
   const businessLookupIds = mergePostBusinessLookupIds(sourceBusinessIds, taggedBizFlat);
   const sourceCouponIds = items.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
-  const sourceRewardIds = items.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
   const sourceEventIds = items.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
   const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
   const postGroupIds = items.filter((p) => p.groupId).map((p) => p.groupId!);
 
-  const [blogs, businesses, coupons, rewards, storeItems, events, sourcePosts, groups, likes, likeCounts, reactionCounts, commentCounts, shareCountMap, polls, viewerVotes, viewerFollows] =
+  const [blogs, businesses, coupons, storeItems, events, sourcePosts, groups, likes, likeCounts, reactionCounts, commentCounts, shareCountMap, polls, viewerVotes, viewerFollows] =
     await Promise.all([
       sourceBlogIds.length > 0
         ? prisma.blog.findMany({
@@ -74,12 +73,6 @@ export async function hydrateFeedPostRows(
       sourceCouponIds.length > 0
         ? prisma.coupon.findMany({
             where: { id: { in: sourceCouponIds } },
-            include: { business: { select: { id: true, name: true, slug: true } } },
-          })
-        : [],
-      sourceRewardIds.length > 0
-        ? prisma.reward.findMany({
-            where: { id: { in: sourceRewardIds } },
             include: { business: { select: { id: true, name: true, slug: true } } },
           })
         : [],
@@ -184,17 +177,15 @@ export async function hydrateFeedPostRows(
   const groupMap = Object.fromEntries(groups.map((g) => [g.id, g]));
   const businessMap = Object.fromEntries(businesses.map((b) => [b.id, b]));
   const couponMap = Object.fromEntries(coupons.map((c) => [c.id, c]));
-  const rewardMap = Object.fromEntries(rewards.map((r) => [r.id, r]));
   const eventMap = Object.fromEntries(events.map((e) => [e.id, e]));
 
   const sourcePostBlogIds = sourcePosts.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
   const sourcePostBusinessIds = sourcePosts.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
   const sourcePostCouponIds = sourcePosts.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
-  const sourcePostRewardIds = sourcePosts.filter((p) => p.sourceRewardId).map((p) => p.sourceRewardId!);
   const sourcePostStoreItemIds = sourcePosts.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
   const sourcePostEventIds = sourcePosts.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
 
-  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostRewards, sourcePostStoreItems, sourcePostEvents] =
+  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostStoreItems, sourcePostEvents] =
     await Promise.all([
       sourcePostBlogIds.length > 0
         ? prisma.blog.findMany({
@@ -215,12 +206,6 @@ export async function hydrateFeedPostRows(
       sourcePostCouponIds.length > 0
         ? prisma.coupon.findMany({
             where: { id: { in: sourcePostCouponIds } },
-            include: { business: { select: { id: true, name: true, slug: true } } },
-          })
-        : [],
-      sourcePostRewardIds.length > 0
-        ? prisma.reward.findMany({
-            where: { id: { in: sourcePostRewardIds } },
             include: { business: { select: { id: true, name: true, slug: true } } },
           })
         : [],
@@ -256,7 +241,6 @@ export async function hydrateFeedPostRows(
   const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, b]));
   const sourcePostBusinessMap = Object.fromEntries(sourcePostBusinesses.map((b) => [b.id, b]));
   const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
-  const sourcePostRewardMap = Object.fromEntries(sourcePostRewards.map((r) => [r.id, r]));
   const sourcePostEventMap = Object.fromEntries(sourcePostEvents.map((e) => [e.id, e]));
 
   const sourcePostMap = Object.fromEntries(
@@ -273,9 +257,6 @@ export async function hydrateFeedPostRows(
           : null,
         sourceCoupon: p.sourceCouponId
           ? (sourcePostCouponMap[p.sourceCouponId] ?? couponMap[p.sourceCouponId] ?? null)
-          : null,
-        sourceReward: p.sourceRewardId
-          ? (sourcePostRewardMap[p.sourceRewardId] ?? rewardMap[p.sourceRewardId] ?? null)
           : null,
         sourceStoreItem: p.sourceStoreItemId
           ? (feedStoreItemMap[p.sourceStoreItemId] ?? null)
@@ -340,7 +321,6 @@ export async function hydrateFeedPostRows(
     sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
     taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
     sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
-    sourceReward: p.sourceRewardId ? rewardMap[p.sourceRewardId] ?? null : null,
     sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,
     sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
     sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,

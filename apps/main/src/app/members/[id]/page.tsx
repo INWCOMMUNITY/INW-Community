@@ -27,10 +27,6 @@ export default async function MemberPage({
       bio: true,
       city: true,
       privacyLevel: true,
-      allTimePointsEarned: true,
-      memberBadges: {
-        include: { badge: { select: { id: true, name: true, slug: true, description: true } } },
-      },
     },
   });
 
@@ -87,15 +83,6 @@ export default async function MemberPage({
     }
   }
 
-  const badges =
-    canSeeFull && member.memberBadges
-      ? member.memberBadges.map((mb) => ({
-          id: mb.badge.id,
-          name: mb.badge.name,
-          slug: mb.badge.slug,
-          description: mb.badge.description,
-        }))
-      : [];
 
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
@@ -109,10 +96,8 @@ export default async function MemberPage({
               profilePhotoUrl: resolveMemberMediaUrl(member.profilePhotoUrl),
               bio: canSeeFull ? member.bio : null,
               city: member.city,
-              allTimePointsEarned: member.allTimePointsEarned ?? 0,
             }}
             canSeeFullProfile={canSeeFull}
-            badges={badges}
             favoriteBusinesses={favoriteBusinesses}
             blogs={blogs}
             sessionUserId={viewerId}

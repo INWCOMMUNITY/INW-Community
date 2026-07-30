@@ -914,55 +914,6 @@ async function main() {
 
   } // end seedDemoData (sponsors, sample businesses, test users, trial coupon, resale, messaging fixtures)
 
-  // Badges — category_scan: criteria.categories must match prebuilt BUSINESS_CATEGORIES labels (business form). See apps/main/src/lib/badge-category-scan.ts
-  const BADGES = [
-    { slug: "community_member", name: "Community Member", description: "Earned when you sign up as a resident.", category: "member", order: 0 },
-    { slug: "local_business", name: "Local Business Badge", description: "Earned when your business joins Northwest Community.", category: "business", order: 1 },
-    { slug: "nwc_seller", name: "NWC Seller Badge", description: "Earned when you list your first item.", category: "seller", order: 2 },
-    { slug: "og_community_member", name: "OG Community Member", description: "Awarded to the first 1000 residents to sign up.", category: "member", order: 3 },
-    { slug: "og_nwc_business", name: "OG NWC Business", description: "Awarded to the first 100 businesses to join Northwest Community.", category: "business", order: 4 },
-    { slug: "community_star_business", name: "Community Star Business", description: "Businesses who offer $1000 of Rewards within 6 months. Featured on homepage.", category: "business", order: 5 },
-    { slug: "bronze_seller", name: "Bronze Seller Badge", description: "Successfully delivered 10 orders.", category: "seller", order: 6 },
-    { slug: "silver_seller", name: "Silver Seller Badge", description: "Successfully delivered 100 orders.", category: "seller", order: 7 },
-    { slug: "gold_seller", name: "Gold Seller Badge", description: "Successfully delivered 500 orders.", category: "seller", order: 8 },
-    { slug: "platinum_seller", name: "Platinum Seller Badge", description: "Successfully delivered 1000 orders.", category: "seller", order: 9 },
-    { slug: "spreading_the_word", name: "Spreading the Word", description: "Use Share INW Community in the app 5 times (each share must complete the system share sheet). +20 Community Points.", category: "member", order: 10, criteria: { bonusPoints: 20 } },
-    { slug: "community_writer", name: "Community Writer", description: "Share a blog post.", category: "member", order: 11 },
-    { slug: "admin_badge", name: "Admin Badge", description: "Create a group.", category: "member", order: 12 },
-    { slug: "local_business_pro", name: "Local Business Pro", description: "Spend $1000 in stores (total over time). +50 Community Points.", category: "member", order: 13, criteria: { bonusPoints: 50 } },
-    { slug: "community_planner", name: "Community Planner Badge", description: "Post 5 events.", category: "member", order: 14 },
-    { slug: "party_planner", name: "Party Planner", description: "Earned when you share 10 events with friends.", category: "member", order: 15 },
-    { slug: "super_scanner", name: "Super Scanner", description: "Scan QR codes at 10 different local businesses. +extra Community Points.", category: "member", order: 16, criteria: { bonusPoints: 25 } },
-    { slug: "elite_scanner", name: "Elite Scanner", description: "Scan QR codes at 50 different local businesses. +100 Community Points.", category: "member", order: 17, criteria: { bonusPoints: 100 } },
-    { slug: "badger_badge", name: "The Badger Badge", description: "Earn 10 badges.", category: "member", order: 18 },
-    { slug: "party_animal", name: "Party Animal", description: "Scan a local bar's QR code 10 times. +50 Community Points.", category: "member", order: 19, criteria: { type: "category_scan", categories: ["Bar"], scanCount: 10, bonusPoints: 50 } },
-    { slug: "coffee_lover", name: "Coffee Lover", description: "Scan a local coffee shop's QR code 20 times. +50 Community Points.", category: "member", order: 20, criteria: { type: "category_scan", categories: ["Coffee Shop"], scanCount: 20, bonusPoints: 50 } },
-    { slug: "good_taste", name: "Good Taste", description: "Scan a local restaurant's QR code 15 times. +50 Community Points.", category: "member", order: 21, criteria: { type: "category_scan", categories: ["Restaurant"], scanCount: 15, bonusPoints: 50 } },
-    { slug: "penny_pusher", name: "Penny Pusher", description: "Redeem 10 coupons. +50 Community Points.", category: "member", order: 22, criteria: { type: "coupon_redeem", count: 10, bonusPoints: 50 } },
-    { slug: "car_trouble", name: "Car Trouble", description: "Hire a local mechanic by scanning their QR code. +50 Community Points.", category: "member", order: 23, criteria: { type: "category_scan", categories: ["Mechanic", "Automotive"], scanCount: 1, bonusPoints: 50 } },
-    { slug: "handy_dandy", name: "Handy Dandy", description: "Hire a local handyman, plumber, electrician, drywaller, HVAC, or concrete worker by scanning their QR code. +80 Community Points.", category: "member", order: 24, criteria: { type: "category_scan", categories: ["Handyman", "Plumber", "Electrician", "Drywaller", "HVAC", "Concrete"], scanCount: 1, bonusPoints: 80 } },
-    { slug: "say_cheese", name: "Say Cheese", description: "Hire a local photographer by scanning their QR code. +40 Community Points.", category: "member", order: 25, criteria: { type: "category_scan", categories: ["Photographer"], scanCount: 1, bonusPoints: 40 } },
-    { slug: "community_point_giver", name: "Community Point Giver", description: "Awarded to businesses that display an NWC flyer or QR code. Point Givers get extra visibility.", category: "business", order: 26, criteria: { type: "admin_only" } },
-    { slug: "local_deliverer", name: "Local Deliverer", description: "Complete 3 local deliveries.", category: "seller", order: 27, criteria: { type: "seller_delivery", count: 3 } },
-    { slug: "here_in_town", name: "Here in Town", description: "Complete 1 pickup order.", category: "seller", order: 28, criteria: { type: "seller_pickup", count: 1 } },
-    {
-      slug: "nwc_feedback",
-      name: "NWC Feedback",
-      description: "Submit a request through NWC Requests.",
-      category: "member",
-      order: 29,
-      criteria: { type: "nwc_request_submit" },
-    },
-  ];
-  for (const b of BADGES) {
-    await prisma.badge.upsert({
-      where: { slug: b.slug },
-      create: b,
-      update: { name: b.name, description: b.description, category: b.category, order: b.order, criteria: b.criteria ?? undefined },
-    });
-  }
-  console.log("Ensured badges exist");
-
 }
 
 main()

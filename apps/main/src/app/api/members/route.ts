@@ -40,10 +40,6 @@ export async function GET(req: NextRequest) {
     lastName: true,
     profilePhotoUrl: true,
     city: true,
-    allTimePointsEarned: true,
-    memberBadges: {
-      select: { badge: { select: { id: true, name: true, slug: true } } },
-    },
     savedItems: {
       where: { type: "business" },
       take: 5,
@@ -71,8 +67,6 @@ export async function GET(req: NextRequest) {
       lastName: m.lastName,
       profilePhotoUrl: m.profilePhotoUrl,
       city: m.city,
-      allTimePointsEarned: m.allTimePointsEarned ?? 0,
-      badges: m.memberBadges.map((mb) => mb.badge),
       favoriteBusinesses: m.savedItems
         .map((s) => businessMap.get(s.referenceId))
         .filter(Boolean) as { id: string; name: string; slug: string }[],

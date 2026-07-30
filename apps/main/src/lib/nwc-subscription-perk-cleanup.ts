@@ -20,7 +20,7 @@ export async function memberHasAnyActiveNwcPlan(memberId: string): Promise<boole
 /**
  * When the member has no remaining active/trialing/past_due NWC subscription, strip storefront
  * and directory perks tied to **subscription** access: listings go inactive (except those linked only
- * to admin-granted businesses), coupons/rewards removed for non–admin-granted businesses only,
+ * to admin-granted businesses), coupons removed for non–admin-granted businesses only,
  * and only those businesses are deleted. Rows with `adminGrantedAt` stay (free directory / perks per admin).
  * Idempotent: safe if already cleaned or if member still has an active plan (no-op).
  */
@@ -37,9 +37,6 @@ export async function removeNwcMemberPerksAfterSubscriptionEnd(memberId: string)
       data: { status: "inactive" },
     });
     await tx.coupon.deleteMany({
-      where: { business: { memberId, adminGrantedAt: null } },
-    });
-    await tx.reward.deleteMany({
       where: { business: { memberId, adminGrantedAt: null } },
     });
     await tx.business.deleteMany({

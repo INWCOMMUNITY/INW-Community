@@ -6,7 +6,6 @@ import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
-import type { EarnedBadge } from "@/lib/badge-award";
 import {
   describeStripeSubscriptionConfigError,
   getStripeSubscriptionPlanPriceIds,
@@ -50,7 +49,7 @@ function slugify(s: string): string {
 async function createBusinessDraftInDb(
   memberId: string,
   data: Record<string, unknown>
-): Promise<{ businessId: string; earnedBadges: EarnedBadge[] } | undefined> {
+): Promise<{ businessId: string } | undefined> {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const city = typeof data.city === "string" ? data.city.trim() : "";
   const shortDescription = typeof data.shortDescription === "string" ? data.shortDescription.trim() : null;
@@ -111,7 +110,7 @@ async function createBusinessDraftInDb(
     },
   });
   /** Badges are awarded after payment succeeds (see Stripe webhook), not while checkout is in progress. */
-  return { businessId: business.id, earnedBadges: [] };
+  return { businessId: business.id };
 }
 
 export async function POST(req: NextRequest) {
@@ -266,7 +265,6 @@ export async function POST(req: NextRequest) {
     const applePayIntervals = applePayPresentationIntervals(recurring ?? null);
 
     let businessId: string | undefined;
-    let stripeSetupEarnedBadges: EarnedBadge[] = [];
     if (
       (planId === "sponsor" || planId === "seller") &&
       businessData &&
@@ -277,7 +275,6 @@ export async function POST(req: NextRequest) {
         const draft = await createBusinessDraftInDb(session.user.id, businessData);
         if (draft) {
           businessId = draft.businessId;
-          stripeSetupEarnedBadges = draft.earnedBadges;
         }
       } catch (bErr) {
         console.error("[mobile-subscription-setup] business draft create:", bErr);
@@ -331,20 +328,9 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        let trialEarned = stripeSetupEarnedBadges;
-        if (businessId) {
-          try {
-            const { awardBusinessSignupBadges } = await import("@/lib/badge-award");
-            trialEarned = await awardBusinessSignupBadges(businessId);
-          } catch {
-            /* best-effort */
-          }
-        }
-
         return NextResponse.json({
           completed: true,
           subscriptionId: subscription.id,
-          earnedBadges: trialEarned,
           applePayPresentation: {
             amountCents: 0,
             currency: "usd",
@@ -376,7 +362,6 @@ export async function POST(req: NextRequest) {
       ephemeralKey: ephemeralKey.secret,
       customerId,
       subscriptionId: subscription.id,
-      earnedBadges: stripeSetupEarnedBadges,
       applePayPresentation: {
         amountCents: paymentIntent.amount,
         currency: paymentIntent.currency,

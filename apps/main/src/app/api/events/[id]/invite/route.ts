@@ -96,16 +96,6 @@ export async function POST(
     skipDuplicates: true,
   });
 
-  let earnedBadges: { slug: string; name: string; description: string }[] = [];
-  if (created.count > 0) {
-    const { awardPartyPlannerBadge } = await import("@/lib/badge-award");
-    try {
-      earnedBadges = await awardPartyPlannerBadge(session.user.id);
-    } catch {
-      /* best-effort */
-    }
-  }
-
   if (newInviteeIds.length > 0) {
     const [eventMeta, inviter, inviteRows] = await Promise.all([
       prisma.event.findUnique({
@@ -152,5 +142,5 @@ export async function POST(
     }).catch(() => {});
   }
 
-  return NextResponse.json({ ok: true, invited: created.count, earnedBadges });
+  return NextResponse.json({ ok: true, invited: created.count });
 }

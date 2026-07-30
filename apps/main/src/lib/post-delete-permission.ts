@@ -4,7 +4,6 @@ type PostAuthRow = {
   authorId: string;
   sourceBusinessId: string | null;
   sourceCouponId: string | null;
-  sourceRewardId: string | null;
   sourcePostId: string | null;
   groupId: string | null;
 };
@@ -24,7 +23,6 @@ export async function canMemberDeletePost(memberId: string, postId: string): Pro
         authorId: true,
         sourceBusinessId: true,
         sourceCouponId: true,
-        sourceRewardId: true,
         sourcePostId: true,
         groupId: true,
       },
@@ -55,13 +53,6 @@ async function postRowAllowsDelete(memberId: string, post: PostAuthRow): Promise
       select: { business: { select: { memberId: true } } },
     });
     if (c?.business.memberId === memberId) return true;
-  }
-  if (post.sourceRewardId) {
-    const r = await prisma.reward.findUnique({
-      where: { id: post.sourceRewardId },
-      select: { business: { select: { memberId: true } } },
-    });
-    if (r?.business.memberId === memberId) return true;
   }
   if (post.groupId) {
     const group = await prisma.group.findUnique({

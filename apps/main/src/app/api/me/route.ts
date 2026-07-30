@@ -3,7 +3,6 @@ import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { syncStripeCustomerShippingFromProfileDelivery } from "@/lib/stripe-storefront-checkout-customer";
-import { getCurrentSeasonId } from "@/lib/award-points";
 import {
   NWC_PAID_PLAN_ACCESS_STATUSES,
   NWC_PAID_PLAN_SLUGS,
@@ -68,8 +67,6 @@ export async function GET(req: NextRequest) {
       coverPhotoUrl: true,
       bio: true,
       city: true,
-      points: true,
-      allTimePointsEarned: true,
       privacyLevel: true,
       phone: true,
       deliveryAddress: true,
@@ -91,23 +88,6 @@ export async function GET(req: NextRequest) {
       },
       { status: 403 }
     );
-  }
-  const seasonId = await getCurrentSeasonId();
-  let seasonPointsEarned: number | undefined;
-  let currentSeason: { id: string; name: string } | undefined;
-  if (seasonId) {
-    const season = await prisma.season.findUnique({
-      where: { id: seasonId },
-      select: { id: true, name: true },
-    });
-    if (season) {
-      currentSeason = season;
-      const msp = await prisma.memberSeasonPoints.findUnique({
-        where: { memberId_seasonId: { memberId: session.user.id, seasonId } },
-        select: { pointsEarned: true },
-      });
-      seasonPointsEarned = msp?.pointsEarned ?? 0;
-    }
   }
   const [subTier, subscriptions, subscriptionPlan, hasHubAccess, sellerPlanRow, primaryBusiness] =
     await Promise.all([
@@ -161,8 +141,6 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     ...memberRest,
     emailVerified,
-    seasonPointsEarned,
-    currentSeason,
     isSubscriber: !!subTier,
     /** Active Business/Seller plan or admin-assigned business (`adminGrantedAt`). */
     hasBusinessHubAccess: hasHubAccess,

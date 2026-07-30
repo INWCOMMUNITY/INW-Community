@@ -38,11 +38,6 @@ const SIDEBAR_SECTIONS: { divider: string; items: SidebarItem[] }[] = [
     divider: "Incentives",
     items: [
       { href: "/dashboard/coupons", label: "Coupons", icon: "pricetag-outline" },
-      { href: "/dashboard/seasons", label: "Seasons", icon: "leaf-outline" },
-      { href: "/dashboard/rewards", label: "Rewards", icon: "gift-outline" },
-      { href: "/dashboard/top5", label: "NWC Top 10 Prizes", icon: "trophy-outline" },
-      { href: "/dashboard/points-config", label: "Points", icon: "star-outline" },
-      { href: "/dashboard/badges", label: "Badges", icon: "ribbon-outline" },
     ],
   },
   {
