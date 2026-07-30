@@ -650,12 +650,12 @@ function TabLayoutInner() {
             node = (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Open scanner"
+                accessibilityLabel="Open coupons"
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
                 style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
-                onPress={() => router.push("/scanner" as import("expo-router").Href)}
+                onPress={() => router.push("/coupons" as import("expo-router").Href)}
               >
-                <Ionicons name="camera" size={24} color="#ffffff" />
+                <Ionicons name="pricetag" size={24} color="#ffffff" />
               </Pressable>
             );
           } else if (route.name === "my-community" && profileView === "business_hub") {
