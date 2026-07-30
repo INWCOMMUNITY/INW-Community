@@ -160,6 +160,134 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   "stuffed animals": { category: "Toys & Games", subcategory: "Dolls & Stuffed Animals" },
   "bridal accessories": { category: "Wedding", subcategory: "Accessories" },
   "wedding decorations": { category: "Wedding", subcategory: "Decor & Centerpieces" },
+
+  // Additional Etsy taxonomy mappings (expanded coverage)
+  // Clothing mid-level
+  "women's clothing": { category: "Clothing", subcategory: "Women's Clothing" },
+  "womens clothing": { category: "Clothing", subcategory: "Women's Clothing" },
+  "men's clothing": { category: "Clothing", subcategory: "Men's Clothing" },
+  "mens clothing": { category: "Clothing", subcategory: "Men's Clothing" },
+  dresses: { category: "Clothing", subcategory: "Dresses" },
+  dress: { category: "Clothing", subcategory: "Dresses" },
+  tops: { category: "Clothing", subcategory: "Tops & Tees" },
+  "tops & tees": { category: "Clothing", subcategory: "Tops & Tees" },
+  shirts: { category: "Clothing", subcategory: "Tops & Tees" },
+  "t-shirts": { category: "Clothing", subcategory: "Tops & Tees" },
+  sweaters: { category: "Clothing", subcategory: "Sweaters" },
+  hoodies: { category: "Clothing", subcategory: "Hoodies & Sweatshirts" },
+  "hoodies & sweatshirts": { category: "Clothing", subcategory: "Hoodies & Sweatshirts" },
+  jackets: { category: "Clothing", subcategory: "Jackets & Coats" },
+  "jackets & coats": { category: "Clothing", subcategory: "Jackets & Coats" },
+  coats: { category: "Clothing", subcategory: "Jackets & Coats" },
+  pants: { category: "Clothing", subcategory: "Pants" },
+  "pants & capris": { category: "Clothing", subcategory: "Pants" },
+  jeans: { category: "Clothing", subcategory: "Jeans" },
+  shorts: { category: "Clothing", subcategory: "Shorts" },
+  skirts: { category: "Clothing", subcategory: "Skirts" },
+  swimwear: { category: "Clothing", subcategory: "Swimwear" },
+  "suits & blazers": { category: "Clothing", subcategory: "Suits & Blazers" },
+  activewear: { category: "Clothing", subcategory: "Activewear" },
+  sleepwear: { category: "Clothing", subcategory: "Sleepwear" },
+  costumes: { category: "Clothing", subcategory: "Costumes" },
+  vintage: { category: "Art & Collectibles", subcategory: "Vintage & Antiques" },
+
+  // Art & Collectibles expanded
+  art: { category: "Art & Collectibles", subcategory: null },
+  "fine art": { category: "Art & Collectibles", subcategory: "Paintings & Prints" },
+  "mixed media": { category: "Art & Collectibles", subcategory: "Mixed Media & Collage" },
+  "mixed media & collage": { category: "Art & Collectibles", subcategory: "Mixed Media & Collage" },
+  collage: { category: "Art & Collectibles", subcategory: "Mixed Media & Collage" },
+  "artist trading cards": { category: "Art & Collectibles", subcategory: "Drawing & Illustration" },
+
+  // Craft Supplies expanded
+  beads: { category: "Craft Supplies & Tools", subcategory: "Beads" },
+  "beads & jewelry making": { category: "Craft Supplies & Tools", subcategory: "Beads" },
+  fabric: { category: "Craft Supplies & Tools", subcategory: "Fabric" },
+  yarn: { category: "Craft Supplies & Tools", subcategory: "Yarn" },
+  "sewing & needlecraft": { category: "Craft Supplies & Tools", subcategory: "Sewing & Needlecraft" },
+  patterns: { category: "Craft Supplies & Tools", subcategory: "Patterns & How To" },
+  "patterns & how to": { category: "Craft Supplies & Tools", subcategory: "Patterns & How To" },
+
+  // Electronics expanded
+  electronics: { category: "Electronics & Accessories", subcategory: null },
+  "phone cases": { category: "Electronics & Accessories", subcategory: "Phone Cases" },
+  "gadgets": { category: "Electronics & Accessories", subcategory: null },
+
+  // Home & Living expanded
+  "home": { category: "Home & Living", subcategory: null },
+  "living room": { category: "Home & Living", subcategory: "Living Room" },
+  rugs: { category: "Home & Living", subcategory: "Rugs" },
+  curtains: { category: "Home & Living", subcategory: "Curtains & Window Treatments" },
+  "curtains & window treatments": { category: "Home & Living", subcategory: "Curtains & Window Treatments" },
+  pillows: { category: "Home & Living", subcategory: "Pillows" },
+  blankets: { category: "Home & Living", subcategory: "Blankets & Throws" },
+  "blankets & throws": { category: "Home & Living", subcategory: "Blankets & Throws" },
+  candles: { category: "Home & Living", subcategory: "Candles & Holders" },
+  "candles & holders": { category: "Home & Living", subcategory: "Candles & Holders" },
+  vases: { category: "Home & Living", subcategory: "Vases" },
+  clocks: { category: "Home & Living", subcategory: "Clocks" },
+  mirrors: { category: "Home & Living", subcategory: "Mirrors" },
+  frames: { category: "Home & Living", subcategory: "Frames & Displays" },
+  "picture frames": { category: "Home & Living", subcategory: "Frames & Displays" },
+  "outdoor & garden": { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+  "outdoor & gardening": { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+  planters: { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+
+  // Jewelry expanded
+  "fine jewelry": { category: "Jewelry & Watches", subcategory: null },
+  pendants: { category: "Jewelry & Watches", subcategory: "Necklaces & Pendants" },
+  charms: { category: "Jewelry & Watches", subcategory: "Charms" },
+  brooch: { category: "Jewelry & Watches", subcategory: "Brooches" },
+  brooches: { category: "Jewelry & Watches", subcategory: "Brooches" },
+  anklets: { category: "Jewelry & Watches", subcategory: "Anklets" },
+
+  // Paper & Party expanded
+  cards: { category: "Paper & Party Supplies", subcategory: "Greeting Cards" },
+  "stationery": { category: "Paper & Party Supplies", subcategory: "Stationery" },
+  "journals & notebooks": { category: "Paper & Party Supplies", subcategory: "Journals & Notebooks" },
+  journals: { category: "Paper & Party Supplies", subcategory: "Journals & Notebooks" },
+  notebooks: { category: "Paper & Party Supplies", subcategory: "Journals & Notebooks" },
+  calendars: { category: "Paper & Party Supplies", subcategory: "Calendars & Planners" },
+  planners: { category: "Paper & Party Supplies", subcategory: "Calendars & Planners" },
+  "calendars & planners": { category: "Paper & Party Supplies", subcategory: "Calendars & Planners" },
+  "party supplies": { category: "Paper & Party Supplies", subcategory: "Party Decorations" },
+  balloons: { category: "Paper & Party Supplies", subcategory: "Party Decorations" },
+  banners: { category: "Paper & Party Supplies", subcategory: "Party Decorations" },
+
+  // Toys & Games expanded
+  toys: { category: "Toys & Games", subcategory: null },
+  games: { category: "Toys & Games", subcategory: null },
+  puzzles: { category: "Toys & Games", subcategory: "Board Games & Puzzles" },
+  dolls: { category: "Toys & Games", subcategory: "Dolls & Stuffed Animals" },
+  "action figures": { category: "Toys & Games", subcategory: "Action Figures" },
+  "learning & school": { category: "Toys & Games", subcategory: "Learning & School" },
+
+  // Baby & Kids (Etsy often uses these)
+  baby: { category: "Baby & Kids", subcategory: null },
+  "baby & toddler toys": { category: "Baby & Kids", subcategory: "Toys" },
+  "baby clothing": { category: "Baby & Kids", subcategory: "Baby Clothing" },
+  "kids' clothing": { category: "Baby & Kids", subcategory: "Kids' Clothing" },
+  "kids clothing": { category: "Baby & Kids", subcategory: "Kids' Clothing" },
+  "children's clothing": { category: "Baby & Kids", subcategory: "Kids' Clothing" },
+  nursery: { category: "Baby & Kids", subcategory: "Nursery" },
+  "nursery decor": { category: "Baby & Kids", subcategory: "Nursery" },
+
+  // Bags expanded
+  clutches: { category: "Bags & Purses", subcategory: "Clutches & Evening Bags" },
+  "clutches & evening bags": { category: "Bags & Purses", subcategory: "Clutches & Evening Bags" },
+  "messenger bags": { category: "Bags & Purses", subcategory: "Messenger Bags" },
+  "luggage & travel": { category: "Bags & Purses", subcategory: "Luggage & Travel" },
+  "cosmetic & toiletry bags": { category: "Bags & Purses", subcategory: "Cosmetic Bags" },
+  purses: { category: "Bags & Purses", subcategory: "Handbags" },
+  bags: { category: "Bags & Purses", subcategory: null },
+
+  // Sports & Outdoors
+  sports: { category: "Sports & Outdoors", subcategory: null },
+  "sports & recreation": { category: "Sports & Outdoors", subcategory: null },
+  camping: { category: "Sports & Outdoors", subcategory: "Camping & Hiking" },
+  "camping & hiking": { category: "Sports & Outdoors", subcategory: "Camping & Hiking" },
+  fitness: { category: "Sports & Outdoors", subcategory: "Fitness & Exercise" },
+  yoga: { category: "Sports & Outdoors", subcategory: "Fitness & Exercise" },
 };
 
 /**
@@ -481,6 +609,16 @@ export function resolveInwCategoryFromRemote(
   }
 
   // Strict fallback: keep remote label as custom (eBay default).
+  // Log unmapped categories to help identify gaps in aliases
+  console.log("[category-resolver] unmapped category from remote", {
+    provider: opts?.provider ?? "unknown",
+    remoteLabel: label,
+    remoteSubLabel: sub,
+    bestMatchScore: best?.score,
+    bestMatchCategory: best?.category,
+    closestPresetMode: closest,
+  });
+
   return {
     category: label.slice(0, 200),
     subcategory: sub?.slice(0, 200) ?? null,

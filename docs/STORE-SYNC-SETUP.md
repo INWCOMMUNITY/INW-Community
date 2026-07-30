@@ -119,9 +119,32 @@ Do this once before connecting any marketplace.
 | `ETSY_WEBHOOK_SECRET` | No | Webhook signing secret |
 | `ETSY_DEFAULT_TAXONOMY_ID` | No | Category id number |
 
+### B — Two-way sync (Etsy → INW)
+
+**Problem:** Etsy webhooks primarily deliver order events, not listing edit notifications. This means edits made on Etsy don't automatically sync to INW.
+
+**Solution:** Enable `CHANNEL_CRON_SYNC_ENABLED=true` in Vercel to run full two-way catalog reconcile every 5 minutes.
+
+| Vercel name | Value | What it does |
+|-------------|-------|--------------|
+| `CHANNEL_CRON_SYNC_ENABLED` | `true` | Enables full two-way sync for Etsy, eBay, Wix, Shopify |
+
+After setting, **redeploy** the main app. The cron runs every 5 minutes and will:
+- Pull content changes from Etsy → INW (title, description, price, photos)
+- Push INW changes → Etsy (most recent wins)
+- Sync quantity on divergence
+
+**Diagnose issues:** Visit `/api/channels/etsy/diagnose` while logged in as the seller to see:
+- Token validity
+- Circuit breaker state
+- Recent sync errors
+- Per-listing sync status
+
 ### B — Tell sellers
 
 - [ ] They need at least one **shipping profile** on Etsy, or synced listings stay **drafts** until they add one.
+- [ ] Edits on Etsy sync to INW within ~5 minutes (when `CHANNEL_CRON_SYNC_ENABLED=true`)
+- [ ] Edits on INW sync to Etsy immediately
 
 ### B — Test in app
 

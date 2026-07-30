@@ -398,6 +398,11 @@ export async function DELETE(
     console.error("[store-items] Channel delete failed:", err);
   }
 
+  // Delete associated feed posts so "Recently Added" doesn't show stale previews
+  await deleteFeedPostsForSoldItem(id).catch((err) =>
+    console.error("[store-items] Feed post cleanup failed:", err)
+  );
+
   await prisma.storeItem.delete({ where: { id } });
   // Log activity
   const { logSellerActivity } = await import("@/lib/seller-activity-log");

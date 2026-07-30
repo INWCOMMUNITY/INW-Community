@@ -167,6 +167,16 @@ export async function importRemoteListing(args: {
     const resolvedCat = resolveInwCategoryFromRemote(listing.category, listing.subcategory, {
       provider,
     });
+    if (resolvedCat && !resolvedCat.matchedPreset) {
+      console.log("[channels] import using custom category (no preset match)", {
+        provider,
+        externalListingId: productId,
+        remoteCategory: listing.category,
+        remoteSubcategory: listing.subcategory,
+        resolvedCategory: resolvedCat.category,
+        resolvedSubcategory: resolvedCat.subcategory,
+      });
+    }
     const normalizedVariants: InwVariantAxis[] | null =
       listing.variantsKnown === true && Array.isArray(listing.variants)
         ? (listing.variants as InwVariantAxis[])

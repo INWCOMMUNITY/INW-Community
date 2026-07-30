@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text();
 
   if (!verifyEtsyWebhook(rawBody, req.headers)) {
+    console.warn("[channels] etsy webhook rejected - invalid signature or ETSY_WEBHOOK_SECRET not set");
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest) {
     payload = null;
   }
   const { shopId, topic } = parseEtsyWebhookEnvelope(payload);
+  console.log("[channels] etsy webhook received", { topic, shopId });
 
   const webhookEventId = await logWebhookEvent(
     "etsy",
@@ -49,13 +51,21 @@ export async function POST(req: NextRequest) {
         where: { provider: "etsy", externalShopId: shopId, status: { not: "disconnected" } },
       });
       if (conn) {
-        await reconcileConnectionSales(conn);
-        await reconcileConnectionInboundCatalog(conn).catch((e) =>
+        console.log("[channels] etsy webhook processing for connection", { connectionId: conn.id, topic });
+        const salesResult = await reconcileConnectionSales(conn);
+        console.log("[channels] etsy webhook sales reconcile completed", { applied: salesResult.applied });
+        const catalogResult = await reconcileConnectionInboundCatalog(conn).catch((e) => {
           console.error("[channels] etsy webhook catalog reconcile failed", {
             error: String(e),
-          })
-        );
+          });
+          return { updated: 0, removed: 0 };
+        });
+        console.log("[channels] etsy webhook catalog reconcile completed", catalogResult);
+      } else {
+        console.warn("[channels] etsy webhook - no connection found for shop", { shopId });
       }
+    } else {
+      console.warn("[channels] etsy webhook - no shopId in payload");
     }
 
     await markWebhookCompleted(webhookEventId);
