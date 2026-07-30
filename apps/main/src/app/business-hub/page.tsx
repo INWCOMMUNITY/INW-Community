@@ -15,9 +15,9 @@ export const dynamic = "force-dynamic";
 
 function parseOpenModal(
   raw: string | string[] | undefined
-): "coupon" | "reward" | "event" | null {
+): "coupon" | "event" | null {
   const v = Array.isArray(raw) ? raw[0] : raw;
-  if (v === "coupon" || v === "reward" || v === "event") return v;
+  if (v === "coupon" || v === "event") return v;
   return null;
 }
 
