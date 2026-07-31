@@ -103,17 +103,34 @@ export async function reconcileConnectionInboundCatalog(
   connection: ConnectionRow
 ): Promise<{ updated: number; removed: number }> {
   const provider = connection.provider as ChannelProvider;
+  
+  console.log("[channels] reconcileConnectionInboundCatalog starting", {
+    connectionId: connection.id,
+    provider,
+    memberId: connection.memberId,
+  });
+  
   const caps = getChannelCapabilities(provider);
   if (!caps.supportsBaselineCatalogReconcile) {
+    console.log("[channels] provider does not support baseline reconcile", { provider });
     return { updated: 0, removed: 0 };
   }
 
   const ctx = await getConnectionContext(connection);
-  if (!ctx) return { updated: 0, removed: 0 };
+  if (!ctx) {
+    console.warn("[channels] no connection context available", { connectionId: connection.id });
+    return { updated: 0, removed: 0 };
+  }
 
   let remoteList: RemoteListingSummary[];
   try {
+    console.log("[channels] fetching remote listings...", { provider });
     remoteList = await getAdapter(provider).listRemoteListings(ctx);
+    console.log("[channels] fetched remote listings", { 
+      provider, 
+      count: remoteList.length,
+      sample: remoteList.slice(0, 2).map(l => ({ id: l.externalListingId, title: l.title?.slice(0, 30) })),
+    });
   } catch (e) {
     console.error("[channels] inbound catalog list failed", { provider, error: String(e) });
     return { updated: 0, removed: 0 };
@@ -151,6 +168,18 @@ export async function reconcileConnectionInboundCatalog(
       },
     },
   })) as LinkRow[];
+
+  console.log("[channels] found linked listings", {
+    connectionId: connection.id,
+    provider,
+    linksCount: links.length,
+    remoteCount: remoteList.length,
+  });
+
+  if (links.length === 0) {
+    console.log("[channels] no linked listings to sync");
+    return { updated: 0, removed: 0 };
+  }
 
   let updated = 0;
   let removed = 0;
