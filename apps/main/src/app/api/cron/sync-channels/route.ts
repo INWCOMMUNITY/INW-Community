@@ -13,7 +13,12 @@ import { prisma } from "database";
 import type { ChannelProvider } from "@/lib/channels/types";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120; // Extended to allow for two sync cycles
+
+/** Helper to wait for a specified number of milliseconds */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Reprocess stale pending webhook events (older than 5 minutes).
@@ -76,12 +81,15 @@ async function processStaleWebhookEvents(): Promise<{ reprocessed: number; faile
 }
 
 /**
- * Channel sync cron: always processes the retry queue for failed pushes,
- * reprocesses stale webhook events, and optionally runs full reconcile
- * when CHANNEL_CRON_SYNC_ENABLED=true.
+ * Channel sync cron: runs every minute but executes TWO sync cycles
+ * (at 0s and ~30s) to achieve effective 30-second sync intervals.
+ * 
+ * Always runs reconciliation - no CHANNEL_CRON_SYNC_ENABLED check required.
  */
 export async function GET(req: NextRequest) {
+  const startTime = Date.now();
   const secret = process.env.CRON_SECRET;
+  
   if (!secret) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
   }
@@ -89,6 +97,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  console.log("[cron] sync-channels starting", { timestamp: new Date().toISOString() });
+
+  // Process retry queue and webhook events once at the start
   const retryResult = await processRetryQueue().catch((e) => {
     console.error("[cron] retry queue failed", { error: String(e) });
     return { processed: 0, succeeded: 0, failed: 0, exhausted: 0 };
@@ -101,29 +112,51 @@ export async function GET(req: NextRequest) {
   });
   const webhooksCleaned = await cleanupOldWebhookEvents().catch(() => 0);
 
-  if (process.env.CHANNEL_CRON_SYNC_ENABLED !== "true") {
-    return NextResponse.json({
-      ok: true,
-      retryQueue: retryResult,
-      exhaustedCleaned: cleaned,
-      webhookEvents: webhookResult,
-      webhooksCleaned,
-      reconcile: "skipped (CHANNEL_CRON_SYNC_ENABLED not set)",
-    });
+  // FIRST SYNC CYCLE (at ~0 seconds)
+  let firstSync = { connections: 0, applied: 0, imported: 0, catalogUpdated: 0, catalogRemoved: 0, metaUpdated: 0 };
+  try {
+    console.log("[cron] running first sync cycle");
+    firstSync = await reconcileAllConnections();
+    console.log("[cron] first sync cycle completed", firstSync);
+  } catch (e) {
+    console.error("[cron] first sync cycle failed", { error: String(e) });
   }
 
-  try {
-    const result = await reconcileAllConnections();
-    return NextResponse.json({
-      ok: true,
-      retryQueue: retryResult,
-      exhaustedCleaned: cleaned,
-      webhookEvents: webhookResult,
-      webhooksCleaned,
-      ...result,
-    });
-  } catch (e) {
-    console.error("[cron] sync-channels failed", { error: String(e) });
-    return NextResponse.json({ error: "Reconcile failed" }, { status: 500 });
+  // Wait ~30 seconds for second cycle
+  const elapsed = Date.now() - startTime;
+  const waitTime = Math.max(0, 30000 - elapsed);
+  if (waitTime > 0) {
+    console.log("[cron] waiting for second sync cycle", { waitMs: waitTime });
+    await sleep(waitTime);
   }
+
+  // SECOND SYNC CYCLE (at ~30 seconds)
+  let secondSync = { connections: 0, applied: 0, imported: 0, catalogUpdated: 0, catalogRemoved: 0, metaUpdated: 0 };
+  try {
+    console.log("[cron] running second sync cycle");
+    secondSync = await reconcileAllConnections();
+    console.log("[cron] second sync cycle completed", secondSync);
+  } catch (e) {
+    console.error("[cron] second sync cycle failed", { error: String(e) });
+  }
+
+  const totalDuration = Date.now() - startTime;
+  console.log("[cron] sync-channels completed", { 
+    totalDurationMs: totalDuration,
+    firstSync,
+    secondSync,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    retryQueue: retryResult,
+    exhaustedCleaned: cleaned,
+    webhookEvents: webhookResult,
+    webhooksCleaned,
+    syncCycles: [firstSync, secondSync],
+    totalConnections: firstSync.connections,
+    totalApplied: firstSync.applied + secondSync.applied,
+    totalCatalogUpdated: firstSync.catalogUpdated + secondSync.catalogUpdated,
+    durationMs: totalDuration,
+  });
 }
