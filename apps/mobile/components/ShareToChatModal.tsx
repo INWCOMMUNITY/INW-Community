@@ -29,7 +29,6 @@ import {
   shareToFeed,
   shareToGroup,
   recordPostShareEvent,
-  type EarnedBadgePayload,
   type ShareContent,
   type PostShareChannel,
 } from "@/lib/share-utils";
@@ -203,8 +202,6 @@ export function ShareToChatModal({
       setComposing(false);
       setShareToFeedText("");
       setShareToGroupPicker(false);
-      setFeedEarnedBadges([]);
-      setFeedBadgePopupIndex(-1);
       setStorePreview(null);
     }
   }, [visible]);
