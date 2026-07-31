@@ -187,6 +187,32 @@ export async function reconcileConnectionInboundCatalog(
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     });
 
+    // Debug logging for inbound sync - always log to understand what's happening
+    const remoteTimestamp = remote.remoteUpdatedAt?.getTime() ?? 0;
+    const baseTimestamp = baseAt?.getTime() ?? 0;
+    const timeDiff = remoteTimestamp - baseTimestamp;
+    
+    console.log("[channels] inbound sync check", {
+      storeItemId: link.storeItemId,
+      externalListingId: link.externalListingId,
+      inwContentChanged,
+      remoteContentChanged,
+      contentDecision,
+      qtyDiffers,
+      baseAt: baseAt?.toISOString(),
+      remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString(),
+      inwUpdatedAt: item.updatedAt?.toISOString(),
+      timeDiffMs: timeDiff,
+      hasBaseline: link.syncBaselineHash != null,
+      hasBaselineAt: link.syncBaselineAt != null,
+      remoteTitle: remote.title?.slice(0, 30),
+      inwTitle: item.title?.slice(0, 30),
+      remotePriceCents: remote.priceCents,
+      inwPriceCents: item.priceCents,
+      remoteQty: remote.quantity,
+      inwQty: item.quantity,
+    });
+
     const inwQtyChangedSinceBaseline =
       link.syncBaselineQty != null && item.quantity !== link.syncBaselineQty;
     const qtyDiffers =
@@ -198,6 +224,15 @@ export async function reconcileConnectionInboundCatalog(
       }
       continue;
     }
+
+    // Detailed logging when changes are detected
+    console.log("[channels] applying sync changes", {
+      storeItemId: link.storeItemId,
+      direction: contentDecision,
+      qtyDiffers,
+      remoteQty: remote.quantity,
+      inwQty: item.quantity,
+    });
 
     if (inwContentChanged && remoteContentChanged) {
       const winner = contentDecision === "pull" ? "remote" : "INW";
@@ -212,7 +247,15 @@ export async function reconcileConnectionInboundCatalog(
 
     let pulledContent = false;
     if (contentDecision === "pull") {
+      console.log("[channels] pulling content from remote", {
+        storeItemId: link.storeItemId,
+        remoteTitle: remote.title,
+        remotePriceCents: remote.priceCents,
+        remoteDescription: remote.description?.slice(0, 50),
+        remotePhotos: remote.photos?.length,
+      });
       pulledContent = await applyRemoteContentToStoreItem(link.storeItemId, remote);
+      console.log("[channels] pull result", { storeItemId: link.storeItemId, pulledContent });
     }
 
     let attemptedPush = false;
