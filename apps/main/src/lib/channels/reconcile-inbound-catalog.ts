@@ -2,6 +2,7 @@ import { prisma } from "database";
 import { getConnectionContext } from "./connection";
 import {
   applyRemoteContentToStoreItem,
+  applyRemoteQuantityToStoreItem,
   applyRemoteListingRemoved,
 } from "./apply-remote-listing";
 import { getAdapter } from "./registry";
@@ -295,6 +296,8 @@ export async function reconcileConnectionInboundCatalog(
     }
 
     let pulledContent = false;
+    let pulledQuantity = false;
+    
     if (contentDecision === "pull") {
       console.log("[channels] pulling content from remote", {
         storeItemId: link.storeItemId,
@@ -305,29 +308,67 @@ export async function reconcileConnectionInboundCatalog(
       });
       pulledContent = await applyRemoteContentToStoreItem(link.storeItemId, remote);
       console.log("[channels] pull result", { storeItemId: link.storeItemId, pulledContent });
+      
+      // Also pull quantity when pulling content (Etsy edited = pull everything)
+      if (remoteQtyKnown && remote.quantity !== item.quantity) {
+        console.log("[channels] pulling quantity from remote", {
+          storeItemId: link.storeItemId,
+          oldQty: item.quantity,
+          newQty: remote.quantity,
+        });
+        pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity);
+      }
     }
 
+    // Determine quantity sync direction when quantities differ but content didn't trigger a pull
     let attemptedPush = false;
     let pushOk = false;
+    
     if (contentDecision === "push") {
       attemptedPush = true;
       pushOk = channelSyncSucceeded(
         await updateStoreItemOnChannels(link.storeItemId),
         provider
       );
-    } else if (qtyDiffers) {
-      attemptedPush = true;
-      pushOk = channelSyncSucceeded(
-        await syncInventoryToChannels(link.storeItemId),
-        provider
-      );
+    } else if (qtyDiffers && contentDecision !== "pull") {
+      // Quantity differs but we didn't pull content - need to decide direction
+      // If remote quantity changed (remote != baseline), pull from remote
+      // If INW quantity changed (inw != baseline), push to remote
+      const remoteQtyChanged = remoteQtyKnown && 
+        link.syncBaselineQty != null && 
+        remote.quantity !== link.syncBaselineQty;
+      
+      if (remoteQtyChanged && !inwQtyChangedSinceBaseline) {
+        // Remote changed, INW didn't - pull from remote
+        console.log("[channels] pulling quantity from remote (qty-only change)", {
+          storeItemId: link.storeItemId,
+          oldQty: item.quantity,
+          newQty: remote.quantity,
+          baselineQty: link.syncBaselineQty,
+        });
+        pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity);
+      } else {
+        // INW changed or both changed - push to channels
+        attemptedPush = true;
+        pushOk = channelSyncSucceeded(
+          await syncInventoryToChannels(link.storeItemId),
+          provider
+        );
+      }
     }
 
+    // If we pulled content, push to other channels (not the one we pulled from)
     if (pulledContent && contentDecision !== "push") {
       await updateStoreItemOnChannels(link.storeItemId, { skipProviders: [provider] });
     }
+    
+    // If we pulled quantity, also push to other channels
+    if (pulledQuantity) {
+      await syncInventoryToChannels(link.storeItemId, { skipProviders: [provider] });
+    }
 
-    if (pulledContent) {
+    // Update lastInboundAt if we pulled anything
+    if (pulledContent || pulledQuantity) {
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: { lastInboundAt: new Date() },
@@ -340,7 +381,8 @@ export async function reconcileConnectionInboundCatalog(
       });
     }
 
-    if (pulledContent || (attemptedPush && pushOk)) {
+    // Write new baseline after successful sync
+    if (pulledContent || pulledQuantity || (attemptedPush && pushOk)) {
       await writeBaseline(link.id, link.storeItemId, remote, attemptedPush && pushOk);
     } else if (link.syncBaselineHash == null || link.syncBaselineAt == null) {
       await writeBaseline(link.id, link.storeItemId, remote, false);
