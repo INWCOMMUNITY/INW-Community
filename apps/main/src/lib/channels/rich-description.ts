@@ -2,8 +2,11 @@
  * Listing-body HTML subset: keep structure (bold, italics, breaks, lists, headings)
  * and strip font/size/color/style and unsafe tags. Used for StoreItem.description
  * so eBay/Shopify/Wix HTML can round-trip without inheriting marketplace typography.
+ * 
+ * NOTE: We use a simple regex-based sanitizer instead of DOMPurify to avoid ESM
+ * module conflicts in Vercel's serverless environment (html-encoding-sniffer issue).
  */
-const LISTING_ALLOWED_TAGS = [
+const LISTING_ALLOWED_TAGS = new Set([
   "p",
   "br",
   "strong",
@@ -17,17 +20,52 @@ const LISTING_ALLOWED_TAGS = [
   "h2",
   "h3",
   "blockquote",
-];
+]);
 
-function sanitizeHtml(normalized: string): string {
-  const DOMPurify = require("isomorphic-dompurify").default as {
-    sanitize: (dirty: string, config?: object) => string;
-  };
-  return DOMPurify.sanitize(normalized, {
-    ALLOWED_TAGS: LISTING_ALLOWED_TAGS,
-    ALLOWED_ATTR: [],
-    KEEP_CONTENT: true,
+/**
+ * Simple HTML sanitizer that keeps only allowed tags.
+ * Strips all attributes and disallowed tags while preserving their text content.
+ */
+function sanitizeHtml(html: string): string {
+  // First, decode common HTML entities
+  let result = html
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"');
+
+  // Remove script, style, and other dangerous tags entirely (including content)
+  result = result.replace(/<(script|style|iframe|object|embed|form|input|button)[^>]*>[\s\S]*?<\/\1>/gi, "");
+  result = result.replace(/<(script|style|iframe|object|embed|form|input|button)[^>]*\/?>/gi, "");
+
+  // Process all HTML tags
+  result = result.replace(/<\/?([a-z][a-z0-9]*)\b[^>]*\/?>/gi, (match, tagName) => {
+    const tag = tagName.toLowerCase();
+    if (LISTING_ALLOWED_TAGS.has(tag)) {
+      // Keep allowed tags but strip all attributes
+      if (match.startsWith("</")) {
+        return `</${tag}>`;
+      }
+      // Self-closing tags like <br>
+      if (tag === "br") {
+        return "<br>";
+      }
+      return `<${tag}>`;
+    }
+    // Remove disallowed tags but keep the text between them
+    return "";
   });
+
+  // Clean up excessive whitespace
+  result = result
+    .replace(/\s+/g, " ")
+    .replace(/>\s+</g, "><")
+    .replace(/\s+>/g, ">")
+    .replace(/<\s+/g, "<")
+    .trim();
+
+  return result;
 }
 
 /** Sanitize remote or local listing HTML for storage and display. */
