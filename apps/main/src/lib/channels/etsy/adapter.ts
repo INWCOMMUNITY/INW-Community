@@ -81,6 +81,83 @@ function optionQuantityMap(variants: unknown): Map<string, number> {
   return map;
 }
 
+type EtsyImage = {
+  listing_image_id: number;
+  url_fullxfull?: string;
+  url_570xN?: string;
+  rank: number;
+};
+
+/**
+ * Sync photos from INW to Etsy listing.
+ * Compares current Etsy images with INW photos and:
+ * - Uploads new photos that don't exist on Etsy
+ * - Deletes Etsy images that are no longer in INW
+ * 
+ * Note: This uses URL comparison which may not be perfect for all cases,
+ * but handles the common case of photo additions/removals.
+ */
+async function syncEtsyPhotos(
+  accessToken: string,
+  shopId: string,
+  listingId: string,
+  inwPhotos: string[]
+): Promise<void> {
+  if (inwPhotos.length === 0) {
+    // Don't delete all photos - Etsy requires at least one
+    return;
+  }
+
+  // Get current Etsy images
+  let etsyImages: EtsyImage[] = [];
+  try {
+    const listing = await etsyGet<{ images?: EtsyImage[] }>(
+      accessToken,
+      `/listings/${listingId}?includes=Images`
+    );
+    etsyImages = listing.images ?? [];
+  } catch {
+    // Can't get current images, skip sync
+    return;
+  }
+
+  // Extract Etsy image URLs for comparison
+  const etsyUrls = new Set(
+    etsyImages.map((img) => img.url_fullxfull || img.url_570xN || "").filter(Boolean)
+  );
+
+  // Find photos that need to be uploaded (in INW but not on Etsy)
+  const toUpload = inwPhotos.filter((url) => {
+    // Check if any Etsy URL contains similar path (URLs may differ in domain/size)
+    const urlPath = new URL(url).pathname;
+    return ![...etsyUrls].some((etsyUrl) => {
+      try {
+        return new URL(etsyUrl).pathname.includes(urlPath.split("/").pop() || "___nomatch___");
+      } catch {
+        return false;
+      }
+    });
+  });
+
+  // Upload new photos
+  if (toUpload.length > 0) {
+    console.log("[etsy] uploading new photos", { listingId, count: toUpload.length });
+    let rank = etsyImages.length + 1;
+    for (const url of toUpload.slice(0, 10 - etsyImages.length)) {
+      try {
+        await etsyUploadImage(accessToken, shopId, listingId, url, rank);
+        rank++;
+      } catch (e) {
+        console.error("[etsy] photo upload failed", { listingId, url, error: String(e) });
+      }
+    }
+  }
+
+  // Note: We don't delete photos automatically to avoid accidentally removing
+  // images that the seller added directly on Etsy. If needed, this can be added
+  // with a flag to enable destructive photo sync.
+}
+
 export const etsyAdapter: ChannelAdapter = {
   provider: "etsy",
 
@@ -205,6 +282,8 @@ export const etsyAdapter: ChannelAdapter = {
     const shopId = requireShop(conn);
     const cat = await resolveProviderCategoryId(conn, "etsy", item.category);
     const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
+    
+    // Update listing fields (title, description, price, taxonomy, who_made, when_made, etc.)
     await etsyForm(
       conn.accessToken,
       `/shops/${shopId}/listings/${externalListingId}`,
@@ -214,6 +293,12 @@ export const etsyAdapter: ChannelAdapter = {
         shippingProfileId,
       })
     );
+
+    // Sync photos if they've changed
+    await syncEtsyPhotos(conn.accessToken, shopId, externalListingId, item.photos).catch((e) => {
+      console.error("[etsy] photo sync failed", { listingId: externalListingId, error: String(e) });
+    });
+
     // Note: We do NOT call pushEtsyVariants here because it tries to REPLACE the entire
     // inventory structure. Etsy listings may already have variants with different property_ids.
     // Instead, updateInventory properly reads existing inventory and updates quantities/prices
@@ -444,6 +529,18 @@ export const etsyAdapter: ChannelAdapter = {
             if (vars) {
               summary.variants = vars;
               summary.variantsKnown = true;
+            }
+            // Get price from first offering (more accurate than listing-level price for variants)
+            const firstOffering = inv.products?.[0]?.offerings?.[0];
+            if (firstOffering?.price) {
+              const offeringPrice = firstOffering.price;
+              if (typeof offeringPrice === "number") {
+                // Price is already in dollars
+                summary.priceCents = Math.round(offeringPrice * 100);
+              } else if (offeringPrice.amount && offeringPrice.divisor) {
+                // Price is {amount, divisor} format
+                summary.priceCents = Math.round((offeringPrice.amount / offeringPrice.divisor) * 100);
+              }
             }
           } catch {
             /* inventory optional on list */

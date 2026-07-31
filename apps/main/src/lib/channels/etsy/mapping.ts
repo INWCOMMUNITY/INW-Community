@@ -80,6 +80,8 @@ export function buildEtsyUpdateFields(
   overrides?: { taxonomyId?: number; shippingProfileId?: string | null }
 ): Record<string, string | number | boolean | undefined> {
   const shippingId = overrides?.shippingProfileId;
+  const whoMade = item.etsyWhoMade && VALID_WHO_MADE.has(item.etsyWhoMade) ? item.etsyWhoMade : undefined;
+  const whenMade = item.etsyWhenMade && VALID_WHEN_MADE.has(item.etsyWhenMade) ? item.etsyWhenMade : undefined;
   return {
     title: etsyTitle(item.title),
     description: etsyDescription(item),
@@ -89,6 +91,11 @@ export function buildEtsyUpdateFields(
       ? { taxonomy_id: (overrides?.taxonomyId ?? item.etsyTaxonomyId) as number }
       : {}),
     ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
+    // Include who_made and when_made if set (so edits sync these fields)
+    ...(whoMade ? { who_made: whoMade } : {}),
+    ...(whenMade ? { when_made: whenMade } : {}),
+    // is_supply can also be updated
+    ...(item.etsyIsSupply != null ? { is_supply: item.etsyIsSupply } : {}),
   };
 }
 
