@@ -6,6 +6,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { StoreItemCard, type StoreItemData } from "./StoreItemCard";
@@ -15,14 +16,15 @@ const CARD_GAP = 12;
 
 interface FeaturedItemsCarouselProps {
   onQuickAdd?: (item: StoreItemData) => void;
+  /** Optional key to force refresh when changed */
+  refreshKey?: number;
 }
 
-export function FeaturedItemsCarousel({ onQuickAdd }: FeaturedItemsCarouselProps) {
+export function FeaturedItemsCarousel({ onQuickAdd, refreshKey }: FeaturedItemsCarouselProps) {
   const [items, setItems] = useState<StoreItemData[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const data = await apiGet<StoreItemData[]>("/api/store-items?featured=1&limit=10");
       if (Array.isArray(data)) {
@@ -35,9 +37,25 @@ export function FeaturedItemsCarousel({ onQuickAdd }: FeaturedItemsCarouselProps
     }
   }, []);
 
+  // Load on mount
   useEffect(() => {
+    setLoading(true);
     load();
   }, [load]);
+
+  // Refresh when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  // Refresh when refreshKey changes (for pull-to-refresh)
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) {
+      load();
+    }
+  }, [refreshKey, load]);
 
   if (loading) {
     return (

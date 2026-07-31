@@ -69,6 +69,7 @@ export default function StoreScreen() {
   const [items, setItems] = useState<StoreItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [carouselRefreshKey, setCarouselRefreshKey] = useState(0);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [headerExpanded, setHeaderExpanded] = useState(true);
   const headerHeightRef = useRef(330);
@@ -261,12 +262,12 @@ export default function StoreScreen() {
     if (!showCarousels) return null;
     return (
       <View style={styles.carouselsContainer}>
-        <FeaturedItemsCarousel onQuickAdd={handleQuickAdd} />
-        <RecentlyAddedCarousel onQuickAdd={handleQuickAdd} />
-        <SellerSpotlightCarousel />
+        <FeaturedItemsCarousel onQuickAdd={handleQuickAdd} refreshKey={carouselRefreshKey} />
+        <RecentlyAddedCarousel onQuickAdd={handleQuickAdd} refreshKey={carouselRefreshKey} />
+        <SellerSpotlightCarousel refreshKey={carouselRefreshKey} />
       </View>
     );
-  }, [showCarousels, handleQuickAdd]);
+  }, [showCarousels, handleQuickAdd, carouselRefreshKey]);
 
   const renderItem = useCallback(({ item }: { item: StoreItem }) => {
     return (
@@ -606,7 +607,10 @@ export default function StoreScreen() {
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => load(true)}
+              onRefresh={() => {
+                setCarouselRefreshKey((k) => k + 1);
+                load(true);
+              }}
               tintColor={theme.colors.cream}
               colors={[theme.colors.cream]}
             />

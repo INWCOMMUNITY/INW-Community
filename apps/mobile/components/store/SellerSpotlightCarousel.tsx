@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
@@ -28,13 +29,17 @@ interface SellerSpotlight {
   memberSince: number;
 }
 
-export function SellerSpotlightCarousel() {
+interface SellerSpotlightCarouselProps {
+  /** Optional key to force refresh when changed */
+  refreshKey?: number;
+}
+
+export function SellerSpotlightCarousel({ refreshKey }: SellerSpotlightCarouselProps = {}) {
   const router = useRouter();
   const [sellers, setSellers] = useState<SellerSpotlight[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const data = await apiGet<SellerSpotlight[]>("/api/store-items?sellerSpotlight=1&limit=10");
       if (Array.isArray(data)) {
@@ -47,9 +52,25 @@ export function SellerSpotlightCarousel() {
     }
   }, []);
 
+  // Load on mount
   useEffect(() => {
+    setLoading(true);
     load();
   }, [load]);
+
+  // Refresh when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  // Refresh when refreshKey changes (for pull-to-refresh)
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) {
+      load();
+    }
+  }, [refreshKey, load]);
 
   const resolveLogoUrl = (url: string | null): string | undefined => {
     if (!url) return undefined;
