@@ -40,7 +40,14 @@ type EtsyInventoryProduct = {
   }[];
   offerings?: EtsyInventoryOffering[];
 };
-type EtsyInventory = { products?: EtsyInventoryProduct[] };
+type EtsyInventory = {
+  products?: EtsyInventoryProduct[];
+  // These arrays track which properties affect price/quantity/sku/readiness
+  price_on_property?: number[];
+  quantity_on_property?: number[];
+  sku_on_property?: number[];
+  readiness_state_on_property?: number[];
+};
 
 function requireShop(conn: ChannelConnectionContext): string {
   if (!conn.externalShopId) throw new Error("Etsy connection is missing a shop id.");
@@ -204,6 +211,7 @@ export const etsyAdapter: ChannelAdapter = {
   },
 
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
+    const shopId = requireShop(conn);
     const inv = await etsyGet<EtsyInventory>(
       conn.accessToken,
       `/listings/${externalListingId}/inventory`
@@ -211,21 +219,41 @@ export const etsyAdapter: ChannelAdapter = {
     const products = inv.products ?? [];
     if (products.length === 0) {
       // No inventory record: fall back to the listing-level quantity field.
-      const shopId = requireShop(conn);
       await etsyForm(conn.accessToken, `/shops/${shopId}/listings/${externalListingId}`, "PATCH", {
         quantity: Math.max(0, absoluteQuantity),
       });
       return;
     }
 
-    // Get the default readiness_state_id from connection config (fetched during OAuth)
-    const defaultReadinessStateId =
+    // Get the default readiness_state_id from connection config, or fetch on-demand
+    let defaultReadinessStateId =
       typeof conn.config?.defaultReadinessStateId === "number"
         ? conn.config.defaultReadinessStateId
         : null;
 
+    // If no defaultReadinessStateId in config, try to fetch it on-demand
+    if (defaultReadinessStateId == null) {
+      try {
+        const profiles = await etsyGet<{ results?: { readiness_state_id: number }[] }>(
+          conn.accessToken,
+          `/shops/${shopId}/readiness-state-definitions`
+        );
+        defaultReadinessStateId = profiles.results?.[0]?.readiness_state_id ?? null;
+        console.log("[etsy] fetched processing profiles on-demand", {
+          shopId,
+          defaultReadinessStateId,
+        });
+      } catch (e) {
+        console.warn("[etsy] failed to fetch processing profiles on-demand", { error: String(e) });
+      }
+    }
+
     const optionQtys = optionQuantityMap(item.variants);
     const singleProduct = products.length === 1;
+
+    // Check if quantity varies by property - if not, all products must have the same quantity
+    const quantityOnProperty = inv.quantity_on_property ?? [];
+    const quantityVariesByProperty = quantityOnProperty.length > 0;
 
     const rebuilt = products.map((p) => {
       const propValues = p.property_values ?? [];
@@ -239,20 +267,28 @@ export const etsyAdapter: ChannelAdapter = {
         }
         return null;
       })();
+
+      // Determine quantity based on whether it varies by property
+      let quantity: number;
+      if (quantityVariesByProperty && matchedQty != null) {
+        // Quantity varies by property and we have a matched variant quantity
+        quantity = matchedQty;
+      } else if (singleProduct || !quantityVariesByProperty) {
+        // Single product OR quantity doesn't vary by property - use absolute quantity
+        quantity = Math.max(0, absoluteQuantity);
+      } else {
+        // Multi-product with quantity on property but no match - preserve existing
+        quantity = Math.max(0, (p.offerings?.[0]?.quantity ?? 0));
+      }
+
       const offerings = (p.offerings ?? []).map((o) => {
-        const quantity =
-          matchedQty != null
-            ? matchedQty
-            : singleProduct
-              ? Math.max(0, absoluteQuantity)
-              : Math.max(0, o.quantity ?? 0);
         // Preserve existing readiness_state_id or fall back to shop default
         const readinessStateId = o.readiness_state_id ?? defaultReadinessStateId;
         return {
           quantity,
           price: offeringPriceFloat(o, item.priceCents),
           is_enabled: quantity > 0,
-          // Only include readiness_state_id if we have a valid value (required for physical listings)
+          // Include readiness_state_id - required for physical listings since summer 2025
           ...(readinessStateId != null ? { readiness_state_id: readinessStateId } : {}),
         };
       });
@@ -270,7 +306,6 @@ export const etsyAdapter: ChannelAdapter = {
             quantity: Math.max(0, absoluteQuantity),
             price: Number(etsyPriceFromCents(item.priceCents)),
             is_enabled: absoluteQuantity > 0,
-            // Include default readiness_state_id for fallback offerings
             ...(defaultReadinessStateId != null ? { readiness_state_id: defaultReadinessStateId } : {}),
           },
         ],
@@ -281,13 +316,21 @@ export const etsyAdapter: ChannelAdapter = {
       listingId: externalListingId,
       productCount: rebuilt.length,
       defaultReadinessStateId,
+      quantityOnProperty,
+      quantityVariesByProperty,
       hasReadinessIds: rebuilt.some((p) =>
         p.offerings.some((o: { readiness_state_id?: number }) => o.readiness_state_id != null)
       ),
     });
 
+    // Preserve the original property arrays from the GET response
     await etsyJson(conn.accessToken, `/listings/${externalListingId}/inventory`, "PUT", {
       products: rebuilt,
+      // Preserve original property arrays to maintain Etsy's inventory structure
+      ...(inv.price_on_property?.length ? { price_on_property: inv.price_on_property } : {}),
+      ...(inv.quantity_on_property?.length ? { quantity_on_property: inv.quantity_on_property } : {}),
+      ...(inv.sku_on_property?.length ? { sku_on_property: inv.sku_on_property } : {}),
+      ...(inv.readiness_state_on_property?.length ? { readiness_state_on_property: inv.readiness_state_on_property } : {}),
     });
 
     // Read-back verify for single-SKU listings
