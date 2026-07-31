@@ -9,6 +9,7 @@ import {
   cleanupOldWebhookEvents,
 } from "@/lib/channels/webhook-event";
 import { reconcileMemberProvider } from "@/lib/channels/reconcile";
+import { checkAllQuotaAlerts, shouldSkipSyncDueToQuota } from "@/lib/channels/daily-quota-tracker";
 import { prisma } from "database";
 import type { ChannelProvider } from "@/lib/channels/types";
 
@@ -98,6 +99,24 @@ export async function GET(req: NextRequest) {
 
   console.log("[cron] sync-channels starting", { timestamp: new Date().toISOString() });
 
+  // Check quota alerts FIRST - log warnings before doing any work
+  const quotaAlerts = await checkAllQuotaAlerts().catch(() => []);
+  for (const alert of quotaAlerts) {
+    if (alert.alertLevel === "exceeded") {
+      console.error("[cron] 🚨 QUOTA EXCEEDED", alert.message);
+    } else if (alert.alertLevel === "critical") {
+      console.warn("[cron] ⚠️ QUOTA CRITICAL", alert.message);
+    } else if (alert.alertLevel === "warning") {
+      console.warn("[cron] 📊 QUOTA WARNING", alert.message);
+    }
+  }
+
+  // Skip Etsy sync if quota is exhausted
+  const skipEtsy = await shouldSkipSyncDueToQuota("etsy");
+  if (skipEtsy) {
+    console.error("[cron] 🛑 Skipping Etsy sync - daily quota exhausted (>95%)");
+  }
+
   // Process retry queue for failed pushes
   const retryResult = await processRetryQueue().catch((e) => {
     console.error("[cron] retry queue failed", { error: String(e) });
@@ -133,5 +152,12 @@ export async function GET(req: NextRequest) {
     webhooksCleaned,
     ...syncResult,
     durationMs,
+    quotaAlerts: quotaAlerts.map((a) => ({
+      provider: a.provider,
+      level: a.alertLevel,
+      message: a.message,
+      usage: a.usage,
+      projected: a.projected,
+    })),
   });
 }

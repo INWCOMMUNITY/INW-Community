@@ -1,5 +1,6 @@
 import { ETSY_API_BASE, getEtsyConfig } from "./config";
 import { waitForRateLimit, recordRequest } from "../rate-limit-tracker";
+import { recordDailyRequest } from "../daily-quota-tracker";
 
 let currentConnectionId: string | null = null;
 
@@ -116,7 +117,7 @@ async function etsyRequest<T>(
     throw new EtsyApiError(errMsg, res.status, body);
   }
 
-  // Log successful response
+  // Log successful response and track daily quota
   console.log("[etsy:response]", {
     requestId,
     method,
@@ -124,6 +125,9 @@ async function etsyRequest<T>(
     status: res.status,
     elapsed,
   });
+  
+  // Track daily quota usage
+  recordDailyRequest("etsy");
 
   return body as T;
 }
