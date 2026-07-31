@@ -491,66 +491,34 @@ export const etsyAdapter: ChannelAdapter = {
     const out: RemoteListingSummary[] = [];
     // Active only — draft/inactive treated as removed by baseline reconciler.
     const states = ["active"];
+    
     for (const state of states) {
       let offset = 0;
-      // Cap the import preview at a few pages to stay within rate limits.
+      // Cap at 5 pages (500 listings) to stay within rate limits.
       for (let page = 0; page < 5; page += 1) {
         const res = await etsyGet<{ results?: Parameters<typeof etsyListingToSummary>[0][]; count?: number }>(
           conn.accessToken,
           `/shops/${shopId}/listings?state=${state}&limit=100&offset=${offset}&includes=Images`
         ).catch(() => null);
         const results = res?.results ?? [];
+        
         for (const l of results) {
+          // Basic summary from listing endpoint - no extra API calls needed
+          // The listing endpoint already includes title, description, price, quantity, images
           const summary = etsyListingToSummary(l);
-          if (l.taxonomy_id) {
-            try {
-              const tax = await etsyGet<{ name?: string; path?: string[] }>(
-                conn.accessToken,
-                `/application/seller-taxonomy/nodes/${l.taxonomy_id}`
-              ).catch(() => null);
-              // Etsy path is root → … → leaf. Use root as category + leaf as subcategory
-              // so auto-translate hits top-level aliases (Accessories, Home & Living, …).
-              const path = tax?.path ?? (tax?.name ? [tax.name] : []);
-              if (path.length > 0) {
-                summary.category = path[0] ?? null;
-                summary.subcategory =
-                  path.length > 1 ? path[path.length - 1] ?? null : null;
-              }
-            } catch {
-              /* optional enrichment */
-            }
-          }
-          try {
-            const inv = await etsyGet<EtsyInventory>(
-              conn.accessToken,
-              `/listings/${l.listing_id}/inventory`
-            );
-            const vars = etsyInventoryToVariants(inv.products);
-            if (vars) {
-              summary.variants = vars;
-              summary.variantsKnown = true;
-            }
-            // Get price from first offering (more accurate than listing-level price for variants)
-            const firstOffering = inv.products?.[0]?.offerings?.[0];
-            if (firstOffering?.price) {
-              const offeringPrice = firstOffering.price;
-              if (typeof offeringPrice === "number") {
-                // Price is already in dollars
-                summary.priceCents = Math.round(offeringPrice * 100);
-              } else if (offeringPrice.amount && offeringPrice.divisor) {
-                // Price is {amount, divisor} format
-                summary.priceCents = Math.round((offeringPrice.amount / offeringPrice.divisor) * 100);
-              }
-            }
-          } catch {
-            /* inventory optional on list */
-          }
           out.push(summary);
         }
+        
         if (results.length < 100) break;
         offset += 100;
       }
     }
+    
+    // NOTE: We intentionally skip taxonomy and inventory fetches during sync polling.
+    // - Taxonomy: Cached at import time, doesn't change frequently
+    // - Inventory: Only needed for variant-specific quantities, fetched on-demand
+    // This reduces API calls from O(n) to O(1) per 100 listings.
+    
     return out;
   },
 
