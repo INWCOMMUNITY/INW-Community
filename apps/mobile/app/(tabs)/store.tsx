@@ -659,13 +659,13 @@ export default function StoreScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#f5f0e6",
   },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: "#f5f0e6",
   },
   headerWrap: {
     overflow: "hidden",
@@ -889,18 +889,18 @@ const styles = StyleSheet.create({
   list: {
     zIndex: 1,
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#f5f0e6",
   },
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 32,
-    backgroundColor: "#fff",
+    backgroundColor: "#f5f0e6",
   },
   carouselsContainer: {
     marginHorizontal: -16,
     marginBottom: 16,
-    backgroundColor: "#f9f9f9",
+    backgroundColor: "#f5f0e6",
   },
   row: {
     gap: 12,

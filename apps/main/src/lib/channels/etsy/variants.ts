@@ -15,7 +15,8 @@ type TaxonomyProperty = {
 export async function buildEtsyInventoryProducts(
   accessToken: string,
   taxonomyId: number,
-  item: SyncStoreItem
+  item: SyncStoreItem,
+  defaultReadinessStateId?: number | null
 ): Promise<{ products: Record<string, unknown>[] } | null> {
   const axes = normalizeVariantsFromProvider("etsy", item.variants) as InwVariantAxis[] | null;
   if (!axes || axes.length === 0) {
@@ -29,6 +30,8 @@ export async function buildEtsyInventoryProducts(
               price: Number(etsyPriceFromCents(item.priceCents)),
               quantity: Math.max(0, item.quantity),
               is_enabled: item.quantity > 0,
+              // Include readiness_state_id for physical listings (required since summer 2025)
+              ...(defaultReadinessStateId != null ? { readiness_state_id: defaultReadinessStateId } : {}),
             },
           ],
         },
@@ -76,6 +79,8 @@ export async function buildEtsyInventoryProducts(
           price: Number(etsyPriceFromCents(item.priceCents)),
           quantity: Math.max(0, opt.quantity),
           is_enabled: opt.quantity > 0,
+          // Include readiness_state_id for physical listings (required since summer 2025)
+          ...(defaultReadinessStateId != null ? { readiness_state_id: defaultReadinessStateId } : {}),
         },
       ],
     });
@@ -89,10 +94,16 @@ export async function pushEtsyVariants(
   accessToken: string,
   listingId: string,
   taxonomyId: number,
-  item: SyncStoreItem
+  item: SyncStoreItem,
+  defaultReadinessStateId?: number | null
 ): Promise<void> {
-  const body = await buildEtsyInventoryProducts(accessToken, taxonomyId, item);
+  const body = await buildEtsyInventoryProducts(accessToken, taxonomyId, item, defaultReadinessStateId);
   if (!body) return;
+  console.log("[etsy] pushing variants", {
+    listingId,
+    productCount: body.products.length,
+    defaultReadinessStateId,
+  });
   await etsyJson(accessToken, `/listings/${listingId}/inventory`, "PUT", body);
 }
 

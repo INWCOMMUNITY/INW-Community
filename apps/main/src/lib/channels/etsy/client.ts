@@ -24,7 +24,6 @@ function baseHeaders(accessToken: string, overrideApiKey?: string): Record<strin
   const { apiKey, clientSecret } = getEtsyConfig();
   // Etsy requires x-api-key to be: <keystring>:<shared_secret>
   const combinedKey = overrideApiKey || `${apiKey}:${clientSecret}`;
-  console.log("[etsy] request headers - using combined key format, apiKey length:", apiKey?.length, "secret length:", clientSecret?.length);
   return {
     "x-api-key": combinedKey,
     Authorization: `Bearer ${accessToken}`,
@@ -50,8 +49,14 @@ function errorMessage(body: unknown, status: number): string {
   return `Etsy API error (${status})`;
 }
 
+/** Generate a short request ID for log correlation. */
+function generateRequestId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
 /**
  * Core Etsy request. Uses proactive rate limiting and retries on 429.
+ * Includes structured logging for debugging sync issues.
  */
 async function etsyRequest<T>(
   accessToken: string,
@@ -60,22 +65,66 @@ async function etsyRequest<T>(
   attempt = 0,
   overrideApiKey?: string
 ): Promise<T> {
+  const requestId = generateRequestId();
+  const method = (init.method as string) || "GET";
+  const startTime = Date.now();
+
   if (currentConnectionId) {
     await waitForRateLimit("etsy", currentConnectionId);
   }
+
+  // Log the request (redact sensitive data)
+  console.log("[etsy:request]", {
+    requestId,
+    method,
+    path,
+    connectionId: currentConnectionId,
+    attempt,
+  });
 
   const res = await fetch(`${ETSY_API_BASE}${path}`, {
     ...init,
     headers: { ...baseHeaders(accessToken, overrideApiKey), ...(init.headers ?? {}) },
   });
+  const elapsed = Date.now() - startTime;
+
   if (res.status === 429 && attempt < 2) {
+    console.warn("[etsy:rate-limit]", {
+      requestId,
+      path,
+      retryIn: 1100 * (attempt + 1),
+      attempt,
+    });
     await new Promise((r) => setTimeout(r, 1100 * (attempt + 1)));
     return etsyRequest<T>(accessToken, path, init, attempt + 1, overrideApiKey);
   }
+
   const body = await parseBody(res);
+
   if (!res.ok) {
-    throw new EtsyApiError(errorMessage(body, res.status), res.status, body);
+    const errMsg = errorMessage(body, res.status);
+    console.error("[etsy:error]", {
+      requestId,
+      method,
+      path,
+      status: res.status,
+      error: errMsg,
+      elapsed,
+      // Include body details for debugging (truncated)
+      bodyPreview: typeof body === "object" ? JSON.stringify(body).slice(0, 500) : String(body).slice(0, 200),
+    });
+    throw new EtsyApiError(errMsg, res.status, body);
   }
+
+  // Log successful response
+  console.log("[etsy:response]", {
+    requestId,
+    method,
+    path,
+    status: res.status,
+    elapsed,
+  });
+
   return body as T;
 }
 

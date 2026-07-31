@@ -26,6 +26,7 @@ type EtsyInventoryOffering = {
   quantity?: number;
   price?: { amount?: number; divisor?: number } | number;
   is_enabled?: boolean;
+  readiness_state_id?: number | null;
 };
 type EtsyInventoryProduct = {
   product_id?: number;
@@ -89,6 +90,9 @@ export const etsyAdapter: ChannelAdapter = {
   },
 
   async getInitialConfig(accessToken, shopId): Promise<Record<string, unknown>> {
+    let etsyShippingProfileId: string | null = null;
+    let defaultReadinessStateId: number | null = null;
+
     // The seller's first shipping profile is required to publish physical Etsy listings.
     try {
       const res = await etsyGet<{ results?: { shipping_profile_id: number }[] }>(
@@ -96,10 +100,28 @@ export const etsyAdapter: ChannelAdapter = {
         `/shops/${shopId}/shipping-profiles`
       );
       const id = res.results?.[0]?.shipping_profile_id;
-      return { etsyShippingProfileId: id != null ? String(id) : null };
+      etsyShippingProfileId = id != null ? String(id) : null;
     } catch {
-      return { etsyShippingProfileId: null };
+      /* ignore - shipping profile is optional for initial config */
     }
+
+    // Fetch processing profiles for readiness_state_id (required for physical listings since 2025).
+    try {
+      const profiles = await etsyGet<{ results?: { readiness_state_id: number }[] }>(
+        accessToken,
+        `/shops/${shopId}/readiness-state-definitions`
+      );
+      defaultReadinessStateId = profiles.results?.[0]?.readiness_state_id ?? null;
+      console.log("[etsy] fetched processing profiles", {
+        shopId,
+        count: profiles.results?.length ?? 0,
+        defaultReadinessStateId,
+      });
+    } catch (e) {
+      console.warn("[etsy] failed to fetch processing profiles", { shopId, error: String(e) });
+    }
+
+    return { etsyShippingProfileId, defaultReadinessStateId };
   },
 
   async createListing(conn, item): Promise<CreateListingResult> {
@@ -129,7 +151,12 @@ export const etsyAdapter: ChannelAdapter = {
     }
 
     const tid = taxonomyId ?? 1;
-    await pushEtsyVariants(conn.accessToken, listingId, tid, item).catch((e) =>
+    // Get the default readiness_state_id from connection config (required for physical listings)
+    const defaultReadinessStateId =
+      typeof conn.config?.defaultReadinessStateId === "number"
+        ? conn.config.defaultReadinessStateId
+        : null;
+    await pushEtsyVariants(conn.accessToken, listingId, tid, item, defaultReadinessStateId).catch((e) =>
       console.error("[etsy] variant push failed", { listingId, error: String(e) })
     );
     await this.updateInventory(conn, listingId, item.quantity, item).catch((e) =>
@@ -191,6 +218,12 @@ export const etsyAdapter: ChannelAdapter = {
       return;
     }
 
+    // Get the default readiness_state_id from connection config (fetched during OAuth)
+    const defaultReadinessStateId =
+      typeof conn.config?.defaultReadinessStateId === "number"
+        ? conn.config.defaultReadinessStateId
+        : null;
+
     const optionQtys = optionQuantityMap(item.variants);
     const singleProduct = products.length === 1;
 
@@ -213,10 +246,14 @@ export const etsyAdapter: ChannelAdapter = {
             : singleProduct
               ? Math.max(0, absoluteQuantity)
               : Math.max(0, o.quantity ?? 0);
+        // Preserve existing readiness_state_id or fall back to shop default
+        const readinessStateId = o.readiness_state_id ?? defaultReadinessStateId;
         return {
           quantity,
           price: offeringPriceFloat(o, item.priceCents),
           is_enabled: quantity > 0,
+          // Only include readiness_state_id if we have a valid value (required for physical listings)
+          ...(readinessStateId != null ? { readiness_state_id: readinessStateId } : {}),
         };
       });
       return {
@@ -233,9 +270,20 @@ export const etsyAdapter: ChannelAdapter = {
             quantity: Math.max(0, absoluteQuantity),
             price: Number(etsyPriceFromCents(item.priceCents)),
             is_enabled: absoluteQuantity > 0,
+            // Include default readiness_state_id for fallback offerings
+            ...(defaultReadinessStateId != null ? { readiness_state_id: defaultReadinessStateId } : {}),
           },
         ],
       };
+    });
+
+    console.log("[etsy] updating inventory", {
+      listingId: externalListingId,
+      productCount: rebuilt.length,
+      defaultReadinessStateId,
+      hasReadinessIds: rebuilt.some((p) =>
+        p.offerings.some((o: { readiness_state_id?: number }) => o.readiness_state_id != null)
+      ),
     });
 
     await etsyJson(conn.accessToken, `/listings/${externalListingId}/inventory`, "PUT", {

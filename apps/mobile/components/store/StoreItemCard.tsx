@@ -75,7 +75,7 @@ export function StoreItemCard({
             targetWidth={width}
             quality={55}
             style={styles.cardImage}
-            resizeMode="cover"
+            resizeMode="contain"
           />
         ) : (
           <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
@@ -180,9 +180,10 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "stretch",
     aspectRatio: 4 / 5,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#F8F8F3",
     overflow: "hidden",
     position: "relative",
+    padding: 8,
   },
   cardImageWrapCarousel: {
     aspectRatio: 4 / 5,
