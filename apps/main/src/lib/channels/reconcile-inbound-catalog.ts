@@ -178,8 +178,21 @@ export async function reconcileConnectionInboundCatalog(
     const baseHash = link.syncBaselineHash ?? inwHash;
     const baseAt = link.syncBaselineAt ?? remote.remoteUpdatedAt ?? new Date();
     const inwContentChanged = inwHash !== baseHash;
-    const remoteContentChanged =
+    
+    // Check if remote timestamp is newer than baseline
+    const remoteTimestampNewer =
       remote.remoteUpdatedAt != null && remote.remoteUpdatedAt.getTime() > baseAt.getTime();
+    
+    // ALSO check if remote content actually differs from INW
+    // This catches changes even when timestamps aren't working correctly
+    const remoteContentActuallyDiffers = 
+      item.title !== remote.title.slice(0, 200) ||
+      item.priceCents !== remote.priceCents ||
+      (item.description?.trim() ?? "") !== (remote.description?.trim() ?? "");
+    
+    // Remote changed if EITHER timestamp is newer OR content actually differs
+    const remoteContentChanged = remoteTimestampNewer || remoteContentActuallyDiffers;
+    
     const contentDecision: SyncDirection = resolveSyncDirection({
       inwChanged: inwContentChanged,
       remoteChanged: remoteContentChanged,
@@ -187,36 +200,43 @@ export async function reconcileConnectionInboundCatalog(
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     });
 
+    const inwQtyChangedSinceBaseline =
+      link.syncBaselineQty != null && item.quantity !== link.syncBaselineQty;
+    const qtyDiffers =
+      (remoteQtyKnown && remote.quantity !== item.quantity) || inwQtyChangedSinceBaseline;
+
     // Debug logging for inbound sync - always log to understand what's happening
     const remoteTimestamp = remote.remoteUpdatedAt?.getTime() ?? 0;
     const baseTimestamp = baseAt?.getTime() ?? 0;
     const timeDiff = remoteTimestamp - baseTimestamp;
     
-    console.log("[channels] inbound sync check", {
-      storeItemId: link.storeItemId,
-      externalListingId: link.externalListingId,
-      inwContentChanged,
-      remoteContentChanged,
-      contentDecision,
-      qtyDiffers,
-      baseAt: baseAt?.toISOString(),
-      remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString(),
-      inwUpdatedAt: item.updatedAt?.toISOString(),
-      timeDiffMs: timeDiff,
-      hasBaseline: link.syncBaselineHash != null,
-      hasBaselineAt: link.syncBaselineAt != null,
-      remoteTitle: remote.title?.slice(0, 30),
-      inwTitle: item.title?.slice(0, 30),
-      remotePriceCents: remote.priceCents,
-      inwPriceCents: item.priceCents,
-      remoteQty: remote.quantity,
-      inwQty: item.quantity,
-    });
-
-    const inwQtyChangedSinceBaseline =
-      link.syncBaselineQty != null && item.quantity !== link.syncBaselineQty;
-    const qtyDiffers =
-      (remoteQtyKnown && remote.quantity !== item.quantity) || inwQtyChangedSinceBaseline;
+    // Only log when there are potential changes to reduce noise
+    if (inwContentChanged || remoteContentChanged || qtyDiffers) {
+      console.log("[channels] inbound sync check - CHANGES DETECTED", {
+        storeItemId: link.storeItemId,
+        externalListingId: link.externalListingId,
+        inwContentChanged,
+        remoteTimestampNewer,
+        remoteContentActuallyDiffers,
+        remoteContentChanged,
+        contentDecision,
+        qtyDiffers,
+        baseAt: baseAt?.toISOString(),
+        remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString(),
+        inwUpdatedAt: item.updatedAt?.toISOString(),
+        timeDiffMs: timeDiff,
+        hasBaseline: link.syncBaselineHash != null,
+        hasBaselineAt: link.syncBaselineAt != null,
+        titleDiff: item.title !== remote.title.slice(0, 200),
+        priceDiff: item.priceCents !== remote.priceCents,
+        remoteTitle: remote.title?.slice(0, 30),
+        inwTitle: item.title?.slice(0, 30),
+        remotePriceCents: remote.priceCents,
+        inwPriceCents: item.priceCents,
+        remoteQty: remote.quantity,
+        inwQty: item.quantity,
+      });
+    }
 
     if (contentDecision === "noop" && !qtyDiffers) {
       if (link.syncBaselineHash == null || link.syncBaselineAt == null) {
