@@ -54,12 +54,14 @@ function requireShop(conn: ChannelConnectionContext): string {
   return conn.externalShopId;
 }
 
-function offeringPriceFloat(o: EtsyInventoryOffering, fallbackCents: number): number {
-  if (typeof o.price === "number") return o.price;
-  if (o.price && typeof o.price === "object" && o.price.amount && o.price.divisor) {
-    return o.price.amount / o.price.divisor;
-  }
-  return Number(etsyPriceFromCents(fallbackCents));
+/**
+ * Get the price for an offering. 
+ * ALWAYS uses the INW price (itemPriceCents) to ensure price edits sync properly.
+ * The offering's existing price is only used as a reference for logging.
+ */
+function offeringPriceFloat(itemPriceCents: number): number {
+  // Always use the INW item's price to ensure price changes sync correctly
+  return Number(etsyPriceFromCents(itemPriceCents));
 }
 
 /** Lowercased option value -> quantity, for option-quantity variant listings. */
@@ -305,7 +307,7 @@ export const etsyAdapter: ChannelAdapter = {
         const readinessStateId = o.readiness_state_id ?? defaultReadinessStateId;
         return {
           quantity,
-          price: offeringPriceFloat(o, item.priceCents),
+          price: offeringPriceFloat(item.priceCents),
           is_enabled: quantity > 0,
           // Include readiness_state_id - required for physical listings since summer 2025
           ...(readinessStateId != null ? { readiness_state_id: readinessStateId } : {}),
