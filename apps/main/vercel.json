@@ -18,7 +18,7 @@
     },
     {
       "path": "/api/cron/sync-channels",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/1 * * * *"
     }
   ]
 }

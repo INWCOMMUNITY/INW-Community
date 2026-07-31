@@ -142,6 +142,10 @@ export default function MyItemsScreen() {
   }, [itemsUrl]);
 
   useFocusEffect(useCallback(() => {
+    // Trigger channel sync when viewing inventory (pulls Etsy changes to INW)
+    apiPost("/api/channels/sync-on-view", {}).catch(() => {
+      // Silently ignore sync errors - it's a background operation
+    });
     load();
   }, [load]));
 
@@ -482,7 +486,10 @@ export default function MyItemsScreen() {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                load();
+                // Trigger channel sync on pull-to-refresh (pulls Etsy changes to INW)
+                apiPost("/api/channels/sync-on-view", {}).finally(() => {
+                  load();
+                });
               }}
             />
           }
