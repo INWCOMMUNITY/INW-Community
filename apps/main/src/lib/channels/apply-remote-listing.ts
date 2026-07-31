@@ -34,14 +34,41 @@ export async function applyRemoteContentToStoreItem(
   remote: RemoteListingSummary
 ): Promise<boolean> {
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
-  if (!item) return false;
-  if (item.status === "sold_out" && item.quantity === 0) return false;
+  if (!item) {
+    console.log("[channels] applyRemoteContent: item not found", { storeItemId });
+    return false;
+  }
+  if (item.status === "sold_out" && item.quantity === 0) {
+    console.log("[channels] applyRemoteContent: skipped sold out item", { storeItemId });
+    return false;
+  }
 
   // Never overwrite a valid local price with a zero from a bad remote read (e.g. after a bad sync).
   const safeRemote: RemoteListingSummary =
     remote.priceCents < 1 && item.priceCents > 0 ? { ...remote, priceCents: item.priceCents } : remote;
 
-  if (!remoteContentDiffersFromStoreItem(item, safeRemote)) return false;
+  const differs = remoteContentDiffersFromStoreItem(item, safeRemote);
+  if (!differs) {
+    console.log("[channels] applyRemoteContent: no differences detected", {
+      storeItemId,
+      localTitle: item.title?.slice(0, 30),
+      remoteTitle: safeRemote.title?.slice(0, 30),
+      localPrice: item.priceCents,
+      remotePrice: safeRemote.priceCents,
+      localPhotos: item.photos?.length,
+      remotePhotos: safeRemote.photos?.length,
+    });
+    return false;
+  }
+
+  console.log("[channels] applyRemoteContent: applying changes", {
+    storeItemId,
+    titleChanged: item.title !== safeRemote.title.slice(0, 200),
+    priceChanged: item.priceCents !== safeRemote.priceCents,
+    photosChanged: !photosEqual(item.photos, safeRemote.photos),
+    oldPrice: item.priceCents,
+    newPrice: safeRemote.priceCents,
+  });
 
   await prisma.storeItem.update({
     where: { id: storeItemId },
