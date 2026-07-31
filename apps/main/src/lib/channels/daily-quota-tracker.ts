@@ -146,9 +146,9 @@ export async function getProjectedUsage(provider: ChannelProvider): Promise<{
  * Check quota status and return alert level if needed.
  */
 export async function checkQuotaAlert(provider: ChannelProvider): Promise<{
-  alertLevel: "ok" | "warning" | "critical" | "exceeded" | null;
+  alertLevel: "ok" | "warning" | "critical" | "exceeded";
   message: string | null;
-  usage: Awaited<ReturnType<typeof getDailyUsage>>;
+  usage: ReturnType<typeof getDailyUsage>;
   projected: Awaited<ReturnType<typeof getProjectedUsage>>;
 }> {
   const usage = await getDailyUsage(provider);
@@ -185,7 +185,7 @@ export async function checkAllQuotaAlerts(): Promise<Array<{
   provider: ChannelProvider;
   alertLevel: "ok" | "warning" | "critical" | "exceeded";
   message: string | null;
-  usage: Awaited<ReturnType<typeof getDailyUsage>>;
+  usage: ReturnType<typeof getDailyUsage>;
   projected: Awaited<ReturnType<typeof getProjectedUsage>>;
 }>> {
   const providers: ChannelProvider[] = ["etsy", "ebay", "shopify", "wix"];
@@ -203,7 +203,7 @@ export async function checkAllQuotaAlerts(): Promise<Array<{
 /**
  * Should we skip sync due to quota exhaustion?
  */
-export async function shouldSkipSyncDueToQuota(provider: ChannelProvider): Promise<boolean> {
-  const usage = await getDailyUsage(provider);
+export function shouldSkipSyncDueToQuota(provider: ChannelProvider): boolean {
+  const usage = getDailyUsage(provider);
   return usage.percentUsed >= 95; // Skip if >95% used
 }

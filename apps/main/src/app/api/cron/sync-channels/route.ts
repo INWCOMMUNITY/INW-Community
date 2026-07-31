@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Skip Etsy sync if quota is exhausted
-  const skipEtsy = await shouldSkipSyncDueToQuota("etsy");
+  const skipEtsy = shouldSkipSyncDueToQuota("etsy");
   if (skipEtsy) {
     console.error("[cron] 🛑 Skipping Etsy sync - daily quota exhausted (>95%)");
   }
