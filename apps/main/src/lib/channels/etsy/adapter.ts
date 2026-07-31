@@ -158,11 +158,30 @@ export const etsyAdapter: ChannelAdapter = {
     }
 
     const tid = taxonomyId ?? 1;
-    // Get the default readiness_state_id from connection config (required for physical listings)
-    const defaultReadinessStateId =
+    // Get the default readiness_state_id from connection config, or fetch on-demand
+    let defaultReadinessStateId =
       typeof conn.config?.defaultReadinessStateId === "number"
         ? conn.config.defaultReadinessStateId
         : null;
+    
+    // If no defaultReadinessStateId in config, fetch on-demand (required for physical listings)
+    if (defaultReadinessStateId == null) {
+      try {
+        const profiles = await etsyGet<{ results?: { readiness_state_id: number }[] }>(
+          conn.accessToken,
+          `/shops/${shopId}/readiness-state-definitions`
+        );
+        defaultReadinessStateId = profiles.results?.[0]?.readiness_state_id ?? null;
+        console.log("[etsy] fetched processing profiles on-demand for createListing", {
+          shopId,
+          listingId,
+          defaultReadinessStateId,
+        });
+      } catch (e) {
+        console.warn("[etsy] failed to fetch processing profiles on-demand", { error: String(e) });
+      }
+    }
+
     await pushEtsyVariants(conn.accessToken, listingId, tid, item, defaultReadinessStateId).catch((e) =>
       console.error("[etsy] variant push failed", { listingId, error: String(e) })
     );
