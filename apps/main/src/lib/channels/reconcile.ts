@@ -114,7 +114,9 @@ export async function reconcileConnectionSales(
       previousQty,
       newQty: updated?.quantity ?? previousQty - sale.quantitySold,
       externalEventId: sale.externalEventId,
-      variantValue: saleVariant ?? undefined,
+      variantValue: saleVariant
+        ? JSON.stringify(saleVariant)
+        : undefined,
     });
     if (updated && shouldMarkStoreItemSoldOut(updated)) {
       await prisma.storeItem.update({

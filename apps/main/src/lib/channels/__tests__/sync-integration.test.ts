@@ -19,6 +19,7 @@ const mockPrisma = {
   channelConnection: {
     findFirst: vi.fn().mockResolvedValue(null),
     findUnique: vi.fn().mockResolvedValue(null),
+    findMany: vi.fn().mockResolvedValue([]),
     update: vi.fn().mockResolvedValue({}),
     count: vi.fn().mockResolvedValue(0),
   },
@@ -45,6 +46,7 @@ const mockPrisma = {
       Promise.resolve({ id: "item-1", ...data, updatedAt: new Date() })
     ),
     update: vi.fn().mockResolvedValue({}),
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     delete: vi.fn().mockResolvedValue({}),
   },
 };
@@ -357,7 +359,7 @@ describe("outbound publish photo validation", () => {
 
     const conn = makeConnection({ provider: "ebay" });
     mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem({ photos: [] }));
-    mockPrisma.channelConnection.findMany = vi.fn().mockResolvedValueOnce([conn]);
+    mockPrisma.channelConnection.findMany.mockResolvedValueOnce([conn]);
     mockPrisma.channelListingLink.findUnique.mockResolvedValueOnce(null);
 
     const { getActiveConnectionsForMember } = await import("../connection");
@@ -400,7 +402,6 @@ describe("import validation", () => {
         photos: [],
         priceCents: 1000,
         quantity: 1,
-        status: "active",
         category: null,
         subcategory: null,
         quantityKnown: true,
@@ -409,7 +410,9 @@ describe("import validation", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toBe("invalid_title");
+    if (!result.ok) {
+      expect(result.reason).toBe("invalid_title");
+    }
   });
 
   it("defaults quantity to 0 when quantityKnown is false", async () => {
@@ -428,7 +431,6 @@ describe("import validation", () => {
         photos: ["https://example.com/p.jpg"],
         priceCents: 2000,
         quantity: 0,
-        status: "active",
         category: null,
         subcategory: null,
         quantityKnown: false,
@@ -664,7 +666,7 @@ describe("optimistic locking", () => {
       updatedAt: new Date(),
     };
 
-    mockPrisma.storeItem.updateMany = vi.fn()
+    mockPrisma.storeItem.updateMany
       .mockResolvedValueOnce({ count: 0 })
       .mockResolvedValueOnce({ count: 1 });
 
@@ -692,7 +694,7 @@ describe("optimistic locking", () => {
       updatedAt: new Date(),
     };
 
-    mockPrisma.storeItem.updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    mockPrisma.storeItem.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.storeItem.findUnique.mockResolvedValue({
       ...storeItem,
       updatedAt: new Date(),

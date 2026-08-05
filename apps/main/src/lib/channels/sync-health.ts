@@ -191,26 +191,43 @@ export async function getSyncIssues(params: {
   }
   // pending_retry handled separately via ChannelSyncRetry
 
-  const [links, retries, totalLinks, totalRetries] = await Promise.all([
-    // Get links with issues
-    prisma.channelListingLink.findMany({
+  const linkWhereClause = {
+    ...linkWhere,
+    OR: issueType
+      ? undefined
+      : [{ syncStatus: "error" as const }, { conflictResolution: "pending" as const }],
+  };
+
+  const [totalLinks, totalRetries] = await Promise.all([
+    prisma.channelListingLink.count({ where: linkWhereClause }),
+    prisma.channelSyncRetry.count({
       where: {
-        ...linkWhere,
-        OR: issueType
-          ? undefined
-          : [{ syncStatus: "error" }, { conflictResolution: "pending" }],
+        link: {
+          connection: { memberId },
+          ...(provider ? { provider } : {}),
+        },
+        nextRetryAt: { gt: new Date() },
       },
-      include: {
-        storeItem: { select: { title: true } },
-      },
-      orderBy: { updatedAt: "desc" },
-      take: issueType === "pending_retry" ? 0 : limit,
-      skip: issueType === "pending_retry" ? 0 : offset,
     }),
-    // Get pending retries
+  ]);
+
+  const links =
+    issueType === "pending_retry"
+      ? []
+      : await prisma.channelListingLink.findMany({
+          where: linkWhereClause,
+          include: {
+            storeItem: { select: { title: true } },
+          },
+          orderBy: { updatedAt: "desc" },
+          take: limit,
+          skip: offset,
+        });
+
+  const retries =
     issueType === "error" || issueType === "conflict"
       ? []
-      : prisma.channelSyncRetry.findMany({
+      : await prisma.channelSyncRetry.findMany({
           where: {
             link: {
               connection: { memberId },
@@ -226,27 +243,9 @@ export async function getSyncIssues(params: {
             },
           },
           orderBy: { nextRetryAt: "asc" },
-          take: issueType === "pending_retry" ? limit : limit - links.length,
+          take: issueType === "pending_retry" ? limit : Math.max(0, limit - links.length),
           skip: issueType === "pending_retry" ? offset : 0,
-        }),
-    prisma.channelListingLink.count({
-      where: {
-        ...linkWhere,
-        OR: issueType
-          ? undefined
-          : [{ syncStatus: "error" }, { conflictResolution: "pending" }],
-      },
-    }),
-    prisma.channelSyncRetry.count({
-      where: {
-        link: {
-          connection: { memberId },
-          ...(provider ? { provider } : {}),
-        },
-        nextRetryAt: { gt: new Date() },
-      },
-    }),
-  ]);
+        });
 
   const issues: SyncIssue[] = [];
 

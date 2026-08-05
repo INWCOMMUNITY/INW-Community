@@ -3,7 +3,7 @@
  * Provides full audit trail for inventory changes from sales, syncs, manual edits, etc.
  */
 
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import type { ChannelProvider } from "./types";
 
 export type QuantityChangeReason =
@@ -69,7 +69,8 @@ export function logQuantityChange(params: LogQuantityChangeParams): void {
         externalEventId: externalEventId ?? null,
         orderId: orderId ?? null,
         variantValue: variantValue ?? null,
-        metadata: metadata ?? null,
+        metadata:
+          metadata != null ? (metadata as Prisma.InputJsonValue) : undefined,
       },
     })
     .catch((e) => {
@@ -121,7 +122,8 @@ export async function logQuantityChangeAsync(
         externalEventId: externalEventId ?? null,
         orderId: orderId ?? null,
         variantValue: variantValue ?? null,
-        metadata: metadata ?? null,
+        metadata:
+          metadata != null ? (metadata as Prisma.InputJsonValue) : undefined,
       },
     });
   } catch (e) {

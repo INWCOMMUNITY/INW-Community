@@ -32,10 +32,6 @@ export async function GET(req: NextRequest) {
       where: provider ? { provider } : {},
       orderBy: { createdAt: "desc" },
       take: 50,
-      include: {
-        // We can't include member here since there's no relation
-        // We'll fetch separately
-      },
     });
 
     // Get member info for feedback

@@ -44,16 +44,13 @@ export async function GET(req: NextRequest) {
   try {
     const channels = await calculateChannelHealth(userId);
 
-    // Determine overall status
-    let overallStatus: "healthy" | "warning" | "error" = "healthy";
-    for (const channel of channels) {
-      if (channel.status === "error") {
-        overallStatus = "error";
-        break;
-      } else if (channel.status === "warning" && overallStatus !== "error") {
-        overallStatus = "warning";
-      }
-    }
+    const overallStatus: "healthy" | "warning" | "error" = channels.some(
+      (c) => c.status === "error"
+    )
+      ? "error"
+      : channels.some((c) => c.status === "warning")
+        ? "warning"
+        : "healthy";
 
     return NextResponse.json({
       channels,
