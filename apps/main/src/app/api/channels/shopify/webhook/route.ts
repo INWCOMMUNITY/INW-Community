@@ -122,7 +122,10 @@ export async function POST(req: NextRequest) {
           link.externalListingId
         );
         if (!known) continue;
-        const changed = await applyRemoteQuantityToStoreItem(link.storeItemId, quantity);
+        const changed = await applyRemoteQuantityToStoreItem(link.storeItemId, quantity, {
+          provider: "shopify",
+          memberId: conn.memberId,
+        });
         if (changed) {
           await prisma.channelListingLink.update({
             where: { id: link.id },

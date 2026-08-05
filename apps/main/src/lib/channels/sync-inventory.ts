@@ -40,6 +40,28 @@ export async function syncInventoryToChannels(
   const results: ChannelSyncResult[] = [];
   if (links.length === 0) return results;
 
+  // Load member sync preferences for safety buffer and zero quantity handling
+  const memberId = links[0]?.connection?.memberId;
+  let globalSafetyBuffer = 0;
+  let syncEnabled = true;
+  let syncZeroQuantity = true;
+  let lowStockAlertThreshold = 0;
+  if (memberId) {
+    const syncPrefs = await prisma.memberSyncPreferences.findUnique({
+      where: { memberId },
+      select: { safetyBuffer: true, syncEnabled: true, syncZeroQuantity: true, lowStockAlertThreshold: true },
+    });
+    globalSafetyBuffer = syncPrefs?.safetyBuffer ?? 0;
+    syncEnabled = syncPrefs?.syncEnabled ?? true;
+    syncZeroQuantity = syncPrefs?.syncZeroQuantity ?? true;
+    lowStockAlertThreshold = syncPrefs?.lowStockAlertThreshold ?? 0;
+  }
+
+  // If sync is globally disabled, skip all channels
+  if (!syncEnabled) {
+    return results;
+  }
+
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) continue;
@@ -61,6 +83,15 @@ export async function syncInventoryToChannels(
       continue;
     }
 
+    // Check per-channel sync direction from config
+    const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
+    const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
+    
+    // Skip push if channel is set to pull_only or paused
+    if (syncDirection === "pull_only" || syncDirection === "paused") {
+      continue;
+    }
+
     try {
       const ctx = await getConnectionContext(link.connection);
       if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
@@ -71,7 +102,26 @@ export async function syncInventoryToChannels(
       if (!freshItem) continue;
       const adapter = getAdapter(provider);
       const item = toSyncStoreItem(freshItem);
-      const qty = assertSaneInventoryQty(item.quantity, `syncInventory(${provider})`);
+      
+      // Apply safety buffer: global + per-channel inventory offset
+      const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
+      const totalBuffer = globalSafetyBuffer + channelInventoryOffset;
+      const adjustedQty = Math.max(0, item.quantity - totalBuffer);
+      
+      // If syncZeroQuantity is disabled and qty is 0, skip pushing to channels
+      // (item stays as-is on channel rather than showing "out of stock")
+      if (!syncZeroQuantity && adjustedQty === 0) {
+        logSyncEvent(
+          link.connection.memberId,
+          provider,
+          "skip_zero_qty",
+          `Skipping zero-quantity push (syncZeroQuantity disabled)`,
+          storeItemId
+        );
+        continue;
+      }
+      
+      const qty = assertSaneInventoryQty(adjustedQty, `syncInventory(${provider})`);
       await adapter.updateInventory(ctx, link.externalListingId, qty, item);
       const baselineQty = clampSaneInventoryQty(qty);
       await prisma.channelListingLink.update({
@@ -89,6 +139,18 @@ export async function syncInventoryToChannels(
       });
       await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
       logSyncEvent(link.connection.memberId, provider, "push_inventory", `qty=${qty}`, storeItemId);
+      
+      // Check low stock alert threshold (only log once per sync cycle, on first provider)
+      if (lowStockAlertThreshold > 0 && item.quantity <= lowStockAlertThreshold && results.length === 0) {
+        logSyncEvent(
+          link.connection.memberId,
+          "inwc" as ChannelProvider,
+          "low_stock_alert",
+          `Item quantity (${item.quantity}) is at or below alert threshold (${lowStockAlertThreshold})`,
+          storeItemId
+        );
+      }
+      
       results.push({ provider, ok: true });
     } catch (e) {
       const msg = describeChannelSyncError(provider, e);

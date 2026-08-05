@@ -35,6 +35,14 @@ const SIDEBAR_SECTIONS: { divider: string; items: SidebarItem[] }[] = [
     ],
   },
   {
+    divider: "Sync Operations",
+    items: [
+      { href: "/dashboard/seller-sync", label: "Sync Health", icon: "sync-outline" },
+      { href: "/dashboard/quantity-audit", label: "Quantity Audit", icon: "list-outline" },
+      { href: "/dashboard/category-mapping", label: "Category Mapping", icon: "pricetags-outline" },
+    ],
+  },
+  {
     divider: "Incentives",
     items: [
       { href: "/dashboard/coupons", label: "Coupons", icon: "pricetag-outline" },

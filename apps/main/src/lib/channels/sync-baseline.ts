@@ -34,27 +34,42 @@ export function syncContentHash(item: SyncContentInput): string {
 }
 
 export type SyncDirection = "push" | "pull" | "noop";
+export type ConflictResolution = "most_recent" | "inw_wins" | "manual_review";
 
 /**
  * Decide direction for a single aspect (content or quantity).
  * - only INW changed   -> push (INW -> channel)
  * - only channel changed -> pull (channel -> INW)
- * - both changed        -> most recent edit wins (INW wins when channel timestamp is unknown)
+ * - both changed        -> depends on conflictResolution setting
  */
 export function resolveSyncDirection(args: {
   inwChanged: boolean;
   remoteChanged: boolean;
   inwUpdatedAt: Date | null;
   remoteUpdatedAt: Date | null;
+  conflictResolution?: ConflictResolution;
 }): SyncDirection {
-  const { inwChanged, remoteChanged, inwUpdatedAt, remoteUpdatedAt } = args;
+  const { inwChanged, remoteChanged, inwUpdatedAt, remoteUpdatedAt, conflictResolution = "most_recent" } = args;
   if (!inwChanged && !remoteChanged) return "noop";
   if (inwChanged && !remoteChanged) return "push";
   if (!inwChanged && remoteChanged) return "pull";
-  // Both sides changed since the baseline: newest write wins.
-  if (!remoteUpdatedAt) return "push";
-  if (!inwUpdatedAt) return "pull";
-  return inwUpdatedAt.getTime() >= remoteUpdatedAt.getTime() ? "push" : "pull";
+  
+  // Both sides changed - apply conflict resolution strategy
+  switch (conflictResolution) {
+    case "inw_wins":
+      // INW always wins conflicts - push our version
+      return "push";
+    case "manual_review":
+      // For manual review, we skip auto-resolution (noop will be queued for review)
+      // The caller should handle logging this as a conflict
+      return "noop";
+    case "most_recent":
+    default:
+      // Most recent edit wins (INW wins when channel timestamp is unknown)
+      if (!remoteUpdatedAt) return "push";
+      if (!inwUpdatedAt) return "pull";
+      return inwUpdatedAt.getTime() >= remoteUpdatedAt.getTime() ? "push" : "pull";
+  }
 }
 
 /**

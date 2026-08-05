@@ -637,3 +637,398 @@ export function categoryLabelForDisplay(item: {
   const sub = item.subcategory?.trim();
   return sub ? `${cat} › ${sub}` : cat;
 }
+
+// ============================================================================
+// ML-Style Category Suggestions from Title + Description
+// ============================================================================
+
+/**
+ * Keywords that strongly indicate specific categories.
+ * Each keyword can have a weight (higher = stronger match).
+ */
+const CATEGORY_KEYWORDS: Record<string, { keywords: string[]; weight?: number }[]> = {
+  "Art & Collectibles": [
+    { keywords: ["art", "painting", "print", "canvas", "sculpture", "artwork"], weight: 1.0 },
+    { keywords: ["collectible", "vintage", "antique", "memorabilia", "autograph"], weight: 0.9 },
+    { keywords: ["coin", "currency", "stamp", "trading card", "sports card"], weight: 0.85 },
+  ],
+  "Accessories": [
+    { keywords: ["hat", "cap", "beanie", "fedora", "visor"], weight: 1.0 },
+    { keywords: ["scarf", "wrap", "shawl"], weight: 0.9 },
+    { keywords: ["belt", "suspenders"], weight: 0.9 },
+    { keywords: ["sunglasses", "eyewear", "glasses"], weight: 0.9 },
+    { keywords: ["keychain", "lanyard", "badge", "pin"], weight: 0.85 },
+  ],
+  "Bags & Purses": [
+    { keywords: ["bag", "purse", "handbag", "tote", "clutch"], weight: 1.0 },
+    { keywords: ["backpack", "rucksack"], weight: 1.0 },
+    { keywords: ["wallet", "card holder", "billfold"], weight: 0.9 },
+    { keywords: ["messenger", "crossbody", "satchel"], weight: 0.9 },
+  ],
+  "Bath & Beauty": [
+    { keywords: ["soap", "bath bomb", "body wash"], weight: 1.0 },
+    { keywords: ["lotion", "cream", "moisturizer", "skincare"], weight: 0.95 },
+    { keywords: ["makeup", "cosmetic", "lipstick", "mascara"], weight: 0.95 },
+    { keywords: ["perfume", "cologne", "fragrance", "essential oil"], weight: 0.9 },
+    { keywords: ["shampoo", "conditioner", "hair care"], weight: 0.9 },
+  ],
+  "Books, Movies & Music": [
+    { keywords: ["book", "novel", "paperback", "hardcover"], weight: 1.0 },
+    { keywords: ["dvd", "blu-ray", "movie", "film"], weight: 0.95 },
+    { keywords: ["cd", "vinyl", "record", "album"], weight: 0.95 },
+    { keywords: ["video game", "game disc"], weight: 0.9 },
+    { keywords: ["comic", "manga", "graphic novel"], weight: 0.9 },
+  ],
+  "Clothing": [
+    { keywords: ["shirt", "blouse", "top", "tee", "t-shirt"], weight: 1.0 },
+    { keywords: ["dress", "gown", "skirt"], weight: 1.0 },
+    { keywords: ["pants", "jeans", "trousers", "shorts"], weight: 1.0 },
+    { keywords: ["jacket", "coat", "blazer", "hoodie", "sweater"], weight: 1.0 },
+    { keywords: ["suit", "vest", "cardigan"], weight: 0.95 },
+  ],
+  "Craft Supplies & Tools": [
+    { keywords: ["yarn", "thread", "fabric", "sewing"], weight: 1.0 },
+    { keywords: ["bead", "charm", "jewelry making"], weight: 0.95 },
+    { keywords: ["craft", "diy", "supplies"], weight: 0.85 },
+    { keywords: ["pattern", "template", "stencil"], weight: 0.8 },
+  ],
+  "Electronics & Accessories": [
+    { keywords: ["phone case", "phone cover", "tablet case"], weight: 1.0 },
+    { keywords: ["charger", "cable", "adapter", "usb"], weight: 0.95 },
+    { keywords: ["headphone", "earphone", "earbud", "speaker"], weight: 0.95 },
+    { keywords: ["electronic", "gadget", "tech"], weight: 0.8 },
+  ],
+  "Furniture": [
+    { keywords: ["chair", "table", "desk", "bench"], weight: 1.0 },
+    { keywords: ["sofa", "couch", "loveseat"], weight: 1.0 },
+    { keywords: ["shelf", "bookcase", "cabinet", "dresser"], weight: 0.95 },
+    { keywords: ["bed", "headboard", "nightstand"], weight: 0.95 },
+  ],
+  "Home & Living": [
+    { keywords: ["pillow", "cushion", "throw"], weight: 0.95 },
+    { keywords: ["candle", "holder", "diffuser"], weight: 0.9 },
+    { keywords: ["vase", "planter", "pot"], weight: 0.9 },
+    { keywords: ["decor", "decoration", "ornament"], weight: 0.85 },
+    { keywords: ["blanket", "quilt", "bedding"], weight: 0.9 },
+  ],
+  "Jewelry & Watches": [
+    { keywords: ["necklace", "pendant", "chain"], weight: 1.0 },
+    { keywords: ["bracelet", "bangle", "cuff"], weight: 1.0 },
+    { keywords: ["earring", "stud", "hoop"], weight: 1.0 },
+    { keywords: ["ring", "band"], weight: 0.95 },
+    { keywords: ["watch", "wristwatch"], weight: 1.0 },
+    { keywords: ["jewelry", "jewellery"], weight: 0.9 },
+  ],
+  "Paper & Party Supplies": [
+    { keywords: ["card", "greeting card", "invitation"], weight: 0.95 },
+    { keywords: ["sticker", "label", "decal"], weight: 0.9 },
+    { keywords: ["party", "decoration", "banner", "balloon"], weight: 0.9 },
+    { keywords: ["gift wrap", "wrapping paper"], weight: 0.9 },
+    { keywords: ["planner", "journal", "notebook"], weight: 0.85 },
+  ],
+  "Pet Supplies": [
+    { keywords: ["dog", "puppy", "canine"], weight: 0.95 },
+    { keywords: ["cat", "kitten", "feline"], weight: 0.95 },
+    { keywords: ["pet", "collar", "leash", "harness"], weight: 0.9 },
+    { keywords: ["pet toy", "pet bed", "pet bowl"], weight: 0.9 },
+  ],
+  "Shoes": [
+    { keywords: ["shoe", "sneaker", "trainer"], weight: 1.0 },
+    { keywords: ["boot", "ankle boot", "combat boot"], weight: 1.0 },
+    { keywords: ["sandal", "flip flop", "slide"], weight: 1.0 },
+    { keywords: ["heel", "pump", "stiletto"], weight: 0.95 },
+    { keywords: ["loafer", "flat", "moccasin"], weight: 0.95 },
+  ],
+  "Sports & Outdoors": [
+    { keywords: ["sport", "athletic", "fitness", "exercise"], weight: 0.9 },
+    { keywords: ["camping", "hiking", "outdoor"], weight: 0.9 },
+    { keywords: ["yoga", "mat", "gym"], weight: 0.85 },
+    { keywords: ["golf", "tennis", "basketball", "soccer", "football"], weight: 0.9 },
+  ],
+  "Toys & Games": [
+    { keywords: ["toy", "doll", "action figure"], weight: 1.0 },
+    { keywords: ["game", "board game", "puzzle"], weight: 0.95 },
+    { keywords: ["plush", "stuffed animal", "teddy"], weight: 0.95 },
+    { keywords: ["lego", "building blocks"], weight: 0.9 },
+  ],
+  "Wedding": [
+    { keywords: ["wedding", "bridal", "bride"], weight: 1.0 },
+    { keywords: ["bridesmaid", "groom", "groomsman"], weight: 0.95 },
+    { keywords: ["engagement", "ceremony", "reception"], weight: 0.9 },
+  ],
+  "Baby & Kids": [
+    { keywords: ["baby", "infant", "newborn", "toddler"], weight: 1.0 },
+    { keywords: ["kids", "children", "child"], weight: 0.95 },
+    { keywords: ["nursery", "crib", "stroller"], weight: 0.9 },
+    { keywords: ["onesie", "romper", "bib"], weight: 0.9 },
+  ],
+};
+
+export type CategorySuggestion = {
+  category: string;
+  subcategory: string | null;
+  confidence: number;
+  matchedKeywords?: string[];
+};
+
+/**
+ * Suggest categories based on title and description content.
+ * Uses keyword matching with weighted scoring.
+ */
+export function suggestCategoriesFromContent(
+  title: string,
+  description?: string | null
+): CategorySuggestion[] {
+  const text = `${title} ${description ?? ""}`.toLowerCase();
+  const suggestions: Map<string, { score: number; keywords: string[] }> = new Map();
+
+  for (const [category, keywordGroups] of Object.entries(CATEGORY_KEYWORDS)) {
+    let totalScore = 0;
+    const matchedKeywords: string[] = [];
+
+    for (const group of keywordGroups) {
+      const weight = group.weight ?? 1.0;
+      for (const keyword of group.keywords) {
+        // Check for word boundaries to avoid partial matches
+        const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        if (regex.test(text)) {
+          // Score based on position (title matches count more)
+          const inTitle = regex.test(title.toLowerCase());
+          const positionBonus = inTitle ? 0.3 : 0;
+          totalScore += weight + positionBonus;
+          matchedKeywords.push(keyword);
+        }
+      }
+    }
+
+    if (totalScore > 0) {
+      suggestions.set(category, { score: totalScore, keywords: matchedKeywords });
+    }
+  }
+
+  // Convert to array and sort by score
+  const sortedSuggestions = Array.from(suggestions.entries())
+    .map(([category, { score, keywords }]) => ({
+      category,
+      subcategory: null as string | null,
+      confidence: Math.min(0.95, score / 3), // Normalize to 0-0.95
+      matchedKeywords: keywords,
+    }))
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 5);
+
+  // Try to match subcategories for top suggestions
+  for (const suggestion of sortedSuggestions) {
+    const preset = STORE_CATEGORIES.find((c) => c.label === suggestion.category);
+    if (preset) {
+      let bestSubScore = 0;
+      let bestSub: string | null = null;
+      for (const sub of preset.subcategories) {
+        const subScore = similarityScore(text, sub.toLowerCase());
+        if (subScore > bestSubScore && subScore >= 0.3) {
+          bestSubScore = subScore;
+          bestSub = sub;
+        }
+      }
+      if (bestSub) {
+        suggestion.subcategory = bestSub;
+        suggestion.confidence = Math.min(0.98, suggestion.confidence + 0.1);
+      }
+    }
+  }
+
+  return sortedSuggestions;
+}
+
+// ============================================================================
+// Category Mapping Feedback & Learning
+// ============================================================================
+
+import { prisma } from "database";
+
+/**
+ * Record when a seller overrides an auto-mapped category.
+ * This data is used to improve future auto-mapping accuracy.
+ */
+export async function recordCategoryFeedback(params: {
+  provider: ChannelProvider;
+  remoteCategory: string;
+  remoteSubcategory?: string | null;
+  autoMapped: string;
+  autoMappedSubcategory?: string | null;
+  sellerChosen: string;
+  sellerChosenSubcategory?: string | null;
+  confidence?: number;
+  storeItemId?: string;
+  memberId: string;
+}): Promise<void> {
+  const {
+    provider,
+    remoteCategory,
+    remoteSubcategory,
+    autoMapped,
+    autoMappedSubcategory,
+    sellerChosen,
+    sellerChosenSubcategory,
+    confidence,
+    storeItemId,
+    memberId,
+  } = params;
+
+  // Don't record if seller kept the auto-mapped category
+  const keptAutoMapped =
+    autoMapped === sellerChosen &&
+    (autoMappedSubcategory ?? null) === (sellerChosenSubcategory ?? null);
+
+  try {
+    // Record the feedback
+    await prisma.categoryMappingFeedback.create({
+      data: {
+        provider,
+        remoteCategory,
+        remoteSubcat: remoteSubcategory ?? null,
+        autoMapped,
+        autoMappedSub: autoMappedSubcategory ?? null,
+        sellerChosen,
+        sellerChosenSub: sellerChosenSubcategory ?? null,
+        confidence: confidence ?? null,
+        storeItemId: storeItemId ?? null,
+        memberId,
+      },
+    });
+
+    // Update aggregated stats
+    await prisma.categoryMappingStats.upsert({
+      where: {
+        provider_remoteCategory: { provider, remoteCategory },
+      },
+      create: {
+        provider,
+        remoteCategory,
+        mappedCategory: sellerChosen,
+        mappedSubcat: sellerChosenSubcategory ?? null,
+        confidence: keptAutoMapped ? 0.6 : 0.4,
+        overrideCount: keptAutoMapped ? 0 : 1,
+        keepCount: keptAutoMapped ? 1 : 0,
+      },
+      update: {
+        mappedCategory: keptAutoMapped ? undefined : sellerChosen,
+        mappedSubcat: keptAutoMapped ? undefined : (sellerChosenSubcategory ?? null),
+        overrideCount: keptAutoMapped ? undefined : { increment: 1 },
+        keepCount: keptAutoMapped ? { increment: 1 } : undefined,
+      },
+    });
+  } catch (e) {
+    console.warn("[category-feedback] failed to record:", e);
+  }
+}
+
+/**
+ * Get learned mapping for a remote category based on seller feedback.
+ * Returns null if no strong mapping exists.
+ */
+export async function getLearnedCategoryMapping(
+  provider: ChannelProvider,
+  remoteCategory: string
+): Promise<ResolvedInwCategory | null> {
+  try {
+    const stats = await prisma.categoryMappingStats.findUnique({
+      where: {
+        provider_remoteCategory: { provider, remoteCategory },
+      },
+    });
+
+    if (!stats) return null;
+
+    // Calculate confidence based on feedback
+    const totalFeedback = stats.keepCount + stats.overrideCount;
+    if (totalFeedback < 3) return null; // Need at least 3 data points
+
+    const keepRate = stats.keepCount / totalFeedback;
+    const adjustedConfidence = keepRate * 0.8 + 0.2; // Scale to 0.2-1.0
+
+    if (adjustedConfidence < CATEGORY_MATCH_THRESHOLD) return null;
+
+    return {
+      category: stats.mappedCategory,
+      subcategory: stats.mappedSubcat,
+      matchedPreset: true,
+      score: adjustedConfidence,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Enhanced category resolution that considers learned mappings.
+ */
+export async function resolveInwCategoryWithLearning(
+  remoteLabel: string | null | undefined,
+  remoteSubLabel?: string | null,
+  opts?: ResolveCategoryOptions
+): Promise<ResolvedInwCategory | null> {
+  const label = remoteLabel?.trim();
+  if (!label) return null;
+
+  // First, check for learned mappings from seller feedback
+  if (opts?.provider) {
+    const learned = await getLearnedCategoryMapping(opts.provider, label);
+    if (learned && (learned.score ?? 0) >= CATEGORY_MATCH_THRESHOLD) {
+      return learned;
+    }
+  }
+
+  // Fall back to standard resolution
+  return resolveInwCategoryFromRemote(remoteLabel, remoteSubLabel, opts);
+}
+
+/**
+ * Get category mapping statistics for admin analytics.
+ */
+export async function getCategoryMappingAnalytics(params: {
+  provider?: string;
+  limit?: number;
+}): Promise<{
+  stats: Array<{
+    provider: string;
+    remoteCategory: string;
+    mappedCategory: string;
+    mappedSubcat: string | null;
+    confidence: number;
+    overrideCount: number;
+    keepCount: number;
+    overrideRate: number;
+  }>;
+  total: number;
+}> {
+  const { provider, limit = 50 } = params;
+
+  const where = provider ? { provider } : {};
+
+  const [stats, total] = await Promise.all([
+    prisma.categoryMappingStats.findMany({
+      where,
+      orderBy: { overrideCount: "desc" },
+      take: limit,
+    }),
+    prisma.categoryMappingStats.count({ where }),
+  ]);
+
+  return {
+    stats: stats.map((s) => ({
+      provider: s.provider,
+      remoteCategory: s.remoteCategory,
+      mappedCategory: s.mappedCategory,
+      mappedSubcat: s.mappedSubcat,
+      confidence: s.confidence,
+      overrideCount: s.overrideCount,
+      keepCount: s.keepCount,
+      overrideRate:
+        s.overrideCount + s.keepCount > 0
+          ? s.overrideCount / (s.overrideCount + s.keepCount)
+          : 0,
+    })),
+    total,
+  };
+}

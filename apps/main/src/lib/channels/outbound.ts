@@ -58,6 +58,74 @@ async function loadSyncItem(storeItemId: string): Promise<SyncStoreItem | null> 
   return row ? toSyncStoreItem(row) : null;
 }
 
+/**
+ * Apply per-channel price adjustment to an item for outbound push.
+ * Returns a new item object with adjusted price.
+ */
+function applyPriceAdjustment(item: SyncStoreItem, adjustmentPercent: number): SyncStoreItem {
+  if (adjustmentPercent === 0) return item;
+  
+  const multiplier = 1 + (adjustmentPercent / 100);
+  const adjustedPrice = Math.round(item.priceCents * multiplier);
+  
+  return {
+    ...item,
+    priceCents: Math.max(0, adjustedPrice), // Never go negative
+  };
+}
+
+type SyncPrefs = {
+  syncEnabled: boolean;
+  syncTitles: boolean;
+  syncDescriptions: boolean;
+  syncPhotos: boolean;
+  syncPrices: boolean;
+};
+
+/**
+ * Load member sync preferences for content sync toggles.
+ */
+async function loadSyncPreferences(memberId: string): Promise<SyncPrefs> {
+  const prefs = await prisma.memberSyncPreferences.findUnique({
+    where: { memberId },
+    select: {
+      syncEnabled: true,
+      syncTitles: true,
+      syncDescriptions: true,
+      syncPhotos: true,
+      syncPrices: true,
+    },
+  });
+  return {
+    syncEnabled: prefs?.syncEnabled ?? true,
+    syncTitles: prefs?.syncTitles ?? true,
+    syncDescriptions: prefs?.syncDescriptions ?? true,
+    syncPhotos: prefs?.syncPhotos ?? true,
+    syncPrices: prefs?.syncPrices ?? true,
+  };
+}
+
+/**
+ * Check if any content fields have changed based on sync preferences.
+ * Returns true if the item should be pushed (has changes in enabled fields).
+ */
+function hasEnabledContentChanges(
+  currentItem: SyncStoreItem,
+  previousHash: string | null,
+  syncPrefs: SyncPrefs
+): boolean {
+  // If no previous hash, always push (new or never synced)
+  if (!previousHash) return true;
+  
+  // If all content sync is disabled, no content changes should trigger a push
+  if (!syncPrefs.syncTitles && !syncPrefs.syncDescriptions && !syncPrefs.syncPhotos && !syncPrefs.syncPrices) {
+    return false;
+  }
+  
+  // Otherwise, we rely on the hash comparison which happens later
+  return true;
+}
+
 export type PublishToChannelsOptions = {
   /** When set, only these providers are published (must still be active connections). */
   providers?: ChannelProvider[];
@@ -73,6 +141,13 @@ export async function publishStoreItemToChannels(
   options: PublishToChannelsOptions = {}
 ): Promise<ChannelSyncResult[]> {
   const results: ChannelSyncResult[] = [];
+  
+  // Check if sync is globally enabled
+  const syncPrefs = await loadSyncPreferences(memberId);
+  if (!syncPrefs.syncEnabled) {
+    return results;
+  }
+  
   let item: SyncStoreItem | null;
   let connections: ChannelConnectionContext[];
   try {
@@ -128,9 +203,23 @@ export async function publishStoreItemToChannels(
       continue;
     }
 
+    // Check per-channel sync direction from config
+    const connConfig = (conn.config ?? {}) as Record<string, unknown>;
+    const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
+    
+    // Skip publish if channel is set to pull_only or paused
+    if (syncDirection === "pull_only" || syncDirection === "paused") {
+      continue;
+    }
+
     try {
       const adapter = getAdapter(provider);
-      const result = await adapter.createListing(conn, item);
+      
+      // Apply per-channel price adjustment
+      const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
+      const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
+      
+      const result = await adapter.createListing(conn, adjustedItem);
       await prisma.channelListingLink.create({
         data: {
           storeItemId,
@@ -205,10 +294,34 @@ export async function updateStoreItemOnChannels(
   if (!item) return results;
   const hash = contentHash(item);
 
+  // Load member sync preferences
+  const memberId = links[0]?.connection?.memberId;
+  const syncPrefs = memberId ? await loadSyncPreferences(memberId) : null;
+  
+  // If sync is globally disabled, skip all channels
+  if (syncPrefs && !syncPrefs.syncEnabled) {
+    return results;
+  }
+  
+  // If all content sync toggles are disabled, skip content pushes entirely
+  if (syncPrefs && !syncPrefs.syncTitles && !syncPrefs.syncDescriptions && !syncPrefs.syncPhotos && !syncPrefs.syncPrices) {
+    console.log("[channels] all content sync toggles disabled, skipping content push", { storeItemId });
+    return results;
+  }
+
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) continue;
     if (link.lastPushedHash === hash) continue;
+
+    // Check per-channel sync direction from config
+    const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
+    const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
+    
+    // Skip push if channel is set to pull_only or paused
+    if (syncDirection === "pull_only" || syncDirection === "paused") {
+      continue;
+    }
 
     hydrateCircuitFromConfig(link.connectionId, link.connection.config);
     if (isCircuitOpen(link.connectionId)) {
@@ -231,7 +344,12 @@ export async function updateStoreItemOnChannels(
       const ctx = await getConnectionContext(link.connection);
       if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
       const adapter = getAdapter(provider);
-      await adapter.updateListing(ctx, link.externalListingId, item);
+      
+      // Apply per-channel price adjustment
+      const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
+      const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
+      
+      await adapter.updateListing(ctx, link.externalListingId, adjustedItem);
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: {

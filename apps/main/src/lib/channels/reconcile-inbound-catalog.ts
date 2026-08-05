@@ -111,6 +111,35 @@ export async function reconcileConnectionInboundCatalog(
     memberId: connection.memberId,
   });
   
+  // Check per-channel sync direction from config
+  const connConfig = (connection.config ?? {}) as Record<string, unknown>;
+  const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
+  
+  // If sync is paused, skip reconciliation entirely
+  if (syncDirection === "paused") {
+    console.log("[channels] sync paused for connection", { connectionId: connection.id, provider });
+    return { updated: 0, removed: 0 };
+  }
+  
+  // Load member sync preferences
+  const memberPrefs = await prisma.memberSyncPreferences.findUnique({
+    where: { memberId: connection.memberId },
+    select: { 
+      syncEnabled: true, 
+      conflictResolution: true,
+      sourceOfTruth: true,
+    },
+  });
+  
+  // Check if sync is globally disabled
+  if (memberPrefs && !memberPrefs.syncEnabled) {
+    console.log("[channels] sync globally disabled for member", { memberId: connection.memberId });
+    return { updated: 0, removed: 0 };
+  }
+  
+  // Get conflict resolution preference (default: most_recent)
+  const conflictResolution = (memberPrefs?.conflictResolution ?? "most_recent") as "most_recent" | "inw_wins" | "manual_review";
+  
   const caps = getChannelCapabilities(provider);
   if (!caps.supportsBaselineCatalogReconcile) {
     console.log("[channels] provider does not support baseline reconcile", { provider });
@@ -228,6 +257,7 @@ export async function reconcileConnectionInboundCatalog(
       remoteChanged: remoteContentChanged,
       inwUpdatedAt: item.updatedAt,
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+      conflictResolution,
     });
 
     const inwQtyChangedSinceBaseline =
@@ -285,20 +315,50 @@ export async function reconcileConnectionInboundCatalog(
     });
 
     if (inwContentChanged && remoteContentChanged) {
-      const winner = contentDecision === "pull" ? "remote" : "INW";
-      logSyncEvent(
-        connection.memberId,
-        provider,
-        "conflict_resolved",
-        `Kept ${winner} version. Remote updated ${remote.remoteUpdatedAt?.toISOString() ?? "unknown"}, INW updated ${item.updatedAt.toISOString()}.`,
-        link.storeItemId
-      );
+      if (contentDecision === "noop" && conflictResolution === "manual_review") {
+        // Conflict queued for manual review - log but don't auto-resolve
+        logSyncEvent(
+          connection.memberId,
+          provider,
+          "conflict_pending",
+          `Conflict detected: both INW and ${provider} changed. Queued for manual review. Remote updated ${remote.remoteUpdatedAt?.toISOString() ?? "unknown"}, INW updated ${item.updatedAt.toISOString()}.`,
+          link.storeItemId
+        );
+        // Update link to mark conflict
+        await prisma.channelListingLink.update({
+          where: { id: link.id },
+          data: {
+            lastConflictAt: new Date(),
+            conflictDetails: {
+              inwUpdatedAt: item.updatedAt.toISOString(),
+              remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString() ?? null,
+              inwTitle: item.title,
+              remoteTitle: remote.title,
+              inwPriceCents: item.priceCents,
+              remotePriceCents: remote.priceCents,
+            },
+          },
+        }).catch(() => {});
+      } else {
+        const winner = contentDecision === "pull" ? "remote" : "INW";
+        logSyncEvent(
+          connection.memberId,
+          provider,
+          "conflict_resolved",
+          `Kept ${winner} version (${conflictResolution}). Remote updated ${remote.remoteUpdatedAt?.toISOString() ?? "unknown"}, INW updated ${item.updatedAt.toISOString()}.`,
+          link.storeItemId
+        );
+      }
     }
 
     let pulledContent = false;
     let pulledQuantity = false;
     
-    if (contentDecision === "pull") {
+    // Respect sync direction for pull operations
+    const allowPull = syncDirection === "two_way" || syncDirection === "pull_only";
+    const allowPush = syncDirection === "two_way" || syncDirection === "push_only";
+    
+    if (contentDecision === "pull" && allowPull) {
       console.log("[channels] pulling content from remote", {
         storeItemId: link.storeItemId,
         remoteTitle: remote.title,
@@ -316,20 +376,33 @@ export async function reconcileConnectionInboundCatalog(
           oldQty: item.quantity,
           newQty: remote.quantity,
         });
-        pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity);
+        pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity, {
+          provider,
+          memberId: connection.memberId,
+        });
       }
+    } else if (contentDecision === "pull" && !allowPull) {
+      console.log("[channels] skipping pull due to sync direction setting", {
+        storeItemId: link.storeItemId,
+        syncDirection,
+      });
     }
 
     // Determine quantity sync direction when quantities differ but content didn't trigger a pull
     let attemptedPush = false;
     let pushOk = false;
     
-    if (contentDecision === "push") {
+    if (contentDecision === "push" && allowPush) {
       attemptedPush = true;
       pushOk = channelSyncSucceeded(
         await updateStoreItemOnChannels(link.storeItemId),
         provider
       );
+    } else if (contentDecision === "push" && !allowPush) {
+      console.log("[channels] skipping push due to sync direction setting", {
+        storeItemId: link.storeItemId,
+        syncDirection,
+      });
     } else if (qtyDiffers && contentDecision !== "pull") {
       // Quantity differs but we didn't pull content - need to decide direction
       // If remote quantity changed (remote != baseline), pull from remote
@@ -338,7 +411,7 @@ export async function reconcileConnectionInboundCatalog(
         link.syncBaselineQty != null && 
         remote.quantity !== link.syncBaselineQty;
       
-      if (remoteQtyChanged && !inwQtyChangedSinceBaseline) {
+      if (remoteQtyChanged && !inwQtyChangedSinceBaseline && allowPull) {
         // Remote changed, INW didn't - pull from remote
         console.log("[channels] pulling quantity from remote (qty-only change)", {
           storeItemId: link.storeItemId,
@@ -346,8 +419,11 @@ export async function reconcileConnectionInboundCatalog(
           newQty: remote.quantity,
           baselineQty: link.syncBaselineQty,
         });
-        pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity);
-      } else {
+        pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity, {
+          provider,
+          memberId: connection.memberId,
+        });
+      } else if (allowPush) {
         // INW changed or both changed - push to channels
         attemptedPush = true;
         pushOk = channelSyncSucceeded(

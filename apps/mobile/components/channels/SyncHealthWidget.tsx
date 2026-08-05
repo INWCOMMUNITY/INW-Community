@@ -6,7 +6,7 @@ import {
   Pressable,
   ActivityIndicator,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
@@ -62,6 +62,7 @@ const providerNames: Record<string, string> = {
 };
 
 export function SyncHealthWidget() {
+  const router = useRouter();
   const [data, setData] = useState<SyncHealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -171,6 +172,14 @@ export function SyncHealthWidget() {
               {data.recentFailures} sync failure{data.recentFailures !== 1 ? "s" : ""} in last 24h
             </Text>
           )}
+
+          <Pressable
+            style={styles.viewDetailsBtn}
+            onPress={() => router.push("/seller-hub/channels/sync-health" as never)}
+          >
+            <Text style={styles.viewDetailsBtnText}>View Details</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+          </Pressable>
         </View>
       )}
     </View>
@@ -268,5 +277,20 @@ const styles = StyleSheet.create({
     color: "#9ca3af",
     marginTop: 8,
     textAlign: "center",
+  },
+  viewDetailsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    marginTop: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#e0e0e0",
+  },
+  viewDetailsBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
 });

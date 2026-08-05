@@ -29,6 +29,7 @@ function useHeaderTitle() {
   if (path.includes("shipping-setup") || String(last) === "shipping-setup") return "Shipping Setup";
   if (path.includes("before-you-start") || String(last) === "before-you-start") return "Before You Start";
   if (path.includes("seller-page-settings") || String(last) === "seller-page-settings") return "Seller Page Settings";
+  if (path.includes("quantity-history")) return "Quantity History";
   return "Seller Hub";
 }
 
@@ -59,6 +60,7 @@ export default function SellerHubLayout() {
         {/* Inner layouts supply their own stack header + back; hide outer title bar here. */}
         <Stack.Screen name="store" options={{ headerShown: false }} />
         <Stack.Screen name="channels" options={{ headerShown: false }} />
+        <Stack.Screen name="quantity-history/[itemId]" options={{ title: "Quantity History" }} />
       </Stack>
     </>
   );

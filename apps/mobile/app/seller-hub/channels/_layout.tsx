@@ -48,6 +48,7 @@ export default function ChannelsLayout() {
       <Stack.Screen name="index" options={{ title: "Sync Stores" }} />
       <Stack.Screen name="import" options={{ title: "Import Listings" }} />
       <Stack.Screen name="sync-activity" options={{ title: "Sync Activity" }} />
+      <Stack.Screen name="sync-health" options={{ title: "Sync Health" }} />
     </Stack>
   );
 }

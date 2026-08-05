@@ -12,6 +12,7 @@ import type { ChannelProvider } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
 import { matchSaleToVariantOption } from "./variant-sync";
 import { logSyncEvent } from "./sync-log";
+import { logSaleQuantityChange } from "./quantity-audit";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
@@ -94,6 +95,7 @@ export async function reconcileConnectionSales(
       ? matchSaleToVariantOption(sale.variant, storeItem.variants) ?? sale.variant
       : null;
 
+    const previousQty = storeItem.quantity;
     await applyStoreItemDecrementAfterSale(prisma, storeItem, {
       quantity: sale.quantitySold,
       variant: saleVariant,
@@ -102,6 +104,17 @@ export async function reconcileConnectionSales(
     const updated = await prisma.storeItem.findUnique({
       where: { id: link.storeItemId },
       select: { quantity: true, variants: true },
+    });
+
+    // Log the quantity change for audit trail
+    logSaleQuantityChange({
+      storeItemId: link.storeItemId,
+      memberId: connection.memberId,
+      provider,
+      previousQty,
+      newQty: updated?.quantity ?? previousQty - sale.quantitySold,
+      externalEventId: sale.externalEventId,
+      variantValue: saleVariant ?? undefined,
     });
     if (updated && shouldMarkStoreItemSoldOut(updated)) {
       await prisma.storeItem.update({

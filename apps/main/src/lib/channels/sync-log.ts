@@ -6,6 +6,7 @@ export type SyncLogAction =
   | "pull_catalog"
   | "sale_applied"
   | "conflict_resolved"
+  | "conflict_pending"
   | "token_refreshed"
   | "token_expired"
   | "import"
@@ -13,7 +14,9 @@ export type SyncLogAction =
   | "error_permanent"
   | "retry_exhausted"
   | "circuit_open"
-  | "circuit_closed";
+  | "circuit_closed"
+  | "skip_zero_qty"
+  | "low_stock_alert";
 
 /**
  * Fire-and-forget insert into ChannelSyncLog. Never throws — sync operations

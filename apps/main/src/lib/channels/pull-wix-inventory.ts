@@ -110,7 +110,10 @@ export async function pullWixInventoryForConnection(
           link.externalListingId
         );
         if (!known) continue;
-        changed = await applyRemoteQuantityToStoreItem(link.storeItemId, quantity);
+        changed = await applyRemoteQuantityToStoreItem(link.storeItemId, quantity, {
+          provider: "wix",
+          memberId: connection.memberId,
+        });
       }
       if (!changed) continue;
       await recordInventoryBaseline(link.id, link.storeItemId);

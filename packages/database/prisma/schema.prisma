@@ -124,6 +124,7 @@ model Member {
   groupMemberBansIssued    GroupMemberBan[]       @relation("GroupMemberBanIssuer")
   groupDeletionRequests    GroupDeletionRequest[] @relation("GroupDeletionRequester")
   channelConnections       ChannelConnection[]
+  syncPreferences          MemberSyncPreferences?
   listingTemplates         ListingTemplate[]
   sellerAnalyticsEvents    SellerAnalyticsEvent[]
   sellerActivityLogs       SellerActivityLog[]
@@ -1006,6 +1007,10 @@ model ChannelListingLink {
   syncBaselineAt    DateTime? @map("sync_baseline_at")
   syncBaselineMetaHash String? @map("sync_baseline_meta_hash")
   syncBaselineVariantsHash String? @map("sync_baseline_variants_hash")
+  // Conflict tracking for sync resolution
+  lastConflictAt     DateTime?  @map("last_conflict_at")
+  conflictResolution String?    @map("conflict_resolution") // inw_won | channel_won | pending
+  conflictDetails    Json?      @map("conflict_details")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
@@ -1684,4 +1689,95 @@ model PostPollVote {
   @@unique([optionId, memberId])
   @@index([memberId])
   @@map("post_poll_vote")
+}
+
+// ============================================================================
+// Multi-Platform Listing System - Category Mapping & Sync Health
+// ============================================================================
+
+// Tracks seller corrections to auto-mapped categories for ML learning
+model CategoryMappingFeedback {
+  id              String   @id @default(cuid())
+  provider        String   // etsy | ebay | shopify | wix
+  remoteCategory  String   @map("remote_category")
+  remoteSubcat    String?  @map("remote_subcategory")
+  autoMapped      String   @map("auto_mapped")
+  autoMappedSub   String?  @map("auto_mapped_subcategory")
+  sellerChosen    String   @map("seller_chosen")
+  sellerChosenSub String?  @map("seller_chosen_subcategory")
+  confidence      Float?   // Original confidence score from auto-mapping
+  storeItemId     String?  @map("store_item_id")
+  memberId        String   @map("member_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([provider, remoteCategory])
+  @@index([memberId])
+  @@map("category_mapping_feedback")
+}
+
+// Aggregated stats for improving auto-mapping accuracy over time
+model CategoryMappingStats {
+  id             String   @id @default(cuid())
+  provider       String
+  remoteCategory String   @map("remote_category")
+  mappedCategory String   @map("mapped_category")
+  mappedSubcat   String?  @map("mapped_subcategory")
+  confidence     Float    @default(0.5)
+  overrideCount  Int      @default(0) @map("override_count")  // Times seller changed it
+  keepCount      Int      @default(0) @map("keep_count")      // Times seller kept it
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, remoteCategory])
+  @@map("category_mapping_stats")
+}
+
+// Full audit trail for all quantity changes across platforms
+model QuantityAuditLog {
+  id              String   @id @default(cuid())
+  storeItemId     String   @map("store_item_id")
+  memberId        String   @map("member_id")
+  provider        String   // inwc | etsy | ebay | shopify | wix
+  previousQty     Int      @map("previous_qty")
+  newQty          Int      @map("new_qty")
+  delta           Int      // Computed: newQty - previousQty
+  reason          String   // sale | restock | sync_pull | manual_edit | refund | bulk_edit
+  externalEventId String?  @map("external_event_id")
+  orderId         String?  @map("order_id")
+  variantValue    String?  @map("variant_value") // e.g., "Size: M"
+  metadata        Json?    // Additional context
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([storeItemId, createdAt])
+  @@index([memberId, createdAt])
+  @@index([provider, createdAt])
+  @@map("quantity_audit_log")
+}
+
+// Member-level sync preferences for multi-platform channel sync
+model MemberSyncPreferences {
+  id                    String   @id @default(cuid())
+  memberId              String   @unique @map("member_id")
+  
+  // Global controls
+  syncEnabled           Boolean  @default(true) @map("sync_enabled")           // Master pause toggle
+  sourceOfTruth         String   @default("inw") @map("source_of_truth")        // inw | wix | ebay | etsy | shopify
+  conflictResolution    String   @default("most_recent") @map("conflict_resolution") // most_recent | inw_wins | manual_review
+  
+  // Inventory rules
+  safetyBuffer          Int      @default(0) @map("safety_buffer")              // Units held back from external channels
+  lowStockAlertThreshold Int     @default(0) @map("low_stock_alert_threshold")  // 0 = disabled
+  syncZeroQuantity      Boolean  @default(true) @map("sync_zero_quantity")      // When off, 0 qty items hidden on channels
+  
+  // Content sync toggles
+  syncTitles            Boolean  @default(true) @map("sync_titles")
+  syncDescriptions      Boolean  @default(true) @map("sync_descriptions")
+  syncPhotos            Boolean  @default(true) @map("sync_photos")
+  syncPrices            Boolean  @default(true) @map("sync_prices")
+  
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  member                Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@map("member_sync_preferences")
 }

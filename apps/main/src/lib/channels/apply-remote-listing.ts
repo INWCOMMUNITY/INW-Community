@@ -3,7 +3,8 @@ import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { storeListingDescription } from "./import-listing";
 import { sanitizeListingDescription } from "./rich-description";
-import type { RemoteListingSummary } from "./types";
+import type { ChannelProvider, RemoteListingSummary } from "./types";
+import { logSyncPullQuantityChange } from "./quantity-audit";
 
 function photosEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -85,7 +86,12 @@ export async function applyRemoteContentToStoreItem(
 /** Apply quantity from Wix inventory webhooks or targeted pull (not catalog list defaults). */
 export async function applyRemoteQuantityToStoreItem(
   storeItemId: string,
-  remoteQuantity: number
+  remoteQuantity: number,
+  auditContext?: {
+    provider: ChannelProvider;
+    memberId: string;
+    externalEventId?: string;
+  }
 ): Promise<boolean> {
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
   if (!item) return false;
@@ -97,6 +103,7 @@ export async function applyRemoteQuantityToStoreItem(
   }
   if (item.quantity === remoteQty) return false;
 
+  const previousQty = item.quantity;
   const nextStatus =
     remoteQty > 0
       ? item.status === "sold_out" || item.status === "active"
@@ -108,6 +115,18 @@ export async function applyRemoteQuantityToStoreItem(
     where: { id: storeItemId },
     data: { quantity: remoteQty, status: nextStatus },
   });
+
+  // Log the quantity change for audit trail
+  if (auditContext) {
+    logSyncPullQuantityChange({
+      storeItemId,
+      memberId: auditContext.memberId,
+      provider: auditContext.provider,
+      previousQty,
+      newQty: remoteQty,
+      externalEventId: auditContext.externalEventId,
+    });
+  }
 
   if (remoteQty === 0) {
     deleteFeedPostsForSoldItem(storeItemId).catch(() => {});

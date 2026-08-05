@@ -17,6 +17,8 @@ import { theme } from "@/lib/theme";
 import { apiPost, apiGet, apiDelete } from "@/lib/api";
 import { EbaySetupCard } from "@/components/channels/EbaySetupCard";
 import { SyncHealthWidget } from "@/components/channels/SyncHealthWidget";
+import { SyncRulesCard } from "@/components/channels/SyncRulesCard";
+import { ChannelSettingsModal } from "@/components/channels/ChannelSettingsModal";
 
 type Connection = {
   id: string;
@@ -98,6 +100,14 @@ export default function ChannelsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [shopifyShop, setShopifyShop] = useState("");
+  
+  // Channel settings modal state
+  const [settingsModal, setSettingsModal] = useState<{
+    visible: boolean;
+    connectionId: string;
+    provider: string;
+    providerName: string;
+  }>({ visible: false, connectionId: "", provider: "", providerName: "" });
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -349,6 +359,7 @@ export default function ChannelsScreen() {
       </Text>
 
       {!loading && connections.length > 0 && <SyncHealthWidget />}
+      {!loading && connections.length > 0 && <SyncRulesCard />}
 
       {loading ? (
         <ActivityIndicator style={styles.spinner} color={theme.colors.primary} />
@@ -429,18 +440,40 @@ export default function ChannelsScreen() {
                     p.provider === "ebay" ||
                     p.provider === "wix" ||
                     p.provider === "shopify") && (
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.secondaryBtn,
-                        styles.secondaryBtnSpaced,
-                        pressed && { opacity: 0.85 },
-                      ]}
-                      onPress={() =>
-                        router.push(`/seller-hub/channels/import?provider=${p.provider}`)
-                      }
-                    >
-                      <Text style={styles.secondaryBtnText}>Import existing listings</Text>
-                    </Pressable>
+                    <>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.secondaryBtn,
+                          styles.secondaryBtnSpaced,
+                          pressed && { opacity: 0.85 },
+                        ]}
+                        onPress={() =>
+                          router.push(`/seller-hub/channels/import?provider=${p.provider}`)
+                        }
+                      >
+                        <Text style={styles.secondaryBtnText}>Import existing listings</Text>
+                      </Pressable>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.secondaryBtn,
+                          styles.secondaryBtnSpaced,
+                          pressed && { opacity: 0.85 },
+                        ]}
+                        onPress={() =>
+                          setSettingsModal({
+                            visible: true,
+                            connectionId: conn.id,
+                            provider: p.provider,
+                            providerName: p.name,
+                          })
+                        }
+                      >
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Ionicons name="settings-outline" size={18} color={theme.colors.primary} />
+                          <Text style={styles.secondaryBtnText}>Sync Settings</Text>
+                        </View>
+                      </Pressable>
+                    </>
                   )}
                   {p.provider === "wix" && (
                     <>
@@ -535,6 +568,15 @@ export default function ChannelsScreen() {
         <Text style={styles.activityLinkText}>Sync Activity</Text>
         <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
       </Pressable>
+
+      <ChannelSettingsModal
+        visible={settingsModal.visible}
+        connectionId={settingsModal.connectionId}
+        provider={settingsModal.provider}
+        providerName={settingsModal.providerName}
+        onClose={() => setSettingsModal({ visible: false, connectionId: "", provider: "", providerName: "" })}
+        onSaved={refresh}
+      />
     </ScrollView>
   );
 }

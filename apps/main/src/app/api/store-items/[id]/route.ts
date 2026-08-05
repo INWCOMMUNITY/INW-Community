@@ -10,6 +10,7 @@ import {
   usesPerOptionInventorySync,
 } from "@/lib/store-item-variants";
 import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
+import { logManualEditQuantityChange } from "@/lib/channels/quantity-audit";
 import { z } from "zod";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
@@ -312,6 +313,17 @@ export async function PATCH(
     where: { id: itemId },
     data: update as object,
   });
+
+  // Log quantity change for audit trail if quantity was modified
+  if (item.quantity !== existing.quantity) {
+    logManualEditQuantityChange({
+      storeItemId: itemId,
+      memberId: ownerId,
+      previousQty: existing.quantity,
+      newQty: item.quantity,
+    });
+  }
+
   if (item.status === "sold_out") {
     deleteFeedPostsForSoldItem(itemId).catch(() => {});
   }

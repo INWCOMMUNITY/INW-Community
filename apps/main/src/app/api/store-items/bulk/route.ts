@@ -3,6 +3,7 @@ import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
+import { logBulkEditQuantityChange } from "@/lib/channels/quantity-audit";
 
 export const dynamic = "force-dynamic";
 
@@ -246,6 +247,21 @@ export async function PATCH(req: NextRequest) {
               before: beforeState[item.id],
               after: { ...item },
             };
+            // Log quantity changes for audit trail
+            const prevQty = beforeState[item.id].quantity as number;
+            const newQty = item.quantity;
+            if (prevQty !== newQty) {
+              logBulkEditQuantityChange({
+                storeItemId: item.id,
+                memberId: userId,
+                previousQty: prevQty,
+                newQty,
+                metadata: { 
+                  operation: "bulk_edit",
+                  changedFields: Object.keys(updates).filter((k) => updates[k as keyof typeof updates] !== undefined),
+                },
+              });
+            }
           }
         }
         

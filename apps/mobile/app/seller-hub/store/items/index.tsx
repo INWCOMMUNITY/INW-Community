@@ -646,6 +646,17 @@ export default function MyItemsScreen() {
             >
               <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>Edit</Text>
             </Pressable>
+            <Pressable
+              style={styles.menuOption}
+              onPress={() => {
+                if (menuItemId) {
+                  setMenuItemId(null);
+                  router.push(`/seller-hub/quantity-history/${menuItemId}` as never);
+                }
+              }}
+            >
+              <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View History</Text>
+            </Pressable>
             {itemsTab !== "sold" && (
               <Pressable
                 style={styles.menuOption}
