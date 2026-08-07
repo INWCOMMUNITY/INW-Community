@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { getErrorMessage } from "@/lib/api-error";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
+import { getProductReferrer, buildBackLink } from "@/lib/product-referrer";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
@@ -72,6 +73,9 @@ interface StoreItem {
 
 export default function ProductDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const referrer = getProductReferrer(searchParams);
+  const backLink = buildBackLink(referrer);
   const { data: session, status } = useSession();
   const slugParam = params?.slug;
   const slug =
@@ -434,8 +438,8 @@ export default function ProductDetailPage() {
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] mx-auto">
           <p className="text-gray-500">Product not found.</p>
-          <Link href="/storefront" className="btn mt-4 inline-block">
-            Back to storefront
+          <Link href={backLink.href} className="btn mt-4 inline-block">
+            {backLink.label}
           </Link>
         </div>
       </section>
@@ -487,11 +491,11 @@ export default function ProductDetailPage() {
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] mx-auto">
           <Link
-            href="/storefront"
+            href={backLink.href}
             className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#C9A86C] bg-white px-4 py-2 text-sm font-semibold text-[var(--color-primary)] shadow-sm transition hover:bg-[#F8F8F3]"
           >
             <IonIcon name="arrow-back-outline" size={18} className="text-[var(--color-primary)]" />
-            Back to Storefront
+            {backLink.label}
           </Link>
         {itemUnavailable && item && (
           <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
@@ -890,10 +894,6 @@ export default function ProductDetailPage() {
                     </Link>
                   )}
                 </div>
-                <p className="mt-4 flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-gray-600">
-                  <IonIcon name="sparkles-outline" size={18} className="text-[var(--color-primary)]" />
-                  Earn {Math.floor((item.priceCents * quantity) / 200)} Community Points with this purchase
-                </p>
               </>
             )}
           </div>

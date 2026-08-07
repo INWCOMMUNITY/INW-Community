@@ -15,6 +15,49 @@ type IntrinsicSize = { width: number; height: number } | null;
 
 const FALLBACK_ASPECT = 1 / 1.38;
 
+function FeedCarouselVideo({
+  src,
+  onIntrinsic,
+}: {
+  src: string;
+  onIntrinsic: (size: { width: number; height: number }) => void;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) {
+          el.pause();
+          return;
+        }
+        void el.play().catch(() => {});
+      },
+      { threshold: 0.35 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return (
+    <video
+      ref={ref}
+      src={src}
+      className="w-full h-full object-contain bg-neutral-900 pointer-events-none"
+      muted
+      playsInline
+      loop
+      preload="metadata"
+      onLoadedMetadata={(e) => {
+        const v = e.currentTarget;
+        if (v.videoWidth > 0 && v.videoHeight > 0) {
+          onIntrinsic({ width: v.videoWidth, height: v.videoHeight });
+        }
+      }}
+    />
+  );
+}
+
 function scaledHeight(
   intrinsic: IntrinsicSize,
   containerW: number,
@@ -131,18 +174,9 @@ export function FeedPostMediaCarousel({
   const slideInner = (item: FeedCarouselMediaItem, index: number) => (
     <>
       {item.isVideo ? (
-        <video
+        <FeedCarouselVideo
           src={item.url}
-          className="w-full h-full object-contain bg-neutral-900 pointer-events-none"
-          muted
-          playsInline
-          preload="metadata"
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget;
-            if (v.videoWidth > 0 && v.videoHeight > 0) {
-              setIntrinsicAt(index, { width: v.videoWidth, height: v.videoHeight });
-            }
-          }}
+          onIntrinsic={(size) => setIntrinsicAt(index, size)}
         />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element

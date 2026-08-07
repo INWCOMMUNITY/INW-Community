@@ -16,6 +16,7 @@ const SIDEBAR_BASE: SidebarItem[] = [
   { divider: "Social" },
   { href: "/my-community/messages", label: "My Messages", icon: "chatbubbles-outline" },
   { href: "/my-community/feed", label: "Feed", icon: "newspaper-outline" },
+  { href: "/my-community/saved-posts", label: "Saved Posts", icon: "bookmark-outline" },
   { href: "/my-community/my-page", label: "My Page", icon: "person-outline" },
   { href: "/my-community/friends", label: "My Friends", icon: "people-outline" },
   { href: "/my-community/groups", label: "Groups", icon: "people-circle-outline" },

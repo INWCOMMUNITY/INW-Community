@@ -249,8 +249,6 @@ export default async function HomePage() {
             <div className="flex flex-wrap justify-center gap-4">
               <Link href="/support-nwc" className="btn-sponsors">Subscribe</Link>
               <Link href="/coupons" className="btn-sponsors">Coupons</Link>
-              <Link href="/rewards" className="btn-sponsors">Rewards</Link>
-              <Link href="/badges" className="btn-sponsors">Badges</Link>
             </div>
           </div>
         </div>

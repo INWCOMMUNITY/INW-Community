@@ -18,6 +18,8 @@ interface CreatePostButtonProps {
   groupAllowsBusinessPosts?: boolean;
   /** Return path after posting (e.g. group page slug). */
   returnTo?: string;
+  /** Called after a post is created or updated successfully. */
+  onAfterSuccess?: () => void;
   className?: string;
   children: React.ReactNode;
 }
@@ -26,6 +28,7 @@ export function CreatePostButton({
   groupId,
   groupAllowsBusinessPosts,
   returnTo,
+  onAfterSuccess,
   className,
   children,
 }: CreatePostButtonProps) {
@@ -111,6 +114,7 @@ export function CreatePostButton({
         returnTo={returnTo}
         sharedBusinessId={chosenBusiness?.id}
         sharedBusinessName={chosenBusiness?.name}
+        onAfterSuccess={onAfterSuccess}
       />
     </>
   );

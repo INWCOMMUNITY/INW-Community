@@ -8,11 +8,11 @@ export function isImmersiveMobileChromeRoute(pathname: string | null | undefined
   if (/^\/resale\/[^/]+/.test(pathname)) return true;
   if (/^\/storefront\/[^/]+/.test(pathname)) return true;
 
-  // Business listing detail only (not directory index or sellers subtree)
-  if (
-    /^\/support-local\/[^/]+$/.test(pathname) &&
-    !pathname.startsWith("/support-local/sellers")
-  ) {
+  // Seller storefront detail pages
+  if (/^\/support-local\/sellers\/[^/]+$/.test(pathname)) return true;
+
+  // Business listing detail only (not directory index)
+  if (/^\/support-local\/[^/]+$/.test(pathname) && !pathname.startsWith("/support-local/sellers")) {
     return true;
   }
 

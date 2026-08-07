@@ -1,12 +1,29 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { IonIcon } from "@/components/IonIcon";
 import { FeedPostMediaCarousel } from "@/components/FeedPostMediaCarousel";
+import { PollCard } from "@/components/feed/PollCard";
+import { LinkPreviewCard } from "@/components/feed/LinkPreviewCard";
+import { formatRelativeTime } from "@/lib/format-relative-time";
+import { extractFirstUrl } from "@/lib/extract-urls";
 const TRUNCATE_LENGTH = 200;
+
+function taggedBusinessListSeparator(index: number, total: number): string {
+  if (index === 0) return "";
+  if (index === total - 1) return total === 2 ? " and " : ", and ";
+  return ", ";
+}
+
+function postWasEdited(createdAt: string, updatedAt?: string): boolean {
+  if (!updatedAt) return false;
+  const created = new Date(createdAt).getTime();
+  const updated = new Date(updatedAt).getTime();
+  return !Number.isNaN(created) && !Number.isNaN(updated) && updated - created > 60_000;
+}
 
 /** NWC-style leaf for post likes (outline stroke). */
 function LeafLikeIcon({ className }: { className?: string }) {
@@ -105,7 +122,17 @@ interface FeedPostCardProps {
     videos?: string[];
     tags?: { id: string; name: string; slug: string }[];
     createdAt: string;
+    updatedAt?: string;
     groupId?: string | null;
+    sourceGroup?: { id: string; name: string; slug: string } | null;
+    taggedBusinesses?: {
+      id: string;
+      name: string;
+      slug: string;
+      shortDescription: string | null;
+      logoUrl: string | null;
+    }[];
+    isFollowingAuthor?: boolean;
     author: { id: string; firstName: string; lastName: string; profilePhotoUrl: string | null };
     sourceBlog?: SourceBlog | null;
     sourceBusiness?: { id: string; name: string; slug: string; shortDescription: string | null; logoUrl: string | null } | null;
@@ -117,10 +144,23 @@ interface FeedPostCardProps {
     liked: boolean;
     likeCount: number;
     commentCount: number;
+    shareCount?: number;
+    poll?: {
+      question: string;
+      options: { id: string; label: string; voteCount: number }[];
+      totalVotes: number;
+      myVote?: string;
+    } | null;
   };
   onLike: (postId: string) => void;
   onShare?: (postId: string) => void;
+  /** Opens comments modal (feed). Omit to use inline comments. */
+  onComment?: (postId: string) => void;
   onCommentAdded?: (postId: string) => void;
+  onSave?: (postId: string) => void;
+  onReport?: (postId: string) => void;
+  onBlockUser?: (memberId: string, postId: string) => void;
+  onOpenCoupon?: (couponId: string) => void;
   /** Current user id (for author actions). */
   viewerUserId?: string | null;
   onEditPost?: (post: FeedPostCardProps["post"]) => void;
@@ -129,6 +169,9 @@ interface FeedPostCardProps {
   readOnlyInteractions?: boolean;
   /** Open comments and scroll to this comment id (e.g. `?comment=` on single post URL). */
   initialCommentId?: string | null;
+  /** Friend ids — hide Follow when author is a friend. */
+  viewerFriendIds?: Set<string>;
+  onFollowAuthor?: (authorId: string) => void;
 }
 
 function isVideoUrl(url: string, videoUrlSet?: Set<string>) {
@@ -147,16 +190,38 @@ type CommentItem = {
   parentAuthorName?: string | null;
 };
 
+function postBlocksLinkPreview(post: FeedPostCardProps["post"]): boolean {
+  return !!(
+    post.poll ||
+    post.sourceBlog ||
+    post.sourceBusiness ||
+    post.sourceCoupon ||
+    post.sourceReward ||
+    post.sourceStoreItem ||
+    post.sourceEvent ||
+    post.sourcePost ||
+    (post.photos?.length ?? 0) > 0 ||
+    (post.videos?.length ?? 0) > 0
+  );
+}
+
 export function FeedPostCard({
   post,
   onLike,
   onShare,
+  onComment,
   onCommentAdded,
+  onSave,
+  onReport,
+  onBlockUser,
+  onOpenCoupon,
   viewerUserId,
   onEditPost,
   onDeletePost,
   readOnlyInteractions = false,
   initialCommentId = null,
+  viewerFriendIds,
+  onFollowAuthor,
 }: FeedPostCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [postMenuOpen, setPostMenuOpen] = useState(false);
@@ -194,14 +259,14 @@ export function FeedPostCard({
   }
 
   useEffect(() => {
-    if (!commentsOpen || !post.id) return;
+    if (onComment || !commentsOpen || !post.id) return;
     setCommentsLoading(true);
     fetch(`/api/posts/${post.id}/comments`, { credentials: "include" })
       .then((r) => r.json())
       .then((data) => setComments(Array.isArray(data?.comments) ? data.comments : []))
       .catch(() => setComments([]))
       .finally(() => setCommentsLoading(false));
-  }, [commentsOpen, post.id]);
+  }, [onComment, commentsOpen, post.id]);
 
   useEffect(() => {
     if (initialCommentId) setCommentsOpen(true);
@@ -247,8 +312,37 @@ export function FeedPostCard({
 
   useLockBodyScroll(galleryOpen);
 
+  const linkPreviewUrl =
+    !postBlocksLinkPreview(post) && post.content ? extractFirstUrl(post.content) : null;
+  const showPostMenu =
+    !readOnlyInteractions &&
+    viewerUserId &&
+    !post.id.startsWith("example-") &&
+    (onEditPost || onDeletePost || onSave || onReport || onBlockUser);
+  const isAuthor = viewerUserId === post.author.id;
+  const useInlineComments = !onComment;
+  const businessAsAuthor =
+    post.type === "shared_business" && post.sourceBusiness ? post.sourceBusiness : null;
+  const taggedBusinessesHeader =
+    post.taggedBusinesses?.filter((b): b is NonNullable<typeof b> => !!b?.name) ?? [];
+  const showFollowButton =
+    !!viewerUserId &&
+    !!onFollowAuthor &&
+    !businessAsAuthor &&
+    post.author.id !== viewerUserId &&
+    !viewerFriendIds?.has(post.author.id);
+  const isFollowing = post.isFollowingAuthor ?? false;
+  const timeLabel =
+    formatRelativeTime(post.createdAt) + (postWasEdited(post.createdAt, post.updatedAt) ? " (edited)" : "");
+  const shareCount = post.shareCount ?? 0;
+
+  function handleCommentClick() {
+    if (onComment) onComment(post.id);
+    else setCommentsOpen((open) => !open);
+  }
+
   return (
-    <article className="border rounded-lg bg-white shadow-sm overflow-hidden w-full">
+    <article className="border-y border-black/10 bg-white overflow-hidden w-full shadow-sm mb-3">
       <div className="p-4">
         <div className="flex items-start justify-between gap-3 mb-3">
           {post.type === "shared_business" && post.sourceBusiness ? (
@@ -272,41 +366,82 @@ export function FeedPostCard({
                   {post.sourceBusiness.name}
                 </span>
                 <span className="text-gray-500 text-sm">
-                  {new Date(post.createdAt).toLocaleDateString()}
+                  {timeLabel}
                 </span>
               </div>
             </Link>
           ) : (
-            <Link href={`/members/${post.author.id}`} className="flex items-center gap-3 hover:opacity-90 flex-1 min-w-0">
-              {post.author.profilePhotoUrl ? (
-                <Image
-                  src={post.author.profilePhotoUrl}
-                  alt=""
-                  width={48}
-                  height={48}
-                  className="w-12 h-12 rounded-full object-cover shrink-0"
-                  quality={95}
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center text-lg font-medium text-gray-600 shrink-0">
-                  {post.author.firstName?.[0]}{post.author.lastName?.[0]}
-                </div>
-              )}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <Link href={`/members/${post.author.id}`} className="shrink-0 hover:opacity-90">
+                {post.author.profilePhotoUrl ? (
+                  <Image
+                    src={post.author.profilePhotoUrl}
+                    alt=""
+                    width={48}
+                    height={48}
+                    className="w-12 h-12 rounded-full object-cover shrink-0"
+                    quality={95}
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center text-lg font-medium text-gray-600 shrink-0">
+                    {post.author.firstName?.[0]}{post.author.lastName?.[0]}
+                  </div>
+                )}
+              </Link>
               <div className="min-w-0">
-                <span className="font-semibold text-gray-900 block truncate">
-                  {post.author.firstName} {post.author.lastName}
-                </span>
-                <span className="text-gray-500 text-sm">
-                  {new Date(post.createdAt).toLocaleDateString()}
-                </span>
+                {taggedBusinessesHeader.length > 0 ? (
+                  <p className="text-sm text-gray-900 leading-snug">
+                    <Link href={`/members/${post.author.id}`} className="font-semibold hover:underline">
+                      {post.author.firstName} {post.author.lastName}
+                    </Link>
+                    <span> is with </span>
+                    {taggedBusinessesHeader.map((b, i) => (
+                      <Fragment key={b.id}>
+                        <span>{taggedBusinessListSeparator(i, taggedBusinessesHeader.length)}</span>
+                        <Link
+                          href={`/support-local/${b.slug}`}
+                          className="font-semibold hover:underline"
+                          style={{ color: "var(--color-primary)" }}
+                        >
+                          {b.name}
+                        </Link>
+                      </Fragment>
+                    ))}
+                  </p>
+                ) : (
+                  <Link href={`/members/${post.author.id}`} className="hover:opacity-90 block">
+                    <span className="font-semibold text-gray-900 block truncate">
+                      {post.author.firstName} {post.author.lastName}
+                    </span>
+                  </Link>
+                )}
+                <span className="text-gray-500 text-sm block">{timeLabel}</span>
+                {post.sourceGroup && (
+                  <Link
+                    href={`/my-community/groups/${post.sourceGroup.slug}`}
+                    className="text-xs text-gray-500 hover:underline mt-0.5 inline-block"
+                  >
+                    Posted in {post.sourceGroup.name}
+                  </Link>
+                )}
               </div>
-            </Link>
+            </div>
           )}
           <div className="shrink-0 flex items-center gap-1">
-            {viewerUserId &&
-              (onEditPost || onDeletePost) &&
-              viewerUserId === post.author.id &&
-              !post.id.startsWith("example-") && (
+            {showFollowButton && (
+              <button
+                type="button"
+                onClick={() => onFollowAuthor!(post.author.id)}
+                className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                  isFollowing
+                    ? "border-[var(--color-primary)] text-[var(--color-primary)] bg-[var(--color-section-alt)]"
+                    : "border-gray-300 text-gray-700 hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                }`}
+              >
+                {isFollowing ? "Following" : "Follow"}
+              </button>
+            )}
+            {showPostMenu && (
                 <div className="relative">
                   <button
                     type="button"
@@ -315,7 +450,7 @@ export function FeedPostCard({
                     aria-label="Post options"
                     aria-expanded={postMenuOpen}
                   >
-                    <span className="text-xl leading-none">⋯</span>
+                    <IonIcon name="ellipsis-vertical" size={20} />
                   </button>
                   {postMenuOpen && (
                     <>
@@ -326,7 +461,7 @@ export function FeedPostCard({
                         onClick={() => setPostMenuOpen(false)}
                       />
                       <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
-                        {onEditPost && (
+                        {isAuthor && onEditPost && (
                           <button
                             type="button"
                             className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
@@ -338,7 +473,7 @@ export function FeedPostCard({
                             Edit post
                           </button>
                         )}
-                        {onDeletePost && (
+                        {isAuthor && onDeletePost && (
                           <button
                             type="button"
                             className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50"
@@ -348,6 +483,42 @@ export function FeedPostCard({
                             }}
                           >
                             Delete post
+                          </button>
+                        )}
+                        {onSave && (
+                          <button
+                            type="button"
+                            className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                            onClick={() => {
+                              setPostMenuOpen(false);
+                              onSave(post.id);
+                            }}
+                          >
+                            Save post
+                          </button>
+                        )}
+                        {onReport && !isAuthor && (
+                          <button
+                            type="button"
+                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50"
+                            onClick={() => {
+                              setPostMenuOpen(false);
+                              onReport(post.id);
+                            }}
+                          >
+                            Report post
+                          </button>
+                        )}
+                        {onBlockUser && !isAuthor && (
+                          <button
+                            type="button"
+                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50"
+                            onClick={() => {
+                              setPostMenuOpen(false);
+                              onBlockUser(post.author.id, post.id);
+                            }}
+                          >
+                            Block user
                           </button>
                         )}
                       </div>
@@ -382,6 +553,8 @@ export function FeedPostCard({
             ))}
           </div>
         )}
+        {post.poll && <PollCard postId={post.id} poll={post.poll} />}
+        {linkPreviewUrl && <LinkPreviewCard url={linkPreviewUrl} />}
         {feedMediaItems.length > 0 && (
           <FeedPostMediaCarousel
             className="mb-3"
@@ -422,10 +595,21 @@ export function FeedPostCard({
         )}
         {post.type === "shared_coupon" && post.sourceCoupon && (
           <div className="border rounded p-4 bg-gray-50 mb-3">
-            <Link href={`/coupons`} className="block hover:opacity-90">
-              <h3 className="font-bold">{post.sourceCoupon.name}</h3>
-              <p className="text-sm text-gray-600">{post.sourceCoupon.discount} · {post.sourceCoupon.business.name}</p>
-            </Link>
+            {onOpenCoupon ? (
+              <button
+                type="button"
+                onClick={() => onOpenCoupon(post.sourceCoupon!.id)}
+                className="block w-full text-left hover:opacity-90"
+              >
+                <h3 className="font-bold">{post.sourceCoupon.name}</h3>
+                <p className="text-sm text-gray-600">{post.sourceCoupon.discount} · {post.sourceCoupon.business.name}</p>
+              </button>
+            ) : (
+              <Link href={`/coupons`} className="block hover:opacity-90">
+                <h3 className="font-bold">{post.sourceCoupon.name}</h3>
+                <p className="text-sm text-gray-600">{post.sourceCoupon.discount} · {post.sourceCoupon.business.name}</p>
+              </Link>
+            )}
           </div>
         )}
         {post.type === "shared_reward" && post.sourceReward && (
@@ -692,7 +876,7 @@ export function FeedPostCard({
             </span>
             <button
               type="button"
-              onClick={() => setCommentsOpen((open) => !open)}
+              onClick={handleCommentClick}
               className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1.5"
               aria-label={
                 post.commentCount > 0
@@ -729,7 +913,7 @@ export function FeedPostCard({
             </button>
             <button
               type="button"
-              onClick={() => setCommentsOpen((open) => !open)}
+              onClick={handleCommentClick}
               className="flex-1 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1.5"
               aria-label={
                 post.commentCount > 0
@@ -747,9 +931,14 @@ export function FeedPostCard({
                 type="button"
                 onClick={() => onShare(post.id)}
                 className="flex-1 py-2 text-sm text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1.5"
-                aria-label="Share post"
+                aria-label={
+                  shareCount > 0 ? `Share post, ${shareCount} shares` : "Share post"
+                }
               >
                 <IonIcon name="share-outline" size={20} className="text-gray-500" />
+                {shareCount > 0 ? (
+                  <span className="tabular-nums">{shareCount}</span>
+                ) : null}
               </button>
             )}
           </>
@@ -763,7 +952,7 @@ export function FeedPostCard({
           to like, comment, or share.
         </p>
       )}
-      {commentsOpen && (
+      {useInlineComments && commentsOpen && (
         <div className="border-t bg-gray-50 px-4 py-3 space-y-3">
           {commentsLoading ? (
             <p className="text-sm text-gray-500">Loading comments…</p>

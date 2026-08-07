@@ -16,8 +16,10 @@ interface HeartSaveButtonProps {
   saveLabel?: string;
   savedLabel?: string;
   onSavedChange?: (saved: boolean) => void;
-  /** Show brief “Added to Wishlist!” toast when saving (matches mobile app). */
+  /** Show brief "Added to Wishlist!" toast when saving (matches mobile app). */
   showWishlistToast?: boolean;
+  /** Override icon color class (e.g., "text-white" for green button backgrounds). */
+  iconClassName?: string;
 }
 
 export function HeartSaveButton({
@@ -31,11 +33,13 @@ export function HeartSaveButton({
   savedLabel = "Saved",
   onSavedChange,
   showWishlistToast = type === "store_item",
+  iconClassName,
 }: HeartSaveButtonProps) {
   const { data: session, status } = useSession();
   const [saved, setSaved] = useState(initialSaved);
   const [loading, setLoading] = useState(false);
   const [wishlistToast, setWishlistToast] = useState(false);
+  const [pulseAnimation, setPulseAnimation] = useState(false);
 
   useEffect(() => {
     setSaved(initialSaved);
@@ -46,6 +50,13 @@ export function HeartSaveButton({
     const t = window.setTimeout(() => setWishlistToast(false), 3000);
     return () => window.clearTimeout(t);
   }, [wishlistToast]);
+
+  // Clear pulse animation after it plays
+  useEffect(() => {
+    if (!pulseAnimation) return;
+    const t = window.setTimeout(() => setPulseAnimation(false), 300);
+    return () => window.clearTimeout(t);
+  }, [pulseAnimation]);
 
   async function handleClick(e: React.MouseEvent) {
     e.preventDefault();
@@ -71,6 +82,7 @@ export function HeartSaveButton({
         if (res.ok) {
           setSaved(true);
           onSavedChange?.(true);
+          setPulseAnimation(true);
           if (showWishlistToast) setWishlistToast(true);
         }
       }
@@ -80,13 +92,17 @@ export function HeartSaveButton({
   }
 
   const isFull = variant === "full";
-  const iconClass = saved ? (isFull ? "text-white" : "text-red-500") : isFull ? "text-white" : "text-gray-500";
+  // Use iconClassName override if provided, otherwise use default colors
+  const defaultIconClass = saved ? (isFull ? "text-white" : "text-red-500") : isFull ? "text-white" : "text-gray-500";
+  const iconClass = iconClassName || defaultIconClass;
   const icon = (
-    <IonIcon
-      name={saved ? "heart" : "heart-outline"}
-      size={iconSize}
-      className={iconClass}
-    />
+    <span className={`inline-flex items-center justify-center ${pulseAnimation ? "animate-heart-pulse" : ""}`}>
+      <IonIcon
+        name={saved ? "heart" : "heart-outline"}
+        size={iconSize}
+        className={iconClass}
+      />
+    </span>
   );
   const label = saved ? savedLabel : saveLabel;
   const fullBtnClass = `flex w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border-2 border-[var(--color-primary)] bg-[var(--color-primary)] py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-[var(--color-button-hover)] disabled:opacity-50 ${className}`;
@@ -101,7 +117,7 @@ export function HeartSaveButton({
           className={fullBtnClass}
           title="Log in to save"
         >
-          <IonIcon name="heart-outline" size={iconSize} className="text-white" />
+          <IonIcon name="heart-outline" size={iconSize} className={iconClassName || "text-white"} />
           <span>{saveLabel}</span>
         </Link>
       );
@@ -114,7 +130,7 @@ export function HeartSaveButton({
         title="Log in to save"
         aria-label="Log in to save"
       >
-        <IonIcon name="heart-outline" size={iconSize} className="text-gray-500" />
+        <IonIcon name="heart-outline" size={iconSize} className={iconClassName || "text-gray-500"} />
       </Link>
     );
   }

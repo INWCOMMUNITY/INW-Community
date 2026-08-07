@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import { StorefrontGallery } from "@/components/StorefrontGallery";
+import { FeaturedCarousel } from "@/components/store/FeaturedCarousel";
+import { SellerSpotlight } from "@/components/store/SellerSpotlight";
 
 export default function StorefrontPage() {
   const [search, setSearch] = useState("");
 
   return (
     <>
-      {/* Header: storefront photo */}
+      {/* Hero section */}
       <section className="relative min-h-[40vh] flex flex-col items-center justify-center px-4 py-16 text-center overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center"
@@ -39,14 +41,29 @@ export default function StorefrontPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search storefront..."
-            className="w-full max-w-xl mx-auto block border-2 rounded-lg px-4 py-2.5 text-sm shadow-sm bg-white/95"
-            style={{ borderColor: "var(--color-primary)" }}
+            className="w-full max-w-xl mx-auto block rounded-xl px-5 py-3 text-base backdrop-blur-md bg-white/80 border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.12),inset_0_1px_0_rgba(255,255,255,0.5)] placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-white/50 transition-all"
             aria-label="Search storefront"
           />
         </div>
       </section>
-      <section className="py-12 pb-20 px-4" style={{ padding: "var(--section-padding)", paddingTop: "1.5rem" }}>
+
+      {/* Featured items section */}
+      <section className="bg-[#f6f1eb] py-10">
+        <div className="max-w-[var(--max-width)] mx-auto px-4">
+          <FeaturedCarousel />
+        </div>
+      </section>
+
+      {/* Product grid section */}
+      <section className="py-10 pb-16">
         <StorefrontGallery search={search} onSearchChange={setSearch} placeholder="Search storefront..." />
+      </section>
+
+      {/* Shop by Seller section */}
+      <section className="bg-[#f6f1eb] py-8 pb-10">
+        <div className="max-w-[var(--max-width)] mx-auto px-4">
+          <SellerSpotlight />
+        </div>
       </section>
     </>
   );

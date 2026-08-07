@@ -1,14 +1,13 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getServerSession } from "next-auth";
 import { prisma } from "database";
-import Link from "next/link";
-import Image from "next/image";
-import { ShareButton } from "@/components/ShareButton";
-import { authOptions } from "@/lib/auth";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
-import { FollowBusinessButton } from "./FollowBusinessButton";
 import { extractBusinessDisplayCity } from "@/lib/city-utils";
+import { photosExcludingLogo } from "@/lib/business-photos";
+import {
+  SellerStorefrontContent,
+  type SellerStorefrontData,
+} from "@/components/seller/SellerStorefrontContent";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -24,7 +23,7 @@ export async function generateMetadata({
     where: isCuid(slug) ? { id: slug } : { slug },
     select: { name: true, shortDescription: true, logoUrl: true },
   });
-  if (!business) return { title: "Business | Northwest Community" };
+  if (!business) return { title: "Seller | Northwest Community" };
   const title = `${business.name} | Northwest Community`;
   const description =
     business.shortDescription ?? `Shop local at ${business.name} on Northwest Community.`;
@@ -51,21 +50,16 @@ export default async function SellerStorefrontPage({
       member: {
         select: {
           id: true,
-          firstName: true,
-          lastName: true,
+          createdAt: true,
           sellerLocalDeliveryPolicy: true,
           sellerPickupPolicy: true,
           sellerShippingPolicy: true,
           sellerReturnPolicy: true,
+          offerShipping: true,
+          offerLocalDelivery: true,
+          offerLocalPickup: true,
+          acceptMessagesForListings: true,
         },
-      },
-      storeItems: {
-        where: {
-          status: "active",
-          quantity: { gt: 0 },
-          member: { stripeConnectAccountId: { not: null } },
-        },
-        orderBy: { createdAt: "desc" },
       },
     },
   });
@@ -76,7 +70,22 @@ export default async function SellerStorefrontPage({
   });
   if (!sellerSub) notFound();
 
-  const session = await getServerSession(authOptions);
+  const storeItems = await prisma.storeItem.findMany({
+    where: {
+      memberId: business.memberId,
+      status: "active",
+      quantity: { gt: 0 },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      photos: true,
+      category: true,
+      priceCents: true,
+    },
+  });
 
   const cityLine = extractBusinessDisplayCity(business.city) ?? business.city ?? "";
   const addressDisplay = [business.address, cityLine].filter(Boolean).join(", ");
@@ -84,206 +93,47 @@ export default async function SellerStorefrontPage({
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressDisplay)}`
     : null;
 
-  return (
-    <section
-      className="py-12 px-4 min-h-screen"
-      style={{ padding: "var(--section-padding)", backgroundColor: "#f8e7c9" }}
-    >
-      <div className="max-w-[2040px] mx-auto">
-        {/* Cover + Logo header - Facebook-style */}
-        <div className="rounded-lg overflow-hidden mb-8 max-w-[1306px] mx-auto border-2" style={{ borderColor: "var(--color-primary)" }}>
-          <div className="relative aspect-[2.62] min-h-[200px] bg-gray-200">
-            {business.coverPhotoUrl ? (
-              <Image
-                src={business.coverPhotoUrl}
-                alt=""
-                fill
-                className="object-cover"
-                priority
-                quality={95}
-                unoptimized={business.coverPhotoUrl.startsWith("blob:")}
-              />
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center opacity-40">
-                <span className="text-4xl">Store</span>
-              </div>
-            )}
-            <div className="absolute left-1/2 -translate-x-1/2 bottom-0 translate-y-1/2">
-              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden border-2 border-[var(--color-primary)] bg-white">
-                {business.logoUrl ? (
-                  <Image
-                    src={business.logoUrl}
-                    alt={business.name}
-                    width={128}
-                    height={128}
-                    className="w-full h-full object-cover"
-                    quality={95}
-                    unoptimized={business.logoUrl.startsWith("blob:")}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
-                    Logo
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="bg-white pt-16 pb-6 px-6 text-center">
-            <h1
-              className="text-2xl md:text-4xl font-bold mb-2"
-              style={{ fontFamily: "var(--font-heading)", color: "#000" }}
-            >
-              {business.name}
-            </h1>
-            {(business.fullDescription || business.shortDescription) && (
-              <p className="text-base max-w-2xl mx-auto opacity-90 mb-4 whitespace-pre-wrap" style={{ color: "#000" }}>
-                {business.fullDescription || business.shortDescription}
-              </p>
-            )}
-            <div className="flex justify-center gap-3">
-              <ShareButton
-                type="business"
-                id={business.id}
-                slug={business.slug}
-                title={business.name}
-                className="p-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
-              />
-              {session?.user && <FollowBusinessButton businessId={business.id} />}
-            </div>
-          </div>
-        </div>
+  const hoursRaw = business.hoursOfOperation as Record<string, string> | null | undefined;
+  const hoursOfOperation =
+    hoursRaw && typeof hoursRaw === "object" && Object.keys(hoursRaw).length > 0 ? hoursRaw : null;
 
-        {/* Contact + Products */}
-        <div className="rounded-lg overflow-hidden mb-8 max-w-[1306px] mx-auto border-2 bg-white p-6 md:p-8" style={{ borderColor: "var(--color-primary)" }}>
-          <div className="grid md:grid-cols-[1fr_2fr] gap-8">
-            <div>
-              <h2 className="text-lg font-bold mb-3" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
-                Contact
-              </h2>
-              <ul className="space-y-2 text-base" style={{ color: "#000" }}>
-                {addressDisplay && <li>{addressDisplay}</li>}
-                {business.phone && <li>Phone: {business.phone}</li>}
-                {business.email && <li>Email: {business.email}</li>}
-                {business.website && (
-                  <li>
-                    <a
-                      href={business.website.startsWith("http") ? business.website : `https://${business.website}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:underline"
-                      style={{ color: "var(--color-link)" }}
-                    >
-                      {business.website}
-                    </a>
-                  </li>
-                )}
-              </ul>
-              {(business.member.sellerShippingPolicy ||
-                business.member.sellerLocalDeliveryPolicy ||
-                business.member.sellerPickupPolicy ||
-                business.member.sellerReturnPolicy) && (
-                <div className="mt-6">
-                  <h3 className="text-base font-semibold mb-2" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
-                    Policies
-                  </h3>
-                  <div className="space-y-2 text-sm text-gray-700">
-                    {business.member.sellerShippingPolicy && (
-                      <div>
-                        <span className="font-medium">Shipping:</span>
-                        <p className="whitespace-pre-wrap mt-0.5">{business.member.sellerShippingPolicy}</p>
-                      </div>
-                    )}
-                    {business.member.sellerLocalDeliveryPolicy && (
-                      <div>
-                        <span className="font-medium">Local Delivery:</span>
-                        <p className="whitespace-pre-wrap mt-0.5">{business.member.sellerLocalDeliveryPolicy}</p>
-                      </div>
-                    )}
-                    {business.member.sellerPickupPolicy && (
-                      <div>
-                        <span className="font-medium">Pickup:</span>
-                        <p className="whitespace-pre-wrap mt-0.5">{business.member.sellerPickupPolicy}</p>
-                      </div>
-                    )}
-                    {business.member.sellerReturnPolicy && (
-                      <div>
-                        <span className="font-medium">Returns:</span>
-                        <p className="whitespace-pre-wrap mt-0.5">{business.member.sellerReturnPolicy}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2 mt-4">
-                {addressDisplay && googleMapsUrl && (
-                  <a
-                    href={googleMapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn inline-block"
-                  >
-                    Get Directions
-                  </a>
-                )}
-                <Link
-                  href={`/support-local/${business.slug}`}
-                  className="btn inline-block border border-gray-300 bg-white hover:bg-gray-50"
-                >
-                  View Business Page
-                </Link>
-                <Link
-                  href="/support-local/sellers"
-                  className="btn inline-block border border-gray-300 bg-white hover:bg-gray-50"
-                >
-                  Back to Sellers
-                </Link>
-              </div>
-            </div>
-            <div>
-              <h2 className="text-lg font-bold mb-4" style={{ fontFamily: "var(--font-heading)", color: "#000" }}>
-                Products ({business.storeItems.length})
-              </h2>
-              {business.storeItems.length === 0 ? (
-                <p className="text-gray-600">No products listed yet.</p>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                  {business.storeItems.map((item) => {
-                    return (
-                    <Link
-                      key={item.id}
-                      href={`/storefront/${item.slug}`}
-                      className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition"
-                      style={{ borderColor: "var(--color-primary)" }}
-                    >
-                      <div className="aspect-square relative bg-gray-100">
-                        {item.photos?.[0] ? (
-                          <Image
-                            src={item.photos[0]}
-                            alt={item.title}
-                            fill
-                            className="object-cover"
-                            quality={95}
-                            unoptimized={item.photos[0].startsWith("blob:")}
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
-                            No image
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-3">
-                        <h3 className="font-semibold text-sm line-clamp-2">{item.title}</h3>
-                        <p className="text-sm font-bold mt-1">${(item.priceCents / 100).toFixed(2)}</p>
-                      </div>
-                    </Link>
-                  );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
+  const seller: SellerStorefrontData = {
+    id: business.id,
+    name: business.name,
+    slug: business.slug,
+    shortDescription: business.shortDescription,
+    fullDescription: business.fullDescription,
+    website: business.website,
+    phone: business.phone,
+    email: business.email,
+    logoUrl: business.logoUrl,
+    coverPhotoUrl: business.coverPhotoUrl,
+    addressDisplay,
+    googleMapsUrl,
+    hoursOfOperation,
+    galleryPhotos: photosExcludingLogo(business.photos ?? [], business.logoUrl),
+    facebookUrl: business.facebookUrl,
+    instagramUrl: business.instagramUrl,
+    tiktokUrl: business.tiktokUrl,
+    memberSince: business.member.createdAt.getFullYear(),
+    memberUserId: business.member.id,
+    acceptMessagesForListings: business.member.acceptMessagesForListings,
+    offerShipping: business.member.offerShipping,
+    offerLocalDelivery: business.member.offerLocalDelivery,
+    offerLocalPickup: business.member.offerLocalPickup,
+    sellerShippingPolicy: business.member.sellerShippingPolicy,
+    sellerLocalDeliveryPolicy: business.member.sellerLocalDeliveryPolicy,
+    sellerPickupPolicy: business.member.sellerPickupPolicy,
+    sellerReturnPolicy: business.member.sellerReturnPolicy,
+    storeItems: storeItems.map((item) => ({
+      id: item.id,
+      title: item.title,
+      slug: item.slug,
+      photos: item.photos ?? [],
+      category: item.category,
+      priceCents: item.priceCents,
+    })),
+  };
+
+  return <SellerStorefrontContent seller={seller} />;
 }

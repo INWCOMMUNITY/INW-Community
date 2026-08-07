@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { IonIcon } from "@/components/IonIcon";
 
-export type ShareButtonType = "coupon" | "reward" | "business" | "blog" | "store_item";
+export type ShareButtonType = "coupon" | "reward" | "business" | "blog" | "store_item" | "seller";
 
 interface ShareButtonBaseProps {
   type: ShareButtonType;
@@ -34,6 +34,11 @@ interface ShareButtonBlogProps extends ShareButtonBaseProps {
   slug: string;
 }
 
+interface ShareButtonSellerProps extends ShareButtonBaseProps {
+  type: "seller";
+  slug: string;
+}
+
 interface ShareButtonCouponProps extends ShareButtonBaseProps {
   type: "coupon";
 }
@@ -46,11 +51,13 @@ export type ShareButtonProps =
   | ShareButtonStoreItemProps
   | ShareButtonBusinessProps
   | ShareButtonBlogProps
+  | ShareButtonSellerProps
   | ShareButtonCouponProps
   | ShareButtonRewardProps;
 
 const SHARE_API_BASE: Record<ShareButtonType, string> = {
   business: "/api/businesses",
+  seller: "/api/businesses",
   coupon: "/api/coupons",
   reward: "/api/rewards",
   blog: "/api/blogs",
@@ -67,6 +74,8 @@ function buildShareUrl(props: ShareButtonProps): string {
       return `${base}/rewards${props.id ? `#reward-${props.id}` : ""}`;
     case "business":
       return `${base}/support-local/${props.slug}`;
+    case "seller":
+      return `${base}/support-local/sellers/${props.slug}`;
     case "blog":
       return `${base}/blog/${props.slug}`;
     case "store_item":
@@ -82,6 +91,7 @@ function getShareTitle(props: ShareButtonProps): string {
 
 const SHARED_TYPE_MAP: Record<ShareButtonType, "post" | "blog" | "store_item" | "business" | "coupon" | "reward"> = {
   business: "business",
+  seller: "business",
   coupon: "coupon",
   reward: "reward",
   blog: "blog",
@@ -100,8 +110,8 @@ export function ShareButton(props: ShareButtonProps) {
     iconClassName,
   } = props;
   const isFull = variant === "full";
-  const fullBtnClass = `flex w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border-2 border-[var(--color-primary)] bg-[var(--color-primary)] py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-[var(--color-button-hover)] disabled:opacity-50 ${className}`;
-  const iconBtnClass = `inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 transition ${className}`;
+  const fullBtnClass = `action-pill btn-pill-primary action-pill-lg w-full min-w-0 flex-1 py-3 text-[15px] font-bold shadow-sm disabled:opacity-50 ${className}`;
+  const iconBtnClass = `action-pill btn-pill-ghost w-9 h-9 p-0 ${className}`;
   const { data: session, status } = useSession();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -198,6 +208,7 @@ export function ShareButton(props: ShareButtonProps) {
     if (!sharedType) return null;
     switch (type) {
       case "business":
+      case "seller":
       case "blog":
       case "store_item":
         return {

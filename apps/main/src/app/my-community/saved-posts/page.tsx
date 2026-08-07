@@ -1,34 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { CreatePostModal, type EditFeedPostPayload } from "@/components/CreatePostModal";
 import { CouponPopup } from "@/components/CouponPopup";
-import { FeedHeaderBox } from "@/components/feed/FeedHeaderBox";
-import { FeedEmptyState } from "@/components/feed/FeedEmptyState";
 import { FeedToast, type FeedToastPayload } from "@/components/feed/FeedToast";
 import { FeedShareModal } from "@/components/feed/FeedShareModal";
 import { FeedCommentsModal } from "@/components/feed/FeedCommentsModal";
 import { ReportPostDialog } from "@/components/feed/ReportPostDialog";
 import { CommunityUgcTermsModal } from "@/components/feed/CommunityUgcTermsModal";
 import { SkeletonFeedPost } from "@/components/ui/Skeleton";
-import { useCommunityFeed } from "@/hooks/useCommunityFeed";
-import { type FeedFilterId, parseFeedFilterId } from "@/lib/feed-types";
+import { type CommunityFeedPost } from "@/lib/feed-types";
 import { hasAcceptedUgcTerms, acceptUgcTerms } from "@/lib/ugc-terms-storage";
 
-export default function CommunityFeedPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+export default function SavedPostsPage() {
   const { data: session, status: sessionStatus } = useSession();
   const viewerUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
   const isGuest = sessionStatus !== "loading" && !viewerUserId;
 
-  const urlFilter = parseFeedFilterId(searchParams?.get("filter"));
+  const [posts, setPosts] = useState<CommunityFeedPost[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editPost, setEditPost] = useState<EditFeedPostPayload | null>(null);
-  const [pendingFriendRequests, setPendingFriendRequests] = useState(0);
   const [ugcAccepted, setUgcAccepted] = useState(true);
   const [showUgcModal, setShowUgcModal] = useState(false);
   const [toast, setToast] = useState<FeedToastPayload | null>(null);
@@ -37,52 +31,50 @@ export default function CommunityFeedPage() {
   const [reportPostId, setReportPostId] = useState<string | null>(null);
   const [couponPopupId, setCouponPopupId] = useState<string | null>(null);
   const [viewerFriendIds, setViewerFriendIds] = useState<Set<string>>(new Set());
-  const [guestBarDismissed, setGuestBarDismissed] = useState(false);
 
-  const loadMoreRef = useRef<HTMLDivElement>(null);
-  const feedTopRef = useRef<HTMLDivElement>(null);
+  const updatePost = useCallback((postId: string, patch: Partial<CommunityFeedPost>) => {
+    setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, ...patch } : p)));
+  }, []);
 
-  const [activeFilter, setActiveFilter] = useState<FeedFilterId>(urlFilter);
+  const removePost = useCallback((postId: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+  }, []);
 
-  const signedIn = !isGuest;
-  const {
-    posts,
-    loading,
-    loadingMore,
-    nextCursor,
-    newPostCount,
-    setNewPostCount,
-    refetch,
-    loadMore,
-    updatePost,
-    removePost,
-    removePostsByAuthor,
-  } = useCommunityFeed(activeFilter, signedIn);
+  const removePostsByAuthor = useCallback((authorId: string) => {
+    setPosts((prev) => prev.filter((p) => p.author.id !== authorId));
+  }, []);
 
-  useEffect(() => {
-    setActiveFilter(urlFilter);
-  }, [urlFilter]);
-
-  const setFilter = useCallback(
-    (id: FeedFilterId) => {
-      setActiveFilter(id);
-      const params = new URLSearchParams(searchParams?.toString() ?? "");
-      if (id === "all") params.delete("filter");
-      else params.set("filter", id);
-      const q = params.toString();
-      router.replace(q ? `/my-community/feed?${q}` : "/my-community/feed", { scroll: false });
-    },
-    [router, searchParams]
-  );
-
-  useEffect(() => {
-    if (!isGuest) return;
+  const load = useCallback(async () => {
+    if (isGuest) {
+      setPosts([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
-      setGuestBarDismissed(sessionStorage.getItem("nwc_feed_guest_bar_dismissed") === "1");
+      const savedRes = await fetch("/api/saved?type=post", { credentials: "include" });
+      const savedData = await savedRes.json();
+      const saved = Array.isArray(savedData) ? savedData : [];
+      if (!saved.length) {
+        setPosts([]);
+        return;
+      }
+      const ids = saved.map((s: { referenceId: string }) => s.referenceId).join(",");
+      const batchRes = await fetch(`/api/posts/batch?ids=${encodeURIComponent(ids)}`, {
+        credentials: "include",
+      });
+      const batchData = await batchRes.json();
+      setPosts(Array.isArray(batchData?.posts) ? batchData.posts : []);
     } catch {
-      setGuestBarDismissed(false);
+      setPosts([]);
+    } finally {
+      setLoading(false);
     }
   }, [isGuest]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     if (isGuest) {
@@ -96,42 +88,18 @@ export default function CommunityFeedPage() {
 
   useEffect(() => {
     if (isGuest) {
-      setPendingFriendRequests(0);
       setViewerFriendIds(new Set());
       return;
     }
-    fetch("/api/friend-requests/count", { credentials: "include" })
-      .then((r) => r.json())
-      .then((d) => setPendingFriendRequests(typeof d.count === "number" ? d.count : 0))
-      .catch(() => setPendingFriendRequests(0));
     fetch("/api/me/friends", { credentials: "include" })
       .then((r) => r.json())
       .then((d) => {
-        const friends = Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [];
+        const friends = Array.isArray(d?.friends) ? d.friends : [];
         const ids = friends.map((f: { id?: string }) => f.id).filter(Boolean) as string[];
         setViewerFriendIds(new Set(ids));
       })
       .catch(() => setViewerFriendIds(new Set()));
   }, [isGuest]);
-
-  useEffect(() => {
-    const el = loadMoreRef.current;
-    if (!el || !nextCursor) return;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) void loadMore();
-      },
-      { rootMargin: "200px" }
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [nextCursor, loadMore]);
-
-  const interactionsEnabled = isGuest || ugcAccepted;
-
-  const requireUgc = useCallback(() => {
-    if (!isGuest && !ugcAccepted) setShowUgcModal(true);
-  }, [isGuest, ugcAccepted]);
 
   const guardAction = useCallback(
     (action: () => void) => {
@@ -192,8 +160,7 @@ export default function CommunityFeedPage() {
         removePost(postId);
         setToast({ message: "Post deleted" });
       } else {
-        const err = await res.json().catch(() => ({}));
-        setToast({ message: (err as { error?: string }).error ?? "Failed to delete post." });
+        setToast({ message: "Failed to delete post." });
       }
     });
   }
@@ -265,17 +232,6 @@ export default function CommunityFeedPage() {
         body: JSON.stringify({ memberId }),
       });
       if (res.ok) {
-        await fetch("/api/reports", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contentType: "post",
-            contentId: postId,
-            reason: "other",
-            details: "User blocked by viewer",
-          }),
-        }).catch(() => {});
         removePostsByAuthor(memberId);
         setToast({ message: "User blocked." });
       } else {
@@ -284,121 +240,66 @@ export default function CommunityFeedPage() {
     });
   }
 
-  function handleNewPostsBanner() {
-    setNewPostCount(0);
-    void refetch();
-    feedTopRef.current?.scrollIntoView({ behavior: "smooth" });
-  }
-
   const commentPost = commentPostId ? posts.find((p) => p.id === commentPostId) : null;
+
+  if (isGuest) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-8 text-center">
+        <p className="text-gray-600 mb-4">Sign in to view your saved posts.</p>
+        <Link
+          href="/login?callbackUrl=/my-community/saved-posts"
+          className="inline-flex rounded-lg px-5 py-3 text-sm font-semibold text-white bg-[var(--color-primary)]"
+        >
+          Sign in
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f6f1eb] pb-10">
-      <div ref={feedTopRef} className="max-w-2xl mx-auto w-full px-4 pt-4">
-        {newPostCount > 0 && (
-          <button
-            type="button"
-            onClick={handleNewPostsBanner}
-            className="sticky top-[var(--site-header-height)] z-30 mb-3 w-full rounded-full bg-[var(--color-primary)] text-white py-2.5 text-sm font-semibold shadow-md hover:opacity-95"
-            aria-live="polite"
-          >
-            {newPostCount} new post{newPostCount === 1 ? "" : "s"} — Tap to refresh
-          </button>
-        )}
-
-        {isGuest && !guestBarDismissed && (
-          <div
-            className="mb-4 rounded-lg border px-4 py-3 flex flex-wrap items-center justify-between gap-3 bg-white"
-            style={{ borderColor: "var(--color-primary)" }}
-          >
-            <p className="text-sm text-gray-700">
-              <Link
-                href="/login?callbackUrl=/my-community/feed"
-                className="font-semibold underline"
-                style={{ color: "var(--color-link)" }}
-              >
-                Sign in
-              </Link>{" "}
-              to like, comment, save, and share posts.
-            </p>
-            <button
-              type="button"
-              className="text-xs text-gray-500 hover:text-gray-800"
-              onClick={() => {
-                setGuestBarDismissed(true);
-                try {
-                  sessionStorage.setItem("nwc_feed_guest_bar_dismissed", "1");
-                } catch {
-                  /* ignore */
-                }
-              }}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        <FeedHeaderBox
-          isGuest={isGuest}
-          pendingFriendRequests={pendingFriendRequests}
-          activeFilter={activeFilter}
-          onFilterChange={setFilter}
-          interactionsEnabled={interactionsEnabled}
-          onRequireUgc={requireUgc}
-          onPostCreated={() => void refetch()}
-        />
+      <div className="max-w-2xl mx-auto w-full px-4 pt-4">
+        <h1 className="text-2xl font-bold text-[var(--color-heading)] mb-2">Saved Posts</h1>
+        <p className="text-sm text-gray-600 mb-6">
+          Posts you saved from the feed.{" "}
+          <Link href="/my-community/feed" className="underline font-medium" style={{ color: "var(--color-link)" }}>
+            Back to feed
+          </Link>
+        </p>
 
         {loading ? (
           <div className="space-y-3">
             <SkeletonFeedPost />
             <SkeletonFeedPost />
-            <SkeletonFeedPost />
           </div>
         ) : posts.length === 0 ? (
-          <FeedEmptyState
-            isGuest={isGuest}
-            activeFilter={activeFilter}
-            onPostCreated={() => void refetch()}
-          />
+          <p className="text-center text-gray-600 py-12 text-sm">
+            No saved posts yet. Use the menu on a post and choose Save post.
+          </p>
         ) : (
-          <div>
-            {posts.map((post) => (
-              <FeedPostCard
-                key={post.id}
-                post={post}
-                onLike={toggleLike}
-                onShare={
-                  isGuest
-                    ? undefined
-                    : (id) => guardAction(() => setSharePostId(id))
-                }
-                onComment={
-                  isGuest ? undefined : (id) => guardAction(() => setCommentPostId(id))
-                }
-                onSave={isGuest ? undefined : handleSave}
-                onReport={isGuest ? undefined : handleReport}
-                onBlockUser={isGuest ? undefined : handleBlockUser}
-                onOpenCoupon={setCouponPopupId}
-                viewerUserId={viewerUserId}
-                onEditPost={isGuest ? undefined : openEditFeedPost}
-                onDeletePost={isGuest ? undefined : handleDeletePost}
-                readOnlyInteractions={isGuest}
-                viewerFriendIds={viewerFriendIds}
-                onFollowAuthor={isGuest ? undefined : handleFollowAuthor}
-                onCommentAdded={(postId) =>
-                  updatePost(postId, {
-                    commentCount:
-                      (posts.find((p) => p.id === postId)?.commentCount ?? 0) + 1,
-                  })
-                }
-              />
-            ))}
-            {nextCursor && (
-              <div ref={loadMoreRef} className="py-6 text-center text-sm text-gray-500">
-                {loadingMore ? "Loading more…" : ""}
-              </div>
-            )}
-          </div>
+          posts.map((post) => (
+            <FeedPostCard
+              key={post.id}
+              post={post}
+              onLike={toggleLike}
+              onShare={(id) => guardAction(() => setSharePostId(id))}
+              onComment={(id) => guardAction(() => setCommentPostId(id))}
+              onSave={handleSave}
+              onReport={handleReport}
+              onBlockUser={handleBlockUser}
+              onOpenCoupon={setCouponPopupId}
+              viewerUserId={viewerUserId}
+              onEditPost={openEditFeedPost}
+              onDeletePost={handleDeletePost}
+              viewerFriendIds={viewerFriendIds}
+              onFollowAuthor={handleFollowAuthor}
+              onCommentAdded={(postId) =>
+                updatePost(postId, {
+                  commentCount: (posts.find((p) => p.id === postId)?.commentCount ?? 0) + 1,
+                })
+              }
+            />
+          ))
         )}
       </div>
 
@@ -406,11 +307,11 @@ export default function CommunityFeedPage() {
         open={!!editPost}
         onClose={() => setEditPost(null)}
         editPost={editPost}
-        onAfterSuccess={() => void refetch()}
+        onAfterSuccess={() => void load()}
       />
 
       <CommunityUgcTermsModal
-        open={showUgcModal && !isGuest}
+        open={showUgcModal}
         onAccept={() => {
           acceptUgcTerms();
           setUgcAccepted(true);
@@ -426,7 +327,6 @@ export default function CommunityFeedPage() {
         onSourcePostShared={(postId, shareCount) => {
           if (shareCount != null) updatePost(postId, { shareCount });
         }}
-        onShareToFeedComplete={() => void refetch()}
       />
 
       <FeedCommentsModal
@@ -444,17 +344,8 @@ export default function CommunityFeedPage() {
       <ReportPostDialog
         open={!!reportPostId}
         postId={reportPostId}
-        authorId={reportPostId ? posts.find((p) => p.id === reportPostId)?.author.id : null}
         onClose={() => setReportPostId(null)}
         onSubmitted={() => setToast({ message: "Report submitted. Thank you." })}
-        onBlockUser={
-          reportPostId
-            ? () => {
-                const p = posts.find((x) => x.id === reportPostId);
-                if (p) void handleBlockUser(p.author.id, p.id);
-              }
-            : undefined
-        }
       />
 
       {couponPopupId && (

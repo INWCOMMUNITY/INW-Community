@@ -10,6 +10,7 @@ import {
   useSupportLocalDirectory,
   type DirectoryBusiness,
 } from "@/hooks/use-support-local-directory";
+import { CARD_SHADOW, CARD_RADIUS } from "@/components/ui/card-styles";
 
 export function SupportLocalGallery() {
   const {
@@ -445,7 +446,7 @@ function SupportLocalGalleryDesktop({
             {businesses.map((b) => (
               <div
                 key={b.id}
-                className="border-2 border-[var(--color-primary)] rounded-lg overflow-hidden transition relative flex flex-col w-full max-w-[320px]"
+                className={`border-2 border-[var(--color-primary)] ${CARD_RADIUS} ${CARD_SHADOW} overflow-hidden transition relative flex flex-col w-full max-w-[320px] bg-white`}
               >
                 <div className="absolute top-2 right-2 z-10">
                   <HeartSaveButton
@@ -555,7 +556,7 @@ function BusinessCardMobile({
   const location = [b.address, b.city].filter(Boolean).join(", ");
 
   return (
-    <div className="relative flex flex-col border-2 border-black rounded-lg overflow-hidden bg-white">
+    <div className={`relative flex flex-col border-2 border-black ${CARD_RADIUS} ${CARD_SHADOW} overflow-hidden bg-white`}>
       <div className="absolute top-2 right-2 z-10">
         <HeartSaveButton type="business" referenceId={b.id} initialSaved={saved} />
       </div>

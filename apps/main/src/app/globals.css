@@ -163,6 +163,70 @@ a {
   border-color: #505542;
 }
 
+/* Action Pill button system - matching app's pill/action button styles */
+.action-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  border: 1.5px solid var(--color-primary);
+  font-weight: 600;
+  font-size: 13px;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  cursor: pointer;
+}
+
+.action-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-pill-primary {
+  background-color: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.btn-pill-primary:hover:not(:disabled) {
+  background-color: #3E432F;
+  border-color: #3E432F;
+}
+
+.btn-pill-outline {
+  background-color: white;
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.btn-pill-outline:hover:not(:disabled) {
+  background-color: #F8F8F3;
+}
+
+.btn-pill-ghost {
+  background-color: transparent;
+  color: var(--color-primary);
+  border-color: transparent;
+}
+
+.btn-pill-ghost:hover:not(:disabled) {
+  background-color: #F8F8F3;
+}
+
+/* Action pill sizes */
+.action-pill-sm {
+  padding: 0.375rem 0.75rem;
+  font-size: 12px;
+  gap: 0.25rem;
+}
+
+.action-pill-lg {
+  padding: 0.625rem 1.25rem;
+  font-size: 15px;
+  gap: 0.5rem;
+}
+
 /* Mobile header overlay slide-down */
 @keyframes headerSlideDown {
   from {
@@ -191,6 +255,86 @@ textarea:hover {
 input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--color-primary);
+}
+
+/* Standardized input styling matching app */
+.input-primary {
+  border: 2px solid var(--color-primary);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input-primary::placeholder {
+  color: #888;
+}
+
+.input-primary:focus {
+  outline: none;
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 2px var(--color-secondary);
+}
+
+/* Search input variant */
+.input-search {
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 10px 12px 10px 40px;
+  font-size: 15px;
+  width: 100%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23888' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 12px center;
+  background-size: 18px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input-search:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(80, 85, 66, 0.2);
+}
+
+/* Textarea variant */
+.textarea-primary {
+  border: 2px solid var(--color-primary);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+  width: 100%;
+  min-height: 100px;
+  resize: vertical;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.textarea-primary::placeholder {
+  color: #888;
+}
+
+.textarea-primary:focus {
+  outline: none;
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 2px var(--color-secondary);
+}
+
+/* Select input variant */
+.select-primary {
+  border: 2px solid var(--color-primary);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+  width: 100%;
+  background-color: white;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.select-primary:focus {
+  outline: none;
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 2px var(--color-secondary);
 }
 
 /* Info pages (subscriber, sponsor, seller) benefit lists */
@@ -254,6 +398,93 @@ input[type="radio"] {
 
 @media (prefers-reduced-motion: reduce) {
   .chat-typing-dot {
+    animation: none;
+  }
+}
+
+/* Staggered fade-in animation for product grids */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeInUp {
+  animation: fadeInUp 0.4s ease-out forwards;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeInUp {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Card action buttons (heart/share) */
+.card-action-btn {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  border-radius: 9999px !important;
+  background-color: var(--color-primary) !important;
+  transition: background-color 0.2s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.card-action-btn:hover {
+  background-color: var(--color-section-alt) !important;
+}
+
+.card-action-icon {
+  color: white !important;
+  transition: color 0.2s ease !important;
+}
+
+.card-action-btn:hover .card-action-icon {
+  color: var(--color-primary) !important;
+}
+
+/* Heart pulse animation for save/like buttons */
+@keyframes heartPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+.animate-heart-pulse {
+  animation: heartPulse 0.3s ease-out;
+}
+
+/* Chip bounce animation for filter selection */
+@keyframes chipBounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+}
+
+.animate-chip-bounce {
+  animation: chipBounce 0.15s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-heart-pulse,
+  .animate-chip-bounce {
     animation: none;
   }
 }
