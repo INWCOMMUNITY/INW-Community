@@ -240,37 +240,41 @@ function extractPropertyFromExistingProducts(
   products: EtsyInventoryProduct[],
   quantityOnProperty: number[]
 ): { property_id: number; property_name: string; scale_id: number | null } | null {
+  // First pass: prefer properties that are in quantityOnProperty (the primary variant axis)
   for (const p of products) {
     for (const pv of p.property_values ?? []) {
-      // Prefer properties that are in quantityOnProperty (the primary variant axis)
+      if (pv.property_id == null) continue;
+      // Skip if not in quantityOnProperty (when quantityOnProperty is specified)
       if (
         quantityOnProperty.length > 0 &&
-        pv.property_id != null &&
         !quantityOnProperty.includes(pv.property_id)
       ) {
         continue;
       }
-      if (pv.property_id != null && pv.property_name) {
-        return {
-          property_id: pv.property_id,
-          property_name: pv.property_name,
-          scale_id: pv.scale_id ?? null,
-        };
-      }
+      // property_name might be missing in API response; use "Option" as fallback (same as rebuildExistingProduct)
+      return {
+        property_id: pv.property_id,
+        property_name: pv.property_name || "Option",
+        scale_id: pv.scale_id ?? null,
+      };
     }
   }
-  // Fallback: take first property from any product
+  // Fallback: take first property from any product (even if not in quantityOnProperty)
   for (const p of products) {
     for (const pv of p.property_values ?? []) {
-      if (pv.property_id != null && pv.property_name) {
+      if (pv.property_id != null) {
         return {
           property_id: pv.property_id,
-          property_name: pv.property_name,
+          property_name: pv.property_name || "Option",
           scale_id: pv.scale_id ?? null,
         };
       }
     }
   }
+  console.warn("[etsy] extractPropertyFromExistingProducts: no property found", {
+    productCount: products.length,
+    quantityOnProperty,
+  });
   return null;
 }
 
@@ -413,9 +417,34 @@ export async function syncEtsyListingInventoryFromInw(
       ? extractPropertyFromExistingProducts(products, quantityOnProperty)
       : null;
 
+  console.log("[etsy] variant sync setup", {
+    listingId,
+    existingProductCount: products.length,
+    existingValues: [...existingValues],
+    inwOptions: quantityAxis.options.map((o) => o.value),
+    taxonomyPropsCount: taxonomyProps.length,
+    hasFallbackProperty: fallbackProperty != null,
+    fallbackPropertyId: fallbackProperty?.property_id,
+  });
+
+  let newOptionsAdded = 0;
   for (const opt of quantityAxis.options) {
     const key = opt.value.trim().toLowerCase();
-    if (!key || existingValues.has(key)) continue;
+    if (!key) {
+      console.log("[etsy] skipping empty option value");
+      continue;
+    }
+    if (existingValues.has(key)) {
+      // Option already exists on Etsy - skip adding (it was already updated in rebuilt array)
+      continue;
+    }
+    
+    console.log("[etsy] attempting to add new option", {
+      listingId,
+      optionValue: opt.value,
+      optionKey: key,
+      quantity: opt.quantity,
+    });
     
     // First try taxonomy-based approach
     let row = await buildProductRowForOption(
@@ -447,6 +476,19 @@ export async function syncEtsyListingInventoryFromInw(
     if (row) {
       rebuilt.push(row);
       existingValues.add(key);
+      newOptionsAdded++;
+      console.log("[etsy] added new option to inventory", {
+        listingId,
+        optionValue: opt.value,
+        rebuiltCount: rebuilt.length,
+      });
+    } else {
+      console.warn("[etsy] failed to build product row for new option", {
+        listingId,
+        optionValue: opt.value,
+        taxonomyPropsCount: taxonomyProps.length,
+        hasFallbackProperty: fallbackProperty != null,
+      });
     }
   }
 
@@ -454,6 +496,7 @@ export async function syncEtsyListingInventoryFromInw(
     listingId,
     productCount: rebuilt.length,
     inwOptions: quantityAxis.options.length,
+    newOptionsAdded,
     quantityOnProperty,
     usedFallback: fallbackProperty != null,
   });
