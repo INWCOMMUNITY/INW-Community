@@ -7,7 +7,6 @@ import { containsProhibitedCategory, validateText } from "@/lib/content-moderati
 import {
   hasOptionQuantities,
   sumOptionQuantities,
-  usesPerOptionInventorySync,
 } from "@/lib/store-item-variants";
 import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
 import { logManualEditQuantityChange } from "@/lib/channels/quantity-audit";
@@ -344,20 +343,13 @@ export async function PATCH(
       const { unpublishStoreItemFromChannels } = await import("@/lib/channels/outbound");
       channelSync = await unpublishStoreItemFromChannels(itemId, unpublishProviders);
     } else if (data.syncToChannels === false && existingLinks > 0) {
-      // Stop syncing this item but leave the external listing in place.
-      await prisma.channelListingLink.updateMany({
-        where: { storeItemId: itemId },
-        data: { syncEnabled: false },
-      });
+      // Skip push for this save only; keep links enabled for future edits.
     } else if (existingLinks > 0) {
       const { updateStoreItemOnChannels } = await import("@/lib/channels/outbound");
       const { syncInventoryToChannels } = await import("@/lib/channels/sync-inventory");
       const { mergeChannelSyncResults } = await import("@/lib/channels/channel-sync-merge");
       const contentResults = await updateStoreItemOnChannels(itemId);
-      // Per-option listings push stock on updateListing; aggregate inventory sync overwrites sizes.
-      const inventoryResults = usesPerOptionInventorySync(item.variants)
-        ? []
-        : await syncInventoryToChannels(itemId);
+      const inventoryResults = await syncInventoryToChannels(itemId);
       channelSync = mergeChannelSyncResults(contentResults, inventoryResults);
     } else if (data.syncToChannels === true || (data.channelProviders?.length ?? 0) > 0) {
       const { publishStoreItemToChannels, resolvePublishProviders } = await import(

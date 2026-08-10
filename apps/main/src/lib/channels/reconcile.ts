@@ -3,7 +3,7 @@ import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sal
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { getAdapter } from "./registry";
-import { getConnectionContext } from "./connection";
+import { getConnectionContext, withConnectionAuthRetry } from "./connection";
 import { syncInventoryToChannels } from "./sync-inventory";
 import { reconcileConnectionInboundListings } from "./reconcile-inbound";
 import { reconcileConnectionInboundCatalog } from "./reconcile-inbound-catalog";
@@ -37,8 +37,6 @@ type ConnectionRow = {
 export async function reconcileConnectionSales(
   connection: ConnectionRow
 ): Promise<{ applied: number }> {
-  const ctx = await getConnectionContext(connection);
-  if (!ctx) return { applied: 0 };
   const provider = connection.provider as ChannelProvider;
   const adapter = getAdapter(provider);
 
@@ -50,7 +48,9 @@ export async function reconcileConnectionSales(
 
   let sales;
   try {
-    sales = await adapter.fetchRecentSales(ctx, since);
+    sales = await withConnectionAuthRetry(connection, (ctx) =>
+      adapter.fetchRecentSales(ctx, since)
+    );
   } catch (e) {
     const msg = describeChannelSyncError(provider, e);
     console.error("[channels] fetchRecentSales failed", { provider, error: msg });

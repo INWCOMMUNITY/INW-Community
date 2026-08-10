@@ -10,7 +10,7 @@ import { normalizeListingAspects } from "@/lib/listing-limits";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
 import { storeListingDescription } from "@/lib/channels/import-listing";
 import { sumVariantQuantities } from "@/lib/channels/variant-sync";
-import { resolveInwCategoryFromRemote } from "@/lib/channels/category-resolver";
+import { resolveInwCategoryWithLearning } from "@/lib/channels/category-resolver";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
 import { variantsFingerprint } from "@/lib/channels/variant-sync";
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
@@ -278,7 +278,7 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    const resolvedCat = resolveInwCategoryFromRemote(
+    const resolvedCat = await resolveInwCategoryWithLearning(
       listing.category ?? null,
       listing.subcategory ?? null,
       { provider: "ebay" }

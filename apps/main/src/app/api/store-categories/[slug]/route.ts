@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
+import { STORE_CATEGORIES } from "@/lib/store-categories";
 
 export const dynamic = "force-dynamic";
+
+function slugifyCategory(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
 
 export async function GET(
   req: NextRequest,
@@ -9,9 +14,27 @@ export async function GET(
 ) {
   const { slug } = await params;
 
-  const category = await prisma.storeCategory.findUnique({
+  // First try database
+  let category = await prisma.storeCategory.findUnique({
     where: { slug },
   });
+
+  // Fall back to prebuilt categories if not in database
+  if (!category) {
+    const preset = STORE_CATEGORIES.find(
+      (c) => slugifyCategory(c.label) === slug
+    );
+    if (preset) {
+      category = {
+        id: slug,
+        name: preset.label,
+        slug,
+        description: null,
+        bannerUrl: null,
+        sortOrder: 0,
+      };
+    }
+  }
 
   if (!category) {
     return NextResponse.json({ error: "Category not found" }, { status: 404 });

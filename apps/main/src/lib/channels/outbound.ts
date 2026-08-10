@@ -14,6 +14,7 @@ import type {
 import { describeChannelSyncError } from "./ebay/errors";
 import { enqueueRetry } from "./retry-queue";
 import { captureChannelSyncError } from "./sentry";
+import { syncInventoryToChannels } from "./sync-inventory";
 import {
   isCircuitOpen,
   recordCircuitSuccess,
@@ -303,16 +304,79 @@ export async function updateStoreItemOnChannels(
     return results;
   }
   
-  // If all content sync toggles are disabled, skip content pushes entirely
+  // If all content sync toggles are disabled, still push inventory (qty / variants).
   if (syncPrefs && !syncPrefs.syncTitles && !syncPrefs.syncDescriptions && !syncPrefs.syncPhotos && !syncPrefs.syncPrices) {
-    console.log("[channels] all content sync toggles disabled, skipping content push", { storeItemId });
-    return results;
+    console.log("[channels] content toggles off — inventory-only push", { storeItemId });
+    return syncInventoryToChannels(storeItemId, {
+      skipProviders: [...skip],
+    });
   }
 
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) continue;
-    if (link.lastPushedHash === hash) continue;
+
+    const varFp = variantsFingerprint(item.variants);
+    const inventoryDrift =
+      link.syncBaselineQty !== item.quantity ||
+      (link.syncBaselineVariantsHash ?? "") !== varFp;
+    const contentUnchanged = link.lastPushedHash === hash;
+
+    if (contentUnchanged && !inventoryDrift) continue;
+
+    // Quantity / variant stock changed but title/price/etc. unchanged — push inventory only.
+    if (contentUnchanged && inventoryDrift) {
+      const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
+      const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
+      if (syncDirection === "pull_only" || syncDirection === "paused") continue;
+
+      hydrateCircuitFromConfig(link.connectionId, link.connection.config);
+      if (isCircuitOpen(link.connectionId)) {
+        results.push({
+          provider,
+          ok: false,
+          error: "Channel sync temporarily paused due to repeated failures",
+        });
+        continue;
+      }
+
+      try {
+        const ctx = await getConnectionContext(link.connection);
+        if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
+        const adapter = getAdapter(provider);
+        const freshItem = await loadSyncItem(storeItemId);
+        if (!freshItem) continue;
+        const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
+        const globalSafetyBuffer = syncPrefs?.safetyBuffer ?? 0;
+        const adjustedQty = Math.max(0, freshItem.quantity - globalSafetyBuffer - channelInventoryOffset);
+        await adapter.updateInventory(ctx, link.externalListingId, adjustedQty, freshItem);
+        await prisma.channelListingLink.update({
+          where: { id: link.id },
+          data: {
+            syncStatus: "synced",
+            syncError: null,
+            lastPushedAt: new Date(),
+            syncBaselineVariantsHash: varFp,
+            syncBaselineQty: freshItem.quantity,
+            syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
+          },
+        });
+        await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
+        results.push({ provider, ok: true });
+      } catch (e) {
+        const msg = describeChannelSyncError(provider, e);
+        await prisma.channelListingLink
+          .update({
+            where: { id: link.id },
+            data: { syncStatus: "error", syncError: msg },
+          })
+          .catch(() => {});
+        await recordCircuitFailure(link.connectionId, provider, link.connection.memberId, msg);
+        enqueueRetry(link.id, storeItemId, provider, "inventory", msg, e).catch(() => {});
+        results.push({ provider, ok: false, error: msg });
+      }
+      continue;
+    }
 
     // Check per-channel sync direction from config
     const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;

@@ -175,15 +175,13 @@ async function fetchTaxonomyProperties(
   accessToken: string,
   taxonomyId: number
 ): Promise<TaxonomyProperty[]> {
-  try {
-    const res = await etsyGet<{ results?: TaxonomyProperty[] }>(
-      accessToken,
-      `/application/seller-taxonomy/nodes/${taxonomyId}/properties`
-    );
-    return res.results ?? [];
-  } catch {
-    return [];
-  }
+  const res = await etsyGet<{ results?: TaxonomyProperty[] }>(
+    accessToken,
+    `/application/seller-taxonomy/nodes/${taxonomyId}/properties`,
+    { notFoundOk: true }
+  );
+  if (!res) return [];
+  return res.results ?? [];
 }
 
 async function buildProductRowForOption(

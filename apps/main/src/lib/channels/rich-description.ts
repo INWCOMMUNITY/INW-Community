@@ -125,20 +125,33 @@ export function sanitizeListingDescription(
     .replace(/\s*class\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/\s*id\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
   
-  // Convert common eBay patterns: multiple <br> used as paragraph separators
-  // Two or more breaks in a row should become paragraph breaks
-  normalized = normalized.replace(/(<br\s*\/?>\s*){2,}/gi, "</p><p>");
-  
-  // Wrap content in paragraphs if not already wrapped
-  // This helps preserve structure for descriptions that are just text with <br> tags
-  if (!/<p[^>]*>/i.test(normalized) && !/<div[^>]*>/i.test(normalized)) {
-    // No paragraphs or divs - wrap the whole content
-    normalized = `<p>${normalized}</p>`;
+  // Plain text: use <br> for line breaks; avoid wrapping the whole description in <p>.
+  if (!descriptionLooksLikeHtml(normalized)) {
+    const lines = normalized
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line, i, arr) => line.length > 0 || (i > 0 && i < arr.length - 1));
+    if (lines.length === 0) return null;
+    return lines.join("<br>");
   }
 
-  const clean = sanitizeHtml(normalized).trim();
+  // HTML: normalize multi-break paragraphs, then sanitize (no forced outer <p> wrap).
+  normalized = normalized.replace(/(<br\s*\/?>\s*){2,}/gi, "</p><p>");
+
+  let clean = sanitizeHtml(normalized).trim();
+  clean = unwrapSingleOuterParagraph(clean);
 
   return clean || null;
+}
+
+/** Remove one redundant outer <p>...</p> when inner content has no nested paragraphs. */
+function unwrapSingleOuterParagraph(html: string): string {
+  const t = html.trim();
+  const m = t.match(/^<p>([\s\S]*)<\/p>$/i);
+  if (!m) return t;
+  const inner = m[1].trim();
+  if (/<\/?p>/i.test(inner)) return t;
+  return inner;
 }
 
 /** Plain text for channels that reject HTML (e.g. some Etsy fields). */

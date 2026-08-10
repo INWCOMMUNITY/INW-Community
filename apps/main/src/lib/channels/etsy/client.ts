@@ -59,12 +59,18 @@ function generateRequestId(): string {
  * Core Etsy request. Uses proactive rate limiting and retries on 429.
  * Includes structured logging for debugging sync issues.
  */
+export type EtsyRequestBehavior = {
+  /** Treat HTTP 404 as a normal miss (no error log, returns null). */
+  notFoundOk?: boolean;
+};
+
 async function etsyRequest<T>(
   accessToken: string,
   path: string,
   init: RequestInit & { headers?: Record<string, string> } = {},
   attempt = 0,
-  overrideApiKey?: string
+  overrideApiKey?: string,
+  behavior?: EtsyRequestBehavior
 ): Promise<T> {
   const requestId = generateRequestId();
   const method = (init.method as string) || "GET";
@@ -97,12 +103,21 @@ async function etsyRequest<T>(
       attempt,
     });
     await new Promise((r) => setTimeout(r, 1100 * (attempt + 1)));
-    return etsyRequest<T>(accessToken, path, init, attempt + 1, overrideApiKey);
+    return etsyRequest<T>(accessToken, path, init, attempt + 1, overrideApiKey, behavior);
   }
 
   const body = await parseBody(res);
 
   if (!res.ok) {
+    if (behavior?.notFoundOk && res.status === 404) {
+      console.log("[etsy:not-found]", {
+        requestId,
+        method,
+        path,
+        elapsed,
+      });
+      return null as T;
+    }
     const errMsg = errorMessage(body, res.status);
     console.error("[etsy:error]", {
       requestId,
@@ -132,8 +147,23 @@ async function etsyRequest<T>(
   return body as T;
 }
 
-export function etsyGet<T>(accessToken: string, path: string, overrideApiKey?: string): Promise<T> {
-  return etsyRequest<T>(accessToken, path, { method: "GET" }, 0, overrideApiKey);
+export type EtsyGetOptions = EtsyRequestBehavior & { overrideApiKey?: string };
+
+export function etsyGet<T>(
+  accessToken: string,
+  path: string,
+  options?: string | EtsyGetOptions
+): Promise<T> {
+  const opts: EtsyGetOptions =
+    typeof options === "string" ? { overrideApiKey: options } : options ?? {};
+  return etsyRequest<T>(
+    accessToken,
+    path,
+    { method: "GET" },
+    0,
+    opts.overrideApiKey,
+    { notFoundOk: opts.notFoundOk }
+  );
 }
 
 /** POST/PATCH with application/x-www-form-urlencoded (Etsy listing create/update format). */

@@ -1,5 +1,5 @@
 import { prisma, Prisma } from "database";
-import { resolveInwCategoryFromRemote } from "./category-resolver";
+import { resolveInwCategoryWithLearning } from "./category-resolver";
 import {
   normalizeVariantsFromProvider,
   sumVariantQuantities,
@@ -171,7 +171,7 @@ export async function importRemoteListing(args: {
     });
     const shouldSyncShipping = syncPrefs?.syncShipping ?? true;
     
-    const resolvedCat = resolveInwCategoryFromRemote(listing.category, listing.subcategory, {
+    const resolvedCat = await resolveInwCategoryWithLearning(listing.category, listing.subcategory, {
       provider,
     });
     if (resolvedCat && !resolvedCat.matchedPreset) {

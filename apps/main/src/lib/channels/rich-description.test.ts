@@ -33,6 +33,12 @@ describe("sanitizeListingDescription", () => {
     expect(sanitizeListingDescription("   ")).toBeNull();
     expect(sanitizeListingDescription(null)).toBeNull();
   });
+
+  it("uses br for plain text without wrapping in p", () => {
+    const out = sanitizeListingDescription("Line one\nLine two");
+    expect(out).toBe("Line one<br>Line two");
+    expect(out).not.toMatch(/^<p>/);
+  });
 });
 
 describe("listingDescriptionToPlainText", () => {

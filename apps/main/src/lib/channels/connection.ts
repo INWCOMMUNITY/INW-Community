@@ -3,6 +3,8 @@ import { encrypt, decrypt } from "@/lib/encrypt";
 import { getAdapter } from "./registry";
 import type { ChannelConnectionContext, ChannelProvider } from "./types";
 import { logSyncEvent } from "./sync-log";
+import { EbayApiError, needsTokenRefresh } from "./ebay/errors";
+import { EtsyApiError } from "./etsy/client";
 
 const REFRESH_SKEW_MS = 60_000;
 
@@ -162,4 +164,41 @@ export async function refreshConnectionToken(
     },
   });
   logSyncEvent(conn.memberId, provider, "token_refreshed", "Refreshed after auth error in retry queue");
+}
+
+/** True when the channel returned an auth error that may succeed after refresh_token. */
+export function isChannelAuthError(provider: ChannelProvider, e: unknown): boolean {
+  if (e instanceof EbayApiError) {
+    return e.status === 401 || needsTokenRefresh(e.body);
+  }
+  if (e instanceof EtsyApiError) {
+    return e.status === 401;
+  }
+  return false;
+}
+
+/**
+ * Run an API call with the connection's access token; on auth failure, refresh once and retry.
+ */
+export async function withConnectionAuthRetry<T>(
+  connection: ConnectionRow,
+  fn: (ctx: ChannelConnectionContext) => Promise<T>
+): Promise<T> {
+  const provider = connection.provider as ChannelProvider;
+  let ctx = await getConnectionContext(connection);
+  if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
+
+  try {
+    return await fn(ctx);
+  } catch (e) {
+    if (!connection.refreshTokenEncrypted || !isChannelAuthError(provider, e)) {
+      throw e;
+    }
+    await refreshConnectionToken(connection.id, provider);
+    const fresh = await prisma.channelConnection.findUnique({ where: { id: connection.id } });
+    if (!fresh) throw e;
+    ctx = await getConnectionContext(fresh);
+    if (!ctx) throw e;
+    return fn(ctx);
+  }
 }

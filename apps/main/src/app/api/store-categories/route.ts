@@ -1,26 +1,33 @@
 import { NextResponse } from "next/server";
 import { prisma } from "database";
+import { STORE_CATEGORIES } from "@/lib/store-categories";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const categories = await prisma.storeCategory.findMany({
-    orderBy: { sortOrder: "asc" },
-  });
+function slugifyCategory(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
 
-  const categoryStats = await Promise.all(
-    categories.map(async (cat) => {
+export async function GET() {
+  // Return prebuilt categories with their subcategories and item counts
+  const categoriesWithStats = await Promise.all(
+    STORE_CATEGORIES.map(async (cat) => {
       const itemCount = await prisma.storeItem.count({
         where: {
-          OR: [{ category: cat.name }, { secondaryCategory: cat.name }],
+          OR: [{ category: cat.label }, { secondaryCategory: cat.label }],
           status: "active",
           quantity: { gt: 0 },
           member: { stripeConnectAccountId: { not: null } },
         },
       });
-      return { ...cat, itemCount };
+      return {
+        label: cat.label,
+        slug: slugifyCategory(cat.label),
+        subcategories: cat.subcategories,
+        itemCount,
+      };
     })
   );
 
-  return NextResponse.json(categoryStats);
+  return NextResponse.json({ categories: categoriesWithStats });
 }

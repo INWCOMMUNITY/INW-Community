@@ -1,5 +1,5 @@
 import { prisma } from "database";
-import { resolveInwCategoryFromRemote } from "./category-resolver";
+import { resolveInwCategoryWithLearning } from "./category-resolver";
 import {
   normalizeVariantsFromProvider,
   sumVariantQuantities,
@@ -19,7 +19,7 @@ export async function applyRemoteCategoryToStoreItem(
   const remoteLabel = remote.category?.trim();
   if (!remoteLabel) return false;
 
-  const resolved = resolveInwCategoryFromRemote(remoteLabel, remote.subcategory, { provider });
+  const resolved = await resolveInwCategoryWithLearning(remoteLabel, remote.subcategory, { provider });
   if (!resolved) return false;
 
   const item = await prisma.storeItem.findUnique({
