@@ -81,6 +81,7 @@ type SyncPrefs = {
   syncDescriptions: boolean;
   syncPhotos: boolean;
   syncPrices: boolean;
+  safetyBuffer: number;
 };
 
 /**
@@ -95,6 +96,7 @@ async function loadSyncPreferences(memberId: string): Promise<SyncPrefs> {
       syncDescriptions: true,
       syncPhotos: true,
       syncPrices: true,
+      safetyBuffer: true,
     },
   });
   return {
@@ -103,6 +105,7 @@ async function loadSyncPreferences(memberId: string): Promise<SyncPrefs> {
     syncDescriptions: prefs?.syncDescriptions ?? true,
     syncPhotos: prefs?.syncPhotos ?? true,
     syncPrices: prefs?.syncPrices ?? true,
+    safetyBuffer: prefs?.safetyBuffer ?? 0,
   };
 }
 
