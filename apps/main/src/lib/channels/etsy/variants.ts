@@ -143,7 +143,8 @@ function rebuildExistingProduct(
   product: EtsyInventoryProduct,
   quantity: number,
   item: SyncStoreItem,
-  defaultReadinessStateId: number | null
+  defaultReadinessStateId: number | null,
+  normalizedSku?: string
 ): Record<string, unknown> {
   const propValues = product.property_values ?? [];
   const offerings = (product.offerings ?? []).map((o) => {
@@ -155,10 +156,11 @@ function rebuildExistingProduct(
       ...(readinessStateId != null ? { readiness_state_id: readinessStateId } : {}),
     };
   });
-  // Preserve original SKU if present; don't force a SKU if the product didn't have one
-  // This maintains consistency with new products that also won't have SKUs
+  // Use normalized SKU if provided (for consistency when adding new variants)
+  // Otherwise preserve original SKU if present
+  const sku = normalizedSku ?? product.sku;
   return {
-    ...(product.sku ? { sku: product.sku } : {}),
+    ...(sku ? { sku } : {}),
     property_values: propValues.map((pv) => ({
       property_id: pv.property_id,
       property_name: pv.property_name || "Option",
@@ -193,7 +195,8 @@ async function buildProductRowForOption(
   axis: InwVariantAxis,
   opt: { value: string; quantity: number },
   defaultReadinessStateId: number | null,
-  properties?: TaxonomyProperty[]
+  properties?: TaxonomyProperty[],
+  skuPattern?: { hasSkus: boolean; useValueSuffix: boolean }
 ): Promise<Record<string, unknown> | null> {
   const props = properties ?? (await fetchTaxonomyProperties(accessToken, taxonomyId));
   const prop =
@@ -205,8 +208,13 @@ async function buildProductRowForOption(
     (v) => v.name?.toLowerCase() === valueName.toLowerCase()
   );
 
+  // Only add SKU if existing products have SKUs (or it's a fresh listing)
+  const sku = (!skuPattern || skuPattern.hasSkus)
+    ? `${item.id}-${valueName}`.slice(0, 32)
+    : undefined;
+
   return {
-    sku: `${item.id}-${valueName}`.slice(0, 32),
+    ...(sku ? { sku } : {}),
     property_values: [
       {
         property_id: prop.property_id,
@@ -426,23 +434,20 @@ export async function syncEtsyListingInventoryFromInw(
   }
 
   const quantityOnProperty = inv.quantity_on_property ?? [];
-  const rebuilt: Record<string, unknown>[] = products.map((p) => {
-    const quantity = resolveProductQuantity(
-      p,
-      optionQtys,
-      quantityOnProperty,
-      absoluteQuantity,
-      true
-    );
-    return rebuildExistingProduct(p, quantity, item, defaultReadinessStateId);
-  });
 
+  // Build set of existing values BEFORE rebuilding products
   const existingValues = new Set<string>();
   for (const p of products) {
     for (const v of productValuesForQtyProperty(p, quantityOnProperty)) {
       existingValues.add(v.trim().toLowerCase());
     }
   }
+
+  // Determine which INW options don't exist on Etsy yet
+  const newOptions = quantityAxis.options.filter((opt) => {
+    const key = opt.value.trim().toLowerCase();
+    return key && !existingValues.has(key);
+  });
 
   // Try to get taxonomy properties for adding new options
   const taxonomyProps = await fetchTaxonomyProperties(accessToken, taxonomyId);
@@ -456,6 +461,10 @@ export async function syncEtsyListingInventoryFromInw(
   // Extract SKU pattern to maintain consistency when adding new products
   const skuPattern = extractSkuPattern(products, item.id);
 
+  // When adding new options, we must normalize ALL SKUs to be consistent
+  // Etsy requires SKUs to follow the same pattern across all products
+  const needsSkuNormalization = newOptions.length > 0 && skuPattern.hasSkus;
+
   console.log("[etsy] variant sync setup", {
     listingId,
     existingProductCount: products.length,
@@ -464,19 +473,38 @@ export async function syncEtsyListingInventoryFromInw(
     taxonomyPropsCount: taxonomyProps.length,
     hasFallbackProperty: fallbackProperty != null,
     fallbackPropertyId: fallbackProperty?.property_id,
+    newOptionsCount: newOptions.length,
+    skuPattern,
+    needsSkuNormalization,
+  });
+
+  // Rebuild existing products (with normalized SKUs if adding new options)
+  const rebuilt: Record<string, unknown>[] = products.map((p) => {
+    const quantity = resolveProductQuantity(
+      p,
+      optionQtys,
+      quantityOnProperty,
+      absoluteQuantity,
+      true
+    );
+    
+    // If we're adding new options and existing products have SKUs,
+    // normalize all SKUs to use item.id-value format for consistency
+    let normalizedSku: string | undefined;
+    if (needsSkuNormalization) {
+      const values = productValuesForQtyProperty(p, quantityOnProperty);
+      const firstValue = values[0]?.trim();
+      if (firstValue) {
+        normalizedSku = `${item.id}-${firstValue}`.slice(0, 32);
+      }
+    }
+    
+    return rebuildExistingProduct(p, quantity, item, defaultReadinessStateId, normalizedSku);
   });
 
   let newOptionsAdded = 0;
-  for (const opt of quantityAxis.options) {
+  for (const opt of newOptions) {
     const key = opt.value.trim().toLowerCase();
-    if (!key) {
-      console.log("[etsy] skipping empty option value");
-      continue;
-    }
-    if (existingValues.has(key)) {
-      // Option already exists on Etsy - skip adding (it was already updated in rebuilt array)
-      continue;
-    }
     
     console.log("[etsy] attempting to add new option", {
       listingId,
@@ -493,7 +521,8 @@ export async function syncEtsyListingInventoryFromInw(
       quantityAxis,
       opt,
       defaultReadinessStateId,
-      taxonomyProps
+      taxonomyProps,
+      skuPattern
     );
     
     // Fallback: use property metadata from existing products
