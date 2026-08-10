@@ -233,6 +233,74 @@ function inventoryPutBody(
 }
 
 /**
+ * Extract property metadata (property_id, property_name, scale_id) from existing Etsy products.
+ * This is used as a fallback when taxonomy API returns 404.
+ */
+function extractPropertyFromExistingProducts(
+  products: EtsyInventoryProduct[],
+  quantityOnProperty: number[]
+): { property_id: number; property_name: string; scale_id: number | null } | null {
+  for (const p of products) {
+    for (const pv of p.property_values ?? []) {
+      // Prefer properties that are in quantityOnProperty (the primary variant axis)
+      if (
+        quantityOnProperty.length > 0 &&
+        pv.property_id != null &&
+        !quantityOnProperty.includes(pv.property_id)
+      ) {
+        continue;
+      }
+      if (pv.property_id != null && pv.property_name) {
+        return {
+          property_id: pv.property_id,
+          property_name: pv.property_name,
+          scale_id: pv.scale_id ?? null,
+        };
+      }
+    }
+  }
+  // Fallback: take first property from any product
+  for (const p of products) {
+    for (const pv of p.property_values ?? []) {
+      if (pv.property_id != null && pv.property_name) {
+        return {
+          property_id: pv.property_id,
+          property_name: pv.property_name,
+          scale_id: pv.scale_id ?? null,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a new product row using property metadata extracted from existing products.
+ * Used as fallback when taxonomy API returns 404.
+ */
+function buildProductRowFromExistingProperty(
+  item: SyncStoreItem,
+  opt: { value: string; quantity: number },
+  existingProperty: { property_id: number; property_name: string; scale_id: number | null },
+  defaultReadinessStateId: number | null
+): Record<string, unknown> {
+  const valueName = opt.value.trim();
+  return {
+    sku: `${item.id}-${valueName}`.slice(0, 32),
+    property_values: [
+      {
+        property_id: existingProperty.property_id,
+        property_name: existingProperty.property_name,
+        scale_id: existingProperty.scale_id,
+        value_ids: [], // Custom value, no predefined value_id
+        values: [valueName],
+      },
+    ],
+    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId)],
+  };
+}
+
+/**
  * Push INW per-option stock (and new option rows) to an existing Etsy listing inventory.
  * Preserves Etsy's property_id structure; adds missing variation rows from taxonomy.
  */
@@ -336,11 +404,21 @@ export async function syncEtsyListingInventoryFromInw(
     }
   }
 
+  // Try to get taxonomy properties for adding new options
   const taxonomyProps = await fetchTaxonomyProperties(accessToken, taxonomyId);
+  
+  // Fallback: extract property metadata from existing products when taxonomy 404s
+  const fallbackProperty =
+    taxonomyProps.length === 0
+      ? extractPropertyFromExistingProducts(products, quantityOnProperty)
+      : null;
+
   for (const opt of quantityAxis.options) {
     const key = opt.value.trim().toLowerCase();
     if (!key || existingValues.has(key)) continue;
-    const row = await buildProductRowForOption(
+    
+    // First try taxonomy-based approach
+    let row = await buildProductRowForOption(
       accessToken,
       taxonomyId,
       item,
@@ -349,6 +427,23 @@ export async function syncEtsyListingInventoryFromInw(
       defaultReadinessStateId,
       taxonomyProps
     );
+    
+    // Fallback: use property metadata from existing products
+    if (!row && fallbackProperty) {
+      row = buildProductRowFromExistingProperty(
+        item,
+        opt,
+        fallbackProperty,
+        defaultReadinessStateId
+      );
+      console.log("[etsy] using fallback property for new option", {
+        listingId,
+        optionValue: opt.value,
+        propertyId: fallbackProperty.property_id,
+        propertyName: fallbackProperty.property_name,
+      });
+    }
+    
     if (row) {
       rebuilt.push(row);
       existingValues.add(key);
@@ -360,6 +455,7 @@ export async function syncEtsyListingInventoryFromInw(
     productCount: rebuilt.length,
     inwOptions: quantityAxis.options.length,
     quantityOnProperty,
+    usedFallback: fallbackProperty != null,
   });
 
   await etsyJson(

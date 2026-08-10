@@ -24,19 +24,78 @@ const LISTING_ALLOWED_TAGS = new Set([
 ]);
 
 /**
+ * Decode HTML entities (numeric, hex, and common named entities).
+ * Handles marketplace descriptions that encode apostrophes, quotes, dashes, etc.
+ */
+function decodeHtmlEntities(html: string): string {
+  // Decode numeric decimal entities: &#39; &#8217; etc.
+  let result = html.replace(/&#(\d+);/g, (_, code) => {
+    const n = parseInt(code, 10);
+    return n > 0 && n < 0x10ffff ? String.fromCodePoint(n) : "";
+  });
+
+  // Decode numeric hex entities: &#x27; &#x2019; etc.
+  result = result.replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+    const n = parseInt(hex, 16);
+    return n > 0 && n < 0x10ffff ? String.fromCodePoint(n) : "";
+  });
+
+  // Decode common named entities used in marketplace descriptions
+  const namedEntities: Record<string, string> = {
+    nbsp: " ",
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    // Curly quotes and apostrophes (using unicode codepoints for clarity)
+    lsquo: "\u2018", // '
+    rsquo: "\u2019", // '
+    ldquo: "\u201c", // "
+    rdquo: "\u201d", // "
+    sbquo: "\u201a", // ‚
+    bdquo: "\u201e", // „
+    // Dashes
+    ndash: "–",
+    mdash: "—",
+    minus: "−",
+    // Other common entities
+    hellip: "…",
+    bull: "•",
+    middot: "·",
+    copy: "©",
+    reg: "®",
+    trade: "™",
+    deg: "°",
+    plusmn: "±",
+    frac12: "½",
+    frac14: "¼",
+    frac34: "¾",
+    times: "×",
+    divide: "÷",
+    cent: "¢",
+    pound: "£",
+    euro: "€",
+    yen: "¥",
+  };
+
+  result = result.replace(/&([a-zA-Z]+);/g, (match, name) => {
+    const lower = name.toLowerCase();
+    return namedEntities[lower] ?? match;
+  });
+
+  return result;
+}
+
+/**
  * Simple HTML sanitizer that keeps only allowed tags.
  * Strips all attributes and disallowed tags while preserving their text content.
  * Converts block-level elements (div, span with display:block) to paragraphs.
  * Preserves line breaks by converting newlines to <br> before processing.
  */
 function sanitizeHtml(html: string): string {
-  // First, decode common HTML entities
-  let result = html
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"');
+  // Decode HTML entities first (handles &#39;, &apos;, &#8217;, etc.)
+  let result = decodeHtmlEntities(html);
 
   // Remove script, style, and other dangerous tags entirely (including content)
   result = result.replace(/<(script|style|iframe|object|embed|form|input|button)[^>]*>[\s\S]*?<\/\1>/gi, "");
@@ -107,8 +166,11 @@ export function sanitizeListingDescription(
 ): string | null {
   if (!description?.trim()) return null;
 
+  // Decode HTML entities first (handles &#39;, &apos;, &#8217;, etc.)
+  let normalized = decodeHtmlEntities(description);
+
   // Normalize common eBay/marketplace line-break and formatting patterns before sanitization.
-  let normalized = description
+  normalized = normalized
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n");
   
@@ -159,7 +221,9 @@ export function listingDescriptionToPlainText(
   description: string | null | undefined
 ): string | null {
   if (!description?.trim()) return null;
-  const text = description
+  // Decode HTML entities first (handles &#39;, &apos;, &#8217;, etc.)
+  const decoded = decodeHtmlEntities(description);
+  const text = decoded
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/p>/gi, "\n")
     .replace(/<\/li>/gi, "\n")

@@ -39,6 +39,37 @@ describe("sanitizeListingDescription", () => {
     expect(out).toBe("Line one<br>Line two");
     expect(out).not.toMatch(/^<p>/);
   });
+
+  it("decodes numeric decimal HTML entities like &#39;", () => {
+    const out = sanitizeListingDescription("It&#39;s a nice day");
+    expect(out).toBe("It's a nice day");
+  });
+
+  it("decodes numeric hex HTML entities like &#x27;", () => {
+    const out = sanitizeListingDescription("Don&#x27;t worry");
+    expect(out).toBe("Don't worry");
+  });
+
+  it("decodes named HTML entities like &apos;", () => {
+    const out = sanitizeListingDescription("Bob&apos;s store");
+    expect(out).toBe("Bob's store");
+  });
+
+  it("decodes curly quote entities", () => {
+    const out = sanitizeListingDescription("&ldquo;Hello&rdquo; said &lsquo;Bob&rsquo;");
+    expect(out).toBe("\u201cHello\u201d said \u2018Bob\u2019");
+  });
+
+  it("decodes dash entities", () => {
+    const out = sanitizeListingDescription("A&ndash;B&mdash;C");
+    expect(out).toBe("A–B—C");
+  });
+
+  it("decodes smart apostrophe &#8217;", () => {
+    const out = sanitizeListingDescription("Grandma&#8217;s recipe");
+    // &#8217; is the right single quotation mark (curly apostrophe)
+    expect(out).toBe("Grandma\u2019s recipe");
+  });
 });
 
 describe("listingDescriptionToPlainText", () => {
@@ -47,6 +78,16 @@ describe("listingDescriptionToPlainText", () => {
     expect(out).toContain("A");
     expect(out).toContain("B");
     expect(out?.includes("\n")).toBe(true);
+  });
+
+  it("decodes HTML entities in plain text output", () => {
+    const out = listingDescriptionToPlainText("Bob&#39;s &amp; Jane&apos;s store");
+    expect(out).toBe("Bob's & Jane's store");
+  });
+
+  it("decodes curly quotes in plain text output", () => {
+    const out = listingDescriptionToPlainText("&ldquo;Quote&rdquo;");
+    expect(out).toBe("\u201cQuote\u201d");
   });
 });
 
