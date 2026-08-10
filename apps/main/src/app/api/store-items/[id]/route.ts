@@ -10,6 +10,8 @@ import {
 } from "@/lib/store-item-variants";
 import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
 import { logManualEditQuantityChange } from "@/lib/channels/quantity-audit";
+import { recordCategoryFeedback } from "@/lib/channels/category-resolver";
+import type { ChannelProvider } from "@/lib/channels/types";
 import { z } from "zod";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
@@ -321,6 +323,34 @@ export async function PATCH(
       previousQty: existing.quantity,
       newQty: item.quantity,
     });
+  }
+
+  // Record category feedback for adaptive learning when a synced item's category changes
+  const categoryChanged =
+    (item.category ?? "") !== (existing.category ?? "") ||
+    (item.subcategory ?? "") !== (existing.subcategory ?? "");
+  if (categoryChanged && existing.category) {
+    // Check if this item is linked to any sales channel
+    const channelLinks = await prisma.channelListingLink.findMany({
+      where: { storeItemId: itemId, syncEnabled: true },
+      select: { provider: true },
+    });
+    // Record feedback for each linked provider to improve future auto-mapping
+    for (const link of channelLinks) {
+      recordCategoryFeedback({
+        provider: link.provider as ChannelProvider,
+        remoteCategory: existing.category, // Use previous category as proxy for remote
+        remoteSubcategory: existing.subcategory,
+        autoMapped: existing.category,
+        autoMappedSubcategory: existing.subcategory,
+        sellerChosen: item.category ?? "",
+        sellerChosenSubcategory: item.subcategory,
+        storeItemId: itemId,
+        memberId: ownerId,
+      }).catch((err) => {
+        console.warn("[store-items] Failed to record category feedback:", err);
+      });
+    }
   }
 
   if (item.status === "sold_out") {

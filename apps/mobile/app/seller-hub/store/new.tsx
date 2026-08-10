@@ -46,6 +46,7 @@ import {
   type OptionRow,
 } from "@/components/listing/ListingOptionsEditor";
 import { TemplateSelector, type ListingTemplate } from "@/components/listing/TemplateSelector";
+import { CategorySuggestions } from "@/components/listing/CategorySuggestions";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -1235,6 +1236,26 @@ export default function ListItemScreen() {
         placeholderColor={placeholderColor}
         legacyMultiAxisNotice={legacyMultiAxisNotice}
       />
+
+      {/* Category suggestions based on title - only show when no category selected yet */}
+      {!category && title.trim().length >= 3 && (
+        <CategorySuggestions
+          title={title}
+          category={category}
+          subcategory={subcategory}
+          onSelectInwCategory={(cat, sub) => {
+            setCategory(cat);
+            if (sub) setSubcategory(sub);
+          }}
+          onSelectEbayCategory={(catId, catPath) => {
+            setEbayCategoryId(catId);
+            setEbayCategoryLabel(catPath);
+            void loadCategoryAspects(catId);
+          }}
+          ebayConnected={ebayConnected}
+          showInwSuggestion={!category}
+        />
+      )}
 
       <Text style={styles.label}>Category</Text>
       {useCustomCategory ? (
