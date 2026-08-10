@@ -155,8 +155,10 @@ function rebuildExistingProduct(
       ...(readinessStateId != null ? { readiness_state_id: readinessStateId } : {}),
     };
   });
+  // Preserve original SKU if present; don't force a SKU if the product didn't have one
+  // This maintains consistency with new products that also won't have SKUs
   return {
-    sku: product.sku || item.id,
+    ...(product.sku ? { sku: product.sku } : {}),
     property_values: propValues.map((pv) => ({
       property_id: pv.property_id,
       property_name: pv.property_name || "Option",
@@ -279,6 +281,24 @@ function extractPropertyFromExistingProducts(
 }
 
 /**
+ * Extract SKU pattern from existing Etsy products to maintain consistency.
+ * Returns { hasSkus: boolean, basePattern: string | null }
+ */
+function extractSkuPattern(
+  products: EtsyInventoryProduct[],
+  itemId: string
+): { hasSkus: boolean; useValueSuffix: boolean } {
+  const skus = products.map((p) => p.sku).filter(Boolean) as string[];
+  if (skus.length === 0) {
+    // No existing SKUs - don't add SKUs to new products
+    return { hasSkus: false, useValueSuffix: false };
+  }
+  // Check if existing SKUs have a pattern like "base-value"
+  const hasSuffix = skus.some((s) => s.includes("-"));
+  return { hasSkus: true, useValueSuffix: hasSuffix };
+}
+
+/**
  * Build a new product row using property metadata extracted from existing products.
  * Used as fallback when taxonomy API returns 404.
  */
@@ -286,11 +306,27 @@ function buildProductRowFromExistingProperty(
   item: SyncStoreItem,
   opt: { value: string; quantity: number },
   existingProperty: { property_id: number; property_name: string; scale_id: number | null },
-  defaultReadinessStateId: number | null
+  defaultReadinessStateId: number | null,
+  skuPattern: { hasSkus: boolean; useValueSuffix: boolean }
 ): Record<string, unknown> {
   const valueName = opt.value.trim();
+  
+  // Match SKU pattern from existing products for consistency
+  let sku: string | undefined;
+  if (skuPattern.hasSkus) {
+    if (skuPattern.useValueSuffix) {
+      // Existing SKUs use pattern like "base-value"
+      sku = `${item.id}-${valueName}`.slice(0, 32);
+    } else {
+      // Existing SKUs are simple (just the item ID) - use same for new products
+      // But Etsy requires unique SKUs per product, so we need to add the value
+      sku = `${item.id}-${valueName}`.slice(0, 32);
+    }
+  }
+  // If no existing SKUs, don't set SKU (undefined will be omitted from payload)
+  
   return {
-    sku: `${item.id}-${valueName}`.slice(0, 32),
+    ...(sku ? { sku } : {}),
     property_values: [
       {
         property_id: existingProperty.property_id,
@@ -417,6 +453,9 @@ export async function syncEtsyListingInventoryFromInw(
       ? extractPropertyFromExistingProducts(products, quantityOnProperty)
       : null;
 
+  // Extract SKU pattern to maintain consistency when adding new products
+  const skuPattern = extractSkuPattern(products, item.id);
+
   console.log("[etsy] variant sync setup", {
     listingId,
     existingProductCount: products.length,
@@ -463,13 +502,15 @@ export async function syncEtsyListingInventoryFromInw(
         item,
         opt,
         fallbackProperty,
-        defaultReadinessStateId
+        defaultReadinessStateId,
+        skuPattern
       );
       console.log("[etsy] using fallback property for new option", {
         listingId,
         optionValue: opt.value,
         propertyId: fallbackProperty.property_id,
         propertyName: fallbackProperty.property_name,
+        skuPattern,
       });
     }
     
