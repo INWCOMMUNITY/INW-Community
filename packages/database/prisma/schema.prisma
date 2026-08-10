@@ -1773,6 +1773,7 @@ model MemberSyncPreferences {
   syncDescriptions      Boolean  @default(true) @map("sync_descriptions")
   syncPhotos            Boolean  @default(true) @map("sync_photos")
   syncPrices            Boolean  @default(true) @map("sync_prices")
+  syncShipping          Boolean  @default(true) @map("sync_shipping")           // When off, shipping costs not imported/synced
   
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")

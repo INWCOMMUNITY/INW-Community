@@ -19,6 +19,7 @@ import { EbaySetupCard } from "@/components/channels/EbaySetupCard";
 import { SyncHealthWidget } from "@/components/channels/SyncHealthWidget";
 import { SyncRulesCard } from "@/components/channels/SyncRulesCard";
 import { ChannelSettingsModal } from "@/components/channels/ChannelSettingsModal";
+import { SyncOnboarding } from "@/components/channels/SyncOnboarding";
 
 type Connection = {
   id: string;
@@ -353,6 +354,9 @@ export default function ChannelsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Onboarding slideshow - shows until user dismisses */}
+      <SyncOnboarding />
+      
       <Text style={styles.hint}>
         List once on INW and keep your items and inventory in sync across marketplaces. A sale on any
         connected store reduces stock everywhere.
@@ -364,26 +368,46 @@ export default function ChannelsScreen() {
       {loading ? (
         <ActivityIndicator style={styles.spinner} color={theme.colors.primary} />
       ) : (
-        PROVIDERS.map((p) => {
-          const conn = connectionFor(p.provider);
-          return (
-            <View key={p.provider} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Ionicons name={p.icon} size={22} color={theme.colors.primary} />
-                <Text style={styles.providerName}>{p.name}</Text>
-                {!p.available && <Text style={styles.comingSoon}>Coming soon</Text>}
+        <>
+          {/* Connected Platforms Section */}
+          {connections.length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="checkmark-circle" size={20} color="#2e7d32" />
+                <Text style={styles.sectionTitle}>Connected Platforms</Text>
+                <Text style={styles.sectionCount}>{connections.length}</Text>
               </View>
-              <Text style={styles.providerBlurb}>{p.blurb}</Text>
+              {PROVIDERS.filter((p) => connectionFor(p.provider)).map((p) => {
+                const conn = connectionFor(p.provider)!;
+                return (
+                  <View key={p.provider} style={[styles.card, styles.cardConnected]}>
+                    <View style={styles.cardHeader}>
+                      <Ionicons name={p.icon} size={22} color={theme.colors.primary} />
+                      <Text style={styles.providerName}>{p.name}</Text>
+                      <View style={styles.statusBadge}>
+                        <Ionicons 
+                          name={conn.status === "error" ? "alert-circle" : "ellipse"} 
+                          size={10} 
+                          color={conn.status === "error" ? "#c62828" : "#2e7d32"} 
+                        />
+                        <Text style={[
+                          styles.statusText,
+                          conn.status === "error" && styles.statusTextError
+                        ]}>
+                          {conn.status === "error" ? "Issue" : "Active"}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.providerBlurb}>
+                      {conn.shopName ? `Connected to ${conn.shopName}` : "Connected"} • {conn.linkedListings} listing{conn.linkedListings === 1 ? "" : "s"} linked
+                    </Text>
 
-              {conn ? (
-                <>
-                  <View style={styles.bannerOk}>
-                    <Text style={styles.bannerOkText}>
-                      Connected{conn.shopName ? ` to ${conn.shopName}` : ""}.
-                    </Text>
-                    <Text style={styles.bannerHint}>
-                      {conn.linkedListings} listing{conn.linkedListings === 1 ? "" : "s"} linked.
-                    </Text>
+                    {conn.status === "error" && conn.lastError && (
+                      <View style={styles.errorBanner}>
+                        <Ionicons name="alert-circle-outline" size={16} color="#c62828" />
+                        <Text style={styles.errorText}>{conn.lastError}</Text>
+                      </View>
+                    )}
                     {p.provider === "etsy" && !conn.hasShippingProfile && (
                       <Text style={styles.warn}>
                         Add a shipping profile on Etsy so listings can publish live.
@@ -392,71 +416,47 @@ export default function ChannelsScreen() {
                     {p.provider === "ebay" && conn.readyToPublish === false && (
                       <EbaySetupCard onSetupComplete={refresh} />
                     )}
-                    {p.provider === "wix" && (
-                      <>
-                        <Text style={styles.warn}>
-                          Make sure the Wix Stores app is added to your site. Only items imported from
-                          Wix (or created with sync on) push changes back to Wix.
-                        </Text>
-                        {conn.linkedListings === 0 && (
-                          <Text style={styles.warn}>
-                            No listings linked yet — tap Import existing listings.
-                          </Text>
-                        )}
-                      </>
-                    )}
-                    {p.provider === "shopify" && conn.readyToPublish === false && (
+                    {p.provider === "wix" && conn.linkedListings === 0 && (
                       <Text style={styles.warn}>
-                        Reconnect Shopify or set an inventory location so quantity sync can run (see
-                        SHOPIFY_DEFAULT_LOCATION_ID).
+                        No listings linked yet — tap Import existing listings.
                       </Text>
                     )}
-                    {p.provider === "shopify" && conn.readyToPublish !== false && (
-                      <Text style={styles.warn}>
-                        Your Shopify store needs the Online Store channel and inventory tracking enabled
-                        for products to sync.
-                      </Text>
-                    )}
-                    {conn.status === "error" && conn.lastError && (
-                      <Text style={styles.warn}>Sync issue: {conn.lastError}</Text>
-                    )}
-                  </View>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      pressed && { opacity: 0.85 },
-                      syncing === conn.id && styles.primaryBtnDisabled,
-                    ]}
-                    onPress={() => void syncNow(conn, p.name)}
-                    disabled={syncing === conn.id}
-                  >
-                    {syncing === conn.id ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={styles.primaryBtnText}>Sync Now</Text>
-                    )}
-                  </Pressable>
-                  {(p.provider === "etsy" ||
-                    p.provider === "ebay" ||
-                    p.provider === "wix" ||
-                    p.provider === "shopify") && (
-                    <>
+
+                    <View style={styles.actionButtons}>
                       <Pressable
                         style={({ pressed }) => [
-                          styles.secondaryBtn,
-                          styles.secondaryBtnSpaced,
+                          styles.actionBtn,
+                          styles.actionBtnPrimary,
+                          pressed && { opacity: 0.85 },
+                          syncing === conn.id && styles.primaryBtnDisabled,
+                        ]}
+                        onPress={() => void syncNow(conn, p.name)}
+                        disabled={syncing === conn.id}
+                      >
+                        {syncing === conn.id ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <>
+                            <Ionicons name="sync" size={16} color="#fff" />
+                            <Text style={styles.actionBtnTextPrimary}>Sync Now</Text>
+                          </>
+                        )}
+                      </Pressable>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.actionBtn,
                           pressed && { opacity: 0.85 },
                         ]}
                         onPress={() =>
                           router.push(`/seller-hub/channels/import?provider=${p.provider}`)
                         }
                       >
-                        <Text style={styles.secondaryBtnText}>Import existing listings</Text>
+                        <Ionicons name="download-outline" size={16} color={theme.colors.primary} />
+                        <Text style={styles.actionBtnText}>Import</Text>
                       </Pressable>
                       <Pressable
                         style={({ pressed }) => [
-                          styles.secondaryBtn,
-                          styles.secondaryBtnSpaced,
+                          styles.actionBtn,
                           pressed && { opacity: 0.85 },
                         ]}
                         onPress={() =>
@@ -468,60 +468,62 @@ export default function ChannelsScreen() {
                           })
                         }
                       >
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                          <Ionicons name="settings-outline" size={18} color={theme.colors.primary} />
-                          <Text style={styles.secondaryBtnText}>Sync Settings</Text>
-                        </View>
+                        <Ionicons name="settings-outline" size={16} color={theme.colors.primary} />
+                        <Text style={styles.actionBtnText}>Settings</Text>
                       </Pressable>
-                    </>
-                  )}
-                  {p.provider === "wix" && (
-                    <>
+                    </View>
+
+                    {p.provider === "wix" && (
+                      <View style={styles.extraActions}>
+                        <Pressable
+                          style={({ pressed }) => [styles.linkAction, pressed && { opacity: 0.6 }]}
+                          onPress={() => void testWix()}
+                        >
+                          <Text style={styles.linkActionText}>Test Connection</Text>
+                        </Pressable>
+                        <Pressable
+                          style={({ pressed }) => [styles.linkAction, pressed && { opacity: 0.6 }]}
+                          onPress={() => void testWixPush()}
+                        >
+                          <Text style={styles.linkActionText}>Test Write</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                    {p.provider === "ebay" && (
                       <Pressable
-                        style={({ pressed }) => [
-                          styles.secondaryBtn,
-                          styles.secondaryBtnSpaced,
-                          pressed && { opacity: 0.85 },
-                        ]}
-                        onPress={() => void testWix()}
+                        style={({ pressed }) => [styles.linkAction, pressed && { opacity: 0.6 }]}
+                        onPress={() => void logoutEbay(conn.shopName || conn.shopId || "eBay")}
                       >
-                        <Text style={styles.secondaryBtnText}>Test Wix connection</Text>
+                        <Text style={styles.linkActionText}>Logout of eBay Session</Text>
                       </Pressable>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.secondaryBtn,
-                          styles.secondaryBtnSpaced,
-                          pressed && { opacity: 0.85 },
-                        ]}
-                        onPress={() => void testWixPush()}
-                      >
-                        <Text style={styles.secondaryBtnText}>Test Wix write (qty push)</Text>
-                      </Pressable>
-                    </>
-                  )}
-                  <Pressable
-                    style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.6 }]}
-                    onPress={() => disconnect(conn, p.name)}
-                  >
-                    <Text style={styles.linkBtnText}>Disconnect {p.name}</Text>
-                  </Pressable>
-                  {p.provider === "ebay" && (
+                    )}
                     <Pressable
-                      style={({ pressed }) => [
-                        styles.secondaryBtn,
-                        styles.secondaryBtnSpaced,
-                        pressed && { opacity: 0.85 },
-                      ]}
-                      onPress={() => void logoutEbay(conn.shopName || conn.shopId || "eBay")}
+                      style={({ pressed }) => [styles.disconnectLink, pressed && { opacity: 0.6 }]}
+                      onPress={() => disconnect(conn, p.name)}
                     >
-                      <Text style={styles.secondaryBtnText}>
-                        Logout of {conn.shopName || conn.shopId || "eBay"}
-                      </Text>
+                      <Text style={styles.disconnectText}>Disconnect {p.name}</Text>
                     </Pressable>
-                  )}
-                </>
-              ) : (
-                <>
+                  </View>
+                );
+              })}
+            </>
+          )}
+
+          {/* Available Platforms Section */}
+          {PROVIDERS.filter((p) => !connectionFor(p.provider) && p.available).length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="add-circle-outline" size={20} color="#666" />
+                <Text style={styles.sectionTitle}>Available Platforms</Text>
+              </View>
+              {PROVIDERS.filter((p) => !connectionFor(p.provider) && p.available).map((p) => (
+                <View key={p.provider} style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <Ionicons name={p.icon} size={22} color={theme.colors.primary} />
+                    <Text style={styles.providerName}>{p.name}</Text>
+                  </View>
+                  <Text style={styles.providerBlurb}>{p.blurb}</Text>
+
                   {p.provider === "shopify" && (
                     <TextInput
                       style={styles.shopInput}
@@ -534,27 +536,45 @@ export default function ChannelsScreen() {
                     />
                   )}
                   <Pressable
-                  style={({ pressed }) => [
-                    styles.primaryBtn,
-                    pressed && { opacity: 0.85 },
-                    (!p.available || connecting === p.provider) && styles.primaryBtnDisabled,
-                  ]}
-                  onPress={() => p.available && connect(p.provider)}
-                  disabled={!p.available || connecting === p.provider}
-                >
-                  {connecting === p.provider ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>
-                      {p.available ? `Connect ${p.name}` : "Coming soon"}
-                    </Text>
-                  )}
-                </Pressable>
-                </>
-              )}
-            </View>
-          );
-        })
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      pressed && { opacity: 0.85 },
+                      connecting === p.provider && styles.primaryBtnDisabled,
+                    ]}
+                    onPress={() => connect(p.provider)}
+                    disabled={connecting === p.provider}
+                  >
+                    {connecting === p.provider ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>Connect {p.name}</Text>
+                    )}
+                  </Pressable>
+                </View>
+              ))}
+            </>
+          )}
+
+          {/* Coming Soon Section */}
+          {PROVIDERS.filter((p) => !p.available).length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="time-outline" size={20} color="#999" />
+                <Text style={[styles.sectionTitle, { color: "#999" }]}>Coming Soon</Text>
+              </View>
+              {PROVIDERS.filter((p) => !p.available).map((p) => (
+                <View key={p.provider} style={[styles.card, styles.cardDisabled]}>
+                  <View style={styles.cardHeader}>
+                    <Ionicons name={p.icon} size={22} color="#999" />
+                    <Text style={[styles.providerName, { color: "#999" }]}>{p.name}</Text>
+                    <Text style={styles.comingSoon}>Coming soon</Text>
+                  </View>
+                  <Text style={[styles.providerBlurb, { color: "#bbb" }]}>{p.blurb}</Text>
+                </View>
+              ))}
+            </>
+          )}
+        </>
       )}
 
       {success && !error && <Text style={styles.success}>{success}</Text>}
@@ -582,21 +602,77 @@ export default function ChannelsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  content: { padding: 20, paddingBottom: 40 },
-  hint: { fontSize: 14, color: "#666", marginBottom: 20 },
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  content: { padding: 16, paddingBottom: 40 },
+  hint: { fontSize: 14, color: "#666", marginBottom: 16, paddingHorizontal: 4 },
   spinner: { marginVertical: 16 },
+  
+  // Section headers for grouping
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+    flex: 1,
+  },
+  sectionCount: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#fff",
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  
   card: {
+    backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#e0e0e0",
     borderRadius: 12,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  cardConnected: {
+    borderColor: "#c8e6c9",
+    borderLeftWidth: 4,
+    borderLeftColor: "#2e7d32",
+  },
+  cardDisabled: {
+    backgroundColor: "#fafafa",
+    opacity: 0.7,
   },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  providerName: { fontSize: 17, fontWeight: "700", color: theme.colors.heading },
+  providerName: { fontSize: 17, fontWeight: "700", color: theme.colors.heading, flex: 1 },
+  
+  // Status badge
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "#e8f5e9",
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#2e7d32",
+  },
+  statusTextError: {
+    color: "#c62828",
+  },
+  
   comingSoon: {
-    marginLeft: "auto",
     fontSize: 12,
     fontWeight: "600",
     color: "#b26a00",
@@ -607,6 +683,76 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   providerBlurb: { fontSize: 13, color: "#666", marginTop: 6, marginBottom: 14 },
+  
+  // Error banner
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#ffebee",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#c62828",
+  },
+  
+  // Action buttons row
+  actionButtons: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  actionBtnPrimary: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  actionBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  actionBtnTextPrimary: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  
+  // Extra actions (test buttons, etc.)
+  extraActions: {
+    flexDirection: "row",
+    gap: 16,
+    marginTop: 12,
+  },
+  linkAction: {
+    paddingVertical: 8,
+  },
+  linkActionText: {
+    fontSize: 14,
+    color: theme.colors.primary,
+  },
+  disconnectLink: {
+    marginTop: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  disconnectText: {
+    fontSize: 14,
+    color: "#c62828",
+  },
   shopInput: {
     borderWidth: 1,
     borderColor: "#e0e0e0",

@@ -154,6 +154,17 @@ export async function reconcileConnectionInboundMeta(
     }
   }
 
+  if (provider === "etsy" && ctx) {
+    const { enrichEtsyListingSummaryWithInventory } = await import("./etsy/variants");
+    for (const link of await prisma.channelListingLink.findMany({
+      where: { connectionId: connection.id, provider: "etsy", syncEnabled: true },
+      select: { externalListingId: true },
+    })) {
+      const r = remoteById.get(link.externalListingId);
+      if (r) await enrichEtsyListingSummaryWithInventory(ctx.accessToken, r);
+    }
+  }
+
   const links = (await prisma.channelListingLink.findMany({
     where: { connectionId: connection.id, provider, syncEnabled: true },
     select: {
@@ -204,14 +215,15 @@ export async function reconcileConnectionInboundMeta(
 
     const item = link.storeItem;
 
-    // Backfill listings imported before Wix variant qty parsing was fixed.
+    // Backfill listings imported before variant qty parsing was fixed (Wix / Etsy inventory API).
     if (
       remote.variantsKnown &&
       remote.variants &&
       (inwMissingVariants(item.variants) ||
         (provider === "wix" &&
           inwAllOptionQtyZero(item.variants) &&
-          remoteVariantQtySum(remote) > 0))
+          remoteVariantQtySum(remote) > 0) ||
+        (provider === "etsy" && inwAllOptionQtyZero(item.variants) && remoteVariantQtySum(remote) > 0))
     ) {
       const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);
       if (vars) {

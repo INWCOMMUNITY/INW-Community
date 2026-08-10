@@ -57,19 +57,32 @@ export async function applyRemoteCategoryToStoreItem(
   return true;
 }
 
-/** Apply flat shipping cost from remote when known. */
+/** Apply flat shipping cost from remote when known and syncShipping is enabled. */
 export async function applyRemoteShippingToStoreItem(
   storeItemId: string,
-  remote: RemoteListingSummary
+  remote: RemoteListingSummary,
+  memberId?: string
 ): Promise<boolean> {
   if (remote.shippingKnown === false) return false;
   if (remote.shippingCostCents == null || !Number.isFinite(remote.shippingCostCents)) return false;
 
   const item = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
-    select: { shippingCostCents: true },
+    select: { shippingCostCents: true, memberId: true },
   });
   if (!item) return false;
+  
+  // Check member's sync preferences for shipping sync toggle
+  const effectiveMemberId = memberId ?? item.memberId;
+  const syncPrefs = await prisma.memberSyncPreferences.findUnique({
+    where: { memberId: effectiveMemberId },
+    select: { syncShipping: true },
+  });
+  if (syncPrefs && !syncPrefs.syncShipping) {
+    // Shipping sync is disabled, skip
+    return false;
+  }
+  
   const next = Math.max(0, Math.round(remote.shippingCostCents));
   if (item.shippingCostCents === next) return false;
 

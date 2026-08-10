@@ -25,6 +25,7 @@ type SyncPreferences = {
   syncDescriptions: boolean;
   syncPhotos: boolean;
   syncPrices: boolean;
+  syncShipping: boolean;
 };
 
 const SOURCE_OF_TRUTH_OPTIONS = [
@@ -314,6 +315,7 @@ export function SyncRulesCard() {
             { key: "syncDescriptions", label: "Descriptions" },
             { key: "syncPhotos", label: "Photos" },
             { key: "syncPrices", label: "Prices" },
+            { key: "syncShipping", label: "Shipping Costs" },
           ].map((field) => (
             <View key={field.key} style={styles.toggleRow}>
               <Text style={styles.toggleLabel}>{field.label}</Text>

@@ -4,6 +4,7 @@ import {
   applyRemoteContentToStoreItem,
   applyRemoteQuantityToStoreItem,
   applyRemoteListingRemoved,
+  remoteContentDiffersFromStoreItem,
 } from "./apply-remote-listing";
 import { getAdapter } from "./registry";
 import { updateStoreItemOnChannels } from "./outbound";
@@ -20,6 +21,16 @@ import { variantsFingerprint } from "./variant-sync";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { getChannelCapabilities } from "./capabilities";
 import { logSyncEvent } from "./sync-log";
+
+/** Content fingerprint for a remote catalog row (same fields as syncContentHash on StoreItem). */
+function remoteListingContentHash(remote: RemoteListingSummary): string {
+  return syncContentHash({
+    title: remote.title.slice(0, 200),
+    description: remote.description,
+    priceCents: remote.priceCents,
+    photos: remote.photos ?? [],
+  });
+}
 
 type ConnectionRow = {
   id: string;
@@ -237,28 +248,42 @@ export async function reconcileConnectionInboundCatalog(
     const baseHash = link.syncBaselineHash ?? inwHash;
     const baseAt = link.syncBaselineAt ?? remote.remoteUpdatedAt ?? new Date();
     const inwContentChanged = inwHash !== baseHash;
-    
-    // Check if remote timestamp is newer than baseline
+    const remoteHash = remoteListingContentHash(remote);
+
+    // Remote edited on the channel since we last agreed a baseline (timestamp + content hash).
     const remoteTimestampNewer =
       remote.remoteUpdatedAt != null && remote.remoteUpdatedAt.getTime() > baseAt.getTime();
-    
-    // ALSO check if remote content actually differs from INW
-    // This catches changes even when timestamps aren't working correctly
-    const remoteContentActuallyDiffers = 
-      item.title !== remote.title.slice(0, 200) ||
-      item.priceCents !== remote.priceCents ||
-      (item.description?.trim() ?? "") !== (remote.description?.trim() ?? "");
-    
-    // Remote changed if EITHER timestamp is newer OR content actually differs
-    const remoteContentChanged = remoteTimestampNewer || remoteContentActuallyDiffers;
-    
-    const contentDecision: SyncDirection = resolveSyncDirection({
+    const remoteContentChanged =
+      remoteTimestampNewer && remoteHash !== baseHash;
+
+    const remoteContentActuallyDiffers = remoteContentDiffersFromStoreItem(item, remote);
+
+    // INW was saved after the remote listing last changed, but Etsy/Wix still shows old data (push pending).
+    const inwNewerThanRemote =
+      remote.remoteUpdatedAt == null ||
+      item.updatedAt.getTime() > remote.remoteUpdatedAt.getTime();
+    const staleRemoteNeedsPush =
+      !inwContentChanged &&
+      !remoteContentChanged &&
+      remoteContentActuallyDiffers &&
+      inwNewerThanRemote;
+
+    let contentDecision: SyncDirection = resolveSyncDirection({
       inwChanged: inwContentChanged,
       remoteChanged: remoteContentChanged,
       inwUpdatedAt: item.updatedAt,
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
       conflictResolution,
     });
+
+    if (staleRemoteNeedsPush && contentDecision !== "push") {
+      contentDecision = "push";
+    }
+
+    // Never pull when the remote listing is older than INW and did not change since baseline.
+    if (contentDecision === "pull" && !remoteContentChanged && inwNewerThanRemote) {
+      contentDecision = staleRemoteNeedsPush ? "push" : "noop";
+    }
 
     const inwQtyChangedSinceBaseline =
       link.syncBaselineQty != null && item.quantity !== link.syncBaselineQty;
@@ -279,6 +304,7 @@ export async function reconcileConnectionInboundCatalog(
         remoteTimestampNewer,
         remoteContentActuallyDiffers,
         remoteContentChanged,
+        staleRemoteNeedsPush,
         contentDecision,
         qtyDiffers,
         baseAt: baseAt?.toISOString(),

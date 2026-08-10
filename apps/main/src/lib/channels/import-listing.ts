@@ -164,6 +164,13 @@ export async function importRemoteListing(args: {
 
   let createdStoreItemId: string | null = null;
   try {
+    // Check member's sync preferences for shipping sync toggle
+    const syncPrefs = await prisma.memberSyncPreferences.findUnique({
+      where: { memberId },
+      select: { syncShipping: true },
+    });
+    const shouldSyncShipping = syncPrefs?.syncShipping ?? true;
+    
     const resolvedCat = resolveInwCategoryFromRemote(listing.category, listing.subcategory, {
       provider,
     });
@@ -189,8 +196,9 @@ export async function importRemoteListing(args: {
         : listing.quantityKnown === false
           ? 0
           : Math.max(0, Math.round(Number(listing.quantity) || 0));
+    // Only import shipping cost if syncShipping is enabled
     const shippingCents =
-      listing.shippingKnown !== false && listing.shippingCostCents != null
+      shouldSyncShipping && listing.shippingKnown !== false && listing.shippingCostCents != null
         ? Math.max(0, Math.round(listing.shippingCostCents))
         : null;
 

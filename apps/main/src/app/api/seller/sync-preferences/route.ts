@@ -19,6 +19,7 @@ type SyncPreferencesResponse = {
   syncDescriptions: boolean;
   syncPhotos: boolean;
   syncPrices: boolean;
+  syncShipping: boolean;
 };
 
 /**
@@ -37,7 +38,8 @@ type SyncPreferencesResponse = {
  *   syncTitles: boolean,
  *   syncDescriptions: boolean,
  *   syncPhotos: boolean,
- *   syncPrices: boolean
+ *   syncPrices: boolean,
+ *   syncShipping: boolean
  * }
  */
 export async function GET(req: NextRequest) {
@@ -65,6 +67,7 @@ export async function GET(req: NextRequest) {
       syncDescriptions: prefs?.syncDescriptions ?? true,
       syncPhotos: prefs?.syncPhotos ?? true,
       syncPrices: prefs?.syncPrices ?? true,
+      syncShipping: prefs?.syncShipping ?? true,
     };
 
     return NextResponse.json(response);
@@ -88,6 +91,7 @@ const patchSchema = z.object({
   syncDescriptions: z.boolean().optional(),
   syncPhotos: z.boolean().optional(),
   syncPrices: z.boolean().optional(),
+  syncShipping: z.boolean().optional(),
 });
 
 /**
@@ -106,7 +110,8 @@ const patchSchema = z.object({
  *   syncTitles?: boolean,
  *   syncDescriptions?: boolean,
  *   syncPhotos?: boolean,
- *   syncPrices?: boolean
+ *   syncPrices?: boolean,
+ *   syncShipping?: boolean
  * }
  *
  * Response: Updated preferences object (same shape as GET)
@@ -163,6 +168,7 @@ export async function PATCH(req: NextRequest) {
       syncDescriptions: prefs.syncDescriptions,
       syncPhotos: prefs.syncPhotos,
       syncPrices: prefs.syncPrices,
+      syncShipping: prefs.syncShipping,
     };
 
     return NextResponse.json(response);
