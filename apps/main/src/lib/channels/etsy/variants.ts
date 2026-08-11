@@ -291,6 +291,39 @@ function extractPropertyFromExistingProducts(
 }
 
 /**
+ * Derive the StoreItem SKU to save when importing from Etsy inventory.
+ * Simple listings use the product SKU as-is; multi-variant listings use the shared base prefix.
+ */
+export function extractImportSkuFromEtsyProducts(
+  products: EtsyInventoryProduct[] | undefined
+): string | null {
+  if (!products?.length) return null;
+  const skus = products.map((p) => p.sku?.trim()).filter(Boolean) as string[];
+  if (skus.length === 0) return null;
+
+  if (products.length === 1) {
+    return skus[0].slice(0, 50);
+  }
+
+  const first = skus[0];
+  const dashIdx = first.lastIndexOf("-");
+  if (dashIdx > 0) {
+    const prefix = first.slice(0, dashIdx);
+    const allSharePrefix = skus.every(
+      (s) => s.startsWith(`${prefix}-`) && s.length > prefix.length + 1
+    );
+    if (allSharePrefix) {
+      return prefix.slice(0, 50);
+    }
+  }
+
+  const unique = [...new Set(skus)];
+  if (unique.length === 1) return unique[0].slice(0, 50);
+
+  return first.slice(0, 50);
+}
+
+/**
  * Extract SKU pattern from existing Etsy products to maintain consistency.
  * Returns { hasSkus: boolean, basePattern: string | null }
  */
@@ -594,7 +627,13 @@ export async function enrichEtsyListingSummaryWithInventory(
       accessToken,
       `/listings/${summary.externalListingId}/inventory`
     );
-    const variants = etsyInventoryToVariants(inv.products);
+    const products = inv.products ?? [];
+    const inventorySku = extractImportSkuFromEtsyProducts(products);
+    if (inventorySku) {
+      summary.sku = inventorySku;
+    }
+
+    const variants = etsyInventoryToVariants(products);
     if (!variants || variants.length === 0) return;
     summary.variants = variants;
     summary.variantsKnown = true;
