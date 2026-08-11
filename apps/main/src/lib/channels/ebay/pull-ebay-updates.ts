@@ -4,7 +4,7 @@ import { fetchEbayItemDetails, enumerateEbayListings } from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { normalizeEbayPhotoUrl } from "./photos";
 import { storeListingDescription } from "../import-listing";
-import { resolveInwCategoryWithLearning } from "../category-resolver";
+import { resolveInwCategoryFromEbayPath } from "../category-resolver";
 import { syncContentHash, syncMetaHash } from "../sync-baseline";
 import { variantsFingerprint } from "../variant-sync";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
@@ -116,9 +116,7 @@ export async function refreshEbayListingByItemId(
     .map((u) => normalizeEbayPhotoUrl(u))
     .filter((u): u is string => Boolean(u));
   const description = storeListingDescription(details.description) ?? storeItem.description;
-  const resolvedCat = await resolveInwCategoryWithLearning(details.categoryName ?? null, null, {
-    provider: "ebay",
-  });
+  const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null);
   const remoteTitle = (details.title ?? storeItem.title).slice(0, 200);
   const remoteQty = details.quantity ?? storeItem.quantity;
   const remotePrice =

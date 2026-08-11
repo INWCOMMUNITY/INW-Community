@@ -67,3 +67,44 @@ describe("resolveInwCategoryFromRemote — Wix auto-translate", () => {
     expect(r?.subcategory).toBe("Skin Care");
   });
 });
+
+describe("resolveInwCategoryFromRemote — eBay auto-translate", () => {
+  it("maps eBay women's clothing path", () => {
+    const r = resolveInwCategoryFromRemote(
+      "Clothing, Shoes & Accessories > Women's Clothing",
+      null,
+      { provider: "ebay" }
+    );
+    expect(r?.matchedPreset).toBe(true);
+    expect(r?.category).toBe("Clothing");
+    expect(r?.subcategory).toBe("Women's Clothing");
+  });
+
+  it("maps eBay coins path to Art & Collectibles", () => {
+    const r = resolveInwCategoryFromRemote(
+      "Coins & Paper Money > Coins: US",
+      null,
+      { provider: "ebay" }
+    );
+    expect(r?.category).toBe("Art & Collectibles");
+    expect(r?.subcategory).toBe("Coins & Currency");
+  });
+
+  it("maps eBay Home & Garden decor via closest preset", () => {
+    const r = resolveInwCategoryFromRemote("Home & Garden > Home Décor", null, {
+      provider: "ebay",
+    });
+    expect(r?.matchedPreset).toBe(true);
+    expect(r?.category).toBe("Home & Living");
+  });
+
+  it("maps eBay Business & Industrial root", () => {
+    const r = resolveInwCategoryFromRemote("Business & Industrial", null, { provider: "ebay" });
+    expect(r?.category).toBe("Business & Industrial");
+  });
+
+  it("maps eBay tickets root", () => {
+    const r = resolveInwCategoryFromRemote("Tickets & Experiences", null, { provider: "ebay" });
+    expect(r?.category).toBe("Tickets & Experiences");
+  });
+});

@@ -1,5 +1,10 @@
 import { STORE_CATEGORIES } from "@/lib/store-categories";
 import type { ChannelProvider } from "./types";
+import {
+  EBAY_CATEGORY_ALIASES,
+  ebayCategoryPathCandidates,
+  splitEbayCategoryPath,
+} from "./ebay-category-aliases";
 
 /** Minimum similarity score (0–1) to map a remote label to a preset INW category (strict mode). */
 export const CATEGORY_MATCH_THRESHOLD = 0.72;
@@ -11,43 +16,6 @@ export const CATEGORY_MATCH_THRESHOLD = 0.72;
 export const CLOSEST_PRESET_FLOOR = 0.28;
 
 type AliasHit = { category: string; subcategory: string | null };
-
-/**
- * Explicit mappings from common eBay category names/fragments to INW presets.
- * Keys are normalized (lowercase, trimmed). Longer keys win over short ones.
- */
-const EBAY_CATEGORY_ALIASES: Record<string, AliasHit> = {
-  "coins & paper money": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  "coins paper money": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  "coins: us": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  "coins: world": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  "coins us": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  "coins world": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  "paper money: us": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  "paper money: world": { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  bullion: { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  exonumia: { category: "Art & Collectibles", subcategory: "Coins & Currency" },
-  stamps: { category: "Art & Collectibles", subcategory: "Stamps" },
-  "stamps: united states": { category: "Art & Collectibles", subcategory: "Stamps" },
-  "stamps: worldwide": { category: "Art & Collectibles", subcategory: "Stamps" },
-  "sports trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
-  "non-sport trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
-  "trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
-  "sports mem, cards & fan shop": { category: "Art & Collectibles", subcategory: "Trading Cards" },
-  comics: { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
-  "comic books": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
-  "collectibles: comic books & memorabilia": {
-    category: "Books, Movies & Music",
-    subcategory: "Comics & Graphic Novels",
-  },
-  collectibles: { category: "Art & Collectibles", subcategory: null },
-  antiques: { category: "Art & Collectibles", subcategory: "Vintage & Antiques" },
-  "pottery & glass": { category: "Art & Collectibles", subcategory: null },
-  "entertainment memorabilia": { category: "Art & Collectibles", subcategory: "Memorabilia" },
-  "music memorabilia": { category: "Art & Collectibles", subcategory: "Memorabilia" },
-  "movie memorabilia": { category: "Art & Collectibles", subcategory: "Memorabilia" },
-  autographs: { category: "Art & Collectibles", subcategory: "Memorabilia" },
-};
 
 /**
  * Etsy seller-taxonomy top-levels + common mid/leaf labels → closest INW preset.
@@ -522,7 +490,11 @@ function refineSubcategory(category: string, remoteSub: string): string | null {
   }
   // Exact alias mid-level keys under this category (e.g. Greeting Cards).
   const n = normalizeLabel(remoteSub);
-  for (const [key, hit] of Object.entries({ ...ETSY_CATEGORY_ALIASES, ...WIX_CATEGORY_ALIASES })) {
+  for (const [key, hit] of Object.entries({
+    ...ETSY_CATEGORY_ALIASES,
+    ...WIX_CATEGORY_ALIASES,
+    ...EBAY_CATEGORY_ALIASES,
+  })) {
     if (hit.category !== category || !hit.subcategory) continue;
     if (n === normalizeLabel(key) || n.includes(normalizeLabel(key))) {
       return hit.subcategory;
@@ -536,7 +508,7 @@ function shouldUseClosestPreset(
   opts?: ResolveCategoryOptions
 ): boolean {
   if (opts?.closestPreset != null) return opts.closestPreset;
-  return provider === "etsy" || provider === "wix" || provider === "shopify";
+  return provider === "etsy" || provider === "wix" || provider === "shopify" || provider === "ebay";
 }
 
 /**
@@ -566,6 +538,24 @@ export function resolveInwCategoryFromRemote(
   if (!label) return null;
 
   const aliases = aliasesForProvider(opts?.provider);
+
+  // eBay PrimaryCategory is usually "Root > Mid > Leaf" — try each path segment first.
+  if (opts?.provider === "ebay" && label.includes(">")) {
+    for (const segment of ebayCategoryPathCandidates(label)) {
+      const segHit = matchAlias(segment, sub, aliases);
+      if (segHit) {
+        if (!segHit.subcategory && sub) {
+          const refined = refineSubcategory(segHit.category, sub);
+          if (refined) return { ...segHit, subcategory: refined };
+        }
+        return segHit;
+      }
+    }
+    const split = splitEbayCategoryPath(label);
+    label = split.label;
+    if (!sub && split.subcategory) sub = split.subcategory;
+  }
+
   let aliasMatch = matchAlias(label, sub, aliases);
 
   // Also try eBay aliases as a shared collectibles backstop for all providers.
@@ -957,6 +947,56 @@ export async function getLearnedCategoryMapping(
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Resolve an eBay PrimaryCategory path to an INW preset (with learning + aliases).
+ */
+export async function resolveInwCategoryFromEbayPath(
+  categoryPath: string | null | undefined
+): Promise<ResolvedInwCategory | null> {
+  if (!categoryPath?.trim()) return null;
+  const { label, subcategory } = splitEbayCategoryPath(categoryPath);
+  return resolveInwCategoryWithLearning(label, subcategory, { provider: "ebay" });
+}
+
+/**
+ * Seed mapping stats when an import auto-assigns a category (speeds up adaptive learning).
+ */
+export async function seedCategoryMappingFromImport(params: {
+  provider: ChannelProvider;
+  remoteCategory: string;
+  remoteSubcategory?: string | null;
+  mappedCategory: string;
+  mappedSubcategory?: string | null;
+  confidence?: number;
+}): Promise<void> {
+  const remote = params.remoteCategory.trim();
+  if (!remote) return;
+
+  try {
+    await prisma.categoryMappingStats.upsert({
+      where: {
+        provider_remoteCategory: { provider: params.provider, remoteCategory: remote },
+      },
+      create: {
+        provider: params.provider,
+        remoteCategory: remote,
+        mappedCategory: params.mappedCategory,
+        mappedSubcat: params.mappedSubcategory ?? null,
+        confidence: params.confidence ?? 0.55,
+        keepCount: 1,
+        overrideCount: 0,
+      },
+      update: {
+        mappedCategory: params.mappedCategory,
+        mappedSubcat: params.mappedSubcategory ?? null,
+        keepCount: { increment: 1 },
+      },
+    });
+  } catch (e) {
+    console.warn("[category-mapping] seed import stats failed:", e);
   }
 }
 

@@ -335,15 +335,22 @@ export async function PATCH(
     // Check if this item is linked to any sales channel
     const channelLinks = await prisma.channelListingLink.findMany({
       where: { storeItemId: itemId, syncEnabled: true },
-      select: { provider: true },
+      select: {
+        provider: true,
+        remoteCategoryLabel: true,
+        remoteCategorySubLabel: true,
+      },
     });
     // Record feedback for each linked provider to improve future auto-mapping
     for (const link of channelLinks) {
+      const remoteCategory = link.remoteCategoryLabel?.trim() || existing.category?.trim();
+      if (!remoteCategory) continue;
+
       recordCategoryFeedback({
         provider: link.provider as ChannelProvider,
-        remoteCategory: existing.category, // Use previous category as proxy for remote
-        remoteSubcategory: existing.subcategory,
-        autoMapped: existing.category,
+        remoteCategory,
+        remoteSubcategory: link.remoteCategorySubLabel ?? existing.subcategory,
+        autoMapped: existing.category ?? "",
         autoMappedSubcategory: existing.subcategory,
         sellerChosen: item.category ?? "",
         sellerChosenSubcategory: item.subcategory,

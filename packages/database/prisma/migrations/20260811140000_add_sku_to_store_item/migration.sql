@@ -1,2 +1,2 @@
 -- AlterTable
-ALTER TABLE "store_item" ADD COLUMN "sku" TEXT;
+ALTER TABLE "StoreItem" ADD COLUMN IF NOT EXISTS "sku" TEXT;

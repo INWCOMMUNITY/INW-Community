@@ -119,6 +119,14 @@ const INW_TO_EBAY_CATEGORIES: Record<string, { id: string; path: string }[]> = {
     { id: "2984", path: "Baby" },
     { id: "171146", path: "Clothing, Shoes & Accessories > Kids' Clothing" },
   ],
+  "Business & Industrial": [
+    { id: "12576", path: "Business & Industrial" },
+    { id: "25298", path: "Business & Industrial > Healthcare, Lab & Dental" },
+  ],
+  "Tickets & Experiences": [
+    { id: "1305", path: "Tickets & Experiences" },
+    { id: "552", path: "Tickets & Experiences > Concerts" },
+  ],
 };
 
 /**

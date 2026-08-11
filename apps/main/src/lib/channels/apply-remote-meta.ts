@@ -1,5 +1,5 @@
 import { prisma } from "database";
-import { resolveInwCategoryWithLearning } from "./category-resolver";
+import { resolveInwCategoryWithLearning, resolveInwCategoryFromEbayPath } from "./category-resolver";
 import {
   normalizeVariantsFromProvider,
   sumVariantQuantities,
@@ -19,7 +19,10 @@ export async function applyRemoteCategoryToStoreItem(
   const remoteLabel = remote.category?.trim();
   if (!remoteLabel) return false;
 
-  const resolved = await resolveInwCategoryWithLearning(remoteLabel, remote.subcategory, { provider });
+  const resolved =
+    provider === "ebay"
+      ? await resolveInwCategoryFromEbayPath(remoteLabel)
+      : await resolveInwCategoryWithLearning(remoteLabel, remote.subcategory, { provider });
   if (!resolved) return false;
 
   const item = await prisma.storeItem.findUnique({

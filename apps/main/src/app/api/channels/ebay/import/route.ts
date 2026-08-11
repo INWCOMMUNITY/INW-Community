@@ -10,7 +10,8 @@ import { normalizeListingAspects } from "@/lib/listing-limits";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
 import { storeListingDescription } from "@/lib/channels/import-listing";
 import { sumVariantQuantities } from "@/lib/channels/variant-sync";
-import { resolveInwCategoryWithLearning } from "@/lib/channels/category-resolver";
+import { resolveInwCategoryFromEbayPath, seedCategoryMappingFromImport } from "@/lib/channels/category-resolver";
+import { splitEbayCategoryPath } from "@/lib/channels/ebay-category-aliases";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
 import { variantsFingerprint } from "@/lib/channels/variant-sync";
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
@@ -278,14 +279,11 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    const resolvedCat = await resolveInwCategoryWithLearning(
-      listing.category ?? null,
-      listing.subcategory ?? null,
-      { provider: "ebay" }
-    );
-    // Pull full item specifics + description + category + photos for true two-way round-trip.
-    // GetItem returns all photos (not just the gallery thumb from GetMyeBaySelling).
+    // Pull full item specifics + category path from GetItem (more reliable than preview).
     const details = await fetchEbayItemDetails(ctx.accessToken, legacyId);
+    const ebayCategoryPath =
+      details.categoryName?.trim() || listing.category?.trim() || null;
+    const finalResolvedCat = await resolveInwCategoryFromEbayPath(ebayCategoryPath);
     const importedAspects = normalizeListingAspects(details.aspects);
     const importedVariants = details.variants;
     const importQty =
@@ -325,8 +323,8 @@ export async function POST(req: NextRequest) {
           listingType: "new",
           acceptOffers: false,
           slug: uniqueSlug(slugify(listing.title)),
-          category: resolvedCat?.category ?? listing.category?.slice(0, 200) ?? null,
-          subcategory: resolvedCat?.subcategory ?? listing.subcategory?.slice(0, 200) ?? null,
+          category: finalResolvedCat?.category ?? ebayCategoryPath?.slice(0, 200) ?? null,
+          subcategory: finalResolvedCat?.subcategory ?? null,
           ...(importedAspects.length > 0 ? { aspects: importedAspects as object } : {}),
           ...(importedVariants && importedVariants.length > 0
             ? { variants: importedVariants as object }
@@ -347,6 +345,8 @@ export async function POST(req: NextRequest) {
         variants: storeItem.variants,
       });
 
+      const remoteSplit = splitEbayCategoryPath(ebayCategoryPath);
+
       try {
         await prisma.channelListingLink.create({
           data: {
@@ -365,6 +365,8 @@ export async function POST(req: NextRequest) {
             syncBaselineVariantsHash: variantsFingerprint(storeItem.variants),
             syncBaselineQty: storeItem.quantity,
             syncBaselineAt: new Date(),
+            remoteCategoryLabel: ebayCategoryPath?.slice(0, 500) ?? null,
+            remoteCategorySubLabel: remoteSplit.subcategory?.slice(0, 200) ?? null,
           },
         });
       } catch (linkErr) {
@@ -378,6 +380,16 @@ export async function POST(req: NextRequest) {
       }
 
       autoPostStoreItemToFeed(userId, storeItem.id);
+      if (ebayCategoryPath && finalResolvedCat?.category) {
+        void seedCategoryMappingFromImport({
+          provider: "ebay",
+          remoteCategory: ebayCategoryPath,
+          remoteSubcategory: remoteSplit.subcategory,
+          mappedCategory: finalResolvedCat.category,
+          mappedSubcategory: finalResolvedCat.subcategory,
+          confidence: finalResolvedCat.score,
+        });
+      }
       imported.push({ externalListingId: legacyId, storeItemId: storeItem.id });
     } catch (e) {
       if (createdStoreItemId) {

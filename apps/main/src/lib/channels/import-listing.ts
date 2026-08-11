@@ -1,5 +1,6 @@
 import { prisma, Prisma } from "database";
-import { resolveInwCategoryWithLearning } from "./category-resolver";
+import { resolveInwCategoryWithLearning, resolveInwCategoryFromEbayPath, seedCategoryMappingFromImport } from "./category-resolver";
+import { splitEbayCategoryPath } from "./ebay-category-aliases";
 import {
   normalizeVariantsFromProvider,
   sumVariantQuantities,
@@ -171,9 +172,15 @@ export async function importRemoteListing(args: {
     });
     const shouldSyncShipping = syncPrefs?.syncShipping ?? true;
     
-    const resolvedCat = await resolveInwCategoryWithLearning(listing.category, listing.subcategory, {
-      provider,
-    });
+    const remoteCategoryLabel = listing.category?.trim() || null;
+    const remoteCategorySubLabel = listing.subcategory?.trim() || null;
+
+    const resolvedCat =
+      provider === "ebay" && remoteCategoryLabel
+        ? await resolveInwCategoryFromEbayPath(remoteCategoryLabel)
+        : await resolveInwCategoryWithLearning(remoteCategoryLabel, remoteCategorySubLabel, {
+            provider,
+          });
     if (resolvedCat && !resolvedCat.matchedPreset) {
       console.log("[channels] import using custom category (no preset match)", {
         provider,
@@ -237,6 +244,11 @@ export async function importRemoteListing(args: {
       shippingCostCents: storeItem.shippingCostCents,
       variants: storeItem.variants,
     });
+    const remoteSplit =
+      provider === "ebay" && remoteCategoryLabel
+        ? splitEbayCategoryPath(remoteCategoryLabel)
+        : { label: remoteCategoryLabel ?? "", subcategory: remoteCategorySubLabel };
+
     try {
       await prisma.channelListingLink.create({
         data: {
@@ -254,6 +266,9 @@ export async function importRemoteListing(args: {
           syncBaselineVariantsHash: variantsFingerprint(storeItem.variants),
           syncBaselineQty: storeItem.quantity,
           syncBaselineAt: listing.remoteUpdatedAt ?? new Date(),
+          remoteCategoryLabel: remoteCategoryLabel?.slice(0, 500) ?? null,
+          remoteCategorySubLabel:
+            (remoteSplit.subcategory ?? remoteCategorySubLabel)?.slice(0, 200) ?? null,
         },
       });
     } catch (linkErr) {
@@ -279,6 +294,16 @@ export async function importRemoteListing(args: {
 
     if (postToFeed) {
       autoPostStoreItemToFeed(memberId, storeItem.id);
+    }
+    if (remoteCategoryLabel && resolvedCat?.category) {
+      void seedCategoryMappingFromImport({
+        provider,
+        remoteCategory: remoteCategoryLabel,
+        remoteSubcategory: remoteSplit.subcategory ?? remoteCategorySubLabel,
+        mappedCategory: resolvedCat.category,
+        mappedSubcategory: resolvedCat.subcategory,
+        confidence: resolvedCat.score,
+      });
     }
     return { ok: true, storeItemId: storeItem.id, externalListingId: productId };
   } catch (e) {

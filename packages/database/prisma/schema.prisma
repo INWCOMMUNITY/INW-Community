@@ -1013,6 +1013,9 @@ model ChannelListingLink {
   lastConflictAt     DateTime?  @map("last_conflict_at")
   conflictResolution String?    @map("conflict_resolution") // inw_won | channel_won | pending
   conflictDetails    Json?      @map("conflict_details")
+  /// Original marketplace category label at import (for adaptive mapping feedback).
+  remoteCategoryLabel    String?  @map("remote_category_label")
+  remoteCategorySubLabel String?  @map("remote_category_sub_label")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 

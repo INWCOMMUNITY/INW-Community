@@ -14,6 +14,8 @@ export const STORE_CATEGORIES: StoreCategoryOption[] = [
   { label: "Baby & Kids", subcategories: ["Baby Clothing", "Kids Clothing", "Baby Gear & Nursery", "Strollers & Carriers", "Feeding & Nursing", "Diapering", "Toys for Baby & Toddler", "Kids Toys & Games", "Other Baby & Kids"] },
   { label: "Bags & Purses", subcategories: ["Handbags", "Backpacks", "Crossbody & Messenger", "Wallets & Card Holders", "Totes & Shopping Bags", "Cosmetic Bags", "Other Bags & Purses"] },
   { label: "Bath & Beauty", subcategories: ["Skin Care", "Hair Care", "Makeup & Cosmetics", "Fragrances", "Soaps & Bath", "Nail Care", "Spa & Relaxation", "Bath Accessories", "Other Bath & Beauty"] },
+  /** Aligns with eBay Business & Industrial top-level. */
+  { label: "Business & Industrial", subcategories: ["Office Equipment", "Industrial Supplies", "Healthcare & Lab", "Material Handling", "Safety Equipment", "Other Business & Industrial"] },
   { label: "Books, Movies & Music", subcategories: ["Books", "Comics & Graphic Novels", "Movies & TV", "Music (CDs, Vinyl, etc.)", "Video Games", "Sheet Music & Scores", "Other Books, Movies & Music"] },
   { label: "Clothing", subcategories: ["Women's Clothing", "Men's Clothing", "Kids' Clothing", "Tops & Tees", "Dresses & Skirts", "Pants & Shorts", "Jackets & Coats", "Activewear", "Sleepwear & Loungewear", "Other Clothing"] },
   { label: "Craft Supplies & Tools", subcategories: ["Fabric & Sewing", "Yarn & Knitting", "Scrapbooking & Paper Craft", "Painting & Drawing Supplies", "Beading & Jewelry Making", "Woodworking Supplies", "Clay & Molding", "Other Craft Supplies"] },
@@ -33,6 +35,8 @@ export const STORE_CATEGORIES: StoreCategoryOption[] = [
   { label: "Pet Supplies", subcategories: ["Dog", "Cat", "Fish & Aquarium", "Bird", "Small Animal", "Beds & Carriers", "Toys & Treats", "Collars & Leashes", "Other Pet Supplies"] },
   { label: "Shoes", subcategories: ["Women's Shoes", "Men's Shoes", "Kids' Shoes", "Athletic & Sneakers", "Boots", "Sandals & Flats", "Heels & Dress", "Other Shoes"] },
   { label: "Sports & Outdoors", subcategories: ["Camping & Hiking", "Fitness & Exercise", "Cycling", "Water Sports", "Winter Sports", "Team Sports", "Hunting & Fishing", "Outdoor Gear", "Other Sports & Outdoors"] },
+  /** Aligns with eBay Tickets & Experiences top-level. */
+  { label: "Tickets & Experiences", subcategories: ["Event Tickets", "Gift Experiences", "Travel Vouchers", "Other Tickets & Experiences"] },
   { label: "Tools & Home Improvement", subcategories: ["Hand Tools", "Power Tools", "Hardware", "Electrical", "Plumbing", "Paint & Supplies", "Storage & Organization", "Safety & Security", "Other Tools & Home Improvement"] },
   { label: "Toys & Games", subcategories: ["Action Figures & Collectibles", "Building & Construction", "Board Games & Puzzles", "Dolls & Stuffed Animals", "Educational Toys", "Outdoor Play", "Video Games (physical)", "Other Toys & Games"] },
   { label: "Vehicles & Parts", subcategories: ["Car & Truck Parts", "Motorcycle & ATV", "Wheels, Tires & Rims", "Interior & Exterior", "Tools & Equipment", "Other Vehicles & Parts"] },

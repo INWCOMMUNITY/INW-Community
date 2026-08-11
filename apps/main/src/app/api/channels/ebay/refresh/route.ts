@@ -7,7 +7,7 @@ import { fetchEbayItemDetails, enumerateEbayListings } from "@/lib/channels/ebay
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
 import { plainListingDescription } from "@/lib/channels/import-listing";
-import { resolveInwCategoryWithLearning } from "@/lib/channels/category-resolver";
+import { resolveInwCategoryFromEbayPath } from "@/lib/channels/category-resolver";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
 import { variantsFingerprint } from "@/lib/channels/variant-sync";
 
@@ -143,9 +143,7 @@ export async function POST(req: NextRequest) {
     .map((u) => normalizeEbayPhotoUrl(u))
     .filter((u): u is string => Boolean(u));
   const description = plainListingDescription(details.description) ?? storeItem.description;
-  const resolvedCat = await resolveInwCategoryWithLearning(details.categoryName ?? null, null, {
-    provider: "ebay",
-  });
+  const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null);
 
   // Track what changed
   const changes: string[] = [];
