@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "database";
-import { STORE_CATEGORIES } from "@/lib/store-categories";
+import { STORE_CATEGORIES, slugifyStoreCategory } from "@/lib/store-categories";
 
 export const dynamic = "force-dynamic";
-
-function slugifyCategory(label: string): string {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
 
 export async function GET() {
   // Return prebuilt categories with their subcategories and item counts
@@ -22,7 +18,7 @@ export async function GET() {
       });
       return {
         label: cat.label,
-        slug: slugifyCategory(cat.label),
+        slug: slugifyStoreCategory(cat.label),
         subcategories: cat.subcategories,
         itemCount,
       };

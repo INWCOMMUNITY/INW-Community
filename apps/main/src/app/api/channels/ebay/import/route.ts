@@ -238,6 +238,7 @@ export async function POST(req: NextRequest) {
 
   const imported: { externalListingId: string; storeItemId: string }[] = [];
   const skipped: ImportSkipEntry[] = [];
+  let uncategorizedCount = 0;
 
   // Migrate the classic listings to the Inventory model; this yields the SKU we link on.
   let migration: Awaited<ReturnType<typeof migrateEbayListings>>;
@@ -391,6 +392,9 @@ export async function POST(req: NextRequest) {
         });
       }
       imported.push({ externalListingId: legacyId, storeItemId: storeItem.id });
+      if (!finalResolvedCat?.category) {
+        uncategorizedCount++;
+      }
     } catch (e) {
       if (createdStoreItemId) {
         await prisma.storeItem.delete({ where: { id: createdStoreItemId } }).catch(() => {});
@@ -415,5 +419,6 @@ export async function POST(req: NextRequest) {
     skipped,
     summary,
     hint: topHint,
+    uncategorizedCount,
   });
 }

@@ -2,13 +2,16 @@ import type { ChannelConnectionContext, RemoteListingSummary, SyncStoreItem } fr
 import { listingDescriptionToPlainText } from "../rich-description";
 
 /**
- * Map of common Etsy top-level taxonomy IDs to category names.
- * These are the main categories from Etsy's seller taxonomy.
+ * Map of Etsy taxonomy IDs to category names.
+ * Expanded coverage of Etsy's seller taxonomy for better auto-categorization.
  * Source: Etsy Open API /application/seller-taxonomy/nodes
  */
 const ETSY_TAXONOMY_NAMES: Record<number, string> = {
-  // Top-level categories
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TOP-LEVEL CATEGORIES (16 main categories)
+  // ═══════════════════════════════════════════════════════════════════════════
   1: "Art & Collectibles",
+  4: "Art & Collectibles",
   77: "Accessories",
   78: "Bags & Purses",
   79: "Bath & Beauty",
@@ -23,11 +26,20 @@ const ETSY_TAXONOMY_NAMES: Record<number, string> = {
   88: "Shoes",
   89: "Toys & Games",
   90: "Weddings",
-  
-  // Art & Collectibles subcategories
+  281: "Vintage",
+  891: "Home & Living",
+  1430: "Jewelry & Accessories",
+  68887482: "Craft Supplies & Tools",
+  69150408: "Clothing & Shoes",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ART & COLLECTIBLES (ID: 1, 4)
+  // ═══════════════════════════════════════════════════════════════════════════
   18: "Photography",
   19: "Painting",
+  20: "Artist Trading Cards",
   21: "Prints",
+  22: "Fine Art Ceramics",
   23: "Sculpture",
   24: "Drawing & Illustration",
   25: "Mixed Media & Collage",
@@ -35,35 +47,100 @@ const ETSY_TAXONOMY_NAMES: Record<number, string> = {
   27: "Glass Art",
   28: "Collectibles",
   29: "Dolls & Miniatures",
-  
-  // Accessories subcategories
+  30: "Figurines",
+  31: "Music & Movie Memorabilia",
+  32: "Vintage Posters",
+  33: "Coins & Money",
+  34: "Stamps",
+  35: "Sports Collectibles",
+  36: "Souvenirs & Events",
+  37: "Militaria",
+  38: "Political Memorabilia",
+  39: "Advertising",
+  40: "Tobacciana",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ACCESSORIES (ID: 77)
+  // ═══════════════════════════════════════════════════════════════════════════
   262: "Hats & Caps",
+  263: "Beanies & Winter Hats",
   264: "Scarves & Wraps",
   265: "Belts & Suspenders",
   266: "Sunglasses & Eyewear",
   267: "Gloves & Mittens",
   268: "Hair Accessories",
-  
-  // Jewelry subcategories
-  481: "Bracelets",
-  483: "Earrings",
-  485: "Necklaces",
-  487: "Rings",
-  489: "Body Jewelry",
-  491: "Watches",
-  
-  // Home & Living subcategories
-  428: "Bedding",
-  429: "Bathroom",
-  430: "Kitchen & Dining",
-  431: "Lighting",
-  432: "Outdoor & Garden",
-  433: "Rugs",
-  434: "Storage & Organization",
-  435: "Furniture",
-  441: "Home Decor",
-  
-  // Clothing subcategories
+  269: "Headbands",
+  270: "Hair Clips & Barrettes",
+  271: "Hair Ties & Elastics",
+  272: "Scrunchies",
+  273: "Fascinators & Mini Hats",
+  274: "Keychains & Lanyards",
+  275: "Pins & Pinback Buttons",
+  276: "Patches",
+  277: "Umbrellas & Rain Accessories",
+  278: "Face Masks & Coverings",
+  279: "Costume Accessories",
+  280: "Boutonnieres & Corsages",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BAGS & PURSES (ID: 78)
+  // ═══════════════════════════════════════════════════════════════════════════
+  301: "Backpacks",
+  302: "Handbags",
+  303: "Clutches & Evening Bags",
+  304: "Messenger Bags",
+  305: "Wallets & Money Clips",
+  306: "Totes",
+  307: "Shoulder Bags",
+  308: "Crossbody Bags",
+  309: "Bucket Bags",
+  310: "Fanny Packs",
+  311: "Luggage & Travel",
+  312: "Cosmetic & Toiletry Bags",
+  313: "Diaper Bags",
+  314: "Laptop Bags",
+  315: "Market Bags",
+  316: "Pouches & Coin Purses",
+  317: "Sports Bags",
+  318: "Weekender Bags",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CRAFT SUPPLIES & TOOLS (ID: 82)
+  // ═══════════════════════════════════════════════════════════════════════════
+  331: "Fabric",
+  332: "Beads",
+  333: "Sewing & Needlecraft",
+  334: "Yarn & Fiber",
+  335: "Jewelry Making",
+  336: "Paper, Party & Kids",
+  337: "Floral & Garden Supplies",
+  338: "Canvas & Surfaces",
+  339: "Clay & Modeling",
+  340: "Doll & Model Making",
+  341: "Drawing & Drafting",
+  342: "Embellishments & Trims",
+  343: "Frames, Hoops & Stands",
+  344: "Glue & Adhesives",
+  345: "Knitting Supplies",
+  346: "Leather Crafting",
+  347: "Lighting Supplies",
+  348: "Metal",
+  349: "Molds & Casting",
+  350: "Paints & Glazes",
+  351: "Patterns & How To",
+  352: "Printing & Stamping",
+  353: "Raw Materials",
+  354: "Sculpting & Forming",
+  355: "Tools & Equipment",
+  356: "Weaving & Spinning",
+  357: "Wood",
+  358: "Woodworking Supplies",
+  359: "Scrapbooking Supplies",
+  360: "Visual Arts Supplies",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CLOTHING (ID: 81)
+  // ═══════════════════════════════════════════════════════════════════════════
   361: "Dresses",
   362: "Tops & Tees",
   363: "Pants & Capris",
@@ -73,63 +150,293 @@ const ETSY_TAXONOMY_NAMES: Record<number, string> = {
   367: "Suits & Blazers",
   368: "Shorts",
   369: "Swimwear",
-  
-  // Bath & Beauty subcategories
+  370: "Women's Clothing",
+  371: "Men's Clothing",
+  372: "Unisex Adult Clothing",
+  373: "Girls' Clothing",
+  374: "Boys' Clothing",
+  380: "Baby Clothing",
+  381: "Activewear",
+  382: "Costumes",
+  383: "Intimates & Sleepwear",
+  384: "Jumpsuits & Rompers",
+  385: "Maternity",
+  386: "Overalls & Jeans",
+  387: "Ponchos & Capes",
+  388: "Rainwear",
+  389: "Robes & Wraps",
+  390: "Socks & Leg Warmers",
+  391: "Underwear",
+  392: "Vests",
+  393: "Indian Ethnic Clothing",
+  394: "Gender-Neutral Adult Clothing",
+  395: "Gender-Neutral Kids' Clothing",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BATH & BEAUTY (ID: 79)
+  // ═══════════════════════════════════════════════════════════════════════════
   375: "Skin Care",
   376: "Soaps",
   377: "Hair Care",
   378: "Makeup & Cosmetics",
   379: "Fragrances",
-  
-  // Paper & Party Supplies subcategories
+  401: "Bath Accessories",
+  402: "Bath Bombs & Fizzies",
+  403: "Body Oils",
+  404: "Deodorant",
+  405: "Essential Oils",
+  406: "Lip Balm",
+  407: "Lotion & Body Butter",
+  408: "Nail Care",
+  409: "Personal Care",
+  410: "Salves & Balms",
+  411: "Scrubs",
+  412: "Shaving & Grooming",
+  413: "Spa Kits & Gifts",
+  414: "Sunscreen",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HOME & LIVING (ID: 84, 891)
+  // ═══════════════════════════════════════════════════════════════════════════
+  428: "Bedding",
+  429: "Bathroom",
+  430: "Kitchen & Dining",
+  431: "Lighting",
+  432: "Outdoor & Garden",
+  433: "Rugs",
+  434: "Storage & Organization",
+  435: "Furniture",
+  436: "Living Room Furniture",
+  437: "Bedroom Furniture",
+  438: "Office Furniture",
+  439: "Dining Room Furniture",
+  440: "Outdoor Furniture",
+  441: "Home Decor",
+  442: "Wall Decor",
+  443: "Wall Hangings",
+  444: "Candles & Holders",
+  445: "Clocks",
+  446: "Frames & Displays",
+  447: "Mirrors",
+  448: "Ornaments & Accents",
+  449: "Pillows",
+  450: "Throws & Blankets",
+  451: "Vases",
+  452: "Window Treatments",
+  453: "Curtains & Window Treatments",
+  454: "Home Fragrances",
+  455: "Office",
+  456: "Food & Drink",
+  457: "Cleaning Supplies",
+  458: "Home Improvement",
+  459: "Spirituality & Religion",
+  460: "Home Appliances",
+  461: "Cookware",
+  462: "Drinkware",
+  463: "Dining & Serving",
+  464: "Kitchen Storage",
+  465: "Bar & Barware",
+  466: "Linens",
+  467: "Table Linens",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // JEWELRY (ID: 85, 1430)
+  // ═══════════════════════════════════════════════════════════════════════════
+  481: "Bracelets",
+  482: "Bangles",
+  483: "Earrings",
+  484: "Stud Earrings",
+  485: "Necklaces",
+  486: "Pendant Necklaces",
+  487: "Rings",
+  488: "Statement Rings",
+  489: "Body Jewelry",
+  490: "Anklets",
+  491: "Watches",
+  492: "Brooches, Pins & Clips",
+  493: "Cuff Links & Tie Clips",
+  494: "Jewelry Sets",
+  495: "Jewelry Storage",
+  496: "Smart Jewelry",
+  497: "Cremation & Memorial Jewelry",
+  498: "Charm Bracelets",
+  499: "Chain & Link Bracelets",
+  500: "Cuff Bracelets",
+  501: "Beaded Bracelets",
+  502: "Friendship Bracelets",
+  503: "ID & Medical Bracelets",
+  504: "Hand Chains",
+  505: "Dangle & Drop Earrings",
+  506: "Hoop Earrings",
+  507: "Chandelier Earrings",
+  508: "Clip-On Earrings",
+  509: "Ear Jackets & Climbers",
+  510: "Threader Earrings",
+  511: "Gauge & Plug Earrings",
+  512: "Kaan Chains",
+  513: "Chandbalis",
+  514: "Jhumkas",
+  515: "Choker Necklaces",
+  516: "Collar Necklaces",
+  517: "Lariat & Y Necklaces",
+  518: "Multi-Strand Necklaces",
+  519: "Wedding Bands",
+  520: "Engagement Rings",
+  521: "Signet Rings",
+  522: "Belly Chains",
+  523: "Belly Rings",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PAPER & PARTY SUPPLIES (ID: 86)
+  // ═══════════════════════════════════════════════════════════════════════════
   524: "Party Supplies",
   525: "Invitations & Announcements",
   526: "Greeting Cards",
   527: "Calendars & Planners",
   528: "Stickers, Labels & Tags",
   529: "Gift Wrapping",
-  
-  // Bags & Purses subcategories
-  301: "Backpacks",
-  302: "Handbags",
-  303: "Clutches & Evening Bags",
-  304: "Messenger Bags",
-  305: "Wallets & Money Clips",
-  306: "Totes",
-  
-  // Craft Supplies subcategories
-  331: "Fabric",
-  332: "Beads",
-  333: "Sewing & Needlecraft",
-  334: "Yarn & Fiber",
-  335: "Jewelry Making",
-  336: "Paper, Party & Kids",
-  
-  // Toys & Games subcategories
-  580: "Dolls & Action Figures",
-  581: "Games & Puzzles",
-  582: "Sports & Outdoor",
-  583: "Stuffed Animals & Plushies",
-  
-  // Pet Supplies subcategories
+  530: "Banners & Signs",
+  531: "Cake Toppers & Picks",
+  532: "Centerpieces",
+  533: "Confetti",
+  534: "Favors",
+  535: "Balloons",
+  536: "Games",
+  537: "Party Hats",
+  538: "Streamers",
+  539: "Tableware",
+  540: "Wearables",
+  541: "Notebooks & Journals",
+  542: "Paper Goods",
+  543: "Photo Albums & Scrapbooks",
+  544: "Postcards",
+  545: "Writing & Stationery",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PET SUPPLIES (ID: 87)
+  // ═══════════════════════════════════════════════════════════════════════════
   551: "Pet Collars & Leashes",
   552: "Pet Furniture",
   553: "Pet Clothing",
   554: "Pet Toys",
   555: "Pet Beds",
-  
-  // Shoes subcategories
+  556: "Dog Supplies",
+  557: "Cat Supplies",
+  558: "Fish & Aquatic Pets",
+  559: "Bird Supplies",
+  560: "Small Animal Supplies",
+  565: "Pet Carriers & Houses",
+  566: "Pet Feeding",
+  567: "Pet Grooming",
+  568: "Pet Health",
+  569: "Pet ID Tags",
+  570: "Pet Memorial",
+  571: "Pet Portraits",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SHOES (ID: 88)
+  // ═══════════════════════════════════════════════════════════════════════════
   561: "Women's Shoes",
   562: "Men's Shoes",
   563: "Unisex Shoes",
   564: "Children's Shoes",
-  
-  // Weddings subcategories
-  591: "Accessories",
-  592: "Clothing",
-  593: "Decorations",
+  572: "Athletic Shoes",
+  573: "Boots",
+  574: "Flats",
+  575: "Heels",
+  576: "Loafers & Slip-Ons",
+  577: "Oxfords & Tie Shoes",
+  578: "Sandals",
+  579: "Slippers",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TOYS & GAMES (ID: 89)
+  // ═══════════════════════════════════════════════════════════════════════════
+  580: "Dolls & Action Figures",
+  581: "Games & Puzzles",
+  582: "Sports & Outdoor",
+  583: "Stuffed Animals & Plushies",
+  584: "Learning & Education",
+  585: "Pretend Play",
+  586: "Ride-Ons & Tricycles",
+  587: "Building & Construction",
+  588: "Puppets",
+  589: "Musical Toys",
+  590: "Art & Drawing Toys",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WEDDINGS (ID: 90)
+  // ═══════════════════════════════════════════════════════════════════════════
+  591: "Wedding Accessories",
+  592: "Wedding Clothing",
+  593: "Wedding Decorations",
   594: "Gifts & Mementos",
-  595: "Invitations & Paper",
+  595: "Wedding Invitations & Paper",
+  596: "Bridal Party",
+  597: "Ceremony Supplies",
+  598: "Reception",
+  599: "Groom's Accessories",
+  600: "Ring Pillows & Boxes",
+  601: "Veils & Headpieces",
+  602: "Wedding Favors",
+  603: "Guest Books",
+  604: "Bridesmaid Gifts",
+  605: "Groomsmen Gifts",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BOOKS, FILMS & MUSIC (ID: 80)
+  // ═══════════════════════════════════════════════════════════════════════════
+  610: "Books",
+  611: "Comics & Graphic Novels",
+  612: "Magazines",
+  613: "Movies",
+  614: "Music",
+  615: "Video Games",
+  616: "Audiobooks",
+  617: "Blank Books",
+  618: "Zines",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ELECTRONICS & ACCESSORIES (ID: 83)
+  // ═══════════════════════════════════════════════════════════════════════════
+  620: "Audio",
+  621: "Cables & Cords",
+  622: "Car Electronics",
+  623: "Computers",
+  624: "Gadgets",
+  625: "Gaming",
+  626: "Mobile Phone Cases",
+  627: "Tablet & E-Reader Cases",
+  628: "Laptop Cases",
+  629: "Video",
+  630: "Docking Stations",
+  631: "Chargers & Adapters",
+  632: "Headphones",
+  633: "Speakers",
+  634: "Camera Accessories",
+  635: "Smart Home",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ADDITIONAL COMMON TAXONOMY IDs (from Etsy's API)
+  // ═══════════════════════════════════════════════════════════════════════════
+  1016: "Vintage Clothing",
+  1018: "Vintage Accessories",
+  1020: "Vintage Art",
+  1022: "Vintage Collectibles",
+  1024: "Vintage Home Decor",
+  1026: "Vintage Jewelry",
+  1028: "Vintage Toys",
+  1622: "Art & Collectibles",
+  1760: "Clothing",
+  1856: "Jewelry",
+  2048: "Home & Living",
+  2078: "Craft Supplies",
+  6000: "Handmade",
+  6648: "Accessories",
+  6938: "Bags",
+  7710: "Bath & Body",
+  7740: "Beauty",
+  8710: "Clothing",
 };
 
 /** Get human-readable category name from Etsy taxonomy ID. */

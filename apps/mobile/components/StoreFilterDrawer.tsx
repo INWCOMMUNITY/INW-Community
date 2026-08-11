@@ -22,7 +22,12 @@ const NAV_HEADER_HEIGHT = 56;
 
 export type DeliveryFilter = "" | "local" | "shipping";
 
-export type BrowseCategoryRow = { label: string; subcategories: string[] };
+export type BrowseCategoryRow = { 
+  label: string; 
+  subcategories: string[];
+  count?: number;
+  subcategoryCounts?: Record<string, number>;
+};
 
 interface StoreFilterDrawerProps {
   visible: boolean;
@@ -130,14 +135,19 @@ export function StoreFilterDrawer({
                     pressed && { opacity: 0.8 },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      category === row.label && styles.optionTextActive,
-                    ]}
-                  >
-                    {row.label}
-                  </Text>
+                  <View style={styles.optionRowContent}>
+                    <Text
+                      style={[
+                        styles.optionText,
+                        category === row.label && styles.optionTextActive,
+                      ]}
+                    >
+                      {row.label}
+                    </Text>
+                    {row.count !== undefined && row.count > 0 && (
+                      <Text style={styles.countBadge}>({row.count})</Text>
+                    )}
+                  </View>
                 </Pressable>
                 {onNavigateToCategory && (
                   <Pressable
@@ -180,27 +190,36 @@ export function StoreFilterDrawer({
                     </Text>
                   </Pressable>
                   {(browseByCategories.find((r) => r.label === category)?.subcategories ?? []).map(
-                    (s) => (
-                      <Pressable
-                        key={s}
-                        onPress={() => onSubcategoryChange(s)}
-                        style={({ pressed }) => [
-                          styles.optionRow,
-                          styles.subOptionRow,
-                          subcategory === s && styles.optionRowActive,
-                          pressed && { opacity: 0.8 },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.optionText,
-                            subcategory === s && styles.optionTextActive,
+                    (s) => {
+                      const counts = browseByCategories.find((r) => r.label === category)?.subcategoryCounts;
+                      const subCount = counts?.[s];
+                      return (
+                        <Pressable
+                          key={s}
+                          onPress={() => onSubcategoryChange(s)}
+                          style={({ pressed }) => [
+                            styles.optionRow,
+                            styles.subOptionRow,
+                            subcategory === s && styles.optionRowActive,
+                            pressed && { opacity: 0.8 },
                           ]}
                         >
-                          {s}
-                        </Text>
-                      </Pressable>
-                    )
+                          <View style={styles.optionRowContent}>
+                            <Text
+                              style={[
+                                styles.optionText,
+                                subcategory === s && styles.optionTextActive,
+                              ]}
+                            >
+                              {s}
+                            </Text>
+                            {subCount !== undefined && subCount > 0 && (
+                              <Text style={styles.countBadge}>({subCount})</Text>
+                            )}
+                          </View>
+                        </Pressable>
+                      );
+                    }
                   )}
                 </>
               )}
@@ -389,6 +408,16 @@ const styles = StyleSheet.create({
     paddingLeft: 10,
   },
   optionRowActive: {},
+  optionRowContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  countBadge: {
+    fontSize: 13,
+    color: "#888",
+    fontWeight: "500",
+  },
   categoryArrow: {
     padding: 8,
   },

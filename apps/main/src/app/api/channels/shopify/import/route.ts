@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
 
   const imported: { externalListingId: string; storeItemId: string }[] = [];
   const skipped: { externalListingId: string; reason: string }[] = [];
+  let uncategorizedCount = 0;
 
   for (const listing of remote) {
     const productId = listing.externalListingId;
@@ -129,6 +130,8 @@ export async function POST(req: NextRequest) {
             listingType: "new",
             acceptOffers: false,
             slug: uniqueSlug(slugify(listing.title)),
+            category: listing.category?.slice(0, 200) ?? null,
+            subcategory: listing.subcategory?.slice(0, 200) ?? null,
           },
         });
         await tx.channelListingLink.create({
@@ -147,11 +150,14 @@ export async function POST(req: NextRequest) {
         return storeItem;
       });
       imported.push({ externalListingId: productId, storeItemId: created.id });
+      if (!created.category) {
+        uncategorizedCount++;
+      }
     } catch (e) {
       console.error("[channels] shopify import failed", { externalListingId: productId, error: String(e) });
       skipped.push({ externalListingId: productId, reason: "create_failed" });
     }
   }
 
-  return NextResponse.json({ ok: true, imported, skipped });
+  return NextResponse.json({ ok: true, imported, skipped, uncategorizedCount });
 }

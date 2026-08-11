@@ -52,6 +52,17 @@ export function getSubcategoriesForCategory(categoryLabel: string): string[] {
   return cat ? cat.subcategories : [];
 }
 
+/**
+ * Canonical slug for storefront category URLs.
+ * "Jewelry & Watches" → "jewelry-watches"
+ */
+export function slugifyStoreCategory(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 /** Filter category labels by search (case-insensitive). */
 export function filterStoreCategories(search: string): StoreCategoryOption[] {
   const q = search.trim().toLowerCase();

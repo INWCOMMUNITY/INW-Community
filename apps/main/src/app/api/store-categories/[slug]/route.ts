@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { STORE_CATEGORIES } from "@/lib/store-categories";
+import { STORE_CATEGORIES, slugifyStoreCategory } from "@/lib/store-categories";
 
 export const dynamic = "force-dynamic";
-
-function slugifyCategory(label: string): string {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
 
 export async function GET(
   req: NextRequest,
@@ -22,7 +18,7 @@ export async function GET(
   // Fall back to prebuilt categories if not in database
   if (!category) {
     const preset = STORE_CATEGORIES.find(
-      (c) => slugifyCategory(c.label) === slug
+      (c) => slugifyStoreCategory(c.label) === slug
     );
     if (preset) {
       category = {
@@ -53,6 +49,7 @@ export async function GET(
       slug: true,
       photos: true,
       category: true,
+      subcategory: true,
       secondaryCategory: true,
       priceCents: true,
       quantity: true,
@@ -113,17 +110,17 @@ export async function GET(
     .findMany({
       where: {
         category: category.name,
-        secondaryCategory: { not: null },
+        subcategory: { not: null },
         status: "active",
         quantity: { gt: 0 },
         member: { stripeConnectAccountId: { not: null } },
       },
-      select: { secondaryCategory: true },
-      distinct: ["secondaryCategory"],
+      select: { subcategory: true },
+      distinct: ["subcategory"],
     })
-    .then((items) =>
-      items
-        .map((i) => i.secondaryCategory)
+    .then((rows) =>
+      rows
+        .map((i) => i.subcategory)
         .filter((sc): sc is string => sc !== null)
         .sort()
     );

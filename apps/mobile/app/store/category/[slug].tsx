@@ -39,7 +39,7 @@ interface CategoryDetail {
   description: string | null;
   bannerUrl: string | null;
   itemCount: number;
-  items: StoreItemData[];
+  items: (StoreItemData & { subcategory?: string | null })[];
   featuredSellers: FeaturedSeller[];
   subcategories: string[];
 }
@@ -90,9 +90,7 @@ export default function CategoryScreen() {
   const filteredItems = useMemo(() => {
     if (!category) return [];
     if (!selectedSubcategory) return category.items;
-    return category.items.filter(
-      (item) => item.secondaryCategory === selectedSubcategory
-    );
+    return category.items.filter((item) => item.subcategory === selectedSubcategory);
   }, [category, selectedSubcategory]);
 
   const renderItem = ({ item }: { item: StoreItemData }) => (
@@ -174,6 +172,19 @@ export default function CategoryScreen() {
                 />
               </View>
             )}
+
+            {/* Breadcrumb Navigation */}
+            <View style={styles.breadcrumbContainer}>
+              <Pressable 
+                onPress={() => router.push("/(tabs)/store")} 
+                style={({ pressed }) => [styles.breadcrumbItem, pressed && { opacity: 0.6 }]}
+              >
+                <Ionicons name="storefront-outline" size={14} color={theme.colors.primary} />
+                <Text style={styles.breadcrumbText}>Store</Text>
+              </Pressable>
+              <Text style={styles.breadcrumbSeparator}>›</Text>
+              <Text style={styles.breadcrumbCurrent}>{category.name}</Text>
+            </View>
 
             <View style={styles.categoryInfo}>
               <Text style={styles.categoryTitle}>{category.name}</Text>
@@ -329,6 +340,35 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 48,
+  },
+  breadcrumbContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: CARD_PADDING,
+    paddingVertical: 12,
+    backgroundColor: theme.colors.creamAlt,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
+  },
+  breadcrumbItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  breadcrumbText: {
+    fontSize: 13,
+    color: theme.colors.primary,
+    fontWeight: "500",
+  },
+  breadcrumbSeparator: {
+    fontSize: 14,
+    color: "#999",
+    marginHorizontal: 8,
+  },
+  breadcrumbCurrent: {
+    fontSize: 13,
+    color: theme.colors.heading,
+    fontWeight: "600",
   },
   row: {
     justifyContent: "space-between",

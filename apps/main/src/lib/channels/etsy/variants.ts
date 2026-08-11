@@ -129,13 +129,14 @@ function resolveProductQuantity(
 function buildOfferingPayload(
   quantity: number,
   priceCents: number,
-  defaultReadinessStateId: number | null
+  defaultReadinessStateId: number | null,
+  forceEnabled?: boolean
 ): Record<string, unknown> {
   const qty = Math.max(0, quantity);
   return {
     quantity: qty,
     price: offeringPriceFloat(priceCents),
-    is_enabled: qty > 0,
+    is_enabled: forceEnabled || qty > 0,
     ...(defaultReadinessStateId != null ? { readiness_state_id: defaultReadinessStateId } : {}),
   };
 }
@@ -226,18 +227,24 @@ async function buildProductRowForOption(
         values: [valueName],
       },
     ],
-    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId)],
+    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId, true)],
   };
 }
 
 function inventoryPutBody(
   inv: EtsyInventory,
-  products: Record<string, unknown>[]
+  products: Record<string, unknown>[],
+  skuPropertyId?: number
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { products };
   if (inv.price_on_property?.length) body.price_on_property = inv.price_on_property;
   if (inv.quantity_on_property?.length) body.quantity_on_property = inv.quantity_on_property;
-  if (inv.sku_on_property?.length) body.sku_on_property = inv.sku_on_property;
+  // Set sku_on_property explicitly when normalizing SKUs, else preserve existing
+  if (skuPropertyId != null) {
+    body.sku_on_property = [skuPropertyId];
+  } else if (inv.sku_on_property?.length) {
+    body.sku_on_property = inv.sku_on_property;
+  }
   if (inv.readiness_state_on_property?.length) {
     body.readiness_state_on_property = inv.readiness_state_on_property;
   }
@@ -380,7 +387,7 @@ function buildProductRowFromExistingProperty(
         values: [valueName],
       },
     ],
-    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId)],
+    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId, true)],
   };
 }
 
@@ -516,7 +523,7 @@ export async function syncEtsyListingInventoryFromInw(
   });
 
   // Rebuild existing products (with normalized SKUs if adding new options)
-  const rebuilt: Record<string, unknown>[] = products.map((p) => {
+  const rebuilt: Record<string, unknown>[] = products.map((p, idx) => {
     const quantity = resolveProductQuantity(
       p,
       optionQtys,
@@ -533,6 +540,12 @@ export async function syncEtsyListingInventoryFromInw(
       const firstValue = values[0]?.trim();
       if (firstValue) {
         normalizedSku = `${baseSku}-${firstValue}`.slice(0, 32);
+      } else {
+        // Fallback: extract suffix from original SKU or use index
+        const originalSku = p.sku ?? "";
+        const dashIdx = originalSku.lastIndexOf("-");
+        const suffix = dashIdx > 0 ? originalSku.slice(dashIdx + 1) : `v${idx}`;
+        normalizedSku = `${baseSku}-${suffix}`.slice(0, 32);
       }
     }
     
@@ -599,12 +612,20 @@ export async function syncEtsyListingInventoryFromInw(
     }
   }
 
+  // Determine the property ID to set for sku_on_property when normalizing.
+  // Prefer quantity_on_property; fall back to extracted property when taxonomy 404s.
+  const skuPropertyId =
+    needsSkuNormalization
+      ? quantityOnProperty[0] ?? fallbackProperty?.property_id
+      : undefined;
+
   console.log("[etsy] syncEtsyListingInventoryFromInw", {
     listingId,
     productCount: rebuilt.length,
     inwOptions: quantityAxis.options.length,
     newOptionsAdded,
     quantityOnProperty,
+    skuPropertyId,
     usedFallback: fallbackProperty != null,
   });
 
@@ -612,7 +633,7 @@ export async function syncEtsyListingInventoryFromInw(
     accessToken,
     `/listings/${listingId}/inventory`,
     "PUT",
-    inventoryPutBody(inv, rebuilt)
+    inventoryPutBody(inv, rebuilt, skuPropertyId)
   );
 }
 
@@ -668,7 +689,8 @@ export async function buildEtsyInventoryProducts(
             buildOfferingPayload(
               item.quantity,
               item.priceCents,
-              defaultReadinessStateId ?? null
+              defaultReadinessStateId ?? null,
+              true
             ),
           ],
         },

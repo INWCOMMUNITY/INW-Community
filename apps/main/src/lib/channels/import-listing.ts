@@ -1,5 +1,11 @@
 import { prisma, Prisma } from "database";
-import { resolveInwCategoryWithLearning, resolveInwCategoryFromEbayPath, seedCategoryMappingFromImport } from "./category-resolver";
+import {
+  resolveInwCategoryWithLearning,
+  resolveInwCategoryFromEbayPath,
+  seedCategoryMappingFromImport,
+  suggestCategoriesFromContent,
+  type ResolvedInwCategory,
+} from "./category-resolver";
 import { splitEbayCategoryPath } from "./ebay-category-aliases";
 import {
   normalizeVariantsFromProvider,
@@ -49,7 +55,7 @@ function autoPostStoreItemToFeed(authorId: string, storeItemId: string): void {
 }
 
 export type ImportRemoteListingResult =
-  | { ok: true; storeItemId: string; externalListingId: string }
+  | { ok: true; storeItemId: string; externalListingId: string; needsCategoryReview: boolean }
   | { ok: false; externalListingId: string; reason: string };
 
 /**
@@ -91,7 +97,7 @@ async function resolveExistingLink(args: {
   const { memberId, connectionId, provider, productId, externalShopId } = args;
   const existing = await prisma.channelListingLink.findUnique({
     where: { provider_externalListingId: { provider, externalListingId: productId } },
-    include: { storeItem: { select: { memberId: true } } },
+    include: { storeItem: { select: { memberId: true, category: true } } },
   });
   if (!existing) return null;
 
@@ -113,7 +119,12 @@ async function resolveExistingLink(args: {
         lastInboundAt: new Date(),
       },
     });
-    return { ok: true, storeItemId: existing.storeItemId, externalListingId: productId };
+    return {
+      ok: true,
+      storeItemId: existing.storeItemId,
+      externalListingId: productId,
+      needsCategoryReview: !existing.storeItem.category,
+    };
   }
   return { ok: false, externalListingId: productId, reason: "already_linked" };
 }
@@ -175,12 +186,35 @@ export async function importRemoteListing(args: {
     const remoteCategoryLabel = listing.category?.trim() || null;
     const remoteCategorySubLabel = listing.subcategory?.trim() || null;
 
-    const resolvedCat =
+    let resolvedCat: ResolvedInwCategory | null =
       provider === "ebay" && remoteCategoryLabel
         ? await resolveInwCategoryFromEbayPath(remoteCategoryLabel)
         : await resolveInwCategoryWithLearning(remoteCategoryLabel, remoteCategorySubLabel, {
             provider,
           });
+    
+    // Fallback: if no category resolved from remote metadata, try title-based suggestion
+    if (!resolvedCat?.category && listing.title) {
+      const suggestions = suggestCategoriesFromContent(listing.title, listing.description);
+      if (suggestions.length > 0 && suggestions[0].confidence >= 0.4) {
+        resolvedCat = {
+          category: suggestions[0].category,
+          subcategory: suggestions[0].subcategory,
+          matchedPreset: true,
+          score: suggestions[0].confidence,
+        };
+        console.log("[channels] import category from title suggestion", {
+          provider,
+          externalListingId: productId,
+          title: listing.title.slice(0, 50),
+          suggestedCategory: resolvedCat.category,
+          suggestedSubcategory: resolvedCat.subcategory,
+          confidence: suggestions[0].confidence,
+          matchedKeywords: suggestions[0].matchedKeywords,
+        });
+      }
+    }
+    
     if (resolvedCat && !resolvedCat.matchedPreset) {
       console.log("[channels] import using custom category (no preset match)", {
         provider,
@@ -305,7 +339,16 @@ export async function importRemoteListing(args: {
         confidence: resolvedCat.score,
       });
     }
-    return { ok: true, storeItemId: storeItem.id, externalListingId: productId };
+    
+    // Track if item needs category review (no category was assigned)
+    const needsCategoryReview = !resolvedCat?.category;
+    
+    return {
+      ok: true,
+      storeItemId: storeItem.id,
+      externalListingId: productId,
+      needsCategoryReview,
+    };
   } catch (e) {
     if (createdStoreItemId) {
       await prisma.storeItem.delete({ where: { id: createdStoreItemId } }).catch(() => {});

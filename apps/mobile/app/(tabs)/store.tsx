@@ -22,6 +22,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
+import { slugifyStoreCategory } from "@/lib/store-category-slug";
 import {
   StoreFilterDrawer,
   type DeliveryFilter,
@@ -173,19 +174,53 @@ export default function StoreScreen() {
 
   const loadMeta = useCallback(() => {
     const params = new URLSearchParams({ list: "meta" });
+    // Fetch category counts from the new categories API
     apiGet<{
-      categories?: string[];
-      browseByCategories?: BrowseCategoryRow[];
-      sizes?: string[];
-    }>(`/api/store-items?${params}`)
-      .then((d) => {
-        if (Array.isArray(d?.browseByCategories) && d.browseByCategories.length > 0) {
-          setBrowseByCategories(d.browseByCategories);
-        } else if (Array.isArray(d?.categories)) {
-          setBrowseByCategories(d.categories.map((label) => ({ label, subcategories: [] })));
-        } else {
-          setBrowseByCategories([]);
+      categories: Array<{
+        name: string;
+        slug: string;
+        count: number;
+        subcategories: Array<{ name: string; slug: string; count: number }>;
+      }>;
+      totalItems: number;
+      uncategorizedCount: number;
+    }>("/api/storefront/categories")
+      .then((data) => {
+        if (Array.isArray(data?.categories) && data.categories.length > 0) {
+          // Convert to BrowseCategoryRow format with counts
+          const rows: BrowseCategoryRow[] = data.categories.map((cat) => ({
+            label: cat.name,
+            subcategories: cat.subcategories.map((sub) => sub.name),
+            count: cat.count,
+            subcategoryCounts: Object.fromEntries(
+              cat.subcategories.map((sub) => [sub.name, sub.count])
+            ),
+          }));
+          setBrowseByCategories(rows);
         }
+      })
+      .catch(() => {
+        // Fallback to legacy meta endpoint
+        apiGet<{
+          categories?: string[];
+          browseByCategories?: BrowseCategoryRow[];
+          sizes?: string[];
+        }>(`/api/store-items?${params}`)
+          .then((d) => {
+            if (Array.isArray(d?.browseByCategories) && d.browseByCategories.length > 0) {
+              setBrowseByCategories(d.browseByCategories);
+            } else if (Array.isArray(d?.categories)) {
+              setBrowseByCategories(d.categories.map((label) => ({ label, subcategories: [] })));
+            } else {
+              setBrowseByCategories([]);
+            }
+            if (Array.isArray(d?.sizes)) setSizes(d.sizes);
+          })
+          .catch(() => {});
+      });
+    // Still fetch sizes from the legacy endpoint
+    apiGet<{ sizes?: string[] }>(`/api/store-items?${params}`)
+      .then((d) => {
         if (Array.isArray(d?.sizes)) setSizes(d.sizes);
       })
       .catch(() => {});
@@ -562,8 +597,7 @@ export default function StoreScreen() {
         onSizeChange={setSize}
         onDeliveryFilterChange={setDeliveryFilter}
         onNavigateToCategory={(categoryName) => {
-          const slug = categoryName.toLowerCase().replace(/\s+/g, "-").replace(/[^\w-]/g, "");
-          router.push(`/store/category/${slug}` as never);
+          router.push(`/store/category/${slugifyStoreCategory(categoryName)}` as never);
         }}
       />
 

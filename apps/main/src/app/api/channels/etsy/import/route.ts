@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
 
   const imported: { externalListingId: string; storeItemId: string }[] = [];
   const skipped: { externalListingId: string; reason: string }[] = [];
+  let uncategorizedCount = 0;
 
   for (const listing of remote) {
     const result = await importRemoteListing({
@@ -108,10 +109,13 @@ export async function POST(req: NextRequest) {
     });
     if (result.ok) {
       imported.push({ externalListingId: result.externalListingId, storeItemId: result.storeItemId });
+      if (result.needsCategoryReview) {
+        uncategorizedCount++;
+      }
     } else {
       skipped.push({ externalListingId: result.externalListingId, reason: result.reason });
     }
   }
 
-  return NextResponse.json({ ok: true, imported, skipped });
+  return NextResponse.json({ ok: true, imported, skipped, uncategorizedCount });
 }
