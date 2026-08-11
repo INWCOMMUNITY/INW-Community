@@ -1,4 +1,5 @@
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
+import { getEffectiveSku } from "../types";
 import { hasOptionQuantities } from "../../store-item-variants";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
 
@@ -59,7 +60,7 @@ export function buildWixCreateBody(item: SyncStoreItem): Record<string, unknown>
     variantsInfo: {
       variants: [
         {
-          sku: item.id,
+          sku: getEffectiveSku(item),
           price: { actualPrice: { amount: wixPriceFromCents(item.priceCents) } },
           inventoryItem: {
             trackQuantity: true,
@@ -90,7 +91,7 @@ export function buildWixUpdateBody(
 ): Record<string, unknown> {
   const photos = item.photos.slice(0, 12);
   const variant: Record<string, unknown> = {
-    sku: item.id,
+    sku: getEffectiveSku(item),
     price: { actualPrice: { amount: wixPriceFromCents(item.priceCents) } },
   };
   if (variantId) variant.id = variantId;
@@ -368,9 +369,11 @@ export function wixProductToSummary(
     fromCollectionIds ||
     null;
   // Search/Query Products doesn't return per-variant inventory; quantity is merged in separately.
+  const firstVariantSku = product.variantsInfo?.variants?.[0]?.sku?.trim() || null;
   return {
     externalListingId: product.id || "",
     title: product.name || "Wix product",
+    sku: firstVariantSku,
     description: desc || null,
     priceCents: wixPriceToCents(priceAmount),
     quantity: 0,

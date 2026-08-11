@@ -4,6 +4,7 @@ import { resolveChannelPhotoUrls } from "./photo-urls";
 /** Fields selected from StoreItem for channel mapping (use with prisma select/include). */
 export const syncStoreItemSelect = {
   id: true,
+  sku: true,
   title: true,
   description: true,
   photos: true,
@@ -26,6 +27,7 @@ export const syncStoreItemSelect = {
 
 type StoreItemLike = {
   id: string;
+  sku: string | null;
   title: string;
   description: string | null;
   photos: string[];
@@ -49,6 +51,7 @@ type StoreItemLike = {
 export function toSyncStoreItem(item: StoreItemLike): SyncStoreItem {
   return {
     id: item.id,
+    sku: item.sku,
     title: item.title,
     description: item.description,
     photos: resolveChannelPhotoUrls(Array.isArray(item.photos) ? item.photos : []),

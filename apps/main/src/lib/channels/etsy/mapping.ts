@@ -1,6 +1,152 @@
 import type { ChannelConnectionContext, RemoteListingSummary, SyncStoreItem } from "../types";
 import { listingDescriptionToPlainText } from "../rich-description";
 
+/**
+ * Map of common Etsy top-level taxonomy IDs to category names.
+ * These are the main categories from Etsy's seller taxonomy.
+ * Source: Etsy Open API /application/seller-taxonomy/nodes
+ */
+const ETSY_TAXONOMY_NAMES: Record<number, string> = {
+  // Top-level categories
+  1: "Art & Collectibles",
+  77: "Accessories",
+  78: "Bags & Purses",
+  79: "Bath & Beauty",
+  80: "Books, Films & Music",
+  81: "Clothing",
+  82: "Craft Supplies & Tools",
+  83: "Electronics & Accessories",
+  84: "Home & Living",
+  85: "Jewelry",
+  86: "Paper & Party Supplies",
+  87: "Pet Supplies",
+  88: "Shoes",
+  89: "Toys & Games",
+  90: "Weddings",
+  
+  // Art & Collectibles subcategories
+  18: "Photography",
+  19: "Painting",
+  21: "Prints",
+  23: "Sculpture",
+  24: "Drawing & Illustration",
+  25: "Mixed Media & Collage",
+  26: "Fiber Arts",
+  27: "Glass Art",
+  28: "Collectibles",
+  29: "Dolls & Miniatures",
+  
+  // Accessories subcategories
+  262: "Hats & Caps",
+  264: "Scarves & Wraps",
+  265: "Belts & Suspenders",
+  266: "Sunglasses & Eyewear",
+  267: "Gloves & Mittens",
+  268: "Hair Accessories",
+  
+  // Jewelry subcategories
+  481: "Bracelets",
+  483: "Earrings",
+  485: "Necklaces",
+  487: "Rings",
+  489: "Body Jewelry",
+  491: "Watches",
+  
+  // Home & Living subcategories
+  428: "Bedding",
+  429: "Bathroom",
+  430: "Kitchen & Dining",
+  431: "Lighting",
+  432: "Outdoor & Garden",
+  433: "Rugs",
+  434: "Storage & Organization",
+  435: "Furniture",
+  441: "Home Decor",
+  
+  // Clothing subcategories
+  361: "Dresses",
+  362: "Tops & Tees",
+  363: "Pants & Capris",
+  364: "Skirts",
+  365: "Sweaters",
+  366: "Jackets & Coats",
+  367: "Suits & Blazers",
+  368: "Shorts",
+  369: "Swimwear",
+  
+  // Bath & Beauty subcategories
+  375: "Skin Care",
+  376: "Soaps",
+  377: "Hair Care",
+  378: "Makeup & Cosmetics",
+  379: "Fragrances",
+  
+  // Paper & Party Supplies subcategories
+  524: "Party Supplies",
+  525: "Invitations & Announcements",
+  526: "Greeting Cards",
+  527: "Calendars & Planners",
+  528: "Stickers, Labels & Tags",
+  529: "Gift Wrapping",
+  
+  // Bags & Purses subcategories
+  301: "Backpacks",
+  302: "Handbags",
+  303: "Clutches & Evening Bags",
+  304: "Messenger Bags",
+  305: "Wallets & Money Clips",
+  306: "Totes",
+  
+  // Craft Supplies subcategories
+  331: "Fabric",
+  332: "Beads",
+  333: "Sewing & Needlecraft",
+  334: "Yarn & Fiber",
+  335: "Jewelry Making",
+  336: "Paper, Party & Kids",
+  
+  // Toys & Games subcategories
+  580: "Dolls & Action Figures",
+  581: "Games & Puzzles",
+  582: "Sports & Outdoor",
+  583: "Stuffed Animals & Plushies",
+  
+  // Pet Supplies subcategories
+  551: "Pet Collars & Leashes",
+  552: "Pet Furniture",
+  553: "Pet Clothing",
+  554: "Pet Toys",
+  555: "Pet Beds",
+  
+  // Shoes subcategories
+  561: "Women's Shoes",
+  562: "Men's Shoes",
+  563: "Unisex Shoes",
+  564: "Children's Shoes",
+  
+  // Weddings subcategories
+  591: "Accessories",
+  592: "Clothing",
+  593: "Decorations",
+  594: "Gifts & Mementos",
+  595: "Invitations & Paper",
+};
+
+/** Get human-readable category name from Etsy taxonomy ID. */
+export function getEtsyTaxonomyName(taxonomyId: number | null | undefined): string | null {
+  if (taxonomyId == null) return null;
+  
+  // Direct match
+  if (ETSY_TAXONOMY_NAMES[taxonomyId]) {
+    return ETSY_TAXONOMY_NAMES[taxonomyId];
+  }
+  
+  // Try to find parent category (taxonomy IDs are hierarchical)
+  // Etsy uses ID ranges: top-level < 100, sub-levels > 100
+  // For unknown IDs, we'll return null and let the category resolver handle it
+  return null;
+}
+
 /** Etsy taxonomy id used when a listing has no explicit mapping. Override with ETSY_DEFAULT_TAXONOMY_ID. */
 function defaultTaxonomyId(): number {
   const raw = process.env.ETSY_DEFAULT_TAXONOMY_ID?.trim();
@@ -120,15 +266,24 @@ export function etsyListingToSummary(listing: EtsyListing): RemoteListingSummary
     .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
     .map((img) => img.url_fullxfull || img.url_570xN || "")
     .filter(Boolean);
+  
+  // Resolve category name from taxonomy ID for auto-mapping
+  const categoryName = getEtsyTaxonomyName(listing.taxonomy_id);
+  
+  // Take the first SKU if the listing has any
+  const firstSku = listing.skus?.[0]?.trim() || null;
+
   return {
     externalListingId: String(listing.listing_id),
     title: listing.title?.trim() || "Untitled Etsy listing",
+    sku: firstSku,
     description: listing.description?.trim() || null,
     priceCents: priceCents > 0 ? priceCents : 0,
     quantity: typeof listing.quantity === "number" ? listing.quantity : 0,
     quantityKnown: typeof listing.quantity === "number",
     photos,
     url: listing.url,
+    category: categoryName,
     remoteCategoryId: listing.taxonomy_id != null ? String(listing.taxonomy_id) : null,
     remoteUpdatedAt:
       listing.last_modified_timestamp != null

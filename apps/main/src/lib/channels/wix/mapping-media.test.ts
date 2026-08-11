@@ -29,6 +29,7 @@ describe("buildWixV1MediaFromPhotos", () => {
   it("includes media on v1 create body", () => {
     const item: SyncStoreItem = {
       id: "item-1",
+      sku: null,
       title: "Hat",
       description: null,
       photos: ["https://cdn.example.com/hat.jpg"],

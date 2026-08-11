@@ -136,6 +136,7 @@ export default function ListItemScreen() {
   const [policiesLoaded, setPoliciesLoaded] = useState(false);
 
   const [title, setTitle] = useState("");
+  const [sku, setSku] = useState("");
   const [description, setDescription] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [category, setCategory] = useState("");
@@ -242,6 +243,7 @@ export default function ListItemScreen() {
     isExitingRef.current = true;
     await saveDraft({
       title,
+      sku,
       description,
       photos,
       category,
@@ -269,6 +271,7 @@ export default function ListItemScreen() {
     router.back();
   }, [
     title,
+    sku,
     description,
     photos,
     category,
@@ -328,12 +331,14 @@ export default function ListItemScreen() {
         etsyWhoMade?: string | null;
         etsyWhenMade?: string | null;
         etsyIsSupply?: boolean | null;
+        sku?: string | null;
         ebayCategoryId?: number | null;
         aspects?: { name?: unknown; value?: unknown }[] | null;
         hasEbayLink?: boolean;
       }>(`/api/store-items/${editId}`)
         .then((item) => {
           setTitle(item.title ?? "");
+          setSku(item.sku ?? "");
           setDescription(item.description ?? "");
           setPhotos(item.photos ?? []);
           setCategory(item.category ?? "");
@@ -393,6 +398,7 @@ export default function ListItemScreen() {
       getDraft(draftId).then((draft) => {
         if (draft) {
           setTitle(draft.title);
+          setSku(draft.sku ?? "");
           setDescription(draft.description);
           setPhotos(draft.photos);
           setCategory(draft.category);
@@ -869,6 +875,7 @@ export default function ListItemScreen() {
       .filter((a) => a.name && a.value);
     const basePayload: Record<string, unknown> = {
       title: title.trim().slice(0, EBAY_TITLE_MAX),
+      sku: sku.trim() || null,
       aspects: cleanedAspects,
       ...(ebayConnected && ebayCategoryId.trim()
         ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
@@ -1197,6 +1204,21 @@ export default function ListItemScreen() {
       />
       <Text style={[styles.hint, { textAlign: "right" }, title.length >= EBAY_TITLE_MAX ? { color: "#dc2626" } : null]}>
         {title.length}/{EBAY_TITLE_MAX}
+      </Text>
+
+      <Text style={styles.label}>SKU</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Stock Keeping Unit (optional)"
+        placeholderTextColor={placeholderColor}
+        value={sku}
+        onChangeText={(s) => setSku(s.slice(0, 50))}
+        maxLength={50}
+        autoCapitalize="characters"
+        autoCorrect={false}
+      />
+      <Text style={styles.hint}>
+        Synced with Etsy, eBay, and Wix. Leave blank to auto-generate.
       </Text>
 
       <Text style={styles.label}>Description</Text>

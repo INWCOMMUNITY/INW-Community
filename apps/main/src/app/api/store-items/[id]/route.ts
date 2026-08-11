@@ -20,6 +20,7 @@ import { Prisma } from "database";
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
   title: z.string().min(1).optional(),
+  sku: z.string().max(50).nullable().optional(),
   description: z.string().nullable().optional(),
   photos: z.array(z.string()).optional(),
   category: z.string().nullable().optional(),
@@ -225,6 +226,7 @@ export async function PATCH(
 
   const update: Record<string, unknown> = {};
   if (data.title !== undefined) update.title = clampListingTitle(data.title.trim());
+  if (data.sku !== undefined) update.sku = data.sku?.trim() || null;
   if (data.description !== undefined) update.description = data.description?.trim() || null;
   if (data.photos !== undefined) update.photos = data.photos;
   if (data.category !== undefined) update.category = data.category?.trim() || null;

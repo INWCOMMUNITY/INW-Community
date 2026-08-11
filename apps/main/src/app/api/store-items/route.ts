@@ -594,6 +594,7 @@ export async function GET(req: NextRequest) {
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
   title: z.string().min(1, "Title is required"),
+  sku: z.string().max(50).nullable().optional(),
   description: z.string().nullable().optional(),
   photos: z.array(z.string()).default([]),
   category: z.string().nullable().optional(),
@@ -798,6 +799,7 @@ export async function POST(req: NextRequest) {
         memberId: userId,
         businessId: data.businessId || null,
         title: clampListingTitle(data.title.trim()),
+        sku: data.sku?.trim() || null,
         description: data.description?.trim() || null,
         photos: Array.isArray(data.photos) ? data.photos.map((p) => (p != null ? String(p) : "")).filter(Boolean) : [],
         category: data.category?.trim() || null,

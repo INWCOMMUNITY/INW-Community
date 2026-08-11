@@ -206,6 +206,7 @@ export async function importRemoteListing(args: {
       data: {
         memberId,
         title: listing.title.slice(0, 200),
+        sku: listing.sku?.slice(0, 50) ?? null,
         description: storeListingDescription(listing.description),
         photos: safePhotos,
         priceCents: safePriceCents,

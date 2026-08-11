@@ -889,6 +889,8 @@ model Policy {
 // Storefront - products listed by sellers
 model StoreItem {
   id                  String   @id @default(cuid())
+  /// User-defined SKU for channel sync; defaults to item.id if unset.
+  sku                 String?  @map("sku")
   memberId            String   @map("member_id")
   businessId          String?  @map("business_id")
   title               String

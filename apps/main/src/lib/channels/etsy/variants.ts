@@ -3,6 +3,7 @@ import { etsyPriceFromCents } from "./mapping";
 import type { InwVariantAxis } from "../variant-sync";
 import { normalizeVariantsFromProvider, sumVariantQuantities } from "../variant-sync";
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
+import { getEffectiveSku } from "../types";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 
 type TaxonomyProperty = {
@@ -209,8 +210,9 @@ async function buildProductRowForOption(
   );
 
   // Only add SKU if existing products have SKUs (or it's a fresh listing)
+  const baseSku = getEffectiveSku(item);
   const sku = (!skuPattern || skuPattern.hasSkus)
-    ? `${item.id}-${valueName}`.slice(0, 32)
+    ? `${baseSku}-${valueName}`.slice(0, 32)
     : undefined;
 
   return {
@@ -318,17 +320,18 @@ function buildProductRowFromExistingProperty(
   skuPattern: { hasSkus: boolean; useValueSuffix: boolean }
 ): Record<string, unknown> {
   const valueName = opt.value.trim();
+  const baseSku = getEffectiveSku(item);
   
   // Match SKU pattern from existing products for consistency
   let sku: string | undefined;
   if (skuPattern.hasSkus) {
     if (skuPattern.useValueSuffix) {
       // Existing SKUs use pattern like "base-value"
-      sku = `${item.id}-${valueName}`.slice(0, 32);
+      sku = `${baseSku}-${valueName}`.slice(0, 32);
     } else {
       // Existing SKUs are simple (just the item ID) - use same for new products
       // But Etsy requires unique SKUs per product, so we need to add the value
-      sku = `${item.id}-${valueName}`.slice(0, 32);
+      sku = `${baseSku}-${valueName}`.slice(0, 32);
     }
   }
   // If no existing SKUs, don't set SKU (undefined will be omitted from payload)
@@ -459,7 +462,8 @@ export async function syncEtsyListingInventoryFromInw(
       : null;
 
   // Extract SKU pattern to maintain consistency when adding new products
-  const skuPattern = extractSkuPattern(products, item.id);
+  const baseSku = getEffectiveSku(item);
+  const skuPattern = extractSkuPattern(products, baseSku);
 
   // When adding new options, we must normalize ALL SKUs to be consistent
   // Etsy requires SKUs to follow the same pattern across all products
@@ -489,13 +493,13 @@ export async function syncEtsyListingInventoryFromInw(
     );
     
     // If we're adding new options and existing products have SKUs,
-    // normalize all SKUs to use item.id-value format for consistency
+    // normalize all SKUs to use baseSku-value format for consistency
     let normalizedSku: string | undefined;
     if (needsSkuNormalization) {
       const values = productValuesForQtyProperty(p, quantityOnProperty);
       const firstValue = values[0]?.trim();
       if (firstValue) {
-        normalizedSku = `${item.id}-${firstValue}`.slice(0, 32);
+        normalizedSku = `${baseSku}-${firstValue}`.slice(0, 32);
       }
     }
     
@@ -619,7 +623,7 @@ export async function buildEtsyInventoryProducts(
     return {
       products: [
         {
-          sku: item.id,
+          sku: getEffectiveSku(item),
           property_values: [],
           offerings: [
             buildOfferingPayload(

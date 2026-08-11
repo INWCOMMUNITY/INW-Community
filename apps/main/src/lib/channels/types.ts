@@ -17,6 +17,8 @@ export function isChannelProvider(value: string): value is ChannelProvider {
 /** Minimal StoreItem projection needed to map a listing to an external channel. */
 export type SyncStoreItem = {
   id: string;
+  /** User-defined SKU; if unset, adapters should fall back to item.id. */
+  sku: string | null;
   title: string;
   description: string | null;
   photos: string[];
@@ -38,6 +40,11 @@ export type SyncStoreItem = {
   /** Item specifics / product aspects: [{ name, value }]. Mapped to eBay product.aspects. */
   aspects: unknown;
 };
+
+/** Returns the user-defined SKU if set, otherwise falls back to item.id. */
+export function getEffectiveSku(item: SyncStoreItem): string {
+  return item.sku?.trim() || item.id;
+}
 
 /** A live connection with a fresh (decrypted, non-expired) access token. */
 export type ChannelConnectionContext = {
@@ -66,6 +73,8 @@ export type TokenResponse = {
 export type RemoteListingSummary = {
   externalListingId: string;
   title: string;
+  /** Remote SKU for the listing. */
+  sku?: string | null;
   description: string | null;
   priceCents: number;
   quantity: number;

@@ -10,6 +10,7 @@ const DRAFTS_KEY = "nwc_store_item_drafts";
 export interface StoreItemDraft {
   id: string;
   title: string;
+  sku?: string;
   description: string;
   photos: string[];
   category: string;

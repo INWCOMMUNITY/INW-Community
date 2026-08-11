@@ -1,4 +1,5 @@
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
+import { getEffectiveSku } from "../types";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID, getEbayConfig } from "./config";
 import type { EbayConnectionConfig } from "./account";
@@ -36,10 +37,11 @@ export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unkn
 
   if (axes && axes.length > 0) {
     const primary = axes[0];
+    const baseSku = getEffectiveSku(item);
     // Variant axis values join the stored specifics; the axis name wins if both are present.
     product.aspects = { ...storedAspects, [primary.name]: primary.options.map((o) => o.value) };
     const variations = primary.options.map((o) => ({
-      sku: `${item.id}-${o.value}`.slice(0, 50),
+      sku: `${baseSku}-${o.value}`.slice(0, 50),
       aspects: { [primary.name]: [o.value] },
       availability: { shipToLocationAvailability: { quantity: Math.max(0, o.quantity) } },
     }));
@@ -86,7 +88,7 @@ export function buildEbayOffer(
 ): Record<string, unknown> {
   const categoryId = resolveCategoryId(item, categoryOverride);
   const offer: Record<string, unknown> = {
-    sku: sku || item.id,
+    sku: sku || getEffectiveSku(item),
     marketplaceId: EBAY_MARKETPLACE_ID,
     format: "FIXED_PRICE",
     availableQuantity: Math.max(0, item.quantity),
@@ -138,6 +140,7 @@ export function ebayListingToSummary(row: EbayInventorySummaryRow): RemoteListin
   return {
     externalListingId,
     title: row.title || "eBay listing",
+    sku: row.sku?.trim() || null,
     description: row.description ?? null,
     priceCents: priceStringToCents(row.price?.value),
     quantity: Math.max(0, row.availableQuantity ?? 0),
