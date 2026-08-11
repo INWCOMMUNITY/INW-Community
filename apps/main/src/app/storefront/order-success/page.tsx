@@ -14,13 +14,34 @@ function OrderSuccessContent() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
 
   useEffect(() => {
-    if (sessionId || orderIds.length > 0) {
-      setStatus("success");
-      fetch("/api/cart", { method: "DELETE" }).then(() => refresh());
-      return;
+    let cancelled = false;
+
+    async function finalizeOrder() {
+      if (!sessionId && orderIds.length === 0) {
+        if (!cancelled) setStatus("error");
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams();
+        if (sessionId) params.set("session_id", sessionId);
+        if (orderIds.length > 0) params.set("order_ids", orderIds.join(","));
+        // Safety net when checkout.session.completed webhook is delayed or missing.
+        await fetch(`/api/store-orders/success-summary?${params.toString()}`);
+        await fetch("/api/cart", { method: "DELETE" });
+        await refresh();
+      } catch (err) {
+        console.error("[order-success] finalize failed:", err);
+      }
+
+      if (!cancelled) setStatus("success");
     }
-    setStatus("error");
-  }, [sessionId, orderIds.length, refresh]);
+
+    void finalizeOrder();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, orderIds.join(","), refresh]);
 
   if (status === "loading") {
     return (

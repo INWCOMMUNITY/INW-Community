@@ -518,12 +518,21 @@ export default function CartScreen() {
   /** All items are charged through Stripe at checkout. */
   const cardItems = items;
 
-  /** After checkout completes, just navigate back to show the order confirmed screen. */
-  const completeCheckoutAfterPayment = useCallback(
-    async () => {
-      router.back();
+  /** Fulfill pending orders when Stripe redirects back (webhook safety net). */
+  const finalizeCheckoutAfterPayment = useCallback(
+    async (sessionId: string | null, fulfilledOrderIds: string[]) => {
+      const params = new URLSearchParams();
+      if (sessionId) params.set("session_id", sessionId);
+      if (fulfilledOrderIds.length > 0) params.set("order_ids", fulfilledOrderIds.join(","));
+      if (!sessionId && fulfilledOrderIds.length === 0) return;
+
+      try {
+        await apiGet<{ orderIds?: string[] }>(`/api/store-orders/success-summary?${params.toString()}`);
+      } catch (err) {
+        console.warn("[cart] success-summary failed:", err);
+      }
     },
-    [router]
+    []
   );
 
   const updateLocalDeliveryDetails = async (
@@ -791,6 +800,7 @@ export default function CartScreen() {
         nav.url
       );
       void (async () => {
+        await finalizeCheckoutAfterPayment(successSessionId, successOrderIds);
         try {
           await apiDelete("/api/cart");
         } catch {
@@ -798,7 +808,6 @@ export default function CartScreen() {
         }
         await load(true);
         setOrderJustConfirmed(true);
-        await completeCheckoutAfterPayment();
       })();
     }
     if (nav.url.includes("canceled=1")) {
