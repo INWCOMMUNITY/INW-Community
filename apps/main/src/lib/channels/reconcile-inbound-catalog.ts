@@ -1,5 +1,5 @@
 import { prisma } from "database";
-import { getConnectionContext } from "./connection";
+import { getConnectionContext, withConnectionAuthRetry } from "./connection";
 import {
   applyRemoteContentToStoreItem,
   applyRemoteQuantityToStoreItem,
@@ -166,7 +166,9 @@ export async function reconcileConnectionInboundCatalog(
   let remoteList: RemoteListingSummary[];
   try {
     console.log("[channels] fetching remote listings...", { provider });
-    remoteList = await getAdapter(provider).listRemoteListings(ctx);
+    remoteList = await withConnectionAuthRetry(connection, (ctx) =>
+      getAdapter(provider).listRemoteListings(ctx)
+    );
     console.log("[channels] fetched remote listings", { 
       provider, 
       count: remoteList.length,
@@ -179,9 +181,17 @@ export async function reconcileConnectionInboundCatalog(
 
   // Empty catalog usually means wrong API version or a transient failure — do not mark all links removed.
   if (remoteList.length === 0) {
+    const connRow = await prisma.channelConnection.findUnique({
+      where: { id: connection.id },
+      select: { status: true, lastError: true },
+    });
     console.warn("[channels] inbound catalog empty — skipping removal detection", {
       connectionId: connection.id,
       provider,
+      connectionStatus: connRow?.status,
+      ...(connRow?.status === "error" && connRow.lastError
+        ? { hint: "Connection may need reconnect — empty catalog can follow auth failure.", lastError: connRow.lastError.slice(0, 200) }
+        : {}),
     });
     return { updated: 0, removed: 0 };
   }
@@ -379,10 +389,35 @@ export async function reconcileConnectionInboundCatalog(
 
     let pulledContent = false;
     let pulledQuantity = false;
+    let currentQty = item.quantity;
     
     // Respect sync direction for pull operations
     const allowPull = syncDirection === "two_way" || syncDirection === "pull_only";
     const allowPush = syncDirection === "two_way" || syncDirection === "push_only";
+
+    // Recovery: INW was wrongly zeroed/sold out while the channel still has stock.
+    // Prefer pulling quantity over pushing zero back to the marketplace.
+    const needsQtyRecovery =
+      qtyDiffers &&
+      remoteQtyKnown &&
+      remote.quantity > 0 &&
+      currentQty === 0;
+
+    if (needsQtyRecovery && allowPull) {
+      console.log("[channels] recovering quantity from remote (INW sold out, channel in stock)", {
+        storeItemId: link.storeItemId,
+        externalListingId: link.externalListingId,
+        remoteQty: remote.quantity,
+        inwQty: currentQty,
+      });
+      pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity, {
+        provider,
+        memberId: connection.memberId,
+      });
+      if (pulledQuantity) {
+        currentQty = remote.quantity;
+      }
+    }
     
     if (contentDecision === "pull" && allowPull) {
       console.log("[channels] pulling content from remote", {
@@ -418,12 +453,17 @@ export async function reconcileConnectionInboundCatalog(
     let attemptedPush = false;
     let pushOk = false;
     
-    if (contentDecision === "push" && allowPush) {
+    if (contentDecision === "push" && allowPush && !needsQtyRecovery) {
       attemptedPush = true;
       pushOk = channelSyncSucceeded(
         await updateStoreItemOnChannels(link.storeItemId),
         provider
       );
+    } else if (contentDecision === "push" && needsQtyRecovery) {
+      console.log("[channels] skipping push after qty recovery (avoid pushing stale zero inventory)", {
+        storeItemId: link.storeItemId,
+        externalListingId: link.externalListingId,
+      });
     } else if (contentDecision === "push" && !allowPush) {
       console.log("[channels] skipping push due to sync direction setting", {
         storeItemId: link.storeItemId,
@@ -449,8 +489,8 @@ export async function reconcileConnectionInboundCatalog(
           provider,
           memberId: connection.memberId,
         });
-      } else if (allowPush) {
-        // INW changed or both changed - push to channels
+      } else if (allowPush && !(remoteQtyKnown && remote.quantity > 0 && currentQty === 0)) {
+        // INW changed or both changed - push to channels (never push zero when channel has stock)
         attemptedPush = true;
         pushOk = channelSyncSucceeded(
           await syncInventoryToChannels(link.storeItemId),

@@ -11,6 +11,18 @@ function photosEqual(a: string[], b: string[]): boolean {
   return a.every((url, i) => url === b[i]);
 }
 
+/** Normalize title text so HTML entities don't trigger false content drift. */
+function normalizeTitleForCompare(title: string): string {
+  return title
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .trim();
+}
+
 export function remoteContentDiffersFromStoreItem(
   item: {
     title: string;
@@ -21,7 +33,7 @@ export function remoteContentDiffersFromStoreItem(
   remote: RemoteListingSummary
 ): boolean {
   return (
-    item.title !== remote.title.slice(0, 200) ||
+    normalizeTitleForCompare(item.title) !== normalizeTitleForCompare(remote.title.slice(0, 200)) ||
     item.priceCents !== remote.priceCents ||
     !photosEqual(item.photos, remote.photos) ||
     (sanitizeListingDescription(item.description) ?? "") !==

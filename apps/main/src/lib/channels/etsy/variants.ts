@@ -136,9 +136,43 @@ function buildOfferingPayload(
   return {
     quantity: qty,
     price: offeringPriceFloat(priceCents),
-    is_enabled: forceEnabled || qty > 0,
+    is_enabled: forceEnabled === true ? true : qty > 0,
     ...(defaultReadinessStateId != null ? { readiness_state_id: defaultReadinessStateId } : {}),
   };
+}
+
+function inventoryHasEnabledOfferingWithStock(products: Record<string, unknown>[]): boolean {
+  for (const product of products) {
+    const offerings = (product.offerings as Array<{ quantity?: number; is_enabled?: boolean }>) ?? [];
+    for (const offering of offerings) {
+      const qty = offering.quantity ?? 0;
+      const enabled = offering.is_enabled !== false;
+      if (enabled && qty > 0) return true;
+    }
+  }
+  return false;
+}
+
+async function putEtsyInventoryIfValid(
+  accessToken: string,
+  listingId: string,
+  inv: EtsyInventory,
+  products: Record<string, unknown>[],
+  skuPropertyId?: number
+): Promise<void> {
+  if (!inventoryHasEnabledOfferingWithStock(products)) {
+    console.warn("[etsy] skipping inventory PUT — Etsy requires at least one enabled offering with quantity > 0", {
+      listingId,
+      productCount: products.length,
+    });
+    return;
+  }
+  await etsyJson(
+    accessToken,
+    `/listings/${listingId}/inventory`,
+    "PUT",
+    inventoryPutBody(inv, products, skuPropertyId)
+  );
 }
 
 function rebuildExistingProduct(
@@ -227,7 +261,7 @@ async function buildProductRowForOption(
         values: [valueName],
       },
     ],
-    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId, true)],
+    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId)],
   };
 }
 
@@ -387,7 +421,7 @@ function buildProductRowFromExistingProperty(
         values: [valueName],
       },
     ],
-    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId, true)],
+    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId)],
   };
 }
 
@@ -412,6 +446,10 @@ export async function syncEtsyListingInventoryFromInw(
 
   if (!perOption) {
     if (products.length === 0) return;
+    if (absoluteQuantity <= 0) {
+      console.warn("[etsy] skipping inventory PUT — absolute quantity is 0", { listingId });
+      return;
+    }
     const rebuilt = products.map((p) =>
       rebuildExistingProduct(
         p,
@@ -420,12 +458,7 @@ export async function syncEtsyListingInventoryFromInw(
         defaultReadinessStateId
       )
     );
-    await etsyJson(
-      accessToken,
-      `/listings/${listingId}/inventory`,
-      "PUT",
-      inventoryPutBody(inv, rebuilt)
-    );
+    await putEtsyInventoryIfValid(accessToken, listingId, inv, rebuilt);
     return;
   }
 
@@ -554,6 +587,13 @@ export async function syncEtsyListingInventoryFromInw(
 
   let newOptionsAdded = 0;
   for (const opt of newOptions) {
+    if (opt.quantity <= 0) {
+      console.log("[etsy] skipping new option with zero quantity", {
+        listingId,
+        optionValue: opt.value,
+      });
+      continue;
+    }
     const key = opt.value.trim().toLowerCase();
     
     console.log("[etsy] attempting to add new option", {
@@ -629,11 +669,12 @@ export async function syncEtsyListingInventoryFromInw(
     usedFallback: fallbackProperty != null,
   });
 
-  await etsyJson(
+  await putEtsyInventoryIfValid(
     accessToken,
-    `/listings/${listingId}/inventory`,
-    "PUT",
-    inventoryPutBody(inv, rebuilt, skuPropertyId)
+    listingId,
+    inv,
+    rebuilt,
+    skuPropertyId
   );
 }
 
