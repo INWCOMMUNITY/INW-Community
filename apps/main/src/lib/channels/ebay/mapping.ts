@@ -16,9 +16,11 @@ export function ebayPriceFromCents(cents: number): string {
   return (Math.max(0, Math.round(cents)) / 100).toFixed(2);
 }
 
+import { resolveEbayInventoryCondition } from "./conditions";
+
 /** Map INW condition to an eBay inventory condition enum. */
-export function ebayCondition(condition: string | null): string {
-  return condition === "used" ? "USED_EXCELLENT" : "NEW";
+export function ebayCondition(item: Pick<SyncStoreItem, "condition" | "ebayConditionEnum">): string {
+  return resolveEbayInventoryCondition(item);
 }
 
 /** Build the PUT /inventory_item/{sku} body for a StoreItem. */
@@ -46,7 +48,7 @@ export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unkn
       availability: { shipToLocationAvailability: { quantity: Math.max(0, o.quantity) } },
     }));
     return {
-      condition: ebayCondition(item.condition),
+      condition: ebayCondition(item),
       product,
       variations,
     };
@@ -60,7 +62,7 @@ export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unkn
     availability: {
       shipToLocationAvailability: { quantity: Math.max(0, item.quantity) },
     },
-    condition: ebayCondition(item.condition),
+    condition: ebayCondition(item),
     product,
   };
 }
@@ -133,13 +135,49 @@ function priceStringToCents(value?: string): number {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
+/** Numeric eBay Item ID from a preview id, INW SKU (`inw123…`), or plain legacy id. */
+export function resolveEbayLegacyListingId(id: string): string | null {
+  const trimmed = id.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) return trimmed;
+  const inw = trimmed.match(/^inw(\d+)$/i);
+  return inw ? inw[1]! : null;
+}
+
+/**
+ * Lookup map for reconcile and repair: index by legacy Item ID, INW SKU, and link ids.
+ * Channel links store the migrated SKU (`inw…`); preview/import use numeric Item IDs.
+ */
+export function indexEbayRemoteListings(
+  listings: RemoteListingSummary[]
+): Map<string, RemoteListingSummary> {
+  const map = new Map<string, RemoteListingSummary>();
+  for (const listing of listings) {
+    map.set(listing.externalListingId, listing);
+    if (listing.sku) map.set(listing.sku, listing);
+    const legacy = resolveEbayLegacyListingId(listing.externalListingId);
+    if (legacy) {
+      map.set(legacy, listing);
+      map.set(`inw${legacy}`, listing);
+    }
+  }
+  return map;
+}
+
+export function findEbayRemoteListing(
+  listings: RemoteListingSummary[],
+  linkExternalListingId: string
+): RemoteListingSummary | undefined {
+  return indexEbayRemoteListings(listings).get(linkExternalListingId);
+}
+
 /** Map an eBay inventory/offer summary row to a provider-agnostic import preview entry. */
 export function ebayListingToSummary(row: EbayInventorySummaryRow): RemoteListingSummary {
-  // For INW-migrated listings, the link uses the SKU (inw123456789) as externalListingId.
-  // Prefer SKU when it's an INW format so reconcile can match the listing.
-  const inwSku = row.sku?.startsWith("inw") ? row.sku : null;
-  const externalListingId = inwSku || row.offerId || row.listingId || row.listing?.listingId || row.sku || "";
   const listingId = row.listingId || row.listing?.listingId;
+  const legacyId =
+    listingId && /^\d+$/.test(listingId.trim()) ? listingId.trim() : null;
+  // Import/migrate require the numeric Item ID; INW SKU lives on `sku` for reconcile lookups.
+  const externalListingId = legacyId || row.offerId || row.sku?.trim() || "";
   return {
     externalListingId,
     title: row.title || "eBay listing",

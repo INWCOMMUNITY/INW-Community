@@ -37,6 +37,8 @@ export type SyncStoreItem = {
   etsyIsSupply: boolean | null;
   etsyTaxonomyId: number | null;
   ebayCategoryId: number | null;
+  /** eBay Inventory API ConditionEnum override (category-specific). */
+  ebayConditionEnum: string | null;
   /** Item specifics / product aspects: [{ name, value }]. Mapped to eBay product.aspects. */
   aspects: unknown;
 };

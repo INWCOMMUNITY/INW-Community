@@ -15,6 +15,7 @@ import { splitEbayCategoryPath } from "@/lib/channels/ebay-category-aliases";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
 import { variantsFingerprint, sumVariantQuantities } from "@/lib/channels/variant-sync";
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
+import { resolveEbayLegacyListingId } from "@/lib/channels/ebay/mapping";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -106,12 +107,14 @@ async function loadRemoteWithLinkState(userId: string) {
   // Check if a legacy listing ID is already linked and return the storeItemId.
   // After import, listings are stored with a migrated SKU like `inw${legacyId}`,
   // so we need to check both the raw legacy ID and the inw-prefixed version.
-  const findLinkedStoreItemId = (legacyId: string, title: string): string | null => {
-    // Check by legacy ID
+  const findLinkedStoreItemId = (externalId: string, title: string): string | null => {
+    const legacyId = resolveEbayLegacyListingId(externalId) ?? externalId;
+    if (linkedByExternalId.has(externalId)) {
+      return linkedByExternalId.get(externalId)!;
+    }
     if (linkedByExternalId.has(legacyId)) {
       return linkedByExternalId.get(legacyId)!;
     }
-    // Check by migrated SKU
     if (linkedByExternalId.has(`inw${legacyId}`)) {
       return linkedByExternalId.get(`inw${legacyId}`)!;
     }
@@ -212,8 +215,14 @@ export async function POST(req: NextRequest) {
 
   let remote;
   try {
-    remote = (await getAdapter("ebay").listRemoteListings(ctx)).filter((l) =>
-      body.listingIds.includes(l.externalListingId)
+    const allRemote = await getAdapter("ebay").listRemoteListings(ctx);
+    remote = allRemote.filter((l) =>
+      body.listingIds.some((requestedId) => {
+        if (l.externalListingId === requestedId) return true;
+        const remoteLegacy = resolveEbayLegacyListingId(l.externalListingId);
+        const requestedLegacy = resolveEbayLegacyListingId(requestedId);
+        return Boolean(remoteLegacy && requestedLegacy && remoteLegacy === requestedLegacy);
+      })
     );
   } catch (e) {
     const msg = describeEbayThrownError(e);
@@ -261,7 +270,8 @@ export async function POST(req: NextRequest) {
   }
 
   for (const listing of remote) {
-    const legacyId = listing.externalListingId;
+    const legacyId =
+      resolveEbayLegacyListingId(listing.externalListingId) ?? listing.externalListingId;
     const result = migration.get(legacyId);
     if (!result || result.error || !result.sku) {
       pushSkip(skipped, legacyId, "migration", result?.error || "migration_failed");
@@ -305,7 +315,7 @@ export async function POST(req: NextRequest) {
           remoteCategoryId: details.remoteCategoryId ?? listing.remoteCategoryId ?? null,
         });
 
-        if (categoryAssignment?.category && categoryAssignment.subcategory) {
+    if (categoryAssignment?.category && categoryAssignment.subcategory) {
           await prisma.storeItem.update({
             where: { id: existing.storeItem.id },
             data: {

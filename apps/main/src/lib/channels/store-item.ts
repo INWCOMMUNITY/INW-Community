@@ -22,6 +22,7 @@ export const syncStoreItemSelect = {
   etsyIsSupply: true,
   etsyTaxonomyId: true,
   ebayCategoryId: true,
+  ebayConditionEnum: true,
   aspects: true,
 } as const;
 
@@ -45,6 +46,7 @@ type StoreItemLike = {
   etsyIsSupply: boolean | null;
   etsyTaxonomyId: number | null;
   ebayCategoryId: number | null;
+  ebayConditionEnum: string | null;
   aspects: unknown;
 };
 
@@ -69,6 +71,7 @@ export function toSyncStoreItem(item: StoreItemLike): SyncStoreItem {
     etsyIsSupply: item.etsyIsSupply,
     etsyTaxonomyId: item.etsyTaxonomyId,
     ebayCategoryId: item.ebayCategoryId,
+    ebayConditionEnum: item.ebayConditionEnum,
     aspects: item.aspects,
   };
 }

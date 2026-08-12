@@ -13,6 +13,7 @@ import {
   MAX_ASPECTS,
   type ListingAspect,
 } from "@/lib/listing-limits";
+import { conditionEnumFromId } from "./conditions";
 
 /**
  * Parse `<ItemSpecifics><NameValueList><Name>..</Name><Value>..</Value>..` into aspect rows.
@@ -74,6 +75,13 @@ export function parseEbayCondition(itemXml: string): "new" | "used" | null {
   if (/\bnew\b/.test(label) && !/used|pre-?owned|refurbished/.test(label)) return "new";
   if (/used|pre-?owned|refurbished|good|excellent|fair/.test(label)) return "used";
   return null;
+}
+
+/** Map eBay Trading ConditionID → Inventory API ConditionEnum when known. */
+export function parseEbayConditionEnum(itemXml: string): string | null {
+  const id = (tag(itemXml, "ConditionID") ?? "").trim();
+  if (!id || !/^\d+$/.test(id)) return null;
+  return conditionEnumFromId(Number(id));
 }
 
 /** Parse LastModifiedTime / RevisionTime from Trading XML. */

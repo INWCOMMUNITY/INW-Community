@@ -310,7 +310,7 @@ export function ebayErrorActionHint(reason: string): string | undefined {
     return "You've reached your eBay selling limit. Contact eBay to request a limit increase.";
   }
   if (/\b25021\b|condition.*invalid|invalid.*condition/i.test(reason)) {
-    return "The item condition isn't valid for this eBay category. Edit the listing on eBay to select a condition that category allows (e.g. some collectibles require 'Ungraded' instead of 'Used').";
+    return "This listing needs a condition that matches its eBay category. Open the listing in INW and choose New or Used when prompted.";
   }
   if (/\b25001\b|system error has occurred|Internal error/i.test(reason)) {
     return "eBay's service hit a temporary error. Wait a minute and try again.";

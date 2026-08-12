@@ -89,28 +89,32 @@ export function getAvailableQuantity(
   storeItem: { variants?: unknown; quantity: number },
   selectedVariant?: unknown
 ): number {
-  const variants = storeItem.variants as VariantsJson;
-  if (!selectedVariant || typeof selectedVariant !== "object") {
-    return storeItem.quantity;
+  if (!hasOptionQuantities(storeItem.variants)) {
+    return Math.max(0, storeItem.quantity);
   }
+
+  if (!selectedVariant || typeof selectedVariant !== "object" || Array.isArray(selectedVariant)) {
+    return 0;
+  }
+
   const sel = selectedVariant as Record<string, string>;
-  if (!variants || !Array.isArray(variants)) return storeItem.quantity;
+  const variants = storeItem.variants as VariantsJson;
+  if (!variants || !Array.isArray(variants)) return 0;
 
   for (const v of variants) {
     const name = (v as { name?: string }).name?.trim();
-    if (!name || sel[name] == null) continue;
-    const optionValue = String(sel[name]).trim();
+    if (!name || sel[name] == null || !String(sel[name]).trim()) continue;
     const opts = (v as { options?: unknown[] }).options;
-    if (!Array.isArray(opts)) return storeItem.quantity;
-    if (isOptionWithQty(opts[0])) {
-      const opt = (opts as VariantOptionWithQty[]).find(
-        (o) => String(o.value).trim().toLowerCase() === optionValue.toLowerCase()
-      );
-      return opt ? Math.max(0, opt.quantity) : 0;
-    }
-    return storeItem.quantity;
+    if (!Array.isArray(opts) || !isOptionWithQty(opts[0])) continue;
+    const optionValue = String(sel[name]).trim().toLowerCase();
+    const opt = (opts as VariantOptionWithQty[]).find(
+      (o) => String(o.value).trim().toLowerCase() === optionValue
+    );
+    return opt ? Math.max(0, opt.quantity) : 0;
   }
-  return storeItem.quantity;
+
+  // Per-option stock is tied to a selected value — not the listing aggregate.
+  return 0;
 }
 
 /** After a purchase: return updated variants JSON with option quantity decremented, and the amount to decrement from storeItem.quantity (for total/sold_out logic). */

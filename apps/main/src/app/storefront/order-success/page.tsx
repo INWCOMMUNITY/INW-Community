@@ -2,8 +2,8 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { useCart } from "@/contexts/CartContext";
+import { OrderSuccessPanel } from "@/components/store/OrderSuccessPanel";
 
 function OrderSuccessContent() {
   const searchParams = useSearchParams();
@@ -26,7 +26,6 @@ function OrderSuccessContent() {
         const params = new URLSearchParams();
         if (sessionId) params.set("session_id", sessionId);
         if (orderIds.length > 0) params.set("order_ids", orderIds.join(","));
-        // Safety net when checkout.session.completed webhook is delayed or missing.
         await fetch(`/api/store-orders/success-summary?${params.toString()}`);
         await fetch("/api/cart", { method: "DELETE" });
         await refresh();
@@ -45,58 +44,60 @@ function OrderSuccessContent() {
 
   if (status === "loading") {
     return (
-      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-        <div className="max-w-[var(--max-width)] mx-auto text-center">
-          <p className="text-gray-500">Processing your order…</p>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ backgroundColor: "rgba(0, 0, 0, 0.45)" }}
+      >
+        <div
+          className="bg-white px-8 py-10 text-center w-[88vw] max-w-[420px] min-h-[200px] flex items-center justify-center"
+          style={{ border: "4px solid #000" }}
+        >
+          <p className="text-gray-600 font-medium">Processing your order…</p>
         </div>
-      </section>
+      </div>
     );
   }
 
   if (status === "error") {
     return (
-      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-        <div className="max-w-[var(--max-width)] mx-auto text-center">
-          <h1 className="text-2xl font-bold mb-4">Order not found</h1>
-          <p className="text-gray-600 mb-6">
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        style={{ backgroundColor: "rgba(0, 0, 0, 0.45)" }}
+      >
+        <div
+          className="bg-white px-8 py-10 text-center w-[88vw] max-w-[420px]"
+          style={{ border: "4px solid #000" }}
+        >
+          <h1 className="text-xl font-bold mb-3">Order not found</h1>
+          <p className="text-gray-600 mb-6 text-sm">
             We couldn&apos;t find your order. If you completed payment, you should receive a confirmation email shortly.
           </p>
-          <Link href="/storefront" className="btn">Back to storefront</Link>
+          <a
+            href="/storefront"
+            className="inline-block py-3 px-8 rounded-full font-bold border-[3px] border-black"
+          >
+            Keep Shopping
+          </a>
         </div>
-      </section>
+      </div>
     );
   }
 
-  return (
-    <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-      <div className="max-w-[var(--max-width)] mx-auto text-center">
-        <h1 className="text-3xl font-bold mb-4">Thank you for your order!</h1>
-        <p className="text-gray-600 mb-6">
-          Your payment was successful. Sellers will ship your order soon.
-        </p>
-        <div className="flex flex-wrap gap-4 justify-center">
-          <Link href="/storefront" className="btn">Continue Shopping</Link>
-          <Link href="/my-community/orders" className="btn border border-gray-300 bg-white hover:bg-gray-50">
-            View my orders
-          </Link>
-          <Link href="/my-community" className="btn border border-gray-300 bg-white hover:bg-gray-50">
-            Inland Northwest Community
-          </Link>
-        </div>
-      </div>
-    </section>
-  );
+  return <OrderSuccessPanel />;
 }
 
 export default function OrderSuccessPage() {
   return (
-    <Suspense fallback={
-      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-        <div className="max-w-[var(--max-width)] mx-auto text-center">
-          <p className="text-gray-500">Loading…</p>
+    <Suspense
+      fallback={
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: "rgba(0, 0, 0, 0.45)" }}
+        >
+          <p className="text-white font-medium">Loading…</p>
         </div>
-      </section>
-    }>
+      }
+    >
       <OrderSuccessContent />
     </Suspense>
   );

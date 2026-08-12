@@ -18,6 +18,8 @@ import { apiPost, apiGet, apiDelete } from "@/lib/api";
 import { EbaySetupCard } from "@/components/channels/EbaySetupCard";
 import { SyncHealthWidget } from "@/components/channels/SyncHealthWidget";
 import { SyncRulesCard } from "@/components/channels/SyncRulesCard";
+import { SyncPausedBanner } from "@/components/channels/SyncPausedBanner";
+import { ReconnectChecklistModal } from "@/components/channels/ReconnectChecklistModal";
 import { ChannelSettingsModal } from "@/components/channels/ChannelSettingsModal";
 import { SyncOnboarding } from "@/components/channels/SyncOnboarding";
 
@@ -110,6 +112,14 @@ export default function ChannelsScreen() {
     providerName: string;
   }>({ visible: false, connectionId: "", provider: "", providerName: "" });
 
+  const [checklist, setChecklist] = useState<{
+    provider: string;
+    providerName: string;
+    connectionId: string;
+    linkedListings: number;
+  } | null>(null);
+  const [checklistSyncing, setChecklistSyncing] = useState(false);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -128,16 +138,41 @@ export default function ChannelsScreen() {
     }, [refresh])
   );
 
+  const openReconnectChecklist = useCallback(async (provider: string) => {
+    const p = PROVIDERS.find((x) => x.provider === provider);
+    if (!p) return;
+    try {
+      const data = await apiGet<Connection[]>("/api/channels");
+      const list = Array.isArray(data) ? data : [];
+      setConnections(list);
+      const conn = list.find((c) => c.provider === provider && c.status !== "disconnected");
+      setChecklist({
+        provider,
+        providerName: p.name,
+        connectionId: conn?.id ?? "",
+        linkedListings: conn?.linkedListings ?? 0,
+      });
+    } catch {
+      setChecklist({
+        provider,
+        providerName: p.name,
+        connectionId: "",
+        linkedListings: 0,
+      });
+    }
+  }, []);
+
   React.useEffect(() => {
     if (typeof params.connected === "string" && params.connected.length > 0) {
       setSuccess(`${params.connected[0].toUpperCase()}${params.connected.slice(1)} connected.`);
       setError(null);
       void refresh();
+      void openReconnectChecklist(params.connected);
     }
     if (typeof params.channel_error === "string" && params.channel_error.length > 0) {
       setError(decodeURIComponent(params.channel_error.replace(/\+/g, " ")));
     }
-  }, [params.connected, params.channel_error, refresh]);
+  }, [params.connected, params.channel_error, refresh, openReconnectChecklist]);
 
   const connectionFor = (provider: string) =>
     connections.find((c) => c.provider === provider && c.status !== "disconnected");
@@ -164,7 +199,10 @@ export default function ChannelsScreen() {
       if (result.type === "success" && "url" in result && result.url) {
         const { connected, error: err } = parseReturnUrl(result.url);
         if (err) setError(err);
-        else if (connected) setSuccess(`${connected[0].toUpperCase()}${connected.slice(1)} connected.`);
+        else if (connected) {
+          setSuccess(`${connected[0].toUpperCase()}${connected.slice(1)} connected.`);
+          void openReconnectChecklist(connected);
+        }
       }
       await refresh();
     } catch (e: unknown) {
@@ -352,6 +390,39 @@ export default function ChannelsScreen() {
     ]);
   };
 
+  const runChecklistSync = async () => {
+    if (!checklist?.connectionId) {
+      setError("Connection not ready yet. Try Sync Now on the channel card.");
+      setChecklist(null);
+      return;
+    }
+    const name = checklist.providerName;
+    setChecklistSyncing(true);
+    setError(null);
+    try {
+      const res = await apiPost<{ ok: boolean; applied?: number; error?: string }>(
+        `/api/channels/${checklist.connectionId}/reconcile`,
+        {}
+      );
+      if (res.ok) {
+        const appliedText =
+          res.applied && res.applied > 0
+            ? ` ${res.applied} sale${res.applied === 1 ? "" : "s"} applied.`
+            : "";
+        setSuccess(`${name} synced.${appliedText}`);
+        setChecklist(null);
+        await refresh();
+      } else {
+        setError(res.error || `Could not sync ${name}. Try again from the channel card.`);
+      }
+    } catch (e: unknown) {
+      const err = e as { error?: string };
+      setError(err?.error ?? `Could not sync ${name}. Try again.`);
+    } finally {
+      setChecklistSyncing(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Onboarding slideshow - shows until user dismisses */}
@@ -361,6 +432,14 @@ export default function ChannelsScreen() {
         List once on INW and keep your items and inventory in sync across marketplaces. A sale on any
         connected store reduces stock everywhere.
       </Text>
+
+      {!loading && (
+        <SyncPausedBanner
+          connections={connections}
+          onReconnect={(provider) => void connect(provider)}
+          reconnecting={connecting}
+        />
+      )}
 
       {!loading && connections.length > 0 && <SyncHealthWidget />}
       {!loading && connections.length > 0 && <SyncRulesCard />}
@@ -405,7 +484,9 @@ export default function ChannelsScreen() {
                     {conn.status === "error" && conn.lastError && (
                       <View style={styles.errorBanner}>
                         <Ionicons name="alert-circle-outline" size={16} color="#c62828" />
-                        <Text style={styles.errorText}>{conn.lastError}</Text>
+                        <Text style={styles.errorText}>
+                          Sync paused for this store. INW quantities are unchanged — reconnect above, then Sync Now.
+                        </Text>
                       </View>
                     )}
                     {p.provider === "etsy" && !conn.hasShippingProfile && (
@@ -597,6 +678,22 @@ export default function ChannelsScreen() {
         onClose={() => setSettingsModal({ visible: false, connectionId: "", provider: "", providerName: "" })}
         onSaved={refresh}
       />
+
+      {checklist ? (
+        <ReconnectChecklistModal
+          visible
+          provider={checklist.provider}
+          providerName={checklist.providerName}
+          linkedListings={checklist.linkedListings}
+          syncing={checklistSyncing}
+          onDismiss={() => setChecklist(null)}
+          onSyncNow={() => void runChecklistSync()}
+          onViewSyncHealth={() => {
+            setChecklist(null);
+            router.push("/seller-hub/channels/sync-health" as never);
+          }}
+        />
+      ) : null}
     </ScrollView>
   );
 }

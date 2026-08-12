@@ -4,6 +4,7 @@ import { resolveImportCategory } from "./import-listing";
 import { applyRemoteQuantityToStoreItem } from "./apply-remote-listing";
 import { ensureChannelCategoryMappingsSeeded } from "./channel-category-mapping";
 import { getMemberConnectionContext } from "./connection";
+import { findEbayRemoteListing } from "./ebay/mapping";
 import { getAdapter } from "./registry";
 import { fetchEbayItemDetails } from "./ebay/trading";
 import { splitEbayCategoryPath } from "./ebay-category-aliases";
@@ -172,7 +173,10 @@ export async function repairMemberImportedCategories(
             remoteCache.set(provider, remoteList);
           }
         }
-        const remote = remoteList?.find((r) => r.externalListingId === link.externalListingId);
+        const remote =
+          provider === "ebay"
+            ? findEbayRemoteListing(remoteList ?? [], link.externalListingId)
+            : remoteList?.find((r) => r.externalListingId === link.externalListingId);
         if (remote && remote.quantityKnown !== false && remote.quantity > 0) {
           qtyRecovered = await applyRemoteQuantityToStoreItem(item.id, remote.quantity, {
             provider,

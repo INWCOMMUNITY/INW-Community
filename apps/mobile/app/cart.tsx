@@ -36,6 +36,7 @@ import {
   type StorefrontCheckoutPayload,
 } from "@/components/StorefrontNativeCheckoutButton";
 import { useAuth } from "@/contexts/AuthContext";
+import { OrderSuccessOverlay } from "@/components/OrderSuccessOverlay";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -835,6 +836,17 @@ export default function CartScreen() {
 
   return (
     <View style={styles.container}>
+      <OrderSuccessOverlay
+        visible={orderJustConfirmed}
+        onViewOrder={() => {
+          setOrderJustConfirmed(false);
+          router.push("/community/my-orders" as never);
+        }}
+        onKeepShopping={() => {
+          setOrderJustConfirmed(false);
+          router.push("/(tabs)/store" as never);
+        }}
+      />
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -860,33 +872,6 @@ export default function CartScreen() {
             />
           }
         >
-          {orderJustConfirmed ? (
-            <View style={styles.orderConfirmedCard}>
-              <Ionicons name="checkmark-circle" size={48} color={theme.colors.primary} style={{ marginBottom: 8 }} />
-              <Text style={styles.orderConfirmedTitle}>Order confirmed!</Text>
-              <Text style={styles.orderConfirmedSubtext}>Sellers will ship or contact you to arrange pickup or delivery.</Text>
-              <View style={styles.orderConfirmedActions}>
-                <Pressable
-                  style={[styles.orderConfirmedBtn, styles.orderConfirmedBtnPrimary]}
-                  onPress={() => {
-                    setOrderJustConfirmed(false);
-                    router.push("/community/my-orders" as never);
-                  }}
-                >
-                  <Text style={styles.orderConfirmedBtnPrimaryText}>View my orders</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.orderConfirmedBtn, styles.orderConfirmedBtnSecondary]}
-                  onPress={() => {
-                    setOrderJustConfirmed(false);
-                    router.back();
-                  }}
-                >
-                  <Text style={styles.orderConfirmedBtnSecondaryText}>Continue shopping</Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
           {hasUnavailableItems ? (
             <View style={styles.warningBanner}>
               <Text style={styles.warningText}>
@@ -1656,60 +1641,5 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
-  },
-  orderConfirmedCard: {
-    marginHorizontal: 16,
-    marginBottom: 24,
-    padding: 24,
-    backgroundColor: "#f0fdf4",
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    alignItems: "center",
-  },
-  orderConfirmedTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: theme.colors.heading,
-    marginBottom: 4,
-  },
-  orderConfirmedSubtext: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 16,
-  },
-  orderConfirmedActions: {
-    flexDirection: "row",
-    gap: 12,
-    flexWrap: "wrap",
-    justifyContent: "center",
-  },
-  orderConfirmedBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    minWidth: 140,
-    alignItems: "center",
-  },
-  orderConfirmedBtnPrimary: {
-    backgroundColor: theme.colors.primary,
-    borderWidth: 2,
-    borderColor: "#000",
-  },
-  orderConfirmedBtnPrimaryText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  orderConfirmedBtnSecondary: {
-    backgroundColor: "#fff",
-    borderWidth: 2,
-    borderColor: "#ddd",
-  },
-  orderConfirmedBtnSecondaryText: {
-    color: theme.colors.text,
-    fontSize: 16,
-    fontWeight: "600",
   },
 });

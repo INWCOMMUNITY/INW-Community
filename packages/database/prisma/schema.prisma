@@ -927,6 +927,8 @@ model StoreItem {
   etsyIsSupply         Boolean? @map("etsy_is_supply")
   etsyTaxonomyId       Int?     @map("etsy_taxonomy_id")
   ebayCategoryId       Int?     @map("ebay_category_id")
+  /// eBay Inventory API ConditionEnum override (e.g. NEW, USED_EXCELLENT). Category-specific.
+  ebayConditionEnum    String?  @map("ebay_condition_enum")
   lowStockThreshold    Int?     @map("low_stock_threshold") // Alert when quantity falls to or below this value
   featured             Boolean  @default(false) @map("featured") // Admin-curated featured listings
   createdAt           DateTime @default(now()) @map("created_at")

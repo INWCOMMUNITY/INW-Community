@@ -71,6 +71,8 @@ export async function refreshEbayListingByItemId(
           aspects: true,
           variants: true,
           condition: true,
+          ebayConditionEnum: true,
+          ebayCategoryId: true,
           status: true,
         },
       },
@@ -137,6 +139,11 @@ export async function refreshEbayListingByItemId(
   if (details.condition && details.condition !== storeItem.condition) {
     updateData.condition = details.condition;
     changes.push(`condition (${details.condition})`);
+  }
+
+  if (details.conditionEnum && details.conditionEnum !== storeItem.ebayConditionEnum) {
+    updateData.ebayConditionEnum = details.conditionEnum;
+    changes.push(`ebay condition (${details.conditionEnum})`);
   }
 
   if (normalizedAspects.length > 0) {

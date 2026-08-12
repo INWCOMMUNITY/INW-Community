@@ -73,9 +73,18 @@ type InventoryItem = {
 };
 type InventorySearchResponse = { inventoryItems?: InventoryItem[] };
 
-function wixOpts(conn: ChannelConnectionContext): WixRequestOpts {
-  const siteId = wixSiteIdFromConn(conn);
-  return siteId ? { siteId } : {};
+/** Prefer no wix-site-id header first when using instance-scoped app tokens (see site.ts). */
+function wixRequestAttempts(conn: ChannelConnectionContext): WixRequestOpts[] {
+  return wixInventoryRequestOpts(conn);
+}
+
+async function remintIfMetasiteError(
+  conn: ChannelConnectionContext,
+  e: unknown,
+  pass: number
+): Promise<boolean> {
+  if (pass !== 0 || !isWixMetasiteContextError(e)) return false;
+  return remintWixAccessToken(conn);
 }
 
 /** Site id + official catalog version (v1 vs v3) before any Stores catalog API. */
@@ -683,56 +692,59 @@ export const wixAdapter: ChannelAdapter = {
 
   async createListing(conn, item): Promise<CreateListingResult> {
     let mode = await prepareWixConn(conn);
-    const opts = wixOpts(conn);
-
-    const createV1 = async (): Promise<string | undefined> => {
-      const res = await wixJson<{ product?: { id?: string } }>(
-        conn.accessToken,
-        `/stores/v1/products`,
-        "POST",
-        buildWixV1CreateBody(item),
-        opts
-      );
-      return res.product?.id;
-    };
-    const createV3 = async (): Promise<string | undefined> => {
-      const res = await wixJson<ProductResponse>(
-        conn.accessToken,
-        `/stores/v3/products-with-inventory`,
-        "POST",
-        buildWixCreateBody(item),
-        opts
-      );
-      return res.product?.id;
-    };
+    let lastErr: unknown;
 
     // Retry once across catalog versions when the cached mode is wrong (428 wrong-catalog-version).
     for (let pass = 0; pass < 2; pass++) {
-      try {
-        const productId = mode === "v1" ? await createV1() : await createV3();
-        if (!productId) {
-          throw new Error("Wix did not return a product id for the created listing.");
+      for (const opts of wixRequestAttempts(conn)) {
+        try {
+          const createV1 = async (): Promise<string | undefined> => {
+            const res = await wixJson<{ product?: { id?: string } }>(
+              conn.accessToken,
+              `/stores/v1/products`,
+              "POST",
+              buildWixV1CreateBody(item),
+              opts
+            );
+            return res.product?.id;
+          };
+          const createV3 = async (): Promise<string | undefined> => {
+            const res = await wixJson<ProductResponse>(
+              conn.accessToken,
+              `/stores/v3/products-with-inventory`,
+              "POST",
+              buildWixCreateBody(item),
+              opts
+            );
+            return res.product?.id;
+          };
+
+          const productId = mode === "v1" ? await createV1() : await createV3();
+          if (!productId) {
+            throw new Error("Wix did not return a product id for the created listing.");
+          }
+          await applyWixCategoryAndOptions(conn, productId, item, opts, mode === "v1");
+          await syncWixProductMedia(conn, productId, item.photos);
+          return { externalListingId: productId, externalShopId: conn.externalShopId };
+        } catch (e) {
+          lastErr = e;
+          if (await remintIfMetasiteError(conn, e, pass)) break;
+          const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
+          if (corrected && pass === 0) {
+            mode = corrected;
+            break;
+          }
         }
-        await applyWixCategoryAndOptions(conn, productId, item, opts, mode === "v1");
-        await syncWixProductMedia(conn, productId, item.photos);
-        return { externalListingId: productId, externalShopId: conn.externalShopId };
-      } catch (e) {
-        const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
-        if (corrected && pass === 0) {
-          mode = corrected;
-          continue;
-        }
-        throw e;
       }
     }
+    if (lastErr instanceof Error) throw lastErr;
     throw new WixApiError("Could not create listing on Wix.", 502, null);
   },
 
   async updateListing(conn, externalListingId, item): Promise<void> {
     let mode = await prepareWixConn(conn);
     const productId = externalListingId;
-    const withSite = wixOpts(conn);
-    const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+    const attempts = wixRequestAttempts(conn);
     let lastErr: unknown;
 
     for (let pass = 0; pass < 2; pass++) {
@@ -838,6 +850,7 @@ export const wixAdapter: ChannelAdapter = {
         throw new WixApiError("Product not found on Wix.", 404, null);
         } catch (e) {
           lastErr = e;
+          if (await remintIfMetasiteError(conn, e, pass)) break;
           const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
           if (corrected && pass === 0) {
             mode = corrected;
@@ -853,8 +866,7 @@ export const wixAdapter: ChannelAdapter = {
 
   async deleteListing(conn, externalListingId): Promise<void> {
     let mode = await prepareWixConn(conn);
-    const withSite = wixOpts(conn);
-    const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+    const attempts = wixRequestAttempts(conn);
     let lastErr: unknown;
 
     const pathsForMode = (m: WixCatalogMode) => {
@@ -886,6 +898,7 @@ export const wixAdapter: ChannelAdapter = {
               lastErr = e;
               continue;
             }
+            if (await remintIfMetasiteError(conn, e, pass)) break;
             const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
             if (corrected && pass === 0) {
               mode = corrected;
@@ -902,8 +915,7 @@ export const wixAdapter: ChannelAdapter = {
 
   async fetchProductQuantity(conn, externalListingId): Promise<{ quantity: number; known: boolean }> {
     const mode = await prepareWixConn(conn);
-    const withSite = wixOpts(conn);
-    const attempts: WixRequestOpts[] = withSite.siteId ? [withSite, {}] : [{}];
+    const attempts = wixRequestAttempts(conn);
     for (const opts of attempts) {
       const r = await readWixProductQuantity(
         conn.accessToken,
@@ -1002,10 +1014,7 @@ export const wixAdapter: ChannelAdapter = {
           return;
         } catch (e) {
           lastErr = e;
-          if (isWixMetasiteContextError(e) && pass === 0) {
-            const reminted = await remintWixAccessToken(conn);
-            if (reminted) break;
-          }
+          if (await remintIfMetasiteError(conn, e, pass)) break;
           const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
           if (corrected && pass === 0) {
             mode = corrected;
@@ -1086,7 +1095,7 @@ export const wixAdapter: ChannelAdapter = {
 
   async fetchRecentSales(conn, since): Promise<RemoteSale[]> {
     await ensureWixSiteId(conn);
-    const opts = wixOpts(conn);
+    const opts = wixRequestAttempts(conn)[0] ?? {};
     const sinceIso = since.toISOString();
     const sales: RemoteSale[] = [];
     let cursor: string | undefined;

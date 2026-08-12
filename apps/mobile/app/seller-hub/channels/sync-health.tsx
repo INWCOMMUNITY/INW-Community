@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
+import { EbayConditionFixModal } from "@/components/channels/EbayConditionFixModal";
+import { isEbayConditionSyncError } from "@/lib/ebay-condition-sync";
 
 type ChannelHealth = {
   provider: string;
@@ -85,6 +87,8 @@ export default function SyncHealthScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [conditionFixItemId, setConditionFixItemId] = useState<string | null>(null);
+  const conditionAutoPrompted = useRef(false);
   const [overallStatus, setOverallStatus] = useState<"healthy" | "warning" | "error">("healthy");
 
   const loadData = useCallback(async (isRefresh = false) => {
@@ -113,6 +117,17 @@ export default function SyncHealthScreen() {
       loadData();
     }, [loadData])
   );
+
+  useEffect(() => {
+    if (loading || conditionAutoPrompted.current || conditionFixItemId) return;
+    const first = issues.find(
+      (i) => i.provider === "ebay" && isEbayConditionSyncError(i.syncError)
+    );
+    if (first) {
+      conditionAutoPrompted.current = true;
+      setConditionFixItemId(first.storeItemId);
+    }
+  }, [issues, loading, conditionFixItemId]);
 
   const handleRetryAll = async (connectionId: string, provider: string) => {
     setRetrying(connectionId);
@@ -143,6 +158,14 @@ export default function SyncHealthScreen() {
     return date.toLocaleDateString();
   };
 
+  const openIssue = (issue: SyncIssue) => {
+    if (issue.provider === "ebay" && isEbayConditionSyncError(issue.syncError)) {
+      setConditionFixItemId(issue.storeItemId);
+      return;
+    }
+    router.push(`/seller-hub/store/new?edit=${issue.storeItemId}`);
+  };
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -152,6 +175,7 @@ export default function SyncHealthScreen() {
   }
 
   return (
+    <>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -282,7 +306,7 @@ export default function SyncHealthScreen() {
             <Pressable
               key={issue.id}
               style={styles.issueCard}
-              onPress={() => router.push(`/product/${issue.storeItemId}`)}
+              onPress={() => openIssue(issue)}
             >
               <View style={styles.issueHeader}>
                 <Ionicons
@@ -313,6 +337,9 @@ export default function SyncHealthScreen() {
                   {issue.syncError}
                 </Text>
               )}
+              {issue.provider === "ebay" && isEbayConditionSyncError(issue.syncError) && (
+                <Text style={styles.issueAction}>Tap to choose New or Used</Text>
+              )}
               {issue.nextRetryAt && (
                 <Text style={styles.issueRetry}>
                   Retry in {formatTime(issue.nextRetryAt)}
@@ -323,6 +350,12 @@ export default function SyncHealthScreen() {
         </>
       )}
     </ScrollView>
+    <EbayConditionFixModal
+      visible={!!conditionFixItemId}
+      storeItemId={conditionFixItemId}
+      onClose={() => setConditionFixItemId(null)}
+      onFixed={() => void loadData(true)}
+    />
   );
 }
 
@@ -463,5 +496,6 @@ const styles = StyleSheet.create({
   issueTypePending: { backgroundColor: "#e0e7ff" },
   issueTypeBadgeText: { fontSize: 10, fontWeight: "600", color: "#666" },
   issueError: { fontSize: 12, color: "#666", marginTop: 6 },
+  issueAction: { fontSize: 12, color: theme.colors.primary, fontWeight: "600", marginTop: 6 },
   issueRetry: { fontSize: 11, color: "#999", marginTop: 4 },
 });

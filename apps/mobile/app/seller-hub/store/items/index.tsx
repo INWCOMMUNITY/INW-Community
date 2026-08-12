@@ -17,6 +17,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
+import { EbayConditionFixModal } from "@/components/channels/EbayConditionFixModal";
+import { isEbayConditionSyncError } from "@/lib/ebay-condition-sync";
 import { QualityScoreBadge } from "@/components/listing/QualityScoreBadge";
 import {
   CHANNEL_PROVIDER_LABEL,
@@ -78,6 +80,7 @@ export default function MyItemsScreen() {
   const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
+  const [conditionFixItemId, setConditionFixItemId] = useState<string | null>(null);
   const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
 
   type ItemsTab = "active" | "ended" | "sold";
@@ -541,9 +544,10 @@ export default function MyItemsScreen() {
                         link.provider;
                       const isError = link.syncStatus === "error";
                       const isPaused = !link.syncEnabled;
-                      return (
+                      const needsConditionFix =
+                        link.provider === "ebay" && isError && isEbayConditionSyncError(link.syncError);
+                      const badge = (
                         <Text
-                          key={link.provider}
                           style={[
                             styles.syncBadge,
                             isError && styles.syncBadgeError,
@@ -556,8 +560,17 @@ export default function MyItemsScreen() {
                             : isPaused
                               ? `${label}: paused`
                               : `Synced to ${label}`}
+                          {needsConditionFix ? " · Tap to fix condition" : ""}
                         </Text>
                       );
+                      if (needsConditionFix) {
+                        return (
+                          <Pressable key={link.provider} onPress={() => setConditionFixItemId(item.id)}>
+                            {badge}
+                          </Pressable>
+                        );
+                      }
+                      return <View key={link.provider}>{badge}</View>;
                     })}
                 </View>
               </Pressable>
@@ -679,6 +692,12 @@ export default function MyItemsScreen() {
           </View>
         </Pressable>
       </Modal>
+      <EbayConditionFixModal
+        visible={!!conditionFixItemId}
+        storeItemId={conditionFixItemId}
+        onClose={() => setConditionFixItemId(null)}
+        onFixed={() => load()}
+      />
     </View>
   );
 }

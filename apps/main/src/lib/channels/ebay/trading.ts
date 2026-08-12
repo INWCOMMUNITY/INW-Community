@@ -9,6 +9,7 @@ import { describeEbayThrownError, extractBulkMigrateResponse, formatMigrateListi
 import { allTags, extractEbayItemPhotos, tag } from "./photos";
 import {
   parseEbayCondition,
+  parseEbayConditionEnum,
   parseEbayDescription,
   parseEbayItemSpecifics,
   parseEbayLastModified,
@@ -17,6 +18,7 @@ import {
   type EbayVariationAxis,
 } from "./item-specifics";
 import type { ListingAspect } from "@/lib/listing-limits";
+import { resolveEbayLegacyListingId } from "./mapping";
 
 /** A classic (Trading API) eBay listing enumerated for import preview. */
 export type EbayTradingListing = {
@@ -44,6 +46,7 @@ export type EbayItemDetails = {
   photos: string[];
   title: string | null;
   condition: "new" | "used" | null;
+  conditionEnum: string | null;
   remoteUpdatedAt: Date | null;
   quantity: number | null;
   priceCents: number | null;
@@ -203,6 +206,7 @@ export async function fetchEbayItemDetails(
       photos,
       title: titleRaw ? decodeXmlTitle(titleRaw) : null,
       condition: parseEbayCondition(item),
+      conditionEnum: parseEbayConditionEnum(item),
       remoteUpdatedAt: parseEbayLastModified(item),
       quantity,
       priceCents,
@@ -219,6 +223,7 @@ export async function fetchEbayItemDetails(
       photos: [],
       title: null,
       condition: null,
+      conditionEnum: null,
       remoteUpdatedAt: null,
       quantity: null,
       priceCents: null,
@@ -546,7 +551,19 @@ export async function migrateEbayListings(
   const result = new Map<string, MigrationResult>();
   // The Inventory API `getOffers` endpoint cannot look up offers by listingId (it requires
   // a SKU and only sees Inventory-API-created offers), so we attempt migration directly.
-  const pending: string[] = [...listingIds];
+  const pending: string[] = [];
+  for (const raw of listingIds) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const legacy = resolveEbayLegacyListingId(trimmed);
+    if (!legacy) {
+      result.set(trimmed, {
+        error: "Invalid eBay listing id — expected a numeric Item ID from your active listings.",
+      });
+      continue;
+    }
+    if (!pending.includes(legacy)) pending.push(legacy);
+  }
 
   // bulk_migrate_listing accepts up to 5 listings per call and is known to be flaky (HTTP 500).
   for (let i = 0; i < pending.length; i += 5) {

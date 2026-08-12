@@ -8,6 +8,7 @@ import {
   applyRemoteAspectsToStoreItem,
 } from "./apply-remote-meta";
 import { getAdapter } from "./registry";
+import { indexEbayRemoteListings } from "./ebay/mapping";
 import { updateStoreItemOnChannels } from "./outbound";
 import { channelSyncSucceeded, syncInventoryToChannels } from "./sync-inventory";
 import {
@@ -136,7 +137,10 @@ export async function reconcileConnectionInboundMeta(
 
   if (remoteList.length === 0) return { updated: 0, removed: 0 };
 
-  const remoteById = new Map(remoteList.map((r) => [r.externalListingId, r]));
+  const remoteById =
+    provider === "ebay"
+      ? indexEbayRemoteListings(remoteList)
+      : new Map(remoteList.map((r) => [r.externalListingId, r]));
 
   if (provider === "wix" && ctx) {
     const { attachWixVariantsToSummary, fetchWixV1Product } = await import("./wix/collections");

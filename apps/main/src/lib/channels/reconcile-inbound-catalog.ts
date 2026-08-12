@@ -20,6 +20,7 @@ import { clampSaneInventoryQty } from "./inventory-sanity";
 import { variantsFingerprint } from "./variant-sync";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { getChannelCapabilities } from "./capabilities";
+import { indexEbayRemoteListings } from "./ebay/mapping";
 import { logSyncEvent } from "./sync-log";
 
 /** Content fingerprint for a remote catalog row (same fields as syncContentHash on StoreItem). */
@@ -196,7 +197,10 @@ export async function reconcileConnectionInboundCatalog(
     return { updated: 0, removed: 0 };
   }
 
-  const remoteById = new Map(remoteList.map((r) => [r.externalListingId, r]));
+  const remoteById =
+    provider === "ebay"
+      ? indexEbayRemoteListings(remoteList)
+      : new Map(remoteList.map((r) => [r.externalListingId, r]));
 
   const links = (await prisma.channelListingLink.findMany({
     where: { connectionId: connection.id, provider, syncEnabled: true },
