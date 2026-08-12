@@ -116,8 +116,9 @@ export async function refreshEbayListingByItemId(
     .map((u) => normalizeEbayPhotoUrl(u))
     .filter((u): u is string => Boolean(u));
   const description = storeListingDescription(details.description) ?? storeItem.description;
-  const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null);
   const remoteTitle = (details.title ?? storeItem.title).slice(0, 200);
+  // Pass title for keyword-based subcategory inference
+  const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null, remoteTitle);
   const remoteQty = details.quantity ?? storeItem.quantity;
   const remotePrice =
     details.priceCents != null && details.priceCents > 0

@@ -1,5 +1,9 @@
 import { prisma } from "database";
-import { resolveInwCategoryWithLearning, resolveInwCategoryFromEbayPath, resolveInwCategoryFromEtsyTaxonomy } from "./category-resolver";
+import {
+  resolveInwCategoryWithSubcategory,
+  resolveInwCategoryFromEbayPath,
+  resolveInwCategoryFromEtsyTaxonomy,
+} from "./category-resolver";
 import {
   normalizeVariantsFromProvider,
   sumVariantQuantities,
@@ -10,7 +14,7 @@ import { clampSaneInventoryQty } from "./inventory-sanity";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 
-/** Apply category + subcategory from a remote listing using fuzzy preset matching. */
+/** Apply category + subcategory from a remote listing using enhanced preset matching. */
 export async function applyRemoteCategoryToStoreItem(
   storeItemId: string,
   remote: RemoteListingSummary,
@@ -19,19 +23,21 @@ export async function applyRemoteCategoryToStoreItem(
   const remoteLabel = remote.category?.trim();
   if (!remoteLabel) return false;
 
-  const resolved =
-    provider === "ebay"
-      ? await resolveInwCategoryFromEbayPath(remoteLabel)
-      : provider === "etsy" && remote.remoteCategoryId
-        ? await resolveInwCategoryFromEtsyTaxonomy(Number(remote.remoteCategoryId), remoteLabel)
-        : await resolveInwCategoryWithLearning(remoteLabel, remote.subcategory, { provider });
-  if (!resolved) return false;
-
+  // Get the item's title for keyword-based subcategory inference
   const item = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
-    select: { category: true, subcategory: true, etsyTaxonomyId: true, ebayCategoryId: true },
+    select: { title: true, category: true, subcategory: true, etsyTaxonomyId: true, ebayCategoryId: true },
   });
   if (!item) return false;
+
+  // Use enhanced resolver that always assigns subcategory when possible
+  const resolved =
+    provider === "ebay"
+      ? await resolveInwCategoryFromEbayPath(remoteLabel, item.title)
+      : provider === "etsy" && remote.remoteCategoryId
+        ? await resolveInwCategoryFromEtsyTaxonomy(Number(remote.remoteCategoryId), remoteLabel, item.title)
+        : await resolveInwCategoryWithSubcategory(remoteLabel, remote.subcategory, { provider, title: item.title });
+  if (!resolved) return false;
 
   const nextCategory = resolved.category;
   const nextSub = resolved.subcategory;

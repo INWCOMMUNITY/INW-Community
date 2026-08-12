@@ -3,7 +3,11 @@ import type { ChannelProvider } from "./types";
 import {
   EBAY_CATEGORY_ALIASES,
   ebayCategoryPathCandidates,
+  ebayCategoryPathCandidatesWithMeta,
   splitEbayCategoryPath,
+  normalizeEbayLabel,
+  aliasSpecificityScore,
+  type EbayPathCandidate,
 } from "./ebay-category-aliases";
 import { getEtsyTaxonomyName } from "./etsy/mapping";
 
@@ -816,6 +820,19 @@ function matchAlias(
   remoteSubLabel: string | null | undefined,
   aliases: Record<string, AliasHit>
 ): ResolvedInwCategory | null {
+  const result = matchAliasWithKey(remoteLabel, remoteSubLabel, aliases);
+  return result?.result ?? null;
+}
+
+/**
+ * Match alias and return both the result and the alias key that matched.
+ * The key is needed for specificity scoring in eBay path resolution.
+ */
+function matchAliasWithKey(
+  remoteLabel: string,
+  remoteSubLabel: string | null | undefined,
+  aliases: Record<string, AliasHit>
+): { result: ResolvedInwCategory; aliasKey: string } | null {
   const combined = remoteSubLabel?.trim()
     ? `${remoteLabel} ${remoteSubLabel}`.trim()
     : remoteLabel.trim();
@@ -827,7 +844,7 @@ function matchAlias(
       : []),
   ].filter((c) => c.text);
 
-  let best: { hit: AliasHit; keyLen: number; exact: boolean } | null = null;
+  let best: { hit: AliasHit; key: string; keyLen: number; exact: boolean } | null = null;
 
   for (const { text } of candidates) {
     for (const [key, mapping] of Object.entries(aliases)) {
@@ -846,17 +863,20 @@ function matchAlias(
         (exact && !best.exact) ||
         (exact === best.exact && keyLen > best.keyLen)
       ) {
-        best = { hit: mapping, keyLen, exact };
+        best = { hit: mapping, key: normalizedKey, keyLen, exact };
       }
     }
   }
 
   if (!best) return null;
   return {
-    category: best.hit.category,
-    subcategory: best.hit.subcategory,
-    matchedPreset: true,
-    score: 1,
+    result: {
+      category: best.hit.category,
+      subcategory: best.hit.subcategory,
+      matchedPreset: true,
+      score: 1,
+    },
+    aliasKey: best.key,
   };
 }
 
@@ -926,18 +946,59 @@ export function resolveInwCategoryFromRemote(
 
   const aliases = aliasesForProvider(opts?.provider);
 
-  // eBay PrimaryCategory is usually "Root > Mid > Leaf" — try each path segment first.
+  // eBay PrimaryCategory is usually "Root > Mid > Leaf" — use specificity scoring
+  // to pick the most specific matching alias instead of first-match-wins.
   if (opts?.provider === "ebay" && label.includes(">")) {
-    for (const segment of ebayCategoryPathCandidates(label)) {
-      const segHit = matchAlias(segment, sub, aliases);
+    const candidates = ebayCategoryPathCandidatesWithMeta(label);
+    const matches: Array<{
+      hit: ResolvedInwCategory;
+      aliasKey: string;
+      candidate: EbayPathCandidate;
+      specificityScore: number;
+    }> = [];
+
+    // Collect all alias matches with their specificity scores
+    for (const candidate of candidates) {
+      const segHit = matchAliasWithKey(candidate.segment, sub, aliases);
       if (segHit) {
-        if (!segHit.subcategory && sub) {
-          const refined = refineSubcategory(segHit.category, sub);
-          if (refined) return { ...segHit, subcategory: refined };
-        }
-        return segHit;
+        const specificityScore = aliasSpecificityScore(segHit.aliasKey, candidate);
+        matches.push({
+          hit: segHit.result,
+          aliasKey: segHit.aliasKey,
+          candidate,
+          specificityScore,
+        });
       }
     }
+
+    // Pick the match with highest specificity score
+    if (matches.length > 0) {
+      matches.sort((a, b) => b.specificityScore - a.specificityScore);
+      const best = matches[0]!;
+      
+      // Refine subcategory if the alias only matched top-level
+      if (!best.hit.subcategory && sub) {
+        const refined = refineSubcategory(best.hit.category, sub);
+        if (refined) {
+          return { ...best.hit, subcategory: refined };
+        }
+      }
+      
+      // If no subcategory, try to refine from the original path's leaf segment
+      if (!best.hit.subcategory) {
+        const leafCandidate = candidates.find(c => c.depth > 1 && c.components === 1);
+        if (leafCandidate) {
+          const refined = refineSubcategory(best.hit.category, leafCandidate.segment);
+          if (refined) {
+            return { ...best.hit, subcategory: refined };
+          }
+        }
+      }
+      
+      return best.hit;
+    }
+
+    // No alias match found, fall through to fuzzy matching
     const split = splitEbayCategoryPath(label);
     label = split.label;
     if (!sub && split.subcategory) sub = split.subcategory;
@@ -1339,54 +1400,40 @@ export async function getLearnedCategoryMapping(
 
 /**
  * Resolve an eBay PrimaryCategory path to an INW preset (with learning + aliases).
+ * Uses enhanced resolution to always assign subcategory when possible.
  */
 export async function resolveInwCategoryFromEbayPath(
-  categoryPath: string | null | undefined
+  categoryPath: string | null | undefined,
+  title?: string | null
 ): Promise<ResolvedInwCategory | null> {
   if (!categoryPath?.trim()) return null;
   const { label, subcategory } = splitEbayCategoryPath(categoryPath);
-  return resolveInwCategoryWithLearning(label, subcategory, { provider: "ebay" });
+  
+  // Use the full path for resolution (not just root + leaf) to enable
+  // hierarchical path alias matching like "Collectibles > Comics"
+  const result = await resolveInwCategoryWithSubcategory(
+    categoryPath,  // Pass full path for hierarchical matching
+    subcategory,
+    { provider: "ebay", title }
+  );
+  
+  return result;
 }
 
 /**
  * Map an Etsy taxonomy id + leaf name to INW category and subcategory.
- * Uses alias table first, then refines subcategory from the Etsy leaf label.
+ * Uses enhanced resolution to always assign subcategory when possible.
  */
 export async function resolveInwCategoryFromEtsyTaxonomy(
   taxonomyId: number | null | undefined,
-  taxonomyName?: string | null
+  taxonomyName?: string | null,
+  title?: string | null
 ): Promise<ResolvedInwCategory | null> {
   const name = taxonomyName?.trim() || getEtsyTaxonomyName(taxonomyId);
   if (!name) return null;
 
-  let resolved = await resolveInwCategoryWithLearning(name, null, { provider: "etsy" });
-  if (!resolved) return null;
-
-  if (resolved.matchedPreset && !resolved.subcategory) {
-    const refined = refineSubcategory(resolved.category, name);
-    if (refined) {
-      resolved = { ...resolved, subcategory: refined };
-    } else {
-      const preset = STORE_CATEGORIES.find((p) => p.label === resolved!.category);
-      if (preset) {
-        const nameLower = name.toLowerCase();
-        let bestSub: string | null = null;
-        let bestScore = 0;
-        for (const sub of preset.subcategories) {
-          const score = similarityScore(nameLower, sub.toLowerCase());
-          if (score > bestScore && score >= 0.45) {
-            bestScore = score;
-            bestSub = sub;
-          }
-        }
-        if (bestSub) {
-          resolved = { ...resolved, subcategory: bestSub };
-        }
-      }
-    }
-  }
-
-  return resolved;
+  // Use the enhanced resolver that always assigns subcategory
+  return resolveInwCategoryWithSubcategory(name, null, { provider: "etsy", title });
 }
 
 /**
@@ -1449,6 +1496,193 @@ export async function resolveInwCategoryWithLearning(
 
   // Fall back to standard resolution
   return resolveInwCategoryFromRemote(remoteLabel, remoteSubLabel, opts);
+}
+
+/**
+ * Enhanced resolver that ALWAYS assigns a subcategory.
+ * This is the recommended function for import flows - it ensures items are properly
+ * organized even when remote categories are generic or poorly mapped.
+ * 
+ * Resolution order:
+ * 1. Standard resolution (alias + fuzzy match)
+ * 2. Refine subcategory from remote leaf label
+ * 3. Keyword matching against subcategories
+ * 4. Title-based subcategory inference
+ * 5. Default to "Other [Category]" as last resort
+ */
+export async function resolveInwCategoryWithSubcategory(
+  remoteLabel: string | null | undefined,
+  remoteSubLabel?: string | null,
+  opts?: ResolveCategoryOptions & { title?: string | null }
+): Promise<ResolvedInwCategory | null> {
+  const result = await resolveInwCategoryWithLearning(remoteLabel, remoteSubLabel, opts);
+  
+  if (!result?.category) return result;
+  if (result.subcategory) return result;
+
+  // If we got a category but no subcategory, try harder to assign one
+  const preset = STORE_CATEGORIES.find((p) => p.label === result.category);
+  if (!preset || preset.subcategories.length === 0) {
+    return result;
+  }
+
+  // 1. Try refining from the remote leaf label
+  const leafLabel = remoteSubLabel?.trim() || remoteLabel?.trim();
+  if (leafLabel) {
+    const refined = refineSubcategoryEnhanced(result.category, leafLabel);
+    if (refined) {
+      return { ...result, subcategory: refined };
+    }
+  }
+
+  // 2. Try keyword matching against subcategories from title
+  if (opts?.title) {
+    const titleMatch = matchSubcategoryFromKeywords(result.category, opts.title);
+    if (titleMatch) {
+      return { ...result, subcategory: titleMatch };
+    }
+  }
+
+  // 3. Try keyword matching against subcategories from remote label
+  if (leafLabel) {
+    const labelMatch = matchSubcategoryFromKeywords(result.category, leafLabel);
+    if (labelMatch) {
+      return { ...result, subcategory: labelMatch };
+    }
+  }
+
+  // 4. Default to "Other [Category]" - find the "Other" subcategory for this category
+  const otherSub = preset.subcategories.find(
+    (s) => s.toLowerCase().startsWith("other ") || s === "Other"
+  );
+  if (otherSub) {
+    return { ...result, subcategory: otherSub };
+  }
+
+  // If no "Other" subcategory exists, return without subcategory
+  return result;
+}
+
+/**
+ * Enhanced subcategory refinement that tries multiple matching strategies.
+ */
+function refineSubcategoryEnhanced(category: string, remoteSub: string): string | null {
+  // First try the standard refinement
+  const standard = refineSubcategory(category, remoteSub);
+  if (standard) return standard;
+
+  const preset = STORE_CATEGORIES.find((c) => c.label === category);
+  if (!preset) return null;
+
+  const normalizedRemote = normalizeLabel(remoteSub).toLowerCase();
+  if (!normalizedRemote) return null;
+
+  // Try partial word matching (e.g., "modern age" matching subcategory containing "comics")
+  const remoteWords = new Set(normalizedRemote.split(/\s+/).filter((w) => w.length > 2));
+  
+  let best: { sub: string; matchCount: number } | null = null;
+  for (const sub of preset.subcategories) {
+    const subWords = new Set(normalizeLabel(sub).toLowerCase().split(/\s+/).filter((w) => w.length > 2));
+    let matchCount = 0;
+    for (const word of remoteWords) {
+      if (subWords.has(word)) matchCount++;
+      // Also check if the subcategory contains the word
+      if (normalizeLabel(sub).toLowerCase().includes(word)) matchCount += 0.5;
+    }
+    if (matchCount > 0 && matchCount > (best?.matchCount ?? 0)) {
+      best = { sub, matchCount };
+    }
+  }
+
+  return best?.sub ?? null;
+}
+
+/**
+ * Match subcategory based on keyword indicators in the text.
+ */
+function matchSubcategoryFromKeywords(category: string, text: string): string | null {
+  const preset = STORE_CATEGORIES.find((c) => c.label === category);
+  if (!preset) return null;
+
+  const normalizedText = text.toLowerCase();
+  
+  // Category-specific keyword mappings for subcategory inference
+  const keywordMappings: Record<string, Record<string, string[]>> = {
+    "Books, Movies & Music": {
+      "Comics & Graphic Novels": ["comic", "manga", "graphic novel", "superhero", "marvel", "dc comics", "golden age", "silver age", "bronze age", "modern age"],
+      "Books": ["book", "novel", "paperback", "hardcover", "hardback", "fiction", "non-fiction"],
+      "Movies & TV": ["dvd", "blu-ray", "movie", "film", "tv show", "series", "season"],
+      "Music (CDs, Vinyl, etc.)": ["cd", "vinyl", "record", "album", "lp", "ep", "cassette"],
+      "Video Games": ["video game", "game disc", "playstation", "xbox", "nintendo", "ps4", "ps5"],
+    },
+    "Art & Collectibles": {
+      "Trading Cards": ["trading card", "pokemon", "yugioh", "baseball card", "sports card", "tcg", "ccg"],
+      "Coins & Currency": ["coin", "currency", "numismatic", "penny", "dollar", "mint", "bullion"],
+      "Stamps": ["stamp", "philatelic", "postage"],
+      "Vintage & Antiques": ["antique", "vintage", "retro", "mid-century", "victorian", "art deco"],
+      "Memorabilia": ["memorabilia", "autograph", "signed", "autographed", "movie prop"],
+      "Sports Memorabilia": ["sports memorabilia", "jersey", "game used", "game-used", "signed ball"],
+      "Military Collectibles": ["military", "war", "army", "navy", "medal", "uniform", "wwii", "ww2"],
+      "Animation Art": ["animation", "cel", "cartoon", "anime", "disney art"],
+    },
+    "Clothing": {
+      "Women's Clothing": ["women", "womens", "woman", "ladies", "female"],
+      "Men's Clothing": ["men", "mens", "man", "male", "gentleman"],
+      "Kids' Clothing": ["kid", "kids", "child", "children", "boy", "girl", "toddler"],
+      "Dresses & Skirts": ["dress", "skirt", "gown", "maxi", "mini"],
+      "Tops & Tees": ["shirt", "top", "tee", "t-shirt", "blouse", "tank"],
+      "Pants & Shorts": ["pants", "shorts", "jeans", "trousers", "leggings", "capri"],
+      "Jackets & Coats": ["jacket", "coat", "blazer", "parka", "hoodie", "cardigan"],
+      "Swimwear": ["swimsuit", "swimwear", "bikini", "swim trunk", "bathing suit"],
+    },
+    "Toys & Games": {
+      "Action Figures & Collectibles": ["action figure", "figurine", "statue", "funko", "pop vinyl"],
+      "Board Games & Puzzles": ["board game", "puzzle", "card game", "strategy game", "jigsaw"],
+      "Dolls & Stuffed Animals": ["doll", "stuffed animal", "plush", "teddy bear", "barbie"],
+      "Building & Construction": ["lego", "building blocks", "construction set", "k'nex", "megabloks"],
+      "RC & Drones": ["rc", "remote control", "drone", "quadcopter", "helicopter"],
+      "Model Trains": ["model train", "train set", "ho scale", "n scale", "railroad"],
+    },
+    "Electronics & Accessories": {
+      "Phones & Accessories": ["phone", "iphone", "samsung", "android", "phone case", "charger"],
+      "Computers & Tablets": ["laptop", "tablet", "computer", "ipad", "macbook", "chromebook"],
+      "Gaming Consoles & Accessories": ["playstation", "xbox", "nintendo", "switch", "console", "controller"],
+      "Cameras & Photo": ["camera", "dslr", "lens", "photography", "mirrorless", "gopro"],
+      "Audio & Headphones": ["headphone", "earbuds", "speaker", "bluetooth", "audio", "soundbar"],
+    },
+    "Jewelry & Watches": {
+      "Necklaces & Pendants": ["necklace", "pendant", "chain", "choker", "lariat"],
+      "Bracelets": ["bracelet", "bangle", "cuff", "wristband", "charm bracelet"],
+      "Earrings": ["earring", "stud", "hoop", "dangle", "drop earring"],
+      "Rings": ["ring", "band", "engagement", "wedding ring", "signet"],
+      "Watches": ["watch", "wristwatch", "chronograph", "smartwatch", "timepiece"],
+      "Fine Jewelry": ["diamond", "gold", "silver", "platinum", "gemstone", "sapphire", "ruby", "emerald"],
+    },
+  };
+
+  const categoryKeywords = keywordMappings[category];
+  if (!categoryKeywords) return null;
+
+  let bestMatch: { subcategory: string; score: number } | null = null;
+
+  for (const [subcategory, keywords] of Object.entries(categoryKeywords)) {
+    // Verify this subcategory exists in the preset
+    if (!preset.subcategories.includes(subcategory)) continue;
+
+    let score = 0;
+    for (const keyword of keywords) {
+      if (normalizedText.includes(keyword)) {
+        // Longer keywords are more specific, give them more weight
+        score += keyword.length / 5;
+      }
+    }
+
+    if (score > 0 && score > (bestMatch?.score ?? 0)) {
+      bestMatch = { subcategory, score };
+    }
+  }
+
+  return bestMatch?.subcategory ?? null;
 }
 
 /**

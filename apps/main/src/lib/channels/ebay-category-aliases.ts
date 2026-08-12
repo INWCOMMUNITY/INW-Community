@@ -18,40 +18,112 @@ export function normalizeEbayLabel(s: string): string {
 }
 
 /**
- * Split eBay PrimaryCategory path "A > B > C" into segments for matching.
- * Returns root, leaf, full path, and every segment (most specific first).
+ * Candidate segment with specificity metadata for priority-based resolution.
+ */
+export type EbayPathCandidate = {
+  segment: string;
+  normalized: string;
+  /** Depth in the original path (0 = root, higher = more specific) */
+  depth: number;
+  /** Number of path components in this segment (for hierarchical aliases) */
+  components: number;
+  /** Whether this is a hierarchical path (contains ">") */
+  isHierarchical: boolean;
+};
+
+/**
+ * Split eBay PrimaryCategory path "A > B > C" into candidates for matching.
+ * Returns ALL candidates with specificity metadata - caller should score all matches
+ * and pick the most specific one rather than returning first match.
  */
 export function ebayCategoryPathCandidates(path: string | null | undefined): string[] {
+  // Legacy API: return string[] for backward compatibility
+  return ebayCategoryPathCandidatesWithMeta(path).map((c) => c.segment);
+}
+
+/**
+ * Enhanced version that returns candidates with specificity metadata.
+ * This enables the resolver to pick the most specific matching alias.
+ */
+export function ebayCategoryPathCandidatesWithMeta(
+  path: string | null | undefined
+): EbayPathCandidate[] {
   const raw = path?.trim();
   if (!raw) return [];
 
   const parts = raw.split(">").map((p) => p.trim()).filter(Boolean);
   const seen = new Set<string>();
-  const out: string[] = [];
+  const out: EbayPathCandidate[] = [];
 
-  const push = (s: string) => {
-    const t = s.trim();
+  const push = (segment: string, depth: number, components: number) => {
+    const t = segment.trim();
     if (!t) return;
-    const key = normalizeEbayLabel(t);
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(t);
+    const normalized = normalizeEbayLabel(t);
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      out.push({
+        segment: t,
+        normalized,
+        depth,
+        components,
+        isHierarchical: t.includes(">"),
+      });
     }
   };
 
   if (parts.length >= 2) {
-    push(parts[parts.length - 1]!); // leaf (most specific)
-    for (let i = parts.length - 2; i >= 1; i--) push(parts[i]!);
-    push(parts.slice(-2).join(" > "));
-    push(parts[0]!);
-    push(raw); // full path last
+    // Full path (highest priority for exact hierarchical matches)
+    push(raw, parts.length, parts.length);
+    
+    // Hierarchical combinations (most specific to least specific)
+    // e.g., "A > B > C" generates: "B > C", "A > B > C", "A > B"
+    for (let len = parts.length; len >= 2; len--) {
+      for (let start = 0; start <= parts.length - len; start++) {
+        const combo = parts.slice(start, start + len).join(" > ");
+        const depth = start + len; // deeper start = more specific context
+        push(combo, depth, len);
+      }
+    }
+
+    // Individual segments (leaf first, then mid-levels, then root)
+    for (let i = parts.length - 1; i >= 0; i--) {
+      push(parts[i]!, i + 1, 1);
+    }
   } else if (parts.length === 1) {
-    push(parts[0]!);
+    push(parts[0]!, 1, 1);
   } else {
-    push(raw);
+    push(raw, 1, 1);
   }
 
   return out;
+}
+
+/**
+ * Calculate specificity score for an alias match.
+ * Higher score = more specific match = should be preferred.
+ */
+export function aliasSpecificityScore(
+  aliasKey: string,
+  candidate: EbayPathCandidate
+): number {
+  const keyLen = aliasKey.length;
+  const keyComponents = aliasKey.includes(">") ? aliasKey.split(">").length : 1;
+  
+  // Base score from key length (longer = more specific)
+  let score = keyLen;
+  
+  // Bonus for hierarchical aliases (they're explicit path matches)
+  if (keyComponents > 1) {
+    score += keyComponents * 50;
+  }
+  
+  // Bonus for matching deeper in the path (leaf > mid > root)
+  score += candidate.depth * 10;
+  
+  // Bonus for matching more components
+  score += candidate.components * 20;
+  
+  return score;
 }
 
 /** Best-effort parent + leaf split for fuzzy resolution input. */
@@ -594,4 +666,258 @@ export const EBAY_CATEGORY_ALIASES: Record<string, EbayAliasHit> = {
   "woodworking": { category: "Craft Supplies & Tools", subcategory: "Woodworking" },
   "candle and soap making": { category: "Craft Supplies & Tools", subcategory: "Candle & Soap Making" },
   "candle soap making": { category: "Craft Supplies & Tools", subcategory: "Candle & Soap Making" },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HIERARCHICAL PATH ALIASES (Override generic top-level matches)
+  // These take priority over single-segment aliases due to higher specificity.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── Collectibles > Comics (eBay puts comics under Collectibles, not Books) ──
+  "collectibles > comics": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles > comic books": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles > comic books and memorabilia": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles > comic books memorabilia": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles > comics > golden age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles > comics > silver age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles > comics > bronze age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles > comics > modern age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles > comics > copper age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "collectibles > comics > manga": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "comic books and memorabilia": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "comic books memorabilia": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "golden age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "silver age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "bronze age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "modern age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "copper age": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  manga: { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+
+  // ── Collectibles > Trading Cards ─────────────────────────────────────────────
+  "collectibles > trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+  "collectibles > non sport trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+  "collectibles > non-sport trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+  "sports mem cards and fan shop > trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+  "sports mem cards fan shop > trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+  "sports mem cards and fan shop > sports trading cards": { category: "Art & Collectibles", subcategory: "Trading Cards" },
+
+  // ── Collectibles > Sports Memorabilia ────────────────────────────────────────
+  "collectibles > sports memorabilia": { category: "Art & Collectibles", subcategory: "Sports Memorabilia" },
+  "sports mem cards and fan shop > sports memorabilia": { category: "Art & Collectibles", subcategory: "Sports Memorabilia" },
+  "sports mem cards fan shop > sports memorabilia": { category: "Art & Collectibles", subcategory: "Sports Memorabilia" },
+  "sports memorabilia": { category: "Art & Collectibles", subcategory: "Sports Memorabilia" },
+  "game used memorabilia": { category: "Art & Collectibles", subcategory: "Sports Memorabilia" },
+  "game-used memorabilia": { category: "Art & Collectibles", subcategory: "Sports Memorabilia" },
+  "autographed items": { category: "Art & Collectibles", subcategory: "Memorabilia" },
+
+  // ── Collectibles > Animation ─────────────────────────────────────────────────
+  "collectibles > animation art and characters": { category: "Art & Collectibles", subcategory: "Animation Art" },
+  "collectibles > animation art characters": { category: "Art & Collectibles", subcategory: "Animation Art" },
+  "collectibles > animation art": { category: "Art & Collectibles", subcategory: "Animation Art" },
+  "animation art": { category: "Art & Collectibles", subcategory: "Animation Art" },
+  "animation characters": { category: "Art & Collectibles", subcategory: "Animation Art" },
+  "animation cels": { category: "Art & Collectibles", subcategory: "Animation Art" },
+
+  // ── Collectibles > Disneyana ─────────────────────────────────────────────────
+  "collectibles > disneyana": { category: "Art & Collectibles", subcategory: "Disney Collectibles" },
+  "collectibles > disney": { category: "Art & Collectibles", subcategory: "Disney Collectibles" },
+
+  // ── Collectibles > Militaria ─────────────────────────────────────────────────
+  "collectibles > militaria": { category: "Art & Collectibles", subcategory: "Military Collectibles" },
+  "collectibles > military": { category: "Art & Collectibles", subcategory: "Military Collectibles" },
+
+  // ── Collectibles > Rocks & Fossils ───────────────────────────────────────────
+  "collectibles > rocks fossils and minerals": { category: "Art & Collectibles", subcategory: "Rocks & Minerals" },
+  "collectibles > rocks fossils minerals": { category: "Art & Collectibles", subcategory: "Rocks & Minerals" },
+
+  // ── Antiques > Furniture ─────────────────────────────────────────────────────
+  "antiques > furniture": { category: "Furniture", subcategory: "Vintage & Antique" },
+  "antiques > furniture > beds and bedroom sets": { category: "Furniture", subcategory: "Vintage & Antique" },
+  "antiques > furniture > chairs": { category: "Furniture", subcategory: "Vintage & Antique" },
+  "antiques > furniture > tables": { category: "Furniture", subcategory: "Vintage & Antique" },
+  "antiques > furniture > desks and secretaries": { category: "Furniture", subcategory: "Vintage & Antique" },
+
+  // ── Antiques > Art ───────────────────────────────────────────────────────────
+  "antiques > decorative arts": { category: "Art & Collectibles", subcategory: "Vintage & Antiques" },
+  "antiques > silver": { category: "Art & Collectibles", subcategory: "Silver & Silverplate" },
+  "antiques > asian antiques": { category: "Art & Collectibles", subcategory: "Vintage & Antiques" },
+  "antiques > primitives": { category: "Art & Collectibles", subcategory: "Vintage & Antiques" },
+
+  // ── Clothing, Shoes & Accessories hierarchies ────────────────────────────────
+  "clothing shoes and accessories > women": { category: "Clothing", subcategory: "Women's Clothing" },
+  "clothing shoes and accessories > women s clothing": { category: "Clothing", subcategory: "Women's Clothing" },
+  "clothing shoes and accessories > womens clothing": { category: "Clothing", subcategory: "Women's Clothing" },
+  "clothing shoes and accessories > men": { category: "Clothing", subcategory: "Men's Clothing" },
+  "clothing shoes and accessories > men s clothing": { category: "Clothing", subcategory: "Men's Clothing" },
+  "clothing shoes and accessories > mens clothing": { category: "Clothing", subcategory: "Men's Clothing" },
+  "clothing shoes and accessories > kids": { category: "Clothing", subcategory: "Kids' Clothing" },
+  "clothing shoes and accessories > women s shoes": { category: "Shoes", subcategory: "Women's Shoes" },
+  "clothing shoes and accessories > womens shoes": { category: "Shoes", subcategory: "Women's Shoes" },
+  "clothing shoes and accessories > men s shoes": { category: "Shoes", subcategory: "Men's Shoes" },
+  "clothing shoes and accessories > mens shoes": { category: "Shoes", subcategory: "Men's Shoes" },
+  "clothing shoes and accessories > women s bags and handbags": { category: "Bags & Purses", subcategory: "Handbags" },
+  "clothing shoes and accessories > womens bags handbags": { category: "Bags & Purses", subcategory: "Handbags" },
+  "women > dresses": { category: "Clothing", subcategory: "Dresses & Skirts" },
+  "women s clothing > dresses": { category: "Clothing", subcategory: "Dresses & Skirts" },
+  "womens clothing > dresses": { category: "Clothing", subcategory: "Dresses & Skirts" },
+  "men > shirts": { category: "Clothing", subcategory: "Tops & Tees" },
+  "men s clothing > shirts": { category: "Clothing", subcategory: "Tops & Tees" },
+  "mens clothing > shirts": { category: "Clothing", subcategory: "Tops & Tees" },
+
+  // ── Home & Garden hierarchies ────────────────────────────────────────────────
+  "home and garden > kitchen dining and bar": { category: "Home & Kitchen", subcategory: null },
+  "home and garden > kitchen dining bar": { category: "Home & Kitchen", subcategory: null },
+  "home and garden > kitchen dining and bar > cookware": { category: "Home & Kitchen", subcategory: "Cookware & Bakeware" },
+  "home and garden > kitchen dining and bar > small kitchen appliances": { category: "Home & Kitchen", subcategory: "Small Appliances" },
+  "home and garden > kitchen dining and bar > dinnerware and serving dishes": { category: "Home & Kitchen", subcategory: "Dining & Serving" },
+  "home and garden > furniture": { category: "Furniture", subcategory: null },
+  "home and garden > furniture > sofas": { category: "Furniture", subcategory: "Living Room" },
+  "home and garden > furniture > chairs": { category: "Furniture", subcategory: "Living Room" },
+  "home and garden > furniture > beds and mattresses": { category: "Furniture", subcategory: "Bedroom" },
+  "home and garden > furniture > tables": { category: "Furniture", subcategory: "Dining Room" },
+  "home and garden > home decor": { category: "Home & Living", subcategory: "Home Decor" },
+  "home and garden > home décor": { category: "Home & Living", subcategory: "Home Decor" },
+  "home and garden > bedding": { category: "Home & Living", subcategory: "Bedding" },
+  "home and garden > bath": { category: "Home & Living", subcategory: "Bathroom" },
+  "home and garden > rugs and carpets": { category: "Furniture", subcategory: "Rugs & Carpets" },
+  "home and garden > lamps lighting and ceiling fans": { category: "Home & Living", subcategory: "Lighting" },
+  "home and garden > yard garden and outdoor living": { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+  "yard garden and outdoor living > gardening supplies": { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+  "yard garden and outdoor living > outdoor power equipment": { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+  "yard garden and outdoor living > patio and garden furniture": { category: "Furniture", subcategory: "Outdoor Furniture" },
+
+  // ── Electronics hierarchies ──────────────────────────────────────────────────
+  "consumer electronics > tv video and home audio": { category: "Electronics & Accessories", subcategory: "TV & Video" },
+  "consumer electronics > cell phones and accessories": { category: "Electronics & Accessories", subcategory: "Phones & Accessories" },
+  "consumer electronics > computers tablets and networking": { category: "Electronics & Accessories", subcategory: "Computers & Tablets" },
+  "consumer electronics > cameras and photo": { category: "Electronics & Accessories", subcategory: "Cameras & Photo" },
+  "consumer electronics > portable audio and headphones": { category: "Electronics & Accessories", subcategory: "Audio & Headphones" },
+  "consumer electronics > video games and consoles": { category: "Electronics & Accessories", subcategory: "Gaming Consoles & Accessories" },
+  "cell phones and accessories > cell phones and smartphones": { category: "Electronics & Accessories", subcategory: "Phones & Accessories" },
+  "cell phones and accessories > cases covers and skins": { category: "Electronics & Accessories", subcategory: "Phones & Accessories" },
+  "computers tablets and networking > laptops and netbooks": { category: "Electronics & Accessories", subcategory: "Computers & Tablets" },
+  "computers tablets and networking > tablets and ebook readers": { category: "Electronics & Accessories", subcategory: "Computers & Tablets" },
+  "video games and consoles > video game consoles": { category: "Electronics & Accessories", subcategory: "Gaming Consoles & Accessories" },
+  "video games and consoles > video games": { category: "Books, Movies & Music", subcategory: "Video Games" },
+
+  // ── Jewelry & Watches hierarchies ────────────────────────────────────────────
+  "jewelry and watches > fine jewelry": { category: "Jewelry & Watches", subcategory: "Fine Jewelry" },
+  "jewelry and watches > fashion jewelry": { category: "Jewelry & Watches", subcategory: "Fashion Jewelry" },
+  "jewelry and watches > watches parts and accessories": { category: "Jewelry & Watches", subcategory: "Watches" },
+  "jewelry and watches > watches": { category: "Jewelry & Watches", subcategory: "Watches" },
+  "fine jewelry > necklaces and pendants": { category: "Jewelry & Watches", subcategory: "Necklaces & Pendants" },
+  "fine jewelry > rings": { category: "Jewelry & Watches", subcategory: "Rings" },
+  "fine jewelry > bracelets": { category: "Jewelry & Watches", subcategory: "Bracelets" },
+  "fine jewelry > earrings": { category: "Jewelry & Watches", subcategory: "Earrings" },
+  "fashion jewelry > necklaces and pendants": { category: "Jewelry & Watches", subcategory: "Necklaces & Pendants" },
+  "fashion jewelry > rings": { category: "Jewelry & Watches", subcategory: "Rings" },
+  "fashion jewelry > bracelets": { category: "Jewelry & Watches", subcategory: "Bracelets" },
+  "fashion jewelry > earrings": { category: "Jewelry & Watches", subcategory: "Earrings" },
+
+  // ── Toys & Hobbies hierarchies ───────────────────────────────────────────────
+  "toys and hobbies > action figures": { category: "Toys & Games", subcategory: "Action Figures & Collectibles" },
+  "toys and hobbies > building toys": { category: "Toys & Games", subcategory: "Building & Construction" },
+  "toys and hobbies > games": { category: "Toys & Games", subcategory: "Board Games & Puzzles" },
+  "toys and hobbies > puzzles": { category: "Toys & Games", subcategory: "Board Games & Puzzles" },
+  "toys and hobbies > dolls and bears": { category: "Toys & Games", subcategory: "Dolls & Stuffed Animals" },
+  "toys and hobbies > stuffed animals": { category: "Toys & Games", subcategory: "Dolls & Stuffed Animals" },
+  "toys and hobbies > diecast and toy vehicles": { category: "Toys & Games", subcategory: "Diecast & Toy Vehicles" },
+  "toys and hobbies > model railroads and trains": { category: "Toys & Games", subcategory: "Model Trains" },
+  "toys and hobbies > radio control and control line": { category: "Toys & Games", subcategory: "RC & Drones" },
+  "toys and hobbies > educational": { category: "Toys & Games", subcategory: "Educational Toys" },
+  "toys and hobbies > preschool toys and pretend play": { category: "Toys & Games", subcategory: "Preschool Toys" },
+  "toys and hobbies > outdoor toys and structures": { category: "Toys & Games", subcategory: "Outdoor Play" },
+  "toys and hobbies > tv movie and character toys": { category: "Toys & Games", subcategory: "Action Figures & Collectibles" },
+
+  // ── Sporting Goods hierarchies ───────────────────────────────────────────────
+  "sporting goods > cycling": { category: "Sports & Outdoors", subcategory: "Cycling" },
+  "sporting goods > fitness running and yoga": { category: "Sports & Outdoors", subcategory: "Fitness & Exercise" },
+  "sporting goods > golf": { category: "Sports & Outdoors", subcategory: "Golf" },
+  "sporting goods > camping and hiking": { category: "Sports & Outdoors", subcategory: "Camping & Hiking" },
+  "sporting goods > hunting": { category: "Sports & Outdoors", subcategory: "Hunting & Fishing" },
+  "sporting goods > fishing": { category: "Sports & Outdoors", subcategory: "Hunting & Fishing" },
+  "sporting goods > team sports": { category: "Sports & Outdoors", subcategory: "Team Sports" },
+  "sporting goods > water sports": { category: "Sports & Outdoors", subcategory: "Water Sports" },
+  "sporting goods > winter sports": { category: "Sports & Outdoors", subcategory: "Winter Sports" },
+  "sporting goods > tennis and racquet sports": { category: "Sports & Outdoors", subcategory: "Racquet Sports" },
+  "sporting goods > boxing martial arts and mma": { category: "Sports & Outdoors", subcategory: "Combat Sports" },
+
+  // ── Books & Magazines hierarchies ────────────────────────────────────────────
+  "books and magazines > books": { category: "Books, Movies & Music", subcategory: "Books" },
+  "books and magazines > magazines": { category: "Books, Movies & Music", subcategory: "Magazines & Periodicals" },
+  "books and magazines > audiobooks": { category: "Books, Movies & Music", subcategory: "Audiobooks" },
+  "books movies music > books": { category: "Books, Movies & Music", subcategory: "Books" },
+  "books movies music > dvds and blu ray discs": { category: "Books, Movies & Music", subcategory: "Movies & TV" },
+  "books movies music > cds": { category: "Books, Movies & Music", subcategory: "Music (CDs, Vinyl, etc.)" },
+  "books movies music > vinyl records": { category: "Books, Movies & Music", subcategory: "Music (CDs, Vinyl, etc.)" },
+
+  // ── Musical Instruments hierarchies ──────────────────────────────────────────
+  "musical instruments and gear > guitars and basses": { category: "Musical Instruments", subcategory: "Guitars & Bass" },
+  "musical instruments and gear > pro audio equipment": { category: "Musical Instruments", subcategory: "Pro Audio & Recording" },
+  "musical instruments and gear > keyboards and pianos": { category: "Musical Instruments", subcategory: "Keyboards & Pianos" },
+  "musical instruments and gear > percussion": { category: "Musical Instruments", subcategory: "Drums & Percussion" },
+  "musical instruments and gear > string": { category: "Musical Instruments", subcategory: "Band & Orchestra" },
+  "musical instruments and gear > wind and woodwind": { category: "Musical Instruments", subcategory: "Band & Orchestra" },
+  "musical instruments and gear > brass": { category: "Musical Instruments", subcategory: "Band & Orchestra" },
+
+  // ── Baby hierarchies ─────────────────────────────────────────────────────────
+  "baby > baby gear": { category: "Baby & Kids", subcategory: "Baby Gear & Nursery" },
+  "baby > strollers and accessories": { category: "Baby & Kids", subcategory: "Strollers & Carriers" },
+  "baby > car safety seats": { category: "Baby & Kids", subcategory: "Car Seats" },
+  "baby > nursery furniture": { category: "Baby & Kids", subcategory: "Nursery Furniture" },
+  "baby > nursery bedding": { category: "Baby & Kids", subcategory: "Nursery Bedding" },
+  "baby > feeding": { category: "Baby & Kids", subcategory: "Feeding & Nursing" },
+  "baby > diapering": { category: "Baby & Kids", subcategory: "Diapering" },
+  "baby > baby clothing": { category: "Baby & Kids", subcategory: "Baby Clothing" },
+  "baby > toys for baby": { category: "Baby & Kids", subcategory: "Toys for Baby & Toddler" },
+
+  // ── Health & Beauty hierarchies ──────────────────────────────────────────────
+  "health and beauty > skin care": { category: "Bath & Beauty", subcategory: "Skin Care" },
+  "health and beauty > hair care and styling": { category: "Bath & Beauty", subcategory: "Hair Care" },
+  "health and beauty > makeup": { category: "Bath & Beauty", subcategory: "Makeup & Cosmetics" },
+  "health and beauty > fragrances": { category: "Bath & Beauty", subcategory: "Fragrances" },
+  "health and beauty > nail care manicure and pedicure": { category: "Bath & Beauty", subcategory: "Nail Care" },
+  "health and beauty > bath and body": { category: "Bath & Beauty", subcategory: "Soaps & Bath" },
+  "health and beauty > vitamins and lifestyle supplements": { category: "Health & Personal Care", subcategory: "Vitamins & Supplements" },
+  "health and beauty > vision care": { category: "Health & Personal Care", subcategory: "Vision Care" },
+  "health and beauty > medical mobility and disability": { category: "Health & Personal Care", subcategory: "Medical & Mobility" },
+
+  // ── Crafts hierarchies ───────────────────────────────────────────────────────
+  "crafts > art supplies": { category: "Craft Supplies & Tools", subcategory: "Painting & Drawing Supplies" },
+  "crafts > fabric": { category: "Craft Supplies & Tools", subcategory: "Fabric & Sewing" },
+  "crafts > sewing": { category: "Craft Supplies & Tools", subcategory: "Fabric & Sewing" },
+  "crafts > needlecrafts and yarn": { category: "Craft Supplies & Tools", subcategory: "Yarn & Knitting" },
+  "crafts > scrapbooking and paper crafts": { category: "Craft Supplies & Tools", subcategory: "Scrapbooking & Paper Craft" },
+  "crafts > beads and jewelry making": { category: "Craft Supplies & Tools", subcategory: "Beading & Jewelry Making" },
+  "crafts > leathercrafts": { category: "Craft Supplies & Tools", subcategory: "Leather Craft" },
+  "crafts > glass and mosaics": { category: "Craft Supplies & Tools", subcategory: "Glass Art" },
+  "crafts > woodworking": { category: "Craft Supplies & Tools", subcategory: "Woodworking Supplies" },
+
+  // ── Pet Supplies hierarchies ─────────────────────────────────────────────────
+  "pet supplies > dog supplies": { category: "Pet Supplies", subcategory: "Dog" },
+  "pet supplies > cat supplies": { category: "Pet Supplies", subcategory: "Cat" },
+  "pet supplies > fish and aquariums": { category: "Pet Supplies", subcategory: "Fish & Aquarium" },
+  "pet supplies > bird supplies": { category: "Pet Supplies", subcategory: "Bird" },
+  "pet supplies > small animal supplies": { category: "Pet Supplies", subcategory: "Small Animal" },
+  "pet supplies > reptile supplies": { category: "Pet Supplies", subcategory: "Reptile" },
+  "dog supplies > collars and leashes": { category: "Pet Supplies", subcategory: "Collars & Leashes" },
+  "dog supplies > toys": { category: "Pet Supplies", subcategory: "Toys & Treats" },
+  "dog supplies > beds": { category: "Pet Supplies", subcategory: "Beds & Carriers" },
+  "cat supplies > toys": { category: "Pet Supplies", subcategory: "Toys & Treats" },
+  "cat supplies > beds and furniture": { category: "Pet Supplies", subcategory: "Beds & Carriers" },
+
+  // ── Business & Industrial hierarchies ────────────────────────────────────────
+  "business and industrial > office": { category: "Office & School Supplies", subcategory: "Office Supplies" },
+  "business and industrial > office supplies": { category: "Office & School Supplies", subcategory: "Office Supplies" },
+  "business and industrial > industrial supplies": { category: "Business & Industrial", subcategory: "Industrial Supplies" },
+  "business and industrial > healthcare lab and dental": { category: "Business & Industrial", subcategory: "Healthcare & Lab" },
+  "business and industrial > restaurant and food service": { category: "Business & Industrial", subcategory: "Restaurant & Food Service" },
+  "business and industrial > heavy equipment": { category: "Business & Industrial", subcategory: "Heavy Equipment" },
+
+  // ── eBay Motors hierarchies ──────────────────────────────────────────────────
+  "ebay motors > parts and accessories": { category: "Vehicles & Parts", subcategory: "Car & Truck Parts" },
+  "ebay motors > car and truck parts and accessories": { category: "Vehicles & Parts", subcategory: "Car & Truck Parts" },
+  "ebay motors > motorcycle parts": { category: "Vehicles & Parts", subcategory: "Motorcycle & ATV" },
+  "ebay motors > automotive tools and supplies": { category: "Tools & Home Improvement", subcategory: "Automotive Tools" },
+  "parts and accessories > car and truck parts": { category: "Vehicles & Parts", subcategory: "Car & Truck Parts" },
+  "parts and accessories > motorcycle parts": { category: "Vehicles & Parts", subcategory: "Motorcycle & ATV" },
 };

@@ -1,6 +1,6 @@
 import { prisma, Prisma } from "database";
 import {
-  resolveInwCategoryWithLearning,
+  resolveInwCategoryWithSubcategory,
   resolveInwCategoryFromEbayPath,
   resolveInwCategoryFromEtsyTaxonomy,
   seedCategoryMappingFromImport,
@@ -187,6 +187,8 @@ export async function importRemoteListing(args: {
     const remoteCategoryLabel = listing.category?.trim() || null;
     const remoteCategorySubLabel = listing.subcategory?.trim() || null;
 
+    // Use the enhanced resolver that always assigns a subcategory when possible.
+    // Pass the title for keyword-based subcategory inference.
     let resolvedCat: ResolvedInwCategory | null =
       provider === "ebay" && remoteCategoryLabel
         ? await resolveInwCategoryFromEbayPath(remoteCategoryLabel)
@@ -195,9 +197,22 @@ export async function importRemoteListing(args: {
               listing.remoteCategoryId ? Number(listing.remoteCategoryId) : null,
               remoteCategoryLabel
             )
-          : await resolveInwCategoryWithLearning(remoteCategoryLabel, remoteCategorySubLabel, {
+          : await resolveInwCategoryWithSubcategory(remoteCategoryLabel, remoteCategorySubLabel, {
               provider,
+              title: listing.title,
             });
+    
+    // For eBay/Etsy, also try subcategory enhancement if we got a category but no subcategory
+    if (resolvedCat?.category && !resolvedCat.subcategory && (provider === "ebay" || provider === "etsy")) {
+      const enhanced = await resolveInwCategoryWithSubcategory(
+        remoteCategoryLabel,
+        remoteCategorySubLabel,
+        { provider, title: listing.title }
+      );
+      if (enhanced?.subcategory) {
+        resolvedCat = { ...resolvedCat, subcategory: enhanced.subcategory };
+      }
+    }
     
     // Fallback: if no category resolved from remote metadata, try title-based suggestion
     if (!resolvedCat?.category && listing.title) {
