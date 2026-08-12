@@ -5,7 +5,7 @@
  * Bundled at build time (Vercel serverless has no runtime access to loose .md files).
  */
 
-import etsySellerCategoriesMarkdown from "./data/etsy-seller-categories.md";
+import etsySellerCategoriesMarkdown from "./data/etsy-seller-categories-content";
 
 function loadEtsySellerCategoriesMarkdown(): string {
   return etsySellerCategoriesMarkdown;

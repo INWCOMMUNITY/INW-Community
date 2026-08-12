@@ -49,22 +49,29 @@ export function priorityForMatchType(matchType: ChannelCategoryMatchType, matchK
   return 100 + Math.min(matchKey.length, 50);
 }
 
-/** Ensure the mapping table is populated (lazy seed on first import/sync). */
+/** Ensure the mapping table is populated (background seed; hot paths use alias fallback until rows exist). */
 export async function ensureChannelCategoryMappingsSeeded(): Promise<void> {
   if (mappingTableUnavailable) return;
   try {
     const count = await prisma.channelCategoryMapping.count();
     if (count > 0) return;
     if (!seedPromise) {
-      seedPromise = import("./channel-mapping-seed").then((m) => m.seedChannelCategoryMappings());
+      seedPromise = import("./channel-mapping-seed")
+        .then((m) => m.seedChannelCategoryMappings())
+        .catch((e) => {
+          console.error("[channel-mapping] background seed failed", e);
+          if (isMissingMappingTableError(e)) mappingTableUnavailable = true;
+          return { inserted: 0, total: 0 };
+        });
     }
-    await seedPromise;
+    // Do not block import/sync on thousands of mapping upserts.
+    void seedPromise;
   } catch (e) {
     if (isMissingMappingTableError(e)) {
       mappingTableUnavailable = true;
       return;
     }
-    throw e;
+    console.warn("[channel-mapping] ensureChannelCategoryMappingsSeeded", e);
   }
 }
 
@@ -162,8 +169,18 @@ export async function resolveFromChannelCategoryMapping(
 export async function upsertChannelCategoryMappings(
   rows: ChannelCategoryMappingRow[]
 ): Promise<{ inserted: number; updated: number }> {
-  let inserted = 0;
-  let updated = 0;
+  if (rows.length === 0) return { inserted: 0, updated: 0 };
+
+  const prepared: Array<{
+    provider: ChannelProvider;
+    matchType: ChannelCategoryMatchType;
+    matchKey: string;
+    remoteLabel: string | null;
+    inwCategory: string;
+    inwSubcategory: string | null;
+    priority: number;
+    source: string;
+  }> = [];
 
   for (const row of rows) {
     const matchKey =
@@ -172,14 +189,42 @@ export async function upsertChannelCategoryMappings(
         : normalizeCategoryMatchKey(row.matchKey);
     if (!matchKey) continue;
 
-    const priority = row.priority ?? priorityForMatchType(row.matchType, matchKey);
+    prepared.push({
+      provider: row.provider,
+      matchType: row.matchType,
+      matchKey,
+      remoteLabel: row.remoteLabel?.slice(0, 500) ?? null,
+      inwCategory: row.inwCategory,
+      inwSubcategory: row.inwSubcategory ?? null,
+      priority: row.priority ?? priorityForMatchType(row.matchType, matchKey),
+      source: row.source ?? "seed",
+    });
+  }
 
+  if (prepared.length >= 50) {
+    let inserted = 0;
+    const BATCH = 200;
+    for (let i = 0; i < prepared.length; i += BATCH) {
+      const batch = prepared.slice(i, i + BATCH);
+      const result = await prisma.channelCategoryMapping.createMany({
+        data: batch.map((row) => ({ ...row, active: true })),
+        skipDuplicates: true,
+      });
+      inserted += result.count;
+    }
+    return { inserted, updated: 0 };
+  }
+
+  let inserted = 0;
+  let updated = 0;
+
+  for (const row of prepared) {
     const existing = await prisma.channelCategoryMapping.findUnique({
       where: {
         provider_matchType_matchKey: {
           provider: row.provider,
           matchType: row.matchType,
-          matchKey,
+          matchKey: row.matchKey,
         },
       },
     });
@@ -189,26 +234,19 @@ export async function upsertChannelCategoryMappings(
         provider_matchType_matchKey: {
           provider: row.provider,
           matchType: row.matchType,
-          matchKey,
+          matchKey: row.matchKey,
         },
       },
       create: {
-        provider: row.provider,
-        matchType: row.matchType,
-        matchKey,
-        remoteLabel: row.remoteLabel?.slice(0, 500) ?? null,
-        inwCategory: row.inwCategory,
-        inwSubcategory: row.inwSubcategory ?? null,
-        priority,
-        source: row.source ?? "seed",
+        ...row,
         active: true,
       },
       update: {
-        remoteLabel: row.remoteLabel?.slice(0, 500) ?? undefined,
+        remoteLabel: row.remoteLabel ?? undefined,
         inwCategory: row.inwCategory,
-        inwSubcategory: row.inwSubcategory ?? null,
-        priority,
-        source: row.source ?? "seed",
+        inwSubcategory: row.inwSubcategory,
+        priority: row.priority,
+        source: row.source,
         active: true,
       },
     });
