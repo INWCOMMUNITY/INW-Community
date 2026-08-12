@@ -191,11 +191,12 @@ export async function importRemoteListing(args: {
     // Pass the title for keyword-based subcategory inference.
     let resolvedCat: ResolvedInwCategory | null =
       provider === "ebay" && remoteCategoryLabel
-        ? await resolveInwCategoryFromEbayPath(remoteCategoryLabel)
+        ? await resolveInwCategoryFromEbayPath(remoteCategoryLabel, listing.title)
         : provider === "etsy"
           ? await resolveInwCategoryFromEtsyTaxonomy(
               listing.remoteCategoryId ? Number(listing.remoteCategoryId) : null,
-              remoteCategoryLabel
+              remoteCategoryLabel,
+              listing.title
             )
           : await resolveInwCategoryWithSubcategory(remoteCategoryLabel, remoteCategorySubLabel, {
               provider,

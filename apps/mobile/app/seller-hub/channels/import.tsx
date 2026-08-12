@@ -25,6 +25,7 @@ type RemoteListing = {
 
 type ImportProgress = {
   total: number;
+  current: number;
   status: "importing" | "done" | "error";
   message?: string;
 };
@@ -148,52 +149,53 @@ export default function ChannelImportScreen() {
     setImporting(true);
     setError(null);
     setDone(null);
-    setProgress({ total: importableIds.length, status: "importing" });
-    try {
-      const res = await apiPost<{
-        imported: unknown[];
-        skipped?: {
-          externalListingId: string;
-          title?: string;
-          step?: string;
-          reason: string;
-          hint?: string;
-        }[];
-        summary?: string;
-        hint?: string;
-      }>(importPath, {
-        listingIds: importableIds,
-      });
-      const importedCount = res.imported?.length ?? 0;
-      const skipped = res.skipped ?? [];
-      const summary =
-        res.summary ??
-        (importedCount > 0
-          ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
-          : "No listings were imported.");
-      setDone(summary);
-      setProgress({ total: importableIds.length, status: "done", message: summary });
-      if (importedCount === 0 && (res.hint || skipped.length > 0)) {
-        setError(res.hint ?? summary);
-        setProgress({ total: importableIds.length, status: "error", message: res.hint ?? summary });
+    setProgress({ total: importableIds.length, current: 0, status: "importing" });
+    
+    let importedCount = 0;
+    let skippedCount = 0;
+    let lastError: string | null = null;
+    
+    // Import items in small batches to show progress
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < importableIds.length; i += BATCH_SIZE) {
+      const batch = importableIds.slice(i, i + BATCH_SIZE);
+      try {
+        const res = await apiPost<{
+          imported: unknown[];
+          skipped?: { reason: string }[];
+        }>(importPath, { listingIds: batch });
+        
+        importedCount += res.imported?.length ?? 0;
+        skippedCount += res.skipped?.length ?? 0;
+        setProgress({ 
+          total: importableIds.length, 
+          current: Math.min(i + BATCH_SIZE, importableIds.length), 
+          status: "importing" 
+        });
+      } catch (e: unknown) {
+        const err = e as { error?: string; message?: string };
+        lastError = err?.error ?? err?.message ?? "Import failed.";
+        skippedCount += batch.length;
       }
-      setSelected(new Set());
-      await new Promise((r) => setTimeout(r, 1500));
-      setProgress(null);
-      await load();
-    } catch (e: unknown) {
-      const err = e as { error?: string; message?: string };
-      let errorMsg = err?.error ?? err?.message ?? "Import failed.";
-      // Handle network errors with friendlier message
-      if (errorMsg.includes("network") || errorMsg.includes("fetch") || errorMsg.includes("reach")) {
-        errorMsg = "Unable to connect. Please check your internet connection and try again.";
-      }
-      setError(errorMsg);
-      setProgress({ total: importableIds.length, status: "error", message: errorMsg });
-      // Don't auto-close on error - let user dismiss
-    } finally {
-      setImporting(false);
     }
+    
+    const summary = importedCount > 0
+      ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}${skippedCount > 0 ? `, ${skippedCount} skipped` : ""}.`
+      : "No listings were imported.";
+    
+    setDone(summary);
+    if (importedCount === 0 && lastError) {
+      setError(lastError);
+      setProgress({ total: importableIds.length, current: importableIds.length, status: "error", message: lastError });
+    } else {
+      setProgress({ total: importableIds.length, current: importableIds.length, status: "done", message: summary });
+    }
+    
+    setSelected(new Set());
+    await new Promise((r) => setTimeout(r, 1500));
+    setProgress(null);
+    await load();
+    setImporting(false);
   }, [listings, importPath, load]);
 
   const unsyncPath = useMemo(() => `/api/channels/${provider}/unsync`, [provider]);
@@ -245,56 +247,61 @@ export default function ChannelImportScreen() {
 
   const runImport = async () => {
     if (selected.size === 0) return;
+    const selectedIds = Array.from(selected);
+    
     setImporting(true);
     setError(null);
     setDone(null);
-    setProgress({ total: selected.size, status: "importing" });
-    try {
-      const res = await apiPost<{
-        imported: unknown[];
-        skipped?: {
-          externalListingId: string;
-          title?: string;
-          step?: string;
-          reason: string;
-          hint?: string;
-        }[];
-        summary?: string;
-        hint?: string;
-      }>(importPath, {
-        listingIds: Array.from(selected),
-      });
-      const importedCount = res.imported?.length ?? 0;
-      const skipped = res.skipped ?? [];
-      const summary =
-        res.summary ??
-        (importedCount > 0
-          ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
-          : "No listings were imported.");
-      setDone(summary);
-      setProgress({ total: selected.size, status: "done", message: summary });
-      if (importedCount === 0 && (res.hint || skipped.length > 0)) {
-        setError(res.hint ?? summary);
-        setProgress({ total: selected.size, status: "error", message: res.hint ?? summary });
+    setProgress({ total: selectedIds.length, current: 0, status: "importing" });
+    
+    let importedCount = 0;
+    let skippedCount = 0;
+    let lastError: string | null = null;
+    
+    // Import items in small batches to show progress
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < selectedIds.length; i += BATCH_SIZE) {
+      const batch = selectedIds.slice(i, i + BATCH_SIZE);
+      try {
+        const res = await apiPost<{
+          imported: unknown[];
+          skipped?: { reason: string }[];
+        }>(importPath, { listingIds: batch });
+        
+        importedCount += res.imported?.length ?? 0;
+        skippedCount += res.skipped?.length ?? 0;
+        setProgress({ 
+          total: selectedIds.length, 
+          current: Math.min(i + BATCH_SIZE, selectedIds.length), 
+          status: "importing" 
+        });
+      } catch (e: unknown) {
+        const err = e as { error?: string; message?: string };
+        lastError = err?.error ?? err?.message ?? "Import failed.";
+        if (lastError.includes("network") || lastError.includes("fetch") || lastError.includes("reach")) {
+          lastError = "Unable to connect. Please check your internet connection and try again.";
+        }
+        skippedCount += batch.length;
       }
-      setSelected(new Set());
-      // Small delay to show completion before closing modal
-      await new Promise((r) => setTimeout(r, 1500));
-      setProgress(null);
-      await load();
-    } catch (e: unknown) {
-      const err = e as { error?: string; message?: string };
-      let errorMsg = err?.error ?? err?.message ?? "Import failed.";
-      // Handle network errors with friendlier message
-      if (errorMsg.includes("network") || errorMsg.includes("fetch") || errorMsg.includes("reach")) {
-        errorMsg = "Unable to connect. Please check your internet connection and try again.";
-      }
-      setError(errorMsg);
-      setProgress({ total: selected.size, status: "error", message: errorMsg });
-      // Don't auto-close on error - let user dismiss
-    } finally {
-      setImporting(false);
     }
+    
+    const summary = importedCount > 0
+      ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}${skippedCount > 0 ? `, ${skippedCount} skipped` : ""}.`
+      : "No listings were imported.";
+    
+    setDone(summary);
+    if (importedCount === 0 && lastError) {
+      setError(lastError);
+      setProgress({ total: selectedIds.length, current: selectedIds.length, status: "error", message: lastError });
+    } else {
+      setProgress({ total: selectedIds.length, current: selectedIds.length, status: "done", message: summary });
+    }
+    
+    setSelected(new Set());
+    await new Promise((r) => setTimeout(r, 1500));
+    setProgress(null);
+    await load();
+    setImporting(false);
   };
 
   const importable = listings.filter((l) => !l.alreadyLinked);
@@ -442,12 +449,21 @@ export default function ChannelImportScreen() {
             <View style={styles.modalContent}>
               {progress?.status === "importing" ? (
                 <>
-                  <ActivityIndicator size="large" color={theme.colors.primary} style={styles.modalSpinner} />
                   <Text style={styles.modalTitle}>Importing Listings</Text>
                   <Text style={styles.modalMessage}>
-                    Importing {progress.total} listing{progress.total === 1 ? "" : "s"} to INW...
+                    {progress.current} of {progress.total} listing{progress.total === 1 ? "" : "s"}
                   </Text>
-                  <Text style={styles.modalHint}>This may take a moment</Text>
+                  <View style={styles.progressBarContainer}>
+                    <View 
+                      style={[
+                        styles.progressBarFill, 
+                        { width: `${Math.round((progress.current / progress.total) * 100)}%` }
+                      ]} 
+                    />
+                  </View>
+                  <Text style={styles.modalHint}>
+                    {Math.round((progress.current / progress.total) * 100)}% complete
+                  </Text>
                 </>
               ) : progress?.status === "done" ? (
                 <>
@@ -746,8 +762,18 @@ const styles = StyleSheet.create({
     maxWidth: 340,
     alignItems: "center",
   },
-  modalSpinner: {
-    marginBottom: 20,
+  progressBarContainer: {
+    width: "100%",
+    height: 8,
+    backgroundColor: "#e0e0e0",
+    borderRadius: 4,
+    marginVertical: 16,
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: theme.colors.primary,
+    borderRadius: 4,
   },
   modalTitle: {
     fontSize: 18,
