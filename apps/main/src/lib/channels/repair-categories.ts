@@ -2,6 +2,7 @@ import { prisma } from "database";
 import { STORE_CATEGORIES } from "@/lib/store-categories";
 import { resolveImportCategory } from "./import-listing";
 import { applyRemoteQuantityToStoreItem } from "./apply-remote-listing";
+import { ensureChannelCategoryMappingsSeeded } from "./channel-category-mapping";
 import { getMemberConnectionContext } from "./connection";
 import { getAdapter } from "./registry";
 import { fetchEbayItemDetails } from "./ebay/trading";
@@ -81,6 +82,8 @@ export async function repairMemberImportedCategories(
   memberId: string,
   options?: { storeItemIds?: string[] }
 ): Promise<CategoryRepairResult> {
+  await ensureChannelCategoryMappingsSeeded();
+
   const links = await prisma.channelListingLink.findMany({
     where: {
       storeItem: { memberId },

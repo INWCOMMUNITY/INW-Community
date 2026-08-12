@@ -10,6 +10,7 @@ import {
 } from "./category-resolver";
 import { STORE_CATEGORIES } from "@/lib/store-categories";
 import { splitEbayCategoryPath } from "./ebay-category-aliases";
+import { upsertChannelCategoryMappings } from "./channel-category-mapping";
 import {
   normalizeVariantsFromProvider,
   sumVariantQuantities,
@@ -99,7 +100,11 @@ export async function resolveImportCategory(args: {
   let source: ImportCategoryAssignment["source"] = "remote_metadata";
 
   if (provider === "ebay" && remoteLabel) {
-    resolvedCat = await resolveInwCategoryFromEbayPath(remoteLabel, title);
+    resolvedCat = await resolveInwCategoryFromEbayPath(
+      remoteLabel,
+      title,
+      remoteCategoryId
+    );
     source = "ebay_path";
   } else if (provider === "etsy") {
     resolvedCat = await resolveInwCategoryFromEtsyTaxonomy(
@@ -112,6 +117,7 @@ export async function resolveImportCategory(args: {
     resolvedCat = await resolveInwCategoryWithSubcategory(remoteLabel, remoteSubLabel, {
       provider,
       title,
+      remoteCategoryId,
     });
   }
 
@@ -119,6 +125,7 @@ export async function resolveImportCategory(args: {
     const enhanced = await resolveInwCategoryWithSubcategory(remoteLabel, remoteSubLabel, {
       provider,
       title,
+      remoteCategoryId,
     });
     if (enhanced?.subcategory) {
       resolvedCat = { ...resolvedCat, subcategory: enhanced.subcategory };
@@ -149,7 +156,7 @@ export async function resolveImportCategory(args: {
     const enhanced = await resolveInwCategoryWithSubcategory(
       remoteLabel ?? finalCat.category,
       remoteSubLabel,
-      { provider, title }
+      { provider, title, remoteCategoryId }
     );
     if (enhanced?.subcategory) {
       finalCat = {
@@ -172,6 +179,21 @@ export async function resolveImportCategory(args: {
   const canonicalSub = canonicalizeSubcategory(finalCat.category, finalCat.subcategory);
   if (canonicalSub) {
     finalCat = { ...finalCat, subcategory: canonicalSub, matchedPreset: true };
+  }
+
+  if (remoteCategoryId?.trim()) {
+    void upsertChannelCategoryMappings([
+      {
+        provider,
+        matchType: "category_id",
+        matchKey: remoteCategoryId.trim(),
+        remoteLabel: remoteLabel,
+        inwCategory: finalCat.category,
+        inwSubcategory: finalCat.subcategory,
+        priority: 1000,
+        source: "import",
+      },
+    ]).catch((e) => console.warn("[channels] category id mapping upsert failed", e));
   }
 
   return {

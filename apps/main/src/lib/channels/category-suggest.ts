@@ -21,6 +21,18 @@ export interface SuggestCategoriesResult {
   wix?: CategorySuggestion[];
 }
 
+export type EbayCategoryReferenceEntry = {
+  id: string;
+  path: string;
+  inwCategoryKey?: string;
+};
+
+export type EtsyTaxonomyReferenceEntry = {
+  id: number;
+  path: string;
+  inwCategoryKey?: string;
+};
+
 /**
  * Reverse mapping: INW category → common eBay category IDs (US marketplace).
  * These are leaf categories known to work well for each INW preset.
@@ -128,6 +140,36 @@ const INW_TO_EBAY_CATEGORIES: Record<string, { id: string; path: string }[]> = {
     { id: "552", path: "Tickets & Experiences > Concerts" },
   ],
 };
+
+/** Flatten INW→eBay reference rows for inbound mapping seed (id + path + INW hint). */
+export function listEbayCategoryReferenceEntriesFromSuggest(): EbayCategoryReferenceEntry[] {
+  const rows: EbayCategoryReferenceEntry[] = [];
+  const seen = new Set<string>();
+  for (const [inwKey, entries] of Object.entries(INW_TO_EBAY_CATEGORIES)) {
+    for (const entry of entries) {
+      const sig = `${entry.id}:${entry.path}`;
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      rows.push({ id: entry.id, path: entry.path, inwCategoryKey: inwKey });
+    }
+  }
+  return rows;
+}
+
+/** Flatten INW→Etsy taxonomy reference rows for inbound mapping seed. */
+export function listEtsyTaxonomyReferenceEntriesFromSuggest(): EtsyTaxonomyReferenceEntry[] {
+  const rows: EtsyTaxonomyReferenceEntry[] = [];
+  const seen = new Set<string>();
+  for (const [inwKey, entries] of Object.entries(INW_TO_ETSY_TAXONOMY)) {
+    for (const entry of entries) {
+      const sig = `${entry.id}:${entry.path}`;
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      rows.push({ id: entry.id, path: entry.path, inwCategoryKey: inwKey });
+    }
+  }
+  return rows;
+}
 
 /**
  * Reverse mapping: INW category → Etsy taxonomy IDs.

@@ -454,6 +454,14 @@ export function getEtsyTaxonomyName(taxonomyId: number | null | undefined): stri
   return null;
 }
 
+/** All known Etsy taxonomy IDs and display names (for DB mapping seed). */
+export function listEtsyTaxonomyEntries(): Array<{ id: number; name: string }> {
+  return Object.entries(ETSY_TAXONOMY_NAMES).map(([id, name]) => ({
+    id: Number(id),
+    name,
+  }));
+}
+
 /** Etsy taxonomy id used when a listing has no explicit mapping. Override with ETSY_DEFAULT_TAXONOMY_ID. */
 function defaultTaxonomyId(): number {
   const raw = process.env.ETSY_DEFAULT_TAXONOMY_ID?.trim();

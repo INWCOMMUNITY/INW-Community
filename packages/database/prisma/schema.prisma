@@ -1736,6 +1736,26 @@ model CategoryMappingStats {
   @@map("category_mapping_stats")
 }
 
+// Canonical eBay/Etsy → INW category + subcategory mappings (seeded + admin-editable).
+model ChannelCategoryMapping {
+  id             String   @id @default(cuid())
+  provider       String   // ebay | etsy | wix | shopify
+  matchType      String   @map("match_type") // category_id | path | label
+  matchKey       String   @map("match_key") // normalized lookup key
+  remoteLabel    String?  @map("remote_label") // human-readable path/label for admin
+  inwCategory    String   @map("inw_category")
+  inwSubcategory String?  @map("inw_subcategory")
+  priority       Int      @default(0)
+  active         Boolean  @default(true)
+  source         String   @default("seed")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, matchType, matchKey])
+  @@index([provider, matchType, active])
+  @@map("channel_category_mapping")
+}
+
 // Full audit trail for all quantity changes across platforms
 model QuantityAuditLog {
   id              String   @id @default(cuid())

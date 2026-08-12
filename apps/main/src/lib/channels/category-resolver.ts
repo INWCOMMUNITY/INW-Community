@@ -10,6 +10,7 @@ import {
   type EbayPathCandidate,
 } from "./ebay-category-aliases";
 import { getEtsyTaxonomyName } from "./etsy/mapping";
+import { resolveFromChannelCategoryMapping } from "./channel-category-mapping";
 
 /** Minimum similarity score (0–1) to map a remote label to a preset INW category (strict mode). */
 export const CATEGORY_MATCH_THRESHOLD = 0.72;
@@ -708,6 +709,8 @@ export type ResolvedInwCategory = {
 
 export type ResolveCategoryOptions = {
   provider?: ChannelProvider;
+  /** eBay category ID or Etsy taxonomy ID for DB mapping lookup. */
+  remoteCategoryId?: string | null;
   /**
    * When true (default for etsy/wix), always pick the closest INW preset above
    * CLOSEST_PRESET_FLOOR instead of storing the raw remote label.
@@ -1018,6 +1021,63 @@ function refineSubcategory(category: string, remoteSub: string): string | null {
     }
   }
   return best?.sub ?? null;
+}
+
+/**
+ * Plan a canonical INW category + subcategory for a full marketplace path.
+ * Used when seeding channel_category_mapping from Etsy/eBay taxonomy lists.
+ */
+const marketplacePlanCache = new Map<
+  string,
+  { category: string; subcategory: string | null } | null
+>();
+
+export function planInwMappingForMarketplacePath(
+  provider: ChannelProvider,
+  path: string
+): { category: string; subcategory: string | null } | null {
+  const cacheKey = `${provider}:${path.trim().toLowerCase()}`;
+  if (marketplacePlanCache.has(cacheKey)) {
+    return marketplacePlanCache.get(cacheKey) ?? null;
+  }
+
+  const trimmed = path.trim();
+  if (!trimmed) {
+    marketplacePlanCache.set(cacheKey, null);
+    return null;
+  }
+
+  const parts = trimmed.split(">").map((p) => p.trim()).filter(Boolean);
+  const leaf = parts.length > 1 ? parts[parts.length - 1]! : null;
+
+  const base = resolveInwCategoryFromRemote(trimmed, leaf, {
+    provider,
+    closestPreset: true,
+  });
+  if (!base?.category) {
+    marketplacePlanCache.set(cacheKey, null);
+    return null;
+  }
+
+  let resolved = ensurePresetCategory(base, trimmed, leaf);
+  resolved = finalizeSubcategoryAssignment(resolved, trimmed, leaf);
+
+  if (!findPresetCategory(resolved.category)) {
+    marketplacePlanCache.set(cacheKey, null);
+    return null;
+  }
+
+  const subcategory =
+    resolved.subcategory ??
+    canonicalizeSubcategory(resolved.category, leaf) ??
+    otherSubcategoryForCategory(resolved.category);
+
+  const result = {
+    category: resolved.category,
+    subcategory,
+  };
+  marketplacePlanCache.set(cacheKey, result);
+  return result;
 }
 
 function shouldUseClosestPreset(
@@ -1514,7 +1574,8 @@ export async function getLearnedCategoryMapping(
  */
 export async function resolveInwCategoryFromEbayPath(
   categoryPath: string | null | undefined,
-  title?: string | null
+  title?: string | null,
+  remoteCategoryId?: string | null
 ): Promise<ResolvedInwCategory | null> {
   if (!categoryPath?.trim()) return null;
   const { label, subcategory } = splitEbayCategoryPath(categoryPath);
@@ -1524,7 +1585,7 @@ export async function resolveInwCategoryFromEbayPath(
   const result = await resolveInwCategoryWithSubcategory(
     categoryPath,  // Pass full path for hierarchical matching
     subcategory,
-    { provider: "ebay", title }
+    { provider: "ebay", title, remoteCategoryId: remoteCategoryId ?? null }
   );
   
   return result;
@@ -1543,7 +1604,11 @@ export async function resolveInwCategoryFromEtsyTaxonomy(
   if (!name) return null;
 
   // Use the enhanced resolver that always assigns subcategory
-  return resolveInwCategoryWithSubcategory(name, null, { provider: "etsy", title });
+  return resolveInwCategoryWithSubcategory(name, null, {
+    provider: "etsy",
+    title,
+    remoteCategoryId: taxonomyId != null ? String(taxonomyId) : null,
+  });
 }
 
 /**
@@ -1593,10 +1658,30 @@ export async function resolveInwCategoryWithLearning(
   remoteSubLabel?: string | null,
   opts?: ResolveCategoryOptions
 ): Promise<ResolvedInwCategory | null> {
-  const label = remoteLabel?.trim();
+  const label = remoteLabel?.trim() || null;
+
+  if (opts?.provider) {
+    const dbHit = await resolveFromChannelCategoryMapping({
+      provider: opts.provider,
+      remoteCategoryId: opts.remoteCategoryId,
+      remotePath: label && label.includes(">") ? label : null,
+      remoteLabel: label,
+      remoteSubLabel,
+    });
+    if (dbHit) {
+      const canonical = canonicalizeSubcategory(dbHit.category, dbHit.subcategory);
+      return {
+        category: dbHit.category,
+        subcategory: canonical ?? dbHit.subcategory,
+        matchedPreset: true,
+        score: dbHit.score,
+      };
+    }
+  }
+
   if (!label) return null;
 
-  // First, check for learned mappings from seller feedback
+  // Check for learned mappings from seller feedback
   if (opts?.provider) {
     const learned = await getLearnedCategoryMapping(opts.provider, label);
     if (learned && (learned.score ?? 0) >= CATEGORY_MATCH_THRESHOLD) {
@@ -1604,8 +1689,7 @@ export async function resolveInwCategoryWithLearning(
     }
   }
 
-  // Fall back to standard resolution
-  return resolveInwCategoryFromRemote(remoteLabel, remoteSubLabel, opts);
+  return resolveInwCategoryFromRemote(label, remoteSubLabel, opts);
 }
 
 /**
@@ -1809,4 +1893,12 @@ export async function getCategoryMappingAnalytics(params: {
     })),
     total,
   };
+}
+
+/** Expose alias tables for seeding channel_category_mapping (avoids duplicating mappings). */
+export function getCategoryAliasTablesForSeed(): {
+  etsy: Record<string, { category: string; subcategory: string | null }>;
+  wix: Record<string, { category: string; subcategory: string | null }>;
+} {
+  return { etsy: ETSY_CATEGORY_ALIASES, wix: WIX_CATEGORY_ALIASES };
 }
