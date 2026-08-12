@@ -288,6 +288,7 @@ export const ebayAdapter: ChannelAdapter = {
         categoryId: l.remoteCategoryId ?? null,
         categoryName: l.categoryName ?? null,
         remoteUpdatedAt: l.remoteUpdatedAt ?? null,
+        sku: l.sku ?? undefined,
       })
     );
   },

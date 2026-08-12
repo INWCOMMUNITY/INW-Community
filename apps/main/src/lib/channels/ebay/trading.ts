@@ -30,6 +30,8 @@ export type EbayTradingListing = {
   categoryName?: string | null;
   remoteUpdatedAt?: Date | null;
   condition?: "new" | "used" | null;
+  /** Seller-defined SKU (Custom Label) when set. Used for INW-migrated listings. */
+  sku?: string | null;
 };
 
 /** Full item specifics + description + photos for a listing (fetched on import, not preview). */
@@ -88,7 +90,18 @@ async function callTrading(accessToken: string, callName: string, xml: string): 
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`eBay Trading ${callName} failed (${res.status}).`);
+    throw new EbayApiError(
+      `eBay Trading ${callName} failed (${res.status}).`,
+      res.status,
+      text,
+      callName
+    );
+  }
+  const ack = parseTradingAck(text);
+  if (!ack.ok) {
+    const msg = ack.error ?? `eBay Trading ${callName} failed`;
+    const authLike = /auth|token|expired|invalid/i.test(msg);
+    throw new EbayApiError(msg, authLike ? 401 : 400, text, callName);
   }
   return text;
 }
@@ -265,6 +278,7 @@ export async function enumerateEbayListings(accessToken: string): Promise<EbayTr
       const quantity = Math.max(0, Number(qtyStr) || 0);
       const photos = extractEbayItemPhotos(item);
       const { categoryId, categoryName } = parseEbayPrimaryCategory(item);
+      const sku = tag(item, "SKU")?.trim() || null;
       out.push({
         listingId,
         title,
@@ -275,6 +289,7 @@ export async function enumerateEbayListings(accessToken: string): Promise<EbayTr
         categoryName,
         remoteUpdatedAt: parseEbayLastModified(item),
         condition: parseEbayCondition(item),
+        sku,
       });
     }
     // Stop early if this page was not full (no further pages).

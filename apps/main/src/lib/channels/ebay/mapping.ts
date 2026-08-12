@@ -135,7 +135,10 @@ function priceStringToCents(value?: string): number {
 
 /** Map an eBay inventory/offer summary row to a provider-agnostic import preview entry. */
 export function ebayListingToSummary(row: EbayInventorySummaryRow): RemoteListingSummary {
-  const externalListingId = row.offerId || row.listingId || row.listing?.listingId || row.sku || "";
+  // For INW-migrated listings, the link uses the SKU (inw123456789) as externalListingId.
+  // Prefer SKU when it's an INW format so reconcile can match the listing.
+  const inwSku = row.sku?.startsWith("inw") ? row.sku : null;
+  const externalListingId = inwSku || row.offerId || row.listingId || row.listing?.listingId || row.sku || "";
   const listingId = row.listingId || row.listing?.listingId;
   return {
     externalListingId,
