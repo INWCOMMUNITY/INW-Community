@@ -5,6 +5,7 @@ import {
   resolveInwCategoryFromEtsyTaxonomy,
   seedCategoryMappingFromImport,
   suggestCategoriesFromContent,
+  canonicalizeSubcategory,
   type ResolvedInwCategory,
 } from "./category-resolver";
 import { splitEbayCategoryPath } from "./ebay-category-aliases";
@@ -58,6 +59,109 @@ function autoPostStoreItemToFeed(authorId: string, storeItemId: string): void {
 export type ImportRemoteListingResult =
   | { ok: true; storeItemId: string; externalListingId: string; needsCategoryReview: boolean }
   | { ok: false; externalListingId: string; reason: string };
+
+export type ImportCategoryAssignment = {
+  category: string;
+  subcategory: string | null;
+  matchedPreset: boolean;
+  score?: number;
+  source:
+    | "ebay_path"
+    | "etsy_taxonomy"
+    | "remote_metadata"
+    | "title_suggestion"
+    | "enhanced";
+};
+
+/**
+ * Shared category pipeline for channel imports (eBay, Etsy, Wix, etc.).
+ * Ensures preset categories, canonical subcategories, and title-based fallbacks.
+ */
+export async function resolveImportCategory(args: {
+  provider: ChannelProvider;
+  remoteLabel: string | null;
+  remoteSubLabel?: string | null;
+  title?: string | null;
+  description?: string | null;
+  remoteCategoryId?: string | null;
+}): Promise<ImportCategoryAssignment | null> {
+  const {
+    provider,
+    remoteLabel,
+    remoteSubLabel,
+    title,
+    description,
+    remoteCategoryId,
+  } = args;
+
+  let resolvedCat: ResolvedInwCategory | null = null;
+  let source: ImportCategoryAssignment["source"] = "remote_metadata";
+
+  if (provider === "ebay" && remoteLabel) {
+    resolvedCat = await resolveInwCategoryFromEbayPath(remoteLabel, title);
+    source = "ebay_path";
+  } else if (provider === "etsy") {
+    resolvedCat = await resolveInwCategoryFromEtsyTaxonomy(
+      remoteCategoryId ? Number(remoteCategoryId) : null,
+      remoteLabel,
+      title
+    );
+    source = "etsy_taxonomy";
+  } else {
+    resolvedCat = await resolveInwCategoryWithSubcategory(remoteLabel, remoteSubLabel, {
+      provider,
+      title,
+    });
+  }
+
+  if (resolvedCat?.category && !resolvedCat.subcategory && (provider === "ebay" || provider === "etsy")) {
+    const enhanced = await resolveInwCategoryWithSubcategory(remoteLabel, remoteSubLabel, {
+      provider,
+      title,
+    });
+    if (enhanced?.subcategory) {
+      resolvedCat = { ...resolvedCat, subcategory: enhanced.subcategory };
+      source = "enhanced";
+    }
+  }
+
+  if (!resolvedCat?.category && title) {
+    const suggestions = suggestCategoriesFromContent(title, description);
+    if (suggestions.length > 0 && suggestions[0].confidence >= 0.4) {
+      resolvedCat = {
+        category: suggestions[0].category,
+        subcategory: suggestions[0].subcategory,
+        matchedPreset: true,
+        score: suggestions[0].confidence,
+      };
+      source = "title_suggestion";
+    }
+  }
+
+  if (!resolvedCat?.category) return null;
+
+  const canonicalSub = canonicalizeSubcategory(resolvedCat.category, resolvedCat.subcategory);
+  if (canonicalSub) {
+    resolvedCat = { ...resolvedCat, subcategory: canonicalSub, matchedPreset: true };
+  } else if (!resolvedCat.subcategory) {
+    const enhanced = await resolveInwCategoryWithSubcategory(remoteLabel, remoteSubLabel, {
+      provider,
+      title,
+    });
+    if (enhanced?.subcategory) {
+      resolvedCat = enhanced;
+      source = "enhanced";
+    }
+  }
+
+  return {
+    category: resolvedCat.category,
+    subcategory: resolvedCat.subcategory,
+    matchedPreset: resolvedCat.matchedPreset,
+    score: resolvedCat.score,
+    source,
+  };
+}
 
 /**
  * Turn an unknown thrown value into a short, human-readable reason that is safe to return to the
@@ -187,56 +291,39 @@ export async function importRemoteListing(args: {
     const remoteCategoryLabel = listing.category?.trim() || null;
     const remoteCategorySubLabel = listing.subcategory?.trim() || null;
 
-    // Use the enhanced resolver that always assigns a subcategory when possible.
-    // Pass the title for keyword-based subcategory inference.
-    let resolvedCat: ResolvedInwCategory | null =
-      provider === "ebay" && remoteCategoryLabel
-        ? await resolveInwCategoryFromEbayPath(remoteCategoryLabel, listing.title)
-        : provider === "etsy"
-          ? await resolveInwCategoryFromEtsyTaxonomy(
-              listing.remoteCategoryId ? Number(listing.remoteCategoryId) : null,
-              remoteCategoryLabel,
-              listing.title
-            )
-          : await resolveInwCategoryWithSubcategory(remoteCategoryLabel, remoteCategorySubLabel, {
-              provider,
-              title: listing.title,
-            });
-    
-    // For eBay/Etsy, also try subcategory enhancement if we got a category but no subcategory
-    if (resolvedCat?.category && !resolvedCat.subcategory && (provider === "ebay" || provider === "etsy")) {
-      const enhanced = await resolveInwCategoryWithSubcategory(
-        remoteCategoryLabel,
-        remoteCategorySubLabel,
-        { provider, title: listing.title }
-      );
-      if (enhanced?.subcategory) {
-        resolvedCat = { ...resolvedCat, subcategory: enhanced.subcategory };
-      }
+    const categoryAssignment = await resolveImportCategory({
+      provider,
+      remoteLabel: remoteCategoryLabel,
+      remoteSubLabel: remoteCategorySubLabel,
+      title: listing.title,
+      description: listing.description,
+      remoteCategoryId: listing.remoteCategoryId,
+    });
+    const resolvedCat: ResolvedInwCategory | null = categoryAssignment
+      ? {
+          category: categoryAssignment.category,
+          subcategory: categoryAssignment.subcategory,
+          matchedPreset: categoryAssignment.matchedPreset,
+          score: categoryAssignment.score,
+        }
+      : null;
+
+    if (categoryAssignment) {
+      console.log("[channels] import category assignment", {
+        provider,
+        externalListingId: productId,
+        remoteCategory: remoteCategoryLabel,
+        remoteSubcategory: remoteCategorySubLabel,
+        assignment: categoryAssignment,
+      });
+    } else if (listing.title) {
+      console.log("[channels] import no category resolved", {
+        provider,
+        externalListingId: productId,
+        title: listing.title.slice(0, 50),
+      });
     }
-    
-    // Fallback: if no category resolved from remote metadata, try title-based suggestion
-    if (!resolvedCat?.category && listing.title) {
-      const suggestions = suggestCategoriesFromContent(listing.title, listing.description);
-      if (suggestions.length > 0 && suggestions[0].confidence >= 0.4) {
-        resolvedCat = {
-          category: suggestions[0].category,
-          subcategory: suggestions[0].subcategory,
-          matchedPreset: true,
-          score: suggestions[0].confidence,
-        };
-        console.log("[channels] import category from title suggestion", {
-          provider,
-          externalListingId: productId,
-          title: listing.title.slice(0, 50),
-          suggestedCategory: resolvedCat.category,
-          suggestedSubcategory: resolvedCat.subcategory,
-          confidence: suggestions[0].confidence,
-          matchedKeywords: suggestions[0].matchedKeywords,
-        });
-      }
-    }
-    
+
     if (resolvedCat && !resolvedCat.matchedPreset) {
       console.log("[channels] import using custom category (no preset match)", {
         provider,

@@ -140,8 +140,8 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   "womens clothing": { category: "Clothing", subcategory: "Women's Clothing" },
   "men's clothing": { category: "Clothing", subcategory: "Men's Clothing" },
   "mens clothing": { category: "Clothing", subcategory: "Men's Clothing" },
-  dresses: { category: "Clothing", subcategory: "Dresses" },
-  dress: { category: "Clothing", subcategory: "Dresses" },
+  dresses: { category: "Clothing", subcategory: "Dresses & Skirts" },
+  dress: { category: "Clothing", subcategory: "Dresses & Skirts" },
   tops: { category: "Clothing", subcategory: "Tops & Tees" },
   "tops & tees": { category: "Clothing", subcategory: "Tops & Tees" },
   shirts: { category: "Clothing", subcategory: "Tops & Tees" },
@@ -152,11 +152,11 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   jackets: { category: "Clothing", subcategory: "Jackets & Coats" },
   "jackets & coats": { category: "Clothing", subcategory: "Jackets & Coats" },
   coats: { category: "Clothing", subcategory: "Jackets & Coats" },
-  pants: { category: "Clothing", subcategory: "Pants" },
-  "pants & capris": { category: "Clothing", subcategory: "Pants" },
+  pants: { category: "Clothing", subcategory: "Pants & Shorts" },
+  "pants & capris": { category: "Clothing", subcategory: "Pants & Shorts" },
   jeans: { category: "Clothing", subcategory: "Jeans" },
   shorts: { category: "Clothing", subcategory: "Shorts" },
-  skirts: { category: "Clothing", subcategory: "Skirts" },
+  skirts: { category: "Clothing", subcategory: "Dresses & Skirts" },
   swimwear: { category: "Clothing", subcategory: "Swimwear" },
   "suits & blazers": { category: "Clothing", subcategory: "Suits & Blazers" },
   activewear: { category: "Clothing", subcategory: "Activewear" },
@@ -173,8 +173,8 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   "artist trading cards": { category: "Art & Collectibles", subcategory: "Drawing & Illustration" },
 
   // Craft Supplies expanded
-  beads: { category: "Craft Supplies & Tools", subcategory: "Beads" },
-  "beads & jewelry making": { category: "Craft Supplies & Tools", subcategory: "Beads" },
+  beads: { category: "Craft Supplies & Tools", subcategory: "Beading & Jewelry Making" },
+  "beads & jewelry making": { category: "Craft Supplies & Tools", subcategory: "Beading & Jewelry Making" },
   fabric: { category: "Craft Supplies & Tools", subcategory: "Fabric" },
   yarn: { category: "Craft Supplies & Tools", subcategory: "Yarn" },
   "sewing & needlecraft": { category: "Craft Supplies & Tools", subcategory: "Sewing & Needlecraft" },
@@ -188,7 +188,7 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
 
   // Home & Living expanded
   "home": { category: "Home & Living", subcategory: null },
-  "living room": { category: "Home & Living", subcategory: "Living Room" },
+  "living room": { category: "Furniture", subcategory: "Living Room" },
   rugs: { category: "Home & Living", subcategory: "Rugs" },
   curtains: { category: "Home & Living", subcategory: "Curtains & Window Treatments" },
   "curtains & window treatments": { category: "Home & Living", subcategory: "Curtains & Window Treatments" },
@@ -633,10 +633,10 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   // ── Books, Films & Music Expanded ──
   books: { category: "Books, Movies & Music", subcategory: "Books" },
   novels: { category: "Books, Movies & Music", subcategory: "Books" },
-  "comic books": { category: "Books, Movies & Music", subcategory: "Comics" },
-  comics: { category: "Books, Movies & Music", subcategory: "Comics" },
-  "graphic novels": { category: "Books, Movies & Music", subcategory: "Comics" },
-  manga: { category: "Books, Movies & Music", subcategory: "Comics" },
+  "comic books": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  comics: { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  "graphic novels": { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
+  manga: { category: "Books, Movies & Music", subcategory: "Comics & Graphic Novels" },
   magazines: { category: "Books, Movies & Music", subcategory: "Magazines" },
   movies: { category: "Books, Movies & Music", subcategory: "Movies" },
   "dvds": { category: "Books, Movies & Music", subcategory: "Movies" },
@@ -747,6 +747,116 @@ export function similarityScore(a: string, b: string): number {
   }
   const union = ta.size + tb.size - inter;
   return union > 0 ? inter / union : 0;
+}
+
+/** Minimum similarity to map a legacy/alias subcategory label to a preset subcategory. */
+const SUBCATEGORY_CANONICAL_THRESHOLD = 0.55;
+
+/**
+ * Map alias or legacy subcategory labels to valid STORE_CATEGORIES preset names.
+ * Returns null when no reasonable preset match exists (caller should apply "Other …" fallback).
+ */
+export function canonicalizeSubcategory(
+  category: string,
+  subcategory: string | null | undefined
+): string | null {
+  const trimmed = subcategory?.trim();
+  if (!trimmed) return null;
+
+  const preset = STORE_CATEGORIES.find((c) => c.label === category);
+  if (!preset) return null;
+  if (preset.subcategories.includes(trimmed)) return trimmed;
+
+  let best: { sub: string; score: number } | null = null;
+  for (const sub of preset.subcategories) {
+    const score = similarityScore(trimmed, sub);
+    if (score >= SUBCATEGORY_CANONICAL_THRESHOLD && score > (best?.score ?? 0)) {
+      best = { sub, score };
+    }
+  }
+  return best?.sub ?? null;
+}
+
+function findPresetCategory(category: string) {
+  return STORE_CATEGORIES.find((c) => c.label === category) ?? null;
+}
+
+function otherSubcategoryForCategory(category: string): string | null {
+  const preset = findPresetCategory(category);
+  if (!preset) return null;
+  return (
+    preset.subcategories.find((s) => s.toLowerCase().startsWith("other ")) ??
+    preset.subcategories.find((s) => s === "Other") ??
+    null
+  );
+}
+
+function ensurePresetCategory(
+  result: ResolvedInwCategory,
+  remoteLabel: string | null | undefined,
+  remoteSubLabel: string | null | undefined
+): ResolvedInwCategory {
+  if (findPresetCategory(result.category)) return result;
+
+  const rematch = bestPresetMatch(
+    remoteSubLabel?.trim() || remoteLabel?.trim() || result.category,
+    remoteSubLabel
+  );
+  if (rematch && rematch.score >= CLOSEST_PRESET_FLOOR) {
+    return {
+      category: rematch.category,
+      subcategory: rematch.subcategory ?? result.subcategory,
+      matchedPreset: true,
+      score: rematch.score,
+    };
+  }
+  return result;
+}
+
+function finalizeSubcategoryAssignment(
+  result: ResolvedInwCategory,
+  remoteLabel: string | null | undefined,
+  remoteSubLabel: string | null | undefined,
+  title?: string | null
+): ResolvedInwCategory {
+  const preset = findPresetCategory(result.category);
+  if (!preset || preset.subcategories.length === 0) return result;
+
+  if (result.subcategory) {
+    const canonical = canonicalizeSubcategory(result.category, result.subcategory);
+    if (canonical) {
+      return { ...result, subcategory: canonical, matchedPreset: true };
+    }
+  }
+
+  const leafLabel = remoteSubLabel?.trim() || remoteLabel?.trim();
+  if (leafLabel) {
+    const refined = refineSubcategoryEnhanced(result.category, leafLabel);
+    if (refined) {
+      return { ...result, subcategory: refined, matchedPreset: true };
+    }
+  }
+
+  if (title) {
+    const titleMatch = matchSubcategoryFromKeywords(result.category, title);
+    if (titleMatch) {
+      return { ...result, subcategory: titleMatch, matchedPreset: true };
+    }
+  }
+
+  if (leafLabel) {
+    const labelMatch = matchSubcategoryFromKeywords(result.category, leafLabel);
+    if (labelMatch) {
+      return { ...result, subcategory: labelMatch, matchedPreset: true };
+    }
+  }
+
+  const otherSub = otherSubcategoryForCategory(result.category);
+  if (otherSub) {
+    return { ...result, subcategory: otherSub, matchedPreset: true };
+  }
+
+  return result;
 }
 
 type Candidate = { category: string; subcategory: string | null; score: number };
@@ -1515,52 +1625,18 @@ export async function resolveInwCategoryWithSubcategory(
   remoteSubLabel?: string | null,
   opts?: ResolveCategoryOptions & { title?: string | null }
 ): Promise<ResolvedInwCategory | null> {
-  const result = await resolveInwCategoryWithLearning(remoteLabel, remoteSubLabel, opts);
-  
-  if (!result?.category) return result;
-  if (result.subcategory) return result;
+  const base = await resolveInwCategoryWithLearning(remoteLabel, remoteSubLabel, opts);
+  if (!base?.category) return base;
 
-  // If we got a category but no subcategory, try harder to assign one
-  const preset = STORE_CATEGORIES.find((p) => p.label === result.category);
-  if (!preset || preset.subcategories.length === 0) {
-    return result;
-  }
-
-  // 1. Try refining from the remote leaf label
-  const leafLabel = remoteSubLabel?.trim() || remoteLabel?.trim();
-  if (leafLabel) {
-    const refined = refineSubcategoryEnhanced(result.category, leafLabel);
-    if (refined) {
-      return { ...result, subcategory: refined };
+  const withPreset = ensurePresetCategory(base, remoteLabel, remoteSubLabel);
+  if (withPreset.subcategory) {
+    const canonical = canonicalizeSubcategory(withPreset.category, withPreset.subcategory);
+    if (canonical) {
+      return { ...withPreset, subcategory: canonical, matchedPreset: true };
     }
   }
 
-  // 2. Try keyword matching against subcategories from title
-  if (opts?.title) {
-    const titleMatch = matchSubcategoryFromKeywords(result.category, opts.title);
-    if (titleMatch) {
-      return { ...result, subcategory: titleMatch };
-    }
-  }
-
-  // 3. Try keyword matching against subcategories from remote label
-  if (leafLabel) {
-    const labelMatch = matchSubcategoryFromKeywords(result.category, leafLabel);
-    if (labelMatch) {
-      return { ...result, subcategory: labelMatch };
-    }
-  }
-
-  // 4. Default to "Other [Category]" - find the "Other" subcategory for this category
-  const otherSub = preset.subcategories.find(
-    (s) => s.toLowerCase().startsWith("other ") || s === "Other"
-  );
-  if (otherSub) {
-    return { ...result, subcategory: otherSub };
-  }
-
-  // If no "Other" subcategory exists, return without subcategory
-  return result;
+  return finalizeSubcategoryAssignment(withPreset, remoteLabel, remoteSubLabel, opts?.title);
 }
 
 /**

@@ -30,6 +30,16 @@ type ImportProgress = {
   message?: string;
 };
 
+type ImportApiResponse = {
+  imported?: unknown[];
+  skipped?: { externalListingId?: string; title?: string; reason: string; hint?: string }[];
+  summary?: string;
+  hint?: string;
+};
+
+/** eBay import can run up to 60s server-side; allow buffer for network. */
+const IMPORT_TIMEOUT_MS = 120_000;
+
 const PROVIDER_LABELS: Record<string, string> = {
   etsy: "Etsy",
   ebay: "eBay",
@@ -56,6 +66,7 @@ export default function ChannelImportScreen() {
   // Auto-sync state (eBay only)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean | null>(null);
   const [autoSyncLoading, setAutoSyncLoading] = useState(false);
+  const [repairingCategories, setRepairingCategories] = useState(false);
 
   const importPath = useMemo(() => `/api/channels/${provider}/import`, [provider]);
   const refreshPath = useMemo(() => `/api/channels/${provider}/refresh`, [provider]);
@@ -117,6 +128,36 @@ export default function ChannelImportScreen() {
     }
   }, [importPath, label, provider]);
 
+  const runCategoryRepair = useCallback(async () => {
+    setRepairingCategories(true);
+    setError(null);
+    setDone(null);
+    try {
+      const res = await apiPost<{
+        summary?: string;
+        repaired?: { storeItemId: string; qtyRecovered?: boolean }[];
+      }>("/api/channels/repair-categories", {}, IMPORT_TIMEOUT_MS);
+      const repairedCount = res.repaired?.length ?? 0;
+      const qtyRecovered = res.repaired?.filter((r) => r.qtyRecovered).length ?? 0;
+      const summary =
+        res.summary ??
+        (repairedCount > 0
+          ? `Repaired ${repairedCount} listing${repairedCount === 1 ? "" : "s"}.`
+          : "No listings needed category repair.");
+      const detail =
+        qtyRecovered > 0
+          ? `${summary} Restored inventory on ${qtyRecovered} listing${qtyRecovered === 1 ? "" : "s"}.`
+          : summary;
+      setDone(detail);
+      await load();
+    } catch (e: unknown) {
+      const err = e as { error?: string; message?: string };
+      setError(err?.error ?? err?.message ?? "Category repair failed.");
+    } finally {
+      setRepairingCategories(false);
+    }
+  }, [load]);
+
   useFocusEffect(
     useCallback(() => {
       void load();
@@ -145,57 +186,69 @@ export default function ChannelImportScreen() {
   const runImportAll = useCallback(async () => {
     const importableIds = listings.filter((l) => !l.alreadyLinked).map((l) => l.externalListingId);
     if (importableIds.length === 0) return;
-    
+
     setImporting(true);
     setError(null);
     setDone(null);
     setProgress({ total: importableIds.length, current: 0, status: "importing" });
-    
-    let importedCount = 0;
-    let skippedCount = 0;
-    let lastError: string | null = null;
-    
-    // Import items in small batches to show progress
-    const BATCH_SIZE = 3;
-    for (let i = 0; i < importableIds.length; i += BATCH_SIZE) {
-      const batch = importableIds.slice(i, i + BATCH_SIZE);
-      try {
-        const res = await apiPost<{
-          imported: unknown[];
-          skipped?: { reason: string }[];
-        }>(importPath, { listingIds: batch });
-        
-        importedCount += res.imported?.length ?? 0;
-        skippedCount += res.skipped?.length ?? 0;
-        setProgress({ 
-          total: importableIds.length, 
-          current: Math.min(i + BATCH_SIZE, importableIds.length), 
-          status: "importing" 
+
+    try {
+      const res = await apiPost<ImportApiResponse>(
+        importPath,
+        { listingIds: importableIds },
+        IMPORT_TIMEOUT_MS
+      );
+      const importedCount = res.imported?.length ?? 0;
+      const summary =
+        res.summary ??
+        (importedCount > 0
+          ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
+          : "No listings were imported.");
+      setDone(summary);
+      if (importedCount === 0 && (res.hint || (res.skipped?.length ?? 0) > 0)) {
+        setError(res.hint ?? summary);
+        setProgress({
+          total: importableIds.length,
+          current: importableIds.length,
+          status: "error",
+          message: res.hint ?? summary,
         });
-      } catch (e: unknown) {
-        const err = e as { error?: string; message?: string };
-        lastError = err?.error ?? err?.message ?? "Import failed.";
-        skippedCount += batch.length;
+      } else {
+        setProgress({
+          total: importableIds.length,
+          current: importableIds.length,
+          status: "done",
+          message: summary,
+        });
       }
+      setSelected(new Set());
+      await new Promise((r) => setTimeout(r, 1500));
+      setProgress(null);
+      await load();
+    } catch (e: unknown) {
+      const err = e as { error?: string; message?: string; status?: number };
+      let errorMsg = err?.error ?? err?.message ?? "Import failed.";
+      if (err.status === 0 || errorMsg.includes("timed out")) {
+        errorMsg =
+          "Import timed out. Some listings may still have been imported — refresh the list to check.";
+      } else if (
+        errorMsg.includes("network") ||
+        errorMsg.includes("fetch") ||
+        errorMsg.includes("reach")
+      ) {
+        errorMsg = "Unable to connect. Please check your internet connection and try again.";
+      }
+      setError(errorMsg);
+      setProgress({
+        total: importableIds.length,
+        current: importableIds.length,
+        status: "error",
+        message: errorMsg,
+      });
+      await load();
+    } finally {
+      setImporting(false);
     }
-    
-    const summary = importedCount > 0
-      ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}${skippedCount > 0 ? `, ${skippedCount} skipped` : ""}.`
-      : "No listings were imported.";
-    
-    setDone(summary);
-    if (importedCount === 0 && lastError) {
-      setError(lastError);
-      setProgress({ total: importableIds.length, current: importableIds.length, status: "error", message: lastError });
-    } else {
-      setProgress({ total: importableIds.length, current: importableIds.length, status: "done", message: summary });
-    }
-    
-    setSelected(new Set());
-    await new Promise((r) => setTimeout(r, 1500));
-    setProgress(null);
-    await load();
-    setImporting(false);
   }, [listings, importPath, load]);
 
   const unsyncPath = useMemo(() => `/api/channels/${provider}/unsync`, [provider]);
@@ -248,63 +301,73 @@ export default function ChannelImportScreen() {
   const runImport = async () => {
     if (selected.size === 0) return;
     const selectedIds = Array.from(selected);
-    
+
     setImporting(true);
     setError(null);
     setDone(null);
     setProgress({ total: selectedIds.length, current: 0, status: "importing" });
-    
-    let importedCount = 0;
-    let skippedCount = 0;
-    let lastError: string | null = null;
-    
-    // Import items in small batches to show progress
-    const BATCH_SIZE = 3;
-    for (let i = 0; i < selectedIds.length; i += BATCH_SIZE) {
-      const batch = selectedIds.slice(i, i + BATCH_SIZE);
-      try {
-        const res = await apiPost<{
-          imported: unknown[];
-          skipped?: { reason: string }[];
-        }>(importPath, { listingIds: batch });
-        
-        importedCount += res.imported?.length ?? 0;
-        skippedCount += res.skipped?.length ?? 0;
-        setProgress({ 
-          total: selectedIds.length, 
-          current: Math.min(i + BATCH_SIZE, selectedIds.length), 
-          status: "importing" 
+
+    try {
+      const res = await apiPost<ImportApiResponse>(
+        importPath,
+        { listingIds: selectedIds },
+        IMPORT_TIMEOUT_MS
+      );
+      const importedCount = res.imported?.length ?? 0;
+      const summary =
+        res.summary ??
+        (importedCount > 0
+          ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
+          : "No listings were imported.");
+      setDone(summary);
+      if (importedCount === 0 && (res.hint || (res.skipped?.length ?? 0) > 0)) {
+        setError(res.hint ?? summary);
+        setProgress({
+          total: selectedIds.length,
+          current: selectedIds.length,
+          status: "error",
+          message: res.hint ?? summary,
         });
-      } catch (e: unknown) {
-        const err = e as { error?: string; message?: string };
-        lastError = err?.error ?? err?.message ?? "Import failed.";
-        if (lastError.includes("network") || lastError.includes("fetch") || lastError.includes("reach")) {
-          lastError = "Unable to connect. Please check your internet connection and try again.";
-        }
-        skippedCount += batch.length;
+      } else {
+        setProgress({
+          total: selectedIds.length,
+          current: selectedIds.length,
+          status: "done",
+          message: summary,
+        });
       }
+      setSelected(new Set());
+      await new Promise((r) => setTimeout(r, 1500));
+      setProgress(null);
+      await load();
+    } catch (e: unknown) {
+      const err = e as { error?: string; message?: string; status?: number };
+      let errorMsg = err?.error ?? err?.message ?? "Import failed.";
+      if (err.status === 0 || errorMsg.includes("timed out")) {
+        errorMsg =
+          "Import timed out. Some listings may still have been imported — refresh the list to check.";
+      } else if (
+        errorMsg.includes("network") ||
+        errorMsg.includes("fetch") ||
+        errorMsg.includes("reach")
+      ) {
+        errorMsg = "Unable to connect. Please check your internet connection and try again.";
+      }
+      setError(errorMsg);
+      setProgress({
+        total: selectedIds.length,
+        current: selectedIds.length,
+        status: "error",
+        message: errorMsg,
+      });
+      await load();
+    } finally {
+      setImporting(false);
     }
-    
-    const summary = importedCount > 0
-      ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}${skippedCount > 0 ? `, ${skippedCount} skipped` : ""}.`
-      : "No listings were imported.";
-    
-    setDone(summary);
-    if (importedCount === 0 && lastError) {
-      setError(lastError);
-      setProgress({ total: selectedIds.length, current: selectedIds.length, status: "error", message: lastError });
-    } else {
-      setProgress({ total: selectedIds.length, current: selectedIds.length, status: "done", message: summary });
-    }
-    
-    setSelected(new Set());
-    await new Promise((r) => setTimeout(r, 1500));
-    setProgress(null);
-    await load();
-    setImporting(false);
   };
 
   const importable = listings.filter((l) => !l.alreadyLinked);
+  const linkedCount = listings.length - importable.length;
 
   return (
     <View style={styles.screen}>
@@ -343,6 +406,27 @@ export default function ChannelImportScreen() {
                 </Pressable>
               </View>
             )}
+          </View>
+        )}
+
+        {linkedCount > 0 && (
+          <View style={styles.repairSection}>
+            <Text style={styles.repairHint}>
+              Fix missing or incorrect categories on {linkedCount} imported listing
+              {linkedCount === 1 ? "" : "s"}. This also restores inventory when {label} still shows
+              stock but INW marked the item sold out.
+            </Text>
+            <Pressable
+              style={[styles.repairButton, repairingCategories && styles.repairButtonDisabled]}
+              onPress={runCategoryRepair}
+              disabled={repairingCategories || importing}
+            >
+              {repairingCategories ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.repairButtonText}>Fix Category Assignments</Text>
+              )}
+            </Pressable>
           </View>
         )}
 
@@ -449,21 +533,12 @@ export default function ChannelImportScreen() {
             <View style={styles.modalContent}>
               {progress?.status === "importing" ? (
                 <>
+                  <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginBottom: 16 }} />
                   <Text style={styles.modalTitle}>Importing Listings</Text>
                   <Text style={styles.modalMessage}>
-                    {progress.current} of {progress.total} listing{progress.total === 1 ? "" : "s"}
+                    Importing {progress.total} listing{progress.total === 1 ? "" : "s"} to INW…
                   </Text>
-                  <View style={styles.progressBarContainer}>
-                    <View 
-                      style={[
-                        styles.progressBarFill, 
-                        { width: `${Math.round((progress.current / progress.total) * 100)}%` }
-                      ]} 
-                    />
-                  </View>
-                  <Text style={styles.modalHint}>
-                    {Math.round((progress.current / progress.total) * 100)}% complete
-                  </Text>
+                  <Text style={styles.modalHint}>This may take up to a minute</Text>
                 </>
               ) : progress?.status === "done" ? (
                 <>
@@ -633,6 +708,35 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   autoSyncButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  repairSection: {
+    marginBottom: 20,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: "#f0f4ff",
+    borderWidth: 1,
+    borderColor: "#c5d4f7",
+  },
+  repairHint: {
+    fontSize: 13,
+    color: "#444",
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  repairButton: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    alignItems: "center",
+  },
+  repairButtonDisabled: {
+    opacity: 0.6,
+  },
+  repairButtonText: {
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",

@@ -130,7 +130,8 @@ async function tryRefresh(): Promise<RefreshResult> {
 
 async function fetchWithAuth(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs?: number
 ): Promise<Response> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
   const token = await getToken();
@@ -167,13 +168,13 @@ async function fetchWithAuth(
   };
   let res: Response;
   try {
-    res = await fetchWithTimeout(url, { ...options, headers });
+    res = await fetchWithTimeout(url, { ...options, headers }, timeoutMs);
   } catch (e) {
     const err = e as { error?: string; message?: string; status?: number };
     if (isNetworkFailure(err)) {
       await new Promise((r) => setTimeout(r, 2000));
       try {
-        res = await fetchWithTimeout(url, { ...options, headers });
+        res = await fetchWithTimeout(url, { ...options, headers }, timeoutMs);
       } catch (retryErr) {
         const re = retryErr as { error?: string; message?: string; status?: number };
         const msg = re.error ?? re.message ?? String(retryErr);
@@ -196,7 +197,7 @@ async function fetchWithAuth(
     if (!isRefreshRoute) {
       const refreshResult = await tryRefresh();
       if (refreshResult === "refreshed") {
-        return fetchWithAuth(path, options);
+        return fetchWithAuth(path, options, timeoutMs);
       }
       if (refreshResult === "network_error") {
         return res;
@@ -288,12 +289,17 @@ export async function apiGet<T = unknown>(path: string): Promise<T> {
 
 export async function apiPost<T = unknown>(
   path: string,
-  body?: unknown
+  body?: unknown,
+  timeoutMs?: number
 ): Promise<T> {
-  const res = await fetchWithAuth(path, {
-    method: "POST",
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const res = await fetchWithAuth(
+    path,
+    {
+      method: "POST",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    },
+    timeoutMs
+  );
   ensureJsonResponse(res);
   const data = await parseJsonResponse<T>(res);
   if (!res.ok) {

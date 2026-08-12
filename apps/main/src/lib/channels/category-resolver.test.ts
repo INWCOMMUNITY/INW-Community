@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveInwCategoryFromRemote } from "./category-resolver";
+import {
+  resolveInwCategoryFromRemote,
+  resolveInwCategoryWithSubcategory,
+  canonicalizeSubcategory,
+} from "./category-resolver";
 import {
   ebayCategoryPathCandidatesWithMeta,
   aliasSpecificityScore,
@@ -291,5 +295,65 @@ describe("resolveInwCategoryFromRemote — eBay auto-translate", () => {
   it("maps eBay tickets root", () => {
     const r = resolveInwCategoryFromRemote("Tickets & Experiences", null, { provider: "ebay" });
     expect(r?.category).toBe("Tickets & Experiences");
+  });
+});
+
+describe("canonicalizeSubcategory", () => {
+  it('maps legacy alias "Comics" to "Comics & Graphic Novels"', () => {
+    expect(
+      canonicalizeSubcategory("Books, Movies & Music", "Comics")
+    ).toBe("Comics & Graphic Novels");
+  });
+
+  it('maps legacy alias "Dresses" to "Dresses & Skirts"', () => {
+    expect(canonicalizeSubcategory("Clothing", "Dresses")).toBe("Dresses & Skirts");
+  });
+
+  it("returns preset subcategory unchanged", () => {
+    expect(
+      canonicalizeSubcategory("Art & Collectibles", "Coins & Currency")
+    ).toBe("Coins & Currency");
+  });
+});
+
+describe("resolveInwCategoryWithSubcategory — eBay import paths", () => {
+  it("assigns Comics & Graphic Novels for graded comic titles", async () => {
+    const r = await resolveInwCategoryWithSubcategory(
+      "Collectibles > Comics > Modern Age (1992-Now)",
+      "Modern Age (1992-Now)",
+      { provider: "ebay", title: "Amazing Spider-Man #300 CGC 9.8" }
+    );
+    expect(r?.category).toBe("Books, Movies & Music");
+    expect(r?.subcategory).toBe("Comics & Graphic Novels");
+  });
+
+  it("assigns Coins & Currency for US coin paths", async () => {
+    const r = await resolveInwCategoryWithSubcategory(
+      "Coins & Paper Money > Coins: US > Dollars",
+      "Dollars",
+      { provider: "ebay", title: "1921 Morgan Silver Dollar" }
+    );
+    expect(r?.category).toBe("Art & Collectibles");
+    expect(r?.subcategory).toBe("Coins & Currency");
+  });
+
+  it("resolves non-preset raw path to preset category with subcategory", async () => {
+    const r = await resolveInwCategoryWithSubcategory(
+      "Collectibles > Comic Books & Memorabilia > Comics",
+      "Comics",
+      { provider: "ebay", title: "Vintage Comic Lot" }
+    );
+    expect(r?.matchedPreset).toBe(true);
+    expect(r?.category).toBe("Books, Movies & Music");
+    expect(r?.subcategory).toBe("Comics & Graphic Novels");
+  });
+
+  it('falls back to "Other …" when no specific subcategory matches', async () => {
+    const r = await resolveInwCategoryWithSubcategory("Business & Industrial", null, {
+      provider: "ebay",
+      title: "Industrial Widget",
+    });
+    expect(r?.category).toBe("Business & Industrial");
+    expect(r?.subcategory).toBe("Other Business & Industrial");
   });
 });

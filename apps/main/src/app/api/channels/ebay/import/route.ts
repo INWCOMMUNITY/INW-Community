@@ -8,12 +8,11 @@ import { getAdapter } from "@/lib/channels/registry";
 import { migrateEbayListings, fetchEbayItemDetails } from "@/lib/channels/ebay/trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
-import { storeListingDescription } from "@/lib/channels/import-listing";
-import { sumVariantQuantities } from "@/lib/channels/variant-sync";
-import { resolveInwCategoryFromEbayPath, seedCategoryMappingFromImport } from "@/lib/channels/category-resolver";
+import { storeListingDescription, resolveImportCategory } from "@/lib/channels/import-listing";
+import { seedCategoryMappingFromImport } from "@/lib/channels/category-resolver";
 import { splitEbayCategoryPath } from "@/lib/channels/ebay-category-aliases";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
-import { variantsFingerprint } from "@/lib/channels/variant-sync";
+import { variantsFingerprint, sumVariantQuantities } from "@/lib/channels/variant-sync";
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
 
 export const dynamic = "force-dynamic";
@@ -236,7 +235,15 @@ export async function POST(req: NextRequest) {
     });
   };
 
-  const imported: { externalListingId: string; storeItemId: string }[] = [];
+  const imported: {
+    externalListingId: string;
+    storeItemId: string;
+    categoryAssignment?: {
+      category: string;
+      subcategory: string | null;
+      source: string;
+    };
+  }[] = [];
   const skipped: ImportSkipEntry[] = [];
   let uncategorizedCount = 0;
 
@@ -285,7 +292,23 @@ export async function POST(req: NextRequest) {
     const ebayCategoryPath =
       details.categoryName?.trim() || listing.category?.trim() || null;
     const itemTitle = details.title ?? listing.title;
-    const finalResolvedCat = await resolveInwCategoryFromEbayPath(ebayCategoryPath, itemTitle);
+    const remoteSplit = splitEbayCategoryPath(ebayCategoryPath);
+    const categoryAssignment = await resolveImportCategory({
+      provider: "ebay",
+      remoteLabel: ebayCategoryPath,
+      remoteSubLabel: remoteSplit.subcategory,
+      title: itemTitle,
+      description: details.description ?? listing.description,
+      remoteCategoryId: details.remoteCategoryId ?? listing.remoteCategoryId ?? null,
+    });
+    const finalResolvedCat = categoryAssignment
+      ? {
+          category: categoryAssignment.category,
+          subcategory: categoryAssignment.subcategory,
+          matchedPreset: categoryAssignment.matchedPreset,
+          score: categoryAssignment.score,
+        }
+      : null;
     const importedAspects = normalizeListingAspects(details.aspects);
     const importedVariants = details.variants;
     const importQty =
@@ -301,6 +324,7 @@ export async function POST(req: NextRequest) {
       normalizedAspectsCount: importedAspects.length,
       variants: importedVariants?.length ?? 0,
       ebayCategoryPath,
+      categoryAssignment,
       resolvedCategory: finalResolvedCat?.category,
       resolvedSubcategory: finalResolvedCat?.subcategory,
       title: itemTitle?.slice(0, 50),
@@ -351,7 +375,7 @@ export async function POST(req: NextRequest) {
         variants: storeItem.variants,
       });
 
-      const remoteSplit = splitEbayCategoryPath(ebayCategoryPath);
+      const remoteSplitForLink = splitEbayCategoryPath(ebayCategoryPath);
 
       try {
         await prisma.channelListingLink.create({
@@ -372,7 +396,7 @@ export async function POST(req: NextRequest) {
             syncBaselineQty: storeItem.quantity,
             syncBaselineAt: new Date(),
             remoteCategoryLabel: ebayCategoryPath?.slice(0, 500) ?? null,
-            remoteCategorySubLabel: remoteSplit.subcategory?.slice(0, 200) ?? null,
+            remoteCategorySubLabel: remoteSplitForLink.subcategory?.slice(0, 200) ?? null,
           },
         });
       } catch (linkErr) {
@@ -390,13 +414,25 @@ export async function POST(req: NextRequest) {
         void seedCategoryMappingFromImport({
           provider: "ebay",
           remoteCategory: ebayCategoryPath,
-          remoteSubcategory: remoteSplit.subcategory,
+          remoteSubcategory: remoteSplitForLink.subcategory,
           mappedCategory: finalResolvedCat.category,
           mappedSubcategory: finalResolvedCat.subcategory,
           confidence: finalResolvedCat.score,
         });
       }
-      imported.push({ externalListingId: legacyId, storeItemId: storeItem.id });
+      imported.push({
+        externalListingId: legacyId,
+        storeItemId: storeItem.id,
+        ...(categoryAssignment
+          ? {
+              categoryAssignment: {
+                category: categoryAssignment.category,
+                subcategory: categoryAssignment.subcategory,
+                source: categoryAssignment.source,
+              },
+            }
+          : {}),
+      });
       if (!finalResolvedCat?.category) {
         uncategorizedCount++;
       }
