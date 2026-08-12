@@ -102,6 +102,10 @@ const nextConfig = {
       config.plugins = [...(config.plugins || []), new PrismaPlugin()];
       config.externals = [...(config.externals || []), "jsdom", "isomorphic-dompurify"];
     }
+    config.module.rules.push({
+      test: /etsy-seller-categories\.md$/,
+      type: "asset/source",
+    });
     return config;
   },
 };

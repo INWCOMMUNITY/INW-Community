@@ -1,4 +1,5 @@
 import path from "path";
+import { readFileSync } from "fs";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -9,4 +10,16 @@ export default defineConfig({
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },
+  plugins: [
+    {
+      name: "etsy-seller-categories-md",
+      transform(_code, id) {
+        if (!id.endsWith("etsy-seller-categories.md")) return;
+        return {
+          code: `export default ${JSON.stringify(readFileSync(id, "utf8"))};`,
+          map: null,
+        };
+      },
+    },
+  ],
 });

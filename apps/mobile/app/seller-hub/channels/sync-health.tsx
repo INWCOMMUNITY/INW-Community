@@ -356,6 +356,7 @@ export default function SyncHealthScreen() {
       onClose={() => setConditionFixItemId(null)}
       onFixed={() => void loadData(true)}
     />
+    </>
   );
 }
 

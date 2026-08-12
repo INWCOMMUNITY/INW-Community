@@ -2,21 +2,13 @@
  * Etsy seller category tree from official help page:
  * https://www.etsy.com/help/categories/seller
  *
- * Used to seed channel_category_mapping with full path → INW preset rows.
+ * Bundled at build time (Vercel serverless has no runtime access to loose .md files).
  */
 
-import { readFileSync } from "fs";
-import { dirname, join } from "path";
-import { fileURLToPath } from "url";
-
-const ETSY_SELLER_CATEGORIES_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "data",
-  "etsy-seller-categories.md"
-);
+import etsySellerCategoriesMarkdown from "./data/etsy-seller-categories.md";
 
 function loadEtsySellerCategoriesMarkdown(): string {
-  return readFileSync(ETSY_SELLER_CATEGORIES_PATH, "utf8");
+  return etsySellerCategoriesMarkdown;
 }
 
 /** Etsy marketplace top-level categories (seller help page). */
