@@ -139,44 +139,46 @@ export async function resolveImportCategory(args: {
     }
   }
 
-  if (!resolvedCat?.category) return null;
+  if (!resolvedCat || !resolvedCat.category) return null;
+
+  let finalCat: ResolvedInwCategory = resolvedCat;
 
   // Always finish with a valid preset subcategory when the top-level category is known.
-  const preset = STORE_CATEGORIES.find((c) => c.label === resolvedCat.category);
-  if (preset && !resolvedCat.subcategory) {
+  const preset = STORE_CATEGORIES.find((c) => c.label === finalCat.category);
+  if (preset && !finalCat.subcategory) {
     const enhanced = await resolveInwCategoryWithSubcategory(
-      remoteLabel ?? resolvedCat.category,
+      remoteLabel ?? finalCat.category,
       remoteSubLabel,
       { provider, title }
     );
     if (enhanced?.subcategory) {
-      resolvedCat = {
-        ...resolvedCat,
+      finalCat = {
+        ...finalCat,
         category: enhanced.category,
         subcategory: enhanced.subcategory,
         matchedPreset: true,
-        score: enhanced.score ?? resolvedCat.score,
+        score: enhanced.score ?? finalCat.score,
       };
       source = "enhanced";
     } else {
       const otherSub = preset.subcategories.find((s) => s.toLowerCase().startsWith("other "));
       if (otherSub) {
-        resolvedCat = { ...resolvedCat, subcategory: otherSub, matchedPreset: true };
+        finalCat = { ...finalCat, subcategory: otherSub, matchedPreset: true };
         source = "enhanced";
       }
     }
   }
 
-  const canonicalSub = canonicalizeSubcategory(resolvedCat.category, resolvedCat.subcategory);
+  const canonicalSub = canonicalizeSubcategory(finalCat.category, finalCat.subcategory);
   if (canonicalSub) {
-    resolvedCat = { ...resolvedCat, subcategory: canonicalSub, matchedPreset: true };
+    finalCat = { ...finalCat, subcategory: canonicalSub, matchedPreset: true };
   }
 
   return {
-    category: resolvedCat.category,
-    subcategory: resolvedCat.subcategory,
-    matchedPreset: resolvedCat.matchedPreset,
-    score: resolvedCat.score,
+    category: finalCat.category,
+    subcategory: finalCat.subcategory,
+    matchedPreset: finalCat.matchedPreset,
+    score: finalCat.score,
     source,
   };
 }
