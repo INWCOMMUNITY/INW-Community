@@ -8,6 +8,7 @@ import {
   canonicalizeSubcategory,
   type ResolvedInwCategory,
 } from "./category-resolver";
+import { STORE_CATEGORIES } from "@/lib/store-categories";
 import { splitEbayCategoryPath } from "./ebay-category-aliases";
 import {
   normalizeVariantsFromProvider,
@@ -140,18 +141,35 @@ export async function resolveImportCategory(args: {
 
   if (!resolvedCat?.category) return null;
 
+  // Always finish with a valid preset subcategory when the top-level category is known.
+  const preset = STORE_CATEGORIES.find((c) => c.label === resolvedCat.category);
+  if (preset && !resolvedCat.subcategory) {
+    const enhanced = await resolveInwCategoryWithSubcategory(
+      remoteLabel ?? resolvedCat.category,
+      remoteSubLabel,
+      { provider, title }
+    );
+    if (enhanced?.subcategory) {
+      resolvedCat = {
+        ...resolvedCat,
+        category: enhanced.category,
+        subcategory: enhanced.subcategory,
+        matchedPreset: true,
+        score: enhanced.score ?? resolvedCat.score,
+      };
+      source = "enhanced";
+    } else {
+      const otherSub = preset.subcategories.find((s) => s.toLowerCase().startsWith("other "));
+      if (otherSub) {
+        resolvedCat = { ...resolvedCat, subcategory: otherSub, matchedPreset: true };
+        source = "enhanced";
+      }
+    }
+  }
+
   const canonicalSub = canonicalizeSubcategory(resolvedCat.category, resolvedCat.subcategory);
   if (canonicalSub) {
     resolvedCat = { ...resolvedCat, subcategory: canonicalSub, matchedPreset: true };
-  } else if (!resolvedCat.subcategory) {
-    const enhanced = await resolveInwCategoryWithSubcategory(remoteLabel, remoteSubLabel, {
-      provider,
-      title,
-    });
-    if (enhanced?.subcategory) {
-      resolvedCat = enhanced;
-      source = "enhanced";
-    }
   }
 
   return {

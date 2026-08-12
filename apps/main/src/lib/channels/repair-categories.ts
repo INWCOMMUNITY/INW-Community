@@ -4,6 +4,8 @@ import { resolveImportCategory } from "./import-listing";
 import { applyRemoteQuantityToStoreItem } from "./apply-remote-listing";
 import { getMemberConnectionContext } from "./connection";
 import { getAdapter } from "./registry";
+import { fetchEbayItemDetails } from "./ebay/trading";
+import { splitEbayCategoryPath } from "./ebay-category-aliases";
 import type { ChannelProvider } from "./types";
 
 export function isValidPresetSubcategory(
@@ -38,6 +40,39 @@ export type CategoryRepairResult = {
   checked: number;
 };
 
+async function resolveRemoteCategoryForLink(args: {
+  memberId: string;
+  provider: ChannelProvider;
+  externalListingId: string;
+  remoteCategoryLabel: string | null;
+  remoteCategorySubLabel: string | null;
+}): Promise<{ remoteLabel: string | null; remoteSubLabel: string | null }> {
+  let remoteLabel = args.remoteCategoryLabel?.trim() || null;
+  let remoteSubLabel = args.remoteCategorySubLabel?.trim() || null;
+
+  if (remoteLabel || args.provider !== "ebay") {
+    return { remoteLabel, remoteSubLabel };
+  }
+
+  try {
+    const ctx = await getMemberConnectionContext(args.memberId, "ebay");
+    if (!ctx) return { remoteLabel, remoteSubLabel };
+
+    const inwMatch = args.externalListingId.match(/^inw(\d+)$/i);
+    const legacyId = inwMatch ? inwMatch[1]! : args.externalListingId;
+    const details = await fetchEbayItemDetails(ctx.accessToken, legacyId);
+    remoteLabel = details.categoryName?.trim() || null;
+    remoteSubLabel = splitEbayCategoryPath(remoteLabel).subcategory;
+  } catch (e) {
+    console.warn("[repair-categories] failed to fetch eBay category", {
+      externalListingId: args.externalListingId,
+      error: e,
+    });
+  }
+
+  return { remoteLabel, remoteSubLabel };
+}
+
 /**
  * Re-run import category resolution for linked items with missing or invalid subcategories.
  * Optionally recovers quantity when the channel still shows stock but INW is sold out.
@@ -68,23 +103,38 @@ export async function repairMemberImportedCategories(
 
   const repaired: CategoryRepairResult["repaired"] = [];
   const skipped: CategoryRepairResult["skipped"] = [];
-  const remoteCache = new Map<ChannelProvider, Awaited<ReturnType<ReturnType<typeof getAdapter>["listRemoteListings"]>>>();
+  const remoteCache = new Map<
+    ChannelProvider,
+    Awaited<ReturnType<ReturnType<typeof getAdapter>["listRemoteListings"]>>
+  >();
 
   for (const link of links) {
     const item = link.storeItem;
     if (!item || !needsCategoryRepair(item)) continue;
 
     const provider = link.provider as ChannelProvider;
+    const { remoteLabel, remoteSubLabel } = await resolveRemoteCategoryForLink({
+      memberId,
+      provider,
+      externalListingId: link.externalListingId,
+      remoteCategoryLabel: link.remoteCategoryLabel,
+      remoteCategorySubLabel: link.remoteCategorySubLabel,
+    });
+
     const assignment = await resolveImportCategory({
       provider,
-      remoteLabel: link.remoteCategoryLabel,
-      remoteSubLabel: link.remoteCategorySubLabel,
+      remoteLabel,
+      remoteSubLabel,
       title: item.title,
       description: item.description,
     });
 
     if (!assignment?.category) {
       skipped.push({ storeItemId: item.id, reason: "no_category_resolved" });
+      continue;
+    }
+    if (!assignment.subcategory) {
+      skipped.push({ storeItemId: item.id, reason: "no_subcategory_resolved" });
       continue;
     }
 
@@ -95,6 +145,18 @@ export async function repairMemberImportedCategories(
         subcategory: assignment.subcategory,
       },
     });
+
+    if (remoteLabel && remoteLabel !== link.remoteCategoryLabel) {
+      await prisma.channelListingLink
+        .update({
+          where: { id: link.id },
+          data: {
+            remoteCategoryLabel: remoteLabel.slice(0, 500),
+            remoteCategorySubLabel: remoteSubLabel?.slice(0, 200) ?? null,
+          },
+        })
+        .catch(() => {});
+    }
 
     let qtyRecovered = false;
     if (item.quantity === 0 && item.status === "sold_out") {

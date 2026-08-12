@@ -10,6 +10,7 @@ import { normalizeListingAspects } from "@/lib/listing-limits";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
 import { storeListingDescription, resolveImportCategory } from "@/lib/channels/import-listing";
 import { seedCategoryMappingFromImport } from "@/lib/channels/category-resolver";
+import { needsCategoryRepair } from "@/lib/channels/repair-categories";
 import { splitEbayCategoryPath } from "@/lib/channels/ebay-category-aliases";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
 import { variantsFingerprint, sumVariantQuantities } from "@/lib/channels/variant-sync";
@@ -270,11 +271,69 @@ export async function POST(req: NextRequest) {
 
     const existing = await prisma.channelListingLink.findUnique({
       where: { provider_externalListingId: { provider: "ebay", externalListingId: sku } },
-      include: { storeItem: { select: { memberId: true } } },
+      include: {
+        storeItem: {
+          select: {
+            memberId: true,
+            id: true,
+            title: true,
+            description: true,
+            category: true,
+            subcategory: true,
+          },
+        },
+      },
     });
     if (existing) {
       if (!existing.storeItem) {
         await prisma.channelListingLink.delete({ where: { id: existing.id } }).catch(() => {});
+      } else if (
+        existing.storeItem.memberId === userId &&
+        needsCategoryRepair(existing.storeItem)
+      ) {
+        const details = await fetchEbayItemDetails(ctx.accessToken, legacyId);
+        const ebayCategoryPath =
+          details.categoryName?.trim() || listing.category?.trim() || null;
+        const itemTitle = details.title ?? listing.title;
+        const remoteSplit = splitEbayCategoryPath(ebayCategoryPath);
+        const categoryAssignment = await resolveImportCategory({
+          provider: "ebay",
+          remoteLabel: ebayCategoryPath,
+          remoteSubLabel: remoteSplit.subcategory,
+          title: itemTitle,
+          description: details.description ?? listing.description,
+          remoteCategoryId: details.remoteCategoryId ?? listing.remoteCategoryId ?? null,
+        });
+
+        if (categoryAssignment?.category && categoryAssignment.subcategory) {
+          await prisma.storeItem.update({
+            where: { id: existing.storeItem.id },
+            data: {
+              category: categoryAssignment.category,
+              subcategory: categoryAssignment.subcategory,
+            },
+          });
+          await prisma.channelListingLink.update({
+            where: { id: existing.id },
+            data: {
+              remoteCategoryLabel: ebayCategoryPath?.slice(0, 500) ?? null,
+              remoteCategorySubLabel: remoteSplit.subcategory?.slice(0, 200) ?? null,
+            },
+          });
+          imported.push({
+            externalListingId: legacyId,
+            storeItemId: existing.storeItem.id,
+            categoryAssignment: {
+              category: categoryAssignment.category,
+              subcategory: categoryAssignment.subcategory,
+              source: categoryAssignment.source,
+            },
+          });
+          continue;
+        }
+
+        pushSkip(skipped, legacyId, "dedupe", "already_linked");
+        continue;
       } else {
         pushSkip(skipped, legacyId, "dedupe", "already_linked");
         continue;

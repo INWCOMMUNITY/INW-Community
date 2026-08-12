@@ -459,6 +459,19 @@ export default function ListItemScreen() {
     }
   }, [editId, category, storeCategories]);
 
+  useEffect(() => {
+    if (!editId || !category || !subcategory || storeCategories.length === 0) return;
+    const preset = storeCategories.find((c) => c.label === category);
+    if (!preset || preset.subcategories.includes(subcategory)) return;
+
+    const normalized = subcategory.trim().toLowerCase();
+    const match = preset.subcategories.find((s) => {
+      const subNorm = s.toLowerCase();
+      return subNorm === normalized || subNorm.includes(normalized) || normalized.includes(subNorm);
+    });
+    if (match) setSubcategory(match);
+  }, [editId, category, subcategory, storeCategories]);
+
   const shouldPreventRemove = hasContent && !submitting && !isExitingRef.current;
   usePreventRemove(shouldPreventRemove, ({ data }) => {
     Alert.alert(

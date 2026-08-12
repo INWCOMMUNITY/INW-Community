@@ -5,6 +5,7 @@ import { normalizeListingAspects } from "@/lib/listing-limits";
 import { normalizeEbayPhotoUrl } from "./photos";
 import { storeListingDescription } from "../import-listing";
 import { resolveInwCategoryFromEbayPath } from "../category-resolver";
+import { isValidPresetSubcategory } from "../repair-categories";
 import { syncContentHash, syncMetaHash } from "../sync-baseline";
 import { variantsFingerprint } from "../variant-sync";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
@@ -179,10 +180,21 @@ export async function refreshEbayListingByItemId(
     changes.push("variants");
   }
 
-  if (resolvedCat && resolvedCat.category !== storeItem.category) {
-    updateData.category = resolvedCat.category;
-    updateData.subcategory = resolvedCat.subcategory;
-    changes.push(`category (${resolvedCat.category})`);
+  if (resolvedCat) {
+    const subMissing = !storeItem.subcategory?.trim();
+    const subInvalid =
+      Boolean(storeItem.subcategory?.trim()) &&
+      !isValidPresetSubcategory(storeItem.category, storeItem.subcategory);
+    const categoryChanged = resolvedCat.category !== storeItem.category;
+    if (categoryChanged || subMissing || subInvalid) {
+      updateData.category = resolvedCat.category;
+      updateData.subcategory = resolvedCat.subcategory;
+      changes.push(
+        categoryChanged
+          ? `category (${resolvedCat.category})`
+          : `subcategory (${resolvedCat.subcategory ?? "none"})`
+      );
+    }
   }
 
   if (details.remoteCategoryId) {

@@ -34,7 +34,8 @@ describe("resolveImportCategory — eBay paths", () => {
       title: "Vintage Comic Book Amazing Fantasy #15",
       description: "Silver age comic book key issue",
     });
-    expect(assignment?.source).toBe("title_suggestion");
+    expect(assignment?.source === "title_suggestion" || assignment?.source === "enhanced").toBe(true);
     expect(assignment?.category).toBeTruthy();
+    expect(assignment?.subcategory).toBeTruthy();
   });
 });
