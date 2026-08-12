@@ -284,7 +284,8 @@ export async function POST(req: NextRequest) {
     const details = await fetchEbayItemDetails(ctx.accessToken, legacyId);
     const ebayCategoryPath =
       details.categoryName?.trim() || listing.category?.trim() || null;
-    const finalResolvedCat = await resolveInwCategoryFromEbayPath(ebayCategoryPath);
+    const itemTitle = details.title ?? listing.title;
+    const finalResolvedCat = await resolveInwCategoryFromEbayPath(ebayCategoryPath, itemTitle);
     const importedAspects = normalizeListingAspects(details.aspects);
     const importedVariants = details.variants;
     const importQty =
@@ -299,6 +300,10 @@ export async function POST(req: NextRequest) {
       photosCount: details.photos.length,
       normalizedAspectsCount: importedAspects.length,
       variants: importedVariants?.length ?? 0,
+      ebayCategoryPath,
+      resolvedCategory: finalResolvedCat?.category,
+      resolvedSubcategory: finalResolvedCat?.subcategory,
+      title: itemTitle?.slice(0, 50),
     });
 
     // Prefer photos from GetItem (full set) over the preview photos (often just 1 gallery image).
