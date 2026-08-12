@@ -253,6 +253,13 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
     console.error("[channels] reconcile inbound failed", { id: c.id, error: String(e) });
   }
 
+  await prisma.channelConnection
+    .update({
+      where: { id: c.id },
+      data: { lastReconciledAt: new Date(), status: "active", lastError: null },
+    })
+    .catch(() => {});
+
   return { applied, imported, catalogUpdated, catalogRemoved, metaUpdated };
 }
 
@@ -260,7 +267,9 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
  * Uses parallel batch processing for better performance.
  * Prioritizes connections with recent errors or recent sales.
  */
-export async function reconcileAllConnections(): Promise<{
+export async function reconcileAllConnections(opts?: {
+  skipProviders?: ChannelProvider[];
+}): Promise<{
   connections: number;
   applied: number;
   imported: number;
@@ -268,6 +277,7 @@ export async function reconcileAllConnections(): Promise<{
   catalogRemoved: number;
   metaUpdated: number;
 }> {
+  const skip = new Set(opts?.skipProviders ?? []);
   const conns = await prisma.channelConnection.findMany({
     where: { status: { not: "disconnected" } },
     include: {
@@ -298,7 +308,10 @@ export async function reconcileAllConnections(): Promise<{
   let metaUpdated = 0;
 
   for (let i = 0; i < prioritized.length; i += RECONCILE_BATCH_SIZE) {
-    const batch = prioritized.slice(i, i + RECONCILE_BATCH_SIZE);
+    const batch = prioritized
+      .slice(i, i + RECONCILE_BATCH_SIZE)
+      .filter((c) => !skip.has(c.provider as ChannelProvider));
+    if (batch.length === 0) continue;
     const results = await Promise.allSettled(
       batch.map((c) => reconcileSingleConnection(c))
     );

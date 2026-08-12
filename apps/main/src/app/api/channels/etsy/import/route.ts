@@ -24,13 +24,20 @@ async function loadRemoteWithLinkState(userId: string) {
     await enrichEtsyListingSummaryWithInventory(ctx.accessToken, l);
   }
   const linked = await prisma.channelListingLink.findMany({
-    where: { provider: "etsy", externalListingId: { in: listings.map((l) => l.externalListingId) } },
-    select: { externalListingId: true },
+    where: { provider: "etsy", connectionId: ctx.id },
+    select: { externalListingId: true, storeItemId: true },
   });
-  const linkedSet = new Set(linked.map((l) => l.externalListingId));
+  const linkedByExternalId = new Map(linked.map((l) => [l.externalListingId, l.storeItemId]));
   return {
     ctx,
-    listings: listings.map((l) => ({ ...l, alreadyLinked: linkedSet.has(l.externalListingId) })),
+    listings: listings.map((l) => {
+      const storeItemId = linkedByExternalId.get(l.externalListingId);
+      return {
+        ...l,
+        alreadyLinked: storeItemId != null,
+        storeItemId: storeItemId ?? undefined,
+      };
+    }),
   };
 }
 
@@ -44,9 +51,36 @@ export async function GET(req: NextRequest) {
   if (!ctx) {
     return NextResponse.json({ error: "Connect your Etsy shop first.", code: "NOT_CONNECTED" }, { status: 400 });
   }
+
+  const searchParams = req.nextUrl.searchParams;
+  const autoRefresh = searchParams.get("autoRefresh") === "1";
+
   try {
+    let refreshResults: { updated: number; checked: number; pushed?: number } | undefined;
+    if (autoRefresh) {
+      const connection = await prisma.channelConnection.findFirst({
+        where: { memberId: userId, provider: "etsy", status: "active" },
+      });
+      if (connection) {
+        const { pullEtsyUpdatesForConnection, pushInwUpdatesToEtsyConnection } = await import(
+          "@/lib/channels/etsy/pull-etsy-updates"
+        );
+        const pulled = await pullEtsyUpdatesForConnection(connection);
+        const pushed = await pushInwUpdatesToEtsyConnection(connection);
+        refreshResults = {
+          updated: pulled.updated.length,
+          checked: pulled.checked,
+          pushed: pushed.pushed,
+        };
+        console.log("[etsy import] auto-refresh completed", refreshResults);
+      }
+    }
+
     const { listings } = await loadRemoteWithLinkState(userId);
-    return NextResponse.json({ listings });
+    return NextResponse.json({
+      listings,
+      ...(refreshResults ? { refreshed: refreshResults } : {}),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not load Etsy listings.";
     return NextResponse.json({ error: msg }, { status: 502 });

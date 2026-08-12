@@ -47,6 +47,18 @@ import {
 } from "@/components/listing/ListingOptionsEditor";
 import { TemplateSelector, type ListingTemplate } from "@/components/listing/TemplateSelector";
 import { CategorySuggestions } from "@/components/listing/CategorySuggestions";
+import { CollapsibleSection } from "@/components/listing/CollapsibleSection";
+import { RadioOptionList } from "@/components/listing/RadioOptionList";
+import { SelectField } from "@/components/listing/SelectField";
+import { EbayItemDetailsSection } from "@/components/listing/EbayItemDetailsSection";
+import {
+  ETSY_WHO_MADE_OPTIONS,
+  ETSY_WHEN_MADE_OPTIONS,
+  type EtsyWhoMade,
+  type EtsyWhenMade,
+  isEtsyWhoMade,
+  normalizeEtsyWhenMade,
+} from "@/lib/etsy-listing-options";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -165,10 +177,8 @@ export default function ListItemScreen() {
   // Channel sync (Etsy). Only shown when the seller has connected an Etsy shop.
   const [etsyConnected, setEtsyConnected] = useState(false);
   const [syncToEtsy, setSyncToEtsy] = useState(true);
-  const [etsyWhoMade, setEtsyWhoMade] = useState<"i_did" | "someone_else" | "collective">("i_did");
-  const [etsyWhenMade, setEtsyWhenMade] = useState<"made_to_order" | "2020_2025" | "before_2006">(
-    "made_to_order"
-  );
+  const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>("i_did");
+  const [etsyWhenMade, setEtsyWhenMade] = useState<EtsyWhenMade>("made_to_order");
   const [etsyIsSupply, setEtsyIsSupply] = useState(false);
   // Channel sync (eBay). Only shown when the seller has connected an eBay account.
   const [ebayConnected, setEbayConnected] = useState(false);
@@ -371,12 +381,11 @@ export default function ListItemScreen() {
           setLegacyMultiAxisNotice(parsed.hadMultipleAxes);
           if (item.condition === "used" || item.condition === "new") setCondition(item.condition);
           if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
-          if (item.etsyWhoMade === "i_did" || item.etsyWhoMade === "someone_else" || item.etsyWhoMade === "collective") {
+          if (isEtsyWhoMade(item.etsyWhoMade)) {
             setEtsyWhoMade(item.etsyWhoMade);
           }
-          if (item.etsyWhenMade === "made_to_order" || item.etsyWhenMade === "2020_2025" || item.etsyWhenMade === "before_2006") {
-            setEtsyWhenMade(item.etsyWhenMade);
-          }
+          const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade);
+          if (whenMade) setEtsyWhenMade(whenMade);
           if (typeof item.etsyIsSupply === "boolean") setEtsyIsSupply(item.etsyIsSupply);
           if (item.ebayCategoryId != null) setEbayCategoryId(String(item.ebayCategoryId));
           if (Array.isArray(item.aspects)) {
@@ -611,6 +620,31 @@ export default function ListItemScreen() {
     categoryAspects.some(
       (a) => a.required && a.name.trim().toLowerCase() === name.trim().toLowerCase()
     );
+
+  const missingRequiredAspectCount = useMemo(() => {
+    return categoryAspects.filter((aspect) => {
+      if (!aspect.required) return false;
+      const row = aspects.find(
+        (a) => a.name.trim().toLowerCase() === aspect.name.trim().toLowerCase()
+      );
+      return !row?.value.trim();
+    }).length;
+  }, [categoryAspects, aspects]);
+
+  const selectEbayCategory = (categoryId: string, label: string) => {
+    setEbayCategoryId(categoryId);
+    setEbayCategoryLabel(label);
+    setEbayCategoryResults([]);
+    setEbayCategorySearch("");
+    void loadCategoryAspects(categoryId);
+  };
+
+  const clearEbayCategory = () => {
+    setEbayCategoryId("");
+    setEbayCategoryLabel("");
+    setEbayCategorySearch("");
+    setCategoryAspects([]);
+  };
 
   const syncShippingPolicy = () => {
     apiGet<PoliciesResponse>("/api/me/policies")
@@ -1021,12 +1055,11 @@ export default function ListItemScreen() {
       setPickupTerms(template.pickupTerms);
       setUseSellerProfilePickup(false);
     }
-    if (template.etsyWhoMade === "i_did" || template.etsyWhoMade === "someone_else" || template.etsyWhoMade === "collective") {
+    if (isEtsyWhoMade(template.etsyWhoMade)) {
       setEtsyWhoMade(template.etsyWhoMade);
     }
-    if (template.etsyWhenMade === "made_to_order" || template.etsyWhenMade === "2020_2025" || template.etsyWhenMade === "before_2006") {
-      setEtsyWhenMade(template.etsyWhenMade);
-    }
+    const templateWhenMade = normalizeEtsyWhenMade(template.etsyWhenMade);
+    if (templateWhenMade) setEtsyWhenMade(templateWhenMade);
     if (template.etsyIsSupply !== undefined && template.etsyIsSupply !== null) {
       setEtsyIsSupply(template.etsyIsSupply);
     }
@@ -1245,6 +1278,31 @@ export default function ListItemScreen() {
         keyboardType="decimal-pad"
         autoCorrect={true}
       />
+
+      {ebayConnected && (
+        <EbayItemDetailsSection
+          ebayCategoryId={ebayCategoryId}
+          ebayCategoryLabel={ebayCategoryLabel}
+          ebayCategorySearch={ebayCategorySearch}
+          onEbayCategorySearchChange={setEbayCategorySearch}
+          ebayCategoryResults={ebayCategoryResults}
+          ebaySearching={ebaySearching}
+          onSelectCategory={selectEbayCategory}
+          onClearCategory={clearEbayCategory}
+          aspects={aspects}
+          onAspectNameChange={setAspectName}
+          onAspectValueChange={setAspectValue}
+          onRemoveAspect={removeAspectRow}
+          onAddAspect={addAspectRow}
+          isRequiredAspect={isRequiredAspect}
+          maxAspects={MAX_ASPECTS}
+          aspectNameMax={EBAY_ASPECT_NAME_MAX}
+          aspectValueMax={EBAY_ASPECT_VALUE_MAX}
+          placeholderColor={placeholderColor}
+          defaultExpanded={!!ebayCategoryId || missingRequiredAspectCount > 0}
+          missingRequiredCount={missingRequiredAspectCount}
+        />
+      )}
 
       <ListingOptionsEditor
         mode={inventoryMode}
@@ -1777,8 +1835,17 @@ export default function ListItemScreen() {
       )}
 
       {etsyConnected && (
-        <>
-          <Text style={styles.sectionTitle}>Etsy sync</Text>
+        <CollapsibleSection
+          title="Etsy sync"
+          subtitle={
+            syncToEtsy
+              ? "Listing will sync to your Etsy shop"
+              : "Off — INW only"
+          }
+          defaultExpanded={syncToEtsy}
+          badge={syncToEtsy ? "On" : "Off"}
+          badgeColor={syncToEtsy ? theme.colors.primary : "#6b7280"}
+        >
           <View style={styles.switchRow}>
             <Text style={styles.switchLabel}>List this item on Etsy too</Text>
             <Switch
@@ -1797,46 +1864,19 @@ export default function ListItemScreen() {
           {syncToEtsy && (
             <>
               <Text style={styles.label}>Who made it?</Text>
-              <View style={styles.bizRow}>
-                {(
-                  [
-                    { v: "i_did", label: "I did" },
-                    { v: "someone_else", label: "Another company or person" },
-                    { v: "collective", label: "A member of my shop" },
-                  ] as const
-                ).map((opt) => (
-                  <Pressable
-                    key={opt.v}
-                    style={etsyWhoMade === opt.v ? styles.bizBtnActive : styles.bizBtn}
-                    onPress={() => setEtsyWhoMade(opt.v)}
-                  >
-                    <Text style={etsyWhoMade === opt.v ? styles.bizBtnTextActive : styles.bizBtnText}>
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+              <RadioOptionList
+                options={ETSY_WHO_MADE_OPTIONS}
+                value={etsyWhoMade}
+                onChange={(v) => setEtsyWhoMade(v as EtsyWhoMade)}
+              />
 
-              <Text style={styles.label}>When was it made?</Text>
-              <View style={styles.bizRow}>
-                {(
-                  [
-                    { v: "made_to_order", label: "Made to order" },
-                    { v: "2020_2025", label: "2020-2025" },
-                    { v: "before_2006", label: "Before 2006 (vintage)" },
-                  ] as const
-                ).map((opt) => (
-                  <Pressable
-                    key={opt.v}
-                    style={etsyWhenMade === opt.v ? styles.bizBtnActive : styles.bizBtn}
-                    onPress={() => setEtsyWhenMade(opt.v)}
-                  >
-                    <Text style={etsyWhenMade === opt.v ? styles.bizBtnTextActive : styles.bizBtnText}>
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+              <SelectField
+                label="When was it made?"
+                value={etsyWhenMade}
+                options={ETSY_WHEN_MADE_OPTIONS}
+                onChange={(v) => setEtsyWhenMade(v as EtsyWhenMade)}
+                placeholder="Select when it was made"
+              />
 
               <View style={styles.switchRow}>
                 <Text style={styles.switchLabel}>This is a craft supply or tool</Text>
@@ -1849,21 +1889,29 @@ export default function ListItemScreen() {
                 />
               </View>
               <Text style={styles.hint}>
-                Etsy requires these details to publish a listing. Items publish live only when your
-                Etsy shop has a shipping profile.
+                Etsy requires these details to publish. Items go live only when your shop has a
+                shipping profile.
               </Text>
             </>
           )}
-        </>
+        </CollapsibleSection>
       )}
 
       {ebayConnected && (
-        <>
-          <Text style={styles.sectionTitle}>eBay sync</Text>
+        <CollapsibleSection
+          title="eBay sync"
+          subtitle={
+            hasEbayLink
+              ? "Linked — inventory stays in sync"
+              : "Publishes to your connected eBay account"
+          }
+          defaultExpanded={!!(editId && hasEbayLink)}
+          badge={hasEbayLink ? "Linked" : undefined}
+          badgeColor="#16a34a"
+        >
           <Text style={styles.hint}>
-            This listing is created and kept in sync on your connected eBay account. A sale on either
-            store updates inventory on both. eBay listings publish live only when your eBay account
-            has business policies (payment, return, shipping) and a merchant location.
+            A sale on either store updates inventory on both. eBay listings publish live only when
+            your account has business policies and a merchant location.
           </Text>
           {editId && hasEbayLink && (
             <Pressable
@@ -1878,100 +1926,7 @@ export default function ListItemScreen() {
               )}
             </Pressable>
           )}
-          <Text style={styles.label}>eBay category</Text>
-          {ebayCategoryId ? (
-            <View style={styles.ebayCategoryChip}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.ebayCategoryChipLabel} numberOfLines={2}>
-                  {ebayCategoryLabel || `eBay category #${ebayCategoryId}`}
-                </Text>
-                <Text style={styles.hint}>eBay category #{ebayCategoryId}</Text>
-              </View>
-              <Pressable
-                onPress={() => {
-                  setEbayCategoryId("");
-                  setEbayCategoryLabel("");
-                  setEbayCategorySearch("");
-                  setCategoryAspects([]);
-                }}
-              >
-                <Text style={styles.ebayCategoryChange}>Change</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <>
-              <TextInput
-                style={styles.input}
-                value={ebayCategorySearch}
-                onChangeText={setEbayCategorySearch}
-                placeholder="Search eBay categories (e.g. US coins)"
-                placeholderTextColor="#999"
-              />
-              {ebaySearching ? <Text style={styles.hint}>Searching eBay…</Text> : null}
-              {ebayCategoryResults.map((c) => (
-                <Pressable
-                  key={c.categoryId}
-                  style={styles.ebayCategoryResult}
-                  onPress={() => {
-                    setEbayCategoryId(c.categoryId);
-                    setEbayCategoryLabel(c.categoryPath || c.categoryName);
-                    setEbayCategoryResults([]);
-                    setEbayCategorySearch("");
-                    void loadCategoryAspects(c.categoryId);
-                  }}
-                >
-                  <Text style={styles.ebayCategoryResultName}>{c.categoryName}</Text>
-                  {c.categoryPath && c.categoryPath !== c.categoryName ? (
-                    <Text style={styles.hint} numberOfLines={1}>
-                      {c.categoryPath}
-                    </Text>
-                  ) : null}
-                </Pressable>
-              ))}
-            </>
-          )}
-
-          <Text style={styles.label}>Item details</Text>
-          <Text style={styles.hint}>
-            Add a detail (Descriptor + Value), e.g. Brand → Nike. eBay requires certain details to
-            publish. Required details are marked *.
-          </Text>
-          {aspects.map((a, i) => {
-            const required = isRequiredAspect(a.name);
-            return (
-              <View key={i} style={styles.aspectRow}>
-                <TextInput
-                  style={[styles.input, styles.aspectInput]}
-                  value={a.name}
-                  onChangeText={(t) => setAspectName(i, t)}
-                  placeholder="Descriptor"
-                  maxLength={EBAY_ASPECT_NAME_MAX}
-                  placeholderTextColor="#999"
-                />
-                <TextInput
-                  style={[
-                    styles.input,
-                    styles.aspectInput,
-                    required && !a.value.trim() ? styles.aspectInputRequired : null,
-                  ]}
-                  value={a.value}
-                  onChangeText={(t) => setAspectValue(i, t)}
-                  placeholder={required ? "Value (required)" : "Value"}
-                  maxLength={EBAY_ASPECT_VALUE_MAX}
-                  placeholderTextColor="#999"
-                />
-                <Pressable onPress={() => removeAspectRow(i)} style={styles.aspectRemove}>
-                  <Text style={styles.aspectRemoveText}>×</Text>
-                </Pressable>
-              </View>
-            );
-          })}
-          {aspects.length < MAX_ASPECTS ? (
-            <Pressable style={styles.addDetailBtn} onPress={addAspectRow}>
-              <Text style={styles.addDetailBtnText}>+ Add a detail</Text>
-            </Pressable>
-          ) : null}
-        </>
+        </CollapsibleSection>
       )}
 
       {error && (
@@ -2131,19 +2086,6 @@ const styles = StyleSheet.create({
     color: "#000",
     marginBottom: 12,
   },
-  ebayCategoryChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    backgroundColor: "#f7f7f7",
-    padding: 12,
-    marginBottom: 8,
-  },
-  ebayCategoryChipLabel: { fontSize: 14, fontWeight: "600", color: "#000" },
-  ebayCategoryChange: { color: "#dc2626", fontSize: 14, fontWeight: "600" },
   refreshEbayButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2163,28 +2105,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  ebayCategoryResult: {
-    borderWidth: 1,
-    borderColor: "#eee",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 6,
-  },
-  ebayCategoryResultName: { fontSize: 14, fontWeight: "600", color: "#000" },
-  aspectRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  aspectInput: { flex: 1, marginBottom: 0 },
-  aspectInputRequired: { borderColor: "#f87171" },
-  aspectRemove: { paddingHorizontal: 6, paddingVertical: 4 },
-  aspectRemoveText: { color: "#dc2626", fontSize: 22, fontWeight: "700", lineHeight: 24 },
-  addDetailBtn: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  addDetailBtnText: { color: "#333", fontSize: 14, fontWeight: "600" },
   switchRow: {
     flexDirection: "row",
     justifyContent: "space-between",

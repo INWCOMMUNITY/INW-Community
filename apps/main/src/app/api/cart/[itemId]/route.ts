@@ -8,6 +8,7 @@ import {
   type LocalDeliveryDetailsJson,
 } from "@/lib/pickup-delivery-checkout";
 import { z } from "zod";
+import { getAvailableQuantity } from "@/lib/store-item-variants";
 
 const deliveryAddressSchema = z.object({
   street: z.string().optional(),
@@ -91,6 +92,7 @@ export async function PATCH(
 
   const storeItem = item.storeItem as {
     quantity: number;
+    variants?: unknown;
     localDeliveryAvailable?: boolean;
     inStorePickupAvailable?: boolean;
     shippingDisabled?: boolean;
@@ -139,7 +141,9 @@ export async function PATCH(
   } = {};
 
   if (body.quantity !== undefined) {
-    updateData.quantity = Math.min(body.quantity, storeItem.quantity);
+    const variant = body.variant !== undefined ? body.variant : item.variant;
+    const available = getAvailableQuantity(storeItem, variant ?? undefined);
+    updateData.quantity = Math.min(body.quantity, available);
   }
   if (body.fulfillmentType !== undefined) {
     updateData.fulfillmentType = body.fulfillmentType;

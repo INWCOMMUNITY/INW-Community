@@ -247,6 +247,51 @@ export function allVariantAxesSelected(
   });
 }
 
+/** Per-option quantity for one axis value; null when not using per-option stock. */
+export function getOptionQuantity(
+  variants: unknown,
+  axisName: string,
+  optionValue: string
+): number | null {
+  if (!hasOptionQuantities(variants) || !variants || !Array.isArray(variants)) return null;
+  const want = optionValue.trim().toLowerCase();
+  for (const v of variants as VariantWithOptionQuantities[]) {
+    const name = v.name?.trim();
+    if (!name || name.toLowerCase() !== axisName.trim().toLowerCase()) continue;
+    const opts = v.options;
+    if (!Array.isArray(opts) || !isOptionWithQty(opts[0])) return null;
+    const opt = opts.find((o) => String(o.value).trim().toLowerCase() === want);
+    return opt ? Math.max(0, opt.quantity) : 0;
+  }
+  return null;
+}
+
+/** True when a specific option value is out of stock (per-option listings only). */
+export function optionIsSoldOut(
+  variants: unknown,
+  axisName: string,
+  optionValue: string
+): boolean {
+  const qty = getOptionQuantity(variants, axisName, optionValue);
+  return qty != null && qty <= 0;
+}
+
+/**
+ * Max quantity a buyer can add for the current selection.
+ * Per-option listings return 0 until all axes are selected.
+ */
+export function getMaxPurchasableQuantity(
+  storeItem: { variants?: unknown; quantity: number },
+  selectedVariant: Record<string, string>,
+  allAxesSelected: boolean
+): number {
+  if (hasOptionQuantities(storeItem.variants)) {
+    if (!allAxesSelected) return 0;
+    return getAvailableQuantity(storeItem, selectedVariant);
+  }
+  return Math.max(0, storeItem.quantity);
+}
+
 /** Normalize options to { value, quantity }[] for API output; legacy string[] options become quantity 0 so UI can show them. */
 export function getOptionValuesForDisplay(variants: unknown): string[] {
   if (!variants || !Array.isArray(variants)) return [];

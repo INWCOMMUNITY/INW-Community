@@ -96,8 +96,8 @@ export default function ChannelImportScreen() {
     setLoading(true);
     setError(null);
     try {
-      // For eBay, auto-refresh linked items from eBay when loading the page
-      const autoRefreshParam = provider === "ebay" ? "?autoRefresh=1" : "";
+      // Auto-refresh linked items when loading the import page
+      const autoRefreshParam = provider === "ebay" || provider === "etsy" ? "?autoRefresh=1" : "";
       const data = await apiGet<{ 
         listings: RemoteListing[]; 
         error?: string;
@@ -228,7 +228,7 @@ export default function ChannelImportScreen() {
     try {
       const res = await apiPost<{ ok: boolean; message?: string; changes?: string[] }>(
         refreshPath,
-        { storeItemId }
+        { storeItemId, pushToEtsy: true }
       );
       if (res.message) {
         setDone(res.message);
@@ -237,7 +237,7 @@ export default function ChannelImportScreen() {
       await load();
     } catch (e: unknown) {
       const err = e as { error?: string };
-      setError(err?.error ?? "Failed to refresh from eBay.");
+      setError(err?.error ?? `Failed to refresh from ${label}.`);
     } finally {
       setRefreshingId(null);
     }

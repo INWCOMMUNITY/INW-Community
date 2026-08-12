@@ -134,7 +134,9 @@ export async function GET(req: NextRequest) {
   // Run full reconciliation
   let syncResult = { connections: 0, applied: 0, imported: 0, catalogUpdated: 0, catalogRemoved: 0, metaUpdated: 0 };
   try {
-    syncResult = await reconcileAllConnections();
+    syncResult = await reconcileAllConnections({
+      skipProviders: skipEtsy ? ["etsy"] : undefined,
+    });
     console.log("[cron] sync completed", syncResult);
   } catch (e) {
     console.error("[cron] sync failed", { error: String(e) });

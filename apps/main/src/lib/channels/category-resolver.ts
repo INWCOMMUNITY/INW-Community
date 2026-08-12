@@ -5,6 +5,7 @@ import {
   ebayCategoryPathCandidates,
   splitEbayCategoryPath,
 } from "./ebay-category-aliases";
+import { getEtsyTaxonomyName } from "./etsy/mapping";
 
 /** Minimum similarity score (0–1) to map a remote label to a preset INW category (strict mode). */
 export const CATEGORY_MATCH_THRESHOLD = 0.72;
@@ -1345,6 +1346,47 @@ export async function resolveInwCategoryFromEbayPath(
   if (!categoryPath?.trim()) return null;
   const { label, subcategory } = splitEbayCategoryPath(categoryPath);
   return resolveInwCategoryWithLearning(label, subcategory, { provider: "ebay" });
+}
+
+/**
+ * Map an Etsy taxonomy id + leaf name to INW category and subcategory.
+ * Uses alias table first, then refines subcategory from the Etsy leaf label.
+ */
+export async function resolveInwCategoryFromEtsyTaxonomy(
+  taxonomyId: number | null | undefined,
+  taxonomyName?: string | null
+): Promise<ResolvedInwCategory | null> {
+  const name = taxonomyName?.trim() || getEtsyTaxonomyName(taxonomyId);
+  if (!name) return null;
+
+  let resolved = await resolveInwCategoryWithLearning(name, null, { provider: "etsy" });
+  if (!resolved) return null;
+
+  if (resolved.matchedPreset && !resolved.subcategory) {
+    const refined = refineSubcategory(resolved.category, name);
+    if (refined) {
+      resolved = { ...resolved, subcategory: refined };
+    } else {
+      const preset = STORE_CATEGORIES.find((p) => p.label === resolved!.category);
+      if (preset) {
+        const nameLower = name.toLowerCase();
+        let bestSub: string | null = null;
+        let bestScore = 0;
+        for (const sub of preset.subcategories) {
+          const score = similarityScore(nameLower, sub.toLowerCase());
+          if (score > bestScore && score >= 0.45) {
+            bestScore = score;
+            bestSub = sub;
+          }
+        }
+        if (bestSub) {
+          resolved = { ...resolved, subcategory: bestSub };
+        }
+      }
+    }
+  }
+
+  return resolved;
 }
 
 /**

@@ -6,6 +6,7 @@ import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
+import { getAvailableQuantity } from "@/lib/store-item-variants";
 
 interface CartItem {
   id: string;
@@ -179,10 +180,17 @@ export function SideCart() {
                         onClick={() =>
                           updateQuantity(
                             item.id,
-                            Math.min(item.storeItem.quantity, item.quantity + 1)
+                            Math.min(
+                              getAvailableQuantity(item.storeItem, item.variant ?? undefined),
+                              item.quantity + 1
+                            )
                           )
                         }
-                        className="w-6 h-6 border rounded text-sm leading-none"
+                        disabled={
+                          item.quantity >=
+                          getAvailableQuantity(item.storeItem, item.variant ?? undefined)
+                        }
+                        className="w-6 h-6 border rounded text-sm leading-none disabled:opacity-50"
                       >
                         +
                       </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { getErrorMessage } from "@/lib/api-error";
 import { useParams, useSearchParams } from "next/navigation";
 import { getProductReferrer, buildBackLink } from "@/lib/product-referrer";
@@ -18,12 +18,19 @@ import {
   StoreItemAddToCartButton,
 } from "@/components/store-item/StoreItemDetailControls";
 import { useStoreItemRelatedLists } from "@/hooks/use-store-item-related-lists";
-import { allVariantAxesSelected, variantOptionLabels } from "@/lib/store-item-variants";
+import {
+  allVariantAxesSelected,
+  variantOptionLabels,
+  hasOptionQuantities,
+  getMaxPurchasableQuantity,
+  optionIsSoldOut,
+  getOptionQuantity,
+} from "@/lib/store-item-variants";
 import { ListingRichDescription } from "@/components/ListingRichDescription";
 
 interface VariantOption {
   name: string;
-  options: string[];
+  options: string[] | { value: string; quantity: number }[];
 }
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
@@ -249,6 +256,23 @@ export default function ProductDetailPage() {
   const hasVariants = item?.variants && item.variants.length > 0;
   const allVariantsSelected =
     !hasVariants || allVariantAxesSelected(item?.variants, selectedVariant);
+  const perOptionStock = item ? hasOptionQuantities(item.variants) : false;
+
+  const maxPurchasableQty = useMemo(() => {
+    if (!item || itemUnavailable) return 0;
+    return getMaxPurchasableQuantity(item, selectedVariant, allVariantsSelected);
+  }, [item, itemUnavailable, selectedVariant, allVariantsSelected]);
+
+  useEffect(() => {
+    if (maxPurchasableQty < 1) {
+      setQuantity(1);
+      return;
+    }
+    setQuantity((q) => Math.min(Math.max(1, q), maxPurchasableQty));
+  }, [maxPurchasableQty, selectedVariant]);
+
+  const canPurchase =
+    maxPurchasableQty >= 1 && allVariantsSelected && !itemUnavailable;
 
   const effectiveShippingPolicy =
     item?.shippingPolicy ?? item?.member?.sellerShippingPolicy ?? null;
@@ -266,7 +290,7 @@ export default function ProductDetailPage() {
     (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved);
 
   async function handleAddToCart() {
-    if (!item || quantity < 1 || quantity > item.quantity) return;
+    if (!item || quantity < 1 || quantity > maxPurchasableQty) return;
     if (hasVariants && !allVariantsSelected) {
       setError("Please select all options before adding to cart.");
       return;
@@ -338,7 +362,7 @@ export default function ProductDetailPage() {
   }
 
   async function handleCheckout() {
-    if (!item || quantity < 1 || quantity > item.quantity) return;
+    if (!item || quantity < 1 || quantity > maxPurchasableQty) return;
     if (hasVariants && !allVariantsSelected) {
       setError("Please select all options before checkout.");
       return;
@@ -835,22 +859,35 @@ export default function ProductDetailPage() {
                   <div key={vi}>
                     <label className="block text-sm font-medium mb-1">{v.name} *</label>
                     <div className="flex flex-wrap gap-2">
-                      {variantOptionLabels(v).map((opt) => (
+                      {variantOptionLabels(v).map((opt) => {
+                        const soldOut = optionIsSoldOut(item.variants, v.name, opt);
+                        const optQty = getOptionQuantity(item.variants, v.name, opt);
+                        const lowStock =
+                          perOptionStock &&
+                          optQty != null &&
+                          optQty > 0 &&
+                          optQty < 10;
+                        return (
                         <button
                           key={opt}
                           type="button"
+                          disabled={soldOut}
                           onClick={() =>
                             setSelectedVariant((prev) => ({ ...prev, [v.name]: opt }))
                           }
-                          className={`border rounded px-3 py-1.5 text-sm ${
+                          className={`border rounded px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
                             selectedVariant[v.name] === opt
                               ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                              : "border-gray-300 hover:border-gray-400"
+                              : soldOut
+                                ? "border-gray-200 text-gray-400 line-through"
+                                : "border-gray-300 hover:border-gray-400"
                           }`}
                         >
                           {opt}
+                          {soldOut ? " (Out)" : lowStock ? ` (${optQty})` : ""}
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -858,11 +895,22 @@ export default function ProductDetailPage() {
             )}
             {!itemUnavailable && (
               <>
+                {perOptionStock && !allVariantsSelected ? (
+                  <p className="text-sm text-gray-600 mt-6">
+                    Select all options to see available quantity.
+                  </p>
+                ) : maxPurchasableQty >= 1 ? (
                 <StoreItemQuantityStepper
                   quantity={quantity}
-                  maxQuantity={item.quantity}
+                  maxQuantity={maxPurchasableQty}
                   onChange={setQuantity}
                 />
+                ) : allVariantsSelected ? (
+                  <p className="text-sm text-red-600 mt-6">This option is sold out.</p>
+                ) : null}
+                {maxPurchasableQty > 0 && maxPurchasableQty < 10 && allVariantsSelected && (
+                  <p className="text-sm text-amber-700 mt-2">Only {maxPurchasableQty} left in stock.</p>
+                )}
                 {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-6">
                   {status === "loading" ? (
@@ -871,14 +919,14 @@ export default function ProductDetailPage() {
                     <>
                       <StoreItemAddToCartButton
                         onClick={handleAddToCart}
-                        disabled={item.quantity < 1 || !allVariantsSelected}
+                        disabled={!canPurchase}
                         loading={addingToCart}
                         needsFulfillmentForm={needsFulfillmentForm}
                       />
                       <button
                         type="button"
                         onClick={handleCheckout}
-                        disabled={checkingOut || item.quantity < 1 || !allVariantsSelected}
+                        disabled={checkingOut || !canPurchase}
                         className="w-full inline-flex items-center justify-center gap-2.5 border-2 border-[var(--color-primary)] bg-white hover:bg-gray-50 disabled:opacity-50 py-2.5 px-4 rounded font-medium text-[var(--color-primary)] transition-colors"
                       >
                         <IonIcon name="flash-outline" size={18} className="text-[var(--color-primary)] shrink-0" />

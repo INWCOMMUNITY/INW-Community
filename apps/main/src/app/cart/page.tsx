@@ -9,6 +9,7 @@ import { useCart } from "@/contexts/CartContext";
 import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
 import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
+import { getAvailableQuantity } from "@/lib/store-item-variants";
 
 interface CartItemStoreItem {
   id: string;
@@ -524,11 +525,12 @@ export default function CartPage() {
                         <input
                           type="number"
                           min={1}
-                          max={item.storeItem.quantity}
+                          max={getAvailableQuantity(item.storeItem, item.variant ?? undefined)}
                           value={item.quantity}
                           onChange={(e) => {
                             const q = parseInt(e.target.value, 10) || 1;
-                            updateQuantity(item.id, Math.min(q, item.storeItem.quantity));
+                            const max = getAvailableQuantity(item.storeItem, item.variant ?? undefined);
+                            updateQuantity(item.id, Math.min(q, max));
                           }}
                           className="w-12 border rounded px-1 py-1 text-center text-sm"
                           style={{ borderColor: "var(--color-primary)" }}

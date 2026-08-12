@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbound-catalog";
+import { reconcileConnectionInboundMeta } from "@/lib/channels/reconcile-inbound-meta";
 import { setEtsyConnectionContext } from "@/lib/channels/etsy/client";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +67,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const results: { provider: string; updated: number; removed: number }[] = [];
+  const results: {
+    provider: string;
+    catalogUpdated: number;
+    metaUpdated: number;
+    removed: number;
+  }[] = [];
 
   for (const conn of connections) {
     if (conn.provider === "etsy") {
@@ -74,11 +80,13 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const result = await reconcileConnectionInboundCatalog(conn);
+      const catalog = await reconcileConnectionInboundCatalog(conn);
+      const meta = await reconcileConnectionInboundMeta(conn);
       results.push({
         provider: conn.provider,
-        updated: result.updated,
-        removed: result.removed,
+        catalogUpdated: catalog.updated,
+        metaUpdated: meta.updated,
+        removed: catalog.removed + meta.removed,
       });
     } catch (e) {
       console.error("[sync-on-view] sync failed", {
@@ -88,7 +96,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const totalUpdated = results.reduce((sum, r) => sum + r.updated, 0);
+  const totalCatalogUpdated = results.reduce((sum, r) => sum + r.catalogUpdated, 0);
+  const totalMetaUpdated = results.reduce((sum, r) => sum + r.metaUpdated, 0);
   const totalRemoved = results.reduce((sum, r) => sum + r.removed, 0);
 
   return NextResponse.json({
@@ -96,7 +105,9 @@ export async function POST(req: NextRequest) {
     synced: true,
     results,
     summary: {
-      updated: totalUpdated,
+      updated: totalCatalogUpdated + totalMetaUpdated,
+      catalogUpdated: totalCatalogUpdated,
+      metaUpdated: totalMetaUpdated,
       removed: totalRemoved,
     },
   });

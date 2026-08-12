@@ -226,8 +226,8 @@ export async function POST(req: NextRequest) {
 
   const cartData = {
     quantity: existing
-      ? Math.min(existing.quantity + body.quantity, storeItem.quantity)
-      : Math.min(body.quantity, storeItem.quantity),
+      ? Math.min(existing.quantity + body.quantity, available)
+      : Math.min(body.quantity, available),
     variant: body.variant ? (body.variant as object) : Prisma.JsonNull,
     fulfillmentType,
     localDeliveryDetails: localDeliveryDetails ? (localDeliveryDetails as object) : Prisma.JsonNull,

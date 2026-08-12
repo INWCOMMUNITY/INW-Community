@@ -2,6 +2,7 @@ import { prisma, Prisma } from "database";
 import {
   resolveInwCategoryWithLearning,
   resolveInwCategoryFromEbayPath,
+  resolveInwCategoryFromEtsyTaxonomy,
   seedCategoryMappingFromImport,
   suggestCategoriesFromContent,
   type ResolvedInwCategory,
@@ -189,9 +190,14 @@ export async function importRemoteListing(args: {
     let resolvedCat: ResolvedInwCategory | null =
       provider === "ebay" && remoteCategoryLabel
         ? await resolveInwCategoryFromEbayPath(remoteCategoryLabel)
-        : await resolveInwCategoryWithLearning(remoteCategoryLabel, remoteCategorySubLabel, {
-            provider,
-          });
+        : provider === "etsy"
+          ? await resolveInwCategoryFromEtsyTaxonomy(
+              listing.remoteCategoryId ? Number(listing.remoteCategoryId) : null,
+              remoteCategoryLabel
+            )
+          : await resolveInwCategoryWithLearning(remoteCategoryLabel, remoteCategorySubLabel, {
+              provider,
+            });
     
     // Fallback: if no category resolved from remote metadata, try title-based suggestion
     if (!resolvedCat?.category && listing.title) {
