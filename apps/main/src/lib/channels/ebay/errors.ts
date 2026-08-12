@@ -218,6 +218,11 @@ const ERROR_CODE_ACTIONS: Record<number, EbayErrorAction> = {
     action: "none",
     retryable: false,
   },
+  25021: {
+    message: "Invalid condition for category",
+    action: "seller_action",
+    retryable: false,
+  },
   25025: {
     message: "Concurrent access conflict",
     action: "retry",
@@ -304,6 +309,9 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/\b25026\b|selling limit/i.test(reason)) {
     return "You've reached your eBay selling limit. Contact eBay to request a limit increase.";
   }
+  if (/\b25021\b|condition.*invalid|invalid.*condition/i.test(reason)) {
+    return "The item condition isn't valid for this eBay category. Edit the listing on eBay to select a condition that category allows (e.g. some collectibles require 'Ungraded' instead of 'Used').";
+  }
   if (/\b25001\b|system error has occurred|Internal error/i.test(reason)) {
     return "eBay's service hit a temporary error. Wait a minute and try again.";
   }
@@ -332,6 +340,19 @@ export function ebayErrorActionHint(reason: string): string | undefined {
 }
 
 export function describeChannelSyncError(provider: string, e: unknown): string {
-  if (provider === "ebay") return describeEbayThrownError(e);
-  return (e instanceof Error ? e.message : String(e)).slice(0, 500);
+  if (provider === "ebay") {
+    const msg = describeEbayThrownError(e);
+    const hint = ebayErrorActionHint(msg);
+    return hint ? `${msg} — ${hint}` : msg;
+  }
+  const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
+  if (provider === "wix") {
+    if (/No Metasite Context|MetaSite not found/i.test(msg)) {
+      return `${msg} — Disconnect and reconnect Wix in Sync Stores to refresh the site token.`;
+    }
+    if (/\b403\b/.test(msg)) {
+      return `${msg} — Confirm Wix app has Stores read/write permissions in dev.wix.com, then reconnect Wix.`;
+    }
+  }
+  return msg;
 }
