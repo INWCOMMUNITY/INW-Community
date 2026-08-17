@@ -21,11 +21,13 @@ export async function GET(req: NextRequest) {
     100
   );
   const cursor = req.nextUrl.searchParams.get("cursor");
+  const storeItemId = req.nextUrl.searchParams.get("storeItemId")?.trim() || null;
 
   try {
     const events = await prisma.channelSyncLog.findMany({
       where: {
         memberId: session.user.id,
+        ...(storeItemId ? { storeItemId } : {}),
         ...(cursor ? { createdAt: { lt: new Date(cursor) } } : {}),
       },
       orderBy: { createdAt: "desc" },

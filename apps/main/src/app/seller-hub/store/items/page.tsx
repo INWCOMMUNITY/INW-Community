@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { ItemChannelSyncBadges, type ItemChannelLink } from "@/components/store-item/ItemChannelSyncBadges";
+import { isEbayConditionSyncError } from "@/lib/channels/ebay/conditions";
 
 type ItemsTab = "active" | "ended" | "sold";
 
@@ -21,6 +23,7 @@ interface StoreItem {
   photos: string[];
   soldOrderId?: string;
   soldAt?: string;
+  channelLinks?: ItemChannelLink[];
 }
 
 export default function MyItemsPage() {
@@ -192,13 +195,24 @@ export default function MyItemsPage() {
                         View order
                       </Link>
                     )}
+                    {tab !== "sold" && item.channelLinks?.length ? (
+                      <ItemChannelSyncBadges links={item.channelLinks} storeItemId={item.id} />
+                    ) : null}
                   </div>
                   {tab === "sold" && item.soldOrderId ? (
                     <Link href={`/seller-hub/orders/${item.soldOrderId}`} className="btn text-sm">
                       View order
                     </Link>
                   ) : (
-                    <Link href={`/seller-hub/store/${item.id}`} className="btn text-sm">
+                    <Link
+                      href={`/seller-hub/store/${item.id}${item.channelLinks?.some(
+                        (l) =>
+                          l.provider === "ebay" &&
+                          l.syncStatus === "error" &&
+                          isEbayConditionSyncError(l.syncError)
+                      ) ? "?fixEbayCondition=1" : ""}`}
+                      className="btn text-sm"
+                    >
                       Edit
                     </Link>
                   )}

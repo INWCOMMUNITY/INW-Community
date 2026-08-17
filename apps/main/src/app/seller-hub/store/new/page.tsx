@@ -32,13 +32,13 @@ export default async function NewStoreItemPage() {
   }
 
   return (
-    <section className="py-12 px-4 flex flex-col items-center" style={{ padding: "var(--section-padding)" }}>
-      <div className="max-w-[var(--max-width)] mx-auto w-full flex flex-col items-center">
-        <Link href="/seller-hub/store/items" className="text-sm text-gray-600 hover:underline mb-4">
+    <section className="py-8 px-4" style={{ padding: "var(--section-padding)" }}>
+      <div className="max-w-5xl mx-auto">
+        <Link href="/seller-hub/store/items" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
           ← Back to My Items
         </Link>
-        <h1 className="text-3xl font-bold mb-6 text-center">
-          Sell Local: List an item for sale on our storefront!
+        <h1 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-900">
+          Sell Local: List an item for sale on our storefront
         </h1>
         <StoreItemForm />
       </div>

@@ -6,6 +6,7 @@ import { theme } from "@/lib/theme";
 type CollapsibleSectionProps = {
   title: string;
   subtitle?: string;
+  icon?: keyof typeof Ionicons.glyphMap;
   defaultExpanded?: boolean;
   children: React.ReactNode;
   badge?: string;
@@ -15,6 +16,7 @@ type CollapsibleSectionProps = {
 export function CollapsibleSection({
   title,
   subtitle,
+  icon,
   defaultExpanded = false,
   children,
   badge,
@@ -31,7 +33,12 @@ export function CollapsibleSection({
         accessibilityState={{ expanded }}
       >
         <View style={styles.headerText}>
-          <Text style={styles.title}>{title}</Text>
+          <View style={styles.titleRow}>
+            {icon ? (
+              <Ionicons name={icon} size={22} color={theme.colors.primary} style={styles.titleIcon} />
+            ) : null}
+            <Text style={styles.title}>{title}</Text>
+          </View>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
         <View style={styles.headerRight}>
@@ -71,6 +78,8 @@ const styles = StyleSheet.create({
   },
   headerPressed: { opacity: 0.88 },
   headerText: { flex: 1 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  titleIcon: { marginTop: 1 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: {
     fontSize: 16,

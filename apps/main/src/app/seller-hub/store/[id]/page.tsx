@@ -37,18 +37,30 @@ export default async function EditStoreItemPage({
 
   const item = await prisma.storeItem.findFirst({
     where: { id: params.id, memberId: session.user.id },
+    include: {
+      channelLinks: {
+        select: {
+          provider: true,
+          syncStatus: true,
+          syncEnabled: true,
+          syncError: true,
+          lastPushedAt: true,
+          externalListingId: true,
+        },
+      },
+    },
   });
   if (!item) {
     notFound();
   }
 
   return (
-    <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
-      <div className="max-w-[var(--max-width)] mx-auto">
-        <Link href="/seller-hub/store/items" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
-          ← Back to List Items
+    <section className="py-8 px-4" style={{ padding: "var(--section-padding)" }}>
+      <div className="max-w-5xl mx-auto">
+        <Link href="/seller-hub/store/items" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
+          ← Back to My Items
         </Link>
-        <h1 className="text-3xl font-bold mb-6">Edit item</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-900">Edit Item</h1>
         <StoreItemForm
           existing={{
             id: item.id,
@@ -76,6 +88,17 @@ export default async function EditStoreItemPage({
                   value: String(a?.value ?? ""),
                 }))
               : null,
+            etsyWhoMade: (item as { etsyWhoMade?: string | null }).etsyWhoMade ?? null,
+            etsyWhenMade: (item as { etsyWhenMade?: string | null }).etsyWhenMade ?? null,
+            etsyIsSupply: (item as { etsyIsSupply?: boolean | null }).etsyIsSupply ?? null,
+            channelLinks: item.channelLinks.map((l) => ({
+              provider: l.provider,
+              syncStatus: l.syncStatus,
+              syncEnabled: l.syncEnabled,
+              syncError: l.syncError,
+              lastPushedAt: l.lastPushedAt?.toISOString() ?? null,
+              externalListingId: l.externalListingId,
+            })),
           }}
         />
       </div>

@@ -18,3 +18,21 @@ export function isImmersiveMobileChromeRoute(pathname: string | null | undefined
 
   return false;
 }
+
+/** Listing editor uses a fixed save bar; hide the global NWC footer on those routes. */
+export function shouldHideGlobalSiteFooter(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  if (pathname === "/seller-hub/store/new") return true;
+  const match = pathname.match(/^\/seller-hub\/store\/([^/]+)$/);
+  if (!match) return false;
+  const segment = match[1];
+  const keepFooter = new Set([
+    "items",
+    "manage",
+    "payouts",
+    "returns",
+    "cancellations",
+    "actions",
+  ]);
+  return !keepFooter.has(segment);
+}

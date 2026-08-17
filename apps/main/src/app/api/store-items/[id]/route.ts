@@ -69,7 +69,14 @@ export async function GET(
       member: { select: { id: true, firstName: true, lastName: true } },
       business: { select: { id: true, name: true, slug: true } },
       channelLinks: {
-        select: { provider: true, syncStatus: true, externalListingId: true },
+        select: {
+          provider: true,
+          syncStatus: true,
+          syncEnabled: true,
+          syncError: true,
+          lastPushedAt: true,
+          externalListingId: true,
+        },
       },
     },
   });

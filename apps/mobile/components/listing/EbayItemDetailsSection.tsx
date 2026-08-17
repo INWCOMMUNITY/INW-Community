@@ -68,15 +68,16 @@ export function EbayItemDetailsSection({
 
   return (
     <CollapsibleSection
-      title="Item details"
-      subtitle="eBay category and item specifics"
+      title="eBay Listing Requirements"
+      subtitle="Category and item specifics for eBay"
+      icon="pricetags-outline"
       defaultExpanded={defaultExpanded || missingRequiredCount > 0}
       badge={badge}
       badgeColor={badgeColor}
     >
       <Text style={styles.hint}>
-        Pick an eBay category, then fill in details (Brand, Type, etc.). Required fields are marked
-        with *.
+        Pick an eBay category, then fill in item specifics (Brand, Type, etc.). Required fields are
+        marked with *.
       </Text>
 
       <Text style={styles.fieldLabel}>eBay category</Text>

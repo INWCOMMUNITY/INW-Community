@@ -1,10 +1,39 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
+import {
+  fetchChannelConnections,
+  publishReadyConnections,
+  type ChannelProviderId,
+} from "@/lib/channel-connections-client";
+import {
+  buildSyncSuccessMessage,
+  formatChannelSyncResults,
+  type ChannelSyncRow,
+} from "@/lib/channel-sync-feedback";
+import { ListingEditorLayout } from "@/components/store-item/ListingEditorLayout";
+import { ListingFormSection } from "@/components/store-item/ListingFormSection";
+import { ListingConditionToggle } from "@/components/store-item/ListingConditionToggle";
+import { ListingPhotoGallery } from "@/components/store-item/ListingPhotoGallery";
+import { ListingSaveBar } from "@/components/store-item/ListingSaveBar";
+import {
+  ItemChannelSyncPanel,
+  type ChannelLinkSummary,
+} from "@/components/store-item/ItemChannelSyncPanel";
+import { ChannelPublishModal } from "@/components/store-item/ChannelPublishModal";
+import { ChannelSyncResultBanner } from "@/components/store-item/ChannelSyncResultBanner";
+import { ItemSyncActivityLog } from "@/components/store-item/ItemSyncActivityLog";
+import { LISTING_SYNC_HINTS, SyncFieldHint } from "@/components/store-item/listing-sync-hints";
+import {
+  listingHintClass,
+  listingInputClass,
+  listingLabelClass,
+  listingSelectClass,
+} from "@/components/store-item/listing-form-styles";
 import {
   STORE_CATEGORIES,
   getSubcategoriesForCategory,
@@ -16,6 +45,14 @@ import {
   MAX_ASPECTS,
   type ListingAspect,
 } from "@/lib/listing-limits";
+import {
+  type EtsyWhenMade,
+  type EtsyWhoMade,
+  isEtsyWhoMade,
+  normalizeEtsyWhenMade,
+} from "@/lib/etsy-listing-options";
+import { EbayListingRequirementsSection } from "@/components/store-item/EbayListingRequirementsSection";
+import { EtsyListingRequirementsSection } from "@/components/store-item/EtsyListingRequirementsSection";
 
 interface Business {
   id: string;
@@ -63,6 +100,10 @@ interface StoreItemFormProps {
     minOfferCents?: number | null;
     ebayCategoryId?: number | null;
     aspects?: { name: string; value: string }[] | null;
+    etsyWhoMade?: string | null;
+    etsyWhenMade?: string | null;
+    etsyIsSupply?: boolean | null;
+    channelLinks?: ChannelLinkSummary[];
   };
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
   successRedirect?: string;
@@ -82,13 +123,24 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const c = existing?.category ?? "";
     return !!c && !STORE_CATEGORIES.some((x) => x.label === c);
   });
-  // eBay integration: live leaf-category picker + item specifics (Details).
+  // eBay / Etsy integration: channel-specific listing requirements.
   const [ebayConnected, setEbayConnected] = useState(false);
+  const [etsyConnected, setEtsyConnected] = useState(false);
+  const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>(() =>
+    isEtsyWhoMade(existing?.etsyWhoMade) ? existing!.etsyWhoMade! : "i_did"
+  );
+  const [etsyWhenMade, setEtsyWhenMade] = useState<EtsyWhenMade>(() =>
+    normalizeEtsyWhenMade(existing?.etsyWhenMade) ?? "made_to_order"
+  );
+  const [etsyIsSupply, setEtsyIsSupply] = useState(
+    existing?.etsyIsSupply ?? false
+  );
   const [ebayCategoryId, setEbayCategoryId] = useState<string>(
     existing?.ebayCategoryId != null ? String(existing.ebayCategoryId) : ""
   );
   const [ebayCategoryLabel, setEbayCategoryLabel] = useState<string>("");
   const [ebayCategorySearch, setEbayCategorySearch] = useState("");
+  const [ebayCategorySearchError, setEbayCategorySearchError] = useState<string | null>(null);
   const [ebayCategoryResults, setEbayCategoryResults] = useState<EbayCategorySuggestion[]>([]);
   const [ebaySearching, setEbaySearching] = useState(false);
   const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspect[]>([]);
@@ -170,7 +222,16 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [hasChannelConnections, setHasChannelConnections] = useState(false);
+  const [channelLinks, setChannelLinks] = useState<ChannelLinkSummary[]>(
+    existing?.channelLinks ?? []
+  );
+  const [skipSyncOnSave, setSkipSyncOnSave] = useState(false);
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const pendingPayloadRef = useRef<Record<string, unknown> | null>(null);
+  const [lastChannelSync, setLastChannelSync] = useState<ChannelSyncRow[] | undefined>();
+  const [successDetail, setSuccessDetail] = useState("");
+  const [syncLogRefreshKey, setSyncLogRefreshKey] = useState(0);
 
   useEffect(() => {
     fetch("/api/me/policies")
@@ -254,11 +315,33 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       .then((data: { provider?: string; status?: string }[]) => {
         if (Array.isArray(data)) {
           setEbayConnected(
-            data.some((c) => c.provider === "ebay" && c.status !== "disconnected")
+            data.some((c) => c.provider === "ebay" && c.status === "active")
+          );
+          setEtsyConnected(
+            data.some((c) => c.provider === "etsy" && c.status === "active")
+          );
+          setHasChannelConnections(
+            data.some((c) => c.status === "active" || c.status === "error")
           );
         }
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchChannelConnections()
+      .then((list) => {
+        setHasChannelConnections(list.some((c) => c.status === "active" || c.status === "error"));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("fixEbayCondition") === "1") {
+      document.getElementById("listing-condition")?.scrollIntoView({ behavior: "smooth" });
+    }
   }, []);
 
   // Debounced live eBay category search.
@@ -267,20 +350,32 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const q = ebayCategorySearch.trim();
     if (q.length < 2) {
       setEbayCategoryResults([]);
+      setEbayCategorySearchError(null);
       return;
     }
     let cancelled = false;
     setEbaySearching(true);
+    setEbayCategorySearchError(null);
     const t = setTimeout(() => {
       fetch(`/api/channels/ebay/categories?q=${encodeURIComponent(q)}`, {
         credentials: "include",
       })
-        .then((r) => r.json())
-        .then((data: { categories?: EbayCategorySuggestion[] }) => {
-          if (!cancelled) setEbayCategoryResults(data.categories ?? []);
+        .then(async (r) => {
+          const data: { categories?: EbayCategorySuggestion[]; error?: string } = await r.json();
+          if (cancelled) return;
+          if (!r.ok) {
+            setEbayCategoryResults([]);
+            setEbayCategorySearchError(data.error ?? "Category search failed. Try reconnecting eBay in Sync Stores.");
+            return;
+          }
+          setEbayCategorySearchError(null);
+          setEbayCategoryResults(data.categories ?? []);
         })
         .catch(() => {
-          if (!cancelled) setEbayCategoryResults([]);
+          if (!cancelled) {
+            setEbayCategoryResults([]);
+            setEbayCategorySearchError("Category search failed. Check your connection and try again.");
+          }
         })
         .finally(() => {
           if (!cancelled) setEbaySearching(false);
@@ -350,86 +445,72 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     return next;
   }
 
-  async function handlePhotosChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files?.length) return;
-    const fileArray = Array.from(files);
+  async function handlePhotosUpload(files: File[]) {
+    if (!files.length) return;
     setUploadingPhotos(true);
     setError("");
     const urls: string[] = [];
+    const optimisticUrls: string[] = files.map((f) => URL.createObjectURL(f));
+    setPhotos((prev) => mergeUploadedUrls(prev, optimisticUrls));
     try {
-      for (const file of fileArray) {
+      for (const file of files) {
         urls.push(await uploadFile(file));
       }
-      setPhotos((prev) => mergeUploadedUrls(prev, urls));
+      setPhotos((prev) => {
+        const withoutOptimistic = prev.filter((u) => !optimisticUrls.includes(u));
+        return mergeUploadedUrls(withoutOptimistic, urls);
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setPhotos((prev) => prev.filter((u) => !optimisticUrls.includes(u)));
       if (urls.length > 0) {
         setPhotos((prev) => mergeUploadedUrls(prev, urls));
       }
+      setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
+      optimisticUrls.forEach((u) => URL.revokeObjectURL(u));
       setUploadingPhotos(false);
-      e.target.value = "";
     }
   }
 
-  function removePhoto(i: number) {
-    setPhotos((prev) => prev.filter((_, idx) => idx !== i));
-  }
 
-  const movePhoto = useCallback((from: number, to: number) => {
-    setPhotos((prev) => {
-      const next = [...prev];
-      const [removed] = next.splice(from, 1);
-      next.splice(to, 0, removed);
-      return next;
-    });
-  }, []);
-
-  function handleDragEnd() {
-    setDragIndex(null);
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
+  function buildPayload(): Record<string, unknown> | null {
     const priceCents = Math.round(parseFloat(priceDollars) * 100);
     const shippingCostCents = shippingCostDollars
       ? Math.round(parseFloat(shippingCostDollars) * 100)
       : 0;
     if (!title.trim()) {
       setError("Title is required");
-      return;
+      return null;
     }
     if (isNaN(priceCents) || priceCents < 1) {
       setError("Price must be at least $0.01");
-      return;
+      return null;
     }
     const hasVariantsWithQty =
       optionsEnabled && variants.some((v) => v.name.trim() && v.options.some((o) => o.quantity > 0));
     if (!optionsEnabled && quantity < 1) {
       setError("Quantity must be at least 1 to list this item.");
-      return;
+      return null;
     }
     if (optionsEnabled && !hasVariantsWithQty) {
       setError("Add at least one option with quantity greater than 0, or turn off Enable Options and set Quantity.");
-      return;
+      return null;
     }
     const effectiveShippingDisabled = !offerShipping || shippingDisabled;
     const effectiveLocalDelivery = offerLocalDelivery && localDeliveryAvailable;
     const effectivePickup = offerLocalPickup && inStorePickupAvailable;
     if (effectiveShippingDisabled && !effectiveLocalDelivery && !effectivePickup) {
       setError("Enable at least one fulfillment method (shipping, local delivery, or pickup) in Policies.");
-      return;
+      return null;
     }
     if (!effectiveShippingDisabled && !effectiveShippingPolicy.trim()) {
       setError("Shipping policy is required when you offer shipping. Set it in Policies.");
-      return;
+      return null;
     }
     const effectivePickupPolicy = useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms;
     if (effectivePickup && !effectivePickupPolicy.trim()) {
       setError("Pickup terms are required when you offer local pickup. Set them in Policies or use Sync here.");
-      return;
+      return null;
     }
     const cleanedAspects = aspects
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
@@ -446,83 +527,186 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         .map((a) => a.name);
       if (missingRequired.length > 0) {
         setError(
-          `eBay requires these item details for this category: ${missingRequired.join(", ")}. Fill them in under "Item details".`
+          `eBay requires these item specifics for this category: ${missingRequired.join(", ")}. Fill them in under eBay Listing Requirements.`
         );
-        return;
+        return null;
       }
     }
-    setSubmitting(true);
-    try {
-      const payload = {
-        businessId: businessId || null,
-        title: title.trim(),
-        description: description.trim() || null,
-        photos,
-        category: category.trim() || null,
-        subcategory: subcategory.trim() || null,
-        ebayCategoryId: ebayConnected && ebayCategoryId ? Number(ebayCategoryId) : null,
-        aspects: cleanedAspects,
-        priceCents,
-        status: "active",
-        condition,
-        quantity:
-          optionsEnabled && variants.some((v) => v.name.trim() && v.options.some((o) => o.quantity > 0))
-            ? sumOptionQuantities(variants.filter((v) => v.name.trim() && v.options.length > 0))
-            : quantity,
-        variants:
-          optionsEnabled && variants.filter((v) => v.name.trim() && v.options.length > 0).length > 0
-            ? variants.filter((v) => v.name.trim() && v.options.length > 0)
-            : null,
-        shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
-        shippingPolicy:
-          effectiveShippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,
-        localDeliveryAvailable: effectiveLocalDelivery,
-        localDeliveryFeeCents: effectiveLocalDelivery && localDeliveryFeeDollars
-          ? Math.round(parseFloat(localDeliveryFeeDollars) * 100)
+    if (etsyConnected) {
+      if (!isEtsyWhoMade(etsyWhoMade)) {
+        setError('Etsy requires "Who made it?" — fill in Etsy Listing Requirements.');
+        return null;
+      }
+      if (!normalizeEtsyWhenMade(etsyWhenMade)) {
+        setError('Etsy requires "When was it made?" — fill in Etsy Listing Requirements.');
+        return null;
+      }
+    }
+    return {
+      businessId: businessId || null,
+      title: title.trim(),
+      description: description.trim() || null,
+      photos,
+      category: category.trim() || null,
+      subcategory: subcategory.trim() || null,
+      ebayCategoryId: ebayConnected && ebayCategoryId ? Number(ebayCategoryId) : null,
+      aspects: cleanedAspects,
+      ...(etsyConnected
+        ? { etsyWhoMade, etsyWhenMade, etsyIsSupply }
+        : {}),
+      priceCents,
+      status: "active",
+      condition,
+      quantity:
+        optionsEnabled && variants.some((v) => v.name.trim() && v.options.some((o) => o.quantity > 0))
+          ? sumOptionQuantities(variants.filter((v) => v.name.trim() && v.options.length > 0))
+          : quantity,
+      variants:
+        optionsEnabled && variants.filter((v) => v.name.trim() && v.options.length > 0).length > 0
+          ? variants.filter((v) => v.name.trim() && v.options.length > 0)
           : null,
-        inStorePickupAvailable: effectivePickup,
-        shippingDisabled: effectiveShippingDisabled,
-        localDeliveryTerms: effectiveLocalDelivery ? (localDeliveryTerms.trim() || null) : null,
-        pickupTerms:
-          effectivePickup && !useSellerProfilePickup ? (pickupTerms.trim() || null) : null,
-        ...(condition === "used"
-          ? {
-              acceptOffers,
-              minOfferCents: (() => {
-                if (!acceptOffers || minOfferSliderDollars <= 0) return null;
-                const capped = Math.min(minOfferSliderDollars, minOfferSliderMax);
-                const cents = capped * 100;
-                return cents >= 0 ? cents : null;
-              })(),
-            }
-          : { acceptOffers: false }),
+      shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
+      shippingPolicy:
+        effectiveShippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,
+      localDeliveryAvailable: effectiveLocalDelivery,
+      localDeliveryFeeCents: effectiveLocalDelivery && localDeliveryFeeDollars
+        ? Math.round(parseFloat(localDeliveryFeeDollars) * 100)
+        : null,
+      inStorePickupAvailable: effectivePickup,
+      shippingDisabled: effectiveShippingDisabled,
+      localDeliveryTerms: effectiveLocalDelivery ? (localDeliveryTerms.trim() || null) : null,
+      pickupTerms:
+        effectivePickup && !useSellerProfilePickup ? (pickupTerms.trim() || null) : null,
+      ...(condition === "used"
+        ? {
+            acceptOffers,
+            minOfferCents: (() => {
+              if (!acceptOffers || minOfferSliderDollars <= 0) return null;
+              const capped = Math.min(minOfferSliderDollars, minOfferSliderMax);
+              const cents = capped * 100;
+              return cents >= 0 ? cents : null;
+            })(),
+          }
+        : { acceptOffers: false }),
+    };
+  }
+
+  async function performSubmit(
+    payload: Record<string, unknown>,
+    syncOptions?: { syncToChannels?: boolean; channelProviders?: ChannelProviderId[] }
+  ) {
+    setSubmitting(true);
+    setError("");
+    setLastChannelSync(undefined);
+    try {
+      const body = {
+        ...payload,
+        ...(syncOptions?.syncToChannels !== undefined
+          ? { syncToChannels: syncOptions.syncToChannels }
+          : existing && skipSyncOnSave
+            ? { syncToChannels: false }
+            : {}),
+        ...(syncOptions?.channelProviders ? { channelProviders: syncOptions.channelProviders } : {}),
       };
       const url = existing ? `/api/store-items/${existing.id}` : "/api/store-items";
       const method = existing ? "PATCH" : "POST";
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
-      let data: { error?: unknown; message?: string; earnedBadges?: unknown } = {};
+      let data: {
+        error?: unknown;
+        message?: string;
+        channelSync?: ChannelSyncRow[];
+        channelLinks?: ChannelLinkSummary[];
+      } = {};
       try {
         const text = await res.text();
         if (text) data = JSON.parse(text);
       } catch {
-        data = { error: res.status === 500 ? "Server error. Check the terminal for details." : `Request failed (${res.status}).` };
+        data = {
+          error: res.status === 500 ? "Server error. Check the terminal for details." : `Request failed (${res.status}).`,
+        };
       }
       if (!res.ok) {
-        const message = getErrorMessage(data?.error, data?.message ?? "Failed to save");
-        setError(message);
+        setError(getErrorMessage(data?.error, data?.message ?? "Failed to save"));
         return;
       }
+
+      const syncResult = formatChannelSyncResults(data.channelSync, "saved");
+      setLastChannelSync(data.channelSync);
+
+      if (Array.isArray(data.channelLinks)) {
+        setChannelLinks(
+          data.channelLinks.map((l) => ({
+            provider: l.provider,
+            syncStatus: l.syncStatus,
+            syncEnabled: l.syncEnabled ?? true,
+            syncError: l.syncError ?? null,
+            lastPushedAt: l.lastPushedAt ?? null,
+            externalListingId: l.externalListingId ?? null,
+          }))
+        );
+      } else if (existing?.id) {
+        const refresh = await fetch(`/api/store-items/${existing.id}`, { credentials: "include" });
+        const refreshed = await refresh.json();
+        if (Array.isArray(refreshed.channelLinks)) {
+          setChannelLinks(refreshed.channelLinks);
+        }
+      }
+
+      setSyncLogRefreshKey((k) => k + 1);
+
+      if (!syncResult.allOk && (data.channelSync?.length ?? 0) > 0) {
+        return;
+      }
+
       setEditSuccess(!!existing);
+      setSuccessDetail(
+        syncResult.successLines.length > 0
+          ? buildSyncSuccessMessage(syncResult.successLines)
+          : existing
+            ? "Your changes have been saved on INW."
+            : "Your listing is now live on INW."
+      );
       setShowSuccessModal(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    const payload = buildPayload();
+    if (!payload) return;
+
+    if (!existing) {
+      const connections = await fetchChannelConnections();
+      if (publishReadyConnections(connections).length > 0) {
+        pendingPayloadRef.current = payload;
+        setShowPublishModal(true);
+        return;
+      }
+      await performSubmit(payload, { syncToChannels: false, channelProviders: [] });
+      return;
+    }
+
+    await performSubmit(payload);
+  }
+
+  function handlePublishConfirm(providers: ChannelProviderId[]) {
+    setShowPublishModal(false);
+    const base = pendingPayloadRef.current;
+    pendingPayloadRef.current = null;
+    if (!base) return;
+    void performSubmit(base, {
+      syncToChannels: providers.length > 0,
+      channelProviders: providers,
+    });
   }
 
   function handleSuccessModalClose() {
@@ -573,182 +757,143 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   function removeAspectRow(i: number) {
     setAspects((prev) => prev.filter((_, idx) => idx !== i));
   }
+  function clearEbayRequiredAspectRows(fromAspects: EbayCategoryAspect[]) {
+    const requiredNames = new Set(
+      fromAspects.filter((a) => a.required).map((a) => a.name.trim().toLowerCase())
+    );
+    if (requiredNames.size === 0) return;
+    setAspects((prev) =>
+      prev.filter((a) => {
+        const nameLower = a.name.trim().toLowerCase();
+        if (!requiredNames.has(nameLower)) return true;
+        return a.value.trim().length > 0;
+      })
+    );
+  }
+
+  function handleClearEbayCategory() {
+    clearEbayRequiredAspectRows(categoryAspects);
+    setEbayCategoryId("");
+    setEbayCategoryLabel("");
+    setEbayCategorySearch("");
+    setEbayCategorySearchError(null);
+    setCategoryAspects([]);
+  }
+
   /** Suggested values for a Descriptor that matches a known eBay category aspect. */
   function suggestionsForAspect(name: string): string[] {
     const match = categoryAspects.find((a) => a.name.trim().toLowerCase() === name.trim().toLowerCase());
     return match?.suggestedValues ?? [];
   }
   function isRequiredAspect(name: string): boolean {
+    if (!ebayCategoryId) return false;
     return categoryAspects.some(
       (a) => a.required && a.name.trim().toLowerCase() === name.trim().toLowerCase()
     );
   }
 
+  const showSyncHints = hasChannelConnections;
+
   return (
     <>
-    <form onSubmit={handleSubmit} className="space-y-6 max-w-xl mx-auto text-center">
-      {businesses.length > 1 && (
-        <div>
-          <label className="block text-sm font-medium mb-1">Business (optional)</label>
-          <select
-            value={businessId}
-            onChange={(e) => setBusinessId(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-          >
-            <option value="">None</option>
-            {businesses.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      <form onSubmit={handleSubmit}>
+        <ListingEditorLayout
+          sidebar={
+            <>
+              <ListingFormSection title="Photos" description="First photo is your main listing image.">
+                <ListingPhotoGallery
+                  photos={photos}
+                  onPhotosChange={setPhotos}
+                  onUploadFiles={handlePhotosUpload}
+                  uploadingPhotos={uploadingPhotos}
+                  showSyncHint={showSyncHints}
+                />
+              </ListingFormSection>
 
-      <div className="flex flex-col items-center">
-        <label className="block text-sm font-medium mb-2 text-center">Condition</label>
-        <div className="flex flex-wrap justify-center gap-2">
-          <button
-            type="button"
-            onClick={() => setCondition("new")}
-            className="py-2 px-4 rounded-lg border-2 font-semibold text-sm transition-colors"
-            style={
-              condition === "new"
-                ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)", color: "white" }
-                : { backgroundColor: "white", borderColor: "#ccc", color: "#333" }
-            }
-          >
-            New
-          </button>
-          <button
-            type="button"
-            onClick={() => setCondition("used")}
-            className="py-2 px-4 rounded-lg border-2 font-semibold text-sm transition-colors"
-            style={
-              condition === "used"
-                ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)", color: "white" }
-                : { backgroundColor: "white", borderColor: "#ccc", color: "#333" }
-            }
-          >
-            Used
-          </button>
-        </div>
-        <p className="text-xs text-gray-500 mt-2 text-center max-w-sm">
-          Buyers can filter the storefront by New or Used. Used items can accept offers.
-        </p>
-      </div>
+              <ListingFormSection id="listing-condition" title="Condition">
+                <ListingConditionToggle
+                  value={condition}
+                  onChange={setCondition}
+                  hint="Buyers can filter the storefront by New or Used. Used items can accept offers."
+                />
+                {ebayConnected ? <SyncFieldHint text={LISTING_SYNC_HINTS.condition} /> : null}
+              </ListingFormSection>
 
-      {/* 1. Photos - eBay-style gallery */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Photos</label>
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={handlePhotosChange}
-          disabled={uploadingPhotos}
-          className="w-full border rounded px-3 py-2"
-        />
-        {photos.length > 0 && (
-          <div className="mt-3">
-            <div className="w-full aspect-square max-h-64 bg-gray-100 rounded-lg overflow-hidden mb-2">
-              <img
-                src={photos[0]}
-                alt="Main"
-                className="w-full h-full object-contain"
-              />
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {photos.map((url, i) => (
-                <div
-                  key={url}
-                  draggable
-                  onDragStart={(e) => {
-                    setDragIndex(i);
-                    e.dataTransfer.effectAllowed = "move";
-                    e.dataTransfer.setData("text/plain", String(i));
-                    e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
-                    if (!isNaN(fromIndex) && fromIndex !== i) {
-                      movePhoto(fromIndex, i);
-                    }
-                    setDragIndex(null);
-                  }}
-                  onDragEnd={handleDragEnd}
-                  onDragLeave={() => {}}
-                  className={`relative shrink-0 w-16 h-16 rounded border-2 cursor-grab active:cursor-grabbing select-none ${
-                    dragIndex === i ? "border-primary-600 opacity-50" : "border-gray-300"
-                  }`}
-                >
-                  <img
-                    src={url}
-                    alt=""
-                    className="w-full h-full object-cover rounded pointer-events-none"
-                    draggable={false}
-                  />
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removePhoto(i);
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs z-10"
+              <ListingFormSection
+                title="Connected stores"
+                description="Sync status and actions for linked marketplaces."
+              >
+                <ItemChannelSyncPanel
+                  storeItemId={existing?.id}
+                  initialLinks={channelLinks}
+                  hasConnections={hasChannelConnections}
+                  skipSyncOnSave={skipSyncOnSave}
+                  onSkipSyncChange={setSkipSyncOnSave}
+                  disabled={submitting}
+                  onLinksUpdated={setChannelLinks}
+                />
+              </ListingFormSection>
+            </>
+          }
+          main={
+            <>
+              {businesses.length > 1 ? (
+                <ListingFormSection title="Business">
+                  <label className={listingLabelClass}>Business (optional)</label>
+                  <select
+                    value={businessId}
+                    onChange={(e) => setBusinessId(e.target.value)}
+                    className={listingSelectClass}
                   >
-                    ×
-                  </button>
+                    <option value="">None</option>
+                    {businesses.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </ListingFormSection>
+              ) : null}
+
+              <ChannelSyncResultBanner
+                channelSync={lastChannelSync}
+                onDismiss={() => setLastChannelSync(undefined)}
+              />
+
+              <ListingFormSection title="Listing details" description="Title, description, and category.">
+                <div>
+                  <label className={listingLabelClass}>Title *</label>
+                  <input
+                    type="text"
+                    value={title}
+                    maxLength={EBAY_TITLE_MAX}
+                    onChange={(e) => setTitle(e.target.value.slice(0, EBAY_TITLE_MAX))}
+                    className={listingInputClass}
+                    required
+                  />
+                  <p className={`text-xs mt-1 text-right ${title.length >= EBAY_TITLE_MAX ? "text-red-600" : "text-gray-500"}`}>
+                    {title.length}/{EBAY_TITLE_MAX}
+                  </p>
+                  {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.title} /> : null}
                 </div>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500">Drag thumbnails to reorder. First image is the main photo.</p>
-          </div>
-        )}
-      </div>
 
-      {/* 2. Title */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Title *</label>
-        <input
-          type="text"
-          value={title}
-          maxLength={EBAY_TITLE_MAX}
-          onChange={(e) => setTitle(e.target.value.slice(0, EBAY_TITLE_MAX))}
-          className="w-full border rounded px-3 py-2"
-          required
-        />
-        <p className={`text-xs mt-1 text-right ${title.length >= EBAY_TITLE_MAX ? "text-red-600" : "text-gray-500"}`}>
-          {title.length}/{EBAY_TITLE_MAX}
-        </p>
-      </div>
+                <div>
+                  <label className={listingLabelClass}>Item Description</label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className={listingInputClass}
+                    rows={4}
+                  />
+                </div>
 
-      {/* 3. Item Description */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Item Description</label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="w-full border rounded px-3 py-2"
-          rows={4}
-        />
-      </div>
-
-      {/* 4. Category & Subcategory */}
-      <div className="space-y-3">
-        <div>
-          <span className="block text-sm font-medium mb-1">Category</span>
-          <p className="text-xs text-gray-500 mb-2">
-            Choose a main category, then optionally narrow with a subcategory.
-          </p>
-        </div>
+                <div className="space-y-3">
+                  <div>
+                    <span className={listingLabelClass}>Category</span>
+                    <p className={listingHintClass}>
+                      Choose a main category, then optionally narrow with a subcategory.
+                    </p>
+                  </div>
         {useCustomCategory ? (
           <div className="space-y-2">
             <input
@@ -756,14 +901,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               placeholder="Enter your category"
-              className="w-full border rounded px-3 py-2"
+              className={listingInputClass}
             />
             <input
               type="text"
               value={subcategory}
               onChange={(e) => setSubcategory(e.target.value)}
               placeholder="Subcategory (optional)"
-              className="w-full border rounded px-3 py-2"
+              className={listingInputClass}
             />
             <button
               type="button"
@@ -835,95 +980,66 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
             </button>
           </>
         )}
-      </div>
+                </div>
+              </ListingFormSection>
 
-      {/* 4b. eBay category + item details (only when eBay is connected) */}
+      {etsyConnected && (
+        <EtsyListingRequirementsSection
+          etsyWhoMade={etsyWhoMade}
+          etsyWhenMade={etsyWhenMade}
+          etsyIsSupply={etsyIsSupply}
+          onWhoMadeChange={setEtsyWhoMade}
+          onWhenMadeChange={setEtsyWhenMade}
+          onIsSupplyChange={setEtsyIsSupply}
+        />
+      )}
+
       {ebayConnected && (
-        <div className="space-y-4 border-t border-gray-200 pt-6 text-left">
-          <div>
-            <h3 className="text-base font-bold text-gray-900 mb-1">eBay category &amp; details</h3>
-            <p className="text-xs text-gray-500">
-              Pick the eBay category so this listing publishes with the right item specifics. eBay
-              requires certain details (Brand, Type, etc.) before a listing can go live.
-            </p>
+        <EbayListingRequirementsSection
+          ebayCategoryId={ebayCategoryId}
+          ebayCategoryLabel={ebayCategoryLabel}
+          ebayCategorySearch={ebayCategorySearch}
+          onEbayCategorySearchChange={setEbayCategorySearch}
+          ebayCategorySearchError={ebayCategorySearchError}
+          ebayCategoryResults={ebayCategoryResults}
+          ebaySearching={ebaySearching}
+          onSelectCategory={(categoryId, label) => {
+            clearEbayRequiredAspectRows(categoryAspects);
+            setEbayCategoryId(categoryId);
+            setEbayCategoryLabel(label);
+            setEbayCategoryResults([]);
+            setEbayCategorySearch("");
+            setEbayCategorySearchError(null);
+            void loadCategoryAspects(categoryId);
+          }}
+          onClearCategory={handleClearEbayCategory}
+          aspects={aspects}
+          onAspectNameChange={setAspectName}
+          onAspectValueChange={setAspectValue}
+          onRemoveAspect={removeAspectRow}
+          onAddAspect={addAspectRow}
+          isRequiredAspect={isRequiredAspect}
+          suggestionsForAspect={suggestionsForAspect}
+          categoryAspects={categoryAspects}
+        />
+      )}
+
+      {!ebayConnected && (
+      <ListingFormSection
+        title="Item Details"
+        description="Add optional descriptors for your listing (Brand, Material, Year, etc.)."
+      >
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-900">Descriptors</span>
+            <span className="text-xs text-gray-500">
+              {aspects.length}/{MAX_ASPECTS}
+            </span>
           </div>
-
-          {ebayCategoryId ? (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {ebayCategoryLabel || `eBay category #${ebayCategoryId}`}
-                </p>
-                <p className="text-xs text-gray-500">eBay category #{ebayCategoryId}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEbayCategoryId("");
-                  setEbayCategoryLabel("");
-                  setEbayCategorySearch("");
-                  setCategoryAspects([]);
-                }}
-                className="text-sm text-red-600 hover:underline shrink-0"
-              >
-                Change
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <input
-                type="text"
-                value={ebayCategorySearch}
-                onChange={(e) => setEbayCategorySearch(e.target.value)}
-                placeholder="Search eBay categories (e.g. US coins, sneakers)…"
-                className="w-full border rounded px-3 py-2"
-              />
-              {ebaySearching && <p className="text-xs text-gray-500">Searching eBay…</p>}
-              {ebayCategoryResults.length > 0 && (
-                <ul className="max-h-56 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
-                  {ebayCategoryResults.map((c) => (
-                    <li key={c.categoryId}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEbayCategoryId(c.categoryId);
-                          setEbayCategoryLabel(c.categoryPath || c.categoryName);
-                          setEbayCategoryResults([]);
-                          setEbayCategorySearch("");
-                          void loadCategoryAspects(c.categoryId);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                      >
-                        <span className="font-medium text-gray-900">{c.categoryName}</span>
-                        {c.categoryPath && c.categoryPath !== c.categoryName && (
-                          <span className="block text-xs text-gray-500 truncate">{c.categoryPath}</span>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {/* Item details (eBay item specifics) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-gray-900">Item details</span>
-              <span className="text-xs text-gray-500">
-                {aspects.length}/{MAX_ASPECTS}
-              </span>
-            </div>
-            <p className="text-xs text-gray-500">
-              Add a detail (Descriptor + Value), e.g. Brand → Nike, Year → 1921. Required details are
-              marked with *.
-            </p>
-            {aspects.map((a, i) => {
-              const required = isRequiredAspect(a.name);
-              const suggestions = suggestionsForAspect(a.name);
-              const listId = `aspect-values-${i}`;
-              return (
-                <div key={i} className="flex flex-wrap gap-2 items-start">
+          {aspects.map((a, i) => {
+            return (
+              <div key={i} className="space-y-1">
+                <div className="flex flex-wrap gap-2 items-start">
                   <input
                     type="text"
                     value={a.name}
@@ -932,26 +1048,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     placeholder="Descriptor (e.g. Brand)"
                     className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
                   />
-                  <div className="flex-1 min-w-[120px]">
-                    <input
-                      type="text"
-                      value={a.value}
-                      maxLength={EBAY_ASPECT_VALUE_MAX}
-                      list={suggestions.length > 0 ? listId : undefined}
-                      onChange={(e) => setAspectValue(i, e.target.value)}
-                      placeholder={required ? "Value (required)" : "Value"}
-                      className={`w-full border rounded px-2 py-1.5 text-sm ${
-                        required && !a.value.trim() ? "border-red-400" : ""
-                      }`}
-                    />
-                    {suggestions.length > 0 && (
-                      <datalist id={listId}>
-                        {suggestions.map((s) => (
-                          <option key={s} value={s} />
-                        ))}
-                      </datalist>
-                    )}
-                  </div>
+                  <input
+                    type="text"
+                    value={a.value}
+                    maxLength={EBAY_ASPECT_VALUE_MAX}
+                    onChange={(e) => setAspectValue(i, e.target.value)}
+                    placeholder="Value"
+                    className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
+                  />
                   <button
                     type="button"
                     onClick={() => removeAspectRow(i)}
@@ -961,38 +1065,41 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     ×
                   </button>
                 </div>
-              );
-            })}
-            {aspects.length < MAX_ASPECTS && (
-              <button
-                type="button"
-                onClick={addAspectRow}
-                className="py-2 px-4 border border-gray-300 rounded-lg bg-white text-gray-800 font-semibold text-sm hover:bg-gray-50"
-              >
-                + Add a detail
-              </button>
-            )}
-          </div>
+              </div>
+            );
+          })}
+          {aspects.length < MAX_ASPECTS && (
+            <button
+              type="button"
+              onClick={addAspectRow}
+              className="action-pill action-pill-sm btn-pill-outline"
+            >
+              + Add a detail
+            </button>
+          )}
         </div>
+      </ListingFormSection>
       )}
 
+      <ListingFormSection title="Pricing & inventory">
       {/* 5. Price */}
       <div>
-        <label className="block text-sm font-medium mb-1">Price (USD) *</label>
+        <label className={listingLabelClass}>Price (USD) *</label>
         <input
           type="number"
           step="0.01"
           min="0.01"
           value={priceDollars}
           onChange={(e) => setPriceDollars(e.target.value)}
-          className="w-full border rounded px-3 py-2 max-w-xs"
+          className={`${listingInputClass} max-w-xs`}
           required
         />
+        {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.price} /> : null}
       </div>
 
       {/* 6. Options (Enable options + Quantity) — under Price */}
-      <div className="space-y-4 border-t border-gray-200 pt-6 text-left">
-        <h3 className="text-base font-bold text-gray-900 mb-3">Options (Size, Color, etc.)</h3>
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold text-gray-900">Options (Size, Color, etc.)</h3>
         <div className="flex items-center gap-2.5 mb-4">
           <button
             type="button"
@@ -1012,15 +1119,16 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         </div>
         {!optionsEnabled ? (
           <>
-            <label className="block text-sm font-medium mb-1">Quantity *</label>
+            <label className={listingLabelClass}>Quantity *</label>
             <input
               type="number"
               min="0"
               value={quantity}
               onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)}
-              className="w-full border border-gray-300 rounded px-3 py-2 max-w-xs"
+              className={`${listingInputClass} max-w-xs`}
               placeholder="1"
             />
+            {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.quantity} /> : null}
           </>
         ) : (
           <>
@@ -1165,11 +1273,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         </div>
       )}
 
-      {/* 6. Delivery options - three toggles */}
-      {offerFlagsLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (
-      <div className="space-y-4 border-t pt-6">
-        <h3 className="font-semibold text-gray-800">Delivery options</h3>
+      </ListingFormSection>
 
+      {offerFlagsLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (
+      <ListingFormSection title="Delivery options">
         {offerShipping && (
         <>
         <label className="flex items-center gap-2 cursor-pointer">
@@ -1197,7 +1304,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 min="0"
                 value={shippingCostDollars}
                 onChange={(e) => setShippingCostDollars(e.target.value)}
-                className="w-full border rounded px-3 py-2"
+                className={listingInputClass}
                 placeholder="e.g. 5.99"
               />
               <p className="text-xs text-gray-500 mt-0.5">Price charged for shipping this item</p>
@@ -1345,37 +1452,50 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         )}
         </>
         )}
-      </div>
+      </ListingFormSection>
       )}
 
       {offerFlagsLoaded && !(offerShipping || offerLocalDelivery || offerLocalPickup) && (
-        <div className="border-t pt-6">
+        <ListingFormSection>
           <p className="text-sm text-gray-600 mb-2">
             Set your fulfillment options in Policies (shipping, local delivery, pickup) to enable them here.
           </p>
-          <a href="/my-community" className="text-primary-600 hover:underline text-sm">Open Policies</a>
-        </div>
+          <a href="/my-community" className="text-[var(--color-primary)] hover:underline text-sm">Open Policies</a>
+        </ListingFormSection>
       )}
 
-      {error && <p className="text-red-600 text-sm">{error}</p>}
-      <button type="submit" disabled={submitting} className="btn">
-        {submitting
-          ? "Saving…"
-          : existing
-            ? "Update item"
-            : "List Item"}
-      </button>
+              {existing?.id ? (
+                <ItemSyncActivityLog storeItemId={existing.id} refreshKey={syncLogRefreshKey} />
+              ) : null}
+            </>
+          }
+          footer={
+            <ListingSaveBar
+              isEdit={!!existing}
+              submitting={submitting}
+              error={error}
+              backHref={successRedirect ?? "/seller-hub/store/items"}
+            />
+          }
+        />
+      </form>
 
-    </form>
+      <ChannelPublishModal
+        open={showPublishModal}
+        onClose={() => {
+          setShowPublishModal(false);
+          pendingPayloadRef.current = null;
+        }}
+        onConfirm={handlePublishConfirm}
+      />
+
       {showSuccessModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 overflow-hidden">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 text-center">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 text-center">
             <p className="text-lg font-bold text-gray-900 mb-2">
               {editSuccess ? "Item updated" : "Item listed successfully"}
             </p>
-            <p className="text-gray-700 mb-6">
-              {editSuccess ? "Your changes have been saved." : "Your listing is now live."}
-            </p>
+            <p className="text-gray-700 mb-6">{successDetail}</p>
             <button
               type="button"
               onClick={handleSuccessModalClose}

@@ -48,12 +48,9 @@ import {
 import { TemplateSelector, type ListingTemplate } from "@/components/listing/TemplateSelector";
 import { CategorySuggestions } from "@/components/listing/CategorySuggestions";
 import { CollapsibleSection } from "@/components/listing/CollapsibleSection";
-import { RadioOptionList } from "@/components/listing/RadioOptionList";
-import { SelectField } from "@/components/listing/SelectField";
 import { EbayItemDetailsSection } from "@/components/listing/EbayItemDetailsSection";
+import { EtsyListingRequirementsSection } from "@/components/listing/EtsyListingRequirementsSection";
 import {
-  ETSY_WHO_MADE_OPTIONS,
-  ETSY_WHEN_MADE_OPTIONS,
   type EtsyWhoMade,
   type EtsyWhenMade,
   isEtsyWhoMade,
@@ -876,8 +873,18 @@ export default function ListItemScreen() {
         .map((a) => a.name);
       if (missingRequired.length > 0) {
         setError(
-          `eBay requires these item details for this category: ${missingRequired.join(", ")}. Add them under "Item details".`
+          `eBay requires these item specifics for this category: ${missingRequired.join(", ")}. Fill them in under eBay Listing Requirements.`
         );
+        return;
+      }
+    }
+    if (etsyConnected) {
+      if (!isEtsyWhoMade(etsyWhoMade)) {
+        setError('Etsy requires "Who made it?" — fill in Etsy Listing Requirements.');
+        return;
+      }
+      if (!normalizeEtsyWhenMade(etsyWhenMade)) {
+        setError('Etsy requires "When was it made?" — fill in Etsy Listing Requirements.');
         return;
       }
     }
@@ -927,6 +934,7 @@ export default function ListItemScreen() {
       ...(ebayConnected && ebayCategoryId.trim()
         ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
         : {}),
+      ...(etsyConnected ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
       description: description.trim() || null,
       photos,
       category: catTrim || null,
@@ -1291,6 +1299,17 @@ export default function ListItemScreen() {
         keyboardType="decimal-pad"
         autoCorrect={true}
       />
+
+      {etsyConnected && (
+        <EtsyListingRequirementsSection
+          etsyWhoMade={etsyWhoMade}
+          etsyWhenMade={etsyWhenMade}
+          etsyIsSupply={etsyIsSupply}
+          onWhoMadeChange={setEtsyWhoMade}
+          onWhenMadeChange={setEtsyWhenMade}
+          onIsSupplyChange={setEtsyIsSupply}
+        />
+      )}
 
       {ebayConnected && (
         <EbayItemDetailsSection
@@ -1871,42 +1890,8 @@ export default function ListItemScreen() {
           </View>
           <Text style={styles.hint}>
             When on, this listing is created/updated on your connected Etsy shop and inventory stays
-            in sync across both stores.
+            in sync across both stores. Fill in Etsy Listing Requirements above before publishing.
           </Text>
-
-          {syncToEtsy && (
-            <>
-              <Text style={styles.label}>Who made it?</Text>
-              <RadioOptionList
-                options={ETSY_WHO_MADE_OPTIONS}
-                value={etsyWhoMade}
-                onChange={(v) => setEtsyWhoMade(v as EtsyWhoMade)}
-              />
-
-              <SelectField
-                label="When was it made?"
-                value={etsyWhenMade}
-                options={ETSY_WHEN_MADE_OPTIONS}
-                onChange={(v) => setEtsyWhenMade(v as EtsyWhenMade)}
-                placeholder="Select when it was made"
-              />
-
-              <View style={styles.switchRow}>
-                <Text style={styles.switchLabel}>This is a craft supply or tool</Text>
-                <Switch
-                  value={etsyIsSupply}
-                  onValueChange={setEtsyIsSupply}
-                  trackColor={switchTrackColor()}
-                  thumbColor={switchThumbColor(etsyIsSupply)}
-                  ios_backgroundColor={switchIosBackgroundColor}
-                />
-              </View>
-              <Text style={styles.hint}>
-                Etsy requires these details to publish. Items go live only when your shop has a
-                shipping profile.
-              </Text>
-            </>
-          )}
         </CollapsibleSection>
       )}
 
