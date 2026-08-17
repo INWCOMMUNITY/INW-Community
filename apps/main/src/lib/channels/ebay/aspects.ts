@@ -36,18 +36,46 @@ export async function getDefaultCategoryTreeId(): Promise<string> {
   if (cachedTreeId && now - cachedTreeId.at < 6 * 60 * 60 * 1000) {
     return cachedTreeId.id;
   }
+  const accessToken = await getEbayApplicationAccessToken();
+  const treeUrl = `${EBAY_TAXONOMY_BASE}/get_default_category_tree_id?marketplace_id=${EBAY_TAXONOMY_MARKETPLACE_ID}`;
+  let res: { categoryTreeId?: string };
   try {
-    const accessToken = await getEbayApplicationAccessToken();
-    const res = await ebayGet<{ categoryTreeId?: string }>(
-      accessToken,
-      `${EBAY_TAXONOMY_BASE}/get_default_category_tree_id?marketplace_id=${EBAY_TAXONOMY_MARKETPLACE_ID}`
-    );
-    const id = res.categoryTreeId ?? "0";
-    cachedTreeId = { id, at: now };
-    return id;
-  } catch {
-    return "0";
+    res = await ebayGet<{ categoryTreeId?: string }>(accessToken, treeUrl);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    console.log("[debug-58be99] category tree lookup failed", {
+      runId: "verify-fix",
+      marketplaceId: EBAY_TAXONOMY_MARKETPLACE_ID,
+      error: errMsg.slice(0, 300),
+    });
+    throw e;
   }
+  const id = res.categoryTreeId?.trim();
+  if (!id) {
+    throw new Error("eBay Taxonomy API returned no category tree id.");
+  }
+  // #region agent log
+  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "58be99" },
+    body: JSON.stringify({
+      sessionId: "58be99",
+      runId: "verify-fix",
+      hypothesisId: "H1",
+      location: "aspects.ts:getDefaultCategoryTreeId",
+      message: "resolved category tree id",
+      data: { treeId: id, marketplaceId: EBAY_TAXONOMY_MARKETPLACE_ID },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+  console.log("[debug-58be99] category tree resolved", {
+    runId: "verify-fix",
+    treeId: id,
+    marketplaceId: EBAY_TAXONOMY_MARKETPLACE_ID,
+  });
+  cachedTreeId = { id, at: now };
+  return id;
 }
 
 /** Live leaf-category suggestions for a free-text query (the category picker). */
@@ -55,9 +83,6 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
   const q = query.trim();
   if (!q) return [];
   const treeId = await getDefaultCategoryTreeId();
-  if (treeId === "0") {
-    throw new Error("Could not resolve eBay category tree. Check eBay app credentials.");
-  }
   const accessToken = await getEbayApplicationAccessToken();
   const res = await ebayGet<{
     categorySuggestions?: {

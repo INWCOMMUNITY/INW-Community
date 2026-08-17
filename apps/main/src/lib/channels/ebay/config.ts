@@ -13,8 +13,8 @@ export const EBAY_SIGN_OUT_URL = "https://signin.ebay.com/logout/confirm";
 
 /** US marketplace. eBay REST headers must use simple locale tags (en-US), not browser q-values. */
 export const EBAY_MARKETPLACE_ID = "EBAY_US";
-/** Taxonomy API marketplace_id query parameter (hyphenated). */
-export const EBAY_TAXONOMY_MARKETPLACE_ID = "EBAY-US";
+/** Taxonomy API marketplace_id query parameter (underscore form per eBay spec). */
+export const EBAY_TAXONOMY_MARKETPLACE_ID = "EBAY_US";
 export const EBAY_ACCEPT_LANGUAGE = "en-US";
 export const EBAY_CONTENT_LANGUAGE = "en-US";
 export const EBAY_CURRENCY = "USD";

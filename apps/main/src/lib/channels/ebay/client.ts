@@ -37,6 +37,14 @@ function isRetryableStatus(status: number): boolean {
   return status === 429 || status === 502 || status === 503 || status === 504 || status >= 500;
 }
 
+const EBAY_FETCH_TIMEOUT_MS = 20_000;
+
+function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), EBAY_FETCH_TIMEOUT_MS);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeout));
+}
+
 /** Core eBay Sell request. Retries transient 429/5xx once after a short backoff. */
 async function ebayRequest<T>(
   accessToken: string,
@@ -46,10 +54,21 @@ async function ebayRequest<T>(
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${EBAY_API_BASE}${path}`;
   const { contentLanguage, headers: extraHeaders, ...fetchInit } = init;
-  const res = await fetch(url, {
-    ...fetchInit,
-    headers: { ...baseHeaders(accessToken, { contentLanguage }), ...(extraHeaders ?? {}) },
-  });
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(url, {
+      ...fetchInit,
+      headers: { ...baseHeaders(accessToken, { contentLanguage }), ...(extraHeaders ?? {}) },
+    });
+  } catch (e) {
+    const aborted = e instanceof Error && e.name === "AbortError";
+    throw new EbayApiError(
+      aborted ? `eBay request timed out after ${EBAY_FETCH_TIMEOUT_MS / 1000}s` : "eBay request failed",
+      aborted ? 504 : 502,
+      null,
+      path
+    );
+  }
   if (isRetryableStatus(res.status) && attempt < 2) {
     await new Promise((r) => setTimeout(r, 1100 * (attempt + 1)));
     return ebayRequest<T>(accessToken, path, init, attempt + 1);
