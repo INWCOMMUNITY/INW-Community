@@ -65,7 +65,7 @@ export default function SetUpShippoPage() {
               Select orders and click <strong>Purchase labels</strong> to buy and print on the site. Add at least one
               address to your Shippo Address Book if you haven’t already.
             </p>
-            <Link href="/seller-hub/orders" className="btn mt-4 inline-block">
+            <Link href="/seller-hub/orders?tab=ship" className="btn mt-4 inline-block">
               Go to My Orders
             </Link>
           </div>

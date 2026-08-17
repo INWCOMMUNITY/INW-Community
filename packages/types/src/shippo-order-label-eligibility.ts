@@ -8,12 +8,7 @@ export interface StoreOrderForAnotherLabel {
   shipment?: unknown | null;
 }
 
-/**
- * True when the order includes at least one line fulfilled by mail (vs pickup / local delivery only).
- */
-export function orderHasShippedLine(items: { fulfillmentType?: string | null }[] | undefined): boolean {
-  return (items ?? []).some((i) => (i.fulfillmentType ?? "ship") === "ship");
-}
+export { orderHasShippedLine } from "./store-order-fulfillment";
 
 /**
  * True when the seller may open Shippo for an additional label to the same order / address.

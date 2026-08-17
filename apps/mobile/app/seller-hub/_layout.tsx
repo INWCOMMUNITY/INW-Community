@@ -15,9 +15,7 @@ function useHeaderTitle() {
   if (path.includes("store/manage") || (last === "manage" && prev === "store")) return "Manage Store";
   if (path.includes("shippo-order")) return "Shipping label";
   if (path.includes("orders") && last !== "orders") return "Order Details";
-  if (path.includes("orders") || last === "orders") return "Storefront Orders";
-  if (path.includes("deliveries") || last === "deliveries") return "My Deliveries";
-  if (path.includes("pickups") || String(last) === "pickups") return "My Pickups";
+  if (path.includes("orders") || last === "orders") return "Fulfillment";
   if (path.includes("business-hub") || String(last) === "business-hub") return "Business Hub";
   if (path.includes("channels") && String(last) === "import") return "Import Listings";
   if (path.includes("channels") || String(last) === "channels") return "Sync Stores";

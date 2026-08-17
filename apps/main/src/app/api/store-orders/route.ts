@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, type Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
-import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
+import { orderHasShippedLine, orderHasPickupLine, orderHasLocalDeliveryLine } from "@/lib/store-order-fulfillment";
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     const mine = searchParams.get("mine");
     const buyer = searchParams.get("buyer");
     const needsShipment = searchParams.get("needsShipment") === "1";
+    const counts = searchParams.get("counts") === "1";
     const canceled = searchParams.get("canceled") === "1";
     const shipped = searchParams.get("shipped") === "1";
 
@@ -78,6 +79,57 @@ export async function GET(req: NextRequest) {
       if (!sellerSponsorOrSubscribe) {
         return NextResponse.json({ error: "Seller, Business, or Subscribe plan required" }, { status: 403 });
       }
+
+      if (counts) {
+        const orders = await prisma.storeOrder.findMany({
+          where: { sellerId: userId },
+          select: {
+            status: true,
+            shipment: { select: { id: true } },
+            shippedWithOrderId: true,
+            pickupSellerConfirmedAt: true,
+            deliveryConfirmedAt: true,
+            deliveryBuyerConfirmedAt: true,
+            items: { select: { fulfillmentType: true } },
+          },
+        });
+
+        let toShip = 0;
+        let pickups = 0;
+        let deliveries = 0;
+        let shipped = 0;
+        let canceledCount = 0;
+
+        for (const o of orders) {
+          if (o.status === "canceled" || o.status === "refunded" || o.status === "cancelled") {
+            canceledCount++;
+            continue;
+          }
+          if (o.status === "shipped" || o.status === "delivered") {
+            shipped++;
+          }
+          if (
+            o.status === "paid" &&
+            !o.shipment &&
+            !o.shippedWithOrderId &&
+            orderHasShippedLine(o.items)
+          ) {
+            toShip++;
+          }
+          if (orderHasPickupLine(o.items) && !o.pickupSellerConfirmedAt) {
+            pickups++;
+          }
+          if (
+            orderHasLocalDeliveryLine(o.items) &&
+            !(o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt)
+          ) {
+            deliveries++;
+          }
+        }
+
+        return NextResponse.json({ toShip, pickups, deliveries, shipped, canceled: canceledCount });
+      }
+
       const where: { sellerId: string; status?: string | { in: string[] } } = { sellerId: userId };
       if (needsShipment) {
         where.status = "paid";

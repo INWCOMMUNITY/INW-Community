@@ -15,10 +15,10 @@ import { splitEbayCategoryPath } from "@/lib/channels/ebay-category-aliases";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
 import { variantsFingerprint, sumVariantQuantities } from "@/lib/channels/variant-sync";
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
-import { resolveEbayLegacyListingId } from "@/lib/channels/ebay/mapping";
+import { resolveEbayLegacyListingId, indexEbayRemoteListings } from "@/lib/channels/ebay/mapping";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 type ImportSkipEntry = {
   externalListingId: string;
@@ -69,6 +69,36 @@ function describeImportError(e: unknown): string {
   }
   if (e instanceof Error) return `create_failed: ${e.message}`.slice(0, 300);
   return `create_failed: ${String(e)}`.slice(0, 300);
+}
+
+function resolveSelectedRemoteListings(
+  allRemote: Awaited<ReturnType<ReturnType<typeof getAdapter>["listRemoteListings"]>>,
+  listingIds: string[]
+) {
+  const index = indexEbayRemoteListings(allRemote);
+  const out: typeof allRemote = [];
+  const seen = new Set<string>();
+
+  for (const requestedId of listingIds) {
+    const trimmed = requestedId.trim();
+    if (!trimmed) continue;
+
+    const legacy = resolveEbayLegacyListingId(trimmed);
+    const keys = [trimmed, legacy, legacy ? `inw${legacy}` : null].filter(Boolean) as string[];
+
+    let found: (typeof allRemote)[number] | undefined;
+    for (const key of keys) {
+      found = index.get(key);
+      if (found) break;
+    }
+
+    if (found && !seen.has(found.externalListingId)) {
+      seen.add(found.externalListingId);
+      out.push(found);
+    }
+  }
+
+  return out;
 }
 
 function autoPostStoreItemToFeed(authorId: string, storeItemId: string): void {
@@ -216,17 +246,28 @@ export async function POST(req: NextRequest) {
   let remote;
   try {
     const allRemote = await getAdapter("ebay").listRemoteListings(ctx);
-    remote = allRemote.filter((l) =>
-      body.listingIds.some((requestedId) => {
-        if (l.externalListingId === requestedId) return true;
-        const remoteLegacy = resolveEbayLegacyListingId(l.externalListingId);
-        const requestedLegacy = resolveEbayLegacyListingId(requestedId);
-        return Boolean(remoteLegacy && requestedLegacy && remoteLegacy === requestedLegacy);
-      })
-    );
+    remote = resolveSelectedRemoteListings(allRemote, body.listingIds);
   } catch (e) {
     const msg = describeEbayThrownError(e);
     return NextResponse.json({ error: msg }, { status: 502 });
+  }
+
+  if (remote.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Could not match the selected listings to your active eBay inventory. Refresh the page and try again.",
+        code: "LISTINGS_NOT_FOUND",
+      },
+      { status: 400 }
+    );
+  }
+
+  if (remote.length < body.listingIds.length) {
+    console.warn("[ebay import] some selected listing ids did not match active listings", {
+      requested: body.listingIds.length,
+      matched: remote.length,
+    });
   }
 
   const titleById = new Map(remote.map((l) => [l.externalListingId, l.title]));

@@ -1,13 +1,23 @@
+export {
+  filterOrdersForDeliveryTab,
+  filterOrdersForPickupTab,
+  formatSellerOrderTotal,
+  getTrackingUrl,
+  isOrderEligibleForToShipQueue,
+  orderFulfillmentBadge,
+  orderHasLocalDeliveryLine,
+  orderHasPickupLine,
+  orderHasShippedLine,
+  sellerOrderPaymentLabel,
+  type FulfillmentTabKey,
+  type OrderLineItemSummary,
+  type StoreOrderSummary,
+} from "types";
+
+import { orderHasShippedLine } from "types";
+
 export function orderPaymentLabel(order: { stripePaymentIntentId?: string | null }): "Paid online" | "Cash due" {
   return order.stripePaymentIntentId ? "Paid online" : "Cash due";
-}
-
-export function orderHasShippedLine(items: { fulfillmentType?: string | null }[]): boolean {
-  return items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
-}
-
-export function orderHasLocalDeliveryLine(items: { fulfillmentType?: string | null }[]): boolean {
-  return items.some((i) => (i.fulfillmentType ?? "") === "local_delivery");
 }
 
 export function isPickupFullyConfirmed(order: {

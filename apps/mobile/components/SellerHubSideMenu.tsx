@@ -149,7 +149,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
 
   // Website dropdown: Actions (exclude List Item - on hub). Offer Reward/Coupon go to actual Business Hub (my-community) and open the modal there.
   const actionItems: NavItem[] = [
-    { href: "/seller-hub/orders", label: "Ship Item", icon: "boat-outline", alert: pendingShip > 0 },
+    { href: "/seller-hub/orders", label: "Fulfillment", icon: "boat-outline", alert: pendingShip > 0 },
     { href: "/(tabs)/my-community", label: "Offer Reward", icon: "gift-outline", action: "offer-reward" },
     { href: "/(tabs)/my-community", label: "Offer Coupon", icon: "pricetag-outline", action: "offer-coupon" },
     { href: "/(tabs)/my-community", label: "Create Post", icon: "megaphone-outline", action: "create-post" },

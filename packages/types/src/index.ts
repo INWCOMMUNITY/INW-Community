@@ -91,6 +91,21 @@ export {
 } from "./shippo-order-label-eligibility";
 
 export {
+  filterOrdersForDeliveryTab,
+  filterOrdersForPickupTab,
+  formatSellerOrderTotal,
+  getTrackingUrl,
+  isOrderEligibleForToShipQueue,
+  orderFulfillmentBadge,
+  orderHasLocalDeliveryLine,
+  orderHasPickupLine,
+  sellerOrderPaymentLabel,
+  type FulfillmentTabKey,
+  type OrderLineItemSummary,
+  type StoreOrderSummary,
+} from "./store-order-fulfillment";
+
+export {
   CHAT_COMPOSER_TYPING_REFRESH_MS,
   CHAT_PEER_TYPING_INDICATOR_TTL_MS,
 } from "./chat-typing-timers";

@@ -860,7 +860,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 onDismiss={() => setLastChannelSync(undefined)}
               />
 
-              <ListingFormSection title="Listing details" description="Title, description, and category.">
+              <ListingFormSection title="Listing Details" description="Title, Description, and Category.">
                 <div>
                   <label className={listingLabelClass}>Title *</label>
                   <input

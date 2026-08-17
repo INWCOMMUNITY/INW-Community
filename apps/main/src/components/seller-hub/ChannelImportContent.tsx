@@ -15,11 +15,24 @@ type RemoteListing = {
   alreadyLinked?: boolean;
 };
 
+type ImportApiResponse = {
+  error?: string;
+  hint?: string;
+  summary?: string;
+  imported?: unknown[];
+  skipped?: unknown[];
+};
+
+const IMPORT_TIMEOUT_MS: Record<string, number> = {
+  ebay: 120_000,
+};
+
 export function ChannelImportContent() {
   const searchParams = useSearchParams();
   const provider = searchParams.get("provider") || "etsy";
   const label = CHANNEL_PROVIDER_LABELS[provider] ?? provider;
   const importPath = useMemo(() => `/api/channels/${provider}/import`, [provider]);
+  const importTimeoutMs = IMPORT_TIMEOUT_MS[provider] ?? 60_000;
 
   const [listings, setListings] = useState<RemoteListing[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -27,6 +40,18 @@ export function ChannelImportContent() {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const importable = useMemo(
+    () => listings.filter((l) => !l.alreadyLinked),
+    [listings]
+  );
+  const importableIds = useMemo(
+    () => importable.map((l) => l.externalListingId),
+    [importable]
+  );
+  const allImportableSelected =
+    importableIds.length > 0 && importableIds.every((id) => selected.has(id));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,23 +86,45 @@ export function ChannelImportContent() {
     });
   };
 
+  const toggleSelectAll = () => {
+    if (allImportableSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(importableIds));
+    }
+  };
+
   const runImport = async () => {
     if (selected.size === 0) return;
     setImporting(true);
     setError(null);
     setDone(null);
+    setStatusMessage(
+      provider === "ebay"
+        ? "Importing from eBay… this can take up to a minute while listings migrate."
+        : "Importing…"
+    );
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), importTimeoutMs);
+
     try {
       const res = await fetch(importPath, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ listingIds: Array.from(selected) }),
+        signal: controller.signal,
       });
-      const data = await res.json();
+      const data = (await res.json().catch(() => ({}))) as ImportApiResponse;
+
       if (!res.ok) {
-        setError((data as { error?: string }).error ?? "Import failed. Try again.");
+        const msg = data.error ?? "Import failed. Try again.";
+        setError(msg);
+        setStatusMessage(msg);
         return;
       }
+
       const importedCount = data.imported?.length ?? 0;
       const skipped = data.skipped ?? [];
       const summary =
@@ -85,23 +132,37 @@ export function ChannelImportContent() {
         (importedCount > 0
           ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
           : "No listings were imported.");
-      setDone(summary);
-      if (importedCount === 0 && (data.hint || skipped.length > 0)) {
-        setError(data.hint ?? summary);
+
+      if (importedCount === 0) {
+        const failureMessage = data.hint ?? summary;
+        setError(failureMessage);
+        setDone(null);
+        setStatusMessage(failureMessage);
+        return;
       }
+
+      setDone(summary);
+      setError(null);
+      setStatusMessage(summary);
       setSelected(new Set());
       await load();
-    } catch {
-      setError("Import failed. Try again.");
+    } catch (e) {
+      const timedOut = e instanceof DOMException && e.name === "AbortError";
+      const msg = timedOut
+        ? "Import timed out. eBay imports can take a while — refresh the list to see if any items were added, then retry any that remain."
+        : "Import failed. Try again.";
+      setError(msg);
+      setStatusMessage(msg);
     } finally {
+      window.clearTimeout(timeout);
       setImporting(false);
     }
   };
 
-  const importable = listings.filter((l) => !l.alreadyLinked);
+  const stickyTone = error ? "text-red-700" : done ? "text-green-800" : "text-gray-600";
 
   return (
-    <div className="max-w-2xl mx-auto min-w-0 pb-24">
+    <div className="max-w-2xl mx-auto min-w-0 pb-36">
       <Link
         href="/seller-hub/channels"
         className="text-sm text-gray-600 hover:underline mb-4 inline-block"
@@ -122,6 +183,34 @@ export function ChannelImportContent() {
         <p className="text-gray-500 py-8 text-center">No {label} listings found.</p>
       ) : (
         <ul className="divide-y divide-gray-200 border-2 border-[var(--color-primary)] rounded-lg overflow-hidden bg-white">
+          {importable.length > 0 ? (
+            <li className="bg-gray-50">
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="flex w-full items-center gap-3 p-3 text-left hover:bg-gray-100 transition-colors"
+                aria-pressed={allImportableSelected}
+              >
+                <div className="h-14 w-14 shrink-0" aria-hidden />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm text-gray-900">
+                    {allImportableSelected ? "Deselect all" : "Select all"}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-0.5">
+                    {selected.size} of {importable.length} importable selected
+                  </p>
+                </div>
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border-2 border-[var(--color-primary)] text-sm font-bold ${
+                    allImportableSelected ? "bg-[var(--color-primary)] text-white" : "bg-white"
+                  }`}
+                  aria-hidden
+                >
+                  {allImportableSelected ? "✓" : ""}
+                </span>
+              </button>
+            </li>
+          ) : null}
           {listings.map((l) => {
             const isSelected = selected.has(l.externalListingId);
             return (
@@ -175,7 +264,12 @@ export function ChannelImportContent() {
 
       {importable.length > 0 ? (
         <div className="fixed bottom-0 left-0 right-0 z-40 border-t-2 border-[var(--color-primary)] bg-white p-4 shadow-lg">
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-2xl mx-auto space-y-3">
+            {statusMessage ? (
+              <p className={`text-sm whitespace-pre-wrap ${stickyTone}`} role="status">
+                {statusMessage}
+              </p>
+            ) : null}
             <button
               type="button"
               onClick={() => void runImport()}

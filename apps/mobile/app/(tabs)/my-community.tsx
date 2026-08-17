@@ -225,11 +225,11 @@ function SellerHubContent() {
   }[] = useMemo(
     () => [
       { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
-      { label: "Orders / To Ship", href: "/seller-hub/orders", icon: "receipt" },
+      { label: "Fulfillment", href: "/seller-hub/orders", icon: "receipt" },
       { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
       { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
-      { label: "Deliveries", href: "/seller-hub/deliveries", icon: "car-outline" },
-      { label: "Pick Up", href: "/seller-hub/pickups", icon: "hand-left-outline" },
+      { label: "Deliveries", href: "/seller-hub/orders?tab=deliveries", icon: "car-outline" },
+      { label: "Pick Up", href: "/seller-hub/orders?tab=pickups", icon: "hand-left-outline" },
       { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
       { label: "Sync Stores", href: "/seller-hub/channels", icon: "sync-outline" },
       { label: "Analytics", href: "/seller-hub/analytics", icon: "analytics-outline" },
@@ -246,7 +246,7 @@ function SellerHubContent() {
 
   const hubBadgeForLabel = useCallback(
     (label: string) => {
-      if (label === "Orders / To Ship") return pendingShip > 0;
+      if (label === "Fulfillment") return pendingShip > 0;
       if (label === "Deliveries") return pendingDeliveries > 0;
       if (label === "Pick Up") return pendingPickups > 0;
       return false;

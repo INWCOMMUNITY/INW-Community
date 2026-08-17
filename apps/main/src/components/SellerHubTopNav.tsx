@@ -99,9 +99,7 @@ export function SellerHubTopNav() {
 
   const storefrontChildren: Child[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
-    { href: "/seller-hub/orders", label: "Orders", icon: "receipt-outline" },
-    { href: "/seller-hub/pickups", label: "Pickups", icon: "hand-left-outline" },
-    { href: "/seller-hub/deliveries", label: "Deliveries", icon: "car-outline" },
+    { href: "/seller-hub/orders", label: "Fulfillment", icon: "receipt-outline" },
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
     { href: "/seller-hub/store/cancellations", label: "Cancellations", icon: "close-circle-outline" },
     { href: "/seller-hub/policies", label: "Policies", icon: "book-outline" },
@@ -109,7 +107,7 @@ export function SellerHubTopNav() {
 
   const actionsChildren: Child[] = [
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
-    { href: "/seller-hub/orders", label: "Ship Item", icon: "boat-outline" },
+    { href: "/seller-hub/orders?tab=ship", label: "Fulfillment", icon: "boat-outline" },
     { href: "/business-hub?from=seller-hub&open=reward", label: "Offer Reward", icon: "gift-outline" },
     { href: "/business-hub?from=seller-hub&open=coupon", label: "Offer Coupon", icon: "pricetag-outline" },
     { href: "/my-community", label: "Create Post", icon: "megaphone-outline" },
