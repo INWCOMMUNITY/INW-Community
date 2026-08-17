@@ -7,7 +7,7 @@
  */
 
 import { ebayGet } from "./client";
-import { EBAY_APIZ_BASE, EBAY_MARKETPLACE_ID } from "./config";
+import { EBAY_TAXONOMY_BASE, EBAY_TAXONOMY_MARKETPLACE_ID } from "./config";
 import { getEbayApplicationAccessToken } from "./oauth";
 
 export type EbayCategorySuggestion = {
@@ -40,7 +40,7 @@ export async function getDefaultCategoryTreeId(): Promise<string> {
     const accessToken = await getEbayApplicationAccessToken();
     const res = await ebayGet<{ categoryTreeId?: string }>(
       accessToken,
-      `${EBAY_APIZ_BASE}/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=${EBAY_MARKETPLACE_ID}`
+      `${EBAY_TAXONOMY_BASE}/get_default_category_tree_id?marketplace_id=${EBAY_TAXONOMY_MARKETPLACE_ID}`
     );
     const id = res.categoryTreeId ?? "0";
     cachedTreeId = { id, at: now };
@@ -66,7 +66,7 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
     }[];
   }>(
     accessToken,
-    `${EBAY_APIZ_BASE}/commerce/taxonomy/v1/category_tree/${encodeURIComponent(
+    `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
       treeId
     )}/get_category_suggestions?q=${encodeURIComponent(q)}`
   );
@@ -110,7 +110,7 @@ export async function getItemAspectsForCategory(categoryId: string): Promise<Eba
   const accessToken = await getEbayApplicationAccessToken();
   const res = await ebayGet<AspectApiResponse>(
     accessToken,
-    `${EBAY_APIZ_BASE}/commerce/taxonomy/v1/category_tree/${encodeURIComponent(
+    `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
       treeId
     )}/get_item_aspects_for_category?category_id=${encodeURIComponent(id)}`
   );

@@ -163,6 +163,20 @@ export async function getMemberConnectionContextWithError(
   };
 }
 
+/** eBay row exists and is not disconnected (taxonomy uses app tokens, not user OAuth). */
+export async function memberHasEbayConnection(
+  memberId: string
+): Promise<{ connected: boolean; status: string | null }> {
+  const conn = await prisma.channelConnection.findUnique({
+    where: { memberId_provider: { memberId, provider: "ebay" } },
+    select: { status: true },
+  });
+  if (!conn || conn.status === "disconnected") {
+    return { connected: false, status: conn?.status ?? null };
+  }
+  return { connected: true, status: conn.status };
+}
+
 /** Every connection a member has that is eligible for syncing (not disconnected). */
 export async function getActiveConnectionsForMember(
   memberId: string

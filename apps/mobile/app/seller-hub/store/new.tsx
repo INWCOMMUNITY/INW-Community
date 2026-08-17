@@ -179,6 +179,7 @@ export default function ListItemScreen() {
   const [etsyIsSupply, setEtsyIsSupply] = useState(false);
   // Channel sync (eBay). Only shown when the seller has connected an eBay account.
   const [ebayConnected, setEbayConnected] = useState(false);
+  const [hasEbayConnection, setHasEbayConnection] = useState(false);
   const [ebayCategoryId, setEbayCategoryId] = useState("");
   const [ebayCategoryLabel, setEbayCategoryLabel] = useState("");
   const [ebayCategorySearch, setEbayCategorySearch] = useState("");
@@ -509,11 +510,13 @@ export default function ListItemScreen() {
       .then((list) => {
         setChannelConnections(list);
         setEtsyConnected(list.some((c) => c.provider === "etsy" && c.status === "active"));
+        setHasEbayConnection(list.some((c) => c.provider === "ebay" && c.status !== "disconnected"));
         setEbayConnected(list.some((c) => c.provider === "ebay" && c.status === "active"));
       })
       .catch(() => {
         setChannelConnections([]);
         setEtsyConnected(false);
+        setHasEbayConnection(false);
         setEbayConnected(false);
       });
     apiGet<PoliciesResponse>("/api/me/policies")
@@ -580,7 +583,7 @@ export default function ListItemScreen() {
 
   // Debounced live eBay category search.
   useEffect(() => {
-    if (!ebayConnected) return;
+    if (!hasEbayConnection) return;
     const q = ebayCategorySearch.trim();
     if (q.length < 2) {
       setEbayCategoryResults([]);
@@ -606,7 +609,7 @@ export default function ListItemScreen() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [ebayCategorySearch, ebayConnected]);
+  }, [ebayCategorySearch, hasEbayConnection]);
 
   // Load aspects for a previously-saved eBay category once the connection is known.
   useEffect(() => {
@@ -1311,7 +1314,7 @@ export default function ListItemScreen() {
         />
       )}
 
-      {ebayConnected && (
+      {hasEbayConnection && (
         <EbayItemDetailsSection
           ebayCategoryId={ebayCategoryId}
           ebayCategoryLabel={ebayCategoryLabel}
@@ -1364,7 +1367,7 @@ export default function ListItemScreen() {
             setEbayCategoryLabel(catPath);
             void loadCategoryAspects(catId);
           }}
-          ebayConnected={ebayConnected}
+          ebayConnected={hasEbayConnection}
           showInwSuggestion={!category}
         />
       )}

@@ -6,7 +6,7 @@
 import { prisma } from "database";
 import { getConnectionContext } from "./connection";
 import { ebayGet } from "./ebay/client";
-import { EBAY_APIZ_BASE, EBAY_MARKETPLACE_ID } from "./ebay/config";
+import { EBAY_TAXONOMY_BASE, EBAY_TAXONOMY_MARKETPLACE_ID } from "./ebay/config";
 import { getDefaultCategoryTreeId } from "./ebay/aspects";
 import { getEbayApplicationAccessToken } from "./ebay/oauth";
 import { etsyGet } from "./etsy/client";
@@ -132,7 +132,7 @@ export async function syncEbayCategoryTreeMappings(
   const treeId = await getDefaultCategoryTreeId();
   const res = await ebayGet<{ rootCategoryNode?: EbayTreeNode }>(
     accessToken,
-    `${EBAY_APIZ_BASE}/commerce/taxonomy/v1/category_tree/${encodeURIComponent(treeId)}`
+    `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(treeId)}`
   );
 
   const flat: Array<{ id: string; path: string }> = [];

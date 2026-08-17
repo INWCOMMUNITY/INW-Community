@@ -368,8 +368,28 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
 
   // Debounced live eBay category search.
   useEffect(() => {
-    if (!ebayConnected) return;
     const q = ebayCategorySearch.trim();
+    // #region agent log
+    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "58be99" },
+      body: JSON.stringify({
+        sessionId: "58be99",
+        runId: "pre-fix",
+        hypothesisId: "H1",
+        location: "StoreItemForm.tsx:ebayCategorySearchEffect",
+        message: "category search effect",
+        data: {
+          ebayConnected,
+          hasEbayConnection,
+          queryLen: q.length,
+          willFetch: hasEbayConnection && q.length >= 2,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    if (!hasEbayConnection) return;
     if (q.length < 2) {
       setEbayCategoryResults([]);
       setEbayCategorySearchError(null);
@@ -383,11 +403,41 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         credentials: "include",
       })
         .then(async (r) => {
-          const data: { categories?: EbayCategorySuggestion[]; error?: string } = await r.json();
+          const ct = r.headers.get("content-type") ?? "";
+          let data: { categories?: EbayCategorySuggestion[]; error?: string } = {};
+          if (ct.includes("application/json")) {
+            data = await r.json();
+          }
           if (cancelled) return;
+          // #region agent log
+          fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "58be99" },
+            body: JSON.stringify({
+              sessionId: "58be99",
+              runId: "post-fix",
+              hypothesisId: "H2-H5",
+              location: "StoreItemForm.tsx:ebayCategorySearchFetch",
+              message: "category search response",
+              data: {
+                httpStatus: r.status,
+                ok: r.ok,
+                json: ct.includes("application/json"),
+                resultCount: data.categories?.length ?? 0,
+                error: data.error?.slice(0, 120) ?? null,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
           if (!r.ok) {
             setEbayCategoryResults([]);
-            setEbayCategorySearchError(data.error ?? "Category search failed. Try reconnecting eBay in Sync Stores.");
+            setEbayCategorySearchError(
+              data.error ??
+                (r.status >= 500
+                  ? "Category search is temporarily unavailable. Try again in a moment."
+                  : "Category search failed. Try reconnecting eBay in Sync Stores.")
+            );
             return;
           }
           setEbayCategorySearchError(null);
@@ -407,7 +457,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       cancelled = true;
       clearTimeout(t);
     };
-  }, [ebayCategorySearch, ebayConnected]);
+  }, [ebayCategorySearch, hasEbayConnection]);
 
   // When an eBay category is chosen, load its required/recommended item specifics and pre-seed rows.
   const loadCategoryAspects = useCallback(
@@ -1026,7 +1076,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           ebayCategoryResults={ebayCategoryResults}
           ebaySearching={ebaySearching}
           connectionError={ebayConnectionError}
-          categorySearchEnabled={ebayConnected}
+          categorySearchEnabled={hasEbayConnection}
           onSelectCategory={(categoryId, label) => {
             clearEbayRequiredAspectRows(categoryAspects);
             setEbayCategoryId(categoryId);

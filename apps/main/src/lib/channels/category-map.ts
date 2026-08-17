@@ -1,7 +1,7 @@
 import { prisma } from "database";
 import { etsyGet } from "./etsy/client";
 import { ebayGet } from "./ebay/client";
-import { EBAY_APIZ_BASE, EBAY_MARKETPLACE_ID } from "./ebay/config";
+import { EBAY_TAXONOMY_BASE, EBAY_TAXONOMY_MARKETPLACE_ID } from "./ebay/config";
 import type { ChannelConnectionContext, ChannelProvider } from "./types";
 
 export type CategoryMapEntry = {
@@ -80,7 +80,7 @@ async function ebayCategoryTreeId(accessToken: string): Promise<string> {
   try {
     const res = await ebayGet<{ categoryTreeId?: string }>(
       accessToken,
-      `${EBAY_APIZ_BASE}/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=${EBAY_MARKETPLACE_ID}`
+      `${EBAY_TAXONOMY_BASE}/get_default_category_tree_id?marketplace_id=${EBAY_TAXONOMY_MARKETPLACE_ID}`
     );
     return res.categoryTreeId ?? "0";
   } catch {
@@ -97,7 +97,7 @@ async function searchEbayCategory(accessToken: string, keyword: string): Promise
       categorySuggestions?: { category?: { categoryId?: string; categoryName?: string } }[];
     }>(
       accessToken,
-      `${EBAY_APIZ_BASE}/commerce/taxonomy/v1/category_tree/${encodeURIComponent(treeId)}/get_category_suggestions?q=${encodeURIComponent(q)}`
+      `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(treeId)}/get_category_suggestions?q=${encodeURIComponent(q)}`
     );
     const first = res.categorySuggestions?.[0]?.category?.categoryId;
     return first ?? null;

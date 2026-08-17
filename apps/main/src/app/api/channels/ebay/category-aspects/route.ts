@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getMemberConnectionContext } from "@/lib/channels/connection";
+import { memberHasEbayConnection } from "@/lib/channels/connection";
 import { getItemAspectsForCategory } from "@/lib/channels/ebay/aspects";
 import { describeEbayThrownError } from "@/lib/channels/ebay/errors";
 
@@ -22,11 +22,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "categoryId is required" }, { status: 400 });
   }
 
-  const conn = await getMemberConnectionContext(userId, "ebay");
-  if (!conn) {
+  const { connected } = await memberHasEbayConnection(userId);
+  if (!connected) {
     return NextResponse.json(
-      { error: "Connect your eBay account to load item specifics." },
-      { status: 400 }
+      { error: "Connect your eBay account in Sync Stores to load item specifics." },
+      { status: 401 }
     );
   }
 

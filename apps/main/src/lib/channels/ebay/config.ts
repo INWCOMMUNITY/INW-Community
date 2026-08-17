@@ -4,6 +4,8 @@
 export const EBAY_API_BASE = "https://api.ebay.com";
 // Identity / commerce APIs live on the apiz host.
 export const EBAY_APIZ_BASE = "https://apiz.ebay.com";
+/** Commerce Taxonomy API (category search + item specifics). */
+export const EBAY_TAXONOMY_BASE = `${EBAY_API_BASE}/commerce/taxonomy/v1`;
 export const EBAY_AUTH_URL = "https://auth.ebay.com/oauth2/authorize";
 export const EBAY_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token";
 /** Opens eBay's sign-out page in the device browser (clears the shared OAuth cookie session). */
@@ -11,6 +13,8 @@ export const EBAY_SIGN_OUT_URL = "https://signin.ebay.com/logout/confirm";
 
 /** US marketplace. eBay REST headers must use simple locale tags (en-US), not browser q-values. */
 export const EBAY_MARKETPLACE_ID = "EBAY_US";
+/** Taxonomy API marketplace_id query parameter (hyphenated). */
+export const EBAY_TAXONOMY_MARKETPLACE_ID = "EBAY-US";
 export const EBAY_ACCEPT_LANGUAGE = "en-US";
 export const EBAY_CONTENT_LANGUAGE = "en-US";
 export const EBAY_CURRENCY = "USD";
