@@ -56,6 +56,9 @@ export async function searchEbayCategories(
   const q = query.trim();
   if (!q) return [];
   const treeId = await getDefaultCategoryTreeId(accessToken);
+  if (treeId === "0") {
+    throw new Error("Could not resolve eBay category tree. Reconnect eBay in Sync Stores.");
+  }
   const res = await ebayGet<{
     categorySuggestions?: {
       category?: { categoryId?: string; categoryName?: string };

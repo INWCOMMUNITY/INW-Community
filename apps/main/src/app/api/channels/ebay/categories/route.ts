@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getMemberConnectionContext } from "@/lib/channels/connection";
+import { getMemberConnectionContextWithError } from "@/lib/channels/connection";
 import { searchEbayCategories } from "@/lib/channels/ebay/aspects";
 import { describeEbayThrownError } from "@/lib/channels/ebay/errors";
 
@@ -19,11 +19,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ categories: [] });
   }
 
-  const conn = await getMemberConnectionContext(userId, "ebay");
+  const { ctx: conn, error: connError } = await getMemberConnectionContextWithError(userId, "ebay");
   if (!conn) {
     return NextResponse.json(
-      { error: "Connect your eBay account to search categories." },
-      { status: 400 }
+      { error: connError ?? "Connect your eBay account to search categories." },
+      { status: 401 }
     );
   }
 

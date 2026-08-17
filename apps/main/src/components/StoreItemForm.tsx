@@ -125,6 +125,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   });
   // eBay / Etsy integration: channel-specific listing requirements.
   const [ebayConnected, setEbayConnected] = useState(false);
+  const [hasEbayConnection, setHasEbayConnection] = useState(false);
+  const [ebayConnectionError, setEbayConnectionError] = useState<string | null>(null);
   const [etsyConnected, setEtsyConnected] = useState(false);
   const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>(() =>
     isEtsyWhoMade(existing?.etsyWhoMade) ? existing!.etsyWhoMade! : "i_did"
@@ -312,10 +314,17 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   useEffect(() => {
     fetch("/api/channels", { credentials: "include" })
       .then((r) => r.json())
-      .then((data: { provider?: string; status?: string }[]) => {
+      .then((data: { provider?: string; status?: string; lastError?: string | null }[]) => {
         if (Array.isArray(data)) {
-          setEbayConnected(
-            data.some((c) => c.provider === "ebay" && c.status === "active")
+          const ebayConn = data.find((c) => c.provider === "ebay");
+          setHasEbayConnection(
+            Boolean(ebayConn && ebayConn.status !== "disconnected")
+          );
+          setEbayConnected(ebayConn?.status === "active");
+          setEbayConnectionError(
+            ebayConn?.status === "error"
+              ? ebayConn.lastError?.trim() || "Reconnect eBay in Sync Stores."
+              : null
           );
           setEtsyConnected(
             data.some((c) => c.provider === "etsy" && c.status === "active")
@@ -327,6 +336,19 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       })
       .catch(() => {});
   }, []);
+
+  // If eBay category search fails with reconnect guidance, refresh connection status in the UI.
+  useEffect(() => {
+    if (!ebayCategorySearchError) return;
+    if (!/reconnect|sync stores|unavailable|decrypt|expired/i.test(ebayCategorySearchError)) return;
+    fetch("/api/channels", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: { provider?: string; status?: string }[]) => {
+        if (!Array.isArray(data)) return;
+        setEbayConnected(data.some((c) => c.provider === "ebay" && c.status === "active"));
+      })
+      .catch(() => {});
+  }, [ebayCategorySearchError]);
 
   useEffect(() => {
     fetchChannelConnections()
@@ -994,7 +1016,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         />
       )}
 
-      {ebayConnected && (
+      {hasEbayConnection && (
         <EbayListingRequirementsSection
           ebayCategoryId={ebayCategoryId}
           ebayCategoryLabel={ebayCategoryLabel}
@@ -1003,6 +1025,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           ebayCategorySearchError={ebayCategorySearchError}
           ebayCategoryResults={ebayCategoryResults}
           ebaySearching={ebaySearching}
+          connectionError={ebayConnectionError}
+          categorySearchEnabled={ebayConnected}
           onSelectCategory={(categoryId, label) => {
             clearEbayRequiredAspectRows(categoryAspects);
             setEbayCategoryId(categoryId);
@@ -1024,7 +1048,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         />
       )}
 
-      {!ebayConnected && (
+      {!hasEbayConnection && (
       <ListingFormSection
         title="Item Details"
         description="Add optional descriptors for your listing (Brand, Material, Year, etc.)."

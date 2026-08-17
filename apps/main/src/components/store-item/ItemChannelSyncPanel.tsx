@@ -118,9 +118,28 @@ export function ItemChannelSyncPanel({
         method: "POST",
         credentials: "include",
       });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        results?: {
+          provider: string;
+          ok: boolean;
+          error?: string;
+          outbound?: { pushed: number; errors: string[] };
+        }[];
+      };
+      const resultErrors = (data.results ?? []).flatMap((r) => {
+        const lines: string[] = [];
+        if (r.error) lines.push(`${r.provider}: ${r.error}`);
+        for (const err of r.outbound?.errors ?? []) {
+          lines.push(`${r.provider}: ${err}`);
+        }
+        return lines;
+      });
       if (!res.ok || data.ok === false) {
-        setActionMessage((data as { error?: string }).error ?? "Sync failed");
+        setActionMessage(resultErrors[0] ?? data.error ?? "Sync failed");
+      } else if (resultErrors.length > 0) {
+        setActionMessage(resultErrors.join(" "));
       } else {
         setActionMessage("Sync completed.");
         await refreshLinks();

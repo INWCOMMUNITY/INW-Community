@@ -33,12 +33,32 @@ export async function getConnectionContext(
   let accessToken: string;
   try {
     accessToken = decrypt(connection.accessTokenEncrypted);
-  } catch {
+  } catch (e) {
+    const errMsg =
+      "Stored channel tokens could not be decrypted. Disconnect and reconnect in Sync Stores.";
+    await prisma.channelConnection
+      .update({
+        where: { id: connection.id },
+        data: { status: "error", lastError: errMsg },
+      })
+      .catch(() => {});
+    logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
     return null;
   }
 
   const expiresAt = connection.tokenExpiresAt?.getTime();
   const expired = expiresAt != null && expiresAt - REFRESH_SKEW_MS < Date.now();
+  if (expired && !connection.refreshTokenEncrypted) {
+    const errMsg = "Channel access token expired with no refresh token. Reconnect in Sync Stores.";
+    await prisma.channelConnection
+      .update({
+        where: { id: connection.id },
+        data: { status: "error", lastError: errMsg },
+      })
+      .catch(() => {});
+    logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
+    return null;
+  }
   if (expired && connection.refreshTokenEncrypted) {
     try {
       const refreshToken = decrypt(connection.refreshTokenEncrypted);
@@ -111,8 +131,36 @@ export async function getMemberConnectionContext(
   const conn = await prisma.channelConnection.findUnique({
     where: { memberId_provider: { memberId, provider } },
   });
-  if (!conn) return null;
+  if (!conn || conn.status === "disconnected") return null;
   return getConnectionContext(conn);
+}
+
+/** Like getMemberConnectionContext but returns a user-facing error when the row exists but tokens are unusable. */
+export async function getMemberConnectionContextWithError(
+  memberId: string,
+  provider: ChannelProvider
+): Promise<{ ctx: ChannelConnectionContext | null; error: string | null }> {
+  const conn = await prisma.channelConnection.findUnique({
+    where: { memberId_provider: { memberId, provider } },
+  });
+  if (!conn || conn.status === "disconnected") {
+    return { ctx: null, error: `Connect your ${provider} account in Sync Stores.` };
+  }
+  const ctx = await getConnectionContext(conn);
+  if (ctx) return { ctx, error: null };
+  const latest = await prisma.channelConnection.findUnique({
+    where: { id: conn.id },
+    select: { lastError: true, status: true },
+  });
+  const label = provider.charAt(0).toUpperCase() + provider.slice(1);
+  return {
+    ctx: null,
+    error:
+      latest?.lastError ??
+      (latest?.status === "error"
+        ? `${label} connection needs reconnecting. Open Sync Stores and reconnect.`
+        : `${label} connection is unavailable. Reconnect in Sync Stores.`),
+  };
 }
 
 /** Every connection a member has that is eligible for syncing (not disconnected). */

@@ -35,6 +35,9 @@ type EbayListingRequirementsSectionProps = {
   ebayCategorySearchError: string | null;
   ebayCategoryResults: EbayCategorySuggestion[];
   ebaySearching: boolean;
+  /** When set, tokens are unusable — show reconnect guidance instead of search. */
+  connectionError?: string | null;
+  categorySearchEnabled?: boolean;
   onSelectCategory: (categoryId: string, label: string) => void;
   onClearCategory: () => void;
   aspects: ListingAspect[];
@@ -55,6 +58,8 @@ export function EbayListingRequirementsSection({
   ebayCategorySearchError,
   ebayCategoryResults,
   ebaySearching,
+  connectionError,
+  categorySearchEnabled = true,
   onSelectCategory,
   onClearCategory,
   aspects,
@@ -99,6 +104,16 @@ export function EbayListingRequirementsSection({
         marked with *.
       </p>
 
+      {connectionError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+          <p className="font-medium">eBay connection needs attention</p>
+          <p className="mt-1 text-xs">{connectionError}</p>
+          <a href="/seller-hub/channels" className="mt-2 inline-block text-xs font-semibold underline">
+            Open Sync Stores to reconnect eBay →
+          </a>
+        </div>
+      ) : null}
+
       <div>
         <p className="text-sm font-semibold text-gray-900 mb-2">eBay category</p>
         {ebayCategoryId ? (
@@ -125,8 +140,14 @@ export function EbayListingRequirementsSection({
               onChange={(e) => onEbayCategorySearchChange(e.target.value)}
               placeholder="Search eBay categories (e.g. US coins, sneakers)…"
               className={listingInputClass}
+              disabled={!categorySearchEnabled}
             />
-            <p className={listingHintClass}>Type at least 2 characters to search.</p>
+            {!categorySearchEnabled && !connectionError ? (
+              <p className="text-xs text-gray-500">Connect eBay in Sync Stores to search categories.</p>
+            ) : null}
+            {categorySearchEnabled ? (
+              <p className={listingHintClass}>Type at least 2 characters to search.</p>
+            ) : null}
             {ebaySearching && <p className="text-xs text-gray-500">Searching eBay…</p>}
             {ebayCategorySearchError ? (
               <p className="text-xs text-red-600" role="alert">

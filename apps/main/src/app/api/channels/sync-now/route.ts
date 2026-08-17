@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { getConnectionContext } from "@/lib/channels/connection";
 import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbound-catalog";
 import { updateStoreItemOnChannels } from "@/lib/channels/outbound";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
@@ -89,6 +90,21 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+      const ctx = await getConnectionContext(conn);
+      if (!ctx) {
+        const latest = await prisma.channelConnection.findUnique({
+          where: { id: conn.id },
+          select: { lastError: true },
+        });
+        result.ok = false;
+        result.error =
+          latest?.lastError ??
+          `${provider.charAt(0).toUpperCase() + provider.slice(1)} connection needs reconnecting. Open Sync Stores.`;
+        result.durationMs = Date.now() - connStart;
+        results.push(result);
+        continue;
+      }
+
       // INBOUND: Pull changes from channel to INW
       if (direction === "inbound" || direction === "both") {
         console.log("[sync-now] starting inbound sync", { provider, connectionId: conn.id });
@@ -118,23 +134,45 @@ export async function POST(req: NextRequest) {
         const errors: string[] = [];
         let pushed = 0;
 
-        for (const link of links) {
-          try {
-            const contentResults = await updateStoreItemOnChannels(link.storeItemId);
-            const inventoryResults = await syncInventoryToChannels(link.storeItemId);
-            
-            const providerResult = [...contentResults, ...inventoryResults].find(
-              (r) => r.provider === provider
+        if (storeItemId && links.length === 0) {
+          const { publishStoreItemToChannels } = await import("@/lib/channels/outbound");
+          const publishResults = await publishStoreItemToChannels(storeItemId, conn.memberId, {
+            providers: [provider],
+          });
+          const pr = publishResults.find((r) => r.provider === provider);
+          if (pr?.ok) {
+            pushed = 1;
+          } else if (pr?.error) {
+            errors.push(pr.error);
+          } else {
+            errors.push(
+              "No listing was published — check eBay category, photos, and business policies in Sync Stores."
             );
-            
-            if (providerResult?.ok) {
-              pushed++;
-            } else if (providerResult?.error) {
-              errors.push(`${link.storeItemId}: ${providerResult.error}`);
-            }
-          } catch (e) {
-            errors.push(`${link.storeItemId}: ${String(e)}`);
           }
+        } else {
+          for (const link of links) {
+            try {
+              const contentResults = await updateStoreItemOnChannels(link.storeItemId);
+              const inventoryResults = await syncInventoryToChannels(link.storeItemId);
+
+              const providerResult = [...contentResults, ...inventoryResults].find(
+                (r) => r.provider === provider
+              );
+
+              if (providerResult?.ok) {
+                pushed++;
+              } else if (providerResult?.error) {
+                errors.push(`${link.storeItemId}: ${providerResult.error}`);
+              }
+            } catch (e) {
+              errors.push(`${link.storeItemId}: ${String(e)}`);
+            }
+          }
+        }
+
+        if (storeItemId && pushed === 0 && errors.length > 0) {
+          result.ok = false;
+          result.error = errors[0];
         }
 
         result.outbound = { pushed, errors: errors.slice(0, 5) }; // Limit error count
