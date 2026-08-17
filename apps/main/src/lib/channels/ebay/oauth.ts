@@ -1,4 +1,5 @@
 import {
+  EBAY_APPLICATION_SCOPE,
   EBAY_AUTH_URL,
   EBAY_SCOPES,
   EBAY_TOKEN_URL,
@@ -127,6 +128,42 @@ export async function refreshEbayToken(refreshToken: string): Promise<TokenRespo
       scope: EBAY_SCOPES.join(" "),
     })
   );
+}
+
+let cachedApplicationToken: { token: string; expiresAtMs: number } | null = null;
+
+/** Client-credentials token for Taxonomy and other app-level read APIs (no user consent). */
+export async function getEbayApplicationAccessToken(): Promise<string> {
+  const now = Date.now();
+  if (cachedApplicationToken && cachedApplicationToken.expiresAtMs > now + 60_000) {
+    return cachedApplicationToken.token;
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "client_credentials",
+    scope: EBAY_APPLICATION_SCOPE,
+  });
+  const res = await fetch(EBAY_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: basicAuthHeader(),
+    },
+    body: body.toString(),
+  });
+  const data = (await res.json().catch(() => null)) as EbayTokenPayload | null;
+  if (!res.ok || !data?.access_token) {
+    const msg =
+      data?.error_description || data?.error || `eBay application token failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  const expiresInSec = data.expires_in ?? 7200;
+  cachedApplicationToken = {
+    token: data.access_token,
+    expiresAtMs: now + expiresInSec * 1000,
+  };
+  return data.access_token;
 }
 
 /** Resolve the seller's eBay username via the Commerce Identity API (apiz host). */

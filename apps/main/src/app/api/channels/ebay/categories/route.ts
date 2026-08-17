@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const categories = await searchEbayCategories(conn.accessToken, q);
+    const categories = await searchEbayCategories(q);
     return NextResponse.json({ categories });
   } catch (e) {
     return NextResponse.json({ error: describeEbayThrownError(e) }, { status: 502 });

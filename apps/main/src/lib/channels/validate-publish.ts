@@ -235,10 +235,7 @@ async function validateEbayAspects(
   if (!item.ebayCategoryId) return;
 
   try {
-    const categoryAspects = await getItemAspectsForCategory(
-      accessToken,
-      String(item.ebayCategoryId)
-    );
+    const categoryAspects = await getItemAspectsForCategory(String(item.ebayCategoryId));
     const itemAspects = parseStoredAspects(item.aspects);
     const itemAspectMap = new Map<string, string>();
     for (const a of itemAspects) {

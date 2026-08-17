@@ -24,15 +24,19 @@ export const EBAY_TRADING_COMPAT_LEVEL = "1193";
  * - sell.account: read business policies (payment/return/fulfillment)
  * - sell.fulfillment: read orders for sale detection (pooled inventory)
  * - commerce.identity.readonly: resolve the seller's username
- * - commerce.catalog.readonly: Taxonomy API (category search + item specifics)
+ *
+ * Taxonomy (category search + item specifics) uses a separate application token
+ * (client_credentials + api_scope) — not a user OAuth scope.
  */
 export const EBAY_SCOPES = [
   "https://api.ebay.com/oauth/api_scope/sell.inventory",
   "https://api.ebay.com/oauth/api_scope/sell.account",
   "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
   "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
-  "https://api.ebay.com/oauth/api_scope/commerce.catalog.readonly",
 ];
+
+/** Application token scope for read-only public/commerce APIs (Taxonomy). */
+export const EBAY_APPLICATION_SCOPE = "https://api.ebay.com/oauth/api_scope";
 
 export type EbayAppConfig = {
   clientId: string;

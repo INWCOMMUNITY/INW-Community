@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const aspects = await getItemAspectsForCategory(conn.accessToken, categoryId);
+    const aspects = await getItemAspectsForCategory(categoryId);
     return NextResponse.json({ aspects });
   } catch (e) {
     return NextResponse.json({ error: describeEbayThrownError(e) }, { status: 502 });

@@ -264,7 +264,10 @@ async function enrichPhotosViaGetItem(
 }
 
 /** Enumerate the seller's active classic listings via Trading API GetMyeBaySelling. */
-export async function enumerateEbayListings(accessToken: string): Promise<EbayTradingListing[]> {
+export async function enumerateEbayListings(
+  accessToken: string,
+  opts?: { skipPhotoEnrichment?: boolean }
+): Promise<EbayTradingListing[]> {
   const out: EbayTradingListing[] = [];
   for (let page = 1; page <= 10; page += 1) {
     const xml = await callTrading(accessToken, "GetMyeBaySelling", buildGetMyeBaySellingXml(page));
@@ -300,7 +303,9 @@ export async function enumerateEbayListings(accessToken: string): Promise<EbayTr
     // Stop early if this page was not full (no further pages).
     if (items.length < 100) break;
   }
-  await enrichPhotosViaGetItem(accessToken, out);
+  if (!opts?.skipPhotoEnrichment) {
+    await enrichPhotosViaGetItem(accessToken, out);
+  }
   return out;
 }
 

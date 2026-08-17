@@ -127,9 +127,16 @@ export async function reconcileConnectionInboundMeta(
   const ctx = await getConnectionContext(connection);
   if (!ctx) return { updated: 0, removed: 0 };
 
+  const linkCount = await prisma.channelListingLink.count({
+    where: { connectionId: connection.id, provider, syncEnabled: true },
+  });
+  if (linkCount === 0) return { updated: 0, removed: 0 };
+
   let remoteList: RemoteListingSummary[];
   try {
-    remoteList = await getAdapter(provider).listRemoteListings(ctx);
+    remoteList = await getAdapter(provider).listRemoteListings(ctx, {
+      skipPhotoEnrichment: provider === "ebay",
+    });
   } catch (e) {
     console.error("[channels] inbound meta list failed", { provider, error: String(e) });
     return { updated: 0, removed: 0 };

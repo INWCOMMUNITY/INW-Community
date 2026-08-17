@@ -164,11 +164,43 @@ export async function reconcileConnectionInboundCatalog(
     return { updated: 0, removed: 0 };
   }
 
+  const links = (await prisma.channelListingLink.findMany({
+    where: { connectionId: connection.id, provider, syncEnabled: true },
+    select: {
+      id: true,
+      storeItemId: true,
+      externalListingId: true,
+      syncBaselineHash: true,
+      syncBaselineQty: true,
+      syncBaselineAt: true,
+      storeItem: {
+        select: {
+          title: true,
+          description: true,
+          photos: true,
+          priceCents: true,
+          quantity: true,
+          updatedAt: true,
+        },
+      },
+    },
+  })) as LinkRow[];
+
+  if (links.length === 0) {
+    console.log("[channels] no linked listings to sync", {
+      connectionId: connection.id,
+      provider,
+    });
+    return { updated: 0, removed: 0 };
+  }
+
   let remoteList: RemoteListingSummary[];
   try {
     console.log("[channels] fetching remote listings...", { provider });
     remoteList = await withConnectionAuthRetry(connection, (ctx) =>
-      getAdapter(provider).listRemoteListings(ctx)
+      getAdapter(provider).listRemoteListings(ctx, {
+        skipPhotoEnrichment: provider === "ebay",
+      })
     );
     console.log("[channels] fetched remote listings", { 
       provider, 
@@ -202,39 +234,12 @@ export async function reconcileConnectionInboundCatalog(
       ? indexEbayRemoteListings(remoteList)
       : new Map(remoteList.map((r) => [r.externalListingId, r]));
 
-  const links = (await prisma.channelListingLink.findMany({
-    where: { connectionId: connection.id, provider, syncEnabled: true },
-    select: {
-      id: true,
-      storeItemId: true,
-      externalListingId: true,
-      syncBaselineHash: true,
-      syncBaselineQty: true,
-      syncBaselineAt: true,
-      storeItem: {
-        select: {
-          title: true,
-          description: true,
-          photos: true,
-          priceCents: true,
-          quantity: true,
-          updatedAt: true,
-        },
-      },
-    },
-  })) as LinkRow[];
-
   console.log("[channels] found linked listings", {
     connectionId: connection.id,
     provider,
     linksCount: links.length,
     remoteCount: remoteList.length,
   });
-
-  if (links.length === 0) {
-    console.log("[channels] no linked listings to sync");
-    return { updated: 0, removed: 0 };
-  }
 
   let updated = 0;
   let removed = 0;

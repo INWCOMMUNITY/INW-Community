@@ -8,6 +8,7 @@
 
 import { ebayGet } from "./client";
 import { EBAY_APIZ_BASE, EBAY_MARKETPLACE_ID } from "./config";
+import { getEbayApplicationAccessToken } from "./oauth";
 
 export type EbayCategorySuggestion = {
   categoryId: string;
@@ -30,12 +31,13 @@ export type EbayCategoryAspect = {
 /** Resolve (and lightly cache per process) the default US category tree id. */
 let cachedTreeId: { id: string; at: number } | null = null;
 
-export async function getDefaultCategoryTreeId(accessToken: string): Promise<string> {
+export async function getDefaultCategoryTreeId(): Promise<string> {
   const now = Date.now();
   if (cachedTreeId && now - cachedTreeId.at < 6 * 60 * 60 * 1000) {
     return cachedTreeId.id;
   }
   try {
+    const accessToken = await getEbayApplicationAccessToken();
     const res = await ebayGet<{ categoryTreeId?: string }>(
       accessToken,
       `${EBAY_APIZ_BASE}/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=${EBAY_MARKETPLACE_ID}`
@@ -49,16 +51,14 @@ export async function getDefaultCategoryTreeId(accessToken: string): Promise<str
 }
 
 /** Live leaf-category suggestions for a free-text query (the category picker). */
-export async function searchEbayCategories(
-  accessToken: string,
-  query: string
-): Promise<EbayCategorySuggestion[]> {
+export async function searchEbayCategories(query: string): Promise<EbayCategorySuggestion[]> {
   const q = query.trim();
   if (!q) return [];
-  const treeId = await getDefaultCategoryTreeId(accessToken);
+  const treeId = await getDefaultCategoryTreeId();
   if (treeId === "0") {
-    throw new Error("Could not resolve eBay category tree. Reconnect eBay in Sync Stores.");
+    throw new Error("Could not resolve eBay category tree. Check eBay app credentials.");
   }
+  const accessToken = await getEbayApplicationAccessToken();
   const res = await ebayGet<{
     categorySuggestions?: {
       category?: { categoryId?: string; categoryName?: string };
@@ -103,13 +103,11 @@ type AspectApiResponse = {
  * Required + recommended item specifics for an eBay leaf category.
  * Returns required aspects first, each with mode, cardinality, and suggested values.
  */
-export async function getItemAspectsForCategory(
-  accessToken: string,
-  categoryId: string
-): Promise<EbayCategoryAspect[]> {
+export async function getItemAspectsForCategory(categoryId: string): Promise<EbayCategoryAspect[]> {
   const id = categoryId.trim();
   if (!id) return [];
-  const treeId = await getDefaultCategoryTreeId(accessToken);
+  const treeId = await getDefaultCategoryTreeId();
+  const accessToken = await getEbayApplicationAccessToken();
   const res = await ebayGet<AspectApiResponse>(
     accessToken,
     `${EBAY_APIZ_BASE}/commerce/taxonomy/v1/category_tree/${encodeURIComponent(

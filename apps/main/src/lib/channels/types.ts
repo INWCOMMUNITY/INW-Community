@@ -186,7 +186,10 @@ export interface ChannelAdapter {
   ): Promise<void>;
 
   // ---- Import + reconciliation (inbound: channel -> INW) ----
-  listRemoteListings(conn: ChannelConnectionContext): Promise<RemoteListingSummary[]>;
+  listRemoteListings(
+    conn: ChannelConnectionContext,
+    opts?: { skipPhotoEnrichment?: boolean }
+  ): Promise<RemoteListingSummary[]>;
   /** Wix: read live stock for one product (v2/v1/v3). Other providers omit this. */
   fetchProductQuantity?(
     conn: ChannelConnectionContext,

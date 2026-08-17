@@ -14,7 +14,7 @@ import { prisma } from "database";
 import type { ChannelProvider } from "@/lib/channels/types";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /**
  * Reprocess stale pending webhook events (older than 5 minutes).

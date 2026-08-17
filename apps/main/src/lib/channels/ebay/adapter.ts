@@ -276,8 +276,10 @@ export const ebayAdapter: ChannelAdapter = {
     await verifyInventoryWrite(conn.accessToken, sku, quantity);
   },
 
-  async listRemoteListings(conn): Promise<RemoteListingSummary[]> {
-    const listings = await enumerateEbayListings(conn.accessToken);
+  async listRemoteListings(conn, opts?: { skipPhotoEnrichment?: boolean }): Promise<RemoteListingSummary[]> {
+    const listings = await enumerateEbayListings(conn.accessToken, {
+      skipPhotoEnrichment: opts?.skipPhotoEnrichment,
+    });
     return listings.map((l) =>
       ebayListingToSummary({
         listingId: l.listingId,

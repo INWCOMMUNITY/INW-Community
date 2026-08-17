@@ -8,6 +8,7 @@ import { getConnectionContext } from "./connection";
 import { ebayGet } from "./ebay/client";
 import { EBAY_APIZ_BASE, EBAY_MARKETPLACE_ID } from "./ebay/config";
 import { getDefaultCategoryTreeId } from "./ebay/aspects";
+import { getEbayApplicationAccessToken } from "./ebay/oauth";
 import { etsyGet } from "./etsy/client";
 import { planInwMappingForMarketplacePath } from "./category-resolver";
 import {
@@ -125,9 +126,10 @@ function rowsFromTaxonomyEntries(
 
 /** Pull the full eBay US category tree and upsert planned INW mappings. */
 export async function syncEbayCategoryTreeMappings(
-  accessToken: string
+  _accessToken?: string
 ): Promise<{ entries: number; upserted: number }> {
-  const treeId = await getDefaultCategoryTreeId(accessToken);
+  const accessToken = await getEbayApplicationAccessToken();
+  const treeId = await getDefaultCategoryTreeId();
   const res = await ebayGet<{ rootCategoryNode?: EbayTreeNode }>(
     accessToken,
     `${EBAY_APIZ_BASE}/commerce/taxonomy/v1/category_tree/${encodeURIComponent(treeId)}`
