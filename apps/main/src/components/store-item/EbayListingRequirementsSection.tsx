@@ -143,7 +143,7 @@ export function EbayListingRequirementsSection({
               disabled={!categorySearchEnabled}
             />
             {!categorySearchEnabled && !connectionError ? (
-              <p className="text-xs text-gray-500">Connect eBay in Sync Stores to search categories.</p>
+              <p className="text-xs text-gray-500">Category search is unavailable.</p>
             ) : null}
             {categorySearchEnabled ? (
               <p className={listingHintClass}>Type at least 2 characters to search.</p>

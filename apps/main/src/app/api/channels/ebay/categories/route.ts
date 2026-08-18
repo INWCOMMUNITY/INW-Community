@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { memberHasEbayConnection } from "@/lib/channels/connection";
-import { searchEbayCategories } from "@/lib/channels/ebay/aspects";
+import { requireEbayTaxonomyConfig, searchEbayCategories } from "@/lib/channels/ebay/aspects";
 import { describeEbayThrownError } from "@/lib/channels/ebay/errors";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-/** GET /api/channels/ebay/categories?q= → live eBay leaf-category suggestions for the picker. */
+/**
+ * GET /api/channels/ebay/categories?q=
+ *
+ * Live eBay leaf-category suggestions for the listing picker.
+ * Uses eBay application credentials (Taxonomy API) — does not require a healthy seller OAuth token.
+ */
 export async function GET(req: NextRequest) {
   try {
     const session = await getSessionForApi(req);
@@ -21,12 +25,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ categories: [] });
     }
 
-    const { connected } = await memberHasEbayConnection(userId);
-    if (!connected) {
-      return NextResponse.json(
-        { error: "Connect your eBay account in Sync Stores to search categories." },
-        { status: 401 }
-      );
+    try {
+      requireEbayTaxonomyConfig();
+    } catch (e) {
+      return NextResponse.json({ error: describeEbayThrownError(e) }, { status: 503 });
     }
 
     const categories = await searchEbayCategories(q);

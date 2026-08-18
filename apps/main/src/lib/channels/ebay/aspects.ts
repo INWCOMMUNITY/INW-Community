@@ -7,8 +7,17 @@
  */
 
 import { ebayGet } from "./client";
-import { EBAY_TAXONOMY_BASE, EBAY_TAXONOMY_MARKETPLACE_ID } from "./config";
+import { EBAY_TAXONOMY_BASE, EBAY_TAXONOMY_MARKETPLACE_ID, isEbayConfigured } from "./config";
 import { getEbayApplicationAccessToken } from "./oauth";
+
+/** Taxonomy uses app credentials (client_credentials), not the seller OAuth token. */
+export function requireEbayTaxonomyConfig(): void {
+  if (!isEbayConfigured()) {
+    throw new Error(
+      "eBay category search is not configured on this server (missing EBAY_CLIENT_ID / EBAY_CLIENT_SECRET)."
+    );
+  }
+}
 
 export type EbayCategorySuggestion = {
   categoryId: string;
@@ -51,6 +60,7 @@ export async function getDefaultCategoryTreeId(): Promise<string> {
 export async function searchEbayCategories(query: string): Promise<EbayCategorySuggestion[]> {
   const q = query.trim();
   if (!q) return [];
+  requireEbayTaxonomyConfig();
   const treeId = await getDefaultCategoryTreeId();
   const accessToken = await getEbayApplicationAccessToken();
   const res = await ebayGet<{
@@ -100,6 +110,7 @@ type AspectApiResponse = {
 export async function getItemAspectsForCategory(categoryId: string): Promise<EbayCategoryAspect[]> {
   const id = categoryId.trim();
   if (!id) return [];
+  requireEbayTaxonomyConfig();
   const treeId = await getDefaultCategoryTreeId();
   const accessToken = await getEbayApplicationAccessToken();
   const res = await ebayGet<AspectApiResponse>(

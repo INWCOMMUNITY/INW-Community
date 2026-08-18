@@ -152,6 +152,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [ebayCategoryResults, setEbayCategoryResults] = useState<EbayCategorySuggestion[]>([]);
   const [ebaySearching, setEbaySearching] = useState(false);
   const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspect[]>([]);
+  const showEbayRequirements = hasEbayConnection || Boolean(ebayCategoryId);
   const [aspects, setAspects] = useState<ListingAspect[]>(() =>
     Array.isArray(existing?.aspects)
       ? existing!.aspects!.map((a) => ({ name: String(a.name ?? ""), value: String(a.value ?? "") }))
@@ -372,10 +373,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     }
   }, []);
 
-  // Debounced live eBay category search.
+  // Debounced live eBay category search (Taxonomy API — app credentials, not seller OAuth).
   useEffect(() => {
     const q = ebayCategorySearch.trim();
-    if (!hasEbayConnection) return;
+    if (!showEbayRequirements) return;
     if (q.length < 2) {
       setEbayCategoryResults([]);
       setEbayCategorySearchError(null);
@@ -399,9 +400,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
             setEbayCategoryResults([]);
             setEbayCategorySearchError(
               data.error ??
-                (r.status >= 500
-                  ? "Category search is temporarily unavailable. Try again in a moment."
-                  : "Category search failed. Try reconnecting eBay in Sync Stores.")
+                (r.status === 503
+                  ? "eBay category search is not configured on this server."
+                  : r.status >= 500
+                    ? "Category search is temporarily unavailable. Try again in a moment."
+                    : "Category search failed. Try again or contact support.")
             );
             return;
           }
@@ -422,7 +425,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       cancelled = true;
       clearTimeout(t);
     };
-  }, [ebayCategorySearch, hasEbayConnection]);
+  }, [ebayCategorySearch, showEbayRequirements]);
 
   // When an eBay category is chosen, load its required/recommended item specifics and pre-seed rows.
   const loadCategoryAspects = useCallback(
@@ -436,7 +439,17 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}`,
           { credentials: "include" }
         );
-        const data: { aspects?: EbayCategoryAspect[] } = await res.json();
+        const data: { aspects?: EbayCategoryAspect[]; error?: string } = await res.json();
+        if (!res.ok) {
+          setCategoryAspects([]);
+          setEbayCategorySearchError(
+            data.error ??
+              (res.status === 503
+                ? "eBay item specifics are not configured on this server."
+                : "Could not load eBay item specifics for this category.")
+          );
+          return;
+        }
         const list = data.aspects ?? [];
         setCategoryAspects(list);
         // Pre-seed required aspects that the seller has not already filled in.
@@ -456,11 +469,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
 
   // Load aspects for a previously-saved eBay category on edit.
   useEffect(() => {
-    if (ebayConnected && ebayCategoryId) {
+    if (showEbayRequirements && ebayCategoryId) {
       void loadCategoryAspects(ebayCategoryId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ebayConnected]);
+  }, [showEbayRequirements, ebayCategoryId, loadCategoryAspects]);
 
   async function uploadFile(file: File): Promise<string> {
     const formData = new FormData();
@@ -1031,7 +1043,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         />
       )}
 
-      {hasEbayConnection && (
+      {showEbayRequirements && (
         <EbayListingRequirementsSection
           ebayCategoryId={ebayCategoryId}
           ebayCategoryLabel={ebayCategoryLabel}
@@ -1041,7 +1053,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           ebayCategoryResults={ebayCategoryResults}
           ebaySearching={ebaySearching}
           connectionError={ebayConnectionError}
-          categorySearchEnabled={hasEbayConnection}
+          categorySearchEnabled
           onSelectCategory={(categoryId, label) => {
             clearEbayRequiredAspectRows(categoryAspects);
             setEbayCategoryId(categoryId);
@@ -1063,7 +1075,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         />
       )}
 
-      {!hasEbayConnection && (
+      {!showEbayRequirements && (
       <ListingFormSection
         title="Item Details"
         description="Add optional descriptors for your listing (Brand, Material, Year, etc.)."

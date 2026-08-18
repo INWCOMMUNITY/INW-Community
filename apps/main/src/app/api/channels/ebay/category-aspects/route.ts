@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { memberHasEbayConnection } from "@/lib/channels/connection";
-import { getItemAspectsForCategory } from "@/lib/channels/ebay/aspects";
+import { getItemAspectsForCategory, requireEbayTaxonomyConfig } from "@/lib/channels/ebay/aspects";
 import { describeEbayThrownError } from "@/lib/channels/ebay/errors";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/channels/ebay/category-aspects?categoryId= →
- * required/recommended item specifics for an eBay leaf category (drives the Details prefill).
+ * GET /api/channels/ebay/category-aspects?categoryId=
+ *
+ * Required/recommended item specifics for an eBay leaf category.
+ * Uses eBay application credentials (Taxonomy API).
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -22,12 +23,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "categoryId is required" }, { status: 400 });
   }
 
-  const { connected } = await memberHasEbayConnection(userId);
-  if (!connected) {
-    return NextResponse.json(
-      { error: "Connect your eBay account in Sync Stores to load item specifics." },
-      { status: 401 }
-    );
+  try {
+    requireEbayTaxonomyConfig();
+  } catch (e) {
+    return NextResponse.json({ error: describeEbayThrownError(e) }, { status: 503 });
   }
 
   try {
