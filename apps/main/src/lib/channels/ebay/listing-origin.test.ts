@@ -4,6 +4,7 @@ import {
   inferEbayLinkOrigin,
   isImportedEbayLink,
   isInwCreatedEbayLink,
+  resolveEbayInventorySku,
 } from "./listing-origin";
 
 describe("listing-origin", () => {
@@ -32,6 +33,27 @@ describe("listing-origin", () => {
       })
     ).toBe(true);
     expect(inferEbayLinkOrigin({ provider: "ebay", externalListingId: "inw123" })).toBe("import");
+  });
+
+  it("treats inw SKU as import even when linkOrigin is wrongly inw_create", () => {
+    expect(
+      isImportedEbayLink({
+        provider: "ebay",
+        externalListingId: "inw403004607151",
+        linkOrigin: "inw_create",
+      })
+    ).toBe(true);
+  });
+
+  it("treats numeric legacy Item ID as import", () => {
+    expect(
+      isImportedEbayLink({
+        provider: "ebay",
+        externalListingId: "403004607151",
+        storeItemId: "cmsz85hpj0001ahwfa2pmvtun",
+      })
+    ).toBe(true);
+    expect(resolveEbayInventorySku("403004607151")).toBe("inw403004607151");
   });
 
   it("extracts inventory aspects object", () => {

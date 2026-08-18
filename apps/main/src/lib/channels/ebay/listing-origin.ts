@@ -6,6 +6,8 @@
 export type EbayLinkOrigin = "import" | "inw_create";
 
 const IMPORTED_EBAY_SKU = /^inw\d+$/i;
+/** Numeric eBay legacy Item ID (older links stored this instead of inw SKU). */
+const LEGACY_EBAY_ITEM_ID = /^\d{9,15}$/;
 
 export type EbayLinkOriginInput = {
   provider: string;
@@ -14,12 +16,28 @@ export type EbayLinkOriginInput = {
   linkOrigin?: string | null;
 };
 
+/** Inventory API SKU — normalize numeric legacy Item IDs to inw{legacyId}. */
+export function resolveEbayInventorySku(externalListingId: string): string {
+  const trimmed = externalListingId.trim();
+  if (!trimmed) return trimmed;
+  if (IMPORTED_EBAY_SKU.test(trimmed)) return trimmed;
+  if (LEGACY_EBAY_ITEM_ID.test(trimmed)) return `inw${trimmed}`;
+  return trimmed;
+}
+
 /** True when the listing was imported from eBay (migrated SKU inw{legacyId}). */
 export function isImportedEbayLink(link: EbayLinkOriginInput): boolean {
   if (link.provider !== "ebay") return false;
+  const id = link.externalListingId.trim();
+  // Migrated inw SKU is definitive — wins over a corrupted linkOrigin flag.
+  if (IMPORTED_EBAY_SKU.test(id)) return true;
   if (link.linkOrigin === "import") return true;
   if (link.linkOrigin === "inw_create") return false;
-  return IMPORTED_EBAY_SKU.test(link.externalListingId.trim());
+  // INW-created listings use StoreItem.id as externalListingId.
+  if (link.storeItemId && id === link.storeItemId) return false;
+  // Older imports may store numeric legacy Item ID instead of inw SKU.
+  if (LEGACY_EBAY_ITEM_ID.test(id)) return true;
+  return false;
 }
 
 /** True when the listing was created in INW and published to eBay. */

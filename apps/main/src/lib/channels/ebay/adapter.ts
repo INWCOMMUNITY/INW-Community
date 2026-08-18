@@ -56,7 +56,11 @@ import {
   type ValidationCheck,
 } from "../sync-trace";
 import { prisma } from "database";
-import { isImportedEbayLink, extractEbayInventoryAspects } from "./listing-origin";
+import {
+  isImportedEbayLink,
+  extractEbayInventoryAspects,
+  resolveEbayInventorySku,
+} from "./listing-origin";
 import {
   buildPassthroughInventoryBody,
   buildPassthroughOfferBody,
@@ -115,8 +119,13 @@ async function upsertListing(
   item: SyncStoreItem,
   linkedSku?: string
 ): Promise<UpsertResult> {
-  const sku = linkedSku || item.id;
-  const operation = linkedSku ? "update" : "create";
+  const ebayLink = await prisma.channelListingLink.findFirst({
+    where: { storeItemId: item.id, provider: "ebay" },
+    select: { id: true, externalListingId: true, linkOrigin: true },
+  });
+  const linkExternalId = linkedSku ?? ebayLink?.externalListingId ?? item.id;
+  const sku = resolveEbayInventorySku(linkExternalId);
+  const operation = linkedSku || ebayLink ? "update" : "create";
   
   // Start trace for this sync operation
   const trace = startTrace(conn.memberId, "ebay", item.id, operation, {
@@ -181,14 +190,12 @@ async function upsertListing(
       existingOfferCategoryId = offerDetails?.categoryId?.trim() ?? null;
     }
 
-    const isImported = Boolean(
-      linkedSku &&
-        isImportedEbayLink({
-          provider: "ebay",
-          externalListingId: sku,
-          storeItemId: item.id,
-        })
-    );
+    const isImported = isImportedEbayLink({
+      provider: "ebay",
+      externalListingId: linkExternalId,
+      storeItemId: item.id,
+      linkOrigin: ebayLink?.linkOrigin,
+    });
 
     // Imported eBay listings: passthrough push — preserve live inventory aspects verbatim.
     if (isImported) {
@@ -280,17 +287,15 @@ async function upsertListing(
         await pushOfferBodyPassthrough(offerBody);
       }
 
-      const link = await prisma.channelListingLink.findFirst({
-        where: { storeItemId: item.id, provider: "ebay", externalListingId: sku },
-        select: { id: true },
-      });
-      if (link) {
-        await fetchAndCacheEbayInventoryAspects(conn.accessToken, link.id, sku);
+      if (ebayLink) {
+        await fetchAndCacheEbayInventoryAspects(conn.accessToken, ebayLink.id, sku);
       }
 
       console.warn("[ebay] upsertListing passthrough", {
         storeItemId: item.id,
         sku,
+        linkExternalId,
+        linkOrigin: ebayLink?.linkOrigin ?? null,
         liveAspectCount: liveAspects ? Object.keys(liveAspects).length : 0,
       });
 
@@ -691,30 +696,38 @@ export const ebayAdapter: ChannelAdapter = {
   },
 
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
-    const sku = externalListingId;
+    const ebayLink = await prisma.channelListingLink.findFirst({
+      where: { storeItemId: item.id, provider: "ebay" },
+      select: { linkOrigin: true },
+    });
+    const inventorySku = resolveEbayInventorySku(externalListingId);
     hydrateRevisionCountsFromConfig(conn.config);
 
     // Check rate limit before making any changes
-    const limitCheck = checkRevisionLimit(sku);
+    const limitCheck = checkRevisionLimit(inventorySku);
     if (limitCheck.atLimit) {
-      const warning = getRevisionLimitWarning(sku);
+      const warning = getRevisionLimitWarning(inventorySku);
       throw new Error(warning || "eBay daily revision limit reached");
     }
     if (limitCheck.nearLimit) {
-      console.warn("[ebay] updateInventory: approaching rate limit", { sku, count: limitCheck.count });
+      console.warn("[ebay] updateInventory: approaching rate limit", {
+        sku: inventorySku,
+        count: limitCheck.count,
+      });
     }
 
     const isImported = isImportedEbayLink({
       provider: "ebay",
-      externalListingId: sku,
+      externalListingId,
       storeItemId: item.id,
+      linkOrigin: ebayLink?.linkOrigin,
     });
 
     if (hasOptionQuantities(item.variants)) {
       const qtyItem = { ...item, quantity: Math.max(0, absoluteQuantity) };
       let inventoryBody: Record<string, unknown>;
       if (isImported) {
-        const live = await fetchLiveInventoryItem(conn.accessToken, sku);
+        const live = await fetchLiveInventoryItem(conn.accessToken, inventorySku);
         if (!live) {
           throw new Error("Could not fetch live eBay inventory for passthrough qty update");
         }
@@ -728,18 +741,18 @@ export const ebayAdapter: ChannelAdapter = {
       }
       await ebayJson(
         conn.accessToken,
-        `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+        `/sell/inventory/v1/inventory_item/${encodeURIComponent(inventorySku)}`,
         "PUT",
         inventoryBody
       );
-      await persistRevisionCount(conn.id, sku, conn.config);
-      await verifyInventoryWrite(conn.accessToken, sku, null);
+      await persistRevisionCount(conn.id, inventorySku, conn.config);
+      await verifyInventoryWrite(conn.accessToken, inventorySku, null);
       return;
     }
     const quantity = Math.max(0, absoluteQuantity);
-    const offer = await findOffer(conn.accessToken, sku).catch(() => null);
+    const offer = await findOffer(conn.accessToken, inventorySku).catch(() => null);
     const request: Record<string, unknown> = {
-      sku,
+      sku: inventorySku,
       shipToLocationAvailability: { quantity },
     };
     if (offer?.offerId) {
@@ -748,10 +761,9 @@ export const ebayAdapter: ChannelAdapter = {
     await ebayJson(conn.accessToken, `/sell/inventory/v1/bulk_update_price_quantity`, "POST", {
       requests: [request],
     });
-    await persistRevisionCount(conn.id, sku, conn.config);
+    await persistRevisionCount(conn.id, inventorySku, conn.config);
 
-    // Read-back verification: confirm the quantity was actually updated
-    await verifyInventoryWrite(conn.accessToken, sku, quantity);
+    await verifyInventoryWrite(conn.accessToken, inventorySku, quantity);
   },
 
   async listRemoteListings(conn, opts?: { skipPhotoEnrichment?: boolean }): Promise<RemoteListingSummary[]> {
