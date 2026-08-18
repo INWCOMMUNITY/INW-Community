@@ -1,3 +1,4 @@
+import { ebayGet } from "./client";
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
@@ -8,6 +9,7 @@ import {
   EBAY_TITLE_MAX,
   aspectsToEbayProductAspects,
   parseStoredAspects,
+  type ListingAspect,
 } from "@/lib/listing-limits";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
 
@@ -23,13 +25,15 @@ export function ebayCondition(item: Pick<SyncStoreItem, "condition" | "ebayCondi
   return resolveEbayInventoryCondition(item);
 }
 
-/** Build the PUT /inventory_item/{sku} body for a StoreItem. */
-export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unknown> {
+/** Map an INW StoreItem to the Inventory API PUT body. Pass `aspectRows` when the sync pipeline already validated remapped aspects. */
+export function buildEbayInventoryItem(
+  item: SyncStoreItem,
+  aspectRows?: ListingAspect[]
+): Record<string, unknown> {
   const title = item.title.slice(0, EBAY_TITLE_MAX);
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[] | null;
 
-  // Seller-entered item specifics (Brand/Type/Size/...) — required by most eBay categories.
-  const parsedAspects = parseStoredAspects(item.aspects);
+  const parsedAspects = aspectRows ?? parseStoredAspects(item.aspects);
   const storedAspects = aspectsToEbayProductAspects(parsedAspects);
 
   const product: Record<string, unknown> = {
@@ -143,6 +147,40 @@ export function resolveEbayLegacyListingId(id: string): string | null {
   if (/^\d+$/.test(trimmed)) return trimmed;
   const inw = trimmed.match(/^inw(\d+)$/i);
   return inw ? inw[1]! : null;
+}
+
+/** Resolve the legacy Item ID used by Trading GetItem for sync enrichment. */
+export async function resolveSyncLegacyListingId(
+  accessToken: string,
+  args: {
+    linkedSku?: string;
+    sku: string;
+    itemSku?: string | null;
+    offerId?: string | null;
+  }
+): Promise<string | null> {
+  for (const candidate of [args.linkedSku, args.sku, args.itemSku]) {
+    if (!candidate) continue;
+    const legacy = resolveEbayLegacyListingId(candidate);
+    if (legacy) return legacy;
+  }
+
+  if (args.offerId?.trim()) {
+    try {
+      const offer = await ebayGet<{ listing?: { listingId?: string }; listingId?: string }>(
+        accessToken,
+        `/sell/inventory/v1/offer/${encodeURIComponent(args.offerId.trim())}`
+      );
+      const listingId = offer.listing?.listingId ?? offer.listingId;
+      if (listingId && /^\d+$/.test(String(listingId).trim())) {
+        return String(listingId).trim();
+      }
+    } catch {
+      /* optional */
+    }
+  }
+
+  return null;
 }
 
 /**

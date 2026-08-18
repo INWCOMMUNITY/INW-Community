@@ -23,7 +23,7 @@ import {
   persistRevisionCount,
 } from "./rate-limits";
 import { resolveProviderCategoryId } from "../category-map";
-import { buildEbayInventoryItem, buildEbayOffer, ebayListingToSummary, resolveCategoryId } from "./mapping";
+import { buildEbayInventoryItem, buildEbayOffer, ebayListingToSummary, resolveCategoryId, resolveSyncLegacyListingId } from "./mapping";
 import { isEbayConditionSyncError } from "./conditions";
 import {
   enrichSyncItemConditionFromEbay,
@@ -32,6 +32,7 @@ import {
 import {
   formatMissingEbayAspectsError,
   persistEbayAspects,
+  persistEbayCategoryId,
   prepareEbaySyncAspects,
 } from "./sync-aspects";
 import { parseStoredAspects } from "@/lib/listing-limits";
@@ -185,6 +186,49 @@ async function upsertListing(
     // eBay validates inventory condition against the offer's primary category — use target if set, else live offer cat.
     const conditionCategoryId = targetCategoryId ?? existingOfferCategoryId;
 
+    const legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
+      linkedSku,
+      sku,
+      itemSku: item.sku,
+      offerId,
+    });
+
+    let liveTradingAspects: ReturnType<typeof parseStoredAspects> = [];
+    let liveCategoryId: string | null = null;
+    if (legacyListingId) {
+      try {
+        const liveDetails = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
+        liveTradingAspects = liveDetails.aspects;
+        liveCategoryId = liveDetails.remoteCategoryId;
+      } catch (e) {
+        console.warn("[ebay] upsertListing live GetItem enrichment failed", {
+          storeItemId: item.id,
+          legacyListingId,
+          error: describeEbayThrownError(e),
+        });
+      }
+    }
+
+    const aspectCategoryId =
+      item.ebayCategoryId != null
+        ? String(item.ebayCategoryId)
+        : liveCategoryId ?? targetCategoryId ?? existingOfferCategoryId;
+
+    if (!aspectCategoryId) {
+      validationChecks.push({
+        name: "ebay_category",
+        passed: false,
+        detail: "No eBay category on listing or live offer",
+        severity: "error",
+      });
+      addValidation(trace, { valid: false, checks: validationChecks });
+      const error = new Error(
+        "This listing has no eBay category. Select a category under eBay Listing Requirements, save, then sync again."
+      );
+      await completeTrace(trace, "validation_failed", error);
+      throw error;
+    }
+
     let prepared = await prepareEbaySyncCondition({
       accessToken: conn.accessToken,
       storeItemId: item.id,
@@ -192,6 +236,14 @@ async function upsertListing(
       categoryId: conditionCategoryId,
     });
     let syncItem = prepared.item;
+
+    if (item.ebayCategoryId == null && liveCategoryId) {
+      const parsedCategory = Number(liveCategoryId);
+      if (Number.isFinite(parsedCategory) && parsedCategory > 0) {
+        syncItem = { ...syncItem, ebayCategoryId: parsedCategory };
+        await persistEbayCategoryId(item.id, parsedCategory);
+      }
+    }
 
     // Validate condition
     validationChecks.push({
@@ -207,10 +259,13 @@ async function upsertListing(
       accessToken: conn.accessToken,
       externalListingId: linkedSku ?? sku,
       item: syncItem,
-      categoryId: conditionCategoryId,
+      categoryId: aspectCategoryId,
       sku,
+      offerId,
+      tradingAspects: liveTradingAspects,
     });
     syncItem = aspectPrep.item;
+    const pushAspects = parseStoredAspects(syncItem.aspects);
 
     // Capture transform trace for aspects
     const inputAspects = parseStoredAspects(item.aspects);
@@ -329,8 +384,8 @@ async function upsertListing(
       }
     }
 
-    const offerBody = buildEbayOffer(syncItem, cfg, cat.ebayCategoryId ?? null, sku);
-    const inventoryBody = buildEbayInventoryItem(syncItem);
+    const offerBody = buildEbayOffer(syncItem, cfg, aspectCategoryId, sku);
+    const inventoryBody = buildEbayInventoryItem(syncItem, pushAspects);
 
     // Existing offers: set category on the offer before updating inventory condition (eBay #25021).
     if (offerId) {
@@ -352,7 +407,7 @@ async function upsertListing(
           sku,
           syncConditionEnum: prepared.conditionEnum,
         });
-        await pushInventoryBody(buildEbayInventoryItem(syncItem), trace);
+        await pushInventoryBody(buildEbayInventoryItem(syncItem, pushAspects), trace);
       }
     } else {
       await pushInventoryBody(inventoryBody, trace);
@@ -379,7 +434,7 @@ async function upsertListing(
             sku,
             syncConditionEnum: prepared.conditionEnum,
           });
-          await pushInventoryBody(buildEbayInventoryItem(syncItem), trace);
+          await pushInventoryBody(buildEbayInventoryItem(syncItem, pushAspects), trace);
           await publishOffer(conn.accessToken, offerId);
           await persistRevisionCount(conn.id, sku, conn.config);
         } else {

@@ -512,7 +512,8 @@ export async function prepareOutboundAspects(args: {
   const beforeKey = JSON.stringify(aspects);
 
   if (args.tradingAspects?.length) {
-    aspects = mergeListingAspects(aspects, args.tradingAspects);
+    // Live eBay listing specifics fill gaps; non-empty INW values still win on conflicts.
+    aspects = mergeAspectSources(args.tradingAspects, aspects);
   }
 
   let categoryAspects: EbayCategoryAspect[] = [];

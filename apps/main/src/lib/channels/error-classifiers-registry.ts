@@ -7,6 +7,63 @@
 
 import { registerTraceClassifier, type TraceClassifier, type SyncTraceContext } from "./sync-trace";
 
+function preparedAspectNames(ctx: SyncTraceContext): string[] {
+  const after = ctx.transformTrace?.after?.aspects;
+  if (!Array.isArray(after)) return [];
+  return after
+    .map((row) => {
+      if (!row || typeof row !== "object") return "";
+      const name = (row as { name?: unknown }).name;
+      return typeof name === "string" ? name.trim() : "";
+    })
+    .filter(Boolean);
+}
+
+function analyzeEbayAspectMismatch(ctx: SyncTraceContext): string | null {
+  const uploaded = !!ctx.requestPayload;
+  const sentAspects = uploaded
+    ? Object.keys((ctx.requestPayload?.product as Record<string, unknown>)?.aspects || {})
+    : preparedAspectNames(ctx);
+  const expectedNames = ctx.transformTrace?.categorySchema?.map((a) => a.name) || [];
+  const requiredNames =
+    ctx.transformTrace?.categorySchema?.filter((a) => a.required).map((a) => a.name) || [];
+
+  const issues: string[] = [];
+
+  const unrecognized = sentAspects.filter(
+    (k) => !expectedNames.some((e) => e.toLowerCase() === k.toLowerCase())
+  );
+  if (unrecognized.length > 0) {
+    issues.push(`Unrecognized aspect keys: ${unrecognized.slice(0, 5).join(", ")}`);
+  }
+
+  const missingRequired = requiredNames.filter(
+    (r) => !sentAspects.some((s) => s.toLowerCase() === r.toLowerCase())
+  );
+  if (missingRequired.length > 0) {
+    issues.push(`Missing required aspects: ${missingRequired.slice(0, 5).join(", ")}`);
+  }
+
+  const dropped = ctx.transformTrace?.dropped || [];
+  if (dropped.length > 0) {
+    issues.push(`Aspects dropped during remap (not in taxonomy): ${dropped.slice(0, 5).join(", ")}`);
+  }
+
+  if (issues.length === 0) return null;
+
+  if (!uploaded) {
+    const inputCount = Array.isArray(ctx.inputSnapshot?.aspects)
+      ? (ctx.inputSnapshot!.aspects as unknown[]).length
+      : 0;
+    return (
+      `Blocked before eBay upload: ${issues.join(". ")}. ` +
+      `Stored ${inputCount} specifics, prepared ${sentAspects.length} for category ${ctx.categoryId ?? "unknown"}. ` +
+      `Save the listing and ensure Year is filled under eBay Listing Requirements.`
+    );
+  }
+
+  return `eBay #25064: ${issues.join(". ")}. Edit the listing under "eBay Listing Requirements" to fix.`;
+}
 /**
  * eBay-specific error classifiers
  */
@@ -16,44 +73,7 @@ const EBAY_CLASSIFIERS: TraceClassifier[] = [
     provider: "ebay",
     pattern: /#25064|item specific|required field.*aspect|aspect.*required/i,
     category: "aspect_mismatch",
-    analyze: (ctx) => {
-      const requestAspects = Object.keys(
-        (ctx.requestPayload?.product as Record<string, unknown>)?.aspects || {}
-      );
-      const expectedNames = ctx.transformTrace?.categorySchema?.map((a) => a.name) || [];
-      const requiredNames = ctx.transformTrace?.categorySchema
-        ?.filter((a) => a.required)
-        .map((a) => a.name) || [];
-      
-      const issues: string[] = [];
-
-      // Check for unrecognized aspect keys
-      const unrecognized = requestAspects.filter(
-        (k) => !expectedNames.some((e) => e.toLowerCase() === k.toLowerCase())
-      );
-      if (unrecognized.length > 0) {
-        issues.push(`Sent aspect keys not in taxonomy: ${unrecognized.slice(0, 5).join(", ")}`);
-      }
-
-      // Check for missing required aspects
-      const missingRequired = requiredNames.filter(
-        (r) => !requestAspects.some((s) => s.toLowerCase() === r.toLowerCase())
-      );
-      if (missingRequired.length > 0) {
-        issues.push(`Missing required aspects: ${missingRequired.slice(0, 5).join(", ")}`);
-      }
-
-      // Check for dropped aspects that might have been important
-      const dropped = ctx.transformTrace?.dropped || [];
-      if (dropped.length > 0) {
-        issues.push(`Aspects dropped during remap (not in taxonomy): ${dropped.slice(0, 5).join(", ")}`);
-      }
-
-      if (issues.length > 0) {
-        return `eBay #25064: ${issues.join(". ")}. Edit the listing under "eBay Listing Requirements" to fix.`;
-      }
-      return null;
-    },
+    analyze: analyzeEbayAspectMismatch,
   },
   {
     id: "ebay_25021_condition_mismatch",

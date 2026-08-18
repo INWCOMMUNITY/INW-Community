@@ -277,41 +277,6 @@ type TraceClassifier = {
  */
 const TRACE_CLASSIFIERS: TraceClassifier[] = [
   {
-    id: "ebay_aspect_key_mismatch",
-    provider: "ebay",
-    pattern: /#25064|item specific|aspect.*required|required.*aspect/i,
-    category: "aspect_mismatch",
-    analyze: (ctx) => {
-      const sent = Object.keys(
-        (ctx.requestPayload?.product as Record<string, unknown>)?.aspects || {}
-      );
-      const expected = ctx.transformTrace?.categorySchema?.map((a) => a.name) || [];
-      const required = ctx.transformTrace?.categorySchema
-        ?.filter((a) => a.required)
-        .map((a) => a.name) || [];
-      
-      const wrong = sent.filter(
-        (k) => !expected.some((e) => e.toLowerCase() === k.toLowerCase())
-      );
-      const missing = required.filter(
-        (r) => !sent.some((s) => s.toLowerCase() === r.toLowerCase())
-      );
-
-      const issues: string[] = [];
-      if (wrong.length > 0) {
-        issues.push(`Unrecognized aspect keys: ${wrong.join(", ")}`);
-      }
-      if (missing.length > 0) {
-        issues.push(`Missing required aspects: ${missing.join(", ")}`);
-      }
-      
-      if (issues.length > 0) {
-        return issues.join(". ");
-      }
-      return null;
-    },
-  },
-  {
     id: "ebay_condition_invalid",
     provider: "ebay",
     pattern: /condition.*invalid|invalid.*condition|#25021/i,

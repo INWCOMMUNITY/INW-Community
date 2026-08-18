@@ -17,7 +17,7 @@ import {
   fillEmptyTaxonomyAspectsFromTitle,
   mergeListingAspects,
 } from "./ebay-compat";
-import { resolveEbayLegacyListingId } from "./mapping";
+import { resolveEbayLegacyListingId, resolveSyncLegacyListingId } from "./mapping";
 import { fetchEbayItemDetails } from "./trading";
 
 export { mergeListingAspects };
@@ -52,19 +52,31 @@ export async function prepareEbaySyncAspects(args: {
   item: SyncStoreItem;
   categoryId: string | null;
   sku?: string;
+  offerId?: string | null;
+  /** Pre-fetched GetItem aspects (skips Trading fetch when provided). */
+  tradingAspects?: ListingAspect[];
 }): Promise<PrepareEbaySyncAspectsResult> {
   const sku = args.sku ?? args.externalListingId ?? getEffectiveSku(args.item);
-  const legacyId =
-    resolveEbayLegacyListingId(args.externalListingId ?? "") ??
-    resolveEbayLegacyListingId(getEffectiveSku(args.item));
 
-  let tradingAspects: ListingAspect[] = [];
-  if (legacyId) {
-    try {
-      const details = await fetchEbayItemDetails(args.accessToken, legacyId);
-      tradingAspects = details.aspects;
-    } catch {
-      /* optional enrichment */
+  let tradingAspects = args.tradingAspects ?? [];
+  if (tradingAspects.length === 0) {
+    const legacyId =
+      (await resolveSyncLegacyListingId(args.accessToken, {
+        linkedSku: args.externalListingId,
+        sku,
+        itemSku: args.item.sku,
+        offerId: args.offerId ?? null,
+      })) ??
+      resolveEbayLegacyListingId(args.externalListingId ?? "") ??
+      resolveEbayLegacyListingId(getEffectiveSku(args.item));
+
+    if (legacyId) {
+      try {
+        const details = await fetchEbayItemDetails(args.accessToken, legacyId);
+        tradingAspects = details.aspects;
+      } catch {
+        /* optional enrichment */
+      }
     }
   }
 
@@ -153,6 +165,16 @@ export async function persistEbayAspects(
     data: {
       aspects: normalized.length > 0 ? (normalized as object) : Prisma.JsonNull,
     },
+  });
+}
+
+export async function persistEbayCategoryId(
+  storeItemId: string,
+  ebayCategoryId: number
+): Promise<void> {
+  await prisma.storeItem.update({
+    where: { id: storeItemId },
+    data: { ebayCategoryId },
   });
 }
 
