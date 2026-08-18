@@ -2,6 +2,7 @@ import { prisma } from "database";
 import { getConnectionContext } from "../connection";
 import { fetchEbayItemDetails, enumerateEbayListings } from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
+import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
 import { normalizeEbayPhotoUrl } from "./photos";
 import { storeListingDescription } from "../import-listing";
 import { resolveInwCategoryFromEbayPath } from "../category-resolver";
@@ -115,11 +116,22 @@ export async function refreshEbayListingByItemId(
   }
 
   const normalizedAspects = normalizeListingAspects(details.aspects);
+  const remoteTitle = (details.title ?? storeItem.title).slice(0, 200);
+  const categoryIdForAspects =
+    details.remoteCategoryId ??
+    (storeItem.ebayCategoryId != null ? String(storeItem.ebayCategoryId) : null);
+  const aspectsForStorage =
+    categoryIdForAspects && normalizedAspects.length > 0
+      ? await normalizeAspectsForEbayStorage(
+          categoryIdForAspects,
+          normalizedAspects,
+          remoteTitle
+        )
+      : normalizedAspects;
   const photos = details.photos
     .map((u) => normalizeEbayPhotoUrl(u))
     .filter((u): u is string => Boolean(u));
   const description = storeListingDescription(details.description) ?? storeItem.description;
-  const remoteTitle = (details.title ?? storeItem.title).slice(0, 200);
   // Pass title for keyword-based subcategory inference
   const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null, remoteTitle);
   const remoteQty = details.quantity ?? storeItem.quantity;
@@ -146,9 +158,9 @@ export async function refreshEbayListingByItemId(
     changes.push(`ebay condition (${details.conditionEnum})`);
   }
 
-  if (normalizedAspects.length > 0) {
-    updateData.aspects = normalizedAspects as object;
-    changes.push(`aspects (${normalizedAspects.length} fields)`);
+  if (aspectsForStorage.length > 0) {
+    updateData.aspects = aspectsForStorage as object;
+    changes.push(`aspects (${aspectsForStorage.length} fields)`);
   }
 
   // Authoritative photo set from GetItem (may shrink when seller removes images).

@@ -15,6 +15,7 @@ import type { ChannelProvider } from "@/lib/channels/types";
 import { z } from "zod";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
+import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
 import { Prisma } from "database";
 
 const bodySchema = z.object({
@@ -290,7 +291,16 @@ export async function PATCH(
   if (data.etsyTaxonomyId !== undefined) update.etsyTaxonomyId = data.etsyTaxonomyId;
   if (data.ebayCategoryId !== undefined) update.ebayCategoryId = data.ebayCategoryId;
   if (data.aspects !== undefined) {
-    const normalizedAspects = normalizeListingAspects(data.aspects);
+    let normalizedAspects = normalizeListingAspects(data.aspects);
+    const categoryId = data.ebayCategoryId ?? existing.ebayCategoryId;
+    const title = data.title ?? existing.title;
+    if (categoryId && normalizedAspects.length > 0) {
+      normalizedAspects = await normalizeAspectsForEbayStorage(
+        String(categoryId),
+        normalizedAspects,
+        title ?? ""
+      );
+    }
     update.aspects = normalizedAspects.length > 0 ? (normalizedAspects as object) : Prisma.JsonNull;
   }
 

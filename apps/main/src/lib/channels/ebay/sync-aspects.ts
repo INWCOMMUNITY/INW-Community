@@ -9,6 +9,11 @@ import type { SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import type { EbayCategoryAspect } from "./aspects";
 import {
+  prepareAspectsForEbayCategory,
+  prepareAspectRowsForForm,
+} from "./aspect-prep";
+import {
+  fetchCategorySchema,
   formatAspectValidationErrors,
   prepareOutboundAspects,
   validateRemappedAspects,
@@ -178,4 +183,25 @@ export async function persistEbayCategoryId(
   });
 }
 
-export { remapAspectsToTaxonomy };
+export { remapAspectsToTaxonomy, prepareAspectRowsForForm, prepareAspectsForEbayCategory };
+
+/**
+ * Remap Trading/import aspect names to Taxonomy keys for DB storage.
+ * Called on import, refresh, pull, and store-item save so forms and sync see consistent names.
+ */
+export async function normalizeAspectsForEbayStorage(
+  categoryId: string,
+  aspects: ListingAspect[],
+  title: string
+): Promise<ListingAspect[]> {
+  const id = categoryId.trim();
+  if (!id || aspects.length === 0) return aspects;
+  try {
+    const schema = await fetchCategorySchema(id);
+    if (schema.aspects.length === 0) return aspects;
+    const prep = prepareAspectsForEbayCategory(schema.aspects, aspects, title);
+    return prep.remappedAspects.length > 0 ? prep.remappedAspects : aspects;
+  } catch {
+    return aspects;
+  }
+}

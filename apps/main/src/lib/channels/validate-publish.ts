@@ -12,12 +12,7 @@ import {
 } from "./field-requirements";
 import { publishBlockReason } from "./connection-publish";
 import { getItemAspectsForCategory } from "./ebay/aspects";
-import {
-  fillEmptyTaxonomyAspectsFromTitle,
-  remapAspectsToTaxonomy,
-  validateRemappedAspects,
-  formatAspectValidationErrors,
-} from "./ebay/ebay-compat";
+import { formatAspectValidationErrors, prepareAspectsForEbayCategory } from "./ebay/aspect-prep";
 import { parseStoredAspects } from "../listing-limits";
 
 export interface ValidationError {
@@ -231,19 +226,14 @@ async function validateEbayAspectsWithRemap(
 
   try {
     const categoryAspects = await getItemAspectsForCategory(String(item.ebayCategoryId));
-    const merged = fillEmptyTaxonomyAspectsFromTitle(
-      item.title ?? "",
+    const prep = prepareAspectsForEbayCategory(
       categoryAspects,
-      parseStoredAspects(item.aspects)
+      parseStoredAspects(item.aspects),
+      item.title ?? ""
     );
-    const remapped = remapAspectsToTaxonomy(categoryAspects, merged);
-    const validation = validateRemappedAspects(categoryAspects, remapped.aspects);
 
-    if (validation.missingRequired.length > 0 || validation.invalidSelectionValues.length > 0) {
-      const message = formatAspectValidationErrors(
-        validation.missingRequired,
-        validation.invalidSelectionValues
-      );
+    if (prep.missingRequired.length > 0 || prep.invalidSelectionValues.length > 0) {
+      const message = formatAspectValidationErrors(prep.missingRequired, prep.invalidSelectionValues);
       const exists = errors.some((e) => e.field === "aspects");
       if (!exists) {
         errors.push({ field: "aspects", message, severity: "error" });

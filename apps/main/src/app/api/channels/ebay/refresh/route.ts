@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { fetchEbayItemDetails, enumerateEbayListings } from "@/lib/channels/ebay/trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
+import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
 import { plainListingDescription } from "@/lib/channels/import-listing";
 import { resolveInwCategoryFromEbayPath } from "@/lib/channels/category-resolver";
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
       category: true,
       subcategory: true,
       aspects: true,
+      ebayCategoryId: true,
       variants: true,
       shippingCostCents: true,
       secondaryCategory: true,
@@ -139,6 +141,17 @@ export async function POST(req: NextRequest) {
 
   // Process the data
   const normalizedAspects = normalizeListingAspects(details.aspects);
+  const categoryIdForAspects =
+    details.remoteCategoryId ??
+    (storeItem.ebayCategoryId != null ? String(storeItem.ebayCategoryId) : null);
+  const aspectsForStorage =
+    categoryIdForAspects && normalizedAspects.length > 0
+      ? await normalizeAspectsForEbayStorage(
+          categoryIdForAspects,
+          normalizedAspects,
+          details.title ?? storeItem.title ?? ""
+        )
+      : normalizedAspects;
   const photos = details.photos
     .map((u) => normalizeEbayPhotoUrl(u))
     .filter((u): u is string => Boolean(u));
@@ -152,9 +165,9 @@ export async function POST(req: NextRequest) {
   const updateData: Record<string, unknown> = {};
 
   // Always update aspects (item specifics)
-  if (normalizedAspects.length > 0) {
-    updateData.aspects = normalizedAspects as object;
-    changes.push(`aspects (${normalizedAspects.length} fields)`);
+  if (aspectsForStorage.length > 0) {
+    updateData.aspects = aspectsForStorage as object;
+    changes.push(`aspects (${aspectsForStorage.length} fields)`);
   }
 
   // Update photos if eBay has more or different photos

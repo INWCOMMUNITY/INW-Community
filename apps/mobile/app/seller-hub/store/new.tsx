@@ -56,6 +56,11 @@ import {
   isEtsyWhoMade,
   normalizeEtsyWhenMade,
 } from "@/lib/etsy-listing-options";
+import {
+  formatAspectValidationErrors,
+  prepareAspectRowsForForm,
+  prepareAspectsForEbayCategory,
+} from "@/lib/ebay-aspect-prep";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -569,17 +574,11 @@ export default function ListItemScreen() {
       );
       const list = data.aspects ?? [];
       setCategoryAspects(list);
-      setAspects((prev) => {
-        const existingNames = new Set(prev.map((a) => a.name.trim().toLowerCase()));
-        const seeded = list
-          .filter((a) => a.required && !existingNames.has(a.name.trim().toLowerCase()))
-          .map((a) => ({ name: a.name, value: "" }));
-        return [...prev, ...seeded].slice(0, MAX_ASPECTS);
-      });
+      setAspects((prev) => prepareAspectRowsForForm(list, prev, title.trim()));
     } catch {
       setCategoryAspects([]);
     }
-  }, []);
+  }, [title]);
 
   // Debounced live eBay category search.
   useEffect(() => {
@@ -641,14 +640,13 @@ export default function ListItemScreen() {
   };
 
   const missingRequiredAspectCount = useMemo(() => {
-    return categoryAspects.filter((aspect) => {
-      if (!aspect.required) return false;
-      const row = aspects.find(
-        (a) => a.name.trim().toLowerCase() === aspect.name.trim().toLowerCase()
-      );
-      return !row?.value.trim();
-    }).length;
-  }, [categoryAspects, aspects]);
+    if (categoryAspects.length === 0) return 0;
+    const filled = aspects
+      .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
+      .filter((a) => a.name && a.value);
+    return prepareAspectsForEbayCategory(categoryAspects, filled, title.trim()).missingRequired
+      .length;
+  }, [categoryAspects, aspects, title]);
 
   const selectEbayCategory = (categoryId: string, label: string) => {
     setEbayCategoryId(categoryId);
@@ -874,15 +872,19 @@ export default function ListItemScreen() {
     }
     if (ebayConnected && ebayCategoryId.trim()) {
       const filled = aspects
-        .map((a) => ({ name: a.name.trim().toLowerCase(), value: a.value.trim() }))
+        .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
         .filter((a) => a.name && a.value);
-      const missingRequired = categoryAspects
-        .filter((a) => a.required)
-        .filter((a) => !filled.some((f) => f.name === a.name.trim().toLowerCase()))
-        .map((a) => a.name);
-      if (missingRequired.length > 0) {
+      const aspectValidation = prepareAspectsForEbayCategory(
+        categoryAspects,
+        filled,
+        title.trim()
+      );
+      if (!aspectValidation.valid) {
         setError(
-          `eBay requires these item specifics for this category: ${missingRequired.join(", ")}. Fill them in under eBay Listing Requirements.`
+          formatAspectValidationErrors(
+            aspectValidation.missingRequired,
+            aspectValidation.invalidSelectionValues
+          )
         );
         return;
       }
@@ -936,10 +938,19 @@ export default function ListItemScreen() {
     const cleanedAspects = aspects
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
+    let aspectsToSave = cleanedAspects;
+    if (ebayConnected && ebayCategoryId.trim()) {
+      const aspectValidation = prepareAspectsForEbayCategory(
+        categoryAspects,
+        cleanedAspects,
+        title.trim()
+      );
+      aspectsToSave = aspectValidation.remappedAspects.filter((a) => a.name && a.value);
+    }
     const basePayload: Record<string, unknown> = {
       title: title.trim().slice(0, EBAY_TITLE_MAX),
       sku: sku.trim() || null,
-      aspects: cleanedAspects,
+      aspects: aspectsToSave,
       ...(ebayConnected && ebayCategoryId.trim()
         ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
         : {}),

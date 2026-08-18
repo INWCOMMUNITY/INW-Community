@@ -46,6 +46,11 @@ import {
   type ListingAspect,
 } from "@/lib/listing-limits";
 import {
+  formatAspectValidationErrors,
+  prepareAspectRowsForForm,
+  prepareAspectsForEbayCategory,
+} from "@/lib/channels/ebay/aspect-prep";
+import {
   listingDescriptionForEditForm,
   listingDescriptionFromEditForm,
 } from "@/lib/channels/rich-description";
@@ -452,19 +457,12 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         }
         const list = data.aspects ?? [];
         setCategoryAspects(list);
-        // Pre-seed required aspects that the seller has not already filled in.
-        setAspects((prev) => {
-          const existingNames = new Set(prev.map((a) => a.name.trim().toLowerCase()));
-          const seeded = list
-            .filter((a) => a.required && !existingNames.has(a.name.trim().toLowerCase()))
-            .map((a) => ({ name: a.name, value: "" }));
-          return [...prev, ...seeded].slice(0, MAX_ASPECTS);
-        });
+        setAspects((prev) => prepareAspectRowsForForm(list, prev, title.trim()));
       } catch {
         setCategoryAspects([]);
       }
     },
-    []
+    [title]
   );
 
   // Load aspects for a previously-saved eBay category on edit.
@@ -564,22 +562,23 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const cleanedAspects = aspects
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
+    let aspectsToSave = cleanedAspects;
     if (ebayConnected && ebayCategoryId) {
-      const missingRequired = categoryAspects
-        .filter((a) => a.required)
-        .filter(
-          (a) =>
-            !cleanedAspects.some(
-              (c) => c.name.toLowerCase() === a.name.trim().toLowerCase() && c.value
-            )
-        )
-        .map((a) => a.name);
-      if (missingRequired.length > 0) {
+      const aspectValidation = prepareAspectsForEbayCategory(
+        categoryAspects,
+        cleanedAspects,
+        title.trim()
+      );
+      if (!aspectValidation.valid) {
         setError(
-          `eBay requires these item specifics for this category: ${missingRequired.join(", ")}. Fill them in under eBay Listing Requirements.`
+          formatAspectValidationErrors(
+            aspectValidation.missingRequired,
+            aspectValidation.invalidSelectionValues
+          )
         );
         return null;
       }
+      aspectsToSave = aspectValidation.remappedAspects.filter((a) => a.name && a.value);
     }
     if (etsyConnected) {
       if (!isEtsyWhoMade(etsyWhoMade)) {
@@ -599,7 +598,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       category: category.trim() || null,
       subcategory: subcategory.trim() || null,
       ebayCategoryId: ebayConnected && ebayCategoryId ? Number(ebayCategoryId) : null,
-      aspects: cleanedAspects,
+      aspects: aspectsToSave,
       ...(etsyConnected
         ? { etsyWhoMade, etsyWhenMade, etsyIsSupply }
         : {}),

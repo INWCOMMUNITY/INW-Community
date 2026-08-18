@@ -7,6 +7,7 @@ import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 import { migrateEbayListings, fetchEbayItemDetails } from "@/lib/channels/ebay/trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
+import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
 import { storeListingDescription, resolveImportCategory } from "@/lib/channels/import-listing";
 import { seedCategoryMappingFromImport } from "@/lib/channels/category-resolver";
@@ -419,7 +420,16 @@ export async function POST(req: NextRequest) {
           score: categoryAssignment.score,
         }
       : null;
+    const remoteCategoryId = details.remoteCategoryId ?? listing.remoteCategoryId ?? null;
     const importedAspects = normalizeListingAspects(details.aspects);
+    const aspectsForStorage =
+      remoteCategoryId && importedAspects.length > 0
+        ? await normalizeAspectsForEbayStorage(
+            remoteCategoryId,
+            importedAspects,
+            itemTitle ?? listing.title ?? ""
+          )
+        : importedAspects;
     const importedVariants = details.variants;
     const importQty =
       importedVariants && importedVariants.length > 0
@@ -431,7 +441,7 @@ export async function POST(req: NextRequest) {
       legacyId,
       aspectsCount: details.aspects.length,
       photosCount: details.photos.length,
-      normalizedAspectsCount: importedAspects.length,
+      normalizedAspectsCount: aspectsForStorage.length,
       variants: importedVariants?.length ?? 0,
       ebayCategoryPath,
       categoryAssignment,
@@ -444,7 +454,6 @@ export async function POST(req: NextRequest) {
     const photos = (details.photos.length > 0 ? details.photos : listing.photos)
       .map((u) => normalizeEbayPhotoUrl(u))
       .filter((u): u is string => Boolean(u));
-    const remoteCategoryId = details.remoteCategoryId ?? listing.remoteCategoryId ?? null;
     const importedDescription =
       storeListingDescription(details.description) ?? storeListingDescription(listing.description);
 
@@ -465,7 +474,7 @@ export async function POST(req: NextRequest) {
           slug: uniqueSlug(slugify(listing.title)),
           category: finalResolvedCat?.category ?? ebayCategoryPath?.slice(0, 200) ?? null,
           subcategory: finalResolvedCat?.subcategory ?? null,
-          ...(importedAspects.length > 0 ? { aspects: importedAspects as object } : {}),
+          ...(aspectsForStorage.length > 0 ? { aspects: aspectsForStorage as object } : {}),
           ...(importedVariants && importedVariants.length > 0
             ? { variants: importedVariants as object }
             : {}),
