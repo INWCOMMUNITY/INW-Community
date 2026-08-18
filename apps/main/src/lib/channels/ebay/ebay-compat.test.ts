@@ -120,6 +120,33 @@ describe("remapAspectsToTaxonomy", () => {
     expect(result.aspects.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
     expect(result.valueAdjustments.some((a) => a.from === "ngc" && a.to === "NGC")).toBe(true);
   });
+
+  it("maps synonym aliases when taxonomy uses the alias name not the canonical key", () => {
+    const taxonomy: EbayCategoryAspect[] = [
+      ...nickelTaxonomy,
+      {
+        name: "Country of Origin",
+        required: false,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Mint Location",
+        required: false,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+    ];
+    const result = remapAspectsToTaxonomy(taxonomy, [
+      { name: "Country", value: "United States" },
+      { name: "Mint", value: "Philadelphia" },
+    ]);
+    expect(result.dropped).toEqual([]);
+    expect(result.aspects.find((a) => a.name === "Country of Origin")?.value).toBe("United States");
+    expect(result.aspects.find((a) => a.name === "Mint Location")?.value).toBe("Philadelphia");
+  });
 });
 
 describe("mergeAspectSources", () => {
@@ -185,6 +212,15 @@ describe("fillEmptyTaxonomyAspectsFromTitle", () => {
       { name: "Professional grader", value: "PCGS" },
     ]);
     expect(filled.find((a) => a.name === "Professional grader")?.value).toBe("PCGS");
+  });
+
+  it("infers Year from coin title when taxonomy requires it", () => {
+    const filled = fillEmptyTaxonomyAspectsFromTitle(
+      "1952-D NGC MS 67 Jefferson Nickel",
+      nickelTaxonomy,
+      [{ name: "Professional grader", value: "NGC" }]
+    );
+    expect(filled.find((a) => a.name === "Year")?.value).toBe("1952");
   });
 });
 

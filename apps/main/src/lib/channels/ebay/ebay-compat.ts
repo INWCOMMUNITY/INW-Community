@@ -41,11 +41,14 @@ export const EBAY_ASPECT_SYNONYMS: Record<string, string[]> = {
   "letter grade": ["letter grade"],
   "numerical grade": ["numerical grade", "numeric grade"],
   "certification number": ["certification number", "cert number", "cert #"],
-  year: ["year", "year of issue"],
+  year: ["year", "year of issue", "year of manufacture"],
   mint: ["mint", "mint location"],
+  "strike type": ["strike type"],
   denomination: ["denomination"],
   country: ["country", "country of origin"],
   composition: ["composition", "material"],
+  coin: ["coin"],
+  "circulated/uncirculated": ["circulated/uncirculated", "circulated", "uncirculated"],
 };
 
 export type EbayCategorySchema = {
@@ -101,9 +104,17 @@ function resolveSynonymTarget(
   taxonomyLookup: Map<string, string>
 ): string | null {
   for (const [canonicalLower, aliases] of Object.entries(EBAY_ASPECT_SYNONYMS)) {
-    if (!aliases.includes(aliasLower)) continue;
-    const hit = taxonomyLookup.get(canonicalLower);
-    if (hit) return hit;
+    if (!aliases.includes(aliasLower) && canonicalLower !== aliasLower) continue;
+
+    // Try canonical taxonomy name (e.g. "professional grader")
+    const canonicalHit = taxonomyLookup.get(canonicalLower);
+    if (canonicalHit) return canonicalHit;
+
+    // Try every alias against taxonomy (e.g. "country of origin" when canonical is "country")
+    for (const alias of aliases) {
+      const byAlias = taxonomyLookup.get(alias);
+      if (byAlias) return byAlias;
+    }
   }
   return null;
 }
@@ -251,6 +262,18 @@ export function fillEmptyTaxonomyAspectsFromTitle(
         name: graderName,
         value: graderMatch[1]!.toUpperCase(),
       });
+    }
+  }
+
+  const yearMatch = t.match(/\b((?:18|19|20)\d{2})(?:-[A-Z]{1,3})?\b/);
+  if (yearMatch) {
+    const yearName = findCategoryAspectName(categoryAspects, [
+      "Year",
+      "Year of Issue",
+      "Year of Manufacture",
+    ]);
+    if (yearName && !hasValue(yearName)) {
+      filled.set(yearName.toLowerCase(), { name: yearName, value: yearMatch[1]! });
     }
   }
 
@@ -531,7 +554,8 @@ export async function validateListingForEbay(args: {
     categoryAspects,
     parseStoredAspects(args.item.aspects)
   );
-  const remapped = remapAspectsToTaxonomy(categoryAspects, merged);
+  const expanded = expandGradedCoinAspectsForTaxonomy(categoryAspects, merged);
+  const remapped = remapAspectsToTaxonomy(categoryAspects, expanded);
   const validation = validateRemappedAspects(categoryAspects, remapped.aspects);
 
   if (validation.missingRequired.length > 0 || validation.invalidSelectionValues.length > 0) {
