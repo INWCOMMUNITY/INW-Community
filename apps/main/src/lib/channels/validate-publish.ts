@@ -245,8 +245,8 @@ async function validateEbayAspects(
     const missingRequired: string[] = [];
     for (const aspect of categoryAspects) {
       if (aspect.required) {
-        const hasValue = itemAspectMap.has(aspect.name.toLowerCase());
-        if (!hasValue) {
+        const value = itemAspectMap.get(aspect.name.toLowerCase());
+        if (!value?.trim()) {
           missingRequired.push(aspect.name);
         }
       }

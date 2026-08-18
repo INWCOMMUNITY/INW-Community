@@ -29,6 +29,12 @@ import {
   enrichSyncItemConditionFromEbay,
   prepareEbaySyncCondition,
 } from "./fix-condition";
+import {
+  formatMissingEbayAspectsError,
+  persistEbayAspects,
+  prepareEbaySyncAspects,
+} from "./sync-aspects";
+import { parseStoredAspects } from "@/lib/listing-limits";
 import { hasOptionQuantities } from "../../store-item-variants";
 import {
   enumerateEbayListings,
@@ -128,6 +134,20 @@ async function upsertListing(
   });
   let syncItem = prepared.item;
 
+  const aspectPrep = await prepareEbaySyncAspects({
+    accessToken: conn.accessToken,
+    externalListingId: linkedSku ?? sku,
+    item: syncItem,
+    categoryId: conditionCategoryId,
+  });
+  syncItem = aspectPrep.item;
+  if (aspectPrep.enriched) {
+    await persistEbayAspects(item.id, parseStoredAspects(syncItem.aspects));
+  }
+  if (aspectPrep.missingRequired.length > 0) {
+    throw new Error(formatMissingEbayAspectsError(aspectPrep.missingRequired));
+  }
+
   console.warn("[ebay] upsertListing condition", {
     storeItemId: item.id,
     sku,
@@ -138,6 +158,8 @@ async function upsertListing(
     autoCorrected: prepared.autoCorrected,
     enrichedFromEbay: workingItem.ebayConditionEnum !== item.ebayConditionEnum,
     hasExistingOffer: !!offerId,
+    aspectsEnriched: aspectPrep.enriched,
+    aspectCount: parseStoredAspects(syncItem.aspects).length,
   });
 
   async function pushOfferBody(body: Record<string, unknown>) {
@@ -156,6 +178,26 @@ async function upsertListing(
   }
 
   async function pushInventoryBody(body: Record<string, unknown>) {
+    // #region agent log
+    const productAspects = (body.product as { aspects?: Record<string, string[]> } | undefined)
+      ?.aspects;
+    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "58be99" },
+      body: JSON.stringify({
+        sessionId: "58be99",
+        location: "adapter.ts:pushInventoryBody",
+        message: "inventory push aspects",
+        data: {
+          sku,
+          aspectKeys: productAspects ? Object.keys(productAspects) : [],
+          numericalGrade: productAspects?.["Numerical grade"] ?? null,
+        },
+        timestamp: Date.now(),
+        hypothesisId: "H4",
+      }),
+    }).catch(() => {});
+    // #endregion
     await ebayJson(
       conn.accessToken,
       `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,

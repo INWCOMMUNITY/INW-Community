@@ -223,6 +223,11 @@ const ERROR_CODE_ACTIONS: Record<number, EbayErrorAction> = {
     action: "seller_action",
     retryable: false,
   },
+  25064: {
+    message: "Missing required item specifics",
+    action: "seller_action",
+    retryable: false,
+  },
   25025: {
     message: "Concurrent access conflict",
     action: "retry",
@@ -311,6 +316,9 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   }
   if (/\b25021\b|condition.*invalid|invalid.*condition/i.test(reason)) {
     return "This listing needs a condition that matches its eBay category. Open the listing in INW and choose New or Used when prompted.";
+  }
+  if (/\b25064\b|numerical grade|item specific|item specifics/i.test(reason)) {
+    return "This listing is missing required eBay item specifics (for example Numerical grade on graded coins). Open the listing and fill in eBay Listing Requirements, or ensure the title includes the grader and grade (e.g. NGC MS 67).";
   }
   if (/\b25001\b|system error has occurred|Internal error/i.test(reason)) {
     return "eBay's service hit a temporary error. Wait a minute and try again.";
