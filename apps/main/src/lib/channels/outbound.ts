@@ -234,6 +234,7 @@ export async function publishStoreItemToChannels(
           provider,
           externalListingId: result.externalListingId,
           externalShopId: result.externalShopId,
+          ...(provider === "ebay" ? { linkOrigin: "inw_create" as const } : {}),
           syncEnabled: true,
           syncStatus: "synced",
           syncError: null,

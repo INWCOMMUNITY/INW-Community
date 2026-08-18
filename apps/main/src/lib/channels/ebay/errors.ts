@@ -350,6 +350,21 @@ export function ebayErrorActionHint(reason: string): string | undefined {
 export function describeChannelSyncError(provider: string, e: unknown): string {
   if (provider === "ebay") {
     const msg = describeEbayThrownError(e);
+    if (/inventory verify|bulk_update_price_quantity|availableQuantity/i.test(msg)) {
+      const hint = ebayErrorActionHint(msg);
+      const base = `Quantity didn't update on eBay: ${msg}`;
+      return hint ? `${base} — ${hint}` : base;
+    }
+    if (/#25064|item specific|required field.*aspect|aspect.*required|Letter grade/i.test(msg)) {
+      const hint = ebayErrorActionHint(msg);
+      const base = `Listing details didn't update on eBay: ${msg}. Edit title, price, photos, or description in INW; edit item specifics on eBay.`;
+      return hint ? `${base} — ${hint}` : base;
+    }
+    if (/policy|fulfillment|merchant location|401|403|unauthorized/i.test(msg)) {
+      const hint = ebayErrorActionHint(msg);
+      const base = msg;
+      return hint ? `${base} — ${hint}` : base;
+    }
     const hint = ebayErrorActionHint(msg);
     return hint ? `${msg} — ${hint}` : msg;
   }

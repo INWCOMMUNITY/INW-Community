@@ -334,7 +334,15 @@ export default function SyncHealthScreen() {
               </View>
               {issue.syncError && (
                 <Text style={styles.issueError} numberOfLines={2}>
-                  {issue.syncError}
+                  {issue.provider === "ebay" &&
+                  /#25064|item specific|Letter grade|aspect.*required/i.test(issue.syncError)
+                    ? "Listing content sync issue — open the item, tap Refresh from eBay, then save."
+                    : issue.provider === "ebay" &&
+                        /inventory verify|bulk_update|quantity/i.test(issue.syncError)
+                      ? issue.syncError.startsWith("Quantity")
+                        ? issue.syncError
+                        : "Quantity didn't update on eBay. Open the item and tap Sync now."
+                      : issue.syncError}
                 </Text>
               )}
               {issue.provider === "ebay" && isEbayConditionSyncError(issue.syncError) && (

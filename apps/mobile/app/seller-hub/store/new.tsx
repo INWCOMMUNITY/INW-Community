@@ -205,6 +205,7 @@ export default function ListItemScreen() {
   const [showListingSuccessModal, setShowListingSuccessModal] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
   const [hasEbayLink, setHasEbayLink] = useState(false);
+  const [isEbayImportedListing, setIsEbayImportedListing] = useState(false);
   const [refreshingFromEbay, setRefreshingFromEbay] = useState(false);
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
@@ -348,6 +349,8 @@ export default function ListItemScreen() {
         ebayCategoryId?: number | null;
         aspects?: { name?: unknown; value?: unknown }[] | null;
         hasEbayLink?: boolean;
+        hasEbayImportLink?: boolean;
+        ebayLinkOrigin?: "import" | "inw_create" | null;
       }>(`/api/store-items/${editId}`)
         .then((item) => {
           setTitle(item.title ?? "");
@@ -400,6 +403,9 @@ export default function ListItemScreen() {
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
           if (item.hasEbayLink) setHasEbayLink(true);
+          setIsEbayImportedListing(
+            Boolean(item.hasEbayImportLink || item.ebayLinkOrigin === "import")
+          );
         })
         .catch(() => setError("Failed to load item"))
         .finally(() => {
@@ -569,16 +575,19 @@ export default function ListItemScreen() {
       return;
     }
     try {
-      const data = await apiGet<{ aspects?: EbayCategoryAspect[] }>(
-        `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}`
+      const storeItemQuery = editId ? `&storeItemId=${encodeURIComponent(editId)}` : "";
+      const data = await apiGet<{ aspects?: EbayCategoryAspect[]; readOnly?: boolean }>(
+        `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}${storeItemQuery}`
       );
       const list = data.aspects ?? [];
       setCategoryAspects(list);
-      setAspects((prev) => prepareAspectRowsForForm(list, prev, title.trim()));
+      if (!data.readOnly) {
+        setAspects((prev) => prepareAspectRowsForForm(list, prev, title.trim()));
+      }
     } catch {
       setCategoryAspects([]);
     }
-  }, [title]);
+  }, [title, editId]);
 
   // Debounced live eBay category search.
   useEffect(() => {
@@ -640,13 +649,13 @@ export default function ListItemScreen() {
   };
 
   const missingRequiredAspectCount = useMemo(() => {
-    if (categoryAspects.length === 0) return 0;
+    if (isEbayImportedListing || categoryAspects.length === 0) return 0;
     const filled = aspects
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
     return prepareAspectsForEbayCategory(categoryAspects, filled, title.trim()).missingRequired
       .length;
-  }, [categoryAspects, aspects, title]);
+  }, [categoryAspects, aspects, title, isEbayImportedListing]);
 
   const selectEbayCategory = (categoryId: string, label: string) => {
     setEbayCategoryId(categoryId);
@@ -870,7 +879,7 @@ export default function ListItemScreen() {
       setError("You must offer at least one form of delivery (shipping, local delivery, or pickup).");
       return;
     }
-    if (ebayConnected && ebayCategoryId.trim()) {
+    if (ebayConnected && ebayCategoryId.trim() && !isEbayImportedListing) {
       const filled = aspects
         .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
         .filter((a) => a.name && a.value);
@@ -939,7 +948,7 @@ export default function ListItemScreen() {
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
     let aspectsToSave = cleanedAspects;
-    if (ebayConnected && ebayCategoryId.trim()) {
+    if (ebayConnected && ebayCategoryId.trim() && !isEbayImportedListing) {
       const aspectValidation = prepareAspectsForEbayCategory(
         categoryAspects,
         cleanedAspects,
@@ -950,7 +959,7 @@ export default function ListItemScreen() {
     const basePayload: Record<string, unknown> = {
       title: title.trim().slice(0, EBAY_TITLE_MAX),
       sku: sku.trim() || null,
-      aspects: aspectsToSave,
+      ...(isEbayImportedListing ? {} : { aspects: aspectsToSave }),
       ...(ebayConnected && ebayCategoryId.trim()
         ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
         : {}),
@@ -1355,6 +1364,7 @@ export default function ListItemScreen() {
           placeholderColor={placeholderColor}
           defaultExpanded={!!ebayCategoryId || missingRequiredAspectCount > 0}
           missingRequiredCount={missingRequiredAspectCount}
+          readOnlyAspects={isEbayImportedListing}
         />
       )}
 

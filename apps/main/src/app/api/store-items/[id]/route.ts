@@ -15,7 +15,7 @@ import type { ChannelProvider } from "@/lib/channels/types";
 import { z } from "zod";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
-import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
+import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 import { Prisma } from "database";
 
 const bodySchema = z.object({
@@ -77,6 +77,7 @@ export async function GET(
           syncError: true,
           lastPushedAt: true,
           externalListingId: true,
+          linkOrigin: true,
         },
       },
     },
@@ -84,9 +85,23 @@ export async function GET(
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  // Add convenience flag for eBay link status
   const hasEbayLink = item.channelLinks.some((l) => l.provider === "ebay");
-  return NextResponse.json({ ...item, hasEbayLink });
+  const ebayLink = item.channelLinks.find((l) => l.provider === "ebay");
+  const hasEbayImportLink = Boolean(
+    ebayLink &&
+      isImportedEbayLink({
+        provider: "ebay",
+        externalListingId: ebayLink.externalListingId,
+        storeItemId: id,
+        linkOrigin: ebayLink.linkOrigin,
+      })
+  );
+  const ebayLinkOrigin = hasEbayImportLink
+    ? "import"
+    : ebayLink
+      ? "inw_create"
+      : null;
+  return NextResponse.json({ ...item, hasEbayLink, hasEbayImportLink, ebayLinkOrigin });
 }
 
 export async function PATCH(
@@ -291,17 +306,36 @@ export async function PATCH(
   if (data.etsyTaxonomyId !== undefined) update.etsyTaxonomyId = data.etsyTaxonomyId;
   if (data.ebayCategoryId !== undefined) update.ebayCategoryId = data.ebayCategoryId;
   if (data.aspects !== undefined) {
-    let normalizedAspects = normalizeListingAspects(data.aspects);
-    const categoryId = data.ebayCategoryId ?? existing.ebayCategoryId;
-    const title = data.title ?? existing.title;
-    if (categoryId && normalizedAspects.length > 0) {
-      normalizedAspects = await normalizeAspectsForEbayStorage(
-        String(categoryId),
-        normalizedAspects,
-        title ?? ""
-      );
+    const ebayLink = await prisma.channelListingLink.findFirst({
+      where: { storeItemId: itemId, provider: "ebay" },
+      select: { externalListingId: true, linkOrigin: true },
+    });
+    const importedEbay =
+      ebayLink &&
+      isImportedEbayLink({
+        provider: "ebay",
+        externalListingId: ebayLink.externalListingId,
+        storeItemId: itemId,
+        linkOrigin: ebayLink.linkOrigin,
+      });
+
+    if (!importedEbay) {
+      let normalizedAspects = normalizeListingAspects(data.aspects);
+      const categoryId = data.ebayCategoryId ?? existing.ebayCategoryId;
+      const title = data.title ?? existing.title;
+      if (categoryId && normalizedAspects.length > 0) {
+        const { normalizeAspectsForEbayStorage } = await import(
+          "@/lib/channels/ebay/sync-aspects"
+        );
+        normalizedAspects = await normalizeAspectsForEbayStorage(
+          String(categoryId),
+          normalizedAspects,
+          title ?? ""
+        );
+      }
+      update.aspects =
+        normalizedAspects.length > 0 ? (normalizedAspects as object) : Prisma.JsonNull;
     }
-    update.aspects = normalizedAspects.length > 0 ? (normalizedAspects as object) : Prisma.JsonNull;
   }
 
   const mergedStatus =

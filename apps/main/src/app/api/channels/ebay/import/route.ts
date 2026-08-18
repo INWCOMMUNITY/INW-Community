@@ -7,7 +7,7 @@ import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 import { migrateEbayListings, fetchEbayItemDetails } from "@/lib/channels/ebay/trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
-import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
+import { fetchAndCacheEbayInventoryAspects } from "@/lib/channels/ebay/inventory-aspects-cache";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
 import { storeListingDescription, resolveImportCategory } from "@/lib/channels/import-listing";
 import { seedCategoryMappingFromImport } from "@/lib/channels/category-resolver";
@@ -422,14 +422,7 @@ export async function POST(req: NextRequest) {
       : null;
     const remoteCategoryId = details.remoteCategoryId ?? listing.remoteCategoryId ?? null;
     const importedAspects = normalizeListingAspects(details.aspects);
-    const aspectsForStorage =
-      remoteCategoryId && importedAspects.length > 0
-        ? await normalizeAspectsForEbayStorage(
-            remoteCategoryId,
-            importedAspects,
-            itemTitle ?? listing.title ?? ""
-          )
-        : importedAspects;
+    const aspectsForStorage = importedAspects;
     const importedVariants = details.variants;
     const importQty =
       importedVariants && importedVariants.length > 0
@@ -498,13 +491,14 @@ export async function POST(req: NextRequest) {
       const remoteSplitForLink = splitEbayCategoryPath(ebayCategoryPath);
 
       try {
-        await prisma.channelListingLink.create({
+        const createdLink = await prisma.channelListingLink.create({
           data: {
             storeItemId: storeItem.id,
             connectionId: ctx.id,
             provider: "ebay",
             externalListingId: sku,
             externalShopId: ctx.externalShopId,
+            linkOrigin: "import",
             syncEnabled: true,
             syncStatus: "synced",
             lastPushedAt: new Date(),
@@ -519,6 +513,7 @@ export async function POST(req: NextRequest) {
             remoteCategorySubLabel: remoteSplitForLink.subcategory?.slice(0, 200) ?? null,
           },
         });
+        void fetchAndCacheEbayInventoryAspects(ctx.accessToken, createdLink.id, sku).catch(() => {});
       } catch (linkErr) {
         await prisma.storeItem.delete({ where: { id: storeItem.id } }).catch(() => {});
         createdStoreItemId = null;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { EbayCategoryAspect } from "./aspects";
 import {
+  ensureGradedCoinInventoryAspects,
+  filterSellerVisibleCategoryAspects,
   prepareAspectRowsForForm,
   prepareAspectsForEbayCategory,
 } from "./aspect-prep";
@@ -36,6 +38,11 @@ const nickelTaxonomy: EbayCategoryAspect[] = [
   },
 ];
 
+/** Taxonomy without Letter grade — matches live 41087 API omitting it while Inventory still requires it. */
+const taxonomyMissingLetterGrade: EbayCategoryAspect[] = nickelTaxonomy.filter(
+  (a) => a.name !== "Letter grade"
+);
+
 describe("prepareAspectsForEbayCategory", () => {
   it("accepts Trading import names (Certification, Grade) as satisfying taxonomy requirements", () => {
     const prep = prepareAspectsForEbayCategory(
@@ -50,7 +57,34 @@ describe("prepareAspectsForEbayCategory", () => {
     expect(prep.valid).toBe(true);
     expect(prep.missingRequired).toEqual([]);
     expect(prep.remappedAspects.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
-    expect(prep.remappedAspects.find((a) => a.name === "Letter grade")?.value).toBe("67");
+    // Letter grade is eBay-only — not stored or shown to sellers
+    expect(prep.remappedAspects.find((a) => a.name === "Letter grade")).toBeUndefined();
+  });
+});
+
+describe("ensureGradedCoinInventoryAspects", () => {
+  it("injects Letter grade for push when taxonomy omits it (41087-style)", () => {
+    const trading = [
+      { name: "Certification", value: "NGC" },
+      { name: "Grade", value: "MS 67" },
+      { name: "Year", value: "1952" },
+    ];
+    const ensured = ensureGradedCoinInventoryAspects(
+      taxonomyMissingLetterGrade,
+      trading,
+      trading,
+      "1952-D NGC MS 67 Jefferson Nickel"
+    );
+    expect(ensured.find((a) => a.name === "Letter grade")?.value).toBe("67");
+    expect(ensured.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
+  });
+});
+
+describe("filterSellerVisibleCategoryAspects", () => {
+  it("hides Letter grade and Numerical grade from seller forms", () => {
+    const visible = filterSellerVisibleCategoryAspects(nickelTaxonomy);
+    expect(visible.some((a) => a.name === "Letter grade")).toBe(false);
+    expect(visible.some((a) => a.name === "Grade")).toBe(true);
   });
 });
 
@@ -67,6 +101,6 @@ describe("prepareAspectRowsForForm", () => {
     );
     expect(rows.some((a) => a.name === "Certification")).toBe(false);
     expect(rows.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
-    expect(rows.find((a) => a.name === "Professional grader")?.value).not.toBe("");
+    expect(rows.some((a) => a.name === "Letter grade")).toBe(false);
   });
 });

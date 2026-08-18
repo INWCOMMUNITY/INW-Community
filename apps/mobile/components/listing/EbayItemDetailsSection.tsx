@@ -44,6 +44,8 @@ type EbayItemDetailsSectionProps = {
   placeholderColor?: string;
   defaultExpanded?: boolean;
   missingRequiredCount?: number;
+  /** Imported eBay listings — specifics are display-only. */
+  readOnlyAspects?: boolean;
 };
 
 export function EbayItemDetailsSection({
@@ -69,14 +71,22 @@ export function EbayItemDetailsSection({
   placeholderColor = "#888",
   defaultExpanded = true,
   missingRequiredCount = 0,
+  readOnlyAspects = false,
 }: EbayItemDetailsSectionProps) {
   const badge =
-    missingRequiredCount > 0
-      ? `${missingRequiredCount} required`
-      : ebayCategoryId
-        ? "Ready"
-        : undefined;
-  const badgeColor = missingRequiredCount > 0 ? "#dc2626" : "#16a34a";
+    readOnlyAspects && ebayCategoryId
+      ? "From eBay"
+      : missingRequiredCount > 0
+        ? `${missingRequiredCount} required`
+        : ebayCategoryId
+          ? "Ready"
+          : undefined;
+  const badgeColor =
+    readOnlyAspects && ebayCategoryId
+      ? "#2563eb"
+      : missingRequiredCount > 0
+        ? "#dc2626"
+        : "#16a34a";
 
   return (
     <CollapsibleSection
@@ -88,8 +98,9 @@ export function EbayItemDetailsSection({
       badgeColor={badgeColor}
     >
       <Text style={styles.hint}>
-        Pick an eBay category, then fill in item specifics (Brand, Type, etc.). Required fields are
-        marked with *.
+        {readOnlyAspects
+          ? "Item specifics are managed on eBay. Use Refresh from eBay to pull the latest values."
+          : "Pick an eBay category, then fill in item specifics (Brand, Type, etc.). Required fields are marked with *."}
       </Text>
 
       <Text style={styles.fieldLabel}>eBay category</Text>
@@ -101,8 +112,8 @@ export function EbayItemDetailsSection({
             </Text>
             <Text style={styles.hintInline}>eBay category #{ebayCategoryId}</Text>
           </View>
-          <Pressable onPress={onClearCategory}>
-            <Text style={styles.changeLink}>Change</Text>
+          <Pressable onPress={onClearCategory} disabled={readOnlyAspects}>
+            <Text style={[styles.changeLink, readOnlyAspects && { opacity: 0.4 }]}>Change</Text>
           </Pressable>
         </View>
       ) : (
@@ -152,13 +163,13 @@ export function EbayItemDetailsSection({
             return (
               <View key={i} style={styles.aspectRow}>
                 <TextInput
-                  style={[styles.input, styles.aspectInput]}
+                  style={[styles.input, styles.aspectInput, readOnlyAspects && styles.readOnlyInput]}
                   value={a.name}
                   onChangeText={(t) => onAspectNameChange(i, t)}
                   placeholder="Descriptor"
                   maxLength={aspectNameMax}
                   placeholderTextColor={placeholderColor}
-                  editable={!(required && !!ebayCategoryId)}
+                  editable={!readOnlyAspects && !(required && !!ebayCategoryId)}
                 />
                 <View style={{ flex: 1 }}>
                   <TextInput
@@ -166,23 +177,15 @@ export function EbayItemDetailsSection({
                       styles.input,
                       styles.aspectInput,
                       { marginBottom: 0 },
-                      required && !a.value.trim() ? styles.aspectInputRequired : null,
+                      readOnlyAspects && styles.readOnlyInput,
+                      required && !readOnlyAspects && !a.value.trim() ? styles.aspectInputRequired : null,
                     ]}
                     value={a.value}
                     onChangeText={(t) => onAspectValueChange(i, t)}
-                    placeholder={
-                      isSelectionOnly
-                        ? `Choose: ${suggestions.slice(0, 4).join(", ")}`
-                        : isMulti
-                          ? required
-                            ? "Values (comma-separated)"
-                            : "Values (comma-separated)"
-                          : required
-                            ? "Value (required)"
-                            : "Value"
-                    }
+                    placeholder={readOnlyAspects ? "Value from eBay" : required ? "Value (required)" : "Value"}
                     maxLength={aspectValueMax}
                     placeholderTextColor={placeholderColor}
+                    editable={!readOnlyAspects}
                   />
                   {isSelectionOnly ? (
                     <Text style={styles.hintInline} numberOfLines={2}>
@@ -190,13 +193,15 @@ export function EbayItemDetailsSection({
                     </Text>
                   ) : null}
                 </View>
-                <Pressable onPress={() => onRemoveAspect(i)} style={styles.aspectRemove}>
-                  <Text style={styles.aspectRemoveText}>×</Text>
-                </Pressable>
+                {!readOnlyAspects ? (
+                  <Pressable onPress={() => onRemoveAspect(i)} style={styles.aspectRemove}>
+                    <Text style={styles.aspectRemoveText}>×</Text>
+                  </Pressable>
+                ) : null}
               </View>
             );
           })}
-          {aspects.length < maxAspects ? (
+          {!readOnlyAspects && aspects.length < maxAspects ? (
             <Pressable style={styles.addDetailBtn} onPress={onAddAspect}>
               <Text style={styles.addDetailBtnText}>+ Add a detail</Text>
             </Pressable>
@@ -270,6 +275,7 @@ const styles = StyleSheet.create({
   count: { fontSize: 12, color: theme.colors.labelMuted },
   aspectRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   aspectInput: { flex: 1, marginBottom: 0 },
+  readOnlyInput: { backgroundColor: "#f3f4f6", color: "#374151" },
   aspectInputRequired: { borderColor: "#f87171" },
   aspectRemove: { paddingHorizontal: 6, paddingVertical: 4 },
   aspectRemoveText: { color: "#dc2626", fontSize: 22, fontWeight: "700", lineHeight: 24 },

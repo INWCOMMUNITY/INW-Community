@@ -2,7 +2,8 @@ import { prisma } from "database";
 import { getConnectionContext } from "../connection";
 import { fetchEbayItemDetails, enumerateEbayListings } from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
-import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
+import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
+import { isImportedEbayLink } from "./listing-origin";
 import { normalizeEbayPhotoUrl } from "./photos";
 import { storeListingDescription } from "../import-listing";
 import { resolveInwCategoryFromEbayPath } from "../category-resolver";
@@ -117,17 +118,7 @@ export async function refreshEbayListingByItemId(
 
   const normalizedAspects = normalizeListingAspects(details.aspects);
   const remoteTitle = (details.title ?? storeItem.title).slice(0, 200);
-  const categoryIdForAspects =
-    details.remoteCategoryId ??
-    (storeItem.ebayCategoryId != null ? String(storeItem.ebayCategoryId) : null);
-  const aspectsForStorage =
-    categoryIdForAspects && normalizedAspects.length > 0
-      ? await normalizeAspectsForEbayStorage(
-          categoryIdForAspects,
-          normalizedAspects,
-          remoteTitle
-        )
-      : normalizedAspects;
+  const aspectsForStorage = normalizedAspects;
   const photos = details.photos
     .map((u) => normalizeEbayPhotoUrl(u))
     .filter((u): u is string => Boolean(u));
@@ -252,6 +243,12 @@ export async function refreshEbayListingByItemId(
       },
     });
 
+    void fetchAndCacheEbayInventoryAspects(
+      accessToken,
+      link.id,
+      link.externalListingId
+    ).catch(() => {});
+
     console.log("[ebay] refreshEbayListingByItemId: updated", {
       storeItemId: storeItem.id,
       legacyItemId,
@@ -272,6 +269,12 @@ export async function refreshEbayListingByItemId(
       data: { lastInboundAt: new Date() },
     })
     .catch(() => {});
+
+  void fetchAndCacheEbayInventoryAspects(
+    accessToken,
+    link.id,
+    link.externalListingId
+  ).catch(() => {});
 
   return {
     storeItemId: storeItem.id,

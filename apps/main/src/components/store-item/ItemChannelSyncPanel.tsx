@@ -6,6 +6,23 @@ import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import { isEbayConditionSyncError } from "@/lib/channels/ebay/conditions";
 import { providerLabel } from "@/lib/channel-sync-feedback";
 
+function isEbayAspectSyncError(err: string | null | undefined): boolean {
+  if (!err) return false;
+  return /#25064|item specific|aspect.*required|Letter grade|Numerical grade/i.test(err);
+}
+
+function formatLinkSyncError(link: ChannelLinkSummary): string | null {
+  const err = link.syncError?.trim();
+  if (!err) return null;
+  if (link.provider === "ebay" && link.linkOrigin === "import" && isEbayAspectSyncError(err)) {
+    return "Listing content sync issue — try Refresh from eBay, then Sync now.";
+  }
+  if (link.provider === "ebay" && /inventory verify|bulk_update|quantity/i.test(err)) {
+    return err.startsWith("Quantity") ? err : `Quantity didn't update on eBay: ${err.slice(0, 100)}`;
+  }
+  return err.slice(0, 120);
+}
+
 export type ChannelLinkSummary = {
   provider: string;
   syncStatus: string;
@@ -13,6 +30,7 @@ export type ChannelLinkSummary = {
   syncError: string | null;
   lastPushedAt: string | null;
   externalListingId?: string | null;
+  linkOrigin?: string | null;
 };
 
 type ItemChannelSyncPanelProps = {
@@ -44,10 +62,10 @@ function linkStatusLabel(link: ChannelLinkSummary): {
     return { tone: "gray", text: "Paused" };
   }
   if (link.syncStatus === "error") {
-    const err = link.syncError?.trim();
+    const err = formatLinkSyncError(link);
     return {
       tone: "red",
-      text: err ? err.slice(0, 120) : "Sync error",
+      text: err ?? "Sync error",
     };
   }
   if (link.syncStatus === "pending") {
@@ -96,6 +114,7 @@ export function ItemChannelSyncPanel({
           syncError: l.syncError ?? null,
           lastPushedAt: l.lastPushedAt ?? null,
           externalListingId: l.externalListingId ?? null,
+          linkOrigin: l.linkOrigin ?? null,
         }));
         setLinks(mapped);
         onLinksUpdated?.(mapped);

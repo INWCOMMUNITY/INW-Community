@@ -55,6 +55,14 @@ import {
   type SyncTraceContext,
   type ValidationCheck,
 } from "../sync-trace";
+import { prisma } from "database";
+import { isImportedEbayLink, extractEbayInventoryAspects } from "./listing-origin";
+import {
+  buildPassthroughInventoryBody,
+  buildPassthroughOfferBody,
+  fetchLiveInventoryItem,
+} from "./passthrough-push";
+import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 
 type EbayOffer = { offerId?: string; status?: string; listing?: { listingId?: string } };
 type EbayOfferDetails = { offerId?: string; categoryId?: string };
@@ -165,6 +173,131 @@ async function upsertListing(
     const cat = await resolveProviderCategoryId(conn, "ebay", item.category);
     const targetCategoryId = resolveCategoryId(item, cat.ebayCategoryId ?? null);
 
+    const existingOffer = await findOffer(conn.accessToken, sku);
+    let offerId = existingOffer?.offerId ?? null;
+    let existingOfferCategoryId: string | null = null;
+    if (offerId) {
+      const offerDetails = await getOfferDetails(conn.accessToken, offerId);
+      existingOfferCategoryId = offerDetails?.categoryId?.trim() ?? null;
+    }
+
+    const isImported = Boolean(
+      linkedSku &&
+        isImportedEbayLink({
+          provider: "ebay",
+          externalListingId: sku,
+          storeItemId: item.id,
+        })
+    );
+
+    // Imported eBay listings: passthrough push — preserve live inventory aspects verbatim.
+    if (isImported) {
+      const offerCategoryId = targetCategoryId ?? existingOfferCategoryId;
+      validationChecks.push({
+        name: "category",
+        passed: !!offerCategoryId,
+        detail: offerCategoryId ? `Category: ${offerCategoryId}` : "Using live eBay offer category",
+        severity: offerCategoryId ? "warning" : "warning",
+      });
+      validationChecks.push({
+        name: "aspects_required",
+        passed: true,
+        detail: "Passthrough — live eBay aspects preserved",
+        severity: "warning",
+      });
+      addValidation(trace, {
+        valid: validationChecks.every((c) => c.passed || c.severity === "warning"),
+        checks: validationChecks,
+      });
+
+      const live = await fetchLiveInventoryItem(conn.accessToken, sku);
+      if (!live) {
+        const error = new Error(
+          "Could not fetch live eBay inventory item for passthrough sync. Try Refresh from eBay, then sync again."
+        );
+        await completeTrace(trace, "failed", error);
+        throw error;
+      }
+
+      const liveAspects = extractEbayInventoryAspects(live);
+      addTransform(trace, {
+        before: { passthrough: true, liveAspects },
+        after: { overlays: ["title", "description", "photos", "quantity", "price"] },
+        remaps: [],
+        dropped: [],
+      });
+
+      const changed = { content: true, quantity: true, price: true };
+      const inventoryBody = buildPassthroughInventoryBody(live, item, changed);
+      const offerBody = buildPassthroughOfferBody(
+        item,
+        changed,
+        buildEbayOffer(item, cfg, offerCategoryId, sku) as Record<string, unknown>
+      );
+
+      async function pushOfferBodyPassthrough(body: Record<string, unknown>) {
+        if (offerId) {
+          await ebayJson(conn.accessToken, `/sell/inventory/v1/offer/${offerId}`, "PUT", body);
+          await persistRevisionCount(conn.id, sku, conn.config);
+          return;
+        }
+        const created = await ebayJson<{ offerId?: string }>(
+          conn.accessToken,
+          `/sell/inventory/v1/offer`,
+          "POST",
+          body
+        );
+        offerId = created.offerId ?? null;
+      }
+
+      async function pushInventoryBodyPassthrough(
+        body: Record<string, unknown>,
+        traceCtx?: SyncTraceContext
+      ) {
+        if (traceCtx) addRequest(traceCtx, body);
+        try {
+          await ebayJson(
+            conn.accessToken,
+            `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+            "PUT",
+            body
+          );
+          if (traceCtx) addResponse(traceCtx, 200, { success: true, passthrough: true });
+          await persistRevisionCount(conn.id, sku, conn.config);
+        } catch (e) {
+          if (traceCtx && e instanceof EbayApiError) {
+            addResponse(traceCtx, e.status, { error: e.message, body: e.body });
+          }
+          throw e;
+        }
+      }
+
+      if (offerId) {
+        await pushOfferBodyPassthrough(offerBody);
+        await pushInventoryBodyPassthrough(inventoryBody, trace);
+      } else {
+        await pushInventoryBodyPassthrough(inventoryBody, trace);
+        await pushOfferBodyPassthrough(offerBody);
+      }
+
+      const link = await prisma.channelListingLink.findFirst({
+        where: { storeItemId: item.id, provider: "ebay", externalListingId: sku },
+        select: { id: true },
+      });
+      if (link) {
+        await fetchAndCacheEbayInventoryAspects(conn.accessToken, link.id, sku);
+      }
+
+      console.warn("[ebay] upsertListing passthrough", {
+        storeItemId: item.id,
+        sku,
+        liveAspectCount: liveAspects ? Object.keys(liveAspects).length : 0,
+      });
+
+      await completeTrace(trace, "success");
+      return { sku };
+    }
+
     // Validate category
     validationChecks.push({
       name: "category",
@@ -174,14 +307,6 @@ async function upsertListing(
     });
 
     let workingItem = await enrichSyncItemConditionFromEbay(conn.accessToken, linkedSku ?? sku, item);
-
-    const existingOffer = await findOffer(conn.accessToken, sku);
-    let offerId = existingOffer?.offerId ?? null;
-    let existingOfferCategoryId: string | null = null;
-    if (offerId) {
-      const offerDetails = await getOfferDetails(conn.accessToken, offerId);
-      existingOfferCategoryId = offerDetails?.categoryId?.trim() ?? null;
-    }
 
     // eBay validates inventory condition against the offer's primary category — use target if set, else live offer cat.
     const conditionCategoryId = targetCategoryId ?? existingOfferCategoryId;
@@ -579,15 +704,35 @@ export const ebayAdapter: ChannelAdapter = {
       console.warn("[ebay] updateInventory: approaching rate limit", { sku, count: limitCheck.count });
     }
 
+    const isImported = isImportedEbayLink({
+      provider: "ebay",
+      externalListingId: sku,
+      storeItemId: item.id,
+    });
+
     if (hasOptionQuantities(item.variants)) {
+      const qtyItem = { ...item, quantity: Math.max(0, absoluteQuantity) };
+      let inventoryBody: Record<string, unknown>;
+      if (isImported) {
+        const live = await fetchLiveInventoryItem(conn.accessToken, sku);
+        if (!live) {
+          throw new Error("Could not fetch live eBay inventory for passthrough qty update");
+        }
+        inventoryBody = buildPassthroughInventoryBody(live, qtyItem, {
+          content: false,
+          quantity: true,
+          price: false,
+        });
+      } else {
+        inventoryBody = buildEbayInventoryItem(qtyItem);
+      }
       await ebayJson(
         conn.accessToken,
         `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
         "PUT",
-        buildEbayInventoryItem(item)
+        inventoryBody
       );
       await persistRevisionCount(conn.id, sku, conn.config);
-      // Read-back verification for variant listings
       await verifyInventoryWrite(conn.accessToken, sku, null);
       return;
     }

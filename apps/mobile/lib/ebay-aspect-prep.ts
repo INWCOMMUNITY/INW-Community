@@ -80,6 +80,110 @@ const GRADER_SOURCE_NAMES = new Set([
   "professional grader (certification service)",
 ]);
 
+/**
+ * eBay Inventory API sub-grade fields — not real coin-industry terms.
+ * Derived silently from Grade (e.g. MS 67 → numeric 67) on push; never shown to sellers.
+ */
+export const EBAY_DERIVED_GRADE_ASPECTS = new Set(["letter grade", "numerical grade"]);
+
+/** Category aspects sellers actually fill in (excludes eBay-only derived grade sub-fields). */
+export function filterSellerVisibleCategoryAspects(
+  categoryAspects: CategoryAspectSchema[]
+): CategoryAspectSchema[] {
+  return categoryAspects.filter((a) => !EBAY_DERIVED_GRADE_ASPECTS.has(a.name.toLowerCase()));
+}
+
+/** Strip eBay-only derived aspects from stored/displayed rows. */
+export function filterSellerVisibleAspectRows(aspects: ListingAspect[]): ListingAspect[] {
+  return aspects.filter((a) => !EBAY_DERIVED_GRADE_ASPECTS.has(a.name.trim().toLowerCase()));
+}
+
+type GradedCoinInfo = {
+  grader: string;
+  gradeLabel: string;
+  numeric: string;
+};
+
+function extractGradedCoinInfo(sources: ListingAspect[], title: string): GradedCoinInfo | null {
+  let grader: string | null = null;
+  let gradeLabel: string | null = null;
+  let numeric: string | null = null;
+
+  for (const a of sources) {
+    const nameLower = a.name.trim().toLowerCase();
+    const value = a.value.trim();
+    if (!value) continue;
+
+    if (GRADER_SOURCE_NAMES.has(nameLower)) {
+      grader = grader ?? value.toUpperCase();
+    }
+
+    const parsed = parseCoinGradeLabel(value);
+    if (parsed) {
+      gradeLabel = gradeLabel ?? parsed.label;
+      numeric = numeric ?? parsed.numeric;
+    } else if (nameLower === "grade") {
+      gradeLabel = gradeLabel ?? value;
+    }
+  }
+
+  const titleGrader = title.trim().match(/\b(NGC|PCGS|ANACS|ICG|PMG|CACG)\b/i);
+  if (titleGrader) grader = grader ?? titleGrader[1]!.toUpperCase();
+
+  const titleGrade = title.trim().match(/\b(MS|PR|PF|SP|AU|XF|VF|F|VG|G|AG)[\s-]*(\d{1,2})\b/i);
+  if (titleGrade) {
+    gradeLabel = gradeLabel ?? `${titleGrade[1]!.toUpperCase()} ${titleGrade[2]}`;
+    numeric = numeric ?? titleGrade[2]!;
+  }
+
+  if (!grader || !numeric) return null;
+  return { grader, gradeLabel: gradeLabel ?? numeric, numeric };
+}
+
+/**
+ * Inject eBay Inventory-only graded-coin sub-fields (Letter grade / Numerical grade)
+ * that the Taxonomy API often omits but the Inventory API still requires on publish.
+ * Coin sellers use Grade + Certification — this maps those to what eBay expects.
+ */
+export function ensureGradedCoinInventoryAspects(
+  categoryAspects: CategoryAspectSchema[],
+  aspects: ListingAspect[],
+  sources: ListingAspect[],
+  title: string
+): ListingAspect[] {
+  const info = extractGradedCoinInfo([...sources, ...aspects], title);
+  if (!info) return aspects;
+
+  const out = new Map(aspects.map((a) => [a.name.toLowerCase(), a]));
+  const has = (name: string) => !!out.get(name.toLowerCase())?.value.trim();
+
+  const proName = findCategoryAspectName(categoryAspects, ["Professional grader"]) ?? "Professional grader";
+  if (!has(proName)) {
+    out.set(proName.toLowerCase(), { name: proName, value: info.grader });
+  }
+
+  const gradeName = findCategoryAspectName(categoryAspects, ["Grade"]) ?? "Grade";
+  if (!has(gradeName)) {
+    out.set(gradeName.toLowerCase(), { name: gradeName, value: info.gradeLabel });
+  }
+
+  const taxonomyHasLetter = categoryAspects.some((a) => a.name.toLowerCase() === "letter grade");
+  const taxonomyHasNumerical = categoryAspects.some((a) => a.name.toLowerCase() === "numerical grade");
+
+  if (taxonomyHasNumerical && !has("numerical grade")) {
+    const numName = findCategoryAspectName(categoryAspects, ["Numerical grade"]) ?? "Numerical grade";
+    out.set(numName.toLowerCase(), { name: numName, value: info.numeric });
+  }
+
+  // Letter grade: taxonomy may omit it (e.g. 41087) while Inventory API still requires it.
+  if ((taxonomyHasLetter || (!taxonomyHasLetter && !taxonomyHasNumerical)) && !has("letter grade")) {
+    const letterName = findCategoryAspectName(categoryAspects, ["Letter grade"]) ?? "Letter grade";
+    out.set(letterName.toLowerCase(), { name: letterName, value: info.numeric });
+  }
+
+  return normalizeListingAspects(Array.from(out.values()));
+}
+
 export function mergeListingAspects(base: ListingAspect[], extra: ListingAspect[]): ListingAspect[] {
   const map = new Map<string, ListingAspect>();
   for (const a of base) {
@@ -434,16 +538,19 @@ export function prepareAspectsForEbayCategory(
   const merged = fillEmptyTaxonomyAspectsFromTitle(title, categoryAspects, aspects);
   const expanded = expandGradedCoinAspectsForTaxonomy(categoryAspects, merged);
   const remapped = remapAspectsToTaxonomy(categoryAspects, expanded);
-  const remappedAspects = backfillRequiredTaxonomyAspects(
+  const backfilled = backfillRequiredTaxonomyAspects(
     categoryAspects,
     remapped.aspects,
     expanded,
     title
   );
-  const validation = validateRemappedAspects(categoryAspects, remappedAspects);
+  const ensured = ensureGradedCoinInventoryAspects(categoryAspects, backfilled, expanded, title);
+  const sellerVisible = filterSellerVisibleAspectRows(ensured);
+  const sellerSchema = filterSellerVisibleCategoryAspects(categoryAspects);
+  const validation = validateRemappedAspects(sellerSchema, sellerVisible);
   return {
     ...validation,
-    remappedAspects,
+    remappedAspects: sellerVisible,
     dropped: remapped.dropped,
   };
 }
@@ -466,5 +573,5 @@ export function prepareAspectRowsForForm(
     }
   }
 
-  return rows.slice(0, 30);
+  return filterSellerVisibleAspectRows(rows).slice(0, 30);
 }

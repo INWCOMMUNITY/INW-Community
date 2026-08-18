@@ -23,6 +23,9 @@ import { parseStoredAspects } from "@/lib/listing-limits";
 import { getItemAspectsForCategory } from "@/lib/channels/ebay/aspects";
 import { getRecentTraces, type SyncTraceSummary } from "@/lib/channels/sync-trace";
 import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
+import { isImportedEbayLink, extractEbayInventoryAspects } from "@/lib/channels/ebay/listing-origin";
+import { ebayGetInventoryItem } from "@/lib/channels/ebay/client";
+import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +87,12 @@ type DiagnosisResult = {
     droppedAspectNames: string[];
   };
   recentTraces?: RecentTrace[];
+  passthroughDebug?: {
+    linkOrigin: string;
+    liveAspects: Record<string, string[]> | null;
+    storedAspects: Record<string, string[]>;
+    cachedInventoryAspects: Record<string, string[]> | null;
+  };
 };
 
 /**
@@ -297,13 +306,52 @@ export async function GET(req: NextRequest) {
   }
 
   let syncReadiness: DiagnosisResult["syncReadiness"];
+  let passthroughDebug: DiagnosisResult["passthroughDebug"];
   if (storeItemId && tokenValid) {
+    const ebayLink = await prisma.channelListingLink.findFirst({
+      where: { storeItemId, provider: "ebay", connectionId: ctx.id },
+      select: {
+        externalListingId: true,
+        linkOrigin: true,
+        ebayInventoryAspects: true,
+      },
+    });
+    const imported =
+      ebayLink &&
+      isImportedEbayLink({
+        provider: "ebay",
+        externalListingId: ebayLink.externalListingId,
+        storeItemId,
+        linkOrigin: ebayLink.linkOrigin,
+      });
+
     const itemRow = await prisma.storeItem.findFirst({
       where: { id: storeItemId, memberId: userId },
       select: syncStoreItemSelect,
     });
     if (itemRow) {
       const item = toSyncStoreItem(itemRow);
+      if (imported && ebayLink) {
+        let liveAspects: Record<string, string[]> | null = null;
+        try {
+          const live = await ebayGetInventoryItem(ctx.accessToken, ebayLink.externalListingId);
+          liveAspects = extractEbayInventoryAspects(live as Record<string, unknown>);
+        } catch {
+          /* optional */
+        }
+        const stored = aspectsToEbayProductAspects(parseStoredAspects(item.aspects));
+        passthroughDebug = {
+          linkOrigin: ebayLink.linkOrigin ?? "import",
+          liveAspects,
+          storedAspects: stored,
+          cachedInventoryAspects:
+            ebayLink.ebayInventoryAspects &&
+            typeof ebayLink.ebayInventoryAspects === "object" &&
+            !Array.isArray(ebayLink.ebayInventoryAspects)
+              ? (ebayLink.ebayInventoryAspects as Record<string, string[]>)
+              : null,
+        };
+      } else {
       const validation = await validateListingForEbay({ item });
       let remappedAspectPreview: { name: string; value: string }[] = [];
       let droppedAspectNames: string[] = [];
@@ -338,6 +386,7 @@ export async function GET(req: NextRequest) {
         remappedAspectPreview,
         droppedAspectNames,
       };
+      }
     }
   }
 
@@ -383,6 +432,7 @@ export async function GET(req: NextRequest) {
     baselineReset,
     refreshedConfig,
     syncReadiness,
+    passthroughDebug,
     recentTraces,
   });
 }

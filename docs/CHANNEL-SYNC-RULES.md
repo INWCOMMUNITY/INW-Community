@@ -407,17 +407,27 @@ These caused the Wix “finicky” bugs:
 
 ### Item specifics / aspects (eBay)
 
-**Status:** ✅ eBay compatibility layer (`ebay-compat.ts`) · two-way · ignored by Etsy/Wix/Shopify adapters
+**Status:** ✅ Passthrough for imports · ✅ Taxonomy remap for INW-created · ignored by Etsy/Wix/Shopify adapters
+
+#### Imported eBay listings (passthrough)
+
+- Detected via `ChannelListingLink.linkOrigin = "import"` or SKU `inw{legacyListingId}`.
+- **Editable in INW:** title, price, quantity, photos, description, INW storefront category.
+- **Read-only in INW:** all eBay item specifics — sellers edit on eBay; use Refresh from eBay to pull display snapshot into `StoreItem.aspects`.
+- **Push:** `GET inventory_item` → preserve `product.aspects` verbatim → overlay INW content/qty/price (`passthrough-push.ts`). No Taxonomy remap on push.
+- **Cache:** `ChannelListingLink.ebayInventoryAspects` stores last live aspects.
+
+#### INW-created eBay listings (full pipeline)
 
 - Stored on `StoreItem.aspects` (JSON) as `[{ name, value }]`. **Outbound sync remaps** Trading/import names to Taxonomy `localizedAspectName` keys before `PUT inventory_item` (e.g. `Certification` → `Professional grader`).
 - **Pre-publish and push-time validation** use the same remap path (`validateForProvider` + `prepareOutboundAspects`) so sellers see blockers before eBay API calls.
-- **Inventory merge:** before PUT, GET existing `inventory_item` aspects and merge so migrated listings keep eBay-accepted keys.
+- **Inventory merge:** before PUT, GET existing `inventory_item` aspects and merge so listings keep eBay-accepted keys.
 - **Sync triggers:** `aspects` + `ebayConditionEnum` participate in outbound content hash and `syncBaselineMetaHash`.
 - **Form pickers:** SELECTION_ONLY aspects use dropdowns; MULTI aspects accept comma-separated values. Required flags come from Taxonomy API.
 - **Business policies:** sellers choose fulfillment/payment/return policies + merchant location via Sync Stores (`GET/PATCH /api/channels/ebay/policies`). Per-listing `shippingCostCents` in INW is storefront-only — eBay uses the selected fulfillment policy.
 - **Scope:** US marketplace, fixed-price listings only. Single variant axis outbound; per-variation pricing not synced.
 - **Import scale:** GetMyeBaySelling paginates up to ~2000 active listings (20 × 100).
-- **Diagnose:** `GET /api/channels/ebay/diagnose?storeItemId=` includes taxonomy remap preview + sync readiness blockers when available.
+- **Diagnose:** `GET /api/channels/ebay/diagnose?storeItemId=` includes taxonomy remap preview for INW-created listings; `passthroughDebug` (live vs stored vs cached aspects) for imports. See `docs/EBAY-PASSTHROUGH-SYNC.md`.
 
 ### Meta reconcile
 
@@ -436,7 +446,11 @@ These caused the Wix “finicky” bugs:
 | Edit option qty on Wix | INW updates via inventory webhook; other channels get push |
 | Set shipping $5.99 in INW → Etsy | Listing uses/reuses `INW $5.99` shipping profile |
 | Sell variant on Shopify | Correct INW option qty decrements; other channels push per-size stock |
+| Import eBay coin → edit price → sync | Price updates; live eBay aspects unchanged (passthrough) |
+| Import eBay coin → sell on Etsy → qty push | eBay qty updates via bulk_update; no aspect errors |
+| INW-create eBay listing → fill Taxonomy → publish | Full form validation; first publish works |
+| Refresh from eBay on import | Display aspects + `ebayInventoryAspects` cache update |
 
 ---
 
-*Last updated: June 3, 2026 — removed production sync-channels cron; event-driven Wix qty only; fail-closed per-option writes (no aggregate fallback); sane qty cap + corrupt baseline reset via diagnose; inflation anti-pattern documented.*
+*Last updated: August 18, 2026 — eBay passthrough sync for imported listings; read-only specifics UI; aspect remap gated to INW-created listings.*

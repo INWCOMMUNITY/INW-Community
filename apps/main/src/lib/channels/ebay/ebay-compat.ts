@@ -16,6 +16,7 @@ import {
   formatAspectValidationErrors,
   mergeListingAspects,
   missingRequiredEbayAspects,
+  ensureGradedCoinInventoryAspects,
   prepareAspectsForEbayCategory,
   remapAspectsToTaxonomy,
   validateRemappedAspects,
@@ -35,6 +36,8 @@ export {
   prepareAspectRowsForForm,
   remapAspectsToTaxonomy,
   validateRemappedAspects,
+  filterSellerVisibleCategoryAspects,
+  ensureGradedCoinInventoryAspects,
 } from "./aspect-prep";
 export type { RemapAspectsResult, ValidateRemappedAspectsResult } from "./aspect-prep";
 
@@ -157,9 +160,15 @@ export async function prepareOutboundAspects(args: {
   aspects = expandGradedCoinAspectsForTaxonomy(categoryAspects, aspects);
 
   const remapped = remapAspectsToTaxonomy(categoryAspects, aspects);
-  const remappedAspects = backfillRequiredTaxonomyAspects(
+  const backfilled = backfillRequiredTaxonomyAspects(
     categoryAspects,
     remapped.aspects,
+    aspects,
+    args.item.title ?? ""
+  );
+  const remappedAspects = ensureGradedCoinInventoryAspects(
+    categoryAspects,
+    backfilled,
     aspects,
     args.item.title ?? ""
   );

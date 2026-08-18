@@ -20,6 +20,9 @@ function preparedAspectNames(ctx: SyncTraceContext): string[] {
 }
 
 function analyzeEbayAspectMismatch(ctx: SyncTraceContext): string | null {
+  if (ctx.transformTrace?.before && (ctx.transformTrace.before as Record<string, unknown>).passthrough) {
+    return null;
+  }
   const uploaded = !!ctx.requestPayload;
   const sentAspects = uploaded
     ? Object.keys((ctx.requestPayload?.product as Record<string, unknown>)?.aspects || {})
@@ -68,6 +71,22 @@ function analyzeEbayAspectMismatch(ctx: SyncTraceContext): string | null {
  * eBay-specific error classifiers
  */
 const EBAY_CLASSIFIERS: TraceClassifier[] = [
+  {
+    id: "ebay_inventory_sync_failed",
+    provider: "ebay",
+    pattern: /inventory verify|bulk_update_price_quantity|quantity didn't update|availableQuantity/i,
+    category: "inventory_sync_failed",
+    analyze: () =>
+      "Quantity didn't update on eBay. Try Sync now from the listing page. If it persists, check eBay Seller Hub for listing status.",
+  },
+  {
+    id: "ebay_content_sync_failed",
+    provider: "ebay",
+    pattern: /content updated but publish failed|title.*long|photo.*required|listingDescription/i,
+    category: "content_sync_failed",
+    analyze: () =>
+      "Title, price, photos, or description didn't fully sync to eBay. Save the listing and try Sync now.",
+  },
   {
     id: "ebay_25064_aspect_mismatch",
     provider: "ebay",
@@ -345,6 +364,16 @@ export function getSuggestedFixes(errorCategory: string | null): string[] {
   if (!errorCategory) return [];
 
   const fixesByCategory: Record<string, string[]> = {
+    inventory_sync_failed: [
+      "Open the listing and tap Sync now",
+      "Confirm the eBay listing is still active and not ended",
+      "Check Sync Stores for eBay connection errors",
+    ],
+    content_sync_failed: [
+      "Verify title is under 80 characters and at least one photo is attached",
+      "Save the listing, then run Sync now",
+      "For imported eBay listings, edit item specifics on eBay (not in INW)",
+    ],
     aspect_mismatch: [
       "Review the eBay Listing Requirements section and fill in all required item specifics",
       "Check that aspect names match eBay's expected names for your category",
@@ -390,6 +419,8 @@ export function getSuggestedFixes(errorCategory: string | null): string[] {
 export function getErrorCategoryLabel(category: string | null): string {
   const labels: Record<string, string> = {
     aspect_mismatch: "Item Specifics Mismatch",
+    inventory_sync_failed: "Inventory Sync Failed",
+    content_sync_failed: "Content Sync Failed",
     condition_invalid: "Invalid Condition",
     policy_missing: "Missing Business Policies",
     merchant_location_missing: "Missing Merchant Location",

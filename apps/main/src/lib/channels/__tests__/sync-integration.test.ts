@@ -709,3 +709,49 @@ describe("optimistic locking", () => {
     ).rejects.toThrow(ConcurrentModificationError);
   });
 });
+
+describe("eBay passthrough sync (imported listings)", () => {
+  it("detects imported eBay link by inw SKU for passthrough path", async () => {
+    const { isImportedEbayLink } = await import("@/lib/channels/ebay/listing-origin");
+    const { buildPassthroughInventoryBody } = await import("@/lib/channels/ebay/passthrough-push");
+
+    expect(
+      isImportedEbayLink({ provider: "ebay", externalListingId: "inw403004607151" })
+    ).toBe(true);
+
+    const live = {
+      condition: "LIKE_NEW",
+      product: {
+        aspects: {
+          Certification: ["NGC"],
+          Grade: ["MS 67"],
+          "Letter grade": ["MS"],
+        },
+      },
+    };
+    const item = {
+      id: "cmsz85hpj0001ahwfa2pmvtun",
+      title: "1938 Jefferson Nickel",
+      description: null,
+      priceCents: 12500,
+      quantity: 2,
+      photos: [],
+      condition: "used" as const,
+      ebayConditionEnum: null,
+      ebayCategoryId: 41087,
+      aspects: [],
+      variants: null,
+      category: null,
+      status: "active" as const,
+      sku: null,
+    };
+    const body = buildPassthroughInventoryBody(live, item, {
+      content: false,
+      quantity: true,
+      price: false,
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
+    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 2 } });
+  });
+});

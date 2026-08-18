@@ -5,7 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { fetchEbayItemDetails, enumerateEbayListings } from "@/lib/channels/ebay/trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
-import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
+import { fetchAndCacheEbayInventoryAspects } from "@/lib/channels/ebay/inventory-aspects-cache";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
 import { plainListingDescription } from "@/lib/channels/import-listing";
 import { resolveInwCategoryFromEbayPath } from "@/lib/channels/category-resolver";
@@ -77,8 +77,10 @@ export async function POST(req: NextRequest) {
     },
     select: {
       id: true,
+      storeItemId: true,
       externalListingId: true,
       connectionId: true,
+      linkOrigin: true,
     },
   });
 
@@ -141,17 +143,7 @@ export async function POST(req: NextRequest) {
 
   // Process the data
   const normalizedAspects = normalizeListingAspects(details.aspects);
-  const categoryIdForAspects =
-    details.remoteCategoryId ??
-    (storeItem.ebayCategoryId != null ? String(storeItem.ebayCategoryId) : null);
-  const aspectsForStorage =
-    categoryIdForAspects && normalizedAspects.length > 0
-      ? await normalizeAspectsForEbayStorage(
-          categoryIdForAspects,
-          normalizedAspects,
-          details.title ?? storeItem.title ?? ""
-        )
-      : normalizedAspects;
+  const aspectsForStorage = normalizedAspects;
   const photos = details.photos
     .map((u) => normalizeEbayPhotoUrl(u))
     .filter((u): u is string => Boolean(u));
@@ -238,8 +230,15 @@ export async function POST(req: NextRequest) {
         lastInboundAt: new Date(),
         syncStatus: "synced",
         syncError: null,
+        linkOrigin: link.linkOrigin ?? "import",
       },
     });
+
+    void fetchAndCacheEbayInventoryAspects(
+      ctx.accessToken,
+      link.id,
+      link.externalListingId
+    ).catch(() => {});
 
     console.log("[ebay] refresh completed", {
       userId,

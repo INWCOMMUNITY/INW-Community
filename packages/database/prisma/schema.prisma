@@ -1018,6 +1018,10 @@ model ChannelListingLink {
   /// Original marketplace category label at import (for adaptive mapping feedback).
   remoteCategoryLabel    String?  @map("remote_category_label")
   remoteCategorySubLabel String?  @map("remote_category_sub_label")
+  /// How this channel link was created: import | inw_create (eBay passthrough sync).
+  linkOrigin             String?  @map("link_origin")
+  /// Raw product.aspects from last GET inventory_item (eBay passthrough — canonical for push).
+  ebayInventoryAspects   Json?    @map("ebay_inventory_aspects")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 

@@ -48,6 +48,8 @@ type EbayListingRequirementsSectionProps = {
   isRequiredAspect: (name: string) => boolean;
   suggestionsForAspect: (name: string) => string[];
   categoryAspects: EbayCategoryAspect[];
+  /** Imported eBay listings — specifics are display-only (managed on eBay). */
+  readOnlyAspects?: boolean;
 };
 
 export function EbayListingRequirementsSection({
@@ -70,9 +72,10 @@ export function EbayListingRequirementsSection({
   isRequiredAspect,
   suggestionsForAspect,
   categoryAspects,
+  readOnlyAspects = false,
 }: EbayListingRequirementsSectionProps) {
   const missingRequiredCount = useMemo(() => {
-    if (!ebayCategoryId) return 0;
+    if (readOnlyAspects || !ebayCategoryId) return 0;
     const filled = aspects
       .map((a) => ({ name: a.name.trim().toLowerCase(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
@@ -82,13 +85,21 @@ export function EbayListingRequirementsSection({
   }, [aspects, categoryAspects, ebayCategoryId]);
 
   const badge =
-    !ebayCategoryId
-      ? "Category required"
-      : missingRequiredCount > 0
-        ? `${missingRequiredCount} required`
-        : "Ready";
-  const badgeColor = !ebayCategoryId || missingRequiredCount > 0 ? "#dc2626" : "#16a34a";
-  const defaultExpanded = !ebayCategoryId || missingRequiredCount > 0;
+    readOnlyAspects && ebayCategoryId
+      ? "From eBay"
+      : !ebayCategoryId
+        ? "Category required"
+        : missingRequiredCount > 0
+          ? `${missingRequiredCount} required`
+          : "Ready";
+  const badgeColor =
+    readOnlyAspects && ebayCategoryId
+      ? "#2563eb"
+      : !ebayCategoryId || missingRequiredCount > 0
+        ? "#dc2626"
+        : "#16a34a";
+  const defaultExpanded =
+    readOnlyAspects ? false : !ebayCategoryId || missingRequiredCount > 0;
 
   return (
     <CollapsibleListingSection
@@ -100,8 +111,9 @@ export function EbayListingRequirementsSection({
       badgeColor={badgeColor}
     >
       <p className={listingHintClass}>
-        Pick an eBay category, then fill in item specifics (Brand, Type, etc.). Required fields are
-        marked with *.
+        {readOnlyAspects
+          ? "Item specifics are managed on eBay. Use Refresh from eBay to pull the latest values."
+          : "Pick an eBay category, then fill in item specifics (Brand, Type, etc.). Required fields are marked with *."}
       </p>
 
       {connectionError ? (
@@ -128,6 +140,7 @@ export function EbayListingRequirementsSection({
               type="button"
               onClick={onClearCategory}
               className="text-sm text-red-600 hover:underline shrink-0"
+              disabled={readOnlyAspects}
             >
               Change
             </button>
@@ -214,13 +227,13 @@ export function EbayListingRequirementsSection({
                       maxLength={EBAY_ASPECT_NAME_MAX}
                       onChange={(e) => onAspectNameChange(i, e.target.value)}
                       placeholder="Descriptor (e.g. Brand)"
-                      readOnly={required && !!ebayCategoryId}
+                      readOnly={readOnlyAspects || (required && !!ebayCategoryId)}
                       className={`flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm ${
-                        required && ebayCategoryId ? "bg-gray-50 text-gray-800" : ""
+                        readOnlyAspects || (required && ebayCategoryId) ? "bg-gray-50 text-gray-800" : ""
                       }`}
                     />
                     <div className="flex-1 min-w-[120px]">
-                      {isSelectionOnly ? (
+                      {isSelectionOnly && !readOnlyAspects ? (
                         <select
                           value={a.value}
                           onChange={(e) => onAspectValueChange(i, e.target.value)}
@@ -241,20 +254,23 @@ export function EbayListingRequirementsSection({
                             type="text"
                             value={a.value}
                             maxLength={EBAY_ASPECT_VALUE_MAX}
-                            list={suggestions.length > 0 && !isSelectionOnly ? listId : undefined}
+                            list={suggestions.length > 0 && !isSelectionOnly && !readOnlyAspects ? listId : undefined}
                             onChange={(e) => onAspectValueChange(i, e.target.value)}
+                            readOnly={readOnlyAspects}
                             placeholder={
-                              isMulti
-                                ? required
-                                  ? "Values (comma-separated, required)"
-                                  : "Values (comma-separated)"
-                                : required
-                                  ? "Value (required)"
-                                  : "Value"
+                              readOnlyAspects
+                                ? "Value from eBay"
+                                : isMulti
+                                  ? required
+                                    ? "Values (comma-separated, required)"
+                                    : "Values (comma-separated)"
+                                  : required
+                                    ? "Value (required)"
+                                    : "Value"
                             }
                             className={`w-full border rounded px-2 py-1.5 text-sm ${
-                              required && !a.value.trim() ? "border-red-400" : ""
-                            }`}
+                              readOnlyAspects ? "bg-gray-50 text-gray-800" : ""
+                            } ${required && !readOnlyAspects && !a.value.trim() ? "border-red-400" : ""}`}
                           />
                           {suggestions.length > 0 && !isSelectionOnly && (
                             <datalist id={listId}>
@@ -269,20 +285,22 @@ export function EbayListingRequirementsSection({
                         <p className="text-xs text-gray-500 mt-0.5">Separate multiple values with commas.</p>
                       ) : null}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveAspect(i)}
-                      disabled={required && !!ebayCategoryId}
-                      className="text-red-500 hover:text-red-700 font-bold leading-none px-2 py-1.5 disabled:opacity-30 disabled:cursor-not-allowed"
-                      aria-label="Remove detail"
-                    >
-                      ×
-                    </button>
+                    {!readOnlyAspects ? (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveAspect(i)}
+                        disabled={required && !!ebayCategoryId}
+                        className="text-red-500 hover:text-red-700 font-bold leading-none px-2 py-1.5 disabled:opacity-30 disabled:cursor-not-allowed"
+                        aria-label="Remove detail"
+                      >
+                        ×
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               );
             })}
-          {aspects.length < MAX_ASPECTS && (
+          {!readOnlyAspects && aspects.length < MAX_ASPECTS && (
             <button
               type="button"
               onClick={onAddAspect}

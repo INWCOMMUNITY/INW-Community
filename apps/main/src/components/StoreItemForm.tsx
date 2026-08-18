@@ -50,6 +50,7 @@ import {
   prepareAspectRowsForForm,
   prepareAspectsForEbayCategory,
 } from "@/lib/channels/ebay/aspect-prep";
+import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 import {
   listingDescriptionForEditForm,
   listingDescriptionFromEditForm,
@@ -113,6 +114,8 @@ interface StoreItemFormProps {
     etsyWhenMade?: string | null;
     etsyIsSupply?: boolean | null;
     channelLinks?: ChannelLinkSummary[];
+    ebayLinkOrigin?: "import" | "inw_create" | null;
+    hasEbayImportLink?: boolean;
   };
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
   successRedirect?: string;
@@ -246,6 +249,19 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [lastChannelSync, setLastChannelSync] = useState<ChannelSyncRow[] | undefined>();
   const [successDetail, setSuccessDetail] = useState("");
   const [syncLogRefreshKey, setSyncLogRefreshKey] = useState(0);
+
+  const isEbayImportedListing = useMemo(() => {
+    if (existing?.hasEbayImportLink) return true;
+    if (existing?.ebayLinkOrigin === "import") return true;
+    const ebayLink = channelLinks.find((l) => l.provider === "ebay");
+    if (!ebayLink?.externalListingId) return false;
+    return isImportedEbayLink({
+      provider: "ebay",
+      externalListingId: ebayLink.externalListingId,
+      storeItemId: existing?.id,
+      linkOrigin: ebayLink.linkOrigin,
+    });
+  }, [channelLinks, existing?.id, existing?.ebayLinkOrigin, existing?.hasEbayImportLink]);
 
   useEffect(() => {
     fetch("/api/me/policies")
@@ -440,11 +456,15 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         return;
       }
       try {
+        const storeItemQuery = existing?.id
+          ? `&storeItemId=${encodeURIComponent(existing.id)}`
+          : "";
         const res = await fetch(
-          `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}`,
+          `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}${storeItemQuery}`,
           { credentials: "include" }
         );
-        const data: { aspects?: EbayCategoryAspect[]; error?: string } = await res.json();
+        const data: { aspects?: EbayCategoryAspect[]; error?: string; readOnly?: boolean } =
+          await res.json();
         if (!res.ok) {
           setCategoryAspects([]);
           setEbayCategorySearchError(
@@ -457,12 +477,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         }
         const list = data.aspects ?? [];
         setCategoryAspects(list);
-        setAspects((prev) => prepareAspectRowsForForm(list, prev, title.trim()));
+        if (!data.readOnly) {
+          setAspects((prev) => prepareAspectRowsForForm(list, prev, title.trim()));
+        }
       } catch {
         setCategoryAspects([]);
       }
     },
-    [title]
+    [title, existing?.id]
   );
 
   // Load aspects for a previously-saved eBay category on edit.
@@ -563,7 +585,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
     let aspectsToSave = cleanedAspects;
-    if (ebayConnected && ebayCategoryId) {
+    if (ebayConnected && ebayCategoryId && !isEbayImportedListing) {
       const aspectValidation = prepareAspectsForEbayCategory(
         categoryAspects,
         cleanedAspects,
@@ -598,7 +620,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       category: category.trim() || null,
       subcategory: subcategory.trim() || null,
       ebayCategoryId: ebayConnected && ebayCategoryId ? Number(ebayCategoryId) : null,
-      aspects: aspectsToSave,
+      ...(isEbayImportedListing ? {} : { aspects: aspectsToSave }),
       ...(etsyConnected
         ? { etsyWhoMade, etsyWhenMade, etsyIsSupply }
         : {}),
@@ -1071,6 +1093,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           isRequiredAspect={isRequiredAspect}
           suggestionsForAspect={suggestionsForAspect}
           categoryAspects={categoryAspects}
+          readOnlyAspects={isEbayImportedListing}
         />
       )}
 

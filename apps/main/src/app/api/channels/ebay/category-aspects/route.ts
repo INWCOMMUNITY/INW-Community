@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getItemAspectsForCategory, requireEbayTaxonomyConfig } from "@/lib/channels/ebay/aspects";
+import { filterSellerVisibleCategoryAspects } from "@/lib/channels/ebay/aspect-prep";
 import { describeEbayThrownError } from "@/lib/channels/ebay/errors";
+import { prisma } from "database";
+import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +26,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "categoryId is required" }, { status: 400 });
   }
 
+  const readOnlyParam = req.nextUrl.searchParams.get("readOnly") === "1";
+  const storeItemId = req.nextUrl.searchParams.get("storeItemId")?.trim() ?? "";
+
+  let readOnly = readOnlyParam;
+  if (!readOnly && storeItemId) {
+    const ebayLink = await prisma.channelListingLink.findFirst({
+      where: { storeItemId, provider: "ebay" },
+      select: { externalListingId: true, linkOrigin: true },
+    });
+    if (
+      ebayLink &&
+      isImportedEbayLink({
+        provider: "ebay",
+        externalListingId: ebayLink.externalListingId,
+        storeItemId,
+        linkOrigin: ebayLink.linkOrigin,
+      })
+    ) {
+      readOnly = true;
+    }
+  }
+
   try {
     requireEbayTaxonomyConfig();
   } catch (e) {
@@ -30,8 +55,11 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const aspects = await getItemAspectsForCategory(categoryId);
-    return NextResponse.json({ aspects });
+    let aspects = filterSellerVisibleCategoryAspects(await getItemAspectsForCategory(categoryId));
+    if (readOnly) {
+      aspects = aspects.map((a) => ({ ...a, required: false }));
+    }
+    return NextResponse.json({ aspects, readOnly });
   } catch (e) {
     return NextResponse.json({ error: describeEbayThrownError(e) }, { status: 502 });
   }

@@ -46,6 +46,7 @@ export default async function EditStoreItemPage({
           syncError: true,
           lastPushedAt: true,
           externalListingId: true,
+          linkOrigin: true,
         },
       },
     },
@@ -98,7 +99,21 @@ export default async function EditStoreItemPage({
               syncError: l.syncError,
               lastPushedAt: l.lastPushedAt?.toISOString() ?? null,
               externalListingId: l.externalListingId,
+              linkOrigin: l.linkOrigin,
             })),
+            hasEbayImportLink: item.channelLinks.some(
+              (l) =>
+                l.provider === "ebay" &&
+                (/^inw\d+$/i.test(l.externalListingId.trim()) || l.linkOrigin === "import")
+            ),
+            ebayLinkOrigin: (() => {
+              const ebay = item.channelLinks.find((l) => l.provider === "ebay");
+              if (!ebay) return null;
+              if (ebay.linkOrigin === "import" || /^inw\d+$/i.test(ebay.externalListingId.trim())) {
+                return "import" as const;
+              }
+              return "inw_create" as const;
+            })(),
           }}
         />
       </div>
