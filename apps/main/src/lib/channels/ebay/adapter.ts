@@ -211,9 +211,6 @@ async function upsertListing(
       sku,
     });
     syncItem = aspectPrep.item;
-    if (aspectPrep.enriched) {
-      await persistEbayAspects(item.id, parseStoredAspects(syncItem.aspects));
-    }
 
     // Capture transform trace for aspects
     const inputAspects = parseStoredAspects(item.aspects);
@@ -245,6 +242,11 @@ async function upsertListing(
       await completeTrace(trace, "validation_failed", error);
       throw error;
     }
+
+    if (aspectPrep.enriched) {
+      await persistEbayAspects(item.id, parseStoredAspects(syncItem.aspects));
+    }
+
     validationChecks.push({
       name: "aspects_required",
       passed: true,

@@ -70,7 +70,65 @@ export type OutboundAspectPrep = {
   missingRequired: string[];
   enriched: boolean;
   categoryAspects: EbayCategoryAspect[];
+  dropped: string[];
 };
+
+const YEAR_SOURCE_NAMES = new Set(["year", "year of issue", "year of manufacture"]);
+
+function extractYearValue(sources: ListingAspect[], title: string): string | null {
+  for (const a of sources) {
+    if (YEAR_SOURCE_NAMES.has(a.name.trim().toLowerCase()) && a.value.trim()) {
+      return a.value.trim();
+    }
+  }
+  const match = title.trim().match(/\b((?:18|19|20)\d{2})(?:-[A-Z]{1,3})?\b/);
+  return match?.[1] ?? null;
+}
+
+/**
+ * After taxonomy remap, restore required fields from pre-remap sources (title patterns,
+ * Trading import names, etc.) so a successful remap pass does not drop Year and other
+ * required specifics that were present under a different key.
+ */
+export function backfillRequiredTaxonomyAspects(
+  categoryAspects: EbayCategoryAspect[],
+  remappedAspects: ListingAspect[],
+  sources: ListingAspect[],
+  title: string
+): ListingAspect[] {
+  if (categoryAspects.length === 0) return remappedAspects;
+
+  const out = new Map(remappedAspects.map((a) => [a.name.toLowerCase(), a]));
+  const missing = missingRequiredEbayAspects(categoryAspects, remappedAspects);
+
+  for (const req of missing) {
+    const reqLower = req.toLowerCase();
+    if (!reqLower.includes("year")) continue;
+
+    const yearVal = extractYearValue(sources, title);
+    if (!yearVal) continue;
+
+    const yearName = findCategoryAspectName(categoryAspects, [
+      req,
+      "Year",
+      "Year of Issue",
+      "Year of Manufacture",
+    ]);
+    if (!yearName || out.get(yearName.toLowerCase())?.value.trim()) continue;
+    out.set(yearName.toLowerCase(), { name: yearName, value: yearVal });
+  }
+
+  // Retry remap for any source rows that may fill remaining required fields.
+  const retryRemap = remapAspectsToTaxonomy(categoryAspects, [
+    ...sources,
+    ...normalizeListingAspects(Array.from(out.values())),
+  ]);
+  for (const a of retryRemap.aspects) {
+    out.set(a.name.toLowerCase(), a);
+  }
+
+  return normalizeListingAspects(Array.from(out.values()));
+}
 
 const schemaCache = new Map<string, { schema: EbayCategorySchema; at: number }>();
 const SCHEMA_CACHE_MS = 6 * 60 * 60 * 1000;
@@ -482,7 +540,12 @@ export async function prepareOutboundAspects(args: {
   aspects = expandGradedCoinAspectsForTaxonomy(categoryAspects, aspects);
 
   const remapped = remapAspectsToTaxonomy(categoryAspects, aspects);
-  const remappedAspects = remapped.aspects;
+  const remappedAspects = backfillRequiredTaxonomyAspects(
+    categoryAspects,
+    remapped.aspects,
+    aspects,
+    args.item.title ?? ""
+  );
 
   const validation = validateRemappedAspects(categoryAspects, remappedAspects);
   const enriched = JSON.stringify(aspects) !== beforeKey;
@@ -512,6 +575,7 @@ export async function prepareOutboundAspects(args: {
     missingRequired,
     enriched,
     categoryAspects,
+    dropped: remapped.dropped,
   };
 }
 
@@ -556,7 +620,13 @@ export async function validateListingForEbay(args: {
   );
   const expanded = expandGradedCoinAspectsForTaxonomy(categoryAspects, merged);
   const remapped = remapAspectsToTaxonomy(categoryAspects, expanded);
-  const validation = validateRemappedAspects(categoryAspects, remapped.aspects);
+  const remappedAspects = backfillRequiredTaxonomyAspects(
+    categoryAspects,
+    remapped.aspects,
+    expanded,
+    args.item.title ?? ""
+  );
+  const validation = validateRemappedAspects(categoryAspects, remappedAspects);
 
   if (validation.missingRequired.length > 0 || validation.invalidSelectionValues.length > 0) {
     errors.push(formatAspectValidationErrors(validation.missingRequired, validation.invalidSelectionValues));

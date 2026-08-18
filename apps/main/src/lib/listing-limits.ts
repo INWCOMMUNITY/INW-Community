@@ -75,5 +75,21 @@ export function aspectsToEbayProductAspects(
 
 /** Read a StoreItem.aspects JSON column into typed rows (safe for unknown DB shapes). */
 export function parseStoredAspects(raw: unknown): ListingAspect[] {
-  return normalizeListingAspects(raw);
+  if (Array.isArray(raw)) return normalizeListingAspects(raw);
+  if (raw && typeof raw === "object") {
+    const out: ListingAspect[] = [];
+    for (const [name, val] of Object.entries(raw as Record<string, unknown>)) {
+      if (Array.isArray(val)) {
+        for (const v of val) {
+          const value = v != null ? String(v).trim() : "";
+          if (value) out.push({ name, value });
+        }
+      } else {
+        const value = val != null ? String(val).trim() : "";
+        if (value) out.push({ name, value });
+      }
+    }
+    return normalizeListingAspects(out);
+  }
+  return [];
 }

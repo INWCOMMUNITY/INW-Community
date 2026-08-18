@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EbayCategoryAspect } from "./aspects";
 import {
+  backfillRequiredTaxonomyAspects,
   fillEmptyTaxonomyAspectsFromTitle,
   expandGradedCoinAspectsForTaxonomy,
   inventoryAspectsToListingAspects,
@@ -248,6 +249,25 @@ describe("expandGradedCoinAspectsForTaxonomy", () => {
     expect(remapped.aspects.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
     expect(remapped.aspects.find((a) => a.name === "Numerical grade")?.value).toBe("69");
     expect(remapped.aspects.find((a) => a.name === "Letter grade")).toBeUndefined();
+  });
+});
+
+describe("backfillRequiredTaxonomyAspects", () => {
+  it("restores Year from title when remap dropped it", () => {
+    const sources = [
+      { name: "Certification", value: "NGC" },
+      { name: "Grade", value: "MS 67" },
+    ];
+    const remapped = remapAspectsToTaxonomy(nickelTaxonomy, sources).aspects;
+    const backfilled = backfillRequiredTaxonomyAspects(
+      nickelTaxonomy,
+      remapped,
+      sources,
+      "1952-D NGC MS 67 Jefferson Nickel"
+    );
+    expect(backfilled.find((a) => a.name === "Year")?.value).toBe("1952");
+    const validation = validateRemappedAspects(nickelTaxonomy, backfilled);
+    expect(validation.missingRequired).not.toContain("Year");
   });
 });
 

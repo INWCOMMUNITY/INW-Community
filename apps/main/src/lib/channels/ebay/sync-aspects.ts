@@ -85,13 +85,14 @@ export async function prepareEbaySyncAspects(args: {
     );
   }
 
-  // Compute remaps for trace information
+  // Compute remaps for trace information (compare stored input vs final remapped output)
   const inputAspects = parseStoredAspects(args.item.aspects);
-  const remapped = remapAspectsToTaxonomy(prep.categoryAspects, inputAspects);
   const remaps: { from: string; to: string; reason?: string }[] = [];
-  
+
   // Track value adjustments as remaps
-  for (const adj of remapped.valueAdjustments) {
+  for (const adj of prep.remappedAspects.length > 0
+    ? remapAspectsToTaxonomy(prep.categoryAspects, inputAspects).valueAdjustments
+    : []) {
     remaps.push({
       from: `${adj.name}: ${adj.from}`,
       to: `${adj.name}: ${adj.to}`,
@@ -132,7 +133,7 @@ export async function prepareEbaySyncAspects(args: {
     missingRequired,
     enriched: prep.enriched,
     remaps,
-    dropped: remapped.dropped,
+    dropped: prep.dropped,
     categorySchema: prep.categoryAspects,
   };
 }
