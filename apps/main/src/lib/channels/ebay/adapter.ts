@@ -181,6 +181,15 @@ async function upsertListing(
     // #region agent log
     const productAspects = (body.product as { aspects?: Record<string, string[]> } | undefined)
       ?.aspects;
+    const inventoryDebug = {
+      sku,
+      aspectKeys: productAspects ? Object.keys(productAspects) : [],
+      numericalGrade: productAspects?.["Numerical grade"] ?? null,
+      letterGrade: productAspects?.["Letter grade"] ?? null,
+      professionalGrader: productAspects?.["Professional Grader"] ?? null,
+      grade: productAspects?.["Grade"] ?? null,
+    };
+    console.warn("[ebay] pushInventoryBody aspects", inventoryDebug);
     fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "58be99" },
@@ -188,11 +197,7 @@ async function upsertListing(
         sessionId: "58be99",
         location: "adapter.ts:pushInventoryBody",
         message: "inventory push aspects",
-        data: {
-          sku,
-          aspectKeys: productAspects ? Object.keys(productAspects) : [],
-          numericalGrade: productAspects?.["Numerical grade"] ?? null,
-        },
+        data: inventoryDebug,
         timestamp: Date.now(),
         hypothesisId: "H4",
       }),

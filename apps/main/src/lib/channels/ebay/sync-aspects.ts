@@ -80,13 +80,26 @@ export function inferGradedCoinAspectsFromTitle(
 
   if (gradeMatch) {
     const gradeName = resolveAspectName(categoryAspects, ["Grade"]);
-    const numericalName = resolveAspectName(categoryAspects, [
-      "Numerical grade",
-      "Numerical Grade",
-    ]);
     const gradeLabel = `${gradeMatch[1]!.toUpperCase()} ${gradeMatch[2]}`;
+    const numericValue = gradeMatch[2]!;
     if (gradeName) out.push({ name: gradeName, value: gradeLabel });
-    if (numericalName) out.push({ name: numericalName, value: gradeMatch[2]! });
+
+    // eBay uses "Numerical grade" for some coin categories and "Letter grade" for others.
+    // Check which one the category actually has; if neither or unknown, add both to be safe.
+    const hasNumerical = findCategoryAspectName(categoryAspects, ["Numerical grade", "Numerical Grade"]);
+    const hasLetter = findCategoryAspectName(categoryAspects, ["Letter grade", "Letter Grade"]);
+
+    if (hasNumerical) {
+      out.push({ name: hasNumerical, value: numericValue });
+    }
+    if (hasLetter) {
+      out.push({ name: hasLetter, value: numericValue });
+    }
+    // If category aspects are empty/unavailable, add both common names
+    if (!hasNumerical && !hasLetter) {
+      out.push({ name: "Numerical grade", value: numericValue });
+      out.push({ name: "Letter grade", value: numericValue });
+    }
   }
 
   return out;
@@ -149,6 +162,9 @@ export async function prepareEbaySyncAspects(args: {
   };
 
   // #region agent log
+  const gradeAspectNames = categoryAspects
+    .filter((a) => /grade|grader/i.test(a.name))
+    .map((a) => a.name);
   const aspectDebug = {
     categoryId: args.categoryId,
     legacyId: legacyId ?? null,
@@ -156,9 +172,11 @@ export async function prepareEbaySyncAspects(args: {
     beforeCount: JSON.parse(beforeKey).length,
     afterCount: aspects.length,
     aspectNames: aspects.map((a) => a.name),
+    aspectValues: aspects.map((a) => ({ n: a.name, v: a.value })).slice(0, 15),
     missingRequired,
     enriched,
     categoryAspectCount: categoryAspects.length,
+    categoryGradeAspects: gradeAspectNames,
     requiredCategoryAspects: categoryAspects.filter((a) => a.required).map((a) => a.name),
   };
   console.warn("[ebay] upsertListing aspects", aspectDebug);

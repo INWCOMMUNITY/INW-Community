@@ -52,13 +52,36 @@ describe("inferGradedCoinAspectsFromTitle", () => {
     );
   });
 
-  it("infers using standard eBay aspect names when taxonomy is unavailable", () => {
+  it("infers both Numerical grade and Letter grade when taxonomy is unavailable", () => {
     const inferred = inferGradedCoinAspectsFromTitle("1921 Morgan Dollar NGC MS 67", []);
     expect(inferred).toEqual([
       { name: "Professional Grader", value: "NGC" },
       { name: "Grade", value: "MS 67" },
       { name: "Numerical grade", value: "67" },
+      { name: "Letter grade", value: "67" },
     ]);
+  });
+
+  it("uses Letter grade when category has it instead of Numerical grade", () => {
+    const letterGradeAspects: EbayCategoryAspect[] = [
+      {
+        name: "Letter grade",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Grade",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+    ];
+    const inferred = inferGradedCoinAspectsFromTitle("1952-D NGC MS 67 Jefferson Nickel", letterGradeAspects);
+    expect(inferred.find((a) => a.name === "Letter grade")?.value).toBe("67");
+    expect(inferred.find((a) => a.name === "Numerical grade")).toBeUndefined();
   });
 
   it("does not overwrite existing aspect values", () => {
