@@ -19,13 +19,12 @@ import {
   validateListingForEbay,
   validateRemappedAspects,
 } from "@/lib/channels/ebay/ebay-compat";
-import { parseStoredAspects } from "@/lib/listing-limits";
+import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
 import { getItemAspectsForCategory } from "@/lib/channels/ebay/aspects";
 import { getRecentTraces, type SyncTraceSummary } from "@/lib/channels/sync-trace";
 import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
 import { isImportedEbayLink, extractEbayInventoryAspects } from "@/lib/channels/ebay/listing-origin";
 import { ebayGetInventoryItem } from "@/lib/channels/ebay/client";
-import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
 
 export const dynamic = "force-dynamic";
 
