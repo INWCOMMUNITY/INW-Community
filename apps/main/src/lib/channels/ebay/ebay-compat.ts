@@ -278,6 +278,81 @@ export function fillEmptyTaxonomyAspectsFromTitle(
   return normalizeListingAspects(Array.from(filled.values()));
 }
 
+function parseCoinGradeLabel(value: string): { label: string; numeric: string } | null {
+  const m = value.trim().match(/\b(MS|PR|PF|SP|AU|XF|VF|F|VG|G|AG)[\s-]*(\d{1,2})\b/i);
+  if (!m) return null;
+  return { label: `${m[1]!.toUpperCase()} ${m[2]!}`, numeric: m[2]! };
+}
+
+const GRADER_SOURCE_NAMES = new Set([
+  "certification",
+  "certification service",
+  "professional grader",
+  "grader",
+  "professional grader (certification service)",
+]);
+
+/**
+ * Derive Letter grade / Numerical grade / Professional grader from Trading-style
+ * Grade and Certification values (e.g. Grade "MS 67" + Certification "NGC").
+ */
+export function expandGradedCoinAspectsForTaxonomy(
+  categoryAspects: EbayCategoryAspect[],
+  aspects: ListingAspect[]
+): ListingAspect[] {
+  if (categoryAspects.length === 0) return aspects;
+
+  const filled = new Map<string, ListingAspect>();
+  for (const a of aspects) {
+    const key = a.name.trim().toLowerCase();
+    if (!key) continue;
+    filled.set(key, { name: a.name.trim(), value: a.value.trim() });
+  }
+
+  const hasValue = (name: string) => !!filled.get(name.toLowerCase())?.value.trim();
+
+  let gradeLabel: string | null = null;
+  let numericGrade: string | null = null;
+
+  for (const a of aspects) {
+    const parsed = parseCoinGradeLabel(a.value);
+    if (parsed) {
+      gradeLabel = gradeLabel ?? parsed.label;
+      numericGrade = numericGrade ?? parsed.numeric;
+    }
+  }
+
+  for (const a of aspects) {
+    if (!GRADER_SOURCE_NAMES.has(a.name.trim().toLowerCase())) continue;
+    const value = a.value.trim();
+    if (!value) continue;
+    const proName = findCategoryAspectName(categoryAspects, ["Professional grader"]);
+    if (proName && !hasValue(proName)) {
+      filled.set(proName.toLowerCase(), { name: proName, value: value.toUpperCase() });
+    }
+  }
+
+  if (numericGrade) {
+    const letterName = findCategoryAspectName(categoryAspects, ["Letter grade"]);
+    if (letterName && !hasValue(letterName)) {
+      filled.set(letterName.toLowerCase(), { name: letterName, value: numericGrade });
+    }
+    const numericalName = findCategoryAspectName(categoryAspects, ["Numerical grade"]);
+    if (numericalName && !hasValue(numericalName)) {
+      filled.set(numericalName.toLowerCase(), { name: numericalName, value: numericGrade });
+    }
+  }
+
+  if (gradeLabel) {
+    const gradeName = findCategoryAspectName(categoryAspects, ["Grade"]);
+    if (gradeName && !hasValue(gradeName)) {
+      filled.set(gradeName.toLowerCase(), { name: gradeName, value: gradeLabel });
+    }
+  }
+
+  return normalizeListingAspects(Array.from(filled.values()));
+}
+
 export function missingRequiredEbayAspects(
   categoryAspects: EbayCategoryAspect[],
   aspects: ListingAspect[]
@@ -370,6 +445,7 @@ export async function prepareOutboundAspects(args: {
   }
 
   aspects = fillEmptyTaxonomyAspectsFromTitle(args.item.title, categoryAspects, aspects);
+  aspects = expandGradedCoinAspectsForTaxonomy(categoryAspects, aspects);
 
   if (args.mergeFromInventory !== false && args.sku) {
     try {
@@ -380,21 +456,37 @@ export async function prepareOutboundAspects(args: {
     }
   }
 
+  aspects = expandGradedCoinAspectsForTaxonomy(categoryAspects, aspects);
+
   const remapped = remapAspectsToTaxonomy(categoryAspects, aspects);
   const remappedAspects = remapped.aspects;
 
   const validation = validateRemappedAspects(categoryAspects, remappedAspects);
   const enriched = JSON.stringify(aspects) !== beforeKey;
 
+  let missingRequired = validation.missingRequired;
+  if (args.categoryId?.trim() && categoryAspects.length === 0) {
+    missingRequired = [
+      ...missingRequired,
+      "eBay category taxonomy (could not load required item specifics for this category)",
+    ];
+  }
+
   const nextItem: SyncStoreItem = {
     ...args.item,
-    aspects: remappedAspects.length > 0 ? remappedAspects : args.item.aspects,
+    // When taxonomy is available, always use remapped keys — never fall back to Trading names.
+    aspects:
+      categoryAspects.length > 0
+        ? remappedAspects
+        : remappedAspects.length > 0
+          ? remappedAspects
+          : args.item.aspects,
   };
 
   return {
     item: nextItem,
     remappedAspects,
-    missingRequired: validation.missingRequired,
+    missingRequired,
     enriched,
     categoryAspects,
   };

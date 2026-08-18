@@ -109,8 +109,16 @@ export function SyncTraceList({ onSelectTrace, storeItemId, provider }: Props) {
       if (provider) params.set("provider", provider);
       
       const res = await fetch(`/api/channels/diagnose?${params}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load sync traces");
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (json as { error?: string }).error ?? "Failed to load sync traces";
+        if (detail.includes("sync_trace") || detail.includes("does not exist")) {
+          throw new Error(
+            "Sync trace database table is not set up yet. Run pnpm db:migrate:deploy, then try again."
+          );
+        }
+        throw new Error(detail);
+      }
       setData(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");

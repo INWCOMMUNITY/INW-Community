@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { EbayCategoryAspect } from "./aspects";
 import {
   fillEmptyTaxonomyAspectsFromTitle,
+  expandGradedCoinAspectsForTaxonomy,
   inventoryAspectsToListingAspects,
   mergeAspectSources,
   remapAspectsToTaxonomy,
@@ -184,6 +185,33 @@ describe("fillEmptyTaxonomyAspectsFromTitle", () => {
       { name: "Professional grader", value: "PCGS" },
     ]);
     expect(filled.find((a) => a.name === "Professional grader")?.value).toBe("PCGS");
+  });
+});
+
+describe("expandGradedCoinAspectsForTaxonomy", () => {
+  it("derives Letter grade and Professional grader from Trading Grade + Certification", () => {
+    const expanded = expandGradedCoinAspectsForTaxonomy(nickelTaxonomy, [
+      { name: "Certification", value: "NGC" },
+      { name: "Grade", value: "MS 67" },
+      { name: "Year", value: "1952" },
+    ]);
+    const remapped = remapAspectsToTaxonomy(nickelTaxonomy, expanded);
+    expect(remapped.aspects.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
+    expect(remapped.aspects.find((a) => a.name === "Letter grade")?.value).toBe("67");
+    const validation = validateRemappedAspects(nickelTaxonomy, remapped.aspects);
+    expect(validation.valid).toBe(true);
+  });
+
+  it("derives Numerical grade for dime taxonomy from Grade PR 69", () => {
+    const expanded = expandGradedCoinAspectsForTaxonomy(dimeTaxonomy, [
+      { name: "Certification", value: "NGC" },
+      { name: "Grade", value: "PR 69" },
+      { name: "Year", value: "2002" },
+    ]);
+    const remapped = remapAspectsToTaxonomy(dimeTaxonomy, expanded);
+    expect(remapped.aspects.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
+    expect(remapped.aspects.find((a) => a.name === "Numerical grade")?.value).toBe("69");
+    expect(remapped.aspects.find((a) => a.name === "Letter grade")).toBeUndefined();
   });
 });
 

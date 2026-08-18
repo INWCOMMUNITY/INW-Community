@@ -113,10 +113,19 @@ export async function prepareEbaySyncAspects(args: {
     }
   }
 
-  // Map missingRequired strings to full EbayCategoryAspect objects
-  const missingRequired = validation.missingRequired
-    .map((name) => prep.categoryAspects.find((a) => a.name === name))
-    .filter((a): a is EbayCategoryAspect => a !== undefined);
+  // Map missingRequired strings to EbayCategoryAspect objects (synthetic when taxonomy load failed)
+  const missingRequired: EbayCategoryAspect[] = prep.missingRequired.map((name) => {
+    const found = prep.categoryAspects.find((a) => a.name === name);
+    return (
+      found ?? {
+        name,
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      }
+    );
+  });
 
   return {
     item: prep.item,

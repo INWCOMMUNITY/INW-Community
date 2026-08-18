@@ -145,7 +145,17 @@ export async function GET(req: NextRequest) {
       ).slice(0, limit);
     }
   } catch (e) {
-    console.warn("[channels/diagnose] failed to fetch traces", { error: String(e) });
+    const msg = String(e);
+    console.error("[channels/diagnose] failed to fetch traces", { error: msg.slice(0, 500) });
+    if (msg.includes("sync_trace") || msg.includes("does not exist")) {
+      return NextResponse.json(
+        {
+          error:
+            "sync_trace table does not exist. Run database migrations (pnpm db:migrate:deploy).",
+        },
+        { status: 503 }
+      );
+    }
   }
 
   // Calculate stats

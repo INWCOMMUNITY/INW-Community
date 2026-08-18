@@ -471,10 +471,19 @@ function persistTrace(ctx: SyncTraceContext, durationMs: number): void {
   prisma.syncTrace
     .create({ data })
     .catch((e) => {
-      console.warn("[sync-trace] failed to write", {
+      const msg = String(e);
+      console.error("[sync-trace] failed to write", {
         traceId: ctx.id,
-        error: String(e).slice(0, 200),
+        provider: ctx.provider,
+        storeItemId: ctx.storeItemId,
+        status: ctx.status,
+        error: msg.slice(0, 500),
       });
+      if (msg.includes("sync_trace") || msg.includes("does not exist")) {
+        console.error(
+          "[sync-trace] sync_trace table missing — run: pnpm db:migrate:deploy (or prisma migrate dev)"
+        );
+      }
     });
 }
 
