@@ -67,10 +67,10 @@ export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unkn
   };
 }
 
-/** Resolve the eBay leaf category for an item (per-item override, else env default). */
+/** Resolve the eBay leaf category for an item (per-item eBay category wins over INW category map). */
 export function resolveCategoryId(item: SyncStoreItem, overrideId?: string | null): string | null {
-  if (overrideId) return overrideId;
   if (item.ebayCategoryId != null) return String(item.ebayCategoryId);
+  if (overrideId) return overrideId;
   try {
     return getEbayConfig().defaultCategoryId;
   } catch {

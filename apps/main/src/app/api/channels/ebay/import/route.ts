@@ -472,6 +472,7 @@ export async function POST(req: NextRequest) {
           ...(remoteCategoryId
             ? { ebayCategoryId: Number(remoteCategoryId) || undefined }
             : {}),
+          ...(details.conditionEnum ? { ebayConditionEnum: details.conditionEnum } : {}),
         },
       });
       createdStoreItemId = storeItem.id;

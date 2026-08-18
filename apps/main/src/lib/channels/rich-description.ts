@@ -223,6 +223,18 @@ export function listingDescriptionPreview(
   return listingDescriptionToPlainText(description);
 }
 
+/** Plain text for the seller edit textarea (no visible HTML tags). */
+export function listingDescriptionForEditForm(description: string | null | undefined): string {
+  return listingDescriptionToPlainText(description) ?? "";
+}
+
+/** Convert seller edit textarea value back to storable listing HTML. */
+export function listingDescriptionFromEditForm(plainText: string): string | null {
+  const trimmed = plainText.trim();
+  if (!trimmed) return null;
+  return sanitizeListingDescription(listingDescriptionForHtmlChannel(trimmed));
+}
+
 /** Plain text for channels that reject HTML (e.g. some Etsy fields). */
 export function listingDescriptionToPlainText(
   description: string | null | undefined

@@ -4,6 +4,8 @@
  * slurs blocked everywhere; profanity allowed in messages/comments; business names with profanity require admin approval.
  */
 
+import { listingDescriptionToPlainText } from "./channels/rich-description";
+
 // Prohibited product categories for seller listings
 export const PROHIBITED_PRODUCT_CATEGORIES = [
   "cannabis",
@@ -65,7 +67,16 @@ export type ModerationContext =
 export interface ModerationResult {
   allowed: boolean;
   reason?: string;
+  /** Blocklist term(s) that triggered the rejection (e.g. "shit"). */
+  matchedTerms?: string[];
+  /** Word(s) from the submitted text that matched (e.g. "shit", or "class" before ass-substring fix). */
+  matchedWords?: string[];
 }
+
+export type ModerationMatch = {
+  term: string;
+  word: string;
+};
 
 /**
  * Check if title, category, or description contains prohibited product categories.
@@ -102,16 +113,50 @@ function getWords(text: string): string[] {
     .filter(Boolean);
 }
 
-function containsBlocklistWord(text: string, blocklist: Set<string>): string | null {
-  const words = getWords(text);
-  for (const word of words) {
-    if (blocklist.has(word)) return word;
-    // User's word contains a full blocked term (e.g. compound slurs); do not use blocked.includes(word) so "B", "We", etc. are not falsely blocked
-    for (const blocked of blocklist) {
-      if (word.includes(blocked)) return blocked;
+function findBlocklistMatches(text: string, blocklist: Set<string>): ModerationMatch[] {
+  const matches: ModerationMatch[] = [];
+  const seen = new Set<string>();
+  for (const word of getWords(text)) {
+    if (blocklist.has(word) && !seen.has(word)) {
+      seen.add(word);
+      matches.push({ term: word, word });
     }
   }
-  return null;
+  return matches;
+}
+
+function containsBlocklistWord(text: string, blocklist: Set<string>): string | null {
+  const match = findBlocklistMatches(text, blocklist)[0];
+  return match?.term ?? null;
+}
+
+/** Inspect text for policy violations; returns every blocklist hit for UI highlighting. */
+export function findModerationMatches(
+  text: string,
+  context: ModerationContext
+): ModerationMatch[] {
+  if (!text || typeof text !== "string") return [];
+
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const textForCheck =
+    context === "product_description"
+      ? listingDescriptionToPlainText(trimmed) ?? trimmed
+      : trimmed;
+
+  const slurs = findBlocklistMatches(textForCheck, SLUR_BLOCKLIST);
+  if (slurs.length > 0) return slurs;
+
+  if (context === "comment" || context === "message" || context === "business_name") {
+    return [];
+  }
+
+  if (context === "product_title" || context === "product_description") {
+    return findBlocklistMatches(textForCheck, PROFANITY_BLOCKLIST);
+  }
+
+  return [];
 }
 
 /**
@@ -128,12 +173,18 @@ export function validateText(
   const trimmed = text.trim();
   if (!trimmed) return { allowed: true };
 
-  // Slurs are always blocked in any context
-  const slur = containsBlocklistWord(trimmed, SLUR_BLOCKLIST);
-  if (slur) {
+  const textForCheck =
+    context === "product_description"
+      ? listingDescriptionToPlainText(trimmed) ?? trimmed
+      : trimmed;
+
+  const slurMatches = findBlocklistMatches(textForCheck, SLUR_BLOCKLIST);
+  if (slurMatches.length > 0) {
     return {
       allowed: false,
       reason: "This content contains language that is not allowed on our platform.",
+      matchedTerms: slurMatches.map((m) => m.term),
+      matchedWords: slurMatches.map((m) => m.word),
     };
   }
 
@@ -147,21 +198,32 @@ export function validateText(
     return { allowed: true };
   }
 
-  // Product title and description: block profanity
+  // Product title and description: block profanity (whole-word match only)
   if (context === "product_title" || context === "product_description") {
-    const profanity = containsBlocklistWord(trimmed, PROFANITY_BLOCKLIST);
-    if (profanity) {
+    const profanityMatches = findBlocklistMatches(textForCheck, PROFANITY_BLOCKLIST);
+    if (profanityMatches.length > 0) {
       return {
         allowed: false,
         reason:
           context === "product_title"
             ? "Please remove inappropriate language from the title."
             : "Please remove inappropriate language from the description.",
+        matchedTerms: profanityMatches.map((m) => m.term),
+        matchedWords: profanityMatches.map((m) => m.word),
       };
     }
   }
 
   return { allowed: true };
+}
+
+/** Append flagged word list to a moderation rejection for seller-facing errors. */
+export function formatModerationErrorMessage(result: ModerationResult): string {
+  const base = result.reason ?? "Invalid content.";
+  const words = result.matchedWords?.filter(Boolean);
+  if (!words?.length) return base;
+  const unique = [...new Set(words)];
+  return `${base} Flagged word(s): ${unique.map((w) => `"${w}"`).join(", ")}.`;
 }
 
 /** Check if text contains profanity (for business name admin-approval flow). Slurs must be checked separately via validateText. */

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  listingDescriptionForEditForm,
   listingDescriptionForHtmlChannel,
+  listingDescriptionFromEditForm,
   listingDescriptionPreview,
   listingDescriptionToPlainText,
   sanitizeListingDescription,
@@ -97,6 +99,32 @@ describe("listingDescriptionToPlainText", () => {
   it("decodes curly quotes in plain text output", () => {
     const out = listingDescriptionToPlainText("&ldquo;Quote&rdquo;");
     expect(out).toBe("\u201cQuote\u201d");
+  });
+});
+
+describe("listingDescriptionForEditForm", () => {
+  it("shows plain text in the seller edit textarea", () => {
+    const html =
+      "<p>Up for sale-</p><p>1952-D NGC MS 67 United States / American Jefferson Nickel</p><p><b>Shipping Policy-</b></p>";
+    const out = listingDescriptionForEditForm(html);
+    expect(out).toContain("Up for sale-");
+    expect(out).toContain("Shipping Policy-");
+    expect(out).not.toContain("<p>");
+    expect(out).not.toContain("<b>");
+  });
+});
+
+describe("listingDescriptionFromEditForm", () => {
+  it("round-trips plain edit text to storable HTML", () => {
+    const plain = "Up for sale-\n\n1952-D NGC MS 67";
+    const stored = listingDescriptionFromEditForm(plain);
+    expect(stored).toContain("<p>");
+    expect(stored).toContain("Up for sale-");
+    expect(listingDescriptionForEditForm(stored)).toContain("Up for sale-");
+  });
+
+  it("returns null for empty input", () => {
+    expect(listingDescriptionFromEditForm("   ")).toBeNull();
   });
 });
 

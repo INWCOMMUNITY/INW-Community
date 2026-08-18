@@ -3,7 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
-import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
+import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import {
   hasOptionQuantities,
   sumOptionQuantities,
@@ -215,12 +215,26 @@ export async function PATCH(
   }
   const titleCheck = validateText(title, "product_title");
   if (!titleCheck.allowed) {
-    return NextResponse.json({ error: titleCheck.reason ?? "Invalid title." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: formatModerationErrorMessage(titleCheck),
+        matchedWords: titleCheck.matchedWords,
+        matchedTerms: titleCheck.matchedTerms,
+      },
+      { status: 400 }
+    );
   }
   if (description) {
     const descCheck = validateText(description, "product_description");
     if (!descCheck.allowed) {
-      return NextResponse.json({ error: descCheck.reason ?? "Invalid description." }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: formatModerationErrorMessage(descCheck),
+          matchedWords: descCheck.matchedWords,
+          matchedTerms: descCheck.matchedTerms,
+        },
+        { status: 400 }
+      );
     }
   }
 

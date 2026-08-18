@@ -181,11 +181,41 @@ export function ItemChannelSyncPanel({
     setBusyAction("ebay-fix");
     setActionMessage(null);
     try {
+      const ctxRes = await fetch(
+        `/api/channels/ebay/conditions?storeItemId=${encodeURIComponent(storeItemId)}`,
+        { credentials: "include" }
+      );
+      const ctx = (await ctxRes.json()) as {
+        storeItem?: { condition?: string };
+        presentation?:
+          | { mode: "binary"; newOption: { enum: string }; usedOption: { enum: string } }
+          | { mode: "list"; options: { enum: string }[] };
+        error?: string;
+      };
+      if (!ctxRes.ok || !ctx.presentation) {
+        setActionMessage(ctx.error ?? "Could not load eBay condition options.");
+        return;
+      }
+
+      let ebayConditionEnum: string;
+      if (ctx.presentation.mode === "binary") {
+        ebayConditionEnum =
+          ctx.storeItem?.condition === "used"
+            ? ctx.presentation.usedOption.enum
+            : ctx.presentation.newOption.enum;
+      } else {
+        ebayConditionEnum = ctx.presentation.options[0]?.enum ?? "";
+      }
+      if (!ebayConditionEnum) {
+        setActionMessage("No valid eBay condition options for this category.");
+        return;
+      }
+
       const res = await fetch("/api/channels/ebay/fix-condition", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeItemId }),
+        body: JSON.stringify({ storeItemId, ebayConditionEnum }),
       });
       const data = await res.json();
       if (!res.ok || !(data as { ok?: boolean }).ok) {

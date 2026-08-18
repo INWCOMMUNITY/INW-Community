@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { containsProhibitedCategory, validateText } from "@/lib/content-moderation";
+import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
@@ -739,7 +739,14 @@ export async function POST(req: NextRequest) {
       snippet: data.title.slice(0, 500),
       authorId: userId,
     });
-    return NextResponse.json({ error: titleCheck.reason ?? "Invalid title." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: formatModerationErrorMessage(titleCheck),
+        matchedWords: titleCheck.matchedWords,
+        matchedTerms: titleCheck.matchedTerms,
+      },
+      { status: 400 }
+    );
   }
   if (data.description) {
     const descCheck = validateText(data.description, "product_description");
@@ -751,7 +758,14 @@ export async function POST(req: NextRequest) {
         snippet: data.description.slice(0, 500),
         authorId: userId,
       });
-      return NextResponse.json({ error: descCheck.reason ?? "Invalid description." }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: formatModerationErrorMessage(descCheck),
+          matchedWords: descCheck.matchedWords,
+          matchedTerms: descCheck.matchedTerms,
+        },
+        { status: 400 }
+      );
     }
   }
 

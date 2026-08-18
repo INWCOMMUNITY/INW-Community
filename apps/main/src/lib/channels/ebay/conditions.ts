@@ -2,6 +2,7 @@
  * eBay category-specific item conditions (Metadata API + Inventory API ConditionEnum).
  */
 
+import type { SyncStoreItem } from "../types";
 import { ebayGet } from "./client";
 import { EBAY_MARKETPLACE_ID } from "./config";
 
@@ -83,6 +84,51 @@ export function resolveEbayInventoryCondition(args: {
   const override = args.ebayConditionEnum?.trim().toUpperCase();
   if (override) return override;
   return defaultEbayConditionEnum(args.condition);
+}
+
+/**
+ * Pick an Inventory API condition enum valid for the offer category.
+ * Falls back from stored override / INW defaults to category-allowed values.
+ */
+export function resolveEbaySyncConditionFromChoices(
+  item: Pick<SyncStoreItem, "condition" | "ebayConditionEnum">,
+  choices: EbayConditionChoice[]
+): { conditionEnum: string; autoCorrected: boolean } {
+  const requested = resolveEbayInventoryCondition(item);
+  if (choices.length === 0) {
+    return { conditionEnum: requested, autoCorrected: false };
+  }
+
+  const allowed = new Set(choices.map((c) => c.enum));
+  if (allowed.has(requested)) {
+    return { conditionEnum: requested, autoCorrected: false };
+  }
+
+  const { newEnum, usedEnum } = pickDefaultConditionChoices(choices);
+  const corrected = item.condition === "used" ? usedEnum : newEnum;
+  if (allowed.has(corrected)) {
+    return { conditionEnum: corrected, autoCorrected: true };
+  }
+
+  return { conditionEnum: choices[0]!.enum, autoCorrected: true };
+}
+
+/** Fetch category policy and resolve a valid sync condition enum. */
+export async function resolveEbaySyncCondition(
+  accessToken: string,
+  item: Pick<SyncStoreItem, "condition" | "ebayConditionEnum">,
+  categoryId: string | null
+): Promise<{ conditionEnum: string; autoCorrected: boolean }> {
+  if (!categoryId?.trim()) {
+    return { conditionEnum: resolveEbayInventoryCondition(item), autoCorrected: false };
+  }
+
+  try {
+    const choices = await fetchEbayCategoryConditions(accessToken, categoryId);
+    return resolveEbaySyncConditionFromChoices(item, choices);
+  } catch {
+    return { conditionEnum: resolveEbayInventoryCondition(item), autoCorrected: false };
+  }
 }
 
 type MetadataConditionRow = {

@@ -1,14 +1,17 @@
 import { prisma } from "database";
 import { getMemberConnectionContext } from "../connection";
 import { updateStoreItemOnChannels } from "../outbound";
-import type { ChannelSyncResult } from "../types";
+import type { ChannelSyncResult, SyncStoreItem } from "../types";
 import {
   fetchEbayCategoryConditions,
   inwConditionFromEbayEnum,
   presentEbayConditionChoices,
+  resolveEbaySyncCondition,
   type EbayConditionPresentation,
 } from "./conditions";
 import { describeEbayThrownError } from "./errors";
+import { resolveEbayLegacyListingId } from "./mapping";
+import { fetchEbayItemDetails } from "./trading";
 
 export type EbayConditionFixContext = {
   storeItem: {
@@ -106,4 +109,81 @@ export async function applyEbayConditionFix(args: {
   }
 
   return { ok: true, channelSync };
+}
+
+/** Persist seller/category-resolved eBay condition on the StoreItem. */
+export async function persistEbayConditionEnum(
+  storeItemId: string,
+  ebayConditionEnum: string
+): Promise<void> {
+  const enumVal = ebayConditionEnum.trim().toUpperCase();
+  await prisma.storeItem.update({
+    where: { id: storeItemId },
+    data: {
+      ebayConditionEnum: enumVal,
+      condition: inwConditionFromEbayEnum(enumVal),
+    },
+  });
+}
+
+/**
+ * For imported listings missing ebayConditionEnum, read ConditionID from the live eBay listing.
+ */
+export async function enrichSyncItemConditionFromEbay(
+  accessToken: string,
+  externalListingId: string | undefined,
+  item: SyncStoreItem
+): Promise<SyncStoreItem> {
+  if (item.ebayConditionEnum?.trim()) return item;
+
+  const legacyId =
+    resolveEbayLegacyListingId(externalListingId ?? "") ??
+    resolveEbayLegacyListingId(item.sku ?? "");
+  if (!legacyId) return item;
+
+  try {
+    const details = await fetchEbayItemDetails(accessToken, legacyId);
+    if (!details.conditionEnum) return item;
+    return {
+      ...item,
+      ebayConditionEnum: details.conditionEnum,
+      condition: details.condition ?? item.condition,
+    };
+  } catch (e) {
+    console.warn("[ebay] enrichSyncItemConditionFromEbay failed", {
+      storeItemId: item.id,
+      legacyId,
+      error: describeEbayThrownError(e),
+    });
+    return item;
+  }
+}
+
+/** Resolve + persist a category-valid Inventory condition enum before push. */
+export async function prepareEbaySyncCondition(args: {
+  accessToken: string;
+  storeItemId: string;
+  item: SyncStoreItem;
+  categoryId: string | null;
+}): Promise<{ item: SyncStoreItem; conditionEnum: string; autoCorrected: boolean; persisted: boolean }> {
+  const { conditionEnum, autoCorrected } = await resolveEbaySyncCondition(
+    args.accessToken,
+    args.item,
+    args.categoryId
+  );
+  const nextItem: SyncStoreItem =
+    conditionEnum !== args.item.ebayConditionEnum?.trim().toUpperCase()
+      ? { ...args.item, ebayConditionEnum: conditionEnum }
+      : args.item;
+
+  const shouldPersist =
+    autoCorrected ||
+    (nextItem.ebayConditionEnum &&
+      nextItem.ebayConditionEnum !== args.item.ebayConditionEnum?.trim().toUpperCase());
+
+  if (shouldPersist) {
+    await persistEbayConditionEnum(args.storeItemId, conditionEnum);
+  }
+
+  return { item: nextItem, conditionEnum, autoCorrected, persisted: !!shouldPersist };
 }

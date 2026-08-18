@@ -7,6 +7,7 @@ import {
   isEbayConditionSyncError,
   presentEbayConditionChoices,
   resolveEbayInventoryCondition,
+  resolveEbaySyncConditionFromChoices,
   type EbayConditionChoice,
 } from "./conditions";
 
@@ -53,6 +54,33 @@ describe("isEbayConditionSyncError", () => {
       )
     ).toBe(true);
     expect(isEbayConditionSyncError("token expired")).toBe(false);
+  });
+});
+
+describe("resolveEbaySyncConditionFromChoices", () => {
+  const choices: EbayConditionChoice[] = [
+    { conditionId: 3000, enum: "USED_EXCELLENT", label: "Used", group: "used" },
+    { conditionId: 5000, enum: "USED_GOOD", label: "Used - Good", group: "used" },
+  ];
+
+  it("keeps a valid stored override", () => {
+    expect(
+      resolveEbaySyncConditionFromChoices(
+        { condition: "used", ebayConditionEnum: "USED_GOOD" },
+        choices
+      )
+    ).toEqual({ conditionEnum: "USED_GOOD", autoCorrected: false });
+  });
+
+  it("auto-corrects invalid defaults to category-allowed enum", () => {
+    const gradedUsed: EbayConditionChoice[] = [
+      { conditionId: 4000, enum: "USED_VERY_GOOD", label: "Very Good", group: "used" },
+      { conditionId: 5000, enum: "USED_GOOD", label: "Used - Good", group: "used" },
+    ];
+    expect(resolveEbaySyncConditionFromChoices({ condition: "used" }, gradedUsed)).toEqual({
+      conditionEnum: "USED_VERY_GOOD",
+      autoCorrected: true,
+    });
   });
 });
 

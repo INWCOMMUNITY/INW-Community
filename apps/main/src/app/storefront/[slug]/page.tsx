@@ -27,6 +27,7 @@ import {
   getOptionQuantity,
 } from "@/lib/store-item-variants";
 import { ListingRichDescription } from "@/components/ListingRichDescription";
+import { parseStoredAspects } from "@/lib/listing-limits";
 
 interface VariantOption {
   name: string;
@@ -41,6 +42,7 @@ interface StoreItem {
   slug: string;
   status?: string;
   description: string | null;
+  aspects?: unknown;
   photos: string[];
   category: string | null;
   condition?: "new" | "used";
@@ -262,6 +264,11 @@ export default function ProductDetailPage() {
     if (!item || itemUnavailable) return 0;
     return getMaxPurchasableQuantity(item, selectedVariant, allVariantsSelected);
   }, [item, itemUnavailable, selectedVariant, allVariantsSelected]);
+
+  const itemDetails = useMemo(
+    () => (item ? parseStoredAspects(item.aspects) : []),
+    [item?.aspects]
+  );
 
   useEffect(() => {
     if (maxPurchasableQty < 1) {
@@ -946,6 +953,22 @@ export default function ProductDetailPage() {
             )}
           </div>
           </div>
+          {itemDetails.length > 0 && (
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <h2 className="text-xl font-bold mb-3">Item Details</h2>
+              <dl className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-200">
+                {itemDetails.map((aspect, idx) => (
+                  <div
+                    key={`${aspect.name}-${idx}`}
+                    className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-2 sm:gap-4 bg-white even:bg-gray-50"
+                  >
+                    <dt className="text-sm font-medium text-gray-700">{aspect.name}</dt>
+                    <dd className="text-sm text-gray-900">{aspect.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
           {item.description && (
             <div className="mt-8 pt-8 border-t border-gray-200">
               <h2 className="text-xl font-bold mb-3">Item Description</h2>

@@ -46,6 +46,10 @@ import {
   type ListingAspect,
 } from "@/lib/listing-limits";
 import {
+  listingDescriptionForEditForm,
+  listingDescriptionFromEditForm,
+} from "@/lib/channels/rich-description";
+import {
   type EtsyWhenMade,
   type EtsyWhoMade,
   isEtsyWhoMade,
@@ -115,7 +119,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [businessId, setBusinessId] = useState(existing?.businessId ?? "");
   const [condition, setCondition] = useState<"new" | "used">(existing?.condition ?? "new");
   const [title, setTitle] = useState(existing?.title ?? "");
-  const [description, setDescription] = useState(existing?.description ?? "");
+  const [description, setDescription] = useState(() =>
+    listingDescriptionForEditForm(existing?.description)
+  );
   const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
   const [category, setCategory] = useState(existing?.category ?? "");
   const [subcategory, setSubcategory] = useState(existing?.subcategory ?? "");
@@ -369,26 +375,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   // Debounced live eBay category search.
   useEffect(() => {
     const q = ebayCategorySearch.trim();
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "58be99" },
-      body: JSON.stringify({
-        sessionId: "58be99",
-        runId: "pre-fix",
-        hypothesisId: "H1",
-        location: "StoreItemForm.tsx:ebayCategorySearchEffect",
-        message: "category search effect",
-        data: {
-          ebayConnected,
-          hasEbayConnection,
-          queryLen: q.length,
-          willFetch: hasEbayConnection && q.length >= 2,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (!hasEbayConnection) return;
     if (q.length < 2) {
       setEbayCategoryResults([]);
@@ -409,27 +395,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
             data = await r.json();
           }
           if (cancelled) return;
-          // #region agent log
-          fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "58be99" },
-            body: JSON.stringify({
-              sessionId: "58be99",
-              runId: "verify-fix",
-              hypothesisId: "H2-H5",
-              location: "StoreItemForm.tsx:ebayCategorySearchFetch",
-              message: "category search response",
-              data: {
-                httpStatus: r.status,
-                ok: r.ok,
-                json: ct.includes("application/json"),
-                resultCount: data.categories?.length ?? 0,
-                error: data.error?.slice(0, 120) ?? null,
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           if (!r.ok) {
             setEbayCategoryResults([]);
             setEbayCategorySearchError(
@@ -617,7 +582,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     return {
       businessId: businessId || null,
       title: title.trim(),
-      description: description.trim() || null,
+      description: listingDescriptionFromEditForm(description),
       photos,
       category: category.trim() || null,
       subcategory: subcategory.trim() || null,

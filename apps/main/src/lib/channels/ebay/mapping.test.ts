@@ -3,8 +3,22 @@ import {
   ebayListingToSummary,
   findEbayRemoteListing,
   indexEbayRemoteListings,
+  resolveCategoryId,
   resolveEbayLegacyListingId,
 } from "./mapping";
+import type { SyncStoreItem } from "../types";
+
+describe("resolveCategoryId", () => {
+  const base = { ebayCategoryId: 12345 } as SyncStoreItem;
+
+  it("prefers per-item ebayCategoryId over INW category map override", () => {
+    expect(resolveCategoryId(base, "99999")).toBe("12345");
+  });
+
+  it("uses category map when item has no ebayCategoryId", () => {
+    expect(resolveCategoryId({ ...base, ebayCategoryId: null }, "99999")).toBe("99999");
+  });
+});
 
 describe("resolveEbayLegacyListingId", () => {
   it("accepts numeric Item IDs", () => {
