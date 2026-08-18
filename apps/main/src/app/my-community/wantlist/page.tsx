@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { BackToProfileLink } from "@/components/BackToProfileLink";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
+import { listingDescriptionPreview } from "@/lib/channels/rich-description";
 
 interface StoreItem {
   id: string;
@@ -127,7 +128,9 @@ export default function MyWishlistPage() {
                   </Link>
                 )}
                 {item.description && (
-                  <p className="text-sm text-gray-600 mt-2 line-clamp-2">{item.description}</p>
+                  <p className="text-sm text-gray-600 mt-2 line-clamp-2">
+                    {listingDescriptionPreview(item.description)}
+                  </p>
                 )}
                 <p className="text-lg font-bold mt-2">${(item.priceCents / 100).toFixed(2)}</p>
                 <Link href={`/storefront/${item.slug}`} className="btn mt-4 inline-block">

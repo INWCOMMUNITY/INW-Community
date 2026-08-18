@@ -216,6 +216,13 @@ function unwrapSingleOuterParagraph(html: string): string {
   return inner;
 }
 
+/** Plain text snippet for storefront cards and search previews (never show raw HTML tags). */
+export function listingDescriptionPreview(
+  description: string | null | undefined
+): string | null {
+  return listingDescriptionToPlainText(description);
+}
+
 /** Plain text for channels that reject HTML (e.g. some Etsy fields). */
 export function listingDescriptionToPlainText(
   description: string | null | undefined

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   listingDescriptionForHtmlChannel,
+  listingDescriptionPreview,
   listingDescriptionToPlainText,
   sanitizeListingDescription,
 } from "./rich-description";
@@ -69,6 +70,14 @@ describe("sanitizeListingDescription", () => {
     const out = sanitizeListingDescription("Grandma&#8217;s recipe");
     // &#8217; is the right single quotation mark (curly apostrophe)
     expect(out).toBe("Grandma\u2019s recipe");
+  });
+});
+
+describe("listingDescriptionPreview", () => {
+  it("strips HTML tags for card previews", () => {
+    const out = listingDescriptionPreview("<p>Up for sale-</p><p>1937 NGC Medal</p>");
+    expect(out).toBe("Up for sale-\n1937 NGC Medal");
+    expect(out).not.toContain("<p>");
   });
 });
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { listingDescriptionPreview } from "@/lib/channels/rich-description";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { ShareButton } from "@/components/ShareButton";
 import { IonIcon } from "@/components/IonIcon";
@@ -165,7 +166,9 @@ function StorefrontCard({
           </Link>
         )}
         {item.description && (
-          <p className="text-xs text-gray-600 mt-1 line-clamp-2">{item.description}</p>
+          <p className="text-xs text-gray-600 mt-1 line-clamp-2">
+            {listingDescriptionPreview(item.description)}
+          </p>
         )}
         {/* Action buttons row */}
         <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">

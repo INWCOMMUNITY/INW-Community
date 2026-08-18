@@ -18,6 +18,7 @@ import {
   type EbayVariationAxis,
 } from "./item-specifics";
 import type { ListingAspect } from "@/lib/listing-limits";
+import { getEbayCategoryPathFromId } from "./category-path";
 import { resolveEbayLegacyListingId } from "./mapping";
 
 /** A classic (Trading API) eBay listing enumerated for import preview. */
@@ -156,6 +157,9 @@ export async function fetchEbayItemDetails(
     });
     
     const { categoryId, categoryName } = parseEbayPrimaryCategory(item);
+    const resolvedCategoryPath = categoryId
+      ? await getEbayCategoryPathFromId(categoryId, categoryName)
+      : categoryName;
     const aspects = parseEbayItemSpecifics(item);
     const photos = extractEbayItemPhotos(item);
 
@@ -165,7 +169,7 @@ export async function fetchEbayItemDetails(
       aspectsCount: aspects.length,
       photosCount: photos.length,
       categoryId,
-      categoryName,
+      categoryName: resolvedCategoryPath,
       hasDescription: !!parseEbayDescription(item),
       firstAspect: aspects[0] || null,
       firstPhoto: photos[0]?.slice(0, 80) || null,
@@ -201,7 +205,7 @@ export async function fetchEbayItemDetails(
     return {
       aspects,
       remoteCategoryId: categoryId,
-      categoryName,
+      categoryName: resolvedCategoryPath,
       description: parseEbayDescription(item),
       photos,
       title: titleRaw ? decodeXmlTitle(titleRaw) : null,
