@@ -164,6 +164,9 @@ export async function fetchEbayItemDetails(
     const photos = extractEbayItemPhotos(item);
 
     // Debug logging for import issues
+    const gradeRelatedAspects = aspects.filter((a) =>
+      /grade|grader|certification|professional/i.test(a.name)
+    );
     console.log("[ebay] fetchEbayItemDetails parsed result", {
       listingId,
       aspectsCount: aspects.length,
@@ -173,6 +176,8 @@ export async function fetchEbayItemDetails(
       hasDescription: !!parseEbayDescription(item),
       firstAspect: aspects[0] || null,
       firstPhoto: photos[0]?.slice(0, 80) || null,
+      allAspectNames: aspects.map((a) => a.name),
+      gradeRelatedAspects,
     });
 
     if (aspects.length === 0 && item.includes("<ItemSpecifics>")) {

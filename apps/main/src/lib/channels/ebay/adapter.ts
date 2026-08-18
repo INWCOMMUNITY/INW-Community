@@ -183,11 +183,14 @@ async function upsertListing(
       ?.aspects;
     const inventoryDebug = {
       sku,
+      hasProductAspects: !!productAspects,
+      aspectCount: productAspects ? Object.keys(productAspects).length : 0,
       aspectKeys: productAspects ? Object.keys(productAspects) : [],
       numericalGrade: productAspects?.["Numerical grade"] ?? null,
       letterGrade: productAspects?.["Letter grade"] ?? null,
       professionalGrader: productAspects?.["Professional Grader"] ?? null,
       grade: productAspects?.["Grade"] ?? null,
+      certification: productAspects?.["Certification"] ?? null,
     };
     console.warn("[ebay] pushInventoryBody aspects", inventoryDebug);
     fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
