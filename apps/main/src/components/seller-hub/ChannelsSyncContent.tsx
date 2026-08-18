@@ -11,6 +11,10 @@ import {
 } from "@/lib/channels/provider-ui";
 import { EBAY_SIGN_OUT_URL } from "@/lib/channels/ebay/config";
 import { SyncActivityLog } from "./SyncActivityLog";
+import {
+  DisconnectChannelModal,
+  type DisconnectChannelPrompt,
+} from "./DisconnectChannelModal";
 
 export function ChannelsSyncContent() {
   const searchParams = useSearchParams();
@@ -20,6 +24,7 @@ export function ChannelsSyncContent() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [disconnectPrompt, setDisconnectPrompt] = useState<DisconnectChannelPrompt | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -76,6 +81,7 @@ export function ChannelsSyncContent() {
         setSuccess(`${name} disconnected. Your INW listings are unchanged.`);
       }
       setError(null);
+      setDisconnectPrompt(null);
       await refresh();
     } catch {
       setError("Could not disconnect. Try again.");
@@ -84,38 +90,8 @@ export function ChannelsSyncContent() {
     }
   };
 
-  const disconnect = (conn: ChannelConnectionSummary, name: string) => {
-    const linked =
-      conn.linkedListings === 1
-        ? "1 linked listing"
-        : `${conn.linkedListings} linked listings`;
-    const baseMessage =
-      conn.linkedListings > 0
-        ? `You have ${linked} tied to ${name}. Sync will stop in both directions. Your listings on ${name} are not removed by INW.\n\nNWC is not responsible for inventory, oversells, or other business effects after you disconnect (see Terms of Service).`
-        : `Your ${name} account will disconnect from INW Community. Any items you add later on INW will not sync to ${name} until you connect again.`;
-
-    if (!window.confirm(`Disconnect ${name}?\n\n${baseMessage}`)) return;
-
-    if (conn.linkedListings === 0) {
-      void runDisconnect(conn, name, false);
-      return;
-    }
-
-    const keep = window.confirm(
-      `Keep INW listings?\n\nOK = Keep listings on INW\nCancel = Choose whether to delete from INW`
-    );
-    if (keep) {
-      void runDisconnect(conn, name, false);
-      return;
-    }
-
-    if (
-      window.confirm(
-        `Delete from INW Community?\n\nThis permanently removes ${linked} from your INW storefront only. Listings on ${name} stay as they are.\n\nAfter disconnecting, you are responsible for inventory and sales on ${name} and any other channel.`
-      )
-    ) {
-      void runDisconnect(conn, name, true);
-    }
+  const openDisconnect = (conn: ChannelConnectionSummary, name: string) => {
+    setDisconnectPrompt({ conn, name, step: "choose" });
   };
 
   const testWix = async () => {
@@ -272,7 +248,7 @@ export function ChannelsSyncContent() {
                       )}
                       <button
                         type="button"
-                        onClick={() => disconnect(conn, p.name)}
+                        onClick={() => openDisconnect(conn, p.name)}
                         disabled={busy === conn.id}
                         className={btnLink}
                       >
@@ -357,6 +333,27 @@ export function ChannelsSyncContent() {
       {error ? (
         <p className="mt-6 text-sm font-medium text-red-700 whitespace-pre-wrap">{error}</p>
       ) : null}
+
+      <DisconnectChannelModal
+        prompt={disconnectPrompt}
+        busy={Boolean(disconnectPrompt && busy === disconnectPrompt.conn.id)}
+        onClose={() => setDisconnectPrompt(null)}
+        onKeepOnInw={() => {
+          if (!disconnectPrompt) return;
+          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, false);
+        }}
+        onRequestDelete={() =>
+          setDisconnectPrompt((prev) => (prev ? { ...prev, step: "confirmDelete" } : null))
+        }
+        onConfirmDelete={() => {
+          if (!disconnectPrompt) return;
+          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, true);
+        }}
+        onDisconnectNoLinks={() => {
+          if (!disconnectPrompt) return;
+          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, false);
+        }}
+      />
 
       <SyncActivityLog />
     </div>
