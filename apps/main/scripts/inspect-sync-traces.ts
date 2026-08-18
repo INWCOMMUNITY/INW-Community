@@ -26,8 +26,9 @@ async function main() {
     console.log("storeItemId:", t.storeItemId, "sku:", t.sku, "categoryId:", t.categoryId);
     console.log("errorMessage:", t.errorMessage);
     console.log("rootCause:", t.rootCause);
-    const inputAspects = t.inputSnapshot?.aspects;
-    const afterAspects = t.transformTrace?.after?.aspects;
+    const inputAspects = (t.inputSnapshot as { aspects?: unknown[] } | null)?.aspects;
+    const afterAspects = (t.transformTrace as { after?: { aspects?: unknown[] } } | null)?.after
+      ?.aspects;
     const reqAspects = (t.requestPayload as { product?: { aspects?: Record<string, unknown> } } | null)
       ?.product?.aspects;
     console.log("input aspects count:", Array.isArray(inputAspects) ? inputAspects.length : "none");
