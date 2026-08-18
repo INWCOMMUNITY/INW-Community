@@ -407,15 +407,17 @@ These caused the Wix “finicky” bugs:
 
 ### Item specifics / aspects (eBay)
 
-**Status:** ✅ eBay (two-way) · ignored by Etsy/Wix/Shopify adapters (additive, never breaks them)
+**Status:** ✅ eBay compatibility layer (`ebay-compat.ts`) · two-way · ignored by Etsy/Wix/Shopify adapters
 
-- Stored on `StoreItem.aspects` (JSON) as `[{ name, value }]` — the form "Add a detail" rows (Descriptor + Value). Separate from `variants` (the single Size/Color axis).
-- **Shared caps** in `apps/main/src/lib/listing-limits.ts`: title ≤ 80, aspect name ≤ 40, value ≤ 50, ≤ 30 specifics. Enforced by API zod, both forms, and the eBay mapper so they never drift.
-- **Form pickers** (mobile `new.tsx` + web `StoreItemForm.tsx`, shown only when eBay is connected):
-  - Live category search → `GET /api/channels/ebay/categories?q=` (Taxonomy `get_category_suggestions`). Persists `ebayCategoryId`.
-  - Choosing a category loads `GET /api/channels/ebay/category-aspects?categoryId=` (Taxonomy `get_item_aspects_for_category`) and pre-seeds **required** aspects; save is blocked until required values are filled.
-- **Outbound:** `buildEbayInventoryItem` merges stored aspects into `product.aspects` (`aspectsToEbayProductAspects` groups same-descriptor rows into eBay MULTI arrays). This is the fix that lets categories requiring Brand/Type/etc. publish.
-- **Inbound:** `trading.ts` calls `GetItem` with `IncludeItemSpecifics=true`; `item-specifics.ts` parses `ItemSpecifics > NameValueList`, `PrimaryCategory`, and `Description`. Import writes `aspects` + `ebayCategoryId` + description; `applyRemoteAspectsToStoreItem()` round-trips them on meta reconcile.
+- Stored on `StoreItem.aspects` (JSON) as `[{ name, value }]`. **Outbound sync remaps** Trading/import names to Taxonomy `localizedAspectName` keys before `PUT inventory_item` (e.g. `Certification` → `Professional grader`).
+- **Pre-publish and push-time validation** use the same remap path (`validateForProvider` + `prepareOutboundAspects`) so sellers see blockers before eBay API calls.
+- **Inventory merge:** before PUT, GET existing `inventory_item` aspects and merge so migrated listings keep eBay-accepted keys.
+- **Sync triggers:** `aspects` + `ebayConditionEnum` participate in outbound content hash and `syncBaselineMetaHash`.
+- **Form pickers:** SELECTION_ONLY aspects use dropdowns; MULTI aspects accept comma-separated values. Required flags come from Taxonomy API.
+- **Business policies:** sellers choose fulfillment/payment/return policies + merchant location via Sync Stores (`GET/PATCH /api/channels/ebay/policies`). Per-listing `shippingCostCents` in INW is storefront-only — eBay uses the selected fulfillment policy.
+- **Scope:** US marketplace, fixed-price listings only. Single variant axis outbound; per-variation pricing not synced.
+- **Import scale:** GetMyeBaySelling paginates up to ~2000 active listings (20 × 100).
+- **Diagnose:** `GET /api/channels/ebay/diagnose?storeItemId=` includes taxonomy remap preview + sync readiness blockers when available.
 
 ### Meta reconcile
 

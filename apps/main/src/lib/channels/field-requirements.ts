@@ -166,7 +166,8 @@ const EBAY_REQUIREMENTS: ProviderRequirements = {
       label: "Shipping Cost",
       type: "number",
       required: false,
-      helpText: "Flat shipping rate. Leave empty to use your eBay shipping policy default.",
+      helpText:
+        "Flat shipping rate for your INW storefront only. eBay sync uses your connected eBay fulfillment (shipping) policy — per-listing flat rates are not pushed to eBay.",
     },
   ],
 };

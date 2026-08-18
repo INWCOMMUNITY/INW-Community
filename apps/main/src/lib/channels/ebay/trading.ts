@@ -278,7 +278,7 @@ export async function enumerateEbayListings(
   opts?: { skipPhotoEnrichment?: boolean }
 ): Promise<EbayTradingListing[]> {
   const out: EbayTradingListing[] = [];
-  for (let page = 1; page <= 10; page += 1) {
+  for (let page = 1; page <= 20; page += 1) {
     const xml = await callTrading(accessToken, "GetMyeBaySelling", buildGetMyeBaySellingXml(page));
     const activeList = tag(xml, "ActiveList") ?? "";
     const itemArray = tag(activeList, "ItemArray") ?? "";

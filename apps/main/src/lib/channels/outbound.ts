@@ -22,6 +22,7 @@ import {
   hydrateCircuitFromConfig,
 } from "./circuit-breaker";
 import { logSyncEvent } from "./sync-log";
+import { ebayAspectsFingerprint } from "./ebay/ebay-compat";
 
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
@@ -46,6 +47,8 @@ function contentHash(item: SyncStoreItem): string {
         sub: item.subcategory,
         sc: item.secondaryCategory,
         ship: item.shippingCostCents,
+        asp: ebayAspectsFingerprint(item.aspects),
+        ecc: item.ebayConditionEnum ?? null,
       })
     )
     .digest("hex");

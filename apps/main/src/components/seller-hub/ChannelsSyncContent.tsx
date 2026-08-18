@@ -10,11 +10,16 @@ import {
   type ChannelConnectionSummary,
 } from "@/lib/channels/provider-ui";
 import { EBAY_SIGN_OUT_URL } from "@/lib/channels/ebay/config";
+import { EbayPolicySettings } from "@/components/seller-hub/EbayPolicySettings";
 import { SyncActivityLog } from "./SyncActivityLog";
+import { SyncTraceList } from "./SyncTraceList";
+import { SyncTraceDetail } from "./SyncTraceDetail";
 import {
   DisconnectChannelModal,
   type DisconnectChannelPrompt,
 } from "./DisconnectChannelModal";
+
+type TabId = "connections" | "traces";
 
 export function ChannelsSyncContent() {
   const searchParams = useSearchParams();
@@ -25,6 +30,8 @@ export function ChannelsSyncContent() {
   const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [disconnectPrompt, setDisconnectPrompt] = useState<DisconnectChannelPrompt | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>("connections");
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -147,6 +154,13 @@ export function ChannelsSyncContent() {
     "inline-flex items-center justify-center w-full rounded-lg border-2 border-[var(--color-primary)] py-3 text-[15px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50";
   const btnLink = "text-sm font-medium text-red-700 hover:underline py-2";
 
+  const tabClasses = (tab: TabId) =>
+    `px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
+      activeTab === tab
+        ? "border-[var(--color-primary)] text-[var(--color-primary)] bg-white"
+        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+    }`;
+
   return (
     <div className="max-w-2xl mx-auto min-w-0">
       <Link
@@ -163,9 +177,43 @@ export function ChannelsSyncContent() {
         connected store reduces stock everywhere.
       </p>
 
-      {loading ? (
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-gray-200 mb-6">
+        <button
+          type="button"
+          onClick={() => { setActiveTab("connections"); setSelectedTraceId(null); }}
+          className={tabClasses("connections")}
+        >
+          Connections
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveTab("traces"); setSelectedTraceId(null); }}
+          className={tabClasses("traces")}
+        >
+          Sync Traces
+        </button>
+      </div>
+
+      {/* Traces Tab */}
+      {activeTab === "traces" && (
+        <div className="mb-6">
+          {selectedTraceId ? (
+            <SyncTraceDetail
+              traceId={selectedTraceId}
+              onClose={() => setSelectedTraceId(null)}
+            />
+          ) : (
+            <SyncTraceList onSelectTrace={(id) => setSelectedTraceId(id)} />
+          )}
+        </div>
+      )}
+
+      {/* Connections Tab */}
+      {activeTab === "connections" && loading && (
         <p className="text-gray-500 py-8 text-center">Loading connections…</p>
-      ) : (
+      )}
+      {activeTab === "connections" && !loading && (
         <div className="space-y-4">
           {CHANNEL_PROVIDERS_UI.map((p) => {
             const conn = connectionFor(p.provider);
@@ -255,7 +303,9 @@ export function ChannelsSyncContent() {
                         {busy === conn.id ? "Disconnecting…" : `Disconnect ${p.name}`}
                       </button>
                       {p.provider === "ebay" && (
-                        <button
+                        <>
+                          <EbayPolicySettings />
+                          <button
                           type="button"
                           className={btnOutline}
                           onClick={() => {
@@ -271,6 +321,7 @@ export function ChannelsSyncContent() {
                         >
                           Logout of {conn.shopName || conn.shopId || "eBay"}
                         </button>
+                        </>
                       )}
                     </div>
                   </>
@@ -327,35 +378,40 @@ export function ChannelsSyncContent() {
         </div>
       )}
 
-      {success && !error ? (
-        <p className="mt-6 text-sm font-medium text-green-800 whitespace-pre-wrap">{success}</p>
-      ) : null}
-      {error ? (
-        <p className="mt-6 text-sm font-medium text-red-700 whitespace-pre-wrap">{error}</p>
-      ) : null}
+      {/* Connection messages */}
+      {activeTab === "connections" && (
+        <>
+          {success && !error ? (
+            <p className="mt-6 text-sm font-medium text-green-800 whitespace-pre-wrap">{success}</p>
+          ) : null}
+          {error ? (
+            <p className="mt-6 text-sm font-medium text-red-700 whitespace-pre-wrap">{error}</p>
+          ) : null}
 
-      <DisconnectChannelModal
-        prompt={disconnectPrompt}
-        busy={Boolean(disconnectPrompt && busy === disconnectPrompt.conn.id)}
-        onClose={() => setDisconnectPrompt(null)}
-        onKeepOnInw={() => {
-          if (!disconnectPrompt) return;
-          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, false);
-        }}
-        onRequestDelete={() =>
-          setDisconnectPrompt((prev) => (prev ? { ...prev, step: "confirmDelete" } : null))
-        }
-        onConfirmDelete={() => {
-          if (!disconnectPrompt) return;
-          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, true);
-        }}
-        onDisconnectNoLinks={() => {
-          if (!disconnectPrompt) return;
-          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, false);
-        }}
-      />
+          <DisconnectChannelModal
+            prompt={disconnectPrompt}
+            busy={Boolean(disconnectPrompt && busy === disconnectPrompt.conn.id)}
+            onClose={() => setDisconnectPrompt(null)}
+            onKeepOnInw={() => {
+              if (!disconnectPrompt) return;
+              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, false);
+            }}
+            onRequestDelete={() =>
+              setDisconnectPrompt((prev) => (prev ? { ...prev, step: "confirmDelete" } : null))
+            }
+            onConfirmDelete={() => {
+              if (!disconnectPrompt) return;
+              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, true);
+            }}
+            onDisconnectNoLinks={() => {
+              if (!disconnectPrompt) return;
+              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, false);
+            }}
+          />
 
-      <SyncActivityLog />
+          <SyncActivityLog />
+        </>
+      )}
     </div>
   );
 }

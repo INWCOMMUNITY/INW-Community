@@ -633,6 +633,12 @@ export default function ListItemScreen() {
     categoryAspects.some(
       (a) => a.required && a.name.trim().toLowerCase() === name.trim().toLowerCase()
     );
+  const suggestionsForAspect = (name: string) => {
+    const match = categoryAspects.find(
+      (a) => a.name.trim().toLowerCase() === name.trim().toLowerCase()
+    );
+    return match?.suggestedValues ?? [];
+  };
 
   const missingRequiredAspectCount = useMemo(() => {
     return categoryAspects.filter((aspect) => {
@@ -1330,6 +1336,8 @@ export default function ListItemScreen() {
           onRemoveAspect={removeAspectRow}
           onAddAspect={addAspectRow}
           isRequiredAspect={isRequiredAspect}
+          categoryAspects={categoryAspects}
+          suggestionsForAspect={suggestionsForAspect}
           maxAspects={MAX_ASPECTS}
           aspectNameMax={EBAY_ASPECT_NAME_MAX}
           aspectValueMax={EBAY_ASPECT_VALUE_MAX}

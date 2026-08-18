@@ -20,6 +20,15 @@ import {
 import { pushEtsyVariants, syncEtsyListingInventoryFromInw } from "./variants";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 import { parseEtsyInboundEvent, verifyEtsyWebhook } from "./webhook";
+import {
+  startTrace,
+  addInputSnapshot,
+  addValidation,
+  addRequest,
+  addResponse,
+  completeTrace,
+  type ValidationCheck,
+} from "../sync-trace";
 
 type EtsyInventoryOffering = {
   offering_id?: number;
@@ -185,98 +194,198 @@ export const etsyAdapter: ChannelAdapter = {
 
   async createListing(conn, item): Promise<CreateListingResult> {
     const shopId = requireShop(conn);
-    const cat = await resolveProviderCategoryId(conn, "etsy", item.category);
-    const taxonomyId = item.etsyTaxonomyId ?? cat.etsyTaxonomyId;
-    const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
-    const created = await etsyForm<{ listing_id: number }>(
-      conn.accessToken,
-      `/shops/${shopId}/listings`,
-      "POST",
-      buildEtsyCreateFields(item, conn, {
+    
+    // Start trace
+    const trace = startTrace(conn.memberId, "etsy", item.id, "create", {
+      sku: item.sku ?? item.id,
+      categoryId: item.etsyTaxonomyId?.toString() ?? null,
+    });
+
+    addInputSnapshot(trace, {
+      title: item.title,
+      priceCents: item.priceCents,
+      quantity: item.quantity,
+      status: item.status,
+      etsyTaxonomyId: item.etsyTaxonomyId,
+      etsyWhoMade: item.etsyWhoMade,
+      etsyWhenMade: item.etsyWhenMade,
+      etsyIsSupply: item.etsyIsSupply,
+    });
+
+    try {
+      const validationChecks: ValidationCheck[] = [];
+      
+      const cat = await resolveProviderCategoryId(conn, "etsy", item.category);
+      const taxonomyId = item.etsyTaxonomyId ?? cat.etsyTaxonomyId;
+      const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
+
+      // Validate required Etsy fields
+      validationChecks.push({
+        name: "who_made",
+        passed: !!item.etsyWhoMade,
+        detail: item.etsyWhoMade || "Not set",
+        severity: "error",
+      });
+      validationChecks.push({
+        name: "when_made",
+        passed: !!item.etsyWhenMade,
+        detail: item.etsyWhenMade || "Not set",
+        severity: "error",
+      });
+      validationChecks.push({
+        name: "taxonomy",
+        passed: !!taxonomyId,
+        detail: taxonomyId ? `ID: ${taxonomyId}` : "Not set",
+        severity: "error",
+      });
+      validationChecks.push({
+        name: "shipping_profile",
+        passed: !!(shippingProfileId ?? conn.etsyShippingProfileId),
+        detail: shippingProfileId ? "Configured" : "Using default",
+        severity: "warning",
+      });
+
+      const allValid = validationChecks.every((c) => c.passed || c.severity === "warning");
+      addValidation(trace, { valid: allValid, checks: validationChecks });
+
+      const createFields = buildEtsyCreateFields(item, conn, {
         taxonomyId: taxonomyId ?? undefined,
         shippingProfileId,
-      })
-    );
-    const listingId = String(created.listing_id);
+      });
+      addRequest(trace, createFields as Record<string, unknown>);
 
-    let rank = 1;
-    for (const url of item.photos.slice(0, 10)) {
-      try {
-        await etsyUploadImage(conn.accessToken, shopId, listingId, url, rank);
-        rank += 1;
-      } catch (e) {
-        console.error("[etsy] image upload failed", { listingId, url, error: String(e) });
+      const created = await etsyForm<{ listing_id: number }>(
+        conn.accessToken,
+        `/shops/${shopId}/listings`,
+        "POST",
+        createFields
+      );
+      const listingId = String(created.listing_id);
+      addResponse(trace, 200, { listing_id: created.listing_id });
+
+      let rank = 1;
+      for (const url of item.photos.slice(0, 10)) {
+        try {
+          await etsyUploadImage(conn.accessToken, shopId, listingId, url, rank);
+          rank += 1;
+        } catch (e) {
+          console.error("[etsy] image upload failed", { listingId, url, error: String(e) });
+        }
       }
-    }
 
-    const tid = taxonomyId ?? 1;
-    // Get the default readiness_state_id from connection config, or fetch on-demand
-    let defaultReadinessStateId =
-      typeof conn.config?.defaultReadinessStateId === "number"
-        ? conn.config.defaultReadinessStateId
-        : null;
-    
-    // If no defaultReadinessStateId in config, fetch on-demand (required for physical listings)
-    if (defaultReadinessStateId == null) {
-      try {
-        const profiles = await etsyGet<{ results?: { readiness_state_id: number }[] }>(
-          conn.accessToken,
-          `/shops/${shopId}/readiness-state-definitions`
-        );
-        defaultReadinessStateId = profiles.results?.[0]?.readiness_state_id ?? null;
-        console.log("[etsy] fetched processing profiles on-demand for createListing", {
-          shopId,
-          listingId,
-          defaultReadinessStateId,
-        });
-      } catch (e) {
-        console.warn("[etsy] failed to fetch processing profiles on-demand", { error: String(e) });
+      const tid = taxonomyId ?? 1;
+      let defaultReadinessStateId =
+        typeof conn.config?.defaultReadinessStateId === "number"
+          ? conn.config.defaultReadinessStateId
+          : null;
+      
+      if (defaultReadinessStateId == null) {
+        try {
+          const profiles = await etsyGet<{ results?: { readiness_state_id: number }[] }>(
+            conn.accessToken,
+            `/shops/${shopId}/readiness-state-definitions`
+          );
+          defaultReadinessStateId = profiles.results?.[0]?.readiness_state_id ?? null;
+          console.log("[etsy] fetched processing profiles on-demand for createListing", {
+            shopId,
+            listingId,
+            defaultReadinessStateId,
+          });
+        } catch (e) {
+          console.warn("[etsy] failed to fetch processing profiles on-demand", { error: String(e) });
+        }
       }
+
+      await pushEtsyVariants(conn.accessToken, listingId, tid, item, defaultReadinessStateId).catch((e) =>
+        console.error("[etsy] variant push failed", { listingId, error: String(e) })
+      );
+      await this.updateInventory(conn, listingId, item.quantity, item).catch((e) =>
+        console.error("[etsy] initial inventory set failed", { listingId, error: String(e) })
+      );
+
+      const profileForPublish = shippingProfileId ?? conn.etsyShippingProfileId;
+      if (item.status === "active" && item.quantity > 0 && profileForPublish) {
+        await etsyForm(conn.accessToken, `/shops/${shopId}/listings/${listingId}`, "PATCH", {
+          state: "active",
+        }).catch((e) => console.error("[etsy] publish failed", { listingId, error: String(e) }));
+      }
+
+      await completeTrace(trace, "success");
+      return { externalListingId: listingId, externalShopId: shopId };
+    } catch (e) {
+      await completeTrace(trace, "failed", e);
+      throw e;
     }
-
-    await pushEtsyVariants(conn.accessToken, listingId, tid, item, defaultReadinessStateId).catch((e) =>
-      console.error("[etsy] variant push failed", { listingId, error: String(e) })
-    );
-    await this.updateInventory(conn, listingId, item.quantity, item).catch((e) =>
-      console.error("[etsy] initial inventory set failed", { listingId, error: String(e) })
-    );
-
-    const profileForPublish = shippingProfileId ?? conn.etsyShippingProfileId;
-    if (item.status === "active" && item.quantity > 0 && profileForPublish) {
-      await etsyForm(conn.accessToken, `/shops/${shopId}/listings/${listingId}`, "PATCH", {
-        state: "active",
-      }).catch((e) => console.error("[etsy] publish failed", { listingId, error: String(e) }));
-    }
-
-    return { externalListingId: listingId, externalShopId: shopId };
   },
 
   async updateListing(conn, externalListingId, item): Promise<void> {
     const shopId = requireShop(conn);
-    const cat = await resolveProviderCategoryId(conn, "etsy", item.category);
-    const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
-    
-    // Update listing fields (title, description, price, taxonomy, who_made, when_made, etc.)
-    await etsyForm(
-      conn.accessToken,
-      `/shops/${shopId}/listings/${externalListingId}`,
-      "PATCH",
-      buildEtsyUpdateFields(item, {
-        taxonomyId: item.etsyTaxonomyId ?? cat.etsyTaxonomyId,
-        shippingProfileId,
-      })
-    );
 
-    // Sync photos if they've changed
-    await syncEtsyPhotos(conn.accessToken, shopId, externalListingId, item.photos).catch((e) => {
-      console.error("[etsy] photo sync failed", { listingId: externalListingId, error: String(e) });
+    // Start trace
+    const trace = startTrace(conn.memberId, "etsy", item.id, "update", {
+      sku: item.sku ?? item.id,
+      categoryId: item.etsyTaxonomyId?.toString() ?? null,
     });
 
-    // Note: We do NOT call pushEtsyVariants here because it tries to REPLACE the entire
-    // inventory structure. Etsy listings may already have variants with different property_ids.
-    // Instead, updateInventory properly reads existing inventory and updates quantities/prices
-    // while preserving the existing variant structure.
-    await this.updateInventory(conn, externalListingId, item.quantity, item);
+    addInputSnapshot(trace, {
+      title: item.title,
+      priceCents: item.priceCents,
+      quantity: item.quantity,
+      status: item.status,
+      etsyTaxonomyId: item.etsyTaxonomyId,
+      etsyWhoMade: item.etsyWhoMade,
+      etsyWhenMade: item.etsyWhenMade,
+      etsyIsSupply: item.etsyIsSupply,
+    });
+
+    try {
+      const validationChecks: ValidationCheck[] = [];
+
+      const cat = await resolveProviderCategoryId(conn, "etsy", item.category);
+      const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
+      
+      // Validate required Etsy fields
+      validationChecks.push({
+        name: "who_made",
+        passed: !!item.etsyWhoMade,
+        detail: item.etsyWhoMade || "Not set",
+        severity: "warning",
+      });
+      validationChecks.push({
+        name: "when_made",
+        passed: !!item.etsyWhenMade,
+        detail: item.etsyWhenMade || "Not set",
+        severity: "warning",
+      });
+
+      addValidation(trace, { valid: true, checks: validationChecks });
+      
+      const updateFields = buildEtsyUpdateFields(item, {
+        taxonomyId: item.etsyTaxonomyId ?? cat.etsyTaxonomyId,
+        shippingProfileId,
+      });
+      addRequest(trace, updateFields as Record<string, unknown>);
+
+      await etsyForm(
+        conn.accessToken,
+        `/shops/${shopId}/listings/${externalListingId}`,
+        "PATCH",
+        updateFields
+      );
+      addResponse(trace, 200, { success: true });
+
+      // Sync photos if they've changed
+      await syncEtsyPhotos(conn.accessToken, shopId, externalListingId, item.photos).catch((e) => {
+        console.error("[etsy] photo sync failed", { listingId: externalListingId, error: String(e) });
+      });
+
+      await this.updateInventory(conn, externalListingId, item.quantity, item);
+
+      await completeTrace(trace, "success");
+    } catch (e) {
+      await completeTrace(trace, "failed", e);
+      throw e;
+    }
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {

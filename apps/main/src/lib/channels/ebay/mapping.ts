@@ -32,20 +32,6 @@ export function buildEbayInventoryItem(item: SyncStoreItem): Record<string, unkn
   const parsedAspects = parseStoredAspects(item.aspects);
   const storedAspects = aspectsToEbayProductAspects(parsedAspects);
 
-  // #region agent log
-  console.warn("[ebay] buildEbayInventoryItem aspects", {
-    itemId: item.id,
-    rawAspectsType: typeof item.aspects,
-    rawAspectsIsArray: Array.isArray(item.aspects),
-    parsedCount: parsedAspects.length,
-    storedAspectKeys: Object.keys(storedAspects),
-    hasNumericalGrade: "Numerical grade" in storedAspects,
-    hasLetterGrade: "Letter grade" in storedAspects,
-    numericalGradeValue: storedAspects["Numerical grade"] ?? null,
-    letterGradeValue: storedAspects["Letter grade"] ?? null,
-  });
-  // #endregion
-
   const product: Record<string, unknown> = {
     title,
     description: listingDescriptionForHtmlChannel(item.description, title),

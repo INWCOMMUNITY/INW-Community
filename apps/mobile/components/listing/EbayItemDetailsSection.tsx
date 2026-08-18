@@ -13,6 +13,14 @@ export type ListingAspect = { name: string; value: string };
 
 type EbayCategorySuggestion = { categoryId: string; categoryName: string; categoryPath?: string };
 
+type EbayCategoryAspect = {
+  name: string;
+  required: boolean;
+  mode: "FREE_TEXT" | "SELECTION_ONLY";
+  cardinality: "SINGLE" | "MULTI";
+  suggestedValues: string[];
+};
+
 type EbayItemDetailsSectionProps = {
   ebayCategoryId: string;
   ebayCategoryLabel: string;
@@ -28,6 +36,8 @@ type EbayItemDetailsSectionProps = {
   onRemoveAspect: (index: number) => void;
   onAddAspect: () => void;
   isRequiredAspect: (name: string) => boolean;
+  categoryAspects?: EbayCategoryAspect[];
+  suggestionsForAspect?: (name: string) => string[];
   maxAspects: number;
   aspectNameMax: number;
   aspectValueMax: number;
@@ -51,6 +61,8 @@ export function EbayItemDetailsSection({
   onRemoveAspect,
   onAddAspect,
   isRequiredAspect,
+  categoryAspects = [],
+  suggestionsForAspect,
   maxAspects,
   aspectNameMax,
   aspectValueMax,
@@ -130,6 +142,13 @@ export function EbayItemDetailsSection({
           </View>
           {aspects.map((a, i) => {
             const required = isRequiredAspect(a.name);
+            const schema = categoryAspects.find(
+              (ca) => ca.name.trim().toLowerCase() === a.name.trim().toLowerCase()
+            );
+            const suggestions =
+              suggestionsForAspect?.(a.name) ?? schema?.suggestedValues ?? [];
+            const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;
+            const isMulti = schema?.cardinality === "MULTI";
             return (
               <View key={i} style={styles.aspectRow}>
                 <TextInput
@@ -139,19 +158,38 @@ export function EbayItemDetailsSection({
                   placeholder="Descriptor"
                   maxLength={aspectNameMax}
                   placeholderTextColor={placeholderColor}
+                  editable={!(required && !!ebayCategoryId)}
                 />
-                <TextInput
-                  style={[
-                    styles.input,
-                    styles.aspectInput,
-                    required && !a.value.trim() ? styles.aspectInputRequired : null,
-                  ]}
-                  value={a.value}
-                  onChangeText={(t) => onAspectValueChange(i, t)}
-                  placeholder={required ? "Value (required)" : "Value"}
-                  maxLength={aspectValueMax}
-                  placeholderTextColor={placeholderColor}
-                />
+                <View style={{ flex: 1 }}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.aspectInput,
+                      { marginBottom: 0 },
+                      required && !a.value.trim() ? styles.aspectInputRequired : null,
+                    ]}
+                    value={a.value}
+                    onChangeText={(t) => onAspectValueChange(i, t)}
+                    placeholder={
+                      isSelectionOnly
+                        ? `Choose: ${suggestions.slice(0, 4).join(", ")}`
+                        : isMulti
+                          ? required
+                            ? "Values (comma-separated)"
+                            : "Values (comma-separated)"
+                          : required
+                            ? "Value (required)"
+                            : "Value"
+                    }
+                    maxLength={aspectValueMax}
+                    placeholderTextColor={placeholderColor}
+                  />
+                  {isSelectionOnly ? (
+                    <Text style={styles.hintInline} numberOfLines={2}>
+                      Allowed: {suggestions.join(", ")}
+                    </Text>
+                  ) : null}
+                </View>
                 <Pressable onPress={() => onRemoveAspect(i)} style={styles.aspectRemove}>
                   <Text style={styles.aspectRemoveText}>×</Text>
                 </Pressable>

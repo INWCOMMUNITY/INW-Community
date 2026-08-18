@@ -8,8 +8,23 @@ import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { resetCorruptBaselinesForConnection } from "@/lib/channels/reset-corrupt-baselines";
 import { getCircuitStatus } from "@/lib/channels/circuit-breaker";
 import { getRateLimitStats } from "@/lib/channels/rate-limit-tracker";
+import { getRecentTraces } from "@/lib/channels/sync-trace";
+import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
 
 export const dynamic = "force-dynamic";
+
+type RecentTrace = {
+  id: string;
+  operation: string;
+  status: string;
+  errorCode: string | null;
+  errorCategory: string | null;
+  errorCategoryLabel: string | null;
+  rootCause: string | null;
+  suggestedFixes: string[];
+  durationMs: number | null;
+  createdAt: string;
+};
 
 type DiagnosisResult = {
   ok: boolean;
@@ -45,6 +60,7 @@ type DiagnosisResult = {
   repairAttempted?: boolean;
   repairResults?: { storeItemId: string; ok: boolean; error?: string }[];
   baselineReset?: { reset: number; linkIds: string[] };
+  recentTraces?: RecentTrace[];
 };
 
 /**
@@ -268,6 +284,31 @@ export async function GET(req: NextRequest) {
     nextStep = "No action needed. Use ?repair=1 to force a sync push if needed.";
   }
 
+  // Fetch recent sync traces
+  let recentTraces: RecentTrace[] | undefined;
+  try {
+    const traces = await getRecentTraces(userId, "etsy", {
+      storeItemId: storeItemId ?? undefined,
+      limit: 10,
+    });
+    if (traces.length > 0) {
+      recentTraces = traces.map((t) => ({
+        id: t.id,
+        operation: t.operation,
+        status: t.status,
+        errorCode: t.errorCode,
+        errorCategory: t.errorCategory,
+        errorCategoryLabel: t.errorCategory ? getErrorCategoryLabel(t.errorCategory) : null,
+        rootCause: t.rootCause,
+        suggestedFixes: getSuggestedFixes(t.errorCategory),
+        durationMs: t.durationMs,
+        createdAt: t.createdAt.toISOString(),
+      }));
+    }
+  } catch (e) {
+    console.warn("[etsy/diagnose] failed to fetch traces", { error: String(e) });
+  }
+
   return NextResponse.json<DiagnosisResult>({
     ok: verdict === "SYNC_OK",
     verdict,
@@ -285,5 +326,6 @@ export async function GET(req: NextRequest) {
     repairAttempted: repair,
     repairResults,
     baselineReset,
+    recentTraces,
   });
 }

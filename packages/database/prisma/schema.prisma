@@ -1098,6 +1098,44 @@ model ChannelWebhookEvent {
   @@map("channel_webhook_event")
 }
 
+// Structured sync trace for detailed diagnostics of every sync operation.
+// Captures input state, validation, transforms, API request/response, and error classification.
+model SyncTrace {
+  id              String   @id @default(cuid())
+  memberId        String   @map("member_id")
+  provider        String
+  storeItemId     String   @map("store_item_id")
+  sku             String?
+  categoryId      String?  @map("category_id")
+  operation       String   // create | update | delete | inventory
+  status          String   // pending | success | failed | validation_failed
+  
+  // Structured context
+  inputSnapshot   Json?    @map("input_snapshot")
+  validationResult Json?   @map("validation_result")
+  transformTrace  Json?    @map("transform_trace")
+  
+  // API interaction
+  requestPayload  Json?    @map("request_payload")
+  responsePayload Json?    @map("response_payload")
+  httpStatus      Int?     @map("http_status")
+  
+  // Error classification
+  errorCode       String?  @map("error_code")
+  errorCategory   String?  @map("error_category")
+  errorMessage    String?  @map("error_message") @db.Text
+  rootCause       String?  @map("root_cause") @db.Text
+  
+  durationMs      Int?     @map("duration_ms")
+  createdAt       DateTime @default(now()) @map("created_at")
+  
+  @@index([memberId, provider, createdAt])
+  @@index([storeItemId, createdAt])
+  @@index([errorCode, createdAt])
+  @@index([errorCategory, createdAt])
+  @@map("sync_trace")
+}
+
 // Listing templates: reusable presets for common listing settings.
 // Sellers can save templates from existing listings and apply them when creating new items.
 model ListingTemplate {

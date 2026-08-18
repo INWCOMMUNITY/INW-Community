@@ -251,3 +251,89 @@ export function readEbayConfig(config: Record<string, unknown> | null): EbayConn
     merchantLocationEnabled,
   };
 }
+
+export type EbayPolicyOption = { id: string; name: string; enabled?: boolean };
+
+export type EbayPolicyOptions = {
+  fulfillmentPolicies: EbayPolicyOption[];
+  paymentPolicies: EbayPolicyOption[];
+  returnPolicies: EbayPolicyOption[];
+  merchantLocations: EbayPolicyOption[];
+};
+
+/** List all seller business policies and locations for the setup picker. */
+export async function fetchEbayPolicyOptions(accessToken: string): Promise<EbayPolicyOptions> {
+  const mp = EBAY_MARKETPLACE_ID;
+  const [fulfillment, payment, ret, locations] = await Promise.all([
+    safeGet<FulfillmentPolicyList>(accessToken, `/sell/account/v1/fulfillment_policy?marketplace_id=${mp}`),
+    safeGet<PaymentPolicyList>(accessToken, `/sell/account/v1/payment_policy?marketplace_id=${mp}`),
+    safeGet<ReturnPolicyList>(accessToken, `/sell/account/v1/return_policy?marketplace_id=${mp}`),
+    safeGet<LocationList>(accessToken, `/sell/inventory/v1/location`),
+  ]);
+
+  return {
+    fulfillmentPolicies: (fulfillment?.fulfillmentPolicies ?? [])
+      .filter((p) => p.fulfillmentPolicyId)
+      .map((p) => ({ id: p.fulfillmentPolicyId!, name: p.name ?? p.fulfillmentPolicyId! })),
+    paymentPolicies: (payment?.paymentPolicies ?? [])
+      .filter((p) => p.paymentPolicyId)
+      .map((p) => ({ id: p.paymentPolicyId!, name: p.name ?? p.paymentPolicyId! })),
+    returnPolicies: (ret?.returnPolicies ?? [])
+      .filter((p) => p.returnPolicyId)
+      .map((p) => ({ id: p.returnPolicyId!, name: p.name ?? p.returnPolicyId! })),
+    merchantLocations: (locations?.locations ?? [])
+      .filter((l) => l.merchantLocationKey)
+      .map((l) => ({
+        id: l.merchantLocationKey!,
+        name: formatLocationName(l) ?? l.merchantLocationKey!,
+        enabled: l.merchantLocationStatus === "ENABLED",
+      })),
+  };
+}
+
+/** Apply seller-selected policies onto a stored connection config. */
+export function applyEbayPolicySelection(
+  base: EbayConnectionConfig,
+  selection: {
+    fulfillmentPolicyId?: string | null;
+    paymentPolicyId?: string | null;
+    returnPolicyId?: string | null;
+    merchantLocationKey?: string | null;
+    fulfillmentPolicyName?: string | null;
+    paymentPolicyName?: string | null;
+    returnPolicyName?: string | null;
+    merchantLocationName?: string | null;
+    merchantLocationEnabled?: boolean;
+  }
+): EbayConnectionConfig {
+  const next: EbayConnectionConfig = {
+    ...base,
+    fulfillmentPolicyId: selection.fulfillmentPolicyId ?? base.fulfillmentPolicyId,
+    paymentPolicyId: selection.paymentPolicyId ?? base.paymentPolicyId,
+    returnPolicyId: selection.returnPolicyId ?? base.returnPolicyId,
+    merchantLocationKey: selection.merchantLocationKey ?? base.merchantLocationKey,
+    fulfillmentPolicyName: selection.fulfillmentPolicyName ?? base.fulfillmentPolicyName,
+    paymentPolicyName: selection.paymentPolicyName ?? base.paymentPolicyName,
+    returnPolicyName: selection.returnPolicyName ?? base.returnPolicyName,
+    merchantLocationName: selection.merchantLocationName ?? base.merchantLocationName,
+    merchantLocationEnabled:
+      selection.merchantLocationEnabled ?? base.merchantLocationEnabled,
+  };
+  next.canPublish = Boolean(
+    next.sellingPolicyOptedIn &&
+      next.fulfillmentPolicyId &&
+      next.paymentPolicyId &&
+      next.returnPolicyId &&
+      next.merchantLocationKey &&
+      next.merchantLocationEnabled
+  );
+  next.publishBlockReason = buildPublishBlockReason({
+    sellingPolicyOptedIn: next.sellingPolicyOptedIn,
+    fulfillmentPolicyId: next.fulfillmentPolicyId,
+    paymentPolicyId: next.paymentPolicyId,
+    returnPolicyId: next.returnPolicyId,
+    merchantLocationKey: next.merchantLocationKey,
+    locationEnabled: next.merchantLocationEnabled,
+  });
+  return next;
+}

@@ -12,8 +12,32 @@ import {
 import { getRevisionStats } from "@/lib/channels/ebay/rate-limits";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { resetCorruptBaselinesForConnection } from "@/lib/channels/reset-corrupt-baselines";
+import { syncStoreItemSelect, toSyncStoreItem } from "@/lib/channels/store-item";
+import {
+  fillEmptyTaxonomyAspectsFromTitle,
+  remapAspectsToTaxonomy,
+  validateListingForEbay,
+  validateRemappedAspects,
+} from "@/lib/channels/ebay/ebay-compat";
+import { parseStoredAspects } from "@/lib/listing-limits";
+import { getItemAspectsForCategory } from "@/lib/channels/ebay/aspects";
+import { getRecentTraces, type SyncTraceSummary } from "@/lib/channels/sync-trace";
+import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
 
 export const dynamic = "force-dynamic";
+
+type RecentTrace = {
+  id: string;
+  operation: string;
+  status: string;
+  errorCode: string | null;
+  errorCategory: string | null;
+  errorCategoryLabel: string | null;
+  rootCause: string | null;
+  suggestedFixes: string[];
+  durationMs: number | null;
+  createdAt: string;
+};
 
 type DiagnosisResult = {
   ok: boolean;
@@ -52,6 +76,14 @@ type DiagnosisResult = {
   repairResults?: { storeItemId: string; ok: boolean; error?: string }[];
   baselineReset?: { reset: number; linkIds: string[] };
   refreshedConfig?: boolean;
+  syncReadiness?: {
+    storeItemId: string;
+    ready: boolean;
+    blockers: string[];
+    remappedAspectPreview: { name: string; value: string }[];
+    droppedAspectNames: string[];
+  };
+  recentTraces?: RecentTrace[];
 };
 
 /**
@@ -264,6 +296,76 @@ export async function GET(req: NextRequest) {
     nextStep = "No action needed. Use ?repair=1 to force a sync push if needed.";
   }
 
+  let syncReadiness: DiagnosisResult["syncReadiness"];
+  if (storeItemId && tokenValid) {
+    const itemRow = await prisma.storeItem.findFirst({
+      where: { id: storeItemId, memberId: userId },
+      select: syncStoreItemSelect,
+    });
+    if (itemRow) {
+      const item = toSyncStoreItem(itemRow);
+      const validation = await validateListingForEbay({ item });
+      let remappedAspectPreview: { name: string; value: string }[] = [];
+      let droppedAspectNames: string[] = [];
+      if (item.ebayCategoryId) {
+        try {
+          const categoryAspects = await getItemAspectsForCategory(String(item.ebayCategoryId));
+          const merged = fillEmptyTaxonomyAspectsFromTitle(
+            item.title,
+            categoryAspects,
+            parseStoredAspects(item.aspects)
+          );
+          const remapped = remapAspectsToTaxonomy(categoryAspects, merged);
+          remappedAspectPreview = remapped.aspects;
+          droppedAspectNames = remapped.dropped;
+          const aspectValidation = validateRemappedAspects(categoryAspects, remapped.aspects);
+          if (aspectValidation.missingRequired.length > 0) {
+            validation.errors.push(
+              `Missing required specifics after remap: ${aspectValidation.missingRequired.join(", ")}`
+            );
+          }
+        } catch {
+          validation.errors.push("Could not load taxonomy for remap preview.");
+        }
+      }
+      syncReadiness = {
+        storeItemId,
+        ready: validation.valid && config.canPublish,
+        blockers: [
+          ...(config.publishBlockReason ? [config.publishBlockReason] : []),
+          ...validation.errors,
+        ],
+        remappedAspectPreview,
+        droppedAspectNames,
+      };
+    }
+  }
+
+  // Fetch recent sync traces for this connection
+  let recentTraces: RecentTrace[] | undefined;
+  try {
+    const traces = await getRecentTraces(userId, "ebay", {
+      storeItemId: storeItemId ?? undefined,
+      limit: 10,
+    });
+    if (traces.length > 0) {
+      recentTraces = traces.map((t) => ({
+        id: t.id,
+        operation: t.operation,
+        status: t.status,
+        errorCode: t.errorCode,
+        errorCategory: t.errorCategory,
+        errorCategoryLabel: t.errorCategory ? getErrorCategoryLabel(t.errorCategory) : null,
+        rootCause: t.rootCause,
+        suggestedFixes: getSuggestedFixes(t.errorCategory),
+        durationMs: t.durationMs,
+        createdAt: t.createdAt.toISOString(),
+      }));
+    }
+  } catch (e) {
+    console.warn("[ebay/diagnose] failed to fetch traces", { error: String(e) });
+  }
+
   return NextResponse.json<DiagnosisResult>({
     ok: verdict === "SYNC_OK",
     verdict,
@@ -280,5 +382,7 @@ export async function GET(req: NextRequest) {
     repairResults,
     baselineReset,
     refreshedConfig,
+    syncReadiness,
+    recentTraces,
   });
 }

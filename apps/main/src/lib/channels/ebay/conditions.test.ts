@@ -77,7 +77,7 @@ describe("resolveEbaySyncConditionFromChoices", () => {
       { conditionId: 4000, enum: "USED_VERY_GOOD", label: "Very Good", group: "used" },
       { conditionId: 5000, enum: "USED_GOOD", label: "Used - Good", group: "used" },
     ];
-    expect(resolveEbaySyncConditionFromChoices({ condition: "used" }, gradedUsed)).toEqual({
+    expect(resolveEbaySyncConditionFromChoices({ condition: "used", ebayConditionEnum: null }, gradedUsed)).toEqual({
       conditionEnum: "USED_VERY_GOOD",
       autoCorrected: true,
     });

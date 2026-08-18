@@ -5,10 +5,11 @@ import {
   mergeListingAspects,
   missingRequiredEbayAspects,
 } from "./sync-aspects";
+import { remapAspectsToTaxonomy } from "./ebay-compat";
 
-const gradedCoinAspects: EbayCategoryAspect[] = [
+const nickelTaxonomy: EbayCategoryAspect[] = [
   {
-    name: "Professional Grader",
+    name: "Professional grader",
     required: true,
     mode: "SELECTION_ONLY",
     cardinality: "SINGLE",
@@ -22,15 +23,8 @@ const gradedCoinAspects: EbayCategoryAspect[] = [
     suggestedValues: [],
   },
   {
-    name: "Numerical grade",
+    name: "Letter grade",
     required: true,
-    mode: "FREE_TEXT",
-    cardinality: "SINGLE",
-    suggestedValues: [],
-  },
-  {
-    name: "Certification Number",
-    required: false,
     mode: "FREE_TEXT",
     cardinality: "SINGLE",
     suggestedValues: [],
@@ -38,78 +32,70 @@ const gradedCoinAspects: EbayCategoryAspect[] = [
 ];
 
 describe("inferGradedCoinAspectsFromTitle", () => {
-  it("infers grader, grade label, and numerical grade from NGC MS title", () => {
+  it("infers grader, grade, and letter grade using taxonomy names", () => {
     const inferred = inferGradedCoinAspectsFromTitle(
       "1921 Morgan Dollar NGC MS 67",
-      gradedCoinAspects
+      nickelTaxonomy
     );
     expect(inferred).toEqual(
       expect.arrayContaining([
-        { name: "Professional Grader", value: "NGC" },
+        { name: "Professional grader", value: "NGC" },
         { name: "Grade", value: "MS 67" },
-        { name: "Numerical grade", value: "67" },
+        { name: "Letter grade", value: "67" },
       ])
     );
   });
 
-  it("infers both Numerical grade and Letter grade when taxonomy is unavailable", () => {
+  it("returns empty when taxonomy has no grade fields", () => {
     const inferred = inferGradedCoinAspectsFromTitle("1921 Morgan Dollar NGC MS 67", []);
-    expect(inferred).toEqual([
-      { name: "Professional Grader", value: "NGC" },
-      { name: "Grade", value: "MS 67" },
-      { name: "Numerical grade", value: "67" },
-      { name: "Letter grade", value: "67" },
-    ]);
+    expect(inferred).toEqual([]);
   });
 
-  it("always adds both Letter grade and Numerical grade for graded coins", () => {
-    const letterGradeAspects: EbayCategoryAspect[] = [
-      {
-        name: "Letter grade",
-        required: true,
-        mode: "FREE_TEXT",
-        cardinality: "SINGLE",
-        suggestedValues: [],
-      },
-      {
-        name: "Grade",
-        required: true,
-        mode: "FREE_TEXT",
-        cardinality: "SINGLE",
-        suggestedValues: [],
-      },
-    ];
-    const inferred = inferGradedCoinAspectsFromTitle("1952-D NGC MS 67 Jefferson Nickel", letterGradeAspects);
-    // Both should always be present to satisfy whichever eBay requires
-    expect(inferred.find((a) => a.name === "Letter grade")?.value).toBe("67");
-    expect(inferred.find((a) => a.name === "Numerical grade")?.value).toBe("67");
-  });
-
-  it("does not overwrite existing aspect values", () => {
-    const merged = mergeListingAspects(
-      [{ name: "Numerical grade", value: "66" }],
-      inferGradedCoinAspectsFromTitle("NGC MS 67", gradedCoinAspects)
+  it("only adds letter grade when taxonomy has it (not numerical)", () => {
+    const inferred = inferGradedCoinAspectsFromTitle(
+      "1952-D NGC MS 67 Jefferson Nickel",
+      nickelTaxonomy
     );
-    expect(merged.find((a) => a.name === "Numerical grade")?.value).toBe("66");
+    expect(inferred.find((a) => a.name === "Letter grade")?.value).toBe("67");
+    expect(inferred.find((a) => a.name === "Numerical grade")).toBeUndefined();
+  });
+
+  it("does not overwrite existing aspect values via merge", () => {
+    const merged = mergeListingAspects(
+      [{ name: "Letter grade", value: "66" }],
+      inferGradedCoinAspectsFromTitle("NGC MS 67", nickelTaxonomy)
+    );
+    expect(merged.find((a) => a.name === "Letter grade")?.value).toBe("66");
   });
 });
 
 describe("missingRequiredEbayAspects", () => {
   it("treats empty values as missing", () => {
-    const missing = missingRequiredEbayAspects(gradedCoinAspects, [
-      { name: "Professional Grader", value: "NGC" },
+    const missing = missingRequiredEbayAspects(nickelTaxonomy, [
+      { name: "Professional grader", value: "NGC" },
       { name: "Grade", value: "MS 67" },
-      { name: "Numerical grade", value: "   " },
+      { name: "Letter grade", value: "   " },
     ]);
-    expect(missing).toContain("Numerical grade");
+    expect(missing).toContain("Letter grade");
   });
 
   it("passes when all required specifics are filled", () => {
-    const missing = missingRequiredEbayAspects(gradedCoinAspects, [
-      { name: "Professional Grader", value: "NGC" },
+    const missing = missingRequiredEbayAspects(nickelTaxonomy, [
+      { name: "Professional grader", value: "NGC" },
       { name: "Grade", value: "MS 67" },
-      { name: "Numerical grade", value: "67" },
+      { name: "Letter grade", value: "67" },
     ]);
     expect(missing).toEqual([]);
+  });
+});
+
+describe("remapAspectsToTaxonomy integration", () => {
+  it("maps Certification to Professional grader for push", () => {
+    const remapped = remapAspectsToTaxonomy(nickelTaxonomy, [
+      { name: "Certification", value: "NGC" },
+      { name: "Grade", value: "MS 67" },
+      { name: "Letter grade", value: "67" },
+    ]);
+    expect(remapped.aspects.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
   });
 });

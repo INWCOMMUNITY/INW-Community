@@ -15,7 +15,7 @@
     "android": "expo run:android",
     "android:emulator": "expo run:android -- -PreactNativeArchitectures=x86_64",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web --port 8082"
   },
   "dependencies": {
     "@expo-google-fonts/fahkwang": "^0.4.1",

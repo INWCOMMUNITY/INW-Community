@@ -10,9 +10,15 @@ import {
   checkFieldValue,
   type ProviderFieldSpec,
 } from "./field-requirements";
-import { connectionReadyToPublish, publishBlockReason } from "./connection-publish";
-import { getItemAspectsForCategory, type EbayCategoryAspect } from "./ebay/aspects";
-import { parseStoredAspects, type ListingAspect } from "../listing-limits";
+import { publishBlockReason } from "./connection-publish";
+import { getItemAspectsForCategory } from "./ebay/aspects";
+import {
+  fillEmptyTaxonomyAspectsFromTitle,
+  remapAspectsToTaxonomy,
+  validateRemappedAspects,
+  formatAspectValidationErrors,
+} from "./ebay/ebay-compat";
+import { parseStoredAspects } from "../listing-limits";
 
 export interface ValidationError {
   field: string;
@@ -147,22 +153,15 @@ export async function validateForProvider(
   // Provider-specific validations
   if (provider === "ebay") {
     validateEbay(item, errors, warnings, options);
+    if (item.ebayCategoryId) {
+      await validateEbayAspectsWithRemap(item, errors, warnings);
+    }
   } else if (provider === "etsy") {
     validateEtsy(item, connection, errors, warnings);
   } else if (provider === "shopify") {
     validateShopify(item, connection, errors, warnings);
   } else if (provider === "wix") {
     validateWix(item, errors, warnings);
-  }
-
-  // Fetch and validate eBay required aspects if requested
-  if (
-    provider === "ebay" &&
-    options?.fetchEbayAspects &&
-    options?.accessToken &&
-    item.ebayCategoryId
-  ) {
-    await validateEbayAspects(item, options.accessToken, errors, warnings);
   }
 
   // Check all provider field specs
@@ -196,7 +195,6 @@ function validateEbay(
   warnings: ValidationError[],
   _options?: { fetchEbayAspects?: boolean; accessToken?: string }
 ): void {
-  // eBay category is strongly recommended for proper listing placement
   if (!item.ebayCategoryId) {
     errors.push({
       field: "ebayCategoryId",
@@ -205,7 +203,6 @@ function validateEbay(
     });
   }
 
-  // Condition is required for eBay
   if (!item.condition) {
     errors.push({
       field: "condition",
@@ -214,7 +211,6 @@ function validateEbay(
     });
   }
 
-  // Item specifics (aspects) improve listing visibility
   const aspects = parseStoredAspects(item.aspects);
   if (aspects.length === 0 && item.ebayCategoryId) {
     warnings.push({
@@ -226,9 +222,8 @@ function validateEbay(
   }
 }
 
-async function validateEbayAspects(
+async function validateEbayAspectsWithRemap(
   item: PartialItem,
-  accessToken: string,
   errors: ValidationError[],
   warnings: ValidationError[]
 ): Promise<void> {
@@ -236,33 +231,28 @@ async function validateEbayAspects(
 
   try {
     const categoryAspects = await getItemAspectsForCategory(String(item.ebayCategoryId));
-    const itemAspects = parseStoredAspects(item.aspects);
-    const itemAspectMap = new Map<string, string>();
-    for (const a of itemAspects) {
-      itemAspectMap.set(a.name.toLowerCase(), a.value);
-    }
+    const merged = fillEmptyTaxonomyAspectsFromTitle(
+      item.title ?? "",
+      categoryAspects,
+      parseStoredAspects(item.aspects)
+    );
+    const remapped = remapAspectsToTaxonomy(categoryAspects, merged);
+    const validation = validateRemappedAspects(categoryAspects, remapped.aspects);
 
-    const missingRequired: string[] = [];
-    for (const aspect of categoryAspects) {
-      if (aspect.required) {
-        const value = itemAspectMap.get(aspect.name.toLowerCase());
-        if (!value?.trim()) {
-          missingRequired.push(aspect.name);
-        }
+    if (validation.missingRequired.length > 0 || validation.invalidSelectionValues.length > 0) {
+      const message = formatAspectValidationErrors(
+        validation.missingRequired,
+        validation.invalidSelectionValues
+      );
+      const exists = errors.some((e) => e.field === "aspects");
+      if (!exists) {
+        errors.push({ field: "aspects", message, severity: "error" });
       }
     }
-
-    if (missingRequired.length > 0) {
-      errors.push({
-        field: "aspects",
-        message: `Missing required item specifics: ${missingRequired.join(", ")}`,
-        severity: "error",
-      });
-    }
-  } catch (e) {
+  } catch {
     warnings.push({
       field: "aspects",
-      message: "Could not validate required item specifics. They will be checked on publish.",
+      message: "Could not validate required item specifics. They will be checked again on sync.",
       severity: "warning",
     });
   }

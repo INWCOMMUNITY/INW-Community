@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { variantsFingerprint } from "./variant-sync";
+import { ebayAspectsFingerprint } from "./ebay/ebay-compat";
 
 /**
  * Differential two-way sync helpers.
@@ -79,16 +80,18 @@ export function resolveSyncDirection(args: {
  */
 export const SYNC_ECHO_SKEW_MS = 45_000;
 
-/** Fields that participate in INW <-> channel meta sync (category, shipping, variants). */
+/** Fields that participate in INW <-> channel meta sync (category, shipping, variants, eBay specifics). */
 export type SyncMetaInput = {
   category: string | null;
   subcategory: string | null;
   secondaryCategory?: string | null;
   shippingCostCents: number | null;
   variants: unknown;
+  aspects?: unknown;
+  ebayConditionEnum?: string | null;
 };
 
-/** Stable fingerprint for category, shipping, and product options. */
+/** Stable fingerprint for category, shipping, product options, and eBay-specific fields. */
 export function syncMetaHash(item: SyncMetaInput): string {
   return createHash("sha1")
     .update(
@@ -98,6 +101,8 @@ export function syncMetaHash(item: SyncMetaInput): string {
         sc: item.secondaryCategory ?? "",
         sh: item.shippingCostCents ?? null,
         v: variantsFingerprint(item.variants),
+        asp: ebayAspectsFingerprint(item.aspects),
+        ecc: item.ebayConditionEnum ?? null,
       })
     )
     .digest("hex");

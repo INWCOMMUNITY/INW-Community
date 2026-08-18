@@ -195,7 +195,12 @@ export function EbayListingRequirementsSection({
             .filter(({ a }) => !isRequiredAspect(a.name) || !!ebayCategoryId)
             .map(({ a, i }) => {
               const required = isRequiredAspect(a.name);
+              const schema = categoryAspects.find(
+                (ca) => ca.name.trim().toLowerCase() === a.name.trim().toLowerCase()
+              );
               const suggestions = suggestionsForAspect(a.name);
+              const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;
+              const isMulti = schema?.cardinality === "MULTI";
               const listId = `ebay-aspect-values-${i}`;
               return (
                 <div key={i} className="space-y-1">
@@ -215,24 +220,54 @@ export function EbayListingRequirementsSection({
                       }`}
                     />
                     <div className="flex-1 min-w-[120px]">
-                      <input
-                        type="text"
-                        value={a.value}
-                        maxLength={EBAY_ASPECT_VALUE_MAX}
-                        list={suggestions.length > 0 ? listId : undefined}
-                        onChange={(e) => onAspectValueChange(i, e.target.value)}
-                        placeholder={required ? "Value (required)" : "Value"}
-                        className={`w-full border rounded px-2 py-1.5 text-sm ${
-                          required && !a.value.trim() ? "border-red-400" : ""
-                        }`}
-                      />
-                      {suggestions.length > 0 && (
-                        <datalist id={listId}>
+                      {isSelectionOnly ? (
+                        <select
+                          value={a.value}
+                          onChange={(e) => onAspectValueChange(i, e.target.value)}
+                          className={`w-full border rounded px-2 py-1.5 text-sm ${
+                            required && !a.value.trim() ? "border-red-400" : ""
+                          }`}
+                        >
+                          <option value="">{required ? "Select value (required)" : "Select value"}</option>
                           {suggestions.map((s) => (
-                            <option key={s} value={s} />
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
                           ))}
-                        </datalist>
+                        </select>
+                      ) : (
+                        <>
+                          <input
+                            type="text"
+                            value={a.value}
+                            maxLength={EBAY_ASPECT_VALUE_MAX}
+                            list={suggestions.length > 0 && !isSelectionOnly ? listId : undefined}
+                            onChange={(e) => onAspectValueChange(i, e.target.value)}
+                            placeholder={
+                              isMulti
+                                ? required
+                                  ? "Values (comma-separated, required)"
+                                  : "Values (comma-separated)"
+                                : required
+                                  ? "Value (required)"
+                                  : "Value"
+                            }
+                            className={`w-full border rounded px-2 py-1.5 text-sm ${
+                              required && !a.value.trim() ? "border-red-400" : ""
+                            }`}
+                          />
+                          {suggestions.length > 0 && !isSelectionOnly && (
+                            <datalist id={listId}>
+                              {suggestions.map((s) => (
+                                <option key={s} value={s} />
+                              ))}
+                            </datalist>
+                          )}
+                        </>
                       )}
+                      {isMulti && !isSelectionOnly ? (
+                        <p className="text-xs text-gray-500 mt-0.5">Separate multiple values with commas.</p>
+                      ) : null}
                     </div>
                     <button
                       type="button"

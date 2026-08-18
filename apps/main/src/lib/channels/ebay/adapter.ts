@@ -43,6 +43,17 @@ import {
 } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
 import { getBaseUrl } from "@/lib/get-base-url";
+import {
+  startTrace,
+  addInputSnapshot,
+  addValidation,
+  addTransform,
+  addRequest,
+  addResponse,
+  completeTrace,
+  type SyncTraceContext,
+  type ValidationCheck,
+} from "../sync-trace";
 
 type EbayOffer = { offerId?: string; status?: string; listing?: { listingId?: string } };
 type EbayOfferDetails = { offerId?: string; categoryId?: string };
@@ -96,162 +107,237 @@ async function upsertListing(
   linkedSku?: string
 ): Promise<UpsertResult> {
   const sku = linkedSku || item.id;
-  const cfg = readEbayConfig(conn.config);
-  hydrateRevisionCountsFromConfig(conn.config);
-
-  // Check rate limit before making any changes
-  const limitCheck = checkRevisionLimit(sku);
-  if (limitCheck.atLimit) {
-    const warning = getRevisionLimitWarning(sku);
-    console.error("[ebay] upsertListing: rate limit reached", { sku, count: limitCheck.count });
-    return { sku, publishError: warning || "eBay daily revision limit reached" };
-  }
-  if (limitCheck.nearLimit) {
-    console.warn("[ebay] upsertListing: approaching rate limit", { sku, count: limitCheck.count });
-  }
-
-  const cat = await resolveProviderCategoryId(conn, "ebay", item.category);
-  const targetCategoryId = resolveCategoryId(item, cat.ebayCategoryId ?? null);
-
-  let workingItem = await enrichSyncItemConditionFromEbay(conn.accessToken, linkedSku ?? sku, item);
-
-  const existingOffer = await findOffer(conn.accessToken, sku);
-  let offerId = existingOffer?.offerId ?? null;
-  let existingOfferCategoryId: string | null = null;
-  if (offerId) {
-    const offerDetails = await getOfferDetails(conn.accessToken, offerId);
-    existingOfferCategoryId = offerDetails?.categoryId?.trim() ?? null;
-  }
-
-  // eBay validates inventory condition against the offer's primary category — use target if set, else live offer cat.
-  const conditionCategoryId = targetCategoryId ?? existingOfferCategoryId;
-
-  let prepared = await prepareEbaySyncCondition({
-    accessToken: conn.accessToken,
-    storeItemId: item.id,
-    item: workingItem,
-    categoryId: conditionCategoryId,
-  });
-  let syncItem = prepared.item;
-
-  const aspectPrep = await prepareEbaySyncAspects({
-    accessToken: conn.accessToken,
-    externalListingId: linkedSku ?? sku,
-    item: syncItem,
-    categoryId: conditionCategoryId,
-  });
-  syncItem = aspectPrep.item;
-  if (aspectPrep.enriched) {
-    await persistEbayAspects(item.id, parseStoredAspects(syncItem.aspects));
-  }
-  if (aspectPrep.missingRequired.length > 0) {
-    throw new Error(formatMissingEbayAspectsError(aspectPrep.missingRequired));
-  }
-
-  console.warn("[ebay] upsertListing condition", {
-    storeItemId: item.id,
+  const operation = linkedSku ? "update" : "create";
+  
+  // Start trace for this sync operation
+  const trace = startTrace(conn.memberId, "ebay", item.id, operation, {
     sku,
-    targetCategoryId,
-    existingOfferCategoryId,
-    conditionCategoryId,
-    syncConditionEnum: prepared.conditionEnum,
-    autoCorrected: prepared.autoCorrected,
-    enrichedFromEbay: workingItem.ebayConditionEnum !== item.ebayConditionEnum,
-    hasExistingOffer: !!offerId,
-    aspectsEnriched: aspectPrep.enriched,
-    aspectCount: parseStoredAspects(syncItem.aspects).length,
+    categoryId: item.ebayCategoryId?.toString() ?? null,
   });
 
-  async function pushOfferBody(body: Record<string, unknown>) {
+  // Capture input snapshot
+  addInputSnapshot(trace, {
+    title: item.title,
+    priceCents: item.priceCents,
+    quantity: item.quantity,
+    condition: item.condition,
+    ebayConditionEnum: item.ebayConditionEnum,
+    ebayCategoryId: item.ebayCategoryId,
+    aspects: item.aspects,
+    status: item.status,
+  });
+
+  try {
+    const cfg = readEbayConfig(conn.config);
+    hydrateRevisionCountsFromConfig(conn.config);
+
+    // Validation checks
+    const validationChecks: ValidationCheck[] = [];
+
+    // Check rate limit before making any changes
+    const limitCheck = checkRevisionLimit(sku);
+    if (limitCheck.atLimit) {
+      const warning = getRevisionLimitWarning(sku);
+      validationChecks.push({
+        name: "rate_limit",
+        passed: false,
+        detail: warning || "eBay daily revision limit reached",
+        severity: "error",
+      });
+      addValidation(trace, { valid: false, checks: validationChecks });
+      console.error("[ebay] upsertListing: rate limit reached", { sku, count: limitCheck.count });
+      await completeTrace(trace, "validation_failed", new Error("Rate limit reached"));
+      return { sku, publishError: warning || "eBay daily revision limit reached" };
+    }
+    if (limitCheck.nearLimit) {
+      validationChecks.push({
+        name: "rate_limit",
+        passed: true,
+        detail: `Approaching rate limit: ${limitCheck.count}/750`,
+        severity: "warning",
+      });
+      console.warn("[ebay] upsertListing: approaching rate limit", { sku, count: limitCheck.count });
+    } else {
+      validationChecks.push({ name: "rate_limit", passed: true, severity: "warning" });
+    }
+
+    const cat = await resolveProviderCategoryId(conn, "ebay", item.category);
+    const targetCategoryId = resolveCategoryId(item, cat.ebayCategoryId ?? null);
+
+    // Validate category
+    validationChecks.push({
+      name: "category",
+      passed: !!targetCategoryId,
+      detail: targetCategoryId ? `Category: ${targetCategoryId}` : "No eBay category set",
+      severity: targetCategoryId ? "warning" : "error",
+    });
+
+    let workingItem = await enrichSyncItemConditionFromEbay(conn.accessToken, linkedSku ?? sku, item);
+
+    const existingOffer = await findOffer(conn.accessToken, sku);
+    let offerId = existingOffer?.offerId ?? null;
+    let existingOfferCategoryId: string | null = null;
     if (offerId) {
-      await ebayJson(conn.accessToken, `/sell/inventory/v1/offer/${offerId}`, "PUT", body);
-      await persistRevisionCount(conn.id, sku, conn.config);
-      return;
+      const offerDetails = await getOfferDetails(conn.accessToken, offerId);
+      existingOfferCategoryId = offerDetails?.categoryId?.trim() ?? null;
     }
-    const created = await ebayJson<{ offerId?: string }>(
-      conn.accessToken,
-      `/sell/inventory/v1/offer`,
-      "POST",
-      body
-    );
-    offerId = created.offerId ?? null;
-  }
 
-  async function pushInventoryBody(body: Record<string, unknown>) {
-    // #region agent log
-    const productAspects = (body.product as { aspects?: Record<string, string[]> } | undefined)
-      ?.aspects;
-    const inventoryDebug = {
+    // eBay validates inventory condition against the offer's primary category — use target if set, else live offer cat.
+    const conditionCategoryId = targetCategoryId ?? existingOfferCategoryId;
+
+    let prepared = await prepareEbaySyncCondition({
+      accessToken: conn.accessToken,
+      storeItemId: item.id,
+      item: workingItem,
+      categoryId: conditionCategoryId,
+    });
+    let syncItem = prepared.item;
+
+    // Validate condition
+    validationChecks.push({
+      name: "condition",
+      passed: !!prepared.conditionEnum,
+      detail: prepared.conditionEnum
+        ? `Condition: ${prepared.conditionEnum}${prepared.autoCorrected ? " (auto-corrected)" : ""}`
+        : "No condition set",
+      severity: "error",
+    });
+
+    const aspectPrep = await prepareEbaySyncAspects({
+      accessToken: conn.accessToken,
+      externalListingId: linkedSku ?? sku,
+      item: syncItem,
+      categoryId: conditionCategoryId,
       sku,
-      hasProductAspects: !!productAspects,
-      aspectCount: productAspects ? Object.keys(productAspects).length : 0,
-      aspectKeys: productAspects ? Object.keys(productAspects) : [],
-      numericalGrade: productAspects?.["Numerical grade"] ?? null,
-      letterGrade: productAspects?.["Letter grade"] ?? null,
-      professionalGrader: productAspects?.["Professional Grader"] ?? null,
-      grade: productAspects?.["Grade"] ?? null,
-      certification: productAspects?.["Certification"] ?? null,
-    };
-    console.warn("[ebay] pushInventoryBody aspects", inventoryDebug);
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "58be99" },
-      body: JSON.stringify({
-        sessionId: "58be99",
-        location: "adapter.ts:pushInventoryBody",
-        message: "inventory push aspects",
-        data: inventoryDebug,
-        timestamp: Date.now(),
-        hypothesisId: "H4",
-      }),
-    }).catch(() => {});
-    // #endregion
-    await ebayJson(
-      conn.accessToken,
-      `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-      "PUT",
-      body
-    );
-    await persistRevisionCount(conn.id, sku, conn.config);
-  }
-
-  const offerBody = buildEbayOffer(syncItem, cfg, cat.ebayCategoryId ?? null, sku);
-
-  // Existing offers: set category on the offer before updating inventory condition (eBay #25021).
-  if (offerId) {
-    await pushOfferBody(offerBody);
-    try {
-      await pushInventoryBody(buildEbayInventoryItem(syncItem));
-    } catch (e) {
-      const msg = describeEbayThrownError(e);
-      if (!isEbayConditionSyncError(msg)) throw e;
-      prepared = await prepareEbaySyncCondition({
-        accessToken: conn.accessToken,
-        storeItemId: item.id,
-        item: syncItem,
-        categoryId: targetCategoryId ?? existingOfferCategoryId,
-      });
-      syncItem = prepared.item;
-      console.warn("[ebay] upsertListing condition retry after 25021", {
-        storeItemId: item.id,
-        sku,
-        syncConditionEnum: prepared.conditionEnum,
-      });
-      await pushInventoryBody(buildEbayInventoryItem(syncItem));
+    });
+    syncItem = aspectPrep.item;
+    if (aspectPrep.enriched) {
+      await persistEbayAspects(item.id, parseStoredAspects(syncItem.aspects));
     }
-  } else {
-    await pushInventoryBody(buildEbayInventoryItem(syncItem));
-    await pushOfferBody(offerBody);
-  }
 
-  const shouldPublish = cfg.canPublish && item.status === "active" && item.quantity > 0 && !!offerId;
-  if (shouldPublish && offerId) {
-    try {
-      await publishOffer(conn.accessToken, offerId);
-      await persistRevisionCount(conn.id, sku, conn.config);
-    } catch (e) {
-      const msg = describeEbayThrownError(e);
-      if (isEbayConditionSyncError(msg)) {
+    // Capture transform trace for aspects
+    const inputAspects = parseStoredAspects(item.aspects);
+    const outputAspects = parseStoredAspects(syncItem.aspects);
+    addTransform(trace, {
+      before: { aspects: inputAspects },
+      after: { aspects: outputAspects },
+      remaps: aspectPrep.remaps ?? [],
+      dropped: aspectPrep.dropped ?? [],
+      categorySchema: aspectPrep.categorySchema?.map((a) => ({
+        name: a.name,
+        required: a.required,
+      })),
+    });
+
+    // Validate aspects
+    if (aspectPrep.missingRequired.length > 0) {
+      const missingNames = aspectPrep.missingRequired.map((a) => 
+        typeof a === "string" ? a : a.name
+      );
+      validationChecks.push({
+        name: "aspects_required",
+        passed: false,
+        detail: `Missing required: ${missingNames.join(", ")}`,
+        severity: "error",
+      });
+      addValidation(trace, { valid: false, checks: validationChecks });
+      const error = new Error(formatMissingEbayAspectsError(aspectPrep.missingRequired));
+      await completeTrace(trace, "validation_failed", error);
+      throw error;
+    }
+    validationChecks.push({
+      name: "aspects_required",
+      passed: true,
+      detail: `${outputAspects.length} aspects set`,
+      severity: "warning",
+    });
+
+    // Validate policies
+    validationChecks.push({
+      name: "fulfillment_policy",
+      passed: !!cfg.fulfillmentPolicyId,
+      detail: cfg.fulfillmentPolicyId ? "Fulfillment policy set" : "No fulfillment policy",
+      severity: "error",
+    });
+    validationChecks.push({
+      name: "payment_policy",
+      passed: !!cfg.paymentPolicyId,
+      detail: cfg.paymentPolicyId ? "Payment policy set" : "No payment policy",
+      severity: "error",
+    });
+    validationChecks.push({
+      name: "return_policy",
+      passed: !!cfg.returnPolicyId,
+      detail: cfg.returnPolicyId ? "Return policy set" : "No return policy",
+      severity: "error",
+    });
+
+    const allValid = validationChecks.every((c) => c.passed || c.severity === "warning");
+    addValidation(trace, { valid: allValid, checks: validationChecks });
+
+    console.warn("[ebay] upsertListing condition", {
+      storeItemId: item.id,
+      sku,
+      targetCategoryId,
+      existingOfferCategoryId,
+      conditionCategoryId,
+      syncConditionEnum: prepared.conditionEnum,
+      autoCorrected: prepared.autoCorrected,
+      enrichedFromEbay: workingItem.ebayConditionEnum !== item.ebayConditionEnum,
+      hasExistingOffer: !!offerId,
+      aspectsEnriched: aspectPrep.enriched,
+      aspectCount: parseStoredAspects(syncItem.aspects).length,
+    });
+
+    async function pushOfferBody(body: Record<string, unknown>) {
+      if (offerId) {
+        await ebayJson(conn.accessToken, `/sell/inventory/v1/offer/${offerId}`, "PUT", body);
+        await persistRevisionCount(conn.id, sku, conn.config);
+        return;
+      }
+      const created = await ebayJson<{ offerId?: string }>(
+        conn.accessToken,
+        `/sell/inventory/v1/offer`,
+        "POST",
+        body
+      );
+      offerId = created.offerId ?? null;
+    }
+
+    async function pushInventoryBody(body: Record<string, unknown>, traceCtx?: SyncTraceContext) {
+      if (traceCtx) {
+        addRequest(traceCtx, body);
+      }
+      try {
+        await ebayJson(
+          conn.accessToken,
+          `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+          "PUT",
+          body
+        );
+        if (traceCtx) {
+          addResponse(traceCtx, 200, { success: true });
+        }
+        await persistRevisionCount(conn.id, sku, conn.config);
+      } catch (e) {
+        if (traceCtx && e instanceof EbayApiError) {
+          addResponse(traceCtx, e.status, { error: e.message, body: e.body });
+        }
+        throw e;
+      }
+    }
+
+    const offerBody = buildEbayOffer(syncItem, cfg, cat.ebayCategoryId ?? null, sku);
+    const inventoryBody = buildEbayInventoryItem(syncItem);
+
+    // Existing offers: set category on the offer before updating inventory condition (eBay #25021).
+    if (offerId) {
+      await pushOfferBody(offerBody);
+      try {
+        await pushInventoryBody(inventoryBody, trace);
+      } catch (e) {
+        const msg = describeEbayThrownError(e);
+        if (!isEbayConditionSyncError(msg)) throw e;
         prepared = await prepareEbaySyncCondition({
           accessToken: conn.accessToken,
           storeItemId: item.id,
@@ -259,21 +345,55 @@ async function upsertListing(
           categoryId: targetCategoryId ?? existingOfferCategoryId,
         });
         syncItem = prepared.item;
-        console.warn("[ebay] upsertListing publish retry after 25021", {
+        console.warn("[ebay] upsertListing condition retry after 25021", {
           storeItemId: item.id,
           sku,
           syncConditionEnum: prepared.conditionEnum,
         });
-        await pushInventoryBody(buildEbayInventoryItem(syncItem));
+        await pushInventoryBody(buildEbayInventoryItem(syncItem), trace);
+      }
+    } else {
+      await pushInventoryBody(inventoryBody, trace);
+      await pushOfferBody(offerBody);
+    }
+
+    const shouldPublish = cfg.canPublish && item.status === "active" && item.quantity > 0 && !!offerId;
+    if (shouldPublish && offerId) {
+      try {
         await publishOffer(conn.accessToken, offerId);
         await persistRevisionCount(conn.id, sku, conn.config);
-      } else {
-        console.error("[ebay] publish failed; left as draft", { offerId, error: msg });
-        return { sku, publishError: msg };
+      } catch (e) {
+        const msg = describeEbayThrownError(e);
+        if (isEbayConditionSyncError(msg)) {
+          prepared = await prepareEbaySyncCondition({
+            accessToken: conn.accessToken,
+            storeItemId: item.id,
+            item: syncItem,
+            categoryId: targetCategoryId ?? existingOfferCategoryId,
+          });
+          syncItem = prepared.item;
+          console.warn("[ebay] upsertListing publish retry after 25021", {
+            storeItemId: item.id,
+            sku,
+            syncConditionEnum: prepared.conditionEnum,
+          });
+          await pushInventoryBody(buildEbayInventoryItem(syncItem), trace);
+          await publishOffer(conn.accessToken, offerId);
+          await persistRevisionCount(conn.id, sku, conn.config);
+        } else {
+          console.error("[ebay] publish failed; left as draft", { offerId, error: msg });
+          await completeTrace(trace, "failed", e);
+          return { sku, publishError: msg };
+        }
       }
     }
+
+    await completeTrace(trace, "success");
+    return { sku };
+  } catch (e) {
+    await completeTrace(trace, "failed", e);
+    throw e;
   }
-  return { sku };
 }
 
 /**

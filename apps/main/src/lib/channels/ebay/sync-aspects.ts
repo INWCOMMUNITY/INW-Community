@@ -1,196 +1,136 @@
 /**
  * Prepare StoreItem aspects before eBay inventory/offer push.
- * Merges live eBay specifics, infers graded-coin fields from titles, and validates required aspects.
+ * Delegates to ebay-compat for taxonomy remap, inventory merge, and validation.
  */
 
-import {
-  normalizeListingAspects,
-  parseStoredAspects,
-  type ListingAspect,
-} from "@/lib/listing-limits";
+import { normalizeListingAspects, parseStoredAspects, type ListingAspect } from "@/lib/listing-limits";
 import { prisma, Prisma } from "database";
 import type { SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
-import { getItemAspectsForCategory, type EbayCategoryAspect } from "./aspects";
+import type { EbayCategoryAspect } from "./aspects";
+import {
+  formatAspectValidationErrors,
+  prepareOutboundAspects,
+  validateRemappedAspects,
+  remapAspectsToTaxonomy,
+  missingRequiredEbayAspects as missingRequiredFromCompat,
+  fillEmptyTaxonomyAspectsFromTitle,
+  mergeListingAspects,
+} from "./ebay-compat";
 import { resolveEbayLegacyListingId } from "./mapping";
 import { fetchEbayItemDetails } from "./trading";
 
-export function mergeListingAspects(base: ListingAspect[], extra: ListingAspect[]): ListingAspect[] {
-  const map = new Map<string, ListingAspect>();
-  for (const a of base) {
-    const key = a.name.trim().toLowerCase();
-    if (!key) continue;
-    map.set(key, { name: a.name.trim(), value: a.value.trim() });
-  }
-  for (const a of extra) {
-    const key = a.name.trim().toLowerCase();
-    const value = a.value.trim();
-    if (!key || !value) continue;
-    const existing = map.get(key);
-    if (!existing?.value) {
-      map.set(key, { name: a.name.trim(), value });
-    }
-  }
-  return normalizeListingAspects(Array.from(map.values()));
-}
+export { mergeListingAspects };
 
-function findCategoryAspectName(
-  categoryAspects: EbayCategoryAspect[],
-  candidates: string[]
-): string | null {
-  const byLower = new Map(categoryAspects.map((a) => [a.name.toLowerCase(), a.name]));
-  for (const c of candidates) {
-    const hit = byLower.get(c.toLowerCase());
-    if (hit) return hit;
-  }
-  return null;
-}
-
-function resolveAspectName(
-  categoryAspects: EbayCategoryAspect[],
-  candidates: readonly string[]
-): string | null {
-  if (categoryAspects.length > 0) {
-    const hit = findCategoryAspectName(categoryAspects, [...candidates]);
-    if (hit) return hit;
-  }
-  return candidates[0] ?? null;
-}
-
-/** Infer NGC/PCGS-style grade specifics from a coin listing title when category requires them. */
+/** Infer graded-coin specifics from title into empty taxonomy fields only. */
 export function inferGradedCoinAspectsFromTitle(
   title: string,
   categoryAspects: EbayCategoryAspect[]
 ): ListingAspect[] {
-  const out: ListingAspect[] = [];
-  const t = title.trim();
-  if (!t) return out;
-
-  const graderMatch = t.match(/\b(NGC|PCGS|ANACS|ICG|PMG|CACG)\b/i);
-  const gradeMatch = t.match(/\b(MS|PR|PF|SP|AU|XF|VF|F|VG|G|AG)[\s-]*(\d{1,2})\b/i);
-
-  if (graderMatch) {
-    const name = resolveAspectName(categoryAspects, [
-      "Professional Grader",
-      "Certification Service",
-      "Grader",
-    ]);
-    if (name) out.push({ name, value: graderMatch[1]!.toUpperCase() });
-  }
-
-  if (gradeMatch) {
-    const gradeName = resolveAspectName(categoryAspects, ["Grade"]);
-    const gradeLabel = `${gradeMatch[1]!.toUpperCase()} ${gradeMatch[2]}`;
-    const numericValue = gradeMatch[2]!;
-    if (gradeName) out.push({ name: gradeName, value: gradeLabel });
-
-    // eBay uses "Numerical grade" for some coin categories and "Letter grade" for others.
-    // The taxonomy API often doesn't include both, but eBay Inventory API may require either.
-    // Always add BOTH to ensure we satisfy whichever one eBay actually requires.
-    const numericalName = findCategoryAspectName(categoryAspects, ["Numerical grade", "Numerical Grade"]) ?? "Numerical grade";
-    const letterName = findCategoryAspectName(categoryAspects, ["Letter grade", "Letter Grade"]) ?? "Letter grade";
-
-    out.push({ name: numericalName, value: numericValue });
-    out.push({ name: letterName, value: numericValue });
-  }
-
-  return out;
+  return fillEmptyTaxonomyAspectsFromTitle(title, categoryAspects, []);
 }
 
 export function missingRequiredEbayAspects(
   categoryAspects: EbayCategoryAspect[],
   aspects: ListingAspect[]
 ): string[] {
-  const aspectMap = new Map(aspects.map((a) => [a.name.toLowerCase(), a.value.trim()]));
-  const missing: string[] = [];
-  for (const aspect of categoryAspects) {
-    if (!aspect.required) continue;
-    const value = aspectMap.get(aspect.name.toLowerCase());
-    if (!value?.trim()) missing.push(aspect.name);
-  }
-  return missing;
+  return missingRequiredFromCompat(categoryAspects, aspects);
 }
+
+export type PrepareEbaySyncAspectsResult = {
+  item: SyncStoreItem;
+  missingRequired: EbayCategoryAspect[];
+  enriched: boolean;
+  remaps?: { from: string; to: string; reason?: string }[];
+  dropped?: string[];
+  categorySchema?: EbayCategoryAspect[];
+};
 
 export async function prepareEbaySyncAspects(args: {
   accessToken: string;
   externalListingId: string | undefined;
   item: SyncStoreItem;
   categoryId: string | null;
-}): Promise<{ item: SyncStoreItem; missingRequired: string[]; enriched: boolean }> {
-  let aspects = parseStoredAspects(args.item.aspects);
-  const beforeKey = JSON.stringify(aspects);
-
+  sku?: string;
+}): Promise<PrepareEbaySyncAspectsResult> {
+  const sku = args.sku ?? args.externalListingId ?? getEffectiveSku(args.item);
   const legacyId =
     resolveEbayLegacyListingId(args.externalListingId ?? "") ??
     resolveEbayLegacyListingId(getEffectiveSku(args.item));
+
+  let tradingAspects: ListingAspect[] = [];
   if (legacyId) {
     try {
       const details = await fetchEbayItemDetails(args.accessToken, legacyId);
-      aspects = mergeListingAspects(aspects, details.aspects);
+      tradingAspects = details.aspects;
     } catch {
       /* optional enrichment */
     }
   }
 
-  let categoryAspects: EbayCategoryAspect[] = [];
-  if (args.categoryId?.trim()) {
-    try {
-      categoryAspects = await getItemAspectsForCategory(args.categoryId);
-    } catch {
-      /* validated on push if taxonomy unavailable */
+  const prep = await prepareOutboundAspects({
+    accessToken: args.accessToken,
+    sku,
+    item: args.item,
+    categoryId: args.categoryId,
+    tradingAspects,
+    mergeFromInventory: true,
+  });
+
+  const validation = validateRemappedAspects(prep.categoryAspects, prep.remappedAspects);
+
+  if (validation.invalidSelectionValues.length > 0) {
+    throw new Error(
+      formatAspectValidationErrors(validation.missingRequired, validation.invalidSelectionValues)
+    );
+  }
+
+  // Compute remaps for trace information
+  const inputAspects = parseStoredAspects(args.item.aspects);
+  const remapped = remapAspectsToTaxonomy(prep.categoryAspects, inputAspects);
+  const remaps: { from: string; to: string; reason?: string }[] = [];
+  
+  // Track value adjustments as remaps
+  for (const adj of remapped.valueAdjustments) {
+    remaps.push({
+      from: `${adj.name}: ${adj.from}`,
+      to: `${adj.name}: ${adj.to}`,
+      reason: "value_normalized",
+    });
+  }
+
+  // Track name remaps by comparing input to output
+  const inputByLower = new Map(inputAspects.map((a) => [a.name.toLowerCase(), a.name]));
+  const outputByLower = new Map(prep.remappedAspects.map((a) => [a.name.toLowerCase(), a.name]));
+  for (const [lower, inputName] of inputByLower) {
+    const outputName = outputByLower.get(lower);
+    if (outputName && outputName !== inputName) {
+      remaps.push({
+        from: inputName,
+        to: outputName,
+        reason: "taxonomy_remap",
+      });
     }
   }
 
-  aspects = mergeListingAspects(
-    aspects,
-    inferGradedCoinAspectsFromTitle(args.item.title, categoryAspects)
-  );
+  // Map missingRequired strings to full EbayCategoryAspect objects
+  const missingRequired = validation.missingRequired
+    .map((name) => prep.categoryAspects.find((a) => a.name === name))
+    .filter((a): a is EbayCategoryAspect => a !== undefined);
 
-  const missingRequired = missingRequiredEbayAspects(categoryAspects, aspects);
-  const enriched = JSON.stringify(aspects) !== beforeKey;
-  const nextItem: SyncStoreItem = {
-    ...args.item,
-    aspects: aspects.length > 0 ? aspects : args.item.aspects,
-  };
-
-  // #region agent log
-  const gradeAspectNames = categoryAspects
-    .filter((a) => /grade|grader/i.test(a.name))
-    .map((a) => a.name);
-  const aspectDebug = {
-    categoryId: args.categoryId,
-    legacyId: legacyId ?? null,
-    titleSnippet: args.item.title.slice(0, 80),
-    beforeCount: JSON.parse(beforeKey).length,
-    afterCount: aspects.length,
-    aspectNames: aspects.map((a) => a.name),
-    aspectValues: aspects.map((a) => ({ n: a.name, v: a.value })).slice(0, 15),
+  return {
+    item: prep.item,
     missingRequired,
-    enriched,
-    categoryAspectCount: categoryAspects.length,
-    categoryGradeAspects: gradeAspectNames,
-    requiredCategoryAspects: categoryAspects.filter((a) => a.required).map((a) => a.name),
+    enriched: prep.enriched,
+    remaps,
+    dropped: remapped.dropped,
+    categorySchema: prep.categoryAspects,
   };
-  console.warn("[ebay] upsertListing aspects", aspectDebug);
-  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "58be99" },
-    body: JSON.stringify({
-      sessionId: "58be99",
-      location: "sync-aspects.ts:prepareEbaySyncAspects",
-      message: "aspect prep result",
-      data: aspectDebug,
-      timestamp: Date.now(),
-      hypothesisId: "H1-H5",
-    }),
-  }).catch(() => {});
-  // #endregion
-
-  return { item: nextItem, missingRequired, enriched };
 }
 
-export function formatMissingEbayAspectsError(missing: string[]): string {
-  return `Missing required eBay item specifics: ${missing.join(", ")}. Fill them in under eBay Listing Requirements.`;
+export function formatMissingEbayAspectsError(missing: EbayCategoryAspect[] | string[]): string {
+  const names = missing.map((m) => (typeof m === "string" ? m : m.name));
+  return formatAspectValidationErrors(names, []);
 }
 
 export async function persistEbayAspects(
@@ -205,3 +145,5 @@ export async function persistEbayAspects(
     },
   });
 }
+
+export { remapAspectsToTaxonomy };

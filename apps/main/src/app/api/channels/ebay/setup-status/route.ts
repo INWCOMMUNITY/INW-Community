@@ -34,6 +34,12 @@ type EbaySetupStatus = {
   refreshedAt: string | null;
   externalShopId: string | null;
   connectionId: string | null;
+  scopeNotes?: {
+    marketplace: string;
+    variants: string;
+    shipping: string;
+    policies: string;
+  };
 };
 
 /**
@@ -154,5 +160,12 @@ export async function GET(req: NextRequest) {
     refreshedAt,
     externalShopId: ctx.externalShopId,
     connectionId: ctx.id,
+    scopeNotes: {
+      marketplace: "US fixed-price listings only (EBAY_US).",
+      variants: "Single variant axis is synced; per-variation pricing is not pushed to eBay.",
+      shipping:
+        "INW per-listing shipping cost applies to your storefront only. eBay uses your selected fulfillment policy in Sync Stores.",
+      policies: "Choose payment, return, shipping policies, and merchant location under eBay sync settings in Sync Stores.",
+    },
   });
 }

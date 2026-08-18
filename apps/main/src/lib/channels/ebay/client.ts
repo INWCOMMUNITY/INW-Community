@@ -117,7 +117,10 @@ export function ebayAction<T>(
 export async function ebayGetInventoryItem(
   accessToken: string,
   sku: string
-): Promise<{ availability?: { shipToLocationAvailability?: { quantity?: number } } } | null> {
+): Promise<{
+  availability?: { shipToLocationAvailability?: { quantity?: number } };
+  product?: { aspects?: Record<string, string[]>; title?: string };
+} | null> {
   try {
     return await ebayGet(accessToken, `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`);
   } catch (e) {
