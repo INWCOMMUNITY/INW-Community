@@ -214,10 +214,22 @@ type ErrorAnalysisResult = {
  * This is separate from the retry-focused error-classifier.ts and focuses
  * on diagnostic information for developers.
  */
+let extendedClassifiersRegistered = false;
+
+function ensureExtendedClassifiersRegistered(): void {
+  if (extendedClassifiersRegistered) return;
+  extendedClassifiersRegistered = true;
+  const { registerAllClassifiers } =
+    require("./error-classifiers-registry") as typeof import("./error-classifiers-registry");
+  registerAllClassifiers();
+}
+
 function classifyTraceError(
   ctx: SyncTraceContext,
   error: unknown
 ): ErrorAnalysisResult {
+  ensureExtendedClassifiersRegistered();
+
   const message = extractErrorMessage(error);
   const code = extractErrorCode(error, message);
   
@@ -645,6 +657,3 @@ export function registerTraceClassifier(classifier: TraceClassifier): void {
  * Export classifier type for use in error-classifiers.ts.
  */
 export type { TraceClassifier };
-
-// Auto-register extended classifiers (imported for side effects)
-import "./error-classifiers-registry";

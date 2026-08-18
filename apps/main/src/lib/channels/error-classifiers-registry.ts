@@ -310,16 +310,13 @@ const GENERIC_CLASSIFIERS: TraceClassifier[] = [
 
 /**
  * Register all extended classifiers with the sync-trace module.
- * Called during module initialization.
+ * Called lazily from sync-trace when classifying errors.
  */
 export function registerAllClassifiers(): void {
   for (const classifier of [...EBAY_CLASSIFIERS, ...ETSY_CLASSIFIERS, ...GENERIC_CLASSIFIERS]) {
     registerTraceClassifier(classifier);
   }
 }
-
-// Auto-register on import
-registerAllClassifiers();
 
 /**
  * Get suggested fixes for a specific error category.
