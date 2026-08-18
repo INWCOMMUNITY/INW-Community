@@ -85,21 +85,13 @@ export function inferGradedCoinAspectsFromTitle(
     if (gradeName) out.push({ name: gradeName, value: gradeLabel });
 
     // eBay uses "Numerical grade" for some coin categories and "Letter grade" for others.
-    // Check which one the category actually has; if neither or unknown, add both to be safe.
-    const hasNumerical = findCategoryAspectName(categoryAspects, ["Numerical grade", "Numerical Grade"]);
-    const hasLetter = findCategoryAspectName(categoryAspects, ["Letter grade", "Letter Grade"]);
+    // The taxonomy API often doesn't include both, but eBay Inventory API may require either.
+    // Always add BOTH to ensure we satisfy whichever one eBay actually requires.
+    const numericalName = findCategoryAspectName(categoryAspects, ["Numerical grade", "Numerical Grade"]) ?? "Numerical grade";
+    const letterName = findCategoryAspectName(categoryAspects, ["Letter grade", "Letter Grade"]) ?? "Letter grade";
 
-    if (hasNumerical) {
-      out.push({ name: hasNumerical, value: numericValue });
-    }
-    if (hasLetter) {
-      out.push({ name: hasLetter, value: numericValue });
-    }
-    // If category aspects are empty/unavailable, add both common names
-    if (!hasNumerical && !hasLetter) {
-      out.push({ name: "Numerical grade", value: numericValue });
-      out.push({ name: "Letter grade", value: numericValue });
-    }
+    out.push({ name: numericalName, value: numericValue });
+    out.push({ name: letterName, value: numericValue });
   }
 
   return out;

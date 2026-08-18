@@ -62,7 +62,7 @@ describe("inferGradedCoinAspectsFromTitle", () => {
     ]);
   });
 
-  it("uses Letter grade when category has it instead of Numerical grade", () => {
+  it("always adds both Letter grade and Numerical grade for graded coins", () => {
     const letterGradeAspects: EbayCategoryAspect[] = [
       {
         name: "Letter grade",
@@ -80,8 +80,9 @@ describe("inferGradedCoinAspectsFromTitle", () => {
       },
     ];
     const inferred = inferGradedCoinAspectsFromTitle("1952-D NGC MS 67 Jefferson Nickel", letterGradeAspects);
+    // Both should always be present to satisfy whichever eBay requires
     expect(inferred.find((a) => a.name === "Letter grade")?.value).toBe("67");
-    expect(inferred.find((a) => a.name === "Numerical grade")).toBeUndefined();
+    expect(inferred.find((a) => a.name === "Numerical grade")?.value).toBe("67");
   });
 
   it("does not overwrite existing aspect values", () => {
