@@ -152,10 +152,14 @@ export function ensureGradedCoinInventoryAspects(
     out.set(numName.toLowerCase(), { name: numName, value: info.numeric });
   }
 
-  // Letter grade: taxonomy may omit it (e.g. 41087) while Inventory API still requires it.
+  // Letter grade: Inventory API expects the grade prefix (MS, PR, …) — live GET stores "MS" not "67".
   if (!has("letter grade")) {
     const letterName = findCategoryAspectName(categoryAspects, ["Letter grade"]) ?? "Letter grade";
-    out.set(letterName.toLowerCase(), { name: letterName, value: info.numeric });
+    const letterPrefix = info.gradeLabel.trim().match(/^(MS|PR|PF|SP|AU|XF|VF|F|VG|G|AG)\b/i)?.[1]?.toUpperCase();
+    out.set(letterName.toLowerCase(), {
+      name: letterName,
+      value: letterPrefix ?? info.numeric,
+    });
   }
 
   return normalizeListingAspects(Array.from(out.values()));
@@ -246,37 +250,39 @@ function extractGraderFromAspectRecord(
   return m ? m[1]!.toUpperCase() : null;
 }
 
-/** Derive numeric grade (67, 69, …) from Trading Grade or title — not from stale live GET sub-fields. */
-function extractGradeNumericFromAspectRecord(
+/** Derive grade prefix + numeric from Trading Grade or title. */
+function extractGradePartsFromAspectRecord(
   merged: Record<string, string[]>,
   title: string
-): string | null {
+): { prefix: string; numeric: string } | null {
   for (const [name, values] of Object.entries(merged)) {
-    const nameLower = name.trim().toLowerCase();
-    if (nameLower !== "grade") continue;
+    if (name.trim().toLowerCase() !== "grade") continue;
     for (const v of values) {
       const parsed = parseCoinGradeLabel(String(v));
-      if (parsed) return parsed.numeric;
+      if (parsed) return { prefix: parsed.prefix, numeric: parsed.numeric };
     }
   }
   const titleGrade = title.trim().match(/\b(MS|PR|PF|SP|AU|XF|VF|F|VG|G|AG)[\s-]*(\d{1,2})\b/i);
-  return titleGrade ? titleGrade[2]! : null;
+  if (titleGrade) {
+    return { prefix: titleGrade[1]!.toUpperCase(), numeric: titleGrade[2]! };
+  }
+  return null;
 }
 
 /**
  * Inventory API wire-only sub-fields (Letter grade / Numerical grade).
- * Always derived from Trading Grade (e.g. MS 67 → 67), overwriting stale live GET values like "MS".
+ * Letter grade = prefix (MS, PR, …); Numerical grade = numeric (67, 69, …) — matches live eBay inventory GET.
  */
 function ensureWireDerivedGradeFields(
   product: Record<string, string[]>,
   merged: Record<string, string[]>,
   title: string
 ): void {
-  const numeric = extractGradeNumericFromAspectRecord(merged, title);
-  if (!numeric) return;
+  const parts = extractGradePartsFromAspectRecord(merged, title);
+  if (!parts) return;
 
-  product["Letter grade"] = [numeric];
-  product["Numerical grade"] = [numeric];
+  product["Letter grade"] = [parts.prefix];
+  product["Numerical grade"] = [parts.numeric];
 
   const grader = extractGraderFromAspectRecord(merged, title);
   if (grader) product["Professional grader"] = [grader];
@@ -538,10 +544,11 @@ export function fillEmptyTaxonomyAspectsFromTitle(
   return normalizeListingAspects(Array.from(filled.values()));
 }
 
-function parseCoinGradeLabel(value: string): { label: string; numeric: string } | null {
+function parseCoinGradeLabel(value: string): { label: string; prefix: string; numeric: string } | null {
   const m = value.trim().match(/\b(MS|PR|PF|SP|AU|XF|VF|F|VG|G|AG)[\s-]*(\d{1,2})\b/i);
   if (!m) return null;
-  return { label: `${m[1]!.toUpperCase()} ${m[2]!}`, numeric: m[2]! };
+  const prefix = m[1]!.toUpperCase();
+  return { label: `${prefix} ${m[2]!}`, prefix, numeric: m[2]! };
 }
 
 export function expandGradedCoinAspectsForTaxonomy(

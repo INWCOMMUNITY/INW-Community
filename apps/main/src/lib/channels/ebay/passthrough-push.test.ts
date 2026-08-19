@@ -49,7 +49,7 @@ describe("passthrough-push", () => {
     const body = buildPassthroughInventoryBody(liveJeffersonNickel, coinItem, changed);
 
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
-    expect(aspects["Letter grade"]).toEqual(["67"]);
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
     expect(aspects.Certification).toBeUndefined();
@@ -60,7 +60,7 @@ describe("passthrough-push", () => {
     expect(body.condition).toBe("LIKE_NEW");
   });
 
-  it("overwrites stale live Letter grade MS with numeric 67 from Grade", () => {
+  it("derives Letter grade prefix MS and Numerical grade 67 from Grade MS 67", () => {
     const liveStaleLetter = {
       product: {
         aspects: {
@@ -77,7 +77,7 @@ describe("passthrough-push", () => {
       price: true,
     });
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
-    expect(aspects["Letter grade"]).toEqual(["67"]);
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
   });
@@ -101,7 +101,7 @@ describe("passthrough-push", () => {
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
     expect(aspects.Certification).toBeUndefined();
-    expect(aspects["Letter grade"]).toEqual(["67"]);
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
     expect(aspects.Grade).toEqual(["MS 67"]);
   });
@@ -131,7 +131,7 @@ describe("passthrough-push", () => {
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
     expect(aspects["Numerical grade"]).toEqual(["69"]);
-    expect(aspects["Letter grade"]).toEqual(["69"]);
+    expect(aspects["Letter grade"]).toEqual(["PR"]);
   });
 
   it("uses GetItem Certification when live inventory omits grader fields", () => {
@@ -153,7 +153,8 @@ describe("passthrough-push", () => {
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
     expect(aspects.Certification).toBeUndefined();
-    expect(aspects["Letter grade"]).toEqual(["67"]);
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
+    expect(aspects["Numerical grade"]).toEqual(["67"]);
   });
 
   it("never sends raw Certification when enrich must translate for Inventory PUT", () => {
