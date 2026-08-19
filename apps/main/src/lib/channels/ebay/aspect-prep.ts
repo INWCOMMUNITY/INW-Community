@@ -340,15 +340,29 @@ const KNOWN_GRADER_LABELS: Record<string, string> = {
 function snapGraderValue(schema: CategoryAspectSchema | undefined, grader: string): string {
   const trimmed = grader.trim();
   const prefixMatch = trimmed.match(/^(NGC|PCGS|ANACS|ICG|PMG|CACG)\b/i);
-  if (prefixMatch) {
-    const prefix = prefixMatch[1]!.toUpperCase();
-    const canonical = KNOWN_GRADER_LABELS[prefix];
-    if (canonical) return canonical;
+  const prefix = prefixMatch?.[1]?.toUpperCase();
+
+  if (schema?.suggestedValues.length) {
+    const normalized = normalizeSelectionValue(schema, trimmed);
+    if (normalized.adjusted || schema.suggestedValues.includes(normalized.value)) {
+      return normalized.value;
+    }
+    if (prefix) {
+      const bareHit = schema.suggestedValues.find((s) => s.toUpperCase() === prefix);
+      if (bareHit) return bareHit;
+      const labeledHit = schema.suggestedValues.find((s) => {
+        const sl = s.toLowerCase();
+        return sl.startsWith(`${prefix.toLowerCase()} `) || sl.includes(`(${prefix.toLowerCase()})`);
+      });
+      if (labeledHit) return labeledHit;
+    }
+    return trimmed;
   }
-  const snapped = snapToSuggestedValue(schema, trimmed);
-  if (schema?.suggestedValues.length) return snapped;
-  const upper = trimmed.toUpperCase();
-  return KNOWN_GRADER_LABELS[upper] ?? snapped;
+
+  if (prefix && KNOWN_GRADER_LABELS[prefix]) {
+    return KNOWN_GRADER_LABELS[prefix];
+  }
+  return trimmed;
 }
 
 function snapAspectValueForInventoryPut(aspect: CategoryAspectSchema, value: string): string {
@@ -603,8 +617,15 @@ function ensureProfessionalGrader(
   setAspectValue(product, proName, snapGraderValue(schema, grader));
 }
 
-/** Inventory wire fields replace seller Grade on PUT — keeping both triggers misleading #25064 errors. */
-function stripSellerGradeWhenWireAspectsPresent(product: Record<string, string[]>): void {
+/** Inventory wire fields replace seller Grade on PUT only when Grade is not a required category aspect. */
+function stripSellerGradeWhenWireAspectsPresent(
+  product: Record<string, string[]>,
+  categoryAspects: CategoryAspectSchema[] = []
+): void {
+  const gradeRequired = categoryAspects.some(
+    (a) => a.required && a.name.toLowerCase() === "grade"
+  );
+  if (gradeRequired) return;
   if (
     !hasAspectValue(product, "Professional grader") ||
     !hasAspectValue(product, "Numerical grade")
@@ -613,6 +634,19 @@ function stripSellerGradeWhenWireAspectsPresent(product: Record<string, string[]
   }
   for (const key of Object.keys(product)) {
     if (key.toLowerCase() === "grade") delete product[key];
+  }
+}
+
+const INVENTORY_PUT_WIRE_GRADE_NAMES = ["Professional grader", "Letter grade", "Numerical grade"];
+
+/** Title/photo PUT: keep live inventory GET wire values verbatim when eBay already accepted them. */
+function restoreLiveWireGradeAspects(
+  product: Record<string, string[]>,
+  liveAspects: Record<string, string[]>
+): void {
+  for (const name of INVENTORY_PUT_WIRE_GRADE_NAMES) {
+    const liveVal = pickFirstAspectValue(liveAspects, name);
+    if (liveVal) setAspectValue(product, name, liveVal);
   }
 }
 
@@ -730,13 +764,17 @@ export function prepareLiveAspectsForInventoryPut(
   ensureRequiredAspectsForInventoryPut(product, merged, title, categoryAspects, categoryId);
 
   ensureProfessionalGrader(product, merged, title, categoryAspects);
-  stripSellerGradeWhenWireAspectsPresent(product);
+  stripSellerGradeWhenWireAspectsPresent(product, categoryAspects);
 
   if (hasAspectValue(product, "Professional grader")) {
     stripTradingGraderAliases(product);
   }
 
   dedupeInventoryPutAspectAliases(product);
+
+  if (options.preserveLiveWireGrades) {
+    restoreLiveWireGradeAspects(product, liveAspects);
+  }
 
   return product;
 }

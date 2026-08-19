@@ -173,13 +173,13 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     );
     expect(product["Letter grade"]).toEqual(["69"]);
     expect(product["Numerical grade"]).toEqual(["69"]);
-    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+    expect(product["Professional grader"]).toEqual(["NGC"]);
   });
 
   it("preserveLiveWireGrades skips rewriting live wire grades on title-only PUT", () => {
     const live = {
-      Certification: ["NGC (Numismatic Guaranty Corporation)"],
-      "Professional grader": ["NGC (Numismatic Guaranty Corporation)"],
+      Certification: ["NGC"],
+      "Professional grader": ["NGC"],
       Grade: ["MS 67"],
       "Letter grade": ["MS"],
       "Numerical grade": ["67"],
@@ -193,13 +193,13 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     );
     expect(withPreserve["Letter grade"]).toEqual(["MS"]);
     expect(withPreserve["Numerical grade"]).toEqual(["67"]);
-    expect(withPreserve["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
-    expect(withPreserve.Grade).toBeUndefined();
+    expect(withPreserve["Professional grader"]).toEqual(["NGC"]);
+    expect(withPreserve.Grade).toEqual(["MS 67"]);
   });
 
-  it("snaps bare live Professional grader to full label on title-only PUT", () => {
+  it("snaps bare live Professional grader to full label when taxonomy is unavailable", () => {
     const live = {
-      "Professional grader": ["NGC (Numismatic Guaranty Corporation)"],
+      "Professional grader": ["NGC"],
       Grade: ["MS 67"],
       "Letter grade": ["MS"],
       "Numerical grade": ["67"],
@@ -208,7 +208,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       live,
       "1952-D NGC MS 67 Jefferson Nickel",
       [],
-      { preserveLiveWireGrades: true, categoryId: "41087" }
+      { categoryId: "41087" }
     );
     expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
     expect(product.Grade).toBeUndefined();
@@ -234,7 +234,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     );
     expect(product["Letter grade"]).toEqual(["MS"]);
     expect(product["Numerical grade"]).toEqual(["67"]);
-    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+    expect(product["Professional grader"]).toEqual(["NGC"]);
     expect(product.Certification).toBeUndefined();
   });
 
@@ -290,7 +290,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     );
     expect(product["Letter grade"]).toEqual(["MS"]);
     expect(product["Numerical grade"]).toEqual(["67"]);
-    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+    expect(product["Professional grader"]).toEqual(["NGC"]);
   });
 
   it("drops Country/Mint aliases when Country of Origin and Mint Location are present", () => {
@@ -345,6 +345,6 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       { categoryId: "41087" },
       { Certification: ["NGC (Numismatic Guaranty Corporation)"], Grade: ["MS 67"] }
     );
-    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+    expect(product["Professional grader"]).toEqual(["NGC (NUMISMATIC GUARANTY CORPORATION)"]);
   });
 });
