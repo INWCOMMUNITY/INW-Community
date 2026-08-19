@@ -31,42 +31,46 @@ export default async function HomePage() {
   const androidPlayStoreUrl = getAndroidPlayStoreUrl();
   return (
     <>
-      <section className="relative flex flex-col items-center justify-center px-4 py-12 text-center overflow-hidden bg-[#F5E9D3] md:min-h-[85vh] md:py-16 md:bg-transparent md:justify-end">
+      <section className="relative flex flex-col overflow-hidden bg-[#F5E9D3] md:min-h-[85vh] md:bg-transparent">
         <div
           className="absolute inset-0 hidden bg-cover bg-center md:block"
           style={{ backgroundImage: `url(${heroBackgroundUrl})` }}
           aria-hidden
         />
         <div
-          className="absolute inset-0 hidden md:block bg-gradient-to-t from-black/65 via-black/25 to-transparent"
+          className="absolute inset-0 hidden md:block bg-gradient-to-t from-black/70 via-black/20 to-transparent"
           aria-hidden
         />
-        <div className="relative z-10 max-w-[var(--max-width)] mx-auto w-full">
-          <div className="relative mx-auto aspect-square w-[min(100%,min(92vw,420px))] md:hidden">
+        <div className="relative z-10 flex flex-1 flex-col items-center w-full max-w-[var(--max-width)] mx-auto px-4 py-12 md:min-h-[85vh] md:pt-24 md:pb-20">
+          <div className="h-48 w-48 md:h-72 md:w-72 lg:h-80 lg:w-80 overflow-hidden rounded-full shrink-0 md:mt-6">
             <Image
-              src="/nwc-hero-logo.png"
+              src={appLogoUrl}
               alt="Northwest Community"
-              fill
-              className="object-contain"
-              sizes="92vw"
+              width={320}
+              height={320}
+              className="h-full w-full object-cover"
+              sizes="(min-width: 1024px) 320px, (min-width: 768px) 288px, 192px"
               priority
             />
           </div>
-          <div className="md:pb-6 md:pt-24">
+          <div className="mt-auto text-center max-w-2xl pt-8 md:mb-6">
             <h1
               className="text-3xl md:text-5xl font-bold mb-3 text-[var(--color-heading)] md:!text-white"
               style={{ fontFamily: "var(--font-heading)" }}
             >
-              Shop local. Find events. Stay connected.
+              Support Local in the Inland Northwest.
             </h1>
-            <p className="text-base md:text-lg mb-6 leading-relaxed max-w-xl mx-auto text-[var(--color-text)] md:!text-white/95">
-              A community hub for residents of Spokane and Kootenai County.
+            <p className="text-base md:text-lg mb-6 leading-relaxed mx-auto text-[var(--color-text)] md:!text-white/95">
+              Invest into our community, and the future of it. Purchase local goods online, join the community feed, find local events, and more. Be a part of what&apos;s happening!
             </p>
-            <div className="flex flex-wrap justify-center gap-3">
-              <Link href="/signup" className="btn inline-block">
+            <div className="grid grid-cols-2 gap-3 w-full max-w-sm mx-auto">
+              <Link href="/signup" className="btn inline-flex items-center justify-center text-center w-full">
                 Join Now
               </Link>
-              <Link href="#explore" className="btn-outline inline-block md:!border-white md:!text-white md:hover:!bg-white/15 md:hover:!text-white">
+              <Link
+                href="#explore"
+                className="btn inline-flex items-center justify-center text-center w-full !bg-[var(--color-earth)] !text-white hover:!bg-[var(--color-button-hover)] hover:!text-[var(--color-button-hover-text)]"
+              >
                 Explore
               </Link>
             </div>
@@ -168,29 +172,28 @@ export default async function HomePage() {
       </section>
 
       <section className="w-full py-12 px-6 md:px-8" style={{ backgroundColor: "var(--color-primary)", color: "#fff" }}>
-        <div className="max-w-[var(--max-width)] mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-          <div className="text-center md:text-left">
+        <div className="max-w-[var(--max-width)] mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 items-start">
+          <div className="text-center md:text-left min-w-0">
             <h2
               className="text-2xl md:text-3xl font-bold mb-3 !text-white"
               style={{ fontFamily: "var(--font-heading)" }}
             >
-              Our goal
+              Our Goal
             </h2>
             <p className="mb-6 leading-relaxed text-white/95">
-              Local businesses here offer a personal connection a chain cannot. We exist so that money and customers stay in the Inland Northwest.
+              We encourage the residents of the Inland Northwest to choose local businesses over corporate companies. Supporting local supports the dreams and independence of our neighbors, and boosts our own local economy without sending millions of dollars out of state. Northwest Community aims to make supporting local sellers, businesses, and artisans as convenient as possible.
             </p>
             <div className="flex gap-3 flex-wrap justify-center md:justify-start">
               <Link
                 href="/support-local"
-                className="btn inline-block"
-                style={{ backgroundColor: "#fff", color: "var(--color-primary)" }}
+                className="btn inline-block whitespace-nowrap !bg-white !text-[var(--color-primary)]"
               >
                 Support Local
               </Link>
-              <Link href="/about" className="btn-outline inline-block !border-white !text-white hover:!bg-white/15 hover:!text-white">
+              <Link href="/about" className="btn-outline inline-block whitespace-nowrap !border-white !text-white hover:!bg-white/15 hover:!text-white">
                 About NWC
               </Link>
-              <Link href="/storefront" className="btn-outline inline-block !border-white !text-white hover:!bg-white/15 hover:!text-white">
+              <Link href="/storefront" className="btn-outline inline-block whitespace-nowrap !border-white !text-white hover:!bg-white/15 hover:!text-white">
                 NWC Storefront
               </Link>
             </div>
@@ -200,7 +203,7 @@ export default async function HomePage() {
               </Link>
             </p>
           </div>
-          <div className="flex justify-center md:justify-end w-full">
+          <div className="flex justify-center md:justify-end w-full min-w-0">
             <Image
               src={communityGoalsUrl}
               alt="Northwest Community"
@@ -232,8 +235,8 @@ export default async function HomePage() {
               The site stays free. Subscribers get local coupons, giveaways, and other benefits that support shopping local. If you want to tag along, we appreciate it.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <Link href="/support-nwc" className="btn">Subscribe</Link>
-              <Link href="/coupons" className="btn-outline">Coupons</Link>
+              <Link href="/support-nwc" className="btn whitespace-nowrap">Subscribe</Link>
+              <Link href="/coupons" className="btn-outline whitespace-nowrap">Coupons</Link>
             </div>
           </div>
         </div>

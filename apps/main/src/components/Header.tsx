@@ -48,7 +48,7 @@ const navItems: NavItem[] = [
     ],
   },
   {
-    label: "For Businesses",
+    label: "Members",
     href: "/business-hub",
     icon: "person-circle-outline",
     children: [
@@ -77,6 +77,40 @@ function isPathActive(
   if (href === "/") return pathname === "/";
   if (pathname === href) return true;
   return pathname.startsWith(href);
+}
+
+const HEADER_SIDE = "w-[12rem]";
+
+function HeaderCartButton({
+  count,
+  onOpen,
+  size = "md",
+}: {
+  count: number;
+  onOpen: () => void;
+  size?: "sm" | "md";
+}) {
+  const iconClass = size === "sm" ? "w-4 h-4" : "w-5 h-5";
+  const padClass = size === "sm" ? "p-1.5" : "p-2";
+  const badgeClass =
+    size === "sm"
+      ? "absolute top-0 right-0 bg-red-500 text-white text-[8px] font-bold rounded-full h-3 min-w-[0.75rem] px-0.5 flex items-center justify-center leading-none"
+      : "absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center leading-none";
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`relative ${padClass} rounded-full hover:bg-gray-100 shrink-0 text-gray-600`}
+      aria-label={`Cart (${count} items)`}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={iconClass}>
+        <circle cx="9" cy="21" r="1" />
+        <circle cx="20" cy="21" r="1" />
+        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+      </svg>
+      <span className={badgeClass}>{count > 99 ? "99+" : count}</span>
+    </button>
+  );
 }
 
 export function Header() {
@@ -143,26 +177,13 @@ export function Header() {
                 </Link>
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => setCartOpen(true)}
-              className={`relative p-1.5 rounded-full hover:bg-gray-100 shrink-0 ${cartCount > 0 ? "text-gray-600" : "text-gray-300"}`}
-              aria-label={cartCount > 0 ? `Cart (${cartCount} items)` : "Cart (empty)"}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
-                <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
-                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-              </svg>
-              {cartCount > 0 && (
-                <span className="absolute top-0 right-0 bg-red-500 text-white text-[8px] font-bold rounded-full h-3 min-w-[0.75rem] px-0.5 flex items-center justify-center leading-none">
-                  {cartCount > 99 ? "99+" : cartCount}
-                </span>
-              )}
-            </button>
+            {cartCount > 0 && (
+              <HeaderCartButton count={cartCount} onOpen={() => setCartOpen(true)} size="sm" />
+            )}
           </div>
         </div>
         {/* Desktop: original layout */}
-        <div className="hidden md:flex items-center shrink-0" style={{ minHeight: 0 }}>
+        <div className={`hidden md:flex items-center shrink-0 ${HEADER_SIDE}`} style={{ minHeight: 0 }}>
           <Link href="/" className="text-[1rem] sm:text-[1.2rem] md:text-[1.35rem] font-bold leading-tight text-center" style={{ fontFamily: "var(--font-heading)", color: "#333" }}>
             <span className="block">Northwest</span>
             <span className="block">Community</span>
@@ -173,7 +194,7 @@ export function Header() {
             {navItems.map((item) => {
               const active = isPathActive(pathname, item);
               const hasChildren = "children" in item && (item.children?.length ?? 0) > 0;
-              const linkClass = `flex-1 min-w-0 py-5 px-2 font-medium text-sm lg:text-base whitespace-nowrap rounded-full gap-2 flex items-center justify-center text-center transition-colors ${active ? "text-white" : "hover:bg-[var(--color-section-alt)]"}`;
+              const linkClass = `flex-1 min-w-0 py-5 px-2 font-bold text-sm lg:text-base whitespace-nowrap rounded-full gap-2 flex items-center justify-center text-center transition-colors ${active ? "text-white" : "hover:bg-[var(--color-section-alt)]"}`;
               const linkStyle = active
                 ? { backgroundColor: SEGMENT_COLOR }
                 : { color: "var(--color-primary)" };
@@ -198,7 +219,7 @@ export function Header() {
                               key={c.href}
                               href={c.href}
                               prefetch={false}
-                              className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base text-center whitespace-nowrap flex justify-center items-center ${isChildActive ? "text-white hover:opacity-90" : "hover:bg-[var(--color-section-alt)]"}`}
+                              className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base font-bold text-center whitespace-nowrap flex justify-center items-center ${isChildActive ? "text-white hover:opacity-90" : "hover:bg-[var(--color-section-alt)]"}`}
                               style={isChildActive ? { backgroundColor: SEGMENT_COLOR } : { color: "var(--color-primary)" }}
                             >
                               {c.label}
@@ -209,7 +230,7 @@ export function Header() {
                           <Link
                             href="/admin"
                             prefetch={false}
-                            className="block py-2.5 px-5 rounded-b-md text-base text-center hover:bg-[var(--color-section-alt)] border-t flex justify-center items-center"
+                            className="block py-2.5 px-5 rounded-b-md text-base font-bold text-center hover:bg-[var(--color-section-alt)] border-t flex justify-center items-center"
                             style={{
                               borderTopColor: "var(--color-primary)",
                               color: pathname.startsWith("/admin") ? "white" : "var(--color-primary)",
@@ -225,20 +246,26 @@ export function Header() {
                 );
               }
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  prefetch={false}
-                  className={linkClass}
-                  style={linkStyle}
-                >
-                  <span className="text-center">{item.label}</span>
-                </Link>
+                <div key={item.href} className="relative flex-1 min-w-0 flex">
+                  <Link
+                    href={item.href}
+                    prefetch={false}
+                    className={linkClass}
+                    style={linkStyle}
+                  >
+                    <span className="text-center">{item.label}</span>
+                  </Link>
+                  {item.label === "Store" && cartCount > 0 && (
+                    <div className="absolute left-1/2 top-full z-[60] -translate-x-1/2 pt-0.5">
+                      <HeaderCartButton count={cartCount} onOpen={() => setCartOpen(true)} />
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
         </nav>
-        <div className="hidden md:flex items-center justify-end gap-3 shrink-0">
+        <div className={`hidden md:flex items-center justify-end gap-3 shrink-0 ${HEADER_SIDE}`}>
           {(session?.user as { isAdmin?: boolean })?.isAdmin && (
             <Link
               href="/admin/dashboard"
@@ -287,23 +314,6 @@ export function Header() {
               )}
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => setCartOpen(true)}
-            className={`relative p-2 rounded-full hover:bg-gray-100 shrink-0 ${cartCount > 0 ? "text-gray-600" : "text-gray-300"}`}
-            aria-label={cartCount > 0 ? `Cart (${cartCount} items)` : "Cart (empty)"}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
-              <circle cx="9" cy="21" r="1" />
-              <circle cx="20" cy="21" r="1" />
-              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-            </svg>
-            {cartCount > 0 && (
-              <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center leading-none">
-                {cartCount > 99 ? "99+" : cartCount}
-              </span>
-            )}
-          </button>
         </div>
       </div>
     </header>
@@ -369,7 +379,7 @@ export function Header() {
                         href={"href" in item ? item.href : "#"}
                         prefetch={false}
                         onClick={() => setMobileOpen(false)}
-                        className={`flex-1 py-3 px-3 font-medium rounded-lg ${isPathActive(pathname, item) ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
+                        className={`flex-1 py-3 px-3 font-bold text-sm rounded-lg ${isPathActive(pathname, item) ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
                         style={isPathActive(pathname, item) ? { backgroundColor: "var(--color-primary)" } : undefined}
                       >
                         {item.label}
@@ -401,7 +411,7 @@ export function Header() {
                               href={c.href}
                               prefetch={false}
                               onClick={() => setMobileOpen(false)}
-                              className={`block py-2.5 px-4 text-sm rounded-lg ${isChildActive ? "text-white hover:bg-opacity-90" : "text-gray-700 hover:bg-[var(--color-section-alt)]"}`}
+                              className={`block py-2.5 px-4 text-sm font-bold rounded-lg ${isChildActive ? "text-white hover:bg-opacity-90" : "text-gray-700 hover:bg-[var(--color-section-alt)]"}`}
                               style={isChildActive ? { backgroundColor: "var(--color-primary)" } : undefined}
                             >
                               {c.label}
@@ -413,7 +423,7 @@ export function Header() {
                             href="/admin"
                             prefetch={false}
                             onClick={() => setMobileOpen(false)}
-                            className={`block py-2.5 px-4 text-sm rounded-lg ${pathname.startsWith("/admin") ? "text-white hover:bg-opacity-90" : "text-gray-700 hover:bg-[var(--color-section-alt)]"}`}
+                            className={`block py-2.5 px-4 text-sm font-bold rounded-lg ${pathname.startsWith("/admin") ? "text-white hover:bg-opacity-90" : "text-gray-700 hover:bg-[var(--color-section-alt)]"}`}
                             style={pathname.startsWith("/admin") ? { backgroundColor: "var(--color-primary)" } : undefined}
                           >
                             Admin
@@ -426,16 +436,29 @@ export function Header() {
               }
               const active = isPathActive(pathname, item);
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  prefetch={false}
-                  onClick={() => setMobileOpen(false)}
-                  className={`${rowClass} block py-3 px-4 font-medium ${active ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
-                  style={active ? { backgroundColor: "var(--color-primary)" } : undefined}
-                >
-                  {item.label}
-                </Link>
+                <div key={item.href} className="w-full">
+                  <Link
+                    href={item.href}
+                    prefetch={false}
+                    onClick={() => setMobileOpen(false)}
+                    className={`${rowClass} block py-3 px-4 font-bold text-sm ${active ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
+                    style={active ? { backgroundColor: "var(--color-primary)" } : undefined}
+                  >
+                    {item.label}
+                  </Link>
+                  {item.label === "Store" && cartCount > 0 && (
+                    <div className="flex justify-center py-1">
+                      <HeaderCartButton
+                        count={cartCount}
+                        onOpen={() => {
+                          setMobileOpen(false);
+                          setCartOpen(true);
+                        }}
+                        size="sm"
+                      />
+                    </div>
+                  )}
+                </div>
               );
             })}
             {session?.user && (

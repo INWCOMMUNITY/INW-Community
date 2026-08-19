@@ -19,7 +19,7 @@ export const SITE_STICKY_BELOW_HEADER = {
 
 export function SiteHeaderLogoSpacer() {
   return (
-    <div aria-hidden className="invisible pointer-events-none shrink-0">
+    <div aria-hidden className="invisible pointer-events-none shrink-0 w-[12rem]">
       <div
         className="text-[1rem] sm:text-[1.2rem] md:text-[1.35rem] font-bold leading-tight text-center"
         style={{ fontFamily: "var(--font-heading)" }}
@@ -33,7 +33,7 @@ export function SiteHeaderLogoSpacer() {
 
 export function SiteHeaderActionsSpacer() {
   return (
-    <div aria-hidden className="invisible pointer-events-none shrink-0 flex items-center gap-3">
+    <div aria-hidden className="invisible pointer-events-none shrink-0 flex items-center justify-end gap-3 w-[12rem]">
       <span className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] whitespace-nowrap">
         My Community
       </span>
