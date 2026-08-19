@@ -22,12 +22,11 @@ export type PassthroughChangedFields = {
 };
 
 /**
- * Inventory PUT is only required when the seller changed the title in INW.
- * Photo URL formats differ between import (Trading) and inventory GET — comparing
- * them caused a full aspect rewrite on every sync (#25064 loop).
+ * Inventory PUT rewrites all product.aspects — only use for photo changes (rare).
+ * Title uses Trading ReviseFixedPriceItem; description uses Offer PUT; price/qty use bulk API.
  */
 export function needsInventoryPut(changed: PassthroughChangedFields): boolean {
-  return changed.title === true;
+  return changed.photos === true;
 }
 
 export type LiveInventoryItem = Record<string, unknown>;

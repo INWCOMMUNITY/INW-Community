@@ -371,6 +371,43 @@ function buildReviseSkuXml(listingId: string, sku: string): string {
 </ReviseFixedPriceItemRequest>`;
 }
 
+export type ReviseImportedListingFields = {
+  title?: string;
+  description?: string;
+};
+
+function buildReviseImportedListingXml(
+  listingId: string,
+  fields: ReviseImportedListingFields
+): string {
+  const inner: string[] = [`<ItemID>${listingId}</ItemID>`];
+  if (fields.title != null && fields.title.trim()) {
+    inner.push(`<Title>${escapeXml(fields.title.trim().slice(0, 80))}</Title>`);
+  }
+  if (fields.description != null && fields.description.trim()) {
+    const cdata = fields.description.replace(/]]>/g, "]]]]><![CDATA[>");
+    inner.push(`<Description><![CDATA[${cdata}]]></Description>`);
+  }
+  return `<?xml version="1.0" encoding="utf-8"?>
+<ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Item>${inner.join("")}</Item>
+</ReviseFixedPriceItemRequest>`;
+}
+
+/**
+ * Update title/description on an imported listing via Trading API.
+ * Avoids Inventory PUT so graded-coin wire aspects are never rewritten (#25064).
+ */
+export async function reviseImportedListingContent(
+  accessToken: string,
+  legacyListingId: string,
+  fields: ReviseImportedListingFields
+): Promise<void> {
+  if (!fields.title?.trim() && !fields.description?.trim()) return;
+  const xml = buildReviseImportedListingXml(legacyListingId, fields);
+  await callTrading(accessToken, "ReviseFixedPriceItem", xml);
+}
+
 /** Trading API returns HTTP 200 with <Ack>Failure</Ack> + <Errors> for logical failures. */
 function parseTradingAck(xml: string): { ok: boolean; error?: string } {
   const ack = (tag(xml, "Ack") ?? "").trim();

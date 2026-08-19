@@ -36,11 +36,12 @@ import {
   persistEbayCategoryId,
   prepareEbaySyncAspects,
 } from "./sync-aspects";
-import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
+import { parseStoredAspects, aspectsToEbayProductAspects, EBAY_TITLE_MAX } from "@/lib/listing-limits";
 import { hasOptionQuantities } from "../../store-item-variants";
 import {
   enumerateEbayListings,
   fetchEbayItemDetails,
+  reviseImportedListingContent,
   subscribeToEbayNotifications,
 } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
@@ -270,26 +271,28 @@ async function upsertListing(
           : null;
       const storedAspects = aspectsToEbayProductAspects(parseStoredAspects(item.aspects));
 
-      let tradingAspects: Record<string, string[]> | null = null;
-      let categoryAspects: Awaited<ReturnType<typeof getItemAspectsForCategory>> = [];
-      if (putInventory) {
-        const legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
+      let legacyListingId: string | null = null;
+      if (changed.title || changed.description || putInventory) {
+        legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
           linkedSku: linkExternalId,
           sku,
           itemSku: item.sku,
           offerId,
         });
-        if (legacyListingId) {
-          try {
-            const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
-            tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
-          } catch (e) {
-            console.warn("[ebay] passthrough GetItem trading aspects failed", {
-              storeItemId: item.id,
-              legacyListingId,
-              error: describeEbayThrownError(e),
-            });
-          }
+      }
+
+      let tradingAspects: Record<string, string[]> | null = null;
+      let categoryAspects: Awaited<ReturnType<typeof getItemAspectsForCategory>> = [];
+      if (putInventory && legacyListingId) {
+        try {
+          const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
+          tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
+        } catch (e) {
+          console.warn("[ebay] passthrough GetItem trading aspects failed", {
+            storeItemId: item.id,
+            legacyListingId,
+            error: describeEbayThrownError(e),
+          });
         }
         if (offerCategoryId) {
           try {
@@ -308,7 +311,8 @@ async function upsertListing(
         before: { passthrough: true, liveAspects, tradingAspects, storedAspects, liveChanges, inwFields, changed },
         after: {
           overlays: [
-            putInventory ? "inventory_title_photos" : null,
+            changed.title ? "trading_title" : null,
+            putInventory ? "inventory_photos" : null,
             changed.description ? "offer_description" : null,
             changed.price || changed.quantity ? "bulk_price_qty" : null,
           ].filter(Boolean),
@@ -316,6 +320,23 @@ async function upsertListing(
         remaps: [],
         dropped: [],
       });
+
+      if (changed.title) {
+        if (!legacyListingId) {
+          throw new Error(
+            "Could not update eBay title — legacy listing id not found for this imported listing."
+          );
+        }
+        try {
+          await reviseImportedListingContent(conn.accessToken, legacyListingId, {
+            title: item.title.slice(0, EBAY_TITLE_MAX),
+          });
+          await persistRevisionCount(conn.id, sku, conn.config);
+        } catch (e) {
+          const msg = describeEbayThrownError(e);
+          throw new Error(`eBay title update failed: ${msg}`);
+        }
+      }
 
       if (putInventory) {
         const inventoryBody = buildPassthroughInventoryBody(live, item, changed, {

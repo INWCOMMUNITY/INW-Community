@@ -291,14 +291,14 @@ describe("passthrough-push", () => {
     expect(aspects.Year).toEqual(["1938"]);
   });
 
-  it("needsInventoryPut only for title changes", () => {
+  it("needsInventoryPut only for photo changes, not title or description", () => {
     expect(needsInventoryPut({ content: false, quantity: true, price: true, title: false, photos: false })).toBe(false);
-    expect(needsInventoryPut({ content: true, quantity: false, price: false, title: true, photos: false })).toBe(true);
-    expect(needsInventoryPut({ content: true, quantity: false, price: false, title: false, photos: true })).toBe(false);
+    expect(needsInventoryPut({ content: true, quantity: false, price: false, title: true, photos: false })).toBe(false);
+    expect(needsInventoryPut({ content: true, quantity: false, price: false, title: false, photos: true })).toBe(true);
     expect(needsInventoryPut({ content: true, quantity: false, price: false, title: false, photos: false, description: true })).toBe(false);
   });
 
-  it("detectLivePassthroughChanges skips inventory when title matches even if photos differ by CDN URL", () => {
+  it("detectLivePassthroughChanges uses inventory PUT only when photos changed", () => {
     const changed = detectLivePassthroughChanges(
       liveJeffersonNickel,
       { ...coinItem, photos: ["https://i.ebayimg.com/different-size.jpg"] },
@@ -309,7 +309,7 @@ describe("passthrough-push", () => {
     );
     expect(changed.title).toBe(false);
     expect(changed.photos).toBe(true);
-    expect(needsInventoryPut(changed)).toBe(false);
+    expect(needsInventoryPut(changed)).toBe(true);
   });
 
   it("overlayPassthroughOffer does not rewrite categoryId", () => {
@@ -388,7 +388,7 @@ describe("passthrough-push", () => {
       }
     );
     expect(changed.title).toBe(true);
-    expect(needsInventoryPut(changed)).toBe(true);
+    expect(needsInventoryPut(changed)).toBe(false);
   });
 
   it("formatPushedAspectsSummary includes wire keys", () => {
